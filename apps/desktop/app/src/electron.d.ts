@@ -13,6 +13,9 @@ import type {
 } from "@milagre/shared/model";
 import type { Result } from "@milagre/shared/result";
 import type { StatePatch } from "@milagre/shared/state-patch";
+export type FloatingDragOverlay = {
+  targets: Array<{ edge: "left" | "right" | "bottom"; x: number; y: number; width: number; height: number; active: boolean }>;
+};
 
 /** On a state event from a host that sends patches: what changed since the state numbered `base`, or `resync`. */
 type StateNumbering = { patch?: StatePatch; base?: number; version?: number; epoch?: string; resync?: boolean; messages?: MessageChanges };
@@ -469,6 +472,31 @@ export type MilagreBridge = {
     showDockBadge: boolean;
   }) => Promise<void>;
   notifyCompletion: (notice: { chatId: string; title: string; subtitle?: string }) => Promise<boolean>;
+  getInbox: () => Promise<import("@milagre/shared/attention").InboxSnapshot>;
+  setFloatingInbox: (on: boolean) => Promise<void>;
+  toggleFloatingInbox: () => Promise<void>;
+  selectInboxItem: (key: string) => Promise<void>;
+  getSelectedInboxItem: () => Promise<string | null>;
+  onSelectedInboxItem: (callback: (key: string) => void) => () => void;
+  getFloatingInboxOpen: () => Promise<boolean>;
+  onFloatingInboxOpen: (callback: (open: boolean) => void) => () => void;
+  expandFloatingBar: (on: boolean, reducedMotion?: boolean) => Promise<void>;
+  closeFloatingInbox: () => Promise<void>;
+  resizeFloatingBar: (count: number) => Promise<void>;
+  resizeFloatingInbox: (height: number, reducedMotion?: boolean) => Promise<void>;
+  showInboxPreview: (key: string | null, y?: number) => Promise<void>;
+  getInboxPreviewKey: () => Promise<string | null>;
+  onInboxPreview: (callback: (key: string | null) => void) => () => void;
+  getFloatingPlacement: () => Promise<"left" | "right" | "bottom">;
+  onFloatingPlacement: (callback: (edge: "left" | "right" | "bottom") => void) => () => void;
+  beginFloatingDrag: (reducedMotion: boolean) => Promise<void>;
+  moveFloatingDrag: () => Promise<void>;
+  endFloatingDrag: (cancel?: boolean) => Promise<void>;
+  getFloatingDragOverlay: () => Promise<FloatingDragOverlay | null>;
+  onFloatingDragOverlay: (callback: (state: FloatingDragOverlay | null) => void) => () => void;
+  openInboxChat: (key: string) => Promise<void>;
+  openInboxSettings: () => Promise<void>;
+  onOpenExperimental: (callback: () => void) => () => void;
   /** A notification was clicked: the window is back, and the chat it was about should open. */
   onOpenChat: (callback: (chatId: string) => void) => () => void;
   /** The "phone paired" notification was clicked: the window is back, and Settings → Devices should open. */

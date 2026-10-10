@@ -122,7 +122,7 @@ export function LinkWorkspace({
   const attentionKey = chatsNeedingAttention(agents.runs).join("\n");
   const sidebarRunKeys = runKeys(agents.runs);
   const attentionChats = useMemo(() => (attentionKey ? attentionKey.split("\n") : []), [attentionKey]);
-  const { showAttentionButton } = useSettings();
+  const { showAttentionButton, floatingInbox } = useSettings();
   const attentionPaths = useMemo(() => [...new Set(attentionChats.map(projectOfKey))], [attentionChats]);
   // A host that keeps messages by Chat (chat-pages-v1) sends states without them: the open Chat reads its own.
   const lean = isLean(state);
@@ -625,7 +625,7 @@ export function LinkWorkspace({
           </div>
           {!canvasOpen && session && <ChangesToggle open={changes.open} onToggle={changes.toggle} />}
           <PanelToggles right={!canvasOpen && session ? 12 + CORNER_PITCH : 12} />
-          {showAttentionButton && attentionChats[0] && (
+          {showAttentionButton && !floatingInbox && attentionChats[0] && (
             <AttentionButton
               label={attentionLabel(attentionPaths.map((path) => path.split("/").pop() ?? path))}
               items={attentionChats.map((key) => ({

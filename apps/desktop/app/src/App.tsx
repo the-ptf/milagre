@@ -617,7 +617,19 @@ function App() {
     showDockBadge,
     notifyWhenWaiting,
     showAttentionButton,
+    floatingInbox,
   } = useSettings();
+  useEffect(() => {
+    void window.milagre.setFloatingInbox?.(floatingInbox).catch(() => {});
+  }, [floatingInbox]);
+  useEffect(
+    () =>
+      window.milagre.onOpenExperimental?.(() => {
+        setSettingsSection("experimental");
+        setView("settings");
+      }),
+    [],
+  );
 
   // Visiting an old chat can change its displayed model, but never the preference for new chats.
   useEffect(() => {
@@ -2176,7 +2188,7 @@ function App() {
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-10" />
           {changesAvailable && <ChangesToggle open={changes.open} onToggle={changes.toggle} />}
           <PanelToggles right={changesAvailable ? 12 + CORNER_PITCH : 12} />
-          {showAttentionButton && attentionChats[0] && (
+          {showAttentionButton && !floatingInbox && attentionChats[0] && (
             <AttentionButton
               label={attentionLabel(attentionPaths.map(projectName))}
               items={attentionTitles.map((item) => ({

@@ -8,6 +8,18 @@ const ID = "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
 const OTHER = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const LINK = "f1713d69-569d-405b-a0b2-19bfdf565a76";
 
+test("inbox actions retain the owning computer for Project and Link Chats", () => {
+  const rows = [
+    { key: "/p#2", projectPath: "/p", status: "question" },
+    { key: `milagre-link:${LINK}#3`, projectPath: `milagre-link:${LINK}`, status: "approval" },
+  ];
+  const result = qualifyResult(ID, "chat:inbox", { agents: rows, items: rows });
+  assert.equal(result.items[0].key, `${ID}|/p#2`);
+  assert.equal(result.items[1].projectPath, `milagre-link:${ID}|${LINK}`);
+  assert.deepEqual(stripComputer(ID, result), { agents: rows, items: rows });
+  assert.equal(isLocalOnly("floating-inbox:snapshot"), true);
+});
+
 test("a call to a computer loses that computer's id everywhere in its arguments, and only that one", () => {
   assert.deepEqual(
     stripComputer(ID, [

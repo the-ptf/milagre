@@ -12,12 +12,14 @@ const HANDLE_INSET = 8;
 export interface RangeSliderProps extends SliderOptions {
   /** A tick dot at each step. */
   showTicks?: boolean;
+  /** A slim position track for paging through a long list. */
+  variant?: "default" | "position";
   className?: string;
 }
 
 /** After beUI's Range Slider: tick dots and a vertical-bar handle that bounces as it lands on each
  * step. Drag anywhere on the track or use the arrow keys; reduced motion drops the springs. */
-export function RangeSlider({ showTicks = true, className = "", ...options }: RangeSliderProps) {
+export function RangeSlider({ showTicks = true, variant = "default", className = "", ...options }: RangeSliderProps) {
   const reduce = useReducedMotion();
   const { percent, dragging, min, max, step, trackProps, handleProps } = useSlider(options);
   const [trackWidth, setTrackWidth] = useState(176);
@@ -48,6 +50,23 @@ export function RangeSlider({ showTicks = true, className = "", ...options }: Ra
   // Floor, so a range the step does not divide stops its dots at the last whole step.
   const steps = Math.floor(Number(((max - min) / step).toFixed(6)));
   const ticks = showTicks && steps > 0 && steps <= 50 ? Array.from({ length: steps + 1 }, (_, i) => Number((min + i * step).toFixed(6))) : [];
+
+  if (variant === "position") {
+    return (
+      <div {...trackProps} data-position-track className={`relative flex h-7 touch-none select-none items-center ${className}`}>
+        <div aria-hidden className="pointer-events-none h-[5px] w-full rounded-full bg-black/15 dark:bg-white/15" />
+        <motion.div
+          {...handleProps}
+          data-position-thumb
+          title="Jump to a message. Use arrow keys to move."
+          initial={false}
+          animate={{ x: (percent / 100) * Math.max(0, trackWidth - 22) }}
+          transition={{ duration: reduce ? 0 : 0.22, ease: [0.23, 1, 0.32, 1] }}
+          className="absolute left-0 h-[5px] w-[22px] rounded-full bg-black dark:bg-white"
+        />
+      </div>
+    );
+  }
 
   return (
     <div

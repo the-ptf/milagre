@@ -9,6 +9,7 @@ export function PermissionCard({
   waiting,
   answering,
   onAnswer,
+  variant = "card",
 }: {
   request: PermissionRequest;
   /** How many more requests are queued behind this one. */
@@ -16,6 +17,7 @@ export function PermissionCard({
   /** The answer already sent for this request, while the agent takes it. */
   answering: PermissionDecision | null;
   onAnswer: (decision: PermissionDecision) => void;
+  variant?: "card" | "inline";
 }) {
   const parameters: ToolApprovalParameter[] = [];
   // A Delegation's card: where it goes and what it says, as the receiving agent will read it.
@@ -23,7 +25,8 @@ export function PermissionCard({
     parameters.push({ id: "target", label: "To", value: request.delegation.target });
     parameters.push({ id: "message", label: "Message", value: <span className="whitespace-pre-wrap">{request.delegation.message}</span> });
   }
-  if (request.command) parameters.push({ id: "command", label: "Command", value: <ToolApprovalCode code={request.command} language="bash" /> });
+  if (request.command)
+    parameters.push({ id: "command", label: "Command", value: <ToolApprovalCode code={request.command} language="bash" plain={variant === "inline"} /> });
   if (request.cwd) parameters.push({ id: "cwd", label: "Folder", value: <span className="font-mono">{request.cwd}</span> });
   if (request.files?.length)
     parameters.push({
@@ -31,14 +34,17 @@ export function PermissionCard({
       label: request.files.length === 1 ? "File" : "Files",
       value: <span className="whitespace-pre-wrap font-mono">{request.files.join("\n")}</span>,
     });
-  if (request.diff) parameters.push({ id: "diff", label: "Changes", value: <ToolApprovalCode code={request.diff} language="diff" /> });
-  if (request.detail) parameters.push({ id: "detail", label: "Details", value: <ToolApprovalCode code={request.detail} language="json" /> });
+  if (request.diff)
+    parameters.push({ id: "diff", label: "Changes", value: <ToolApprovalCode code={request.diff} language="diff" plain={variant === "inline"} /> });
+  if (request.detail)
+    parameters.push({ id: "detail", label: "Details", value: <ToolApprovalCode code={request.detail} language="json" plain={variant === "inline"} /> });
   if (request.reason) parameters.push({ id: "reason", label: "Reason", value: request.reason });
   const queued = waiting > 0 ? `${waiting} more ${waiting === 1 ? "request is" : "requests are"} waiting after this one.` : "";
   const negotiation = request.delegation?.negotiation ? `Negotiation, up to ${NEGOTIATION_ROUNDS} rounds.` : "";
   const description = [request.description, negotiation, queued].filter(Boolean).join(" ");
   return (
     <ToolApproval
+      variant={variant}
       tool={request.tool}
       title={request.title}
       description={description || undefined}

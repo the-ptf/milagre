@@ -21,6 +21,7 @@ const MANIFEST = {
   "test-windows-cli.cjs": { platforms: ["win32"] },
   "test-ports.cjs": { needs: ["zsh", "ps", "lsof"] },
   "test-desktop.cjs": { needsBuild: true },
+  "test-floating-inbox-native.cjs": { needsBuild: true },
   // Loads apps/desktop/dist/index.html; it only passed serially because test-desktop built it first.
   "test-project-links.cjs": { needsBuild: true },
   // Red on the Linux CI runner (xvfb); each issue holds the log and the triage notes.

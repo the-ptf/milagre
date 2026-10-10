@@ -6,6 +6,233 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+html[data-floating-inbox],
+html[data-floating-inbox] body,
+html[data-floating-inbox] #root {
+  background: transparent;
+}
+
+.floating-inbox-panel {
+  --surface: #fafafa;
+  --field: #ededed;
+  --inset: #f2f2f2;
+  --ink: #191919;
+  --ink-2: #424242;
+  --ink-3: #777;
+  --line: rgb(0 0 0 / 0.06);
+  --line-strong: rgb(0 0 0 / 0.15);
+  --hover: #e7e7e7;
+  --hover-2: #dedede;
+}
+.dark .floating-inbox-panel {
+  --surface: #161616;
+  --field: #242424;
+  --inset: #202020;
+  --ink: #f5f5f5;
+  --ink-2: #dedede;
+  --ink-3: #8d8d8d;
+  --line: rgb(255 255 255 / 0.06);
+  --line-strong: rgb(255 255 255 / 0.19);
+  --hover: #292929;
+  --hover-2: #393939;
+}
+
+.floating-inbox-drag {
+  touch-action: none;
+  cursor: grab;
+}
+.floating-inbox-tab[data-dragging="true"] .floating-inbox-drag {
+  cursor: grabbing;
+}
+.floating-inbox-tab {
+  position: relative;
+  --surface: #000;
+  --ink: #fff;
+  --ink-2: #ddd;
+  --ink-3: #999;
+  --line: rgb(255 255 255 / 0.12);
+  --hover: #1a1a1a;
+  --hover-2: #242424;
+}
+.floating-inbox-reveal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  flex-basis: 0;
+  width: 28px;
+  margin-top: -4px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.floating-inbox-tab[data-expanded="true"] .floating-inbox-reveal {
+  margin-top: 0;
+  opacity: 1;
+  pointer-events: auto;
+}
+.floating-inbox-tab[data-expanded="true"] .floating-inbox-leading {
+  flex-basis: 45px;
+}
+.floating-inbox-tab[data-expanded="true"] .floating-inbox-trailing {
+  flex-basis: 39px;
+}
+.floating-inbox-tab-bottom:not([data-dragging="true"]) .floating-inbox-reveal {
+  flex-direction: row;
+  width: auto;
+  height: 30px;
+  margin-top: 0;
+  margin-left: -4px;
+}
+.floating-inbox-tab-bottom[data-expanded="true"]:not([data-dragging="true"]) .floating-inbox-reveal {
+  margin-left: 0;
+}
+.floating-inbox-tab-bottom[data-expanded="true"]:not([data-dragging="true"]) .floating-inbox-leading {
+  flex-basis: 47px;
+}
+.floating-inbox-tab-bottom[data-expanded="true"]:not([data-dragging="true"]) .floating-inbox-trailing {
+  flex-basis: 37px;
+}
+.floating-inbox-tab[data-dragging="true"] .floating-inbox-leading {
+  flex-basis: 36px;
+}
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .floating-inbox-tab:not([data-dragging="true"]) {
+    transition:
+      width 240ms cubic-bezier(0.33, 1, 0.68, 1),
+      height 240ms cubic-bezier(0.33, 1, 0.68, 1),
+      margin-left 240ms cubic-bezier(0.33, 1, 0.68, 1),
+      margin-top 240ms cubic-bezier(0.33, 1, 0.68, 1);
+  }
+  .floating-inbox-tab:not([data-dragging="true"]) .floating-inbox-reveal {
+    transition:
+      flex-basis 240ms cubic-bezier(0.33, 1, 0.68, 1),
+      margin-top 240ms cubic-bezier(0.33, 1, 0.68, 1),
+      margin-left 240ms cubic-bezier(0.33, 1, 0.68, 1),
+      opacity 160ms ease-out;
+  }
+  .floating-inbox-tab[data-expanded="false"]:not([data-dragging="true"]) {
+    transition-duration: 180ms;
+  }
+  .floating-inbox-tab[data-expanded="false"]:not([data-dragging="true"]) .floating-inbox-reveal {
+    transition-duration: 180ms, 180ms, 180ms, 100ms;
+  }
+}
+.floating-inbox-tab-right {
+  border-radius: 16px 0 0 16px;
+}
+.floating-inbox-tab-left {
+  border-radius: 0 16px 16px 0;
+}
+.floating-inbox-tab-bottom {
+  border-radius: 16px 16px 0 0;
+}
+.floating-inbox-tab::before,
+.floating-inbox-tab::after {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+.floating-inbox-tab-right::before {
+  right: 0;
+  top: -16px;
+  background: radial-gradient(circle at 0 0, transparent 16px, var(--surface) 16.5px);
+}
+.floating-inbox-tab-right::after {
+  right: 0;
+  bottom: -16px;
+  background: radial-gradient(circle at 0 100%, transparent 16px, var(--surface) 16.5px);
+}
+.floating-inbox-tab-left::before {
+  left: 0;
+  top: -16px;
+  background: radial-gradient(circle at 100% 0, transparent 16px, var(--surface) 16.5px);
+}
+.floating-inbox-tab-left::after {
+  left: 0;
+  bottom: -16px;
+  background: radial-gradient(circle at 100% 100%, transparent 16px, var(--surface) 16.5px);
+}
+.floating-inbox-tab-bottom::before {
+  bottom: 0;
+  left: -16px;
+  background: radial-gradient(circle at 0 0, transparent 16px, var(--surface) 16.5px);
+}
+.floating-inbox-tab-bottom::after {
+  bottom: 0;
+  right: -16px;
+  background: radial-gradient(circle at 100% 0, transparent 16px, var(--surface) 16.5px);
+}
+.floating-inbox-tab[data-dragging="true"] {
+  border-radius: 16px;
+}
+.floating-inbox-tab[data-dragging="true"]::before,
+.floating-inbox-tab[data-dragging="true"]::after {
+  display: none;
+}
+.floating-snap-target {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed rgb(255 255 255 / 0.35);
+  background: rgb(255 255 255 / 0.08);
+  color: white;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+.floating-snap-left {
+  border-left: 0;
+  border-radius: 0 20px 20px 0;
+}
+.floating-snap-right {
+  border-right: 0;
+  border-radius: 20px 0 0 20px;
+}
+.floating-snap-bottom {
+  border-bottom: 0;
+  border-radius: 20px 20px 0 0;
+}
+.floating-snap-target.is-active {
+  background: rgb(154 179 255 / 0.25);
+  border-color: rgb(184 201 255 / 0.95);
+}
+.floating-snap-mark {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  opacity: 0.6;
+}
+.floating-snap-target.is-active .floating-snap-mark {
+  background: currentColor;
+  opacity: 1;
+}
+.floating-snap-label {
+  position: absolute;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.floating-snap-left .floating-snap-label {
+  left: calc(100% + 16px);
+}
+.floating-snap-right .floating-snap-label {
+  right: calc(100% + 16px);
+}
+.floating-snap-bottom .floating-snap-label {
+  bottom: calc(100% + 16px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .floating-snap-target {
+    transition: none;
+  }
+}
+
 /* Creepster (Font Diner, SIL OFL 1.1, see assets/Creepster-OFL.txt): the dripping Mortal Kombat lettering of the
  * Ultracode overlay. Used nowhere else. */
 @font-face {
@@ -539,6 +766,20 @@ a {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+[data-position-thumb]:focus-visible,
+[data-inbox-arrow]:focus-visible {
+  outline: none;
+}
+
+[data-inbox-scroller] {
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+
+[data-inbox-scroller]::-webkit-scrollbar {
+  display: none;
 }
 
 /* The project menu's rows show keyboard focus with their own fill, in ink rather than the accent. */

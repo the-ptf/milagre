@@ -38,6 +38,7 @@ export function settingsCommands(settings: AppSettings, update: (patch: Partial<
         ["notifyWhenWaiting", "Notify when waiting", "notifications approval questions"],
         ["showDockBadge", "Dock badge", "unread count"],
         ["showAttentionButton", "Attention button", "other projects waiting approval questions"],
+        ["floatingInbox", "Floating inbox", "experimental notification bar"],
         ["keepAwake", "Keep awake while agents work", "sleep"],
       ] as const
     ).flatMap(([key, label, keywords]) => [

@@ -138,6 +138,52 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     assert.ok(JSON.stringify(skills).includes("tldr"), "Bundled skills resolve after relocation");
     assert.equal(typeof (await evaluate("window.milagre.getAppVersion()")), "string");
     await waitFor(() => evaluate('!document.querySelector(".startup-splash-screen")'), "desktop ready for shared controls");
+    // The Experimental switch owns both native windows. Disabling removes them without closing the main app.
+    const pages = async () => fetch(`http://127.0.0.1:${debuggerPort}/json/list`).then((response) => response.json());
+    assert.equal((await pages()).filter((page) => page.url.includes("floating-inbox=")).length, 0);
+    await evaluate("window.milagre.openInboxSettings()");
+    await waitFor(() => evaluate(`!!document.querySelector('[role="switch"][aria-label="Floating inbox"]')`), "Floating inbox Experimental switch");
+    if (process.env.MILAGRE_SCREENSHOT_DIR) {
+      const shot = await connection.call("Page.captureScreenshot");
+      await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "floating-inbox-settings.png"), Buffer.from(shot.data, "base64"));
+    }
+    await evaluate(`document.querySelector('[role="switch"][aria-label="Floating inbox"]').click()`);
+    const dockPage = await waitFor(async () => (await pages()).find((page) => page.url.includes("floating-inbox=dock")), "native floating bar");
+    const dock = await connect(dockPage.webSocketDebuggerUrl);
+    try {
+      const readDock = async (expression) => (await dock.call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
+      await waitFor(() => readDock('!!document.querySelector("[data-floating-bar]")'), "bar rendered through the real preload");
+      assert.equal(await readDock('document.querySelector("[data-floating-bar]").getBoundingClientRect().width'), 28);
+      assert.equal(await readDock("getComputedStyle(document.body).backgroundColor"), "rgba(0, 0, 0, 0)");
+      await evaluate("window.milagre.toggleFloatingInbox()");
+      const inboxPage = await waitFor(async () => (await pages()).find((page) => page.url.includes("floating-inbox=inbox")), "native inbox");
+      const inbox = await connect(inboxPage.webSocketDebuggerUrl);
+      try {
+        await waitFor(
+          async () =>
+            (await inbox.call("Runtime.evaluate", { expression: '!!document.querySelector("[data-inbox-panel]")', returnByValue: true })).result.value,
+          "native inbox rendered",
+        );
+        if (process.env.MILAGRE_SCREENSHOT_DIR) {
+          const shot = await inbox.call("Page.captureScreenshot");
+          await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "native-inbox.png"), Buffer.from(shot.data, "base64"));
+        }
+        await evaluate("window.milagre.openInboxChat(" + JSON.stringify(project + "#2") + ")");
+        await waitFor(() => evaluate(`!!document.querySelector('textarea[aria-label="Prompt"]')`), "inbox opens Chat in the main window");
+        await evaluate("window.milagre.openInboxSettings()");
+        await waitFor(() => evaluate(`!!document.querySelector('[role="switch"][aria-label="Floating inbox"]')`), "return to Experimental settings");
+        assert.equal(await evaluate('JSON.parse(localStorage.getItem("milagre-settings")).floatingInbox'), true);
+        await evaluate(`document.querySelector('[role="switch"][aria-label="Floating inbox"]').click()`);
+        await waitFor(async () => !(await pages()).some((page) => page.url.includes("floating-inbox=")), "disabled experiment destroys both native windows");
+        assert.equal(await evaluate('JSON.parse(localStorage.getItem("milagre-settings")).floatingInbox'), false);
+      } finally {
+        inbox.close();
+      }
+    } finally {
+      dock.close();
+    }
+    await evaluate("window.milagre.openInboxChat(" + JSON.stringify(project + "#2") + ")");
+    console.log("PASS: Experimental switch opens the 28 px native bar and inbox, routes to the main Chat, saves its state and removes both surfaces when off");
     const shared = await require("@milagre/daemon/client").connect({ dataDir: profile });
     try {
       assert.notEqual((await shared.call("daemon:status")).pid, child.pid, "Desktop uses a separate persistent host");

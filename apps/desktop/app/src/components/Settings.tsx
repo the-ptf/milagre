@@ -430,6 +430,26 @@ function ExperimentalSettings() {
     <>
       <Group title="Beta">
         <Row
+          label="Floating inbox"
+          description="A thin bar attached to the screen edge. Drag its grip to show docking targets over a dimmed desktop. Drop left, right, or bottom; release elsewhere to return. The bottom bar is horizontal. Hover a dot to preview its Chat."
+        >
+          <Switch label="Floating inbox" checked={settings.floatingInbox} onChange={(floatingInbox) => updateSettings({ floatingInbox })} />
+        </Row>
+        {settings.floatingInbox && (
+          <div className="ml-4 border-l border-line pl-4">
+            <Row
+              label="Show chat activity"
+              description="Include working chats with a progress summary and finished updates. Off: only questions and permission requests."
+            >
+              <Switch
+                label="Show chat activity"
+                checked={settings.floatingInboxActivity}
+                onChange={(floatingInboxActivity) => updateSettings({ floatingInboxActivity })}
+              />
+            </Row>
+          </div>
+        )}
+        <Row
           label="Use legacy sidebar"
           description="Brings back the project menu at the top of the sidebar, listing only the open project's chats. Off, the sidebar lists each project and Link with its chats, and Filters chooses which projects show. With other computers paired, every project shows either way."
         >
