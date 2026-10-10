@@ -11,6 +11,8 @@ import { useSession } from "./session";
 import { Icon } from "./icons";
 import { PullDown } from "./ui";
 import { useTheme } from "./theme";
+import { useFloatingInbox } from "./floating-inbox-setting";
+import { FloatingInboxChip } from "./inbox";
 
 const NONE: string[] = [];
 /** Chat keys, in every Project, whose turn waits on an approval or question. A Mac from before /attention gives none. */
@@ -82,12 +84,14 @@ export function AttentionDot() {
 }
 
 /** Under the header's right edge. One waiting Chat opens on tap; several open a menu to pick one, oldest first. */
-export function AttentionPill({ projectPath }: { projectPath: string }) {
+export function AttentionPill({ projectPath, bottom }: { projectPath: string; bottom?: number }) {
   const { colors } = useTheme();
   const { client, recent, cachedProject } = useSession();
   const insets = useSafeAreaInsets();
   const [enabled] = useAttentionButton();
+  const [floatingInbox] = useFloatingInbox();
   const waiting = useAttention().filter((key) => projectOfKey(key) !== projectPath);
+  if (floatingInbox && client) return <FloatingInboxChip bottom={bottom} />;
   if (!enabled || !waiting.length || !client) return null;
   const name = (path: string) => recent.find((item) => item.path === path)?.name || path.split("/").at(-1) || "Project";
   const label = attentionLabel([...new Set(waiting.map(projectOfKey))].map(name));

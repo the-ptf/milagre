@@ -1150,7 +1150,7 @@ export default function ChatScreen() {
         find this scroll view (it only follows each view's first child), so the blur is drawn here. It ends where the
         transcript's top padding does and gradually strengthens toward the status bar. */}
           <EdgeFade edge="top" height={insets.top + 84} />
-          <AttentionPill projectPath={project.path} />
+          <AttentionPill projectPath={project.path} bottom={dockHeight + 12} />
           {toast ? (
             <View pointerEvents="none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
               <View

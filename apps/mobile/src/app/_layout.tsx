@@ -89,6 +89,10 @@ export default function Layout() {
                       {/* Full height: the effort, Fast and Ultracode panel pinned at the bottom leaves a half-height sheet room for one model. */}
                       <Stack.Screen name="model-sheet" options={{ ...sheet, sheetAllowedDetents: [1] }} />
                       <Stack.Screen name="agents" options={{ ...sheet, sheetAllowedDetents: [0.5, 1], sheetInitialDetentIndex: 0 }} />
+                      <Stack.Screen
+                        name="inbox"
+                        options={{ ...sheet, sheetAllowedDetents: "fitToContents", contentStyle: { backgroundColor: palette.surface } }}
+                      />
                       <Stack.Screen name="ports-sheet" options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }} />
                       {/* A full-screen page, not a sheet: a downward drag on the simulator must reach the device, not dismiss the viewer. */}
                       <Stack.Screen

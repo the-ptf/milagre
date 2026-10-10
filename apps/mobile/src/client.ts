@@ -355,6 +355,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
     runs: (projectPath: string) => request<Runs>("/runs?projectPath=" + encodeURIComponent(projectPath)),
     /** Chat keys, in every Project, whose turn waits on an approval or question. */
     attention: () => request<string[]>("/attention"),
+    inbox: () => request<import("@milagre/shared/attention").InboxSnapshot>("/inbox"),
     /** The Project's live socket, through the same tunnel and Access headers as every request, or through the relay. */
     live: (projectPath: string, options: LiveOptions) => {
       const path = `/live?projectPath=${encodeURIComponent(projectPath)}`;

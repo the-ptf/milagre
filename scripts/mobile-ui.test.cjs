@@ -99,7 +99,12 @@ const themeHooks = {
 };
 const uiHooks = { useStyles: () => fakeStyles, makeStyles: () => fakeStyles };
 function load(file, modules, extra = "") {
-  const source = fs.readFileSync(path.join(__dirname, "..", "apps/mobile/src", file), "utf8") + extra;
+  // These helpers stay private in production; the source harness exposes them only to tests.
+  const locals = {
+    "floating-inbox-button.tsx": ["landInboxButton"],
+    "inbox.tsx": ["usePhoneInbox", "PhoneInboxPages"],
+  };
+  const source = fs.readFileSync(path.join(__dirname, "..", "apps/mobile/src", file), "utf8") + extra + `\nexport { ${(locals[file] ?? []).join(",")} };`;
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const exports = {};
   vm.runInNewContext(compiled, {
@@ -132,6 +137,412 @@ function load(file, modules, extra = "") {
   return exports;
 }
 const jsx = (type, props, key) => ({ type, props, key });
+
+test("the floating inbox defaults off and its switch updates and persists the phone preference", async () => {
+  const hooks = hookHost();
+  const saved = [];
+  const savedActivity = [];
+  const { useFloatingInbox, useFloatingInboxActivity } = load("floating-inbox-setting.ts", {
+    react: { useSyncExternalStore: (_subscribe, read) => read() },
+    "./hosts-native": {
+      readFloatingInbox: async () => false,
+      readFloatingInboxActivity: async () => true,
+      saveFloatingInboxActivity: async (on) => savedActivity.push(on),
+      saveFloatingInbox: async (on) => saved.push(on),
+    },
+  });
+  await Promise.resolve();
+  hooks.begin();
+  let [on, set] = useFloatingInbox();
+  assert.equal(on, false);
+  set(true);
+  [on] = useFloatingInbox();
+  assert.equal(on, true);
+  assert.deepEqual(saved, [true]);
+  let [activity, setActivity] = useFloatingInboxActivity();
+  assert.equal(activity, true);
+  setActivity(false);
+  [activity] = useFloatingInboxActivity();
+  assert.equal(activity, false);
+  assert.deepEqual(savedActivity, [false]);
+});
+
+test("the mobile inbox button can move, flick to an edge, restore and open without a drag opening the inbox", () => {
+  const react = hookHost();
+  const values = [];
+  let opened = 0;
+  const { FloatingInboxButton, floatingInboxStatus, landInboxButton } = load("floating-inbox-button.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View" },
+    "react-native-safe-area-context": {
+      useSafeAreaFrame: () => ({ width: 402, height: 874 }),
+      useSafeAreaInsets: () => ({ top: 62, bottom: 34, left: 0, right: 0 }),
+    },
+    "react-native-gesture-handler": {
+      GestureDetector: "GestureDetector",
+      usePanGesture: (config) => config,
+      useTapGesture: (config) => config,
+      useCompetingGestures: (pan, tap) => ({ pan, tap }),
+    },
+    "react-native-reanimated": {
+      default: { View: "AnimatedView" },
+      ReduceMotion: { System: "system" },
+      cancelAnimation() {},
+      useReducedMotion: () => false,
+      useAnimatedStyle: (fn) => fn(),
+      withSpring: (to) => to,
+      useSharedValue(initial) {
+        const ref = react.useRef(null);
+        if (!ref.current) {
+          let value = initial;
+          ref.current = {
+            get: () => value,
+            set: (next) => {
+              value = next;
+            },
+          };
+          values.push(ref.current);
+        }
+        return ref.current;
+      },
+    },
+    "react-native-worklets": { scheduleOnRN: (fn, ...args) => fn(...args) },
+    "@hugeicons/core-free-icons": { BubbleChatIcon: "BubbleChatIcon" },
+    "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
+  });
+  assert.equal(floatingInboxStatus([{ status: "working" }, { status: "question" }, { status: "approval" }]), "approval");
+  assert.equal(floatingInboxStatus([{ status: "working" }, { status: "question" }]), "question");
+  assert.equal(floatingInboxStatus([{ status: "working" }]), "working");
+  assert.equal(floatingInboxStatus([]), undefined);
+  for (const [vx, vy, edge] of [
+    [-1400, 0, 1],
+    [1400, 0, 2],
+    [0, -2200, 0],
+    [0, 2600, 0],
+  ]) {
+    assert.equal(landInboxButton(160, 260, vx, vy, 402, 606).edge, edge, "only sideways momentum hides the button");
+  }
+  assert.deepEqual({ ...landInboxButton(160, 0, 0, -2200, 402, 606) }, { x: 160, y: 12, edge: 0 }, "a top release stays visible inside the bounds");
+  assert.deepEqual({ ...landInboxButton(160, 550, 0, 2600, 402, 606) }, { x: 160, y: 538, edge: 0 }, "a bottom release stays visible inside the bounds");
+  assert.equal(landInboxButton(0, 260, 0, 0, 402, 606).edge, 1, "a slow drop at the left edge still hides");
+  assert.equal(landInboxButton(346, 260, 0, 0, 402, 606).edge, 2, "a slow drop at the right edge still hides");
+  assert.equal(landInboxButton(160, 260, 100, 100, 402, 606).edge, 0, "an ordinary move stays floating");
+  const render = () => {
+    react.begin();
+    return FloatingInboxButton({ status: "approval", label: "Waiting for approval", open: () => opened++ });
+  };
+  let tree = render();
+  const badge = find(tree, (n) => n.type?.name === "StatusBadge");
+  assert.equal(badge.type({ status: "approval" }).props.style.backgroundColor, "orange");
+  assert.equal(badge.type({ status: "question" }).props.style.backgroundColor, "accentInk");
+  assert.equal(badge.type({ status: "working" }).type, "SpinnerRing");
+  let { pan, tap } = find(tree, (n) => n.type === "GestureDetector").props.gesture;
+  // The Pan recognizer loses to Tap without ever activating. It must not reset the placement.
+  const initial = [values[0].get(), values[1].get()];
+  pan.onFinalize({ canceled: true });
+  assert.deepEqual([values[0].get(), values[1].get()], initial);
+  tap.onDeactivate({ canceled: false });
+  assert.equal(opened, 1);
+  pan.onActivate();
+  pan.onUpdate({ translationX: -180, translationY: 220 });
+  pan.onDeactivate({ velocityX: 0, velocityY: 0, canceled: false });
+  pan.onFinalize({ canceled: false });
+  const moved = [values[0].get(), values[1].get()];
+  assert.equal(opened, 1, "dragging never opens the inbox");
+  assert.notDeepEqual(moved, initial);
+  pan.onActivate();
+  pan.onUpdate({ translationX: -60, translationY: 30 });
+  pan.onDeactivate({ canceled: true });
+  pan.onFinalize({ canceled: true });
+  assert.deepEqual([values[0].get(), values[1].get()], moved, "a canceled drag returns to its previous position");
+  pan.onActivate();
+  pan.onUpdate({ translationX: 30, translationY: 0 });
+  pan.onDeactivate({ velocityX: 1800, velocityY: 0, canceled: false });
+  pan.onFinalize({ canceled: false });
+  tree = render();
+  assert.ok(find(tree, (n) => n.props?.accessibilityLabel?.startsWith("Show inbox button")));
+  ({ tap } = find(tree, (n) => n.type === "GestureDetector").props.gesture);
+  tap.onDeactivate({ canceled: false });
+  assert.equal(opened, 1, "tapping the tucked tab restores it first");
+  tree = render();
+  assert.ok(find(tree, (n) => n.props?.accessibilityLabel?.startsWith("Open inbox")));
+  ({ tap } = find(tree, (n) => n.type === "GestureDetector").props.gesture);
+  tap.onDeactivate({ canceled: false });
+  assert.equal(opened, 2);
+});
+
+test("inbox single-choice questions require Send and typed answers replace the choice", () => {
+  const react = hookHost();
+  const sent = [];
+  const { Questions } = load("questions.tsx", {
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager" },
+    "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
+    "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      Pressable: "Pressable",
+      Text: "Text",
+      TextInput: "TextInput",
+      View: "View",
+    },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
+    "@milagre/shared/limits": require("@milagre/shared/limits"),
+    "./activity-drafts": { takeActivityDraft() {} },
+    "./icons": { Icon: "Icon" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
+  });
+  const request = {
+    requestId: "q",
+    questions: [
+      {
+        id: "next",
+        question: "What next?",
+        options: [{ label: "Read" }],
+        allowOther: true,
+      },
+    ],
+  };
+  const render = () => {
+    react.begin();
+    return Questions({
+      request,
+      busy: false,
+      confirmSingle: true,
+      submit: (...args) => sent.push(args),
+    });
+  };
+  let tree = render();
+  assert.equal(
+    find(tree, (n) => n.props?.label === "Dismiss questions"),
+    undefined,
+  );
+  find(tree, (n) => n.props?.accessibilityRole === "radio").props.onPress();
+  tree = render();
+  assert.equal(sent.length, 0);
+  assert.equal(find(tree, (n) => n.type === "PillButton").props.disabled, false);
+  find(tree, (n) => n.type === "TextInput").props.onChangeText("Write instead");
+  tree = render();
+  assert.equal(find(tree, (n) => n.props?.accessibilityRole === "radio").props.accessibilityState.checked, false);
+  find(tree, (n) => n.type === "PillButton").props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[0][0])), {
+    next: ["Write instead"],
+  });
+});
+
+test("inbox approval shows the entire action inline, including folders, files and delegation", () => {
+  const react = hookHost();
+  const { Approval } = load("questions.tsx", {
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager" },
+    "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
+    "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      Pressable: "Pressable",
+      Text: "Text",
+      TextInput: "TextInput",
+      View: "View",
+    },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_t, k) => k }),
+    "@milagre/shared/limits": require("@milagre/shared/limits"),
+    "./activity-drafts": { takeActivityDraft() {} },
+    "./icons": { Icon: "Icon" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
+  });
+  const command = "full command\n".repeat(60),
+    decisions = [];
+  react.begin();
+  const tree = Approval({
+    variant: "inline",
+    approval: {
+      title: "Approve?",
+      tool: "Shell",
+      command,
+      cwd: "/project",
+      files: ["one.ts", "two.ts"],
+      delegation: { target: "Other Chat", message: "Exact message" },
+      allowForChat: true,
+    },
+    busy: false,
+    respond: (d) => decisions.push(d),
+  });
+  assert.equal(tree.props.style.borderWidth, undefined, "the inbox approval has no nested card border");
+  assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === command));
+  assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "/project"));
+  assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "one.ts\ntwo.ts"));
+  assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "Exact message"));
+  assert.equal(
+    find(tree, (n) => n.props?.style?.maxHeight === 220),
+    undefined,
+    "approval details are never clipped",
+  );
+  find(tree, (n) => n.props?.title === "Allow once").props.onPress();
+  assert.deepEqual(decisions, ["allow"]);
+});
+
+test("phone inbox pages keep one Chat visible and retain a draft when paging back", () => {
+  const react = hookHost();
+  const gesture = {
+    activeOffsetX() {
+      return this;
+    },
+    failOffsetY() {
+      return this;
+    },
+    onEnd(fn) {
+      this.end = fn;
+      return this;
+    },
+  };
+  const { PhoneInboxPages } = load("inbox.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      AppState: {},
+      Pressable: "Pressable",
+      Text: "Text",
+      View: "View",
+      Keyboard: { dismiss() {} },
+      useWindowDimensions: () => ({ height: 844 }),
+    },
+    "react-native-gesture-handler": {
+      Gesture: { Pan: () => gesture },
+      GestureDetector: "GestureDetector",
+    },
+    "react-native-reanimated": {
+      default: { View: "AnimatedView" },
+      useReducedMotion: () => false,
+    },
+    "react-native-worklets": { scheduleOnRN: (fn, ...args) => fn(...args) },
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager" },
+    "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
+    "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
+    "expo-router": {
+      router: {},
+      useFocusEffect() {},
+      useLocalSearchParams: () => ({}),
+    },
+    "react-native-safe-area-context": {
+      useSafeAreaInsets: () => ({ bottom: 0 }),
+      useSafeAreaFrame: () => ({ height: 844 }),
+    },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"),
+    "@milagre/shared/attention": require("../packages/shared/src/attention.mjs"),
+    "@milagre/shared/providers": require("@milagre/shared/providers"),
+    "./session": { useSession: () => ({ client: null }) },
+    "./icons": { Icon: "Icon" },
+    "./questions": { Questions: "Questions", Approval: "Approval" },
+    "./ui": {
+      GlassIconButton: "GlassIconButton",
+      IconButton: "IconButton",
+      PageScroll: "PageScroll",
+    },
+  });
+  const items = [
+    { key: "a", title: "First", question: { requestId: "q1" } },
+    { key: "b", title: "Second", permission: { requestId: "p1" } },
+  ];
+  const render = () => {
+    react.begin();
+    return PhoneInboxPages({ items, refresh() {} });
+  };
+  let tree = render();
+  const card = (t) => find(t, (n) => n.type?.name === "PhoneInboxCard");
+  assert.equal(card(tree).props.item.key, "a");
+  assert.equal(
+    find(tree, (n) => n.props?.label === "Floating inbox settings"),
+    undefined,
+  );
+  const draft = { page: 0, picked: { next: ["Read"] }, typed: { next: "" } };
+  card(tree).props.setDraft(draft);
+  find(tree, (n) => n.type === "InboxPager").props.select(1);
+  tree = render();
+  assert.equal(card(tree).props.item.key, "b");
+  find(tree, (n) => n.type === "InboxPager").props.select(0);
+  tree = render();
+  assert.deepEqual(JSON.parse(JSON.stringify(card(tree).props.draft)), draft);
+  assert.equal(
+    find(tree, (n) => n.props?.accessibilityRole === "tab"),
+    undefined,
+    "the inbox has no filters",
+  );
+  gesture.end({ translationX: -90, velocityX: 0 });
+  tree = render();
+  assert.equal(card(tree).props.item.key, "b", "swiping left moves to the next message");
+  gesture.end({ translationX: 0, velocityX: 0 });
+  tree = render();
+  assert.equal(card(tree).props.item.key, "b");
+});
+
+test("phone inbox refresh coalesces requests and drops results from an earlier host", async (t) => {
+  const react = hookHost();
+  t.after(() => react.cleanup());
+  const first = deferred();
+  const second = deferred();
+  let calls = 0;
+  let client = {
+    inbox: () => {
+      calls++;
+      return first.promise;
+    },
+  };
+  const { usePhoneInbox } = load("inbox.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      AppState: {
+        currentState: "active",
+        addEventListener: () => ({ remove() {} }),
+      },
+      Pressable: "Pressable",
+      Text: "Text",
+      View: "View",
+    },
+    "react-native-gesture-handler": {
+      Gesture: {},
+      GestureDetector: "GestureDetector",
+    },
+    "react-native-reanimated": { default: { View: "AnimatedView" } },
+    "react-native-worklets": { scheduleOnRN: (fn) => fn() },
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager" },
+    "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
+    "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
+    "expo-router": {
+      router: {},
+      useFocusEffect: (fn) => react.effect(fn, [fn]),
+    },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0 }) },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"),
+    "@milagre/shared/attention": require("../packages/shared/src/attention.mjs"),
+    "@milagre/shared/providers": require("@milagre/shared/providers"),
+    "./session": { useSession: () => ({ client }) },
+    "./icons": { Icon: "Icon" },
+    "./questions": { Questions: "Questions", Approval: "Approval" },
+    "./ui": {},
+  });
+  const render = () => {
+    react.begin();
+    const state = usePhoneInbox();
+    react.flush();
+    return state;
+  };
+  let state = render();
+  state.refresh();
+  state.refresh();
+  assert.equal(calls, 1);
+  client = { inbox: () => second.promise };
+  state = render();
+  first.resolve({ agents: [{ key: "old" }], items: [{ key: "old" }] });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(render().snapshot.items.length, 0);
+  second.resolve({ agents: [], items: [{ key: "new" }] });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(render().snapshot.items[0].key, "new");
+});
 const { resolvePalette } = require("../packages/shared/src/themes/index.ts");
 const archiveStore = require("../apps/mobile/src/archive.ts");
 const archiveProgress = load("archive-progress.tsx", {
@@ -158,6 +569,61 @@ const enterAnimation = {
 };
 const reanimatedStub = { default: { View: "AnimatedView" }, FadeInDown: enterAnimation, Easing: { bezier() {} }, ReduceMotion: { System: "system" } };
 
+test("mobile inbox position track jumps across long lists and keeps count and accessible navigation in sync", () => {
+  for (const scheme of ["dark", "light"]) {
+    const react = hookHost();
+    let reduced = false;
+    const { InboxPager } = load("inbox-motion.tsx", {
+      react,
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "react-native": { Pressable: "Pressable", View: "View", Text: "Text" },
+      "@hugeicons/core-free-icons": { ArrowLeft01Icon: "left", ArrowRight01Icon: "right" },
+      "react-native-reanimated": {
+        ...reanimatedStub,
+        __esModule: true,
+        cubicBezier: () => "ease-out",
+        FadeInLeft: enterAnimation,
+        FadeInRight: enterAnimation,
+        FadeOut: enterAnimation,
+        LinearTransition: enterAnimation,
+        useReducedMotion: () => reduced,
+      },
+      "./ui": { IconButton: "IconButton" },
+      "./theme": { useTheme: () => ({ colors: fakePalette, scheme }) },
+    });
+    let index = 0,
+      count = 20;
+    const render = () => InboxPager({ index, count, select: (next) => (index = next) });
+    const track = () => find(render(), (node) => node.props?.testID === "inbox-position-track");
+    const counter = () => find(render(), (node) => node.props?.testID === "inbox-position-count").props.children.join("");
+    assert.equal(counter(), "1 of 20");
+    track().props.onPress({ nativeEvent: { locationX: 100 } });
+    assert.equal(index, 19);
+    assert.equal(counter(), "20 of 20");
+    track().props.onAccessibilityAction({ nativeEvent: { actionName: "increment" } });
+    assert.equal(index, 19, "accessible navigation stops at the end");
+    track().props.onPress({ nativeEvent: { locationX: 50 } });
+    assert.equal(index, 10);
+    assert.equal(counter(), "11 of 20");
+    track().props.onAccessibilityAction({ nativeEvent: { actionName: "decrement" } });
+    assert.equal(counter(), "10 of 20");
+    const pill = find(track(), (node) => node.type === "AnimatedView");
+    assert.equal(pill.props.style.backgroundColor, scheme === "dark" ? "#fff" : "#000");
+    track().props.onPress({ nativeEvent: { locationX: -10 } });
+    assert.equal(index, 0, "track jumps clamp at the beginning");
+    reduced = true;
+    assert.equal(find(track(), (node) => node.type === "AnimatedView").props.style.transitionDuration, 0);
+    count = 1;
+    assert.equal(counter(), "1 of 1");
+    assert.equal(track().props.disabled, true);
+    assert.equal(find(track(), (node) => node.type === "AnimatedView").props.style.transform[0].translateX, 0);
+    track().props.onAccessibilityAction({ nativeEvent: { actionName: "increment" } });
+    assert.equal(index, 0);
+    count = 0;
+    assert.equal(counter(), "0 of 0");
+  }
+});
+
 test("mobile slash suggestions filter skills and insert at the caret while preserving surrounding text", () => {
   const react = hookHost();
   let draft = "Please /tl afterwards";
@@ -181,7 +647,12 @@ test("mobile slash suggestions filter skills and insert at the caret while prese
       }),
     },
     "./use-image-paste": { useImagePaste: () => ({ onFocus() {} }) },
-    "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll", colors: { ink: "ink", accentInk: "accent" } },
+    "./ui": {
+      Field: "Field",
+      ListRow: "ListRow",
+      PageScroll: "PageScroll",
+      colors: { ink: "ink", accentInk: "accent" },
+    },
   });
   function render() {
     react.begin();
@@ -196,7 +667,9 @@ test("mobile slash suggestions filter skills and insert at the caret while prese
   }
   const field = () => find(render(), (node) => node.type === "Field");
   field().props.onFocus();
-  field().props.onSelectionChange({ nativeEvent: { selection: { start: 10, end: 10 } } });
+  field().props.onSelectionChange({
+    nativeEvent: { selection: { start: 10, end: 10 } },
+  });
   const suggestion = find(render(), (node) => node.type === "ListRow" && node.props.title === "/tldr");
   assert.equal(find(render(), (node) => node.type === "ListRow").props.title, "/tldr", "name prefixes come before description matches");
   assert.ok(suggestion, "a partial slash skill must open a suggestion");
@@ -215,7 +688,9 @@ test("mobile slash suggestions filter skills and insert at the caret while prese
   assert.ok(find(field(), (node) => node.type === "Text" && node.props.children === "/tldr" && node.props.style.color === "accentInk"));
   for (const punctuation of [".", ",", ":"]) {
     draft = `Please /tl${punctuation} afterwards`;
-    field().props.onSelectionChange({ nativeEvent: { selection: { start: 10, end: 10 } } });
+    field().props.onSelectionChange({
+      nativeEvent: { selection: { start: 10, end: 10 } },
+    });
     find(render(), (node) => node.type === "ListRow" && node.props.title === "/tldr").props.onPress();
     assert.equal(draft, `Please /tldr${punctuation} afterwards`, "completion preserves sentence punctuation");
     assert.equal(
@@ -228,12 +703,16 @@ test("mobile slash suggestions filter skills and insert at the caret while prese
     ["docs.", "docs.v2"],
   ]) {
     draft = `/${partial}`;
-    field().props.onSelectionChange({ nativeEvent: { selection: { start: draft.length, end: draft.length } } });
+    field().props.onSelectionChange({
+      nativeEvent: { selection: { start: draft.length, end: draft.length } },
+    });
     find(render(), (node) => node.type === "ListRow" && node.props.title === `/${name}`).props.onPress();
     assert.equal(draft, `/${name} `, "qualified prefixes do not leave duplicate punctuation");
   }
   draft = "/";
-  field().props.onSelectionChange({ nativeEvent: { selection: { start: 1, end: 1 } } });
+  field().props.onSelectionChange({
+    nativeEvent: { selection: { start: 1, end: 1 } },
+  });
   assert.ok(
     find(render(), (node) => node.type === "ListRow" && node.props.title === "/docs"),
     "a bare slash opens the full catalog",
@@ -579,13 +1058,35 @@ test("pairing through the relay builds the client from the pairing and saves the
   const created = [],
     saved = [],
     learned = [];
-  const relay = { url: "wss://relay.milagre.cloud", hostId: "H".repeat(22), key: "K".repeat(43) };
-  const render = sessionHost({ url: `relay://${relay.hostId}`, call: async (method) => (method === "project:recent" ? [] : {}) }, { created, saved, learned });
-  const pairing = { address: `relay://${relay.hostId}`, token: "a".repeat(64), name: "", relay };
+  const relay = {
+    url: "wss://relay.milagre.cloud",
+    hostId: "H".repeat(22),
+    key: "K".repeat(43),
+  };
+  const render = sessionHost(
+    {
+      url: `relay://${relay.hostId}`,
+      call: async (method) => (method === "project:recent" ? [] : {}),
+    },
+    { created, saved, learned },
+  );
+  const pairing = {
+    address: `relay://${relay.hostId}`,
+    token: "a".repeat(64),
+    name: "",
+    relay,
+  };
   assert.equal(await render().connect(pairing), true);
   assert.equal(created[0][0], pairing);
   assert.equal(created[0][3], relayRuntime);
-  assert.deepEqual(JSON.parse(JSON.stringify(saved)), [{ name: "Mac", address: `relay://${relay.hostId}`, token: "a".repeat(64), relay }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(saved)), [
+    {
+      name: "Mac",
+      address: `relay://${relay.hostId}`,
+      token: "a".repeat(64),
+      relay,
+    },
+  ]);
   assert.deepEqual(
     JSON.parse(JSON.stringify(learned)),
     [[`relay://${relay.hostId}`, { token: "a".repeat(64), relay }]],
@@ -1119,7 +1620,10 @@ test("a mobile Link draft sends through its canonical owner and retries the same
     ],
     state: { next_id: 1, sessions: {}, messages: [], preparations: {} },
   };
-  chat.session.snapshot = require("../apps/mobile/src/chat-scope.ts").phoneSnapshot({ link, runs: { runs: {} } });
+  chat.session.snapshot = require("../apps/mobile/src/chat-scope.ts").phoneSnapshot({
+    link,
+    runs: { runs: {} },
+  });
   chat.params.worktreeId = "0";
   chat.session.drafts = { [`${owner}#new:0`]: "Update both Projects" };
   assert.equal(chat.field().projectPath, "", "A new shared draft never selects a primary Project for skills");
@@ -1503,8 +2007,16 @@ test("mobile chat rows show clickable PR numbers with desktop status colors", as
     [{ checks: "running" }, "orange", "CI running"],
     [{ readyToMerge: true }, "green", "Ready"],
   ]) {
-    const pr = { number: 246, title: "Fix Chat colors", url: "https://github.com/example/project/pull/246", state: "OPEN", ...extra };
-    const row = list.props.renderItem({ item: { ...item, pullRequests: [pr] } });
+    const pr = {
+      number: 246,
+      title: "Fix Chat colors",
+      url: "https://github.com/example/project/pull/246",
+      state: "OPEN",
+      ...extra,
+    };
+    const row = list.props.renderItem({
+      item: { ...item, pullRequests: [pr] },
+    });
     assert.equal(
       find(row, (node) => node.type === "Text" && node.props.children === item.worktree),
       undefined,
@@ -1526,8 +2038,15 @@ test("mobile chat rows show clickable PR numbers with desktop status colors", as
     find(plain, (node) => node.type === "Text" && node.props.children === item.worktree),
     "Chats without PRs keep their branch name",
   );
-  const prs = [246, 247, 248].map((number) => ({ number, title: `PR ${number}`, url: `https://github.com/example/project/pull/${number}`, state: "OPEN" }));
-  const multi = list.props.renderItem({ item: { ...item, pullRequests: prs, mark: "running" } });
+  const prs = [246, 247, 248].map((number) => ({
+    number,
+    title: `PR ${number}`,
+    url: `https://github.com/example/project/pull/${number}`,
+    state: "OPEN",
+  }));
+  const multi = list.props.renderItem({
+    item: { ...item, pullRequests: prs, mark: "running" },
+  });
   const component = find(multi, (node) => typeof node.type === "function" && node.props.pullRequests);
   const chips = component.type(component.props);
   assert.equal(
@@ -1939,7 +2458,12 @@ test("missing, archived and unreachable last Chats leave the project list usable
 
 function pullDownHost() {
   const sheets = [];
-  const modifiers = new Proxy({}, { get: (_, name) => (name === "shapes" ? { rectangle: () => "rectangle" } : (value) => ({ name, value })) });
+  const modifiers = new Proxy(
+    {},
+    {
+      get: (_, name) => (name === "shapes" ? { rectangle: () => "rectangle" } : (value) => ({ name, value })),
+    },
+  );
   const { PullDown } = load("ui.tsx", {
     react: { forwardRef: (fn) => fn },
     "react/jsx-runtime": {
@@ -1949,7 +2473,9 @@ function pullDownHost() {
     "react-native": {
       Platform: { OS: "ios" },
       Keyboard: { dismiss() {} },
-      ActionSheetIOS: { showActionSheetWithOptions: (options, select) => sheets.push({ options, select }) },
+      ActionSheetIOS: {
+        showActionSheetWithOptions: (options, select) => sheets.push({ options, select }),
+      },
       StyleSheet: { create: (value) => value },
       Pressable: "Pressable",
       View: "View",
@@ -1962,7 +2488,10 @@ function pullDownHost() {
     "@expo/ui/community/menu": { MenuView: "MenuView" },
     "expo-haptics": { selectionAsync: async () => {} },
     "@hugeicons/core-free-icons": {},
-    "./theme": { colors: { ink2: "#aaa", ink3: "#666" }, fonts: { mono: "monospace" } },
+    "./theme": {
+      colors: { ink2: "#aaa", ink3: "#666" },
+      fonts: { mono: "monospace" },
+    },
     "./icons": { Icon: "Icon" },
     "./confirm-store": { confirmSheet: (...args) => sheets.push(args) },
     "./choice-store": require("../apps/mobile/src/choice-store.ts"),
@@ -2414,7 +2943,12 @@ test("the attachment pull-down opens the selected picker and blocks a second pic
   menu().props.onSelect("camera");
   await settle();
   assert.deepEqual(kinds, ["photos", "camera"]);
-  screen.session.attachments["/p#new:1"] = Array.from({ length: 4 }, (_, i) => ({ id: String(i), name: `${i}.txt`, uri: `file:///${i}.txt`, image: false }));
+  screen.session.attachments["/p#new:1"] = Array.from({ length: 4 }, (_, i) => ({
+    id: String(i),
+    name: `${i}.txt`,
+    uri: `file:///${i}.txt`,
+    image: false,
+  }));
   assert.ok(menu().props.sections[0].items.every((item) => item.disabled));
   menu().props.onSelect("files");
   assert.deepEqual(kinds, ["photos", "camera"], "four attachments block another picker");
@@ -2433,11 +2967,20 @@ test("text typed during the first send follows the created Chat into its compose
 
 test("the PR pill sends a PR action whose preview is already a card", async () => {
   const url = "https://github.com/o/r/pull/77";
-  globalThis.chatPullRequest = { number: 77, url, state: "OPEN", checks: "failed" };
+  globalThis.chatPullRequest = {
+    number: 77,
+    url,
+    state: "OPEN",
+    checks: "failed",
+  };
   try {
     const screen = chatHost();
     screen.params.id = "42";
-    screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
+    screen.session.snapshot.project.state.sessions[42] = {
+      id: 42,
+      provider: "codex",
+      worktree_id: 1,
+    };
     find(screen.render(), (node) => node.type === "PullRequestAction").props.onRun();
     await settle();
     const sent = screen.calls.find((call) => call.method === "chat:send").args[0];
@@ -2446,7 +2989,15 @@ test("the PR pill sends a PR action whose preview is already a card", async () =
     assert.equal(sent.prompt, `Fix CI on pull request #77 (${url}). /milagre-fix-ci`);
     assert.equal(JSON.stringify(sent.prAction), JSON.stringify({ action: "checks-failed", pr: 77, url }));
     const [pending] = Object.values(screen.session.pendingChats);
-    assert.equal(JSON.stringify(pending.preview.message.context), JSON.stringify({ kind: "pr-action", action: "checks-failed", pr: 77, url }));
+    assert.equal(
+      JSON.stringify(pending.preview.message.context),
+      JSON.stringify({
+        kind: "pr-action",
+        action: "checks-failed",
+        pr: 77,
+        url,
+      }),
+    );
   } finally {
     delete globalThis.chatPullRequest;
   }
@@ -2616,7 +3167,10 @@ test("first send stays visible while the saved Chat's first page is still loadin
 test("mobile navigation spans a long Chat with at most 15 lines and loads older targets before scrolling", () => {
   const screen = chatHost();
   screen.params.id = "42";
-  screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex" };
+  screen.session.snapshot.project.state.sessions[42] = {
+    id: 42,
+    provider: "codex",
+  };
   screen.session.snapshot.project.state.messages = Array.from({ length: 100 }, (_, index) => ({
     id: index + 1,
     session_id: 42,
@@ -2631,7 +3185,10 @@ test("mobile navigation spans a long Chat with at most 15 lines and loads older 
   assert.equal(rail.props.items.at(-1).index, 99);
   const page = find(tree, (node) => node.type === "KeyboardChatScrollView");
   const scrolls = [];
-  page.props.ref.current = { scrollTo: (options) => scrolls.push(options), scrollToEnd: (options) => scrolls.push({ end: true, ...options }) };
+  page.props.ref.current = {
+    scrollTo: (options) => scrolls.push(options),
+    scrollToEnd: (options) => scrolls.push({ end: true, ...options }),
+  };
   rail.props.onSelect(0);
   const earlier = screen.render();
   const target = find(earlier, (node) => node.props?.nativeID === "chat-message-1");
@@ -3089,7 +3646,14 @@ function activityItemHost() {
   let current;
   const react = Object.fromEntries(["useState", "useRef", "useMemo", "useEffect"].map((name) => [name, (...args) => current[name](...args)]));
   react.memo = (fn) => fn;
-  const palette = { ink: "#fff", ink2: "#aaa", ink3: "#666", field: "#222", red: "#f00", orange: "#f80" };
+  const palette = {
+    ink: "#fff",
+    ink2: "#aaa",
+    ink3: "#666",
+    field: "#222",
+    red: "#f00",
+    orange: "#f80",
+  };
   const native = {
     Text: "Text",
     View: "View",
@@ -3113,18 +3677,29 @@ function activityItemHost() {
     "@hugeicons/core-free-icons": icons,
     "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
     "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
-    "./ui": { colors: palette, styles: { code: {}, caption: {}, label: {}, muted: {} }, PageScroll: "ScrollView" },
+    "./ui": {
+      colors: palette,
+      styles: { code: {}, caption: {}, label: {}, muted: {} },
+      PageScroll: "ScrollView",
+    },
   };
   const running = load("running-logo.tsx", {
     ...common,
     "react-native-svg": { default: "Svg", Path: "Path" },
-    "@react-native-masked-view/masked-view": { __esModule: true, default: "MaskedView" },
+    "@react-native-masked-view/masked-view": {
+      __esModule: true,
+      default: "MaskedView",
+    },
     "expo-linear-gradient": { LinearGradient: "LinearGradient" },
     "expo-router": { useIsFocused: () => false },
     "./logo": { LEFT: "", RIGHT: "", STAR: "", STAR_BOX: {} },
     "./theme": { colors: palette, fonts: { mono: "mono" }, hex: () => palette },
   });
-  const shared = load("activity-item.tsx", { ...common, "./running-logo": running, "./theme": { fonts: { mono: "mono" } } });
+  const shared = load("activity-item.tsx", {
+    ...common,
+    "./running-logo": running,
+    "./theme": { fonts: { mono: "mono" } },
+  });
   const SubagentItem = load("subagent-item.tsx", {
     ...common,
     "./activity-item": shared,
@@ -3144,9 +3719,18 @@ function activityItemHost() {
       current.begin();
       return visit(node.type(node.props), `${key}.render`);
     }
-    return { ...node, props: { ...node.props, children: visit(node.props?.children, `${key}.children`) } };
+    return {
+      ...node,
+      props: {
+        ...node.props,
+        children: visit(node.props?.children, `${key}.children`),
+      },
+    };
   }
-  return { subagent: (agent) => visit(jsx(SubagentItem, { agent }), "agent"), tool: (props) => visit(jsx(ToolRow, props), "tool") };
+  return {
+    subagent: (agent) => visit(jsx(SubagentItem, { agent }), "agent"),
+    tool: (props) => visit(jsx(ToolRow, props), "tool"),
+  };
 }
 const sampleSubagent = {
   id: "a",
@@ -3629,14 +4213,29 @@ test("refreshing saved hosts during startup cannot cancel the claimed auto-open"
   const { default: Screen } = load("app/index.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Alert: {}, Platform: { OS: "ios" }, RefreshControl: "RefreshControl", Text: "Text", View: "View" },
+    "react-native": {
+      Alert: {},
+      Platform: { OS: "ios" },
+      RefreshControl: "RefreshControl",
+      Text: "Text",
+      View: "View",
+    },
     "expo-router": {
-      Stack: { Screen: "Screen", Toolbar: Object.assign(() => null, { Button: "Button", Spacer: "Spacer" }) },
+      Stack: {
+        Screen: "Screen",
+        Toolbar: Object.assign(() => null, {
+          Button: "Button",
+          Spacer: "Spacer",
+        }),
+      },
       router: { replace: (route) => routes.push(route) },
       useFocusEffect() {},
     },
     "@hugeicons/core-free-icons": {},
-    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 0 }) },
+    "react-native-safe-area-context": {
+      useSafeAreaInsets: () => ({ bottom: 0 }),
+      useSafeAreaFrame: () => ({ height: 844 }),
+    },
     "../session": { useSession: () => session },
     "../live-activity-native": { nativeActivity: null },
     "../push": { usePush: () => ({}) },
@@ -3646,7 +4245,13 @@ test("refreshing saved hosts during startup cannot cancel the claimed auto-open"
     "../relay-native": {},
     "../routes-native": routesNative(),
     "../icons": { Icon: "Icon" },
-    "../ui": { colors: {}, styles: {}, ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll" },
+    "../ui": {
+      colors: {},
+      styles: {},
+      ErrorNotice: "ErrorNotice",
+      ListRow: "ListRow",
+      PageScroll: "PageScroll",
+    },
   });
   react.begin();
   Screen();
@@ -4162,7 +4767,12 @@ for (const provider of ["claude", "codex"])
           provider,
           selectedId: "default",
           accounts: [
-            { id: "default", provider, label: "Connected CLI account", state: "ready" },
+            {
+              id: "default",
+              provider,
+              label: "Connected CLI account",
+              state: "ready",
+            },
             {
               id: "work",
               provider,
@@ -4203,7 +4813,14 @@ for (const provider of ["claude", "codex"])
       "@milagre/shared/providers": require("@milagre/shared/providers"),
       "./session": { useSession: () => session },
       "./icons": { ProviderLogo: "ProviderLogo", Icon: "Icon" },
-      "./ui": { PillButton: "Button", Field: "Field", IconButton: "IconButton", PullDown: "PullDown", colors: {}, styles: {} },
+      "./ui": {
+        PillButton: "Button",
+        Field: "Field",
+        IconButton: "IconButton",
+        PullDown: "PullDown",
+        colors: {},
+        styles: {},
+      },
     });
     const render = () => {
       react.begin();
@@ -4388,7 +5005,13 @@ test("mobile opens a long Chat with its newest 40 messages and loads another pag
 test("scrolling up loads older mobile messages once and preserves the reading position", async (t) => {
   const screen = ongoingChatHost();
   screen.session.snapshot.project.state.messagesInChats = true;
-  const message = (id) => ({ id, session_id: 7, role: "user", body: `Message ${id}`, context: null });
+  const message = (id) => ({
+    id,
+    session_id: 7,
+    role: "user",
+    body: `Message ${id}`,
+    context: null,
+  });
   let held = Array.from({ length: 40 }, (_, i) => message(61 + i));
   const request = deferred();
   let reads = 0;
@@ -4409,10 +5032,20 @@ test("scrolling up loads older mobile messages once and preserves the reading po
   t.after(() => delete globalThis.chatPage);
   const offsets = [];
   const scroller = () => find(screen.render(), (node) => node.type === "KeyboardChatScrollView");
-  scroller().props.ref.current = { scrollTo: (value) => offsets.push(value), scrollToEnd() {} };
+  scroller().props.ref.current = {
+    scrollTo: (value) => offsets.push(value),
+    scrollToEnd() {},
+  };
   scroller().props.onLayout({ nativeEvent: { layout: { height: 600 } } });
   scroller().props.onContentSizeChange(390, 4000);
-  const move = (y) => scroller().props.onScroll({ nativeEvent: { contentOffset: { y }, contentSize: { height: 4000 }, layoutMeasurement: { height: 600 } } });
+  const move = (y) =>
+    scroller().props.onScroll({
+      nativeEvent: {
+        contentOffset: { y },
+        contentSize: { height: 4000 },
+        layoutMeasurement: { height: 600 },
+      },
+    });
   move(3400);
   assert.equal(reads, 0, "opening at the newest message must not fetch history");
   find(screen.render(), (node) => node.props?.nativeID === "chat-message-61").props.onLayout({ nativeEvent: { layout: { y: 100 } } });
@@ -4429,7 +5062,13 @@ test("scrolling up loads older mobile messages once and preserves the reading po
 test("failed mobile history stays retryable without dropping the current messages", async (t) => {
   const screen = ongoingChatHost();
   screen.session.snapshot.project.state.messagesInChats = true;
-  const messages = Array.from({ length: 40 }, (_, i) => ({ id: i + 61, session_id: 7, role: "user", body: `Message ${i}`, context: null }));
+  const messages = Array.from({ length: 40 }, (_, i) => ({
+    id: i + 61,
+    session_id: 7,
+    role: "user",
+    body: `Message ${i}`,
+    context: null,
+  }));
   globalThis.chatPage = (client, path, id) =>
     id === 7 && client
       ? {
@@ -4646,9 +5285,19 @@ test("an empty or denied clipboard gives a useful error without adding an attach
 test("a mobile tail refresh retains history loaded while it was in flight", async () => {
   const react = hookHost();
   const { useChatPage } = load("chat-pages.ts", {
-    react: { ...react, useEffect: react.effect, useSyncExternalStore: (_subscribe, read) => read() },
+    react: {
+      ...react,
+      useEffect: react.effect,
+      useSyncExternalStore: (_subscribe, read) => read(),
+    },
   });
-  const message = (id) => ({ id, session_id: 7, role: "user", body: `Message ${id}`, context: null });
+  const message = (id) => ({
+    id,
+    session_id: 7,
+    role: "user",
+    body: `Message ${id}`,
+    context: null,
+  });
   const tail = deferred();
   const client = {
     url: "refresh-race",
@@ -4671,7 +5320,11 @@ test("a mobile tail refresh retains history loaded while it was in flight", asyn
   render();
   await render().loadEarlier();
   assert.equal(render().messages.length, 4);
-  tail.resolve({ messages: [message(3), message(4), message(5)], hasMore: true, total: 5 });
+  tail.resolve({
+    messages: [message(3), message(4), message(5)],
+    hasMore: true,
+    total: 5,
+  });
   await settle();
   assert.deepEqual(
     Array.from(render().messages, (item) => item.id),
@@ -4682,8 +5335,20 @@ test("a mobile tail refresh retains history loaded while it was in flight", asyn
 
 test("concurrent mobile history readers share a page and can retry after a failure", async () => {
   const react = hookHost();
-  const { useChatPage } = load("chat-pages.ts", { react: { ...react, useEffect: react.effect, useSyncExternalStore: (_subscribe, read) => read() } });
-  const message = (id) => ({ id, session_id: 7, role: "user", body: `Message ${id}`, context: null });
+  const { useChatPage } = load("chat-pages.ts", {
+    react: {
+      ...react,
+      useEffect: react.effect,
+      useSyncExternalStore: (_subscribe, read) => read(),
+    },
+  });
+  const message = (id) => ({
+    id,
+    session_id: 7,
+    role: "user",
+    body: `Message ${id}`,
+    context: null,
+  });
   let request = deferred(),
     reads = 0;
   const client = {
@@ -4712,7 +5377,11 @@ test("concurrent mobile history readers share a page and can retry after a failu
   assert.ok((await results).every((result) => result.status === "rejected"));
   request = deferred();
   const retry = render().loadEarlier();
-  request.resolve({ messages: [message(1), message(2)], hasMore: false, total: 4 });
+  request.resolve({
+    messages: [message(1), message(2)],
+    hasMore: false,
+    total: 4,
+  });
   await retry;
   assert.deepEqual(
     Array.from(render().messages, (item) => item.id),
@@ -4974,10 +5643,30 @@ for (const provider of ["claude", "codex"])
           effectiveId: "default",
           defaultId: "default",
           accounts: [
-            { id: "default", provider, label: "CLI", email: "default@example.test", state: "ready" },
-            { id: "work", provider, label: "Work", email: "work@example.test", plan: "business", state: "ready" },
+            {
+              id: "default",
+              provider,
+              label: "CLI",
+              email: "default@example.test",
+              state: "ready",
+            },
+            {
+              id: "work",
+              provider,
+              label: "Work",
+              email: "work@example.test",
+              plan: "business",
+              state: "ready",
+            },
             { id: "out", provider, label: "Expired", state: "signed-out" },
-            { id: "gone", provider, label: "Removed account", state: "error", missing: true, message: "Choose a saved account." },
+            {
+              id: "gone",
+              provider,
+              label: "Removed account",
+              state: "error",
+              missing: true,
+              message: "Choose a saved account.",
+            },
           ],
         },
       ],
@@ -4990,8 +5679,18 @@ for (const provider of ["claude", "codex"])
           calls.push([method, ...args]);
           if (method === "accounts:scopes")
             return [
-              { key: "/p", name: "Project", kind: "project", projects: [{ id: "p", path: "/p", name: "Project" }] },
-              { key: "milagre-link:two", name: "Linked work", kind: "link", projects: [{ id: "p", path: "/p", name: "Project" }] },
+              {
+                key: "/p",
+                name: "Project",
+                kind: "project",
+                projects: [{ id: "p", path: "/p", name: "Project" }],
+              },
+              {
+                key: "milagre-link:two",
+                name: "Linked work",
+                kind: "link",
+                projects: [{ id: "p", path: "/p", name: "Project" }],
+              },
             ];
           if (method === "accounts:login") return login.promise;
           if (method === "accounts:scope") return { ...structuredClone(snapshot), scopeKey: args[0] };
@@ -5006,13 +5705,27 @@ for (const provider of ["claude", "codex"])
     const { ProjectAccountsSection } = load("project-accounts-section.tsx", {
       react,
       "react/jsx-runtime": { jsx, jsxs: jsx },
-      "react-native": { Text: "Text", View: "View", Pressable: "Pressable", StyleSheet: { hairlineWidth: 1 } },
+      "react-native": {
+        Text: "Text",
+        View: "View",
+        Pressable: "Pressable",
+        StyleSheet: { hairlineWidth: 1 },
+      },
       "@hugeicons/core-free-icons": {},
       "@milagre/shared/providers": require("@milagre/shared/providers"),
       "./session": { useSession: () => session },
       "./icons": { Icon: "Icon", ProviderLogo: "ProviderLogo" },
-      "./project-icon": { ProjectIcon: "ProjectIcon", ProjectIcons: "ProjectIcons" },
-      "./ui": { ListRow: "ListRow", PageScroll: "PageScroll", PullDown: "PullDown", colors: {}, styles: {} },
+      "./project-icon": {
+        ProjectIcon: "ProjectIcon",
+        ProjectIcons: "ProjectIcons",
+      },
+      "./ui": {
+        ListRow: "ListRow",
+        PageScroll: "PageScroll",
+        PullDown: "PullDown",
+        colors: {},
+        styles: {},
+      },
       "expo-router": { router: { push() {} } },
     });
     // Renders nested function components in place, sharing one hook host in a stable order.
@@ -5022,7 +5735,10 @@ for (const provider of ["claude", "codex"])
         : node && typeof node.type === "function"
           ? expand(node.type(node.props))
           : node?.props?.children !== undefined
-            ? { ...node, props: { ...node.props, children: expand(node.props.children) } }
+            ? {
+                ...node,
+                props: { ...node.props, children: expand(node.props.children) },
+              }
             : node;
     const render = () => {
       react.begin();
@@ -5897,10 +6613,16 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
     "@milagre/shared/linear": require("../packages/shared/src/linear.ts"),
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
-    "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue", seedsFrom: (id) => ({ from: id }) },
+    "@milagre/shared/themes": {
+      DEFAULT_THEME_ID: "milagre-blue",
+      seedsFrom: (id) => ({ from: id }),
+    },
     "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
     "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
-    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./ultracode-fatality-setting": {
+      useUltracodeFatality: () => [false, () => {}],
+    },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
     "./session": { useSession: () => session },
     "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
   });
@@ -5918,9 +6640,22 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
   assert.equal(find(tree, (n) => n.props?.title === "Linear").props.selected, true);
   assert.ok(text(tree, "Connect Linear from Settings on your Mac"));
   // Connected on the Mac while the phone was elsewhere: coming back to the page shows it, one line per workspace.
-  const acme = { id: "acme", viewer: { name: "Victor", email: "v@x" }, organization: { name: "Acme", urlKey: "acme" } };
-  const beta = { id: "beta", viewer: { name: "Vic", email: "v@b" }, organization: { name: "Beta Labs", urlKey: "beta" } };
-  status = { connected: true, viewer: acme.viewer, organization: acme.organization, workspaces: [acme, beta] };
+  const acme = {
+    id: "acme",
+    viewer: { name: "Victor", email: "v@x" },
+    organization: { name: "Acme", urlKey: "acme" },
+  };
+  const beta = {
+    id: "beta",
+    viewer: { name: "Vic", email: "v@b" },
+    organization: { name: "Beta Labs", urlKey: "beta" },
+  };
+  status = {
+    connected: true,
+    viewer: acme.viewer,
+    organization: acme.organization,
+    workspaces: [acme, beta],
+  };
   focused.at(-1)();
   await settle();
   tree = render();
@@ -5948,17 +6683,31 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
 test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue off, and shows the editor only while on", () => {
   const react = hookHost();
   const saved = [];
-  let settings = { colorTheme: "nord", customThemeEnabled: false, customTheme: null };
+  let settings = {
+    colorTheme: "nord",
+    customThemeEnabled: false,
+    customTheme: null,
+  };
   const { ExperimentalSection } = load("experimental-section.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/linear": { LINEAR_TITLE: "Linear", LINEAR_HINT: "hint", linearStatusLine: () => "" },
-    "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue", seedsFrom: (id) => ({ from: id }) },
+    "@milagre/shared/linear": {
+      LINEAR_TITLE: "Linear",
+      LINEAR_HINT: "hint",
+      linearStatusLine: () => "",
+    },
+    "@milagre/shared/themes": {
+      DEFAULT_THEME_ID: "milagre-blue",
+      seedsFrom: (id) => ({ from: id }),
+    },
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { useFocusEffect() {} },
     "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
     "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
-    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./ultracode-fatality-setting": {
+      useUltracodeFatality: () => [false, () => {}],
+    },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
     "./session": { useSession: () => ({ client: null }) },
     "./theme": {
       useTheme: () => ({
@@ -5983,11 +6732,18 @@ test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue of
     undefined,
   );
   find(tree, (n) => n.props?.title === "Custom theme").props.onPress();
-  assert.deepEqual(JSON.parse(JSON.stringify(saved.at(-1))), { customThemeEnabled: true, customTheme: { from: "nord" }, colorTheme: "custom" });
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.at(-1))), {
+    customThemeEnabled: true,
+    customTheme: { from: "nord" },
+    colorTheme: "custom",
+  });
   tree = render();
   assert.ok(find(tree, (n) => n.type === "CustomThemeSection"));
   find(tree, (n) => n.props?.title === "Custom theme").props.onPress();
-  assert.deepEqual(JSON.parse(JSON.stringify(saved.at(-1))), { customThemeEnabled: false, colorTheme: "milagre-blue" });
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.at(-1))), {
+    customThemeEnabled: false,
+    colorTheme: "milagre-blue",
+  });
   assert.deepEqual(JSON.parse(JSON.stringify(settings.customTheme)), { from: "nord" }, "the seeds are kept");
   assert.equal(
     find(render(), (n) => n.type === "CustomThemeSection"),
