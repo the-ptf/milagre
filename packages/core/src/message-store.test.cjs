@@ -66,6 +66,40 @@ test("an idle Chat leaves memory once saved; a Chat touched lately and a busy on
   assert.equal(state.sessions[1].summary.count, 4, "an unloaded Chat keeps its summary");
 });
 
+test("inbox reads keep only bounded last replies for unread outcomes, with loaded and unloaded Chats", async (t) => {
+  const projectPath = await tempProject(t);
+  const long = "x".repeat(10000);
+  await seed(projectPath, [reply(1, 1, "older"), reply(2, 1, long), reply(3, 2, "failed reply"), reply(4, 3, "read reply")]);
+  const { states, advance } = harness(projectPath);
+  t.after(() => states.close());
+  await states.update(projectPath, (state) => ({
+    ...state,
+    sessions: {
+      ...state.sessions,
+      1: { ...state.sessions[1], unread: true },
+      2: { ...state.sessions[2], unread: true, summary: { ...state.sessions[2].summary, lastOutcome: "failed" } },
+    },
+  }));
+  await states.flush();
+  const before = await states.inboxState(projectPath);
+  assert.deepEqual(
+    before.messages.map(({ session_id, body }) => [session_id, body]),
+    [
+      [1, long.slice(0, 240)],
+      [2, "failed reply"],
+    ],
+  );
+  advance(2000);
+  await states.load(projectPath, [2]);
+  await states.unloadIdle();
+  const after = await states.inboxState(projectPath);
+  assert.deepEqual(
+    after.messages.toSorted((a, b) => a.session_id - b.session_id),
+    before.messages,
+  );
+  assert.deepEqual([...unloadedChats(await states.get(projectPath))], [1, 3]);
+});
+
 test("a save with unloaded Chats keeps their rows, and deletes only what a loaded Chat lost", async (t) => {
   const projectPath = await tempProject(t);
   const all = await seed(projectPath);

@@ -46,6 +46,7 @@ const METHODS = new Set([
   "linear:issues",
   "linear:worktree-issues",
   "chat:runs",
+  "chat:inbox",
   "chat:ports",
   "agent:stop-port",
   "simulator:list",
@@ -670,6 +671,11 @@ async function startMobileBridge({
         // A confined phone only opens its one Project, so it gets none.
         if (req.method === "GET" && target.pathname === "/attention") {
           reply(200, { result: confine ? [] : chatsNeedingAttention((await client.call("chat:runs")).runs) }, { etag: true });
+          return;
+        }
+        if (req.method === "GET" && target.pathname === "/inbox") {
+          const inbox = await client.call("chat:inbox");
+          reply(200, { result: confine ? await confine.filterResult("chat:inbox", inbox) : inbox }, { etag: true });
           return;
         }
         if (req.method === "GET" && target.pathname === "/message") {

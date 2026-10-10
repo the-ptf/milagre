@@ -113,6 +113,7 @@ const PATHS = Object.freeze({
   "linear:issues": none,
   "linear:worktree-issues": ([projectPath]) => [projectPath],
   "chat:runs": none,
+  "chat:inbox": none,
   "chat:ports": ([chatId]) => [chatProject(chatId)],
   "agent:stop-port": ([chatId]) => [chatProject(chatId)],
   "chat:send": ([request]) => [
@@ -248,6 +249,13 @@ function createConfinement({ allowedRoot, uploadsDir }) {
       const entries = Object.entries(result.runs);
       const kept = await Promise.all(entries.map(([chatId]) => allows(chatProject(chatId))));
       return { ...result, runs: Object.fromEntries(entries.filter((_entry, index) => kept[index])) };
+    }
+    if (method === "chat:inbox" && result) {
+      const keep = async (items) => {
+        const allowed = await Promise.all(items.map((item) => allows(chatProject(item.key))));
+        return items.filter((_item, index) => allowed[index]);
+      };
+      return { agents: await keep(result.agents), items: await keep(result.items) };
     }
     return result;
   }

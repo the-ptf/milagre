@@ -1158,6 +1158,16 @@ function createRuntime(options) {
   });
   // A window that loads (or reloads) mid-turn picks the turns up where they are, cards included.
   commands.handle("chat:runs", () => chats.snapshot());
+  commands.handle("chat:inbox", async () => {
+    const scopes = await Promise.all(
+      scopeStates.projects().map(async (key) => ({
+        path: key,
+        name: isLinkScopeKey(key) ? (await linkRuntime.definition(scopeFromKey(key).linkId)).name : projectName(key),
+        state: await scopeStates.inboxState(key),
+      })),
+    );
+    return require("@milagre/shared/attention").inboxSnapshot(scopes, chats.snapshot().runs);
+  });
 
   // What the model picker flags per agent: missing, outdated, broken or logged out. A ready CLI is looked at again
   // after 5 minutes, a problem on every call.

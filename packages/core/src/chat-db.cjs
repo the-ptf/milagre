@@ -128,6 +128,25 @@ function readChatBodies(projectPath, chats) {
   );
 }
 
+/** At most 240 characters from the last assistant reply of each requested Chat, without reading transcripts. */
+function readChatPreviews(projectPath, chats) {
+  if (!chats.size && !chats.length) return [];
+  return withDatabaseSync(projectPath, (db) =>
+    db
+      ? db
+          .prepare(
+            "SELECT session_id, substr(json_extract(payload, '$.body'), 1, 240) AS body FROM messages WHERE id IN (SELECT (SELECT id FROM messages WHERE session_id = value AND json_extract(payload, '$.role') = 'assistant' ORDER BY position DESC, id DESC LIMIT 1) FROM json_each(?))",
+          )
+          .all(chatList(chats))
+          .map((row) => ({
+            session_id: row.session_id,
+            role: "assistant",
+            body: (row.body ?? "").slice(0, 240),
+          }))
+      : [],
+  );
+}
+
 /** { id, session_id, role, outcome, clientMessageId } of the messages of the Chats `chats`, in the Project's order. Synchronous. */
 function readChatMarks(projectPath, chats) {
   if (!chats.size && !chats.length) return [];
@@ -341,6 +360,7 @@ module.exports = {
   readMessages,
   readChatRows,
   readChatBodies,
+  readChatPreviews,
   readChatRowsContaining,
   readChatMarks,
   readPositions,

@@ -40,6 +40,7 @@ function createLinkStore({ dataDir, active = () => true, lazyMessages = {} }) {
     load: checked((id, chats) => states.load(id, chats)),
     allMessages: checked((id, options) => states.allMessages(id, options)),
     chatMessages: checked((id, chats) => states.chatMessages(id, chats)),
+    inboxState: checked((id) => states.inboxState(id)),
     messageMarks: checked((id, options) => states.messageMarks(id, options)),
     messagesContaining: checked((id, needles) => states.messagesContaining(id, needles)),
     searchableMessages: checked((id, chats) => states.searchableMessages(id, chats)),

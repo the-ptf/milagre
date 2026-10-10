@@ -136,7 +136,8 @@ jobs:
             node_modules
             apps/*/node_modules
             packages/*/node_modules
-          key: node-modules-core-daemon-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('package-lock.json') }}
+          # Windows workspace junctions contain absolute paths. A repository rename changes the checkout path.
+          key: node-modules-core-daemon-${{ github.repository }}-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('package-lock.json') }}
       - name: Install core and daemon dependencies
         if: matrix.os == 'windows-latest' && steps.windows-cache.outputs.cache-hit != 'true'
         run: npm ci --workspace @milagre/core --workspace @milagre/daemon --ignore-scripts --omit=optional --no-audit --no-fund
@@ -226,7 +227,7 @@ jobs:
     # Stable installs never see drafts (they ask for GitHub's latest release). The tag does show in the releases
     # atom feed, so beta installs resolve their feed through the REST API instead (electron/release-channel.cjs).
     # The "Publish" workflow ships a candidate to beta or stable.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'the-ptf/milagre-ade'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'the-ptf/milagre'
     needs: [javascript, native-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 15

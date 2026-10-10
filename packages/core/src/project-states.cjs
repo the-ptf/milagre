@@ -78,6 +78,10 @@ class ProjectStates {
       return state.messages.filter((message) => wanted.has(Number(message.session_id)));
     });
   }
+  /** Metadata and bounded inbox previews; leaves idle transcripts unloaded. */
+  inboxState(projectPath) {
+    return this.readWith(projectPath, (state, directory) => messageStore.inboxState(directory, state));
+  }
   /** { id, session_id, role, outcome, clientMessageId } of every message, in the Project's order, without loading any. */
   messageMarks(projectPath, { withState = false } = {}) {
     return this.readWith(projectPath, (state, directory) => {

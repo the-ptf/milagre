@@ -140,7 +140,7 @@ test("an accepted disk image is stapled", (t) => {
 
 test("a candidate is cut by the release job of CI after the required checks pass on main", () => {
   const job = ciWorkflow.jobs.release;
-  assert.equal(job.if, "github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'the-ptf/milagre-ade'");
+  assert.equal(job.if, "github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'the-ptf/milagre'");
   assert.deepEqual(job.needs, ["javascript", "native-gate"]);
   assert.equal(job.permissions.contents, "write");
   const checkout = job.steps.find((step) => step.uses?.startsWith("actions/checkout"));
