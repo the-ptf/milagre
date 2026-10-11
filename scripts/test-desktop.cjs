@@ -358,6 +358,7 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
 }
 
 async function main() {
+  if (process.env.MILAGRE_SCREENSHOT_DIR) await fs.mkdir(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
   const temporary = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-desktop-")));
   try {
     const project = path.join(temporary, "project");
