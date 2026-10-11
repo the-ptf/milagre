@@ -146,6 +146,32 @@ async function nativeChecks() {
   assert.equal(await dock.webContents.executeJavaScript('document.querySelectorAll("[data-inbox-agent]").length'), 0);
   const overlay = view("drag");
   assert.equal(main.isVisible(), false);
+  const savedSettings = await dock.webContents.executeJavaScript('localStorage.getItem("milagre-settings")');
+  try {
+    for (const theme of ["light", "dark"]) {
+      await dock.webContents.executeJavaScript(
+        `localStorage.setItem('milagre-settings', JSON.stringify({...JSON.parse(localStorage.getItem('milagre-settings') || '{}'),theme:${JSON.stringify(theme)}})); window.dispatchEvent(new StorageEvent('storage',{key:'milagre-settings'}))`,
+      );
+      for (const window of [dock, inbox, preview, overlay]) {
+        if (window !== overlay)
+          await waitFor(
+            async () => (await window.webContents.executeJavaScript('document.documentElement.classList.contains("dark")')) === (theme === "dark"),
+            "floating theme updated",
+          );
+        assert.deepEqual(
+          await window.webContents.executeJavaScript(
+            '[document.documentElement,document.body,document.getElementById("root")].map(element=>[getComputedStyle(element).backgroundColor,getComputedStyle(element).backgroundImage])',
+          ),
+          Array.from({ length: 3 }, () => ["rgba(0, 0, 0, 0)", "none"]),
+          `${window.webContents.getURL()} stays transparent in ${theme} mode`,
+        );
+      }
+    }
+  } finally {
+    await dock.webContents.executeJavaScript(
+      `${savedSettings === null ? 'localStorage.removeItem("milagre-settings")' : `localStorage.setItem("milagre-settings",${JSON.stringify(savedSettings)})`}; window.dispatchEvent(new StorageEvent('storage',{key:'milagre-settings'}))`,
+    );
+  }
   if (process.env.MILAGRE_SCREENSHOT_DIR) {
     await delay(200);
     await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "native-drag-targets.png"), (await overlay.webContents.capturePage()).toPNG());

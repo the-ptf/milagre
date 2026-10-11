@@ -9,7 +9,10 @@
 html[data-floating-inbox],
 html[data-floating-inbox] body,
 html[data-floating-inbox] #root {
-  background: transparent;
+  /* Preserve an explicit transparent color in the built CSS. The shorthand's
+   * implicit `initial` reset can leave a transparent panel's body opaque. */
+  background-color: transparent;
+  background-image: none;
 }
 
 .floating-inbox-panel {
