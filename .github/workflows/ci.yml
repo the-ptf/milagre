@@ -236,6 +236,14 @@ jobs:
       - run: npm ci
       - name: Exercise the macOS desktop before signing a release
         run: npm test -- --only test-desktop
+      - name: Upload dock failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-dock-diagnostics
+          path: ${{ runner.temp }}/milagre-dock-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
 
   release:
     # Every CI-green push to main becomes a release candidate: a tag and a DRAFT GitHub release.
