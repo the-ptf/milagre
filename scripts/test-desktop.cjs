@@ -154,7 +154,29 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       const readDock = async (expression) => (await dock.call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
       await waitFor(() => readDock('!!document.querySelector("[data-floating-bar]")'), "bar rendered through the real preload");
       assert.equal(await readDock('document.querySelector("[data-floating-bar]").getBoundingClientRect().width'), 28);
-      assert.equal(await readDock("getComputedStyle(document.body).backgroundColor"), "rgba(0, 0, 0, 0)");
+      try {
+        assert.equal(await readDock("getComputedStyle(document.body).backgroundColor"), "rgba(0, 0, 0, 0)");
+      } catch (error) {
+        console.error(
+          "Floating dock at failure:",
+          await readDock(`JSON.stringify({ url: location.href, readyState: document.readyState, userAgent: navigator.userAgent,
+            root: document.documentElement.outerHTML.slice(0, document.documentElement.outerHTML.indexOf('>') + 1),
+            body: document.body.getAttribute('style'), background: getComputedStyle(document.body).background,
+            rootBackground: getComputedStyle(document.documentElement).background,
+            appBackground: getComputedStyle(document.getElementById('root')).background,
+            sheets: [...document.styleSheets].map(sheet => ({href: sheet.href, disabled: sheet.disabled})) })`),
+        );
+        await dock.call("DOM.enable");
+        await dock.call("CSS.enable");
+        const { root } = await dock.call("DOM.getDocument");
+        const { nodeId } = await dock.call("DOM.querySelector", { nodeId: root.nodeId, selector: "body" });
+        const styles = await dock.call("CSS.getMatchedStylesForNode", { nodeId });
+        console.error(
+          "Floating dock matched background rules:",
+          JSON.stringify(styles.matchedCSSRules.filter(({ rule }) => rule.style.cssProperties.some((property) => property.name.startsWith("background")))),
+        );
+        throw error;
+      }
       await evaluate("window.milagre.toggleFloatingInbox()");
       const inboxPage = await waitFor(async () => (await pages()).find((page) => page.url.includes("floating-inbox=inbox")), "native inbox");
       const inbox = await connect(inboxPage.webSocketDebuggerUrl);
