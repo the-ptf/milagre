@@ -12,6 +12,9 @@ html[data-floating-inbox] #root {
   /* Floating windows draw their own surfaces over a transparent canvas. */
   background-color: transparent;
   background-image: none;
+  /* The global reduced-motion duration also starts implicit canvas color
+   * transitions. Keep the native window transparent from its first frame. */
+  transition: none;
 }
 
 .floating-inbox-panel {

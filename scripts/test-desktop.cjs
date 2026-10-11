@@ -201,6 +201,20 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
         await fs.writeFile(path.join(directory, "opaque-dock.png"), Buffer.from(shot.data, "base64"));
         throw error;
       }
+      await dock.call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+      await readDock(`document.documentElement.removeAttribute('data-floating-inbox');
+        getComputedStyle(document.body).backgroundColor`);
+      await readDock("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+      const restoredCanvas = await readDock(`(() => {
+        document.documentElement.setAttribute('data-floating-inbox', '');
+        return { background: getComputedStyle(document.body).backgroundColor,
+          animations: document.body.getAnimations().length };
+      })()`);
+      assert.deepEqual(
+        restoredCanvas,
+        { background: "rgba(0, 0, 0, 0)", animations: 0 },
+        "reduced motion must not animate the floating canvas from opaque to transparent",
+      );
       await evaluate("window.milagre.toggleFloatingInbox()");
       const inboxPage = await waitFor(async () => (await pages()).find((page) => page.url.includes("floating-inbox=inbox")), "native inbox");
       const inbox = await connect(inboxPage.webSocketDebuggerUrl);
