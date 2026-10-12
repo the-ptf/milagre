@@ -10,7 +10,7 @@ import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
-window.milagre = Object.freeze({});
+window.milagre = Object.freeze({ listEditors: async () => [] });
 const noop = () => {};
 function Fixture() {
   const [count, setCount] = useState(2);

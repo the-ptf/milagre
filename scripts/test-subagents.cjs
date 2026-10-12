@@ -5,6 +5,7 @@ const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 
 const fixture = `
+window.milagre = Object.freeze({ listEditors: async () => [] });
 import React, { Profiler, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";

@@ -12,7 +12,7 @@ import { ChatComposer } from "/src/components/ChatComposer";
 import { MessageScroller } from "/src/components/agents/message-scroller";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
-window.milagre = Object.freeze({});
+window.milagre = Object.freeze({ listEditors: async () => [] });
 const noop = () => {};
 function Fixture() {
   const [imageChat, setImageChat] = useState(false);
