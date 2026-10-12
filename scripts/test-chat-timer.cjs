@@ -10,6 +10,7 @@ import { ChatComposer } from "/src/components/ChatComposer";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import { startRun } from "@milagre/shared/agent-runs";
 import "/src/styles.css";
+window.milagre = Object.freeze({});
 const noop = () => {};
 window.clock = 100000;
 Date.now = () => window.clock;

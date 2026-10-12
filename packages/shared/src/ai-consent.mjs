@@ -82,18 +82,19 @@ const methods = {
 export function protectAiBridge(bridge, requireConsent) {
   const wrapped = new Map();
   // Electron contextBridge freezes its object; proxy a mutable facade instead.
+  // Read from the original bridge so dynamic Proxy methods survive the facade.
   return new Proxy(
     { ...bridge },
     {
-      get(target, property) {
+      get(_target, property) {
         const method = Object.hasOwn(methods, property) ? methods[property] : null;
-        const value = Reflect.get(target, property);
+        const value = Reflect.get(bridge, property);
         if (!method || typeof value !== "function") return value;
         if (!wrapped.has(property))
           wrapped.set(property, async (...args) => {
             const input = property === "respondToPermission" ? [{ decision: args[2] }] : property === "setAgentPermissionMode" ? [{ mode: args[1] }] : args;
             if (requiresAiConsent(method, input)) await requireConsent(property !== "setAgentPermissionMode");
-            return value.apply(target, args);
+            return value.apply(bridge, args);
           });
         return wrapped.get(property);
       },

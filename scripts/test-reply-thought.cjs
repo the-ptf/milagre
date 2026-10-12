@@ -11,6 +11,7 @@ import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
+window.milagre = Object.freeze({});
 const noop = () => {};
 const thought = (id, detail, durationMs) => ({ id, kind: "thinking", title: "Thought for " + Math.round(durationMs / 1000) + "s", status: "done", detail, durationMs, offset: 0 });
 const ran = (id, command) => ({ id, kind: "shell", title: "Ran \\u0060" + command + "\\u0060", status: "done", detail: "$ " + command + "\\n", offset: 0 });

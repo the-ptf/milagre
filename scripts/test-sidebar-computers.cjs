@@ -9,6 +9,9 @@ const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 
 const fixture = `
+// This fixture exercises a device that has already accepted AI sharing.
+import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
+localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { updateSettings } from "/src/lib/settings";

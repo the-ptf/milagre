@@ -145,3 +145,30 @@ test("a failed consent write never releases a waiting send", async () => {
   assert.equal(sends, 0);
   assert.equal(await consent.allowed(), false);
 });
+
+test("desktop guard preserves dynamic bridge methods and still gates dynamic AI actions", async () => {
+  let sends = 0;
+  const source = new Proxy(
+    {},
+    {
+      get(_target, property) {
+        if (property === "getCliStatus") return async () => ({ claude: true });
+        if (property === "sendMessage")
+          return async function () {
+            assert.equal(this, source);
+            return ++sends;
+          };
+      },
+    },
+  );
+  let accepted = false;
+  const { consent } = fixture(async () => accepted);
+  const bridge = protectAiBridge(source, () => consent.require());
+  assert.equal(typeof bridge.getCliStatus, "function");
+  assert.deepEqual(await bridge.getCliStatus(), { claude: true });
+  assert.equal(typeof bridge.sendMessage, "function");
+  await assert.rejects(bridge.sendMessage(), /permission/);
+  assert.equal(sends, 0);
+  accepted = true;
+  assert.equal(await bridge.sendMessage(), 1);
+});

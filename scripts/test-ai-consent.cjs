@@ -52,6 +52,7 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor(`!!document.querySelector('button')`);
+    assert.equal(await evaluate(`document.querySelector('dialog')`), null, "idle consent leaves no dialog in the page");
     await click("Send local");
     await waitFor(`!!document.querySelector('dialog[open]')`);
     assert.equal(await evaluate("window.__sent"), 0);

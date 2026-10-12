@@ -35,6 +35,7 @@ export function AiConsentDialog() {
       cancel.current?.focus();
     } else dialog.current?.close();
   }, [open]);
+  if (!open) return null;
   return (
     <dialog
       ref={dialog}
