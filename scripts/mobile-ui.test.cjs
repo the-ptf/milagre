@@ -3098,6 +3098,9 @@ test("a long Chat opens hidden and jumps to its newest message without animating
   assert.equal(scrolls.length, 0, "waits for the viewport before placing");
   first.props.onLayout({ nativeEvent: { layout: { height: 600 } } });
   assert.equal(JSON.stringify(scrolls), JSON.stringify([{ animated: false }]));
+  // The jump can land frames after a long transcript mounts; until then the top of the Chat would flash.
+  assert.equal(page().props.style.opacity, 0, "stays hidden until the scroll view reports its end on screen");
+  page().props.onEndVisible(true);
   const placed = page();
   assert.equal(placed.props.style.opacity, 1);
   placed.props.onContentSizeChange(0, 2100);
@@ -3105,6 +3108,38 @@ test("a long Chat opens hidden and jumps to its newest message without animating
   screen.params.id = "42";
   screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex" };
   assert.equal(page().props.style.opacity, 0, "switching Chats hides the next transcript until it is placed");
+});
+
+test("a long Chat shows itself when a scroll event reaches its end, or after a short wait", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const reveal of ["scroll", "timer"]) {
+    const screen = chatHost();
+    const page = () => find(screen.render(), (node) => node.type === "KeyboardChatScrollView");
+    page().props.ref.current = { scrollToEnd() {} };
+    page().props.onContentSizeChange(0, 2000);
+    page().props.onLayout({ nativeEvent: { layout: { height: 600 } } });
+    assert.equal(page().props.style.opacity, 0);
+    if (reveal === "scroll")
+      page().props.onScroll({ nativeEvent: { contentSize: { height: 2000 }, contentOffset: { y: 1400 }, layoutMeasurement: { height: 600 } } });
+    else t.mock.timers.tick(500);
+    assert.equal(page().props.style.opacity, 1, reveal);
+  }
+});
+
+test("a short Chat shows itself at once", () => {
+  const screen = chatHost();
+  const page = () => find(screen.render(), (node) => node.type === "KeyboardChatScrollView");
+  page().props.ref.current = { scrollToEnd() {} };
+  page().props.onContentSizeChange(0, 400);
+  page().props.onLayout({ nativeEvent: { layout: { height: 600 } } });
+  assert.equal(page().props.style.opacity, 1);
+});
+
+test("images that load above the screen leave the visible messages in place", () => {
+  const screen = chatHost();
+  const page = find(screen.render(), (node) => node.type === "KeyboardChatScrollView");
+  // A JS jump after onContentSizeChange lands frames late; the native view must hold the first visible message.
+  assert.equal(JSON.stringify(page.props.maintainVisibleContentPosition), JSON.stringify({ minIndexForVisible: 0 }));
 });
 
 test("first send keeps the placed transcript mounted when the draft adopts its saved Chat", async () => {
@@ -5057,6 +5092,43 @@ test("scrolling up loads older mobile messages once and preserves the reading po
   assert.equal(transcriptMessages(screen)[0].id, 21);
   find(screen.render(), (node) => node.props?.nativeID === "chat-message-61").props.onLayout({ nativeEvent: { layout: { y: 2100 } } });
   assert.equal(offsets.at(-1).y, 2050, "the previous first message keeps its screen position, including scrolling during the read");
+});
+
+test("a native position correction before the anchor's layout does not move older mobile messages twice", async (t) => {
+  const screen = ongoingChatHost();
+  screen.session.snapshot.project.state.messagesInChats = true;
+  const message = (id) => ({ id, session_id: 7, role: "user", body: `Message ${id}`, context: null });
+  let held = Array.from({ length: 40 }, (_, i) => message(61 + i));
+  globalThis.chatPage = (client, path, id) =>
+    id === 7 && client
+      ? {
+          messages: held,
+          total: 100,
+          hasMore: true,
+          loading: false,
+          loadEarlier: async () => {
+            held = [...Array.from({ length: 40 }, (_, i) => message(21 + i)), ...held];
+          },
+        }
+      : undefined;
+  t.after(() => delete globalThis.chatPage);
+  const offsets = [];
+  const scroller = () => find(screen.render(), (node) => node.type === "KeyboardChatScrollView");
+  scroller().props.ref.current = { scrollTo: (value) => offsets.push(value), scrollToEnd() {} };
+  scroller().props.onLayout({ nativeEvent: { layout: { height: 600 } } });
+  scroller().props.onContentSizeChange(390, 4000);
+  const move = (y, height = 4000) =>
+    scroller().props.onScroll({ nativeEvent: { contentOffset: { y }, contentSize: { height }, layoutMeasurement: { height: 600 } } });
+  move(3400);
+  find(screen.render(), (node) => node.props?.nativeID === "chat-message-61").props.onLayout({ nativeEvent: { layout: { y: 100 } } });
+  move(100);
+  move(50);
+  await settle();
+  assert.equal(transcriptMessages(screen)[0].id, 21);
+  // maintainVisibleContentPosition already moved the offset by the 2000 points the older page added.
+  move(2050, 6000);
+  find(screen.render(), (node) => node.props?.nativeID === "chat-message-61").props.onLayout({ nativeEvent: { layout: { y: 2100 } } });
+  assert.equal(offsets.at(-1)?.y ?? 2050, 2050, "the anchor lands where the native correction left it");
 });
 
 test("failed mobile history stays retryable without dropping the current messages", async (t) => {
