@@ -4386,6 +4386,7 @@ function simulatorHost(client, file = "simulator.tsx") {
   const react = hookHost({ effects: true }),
     files = new Map(),
     listeners = new Set();
+  let writeError = null;
   const native = {
     useColorScheme: () => "light",
     Text: "Text",
@@ -4408,6 +4409,7 @@ function simulatorHost(client, file = "simulator.tsx") {
       this.uri = "file:///cache/" + name;
     }
     write(value) {
+      if (writeError) throw writeError;
       files.set(this.uri, value);
     }
     get exists() {
@@ -4423,8 +4425,13 @@ function simulatorHost(client, file = "simulator.tsx") {
       react,
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "react-native": native,
-      "expo-router": { router: { back() {}, push() {} }, useFocusEffect: (fn) => react.effect(fn, [fn]) },
-      "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
+      "expo-router": {
+        router: { back() {}, push() {} },
+        useFocusEffect: (fn) => react.effect(fn, [fn]),
+      },
+      "react-native-safe-area-context": {
+        useSafeAreaInsets: () => ({ bottom: 34 }),
+      },
       "@expo/dom-webview": { DomWebView: "DomWebView" },
       "expo-file-system": { File, Paths: { cache: "/cache" } },
       "expo-clipboard": { setStringAsync: async () => {} },
@@ -4433,15 +4440,36 @@ function simulatorHost(client, file = "simulator.tsx") {
       "./session": { useSession: () => ({ client }) },
       "./icons": { Icon: "Icon" },
       "./theme": {
-        hex: () => ({ page: "#fafafb", surface: "#ffffff", ink: "#1f2124", ink2: "#62656b", line: "#ecedef", hover: "#f4f5f6", accent: "#0285ff" }),
+        hex: () => ({
+          page: "#fafafb",
+          surface: "#ffffff",
+          ink: "#1f2124",
+          ink2: "#62656b",
+          line: "#ecedef",
+          hover: "#f4f5f6",
+          accent: "#0285ff",
+        }),
       },
-      "./ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton", ErrorNotice: "ErrorNotice", colors: {}, styles: {} },
+      "./ui": {
+        CircleButton: "CircleButton",
+        PageScroll: "PageScroll",
+        PillButton: "PillButton",
+        ErrorNotice: "ErrorNotice",
+        colors: {},
+        styles: {},
+      },
     },
     file === "simulator.tsx" ? "\nexports.TestSimulatorWebView = SimulatorWebView;" : "",
   );
   return {
     source,
     files,
+    failWrites(error) {
+      writeError = error;
+    },
+    setClient(value) {
+      client = value;
+    },
     background() {
       native.AppState.currentState = "background";
       for (const fn of listeners) fn("background");
@@ -4512,6 +4540,151 @@ test("mobile simulator chooses the sole running device, but a list never starts 
     if (devices.length === 2) assert.ok(find(tree, (node) => node.type === "Pressable"));
     h.cleanup();
   }
+});
+
+test("mobile simulator status messages update its header without reopening the cached viewer", async () => {
+  const device = {
+    id: "sim",
+    name: "QA phone",
+    deviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+    platform: "ios",
+    version: "27",
+  };
+  const updates = [],
+    calls = [];
+  const client = {
+    call: async (method) => {
+      calls.push(method);
+      return null;
+    },
+  };
+  const h = simulatorHost(client);
+  const props = {
+    client,
+    deviceId: "sim",
+    device,
+    chatId: "/p#7",
+    onConnection: (value) => updates.push(value),
+  };
+  h.render("TestSimulatorWebView", props);
+  await settle();
+  const view = h.render("TestSimulatorWebView", props);
+  const uri = view.props.source.uri;
+  const config = JSON.parse(
+    h.files
+      .get(uri)
+      .match(/data-config="([^"]+)"/)[1]
+      .replaceAll("&quot;", '"'),
+  );
+  assert.equal(config.touchControls, true);
+  assert.equal(config.device.deviceType, device.deviceType);
+  view.props.onMessage({
+    nativeEvent: {
+      data: JSON.stringify({
+        channel: "milagre-simulator",
+        event: "state",
+        state: "live",
+      }),
+    },
+  });
+  view.props.onMessage({
+    nativeEvent: {
+      data: JSON.stringify({
+        channel: "milagre-simulator",
+        event: "state",
+        state: "bogus",
+      }),
+    },
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(updates)), [
+    { deviceId: "sim", state: "connecting" },
+    { deviceId: "sim", state: "live" },
+  ]);
+  assert.equal(calls.length, 0, "status events must not enter the RPC bridge");
+  const changed = {
+    ...props,
+    device: {
+      ...device,
+      name: "Renamed phone",
+      deviceType: undefined,
+      version: "27.1",
+    },
+  };
+  h.render("TestSimulatorWebView", changed);
+  await settle();
+  const next = h.render("TestSimulatorWebView", changed);
+  assert.equal(next.props.source.uri, uri, "discovery and connection updates preserve the video session");
+  h.cleanup();
+});
+
+test("mobile simulator header follows background, resume and host loss without depending on WebView messages", async (t) => {
+  const device = {
+    id: "sim",
+    name: "Pixel 9",
+    platform: "android",
+    version: "16",
+  };
+  const h = simulatorHost({
+    url: "mac",
+    call: async () => ({
+      chatId: "/p#7",
+      supported: true,
+      devices: [device],
+      attached: [device],
+      available: [],
+    }),
+  });
+  t.after(() => h.cleanup());
+  const props = { hostId: "mac", chatId: "/p#7" };
+  const render = () => h.render("SimulatorSheet", props);
+  render();
+  await settle();
+  const viewer = find(render(), (node) => node.props?.deviceId === "sim");
+  viewer.props.onConnection({ deviceId: "sim", state: "live" });
+  assert.ok(find(render(), (node) => node.props?.accessibilityLabel === "Live"));
+  h.background();
+  const paused = render();
+  assert.ok(find(paused, (node) => node.props?.accessibilityLabel === "Paused"));
+  assert.equal(
+    find(paused, (node) => node.props?.deviceId === "sim"),
+    undefined,
+    "background unmounts the viewer before any paused message is required",
+  );
+  h.foreground();
+  assert.ok(
+    find(render(), (node) => node.props?.accessibilityLabel === "Connecting"),
+    "a replacement viewer has not become live yet",
+  );
+  find(render(), (node) => node.props?.deviceId === "sim").props.onConnection({
+    deviceId: "sim",
+    state: "live",
+  });
+  h.setClient(null);
+  assert.ok(find(render(), (node) => node.props?.accessibilityLabel === "Disconnected"));
+});
+
+test("mobile simulator cache failures report disconnected, and Retry starts a fresh connecting state", async (t) => {
+  const updates = [];
+  const h = simulatorHost({ call: async () => null });
+  t.after(() => h.cleanup());
+  h.failWrites(new Error("Cache is unavailable"));
+  const props = {
+    client: {},
+    deviceId: "sim",
+    chatId: "/p#7",
+    onConnection: (value) => updates.push(value),
+  };
+  h.render("TestSimulatorWebView", props);
+  await settle();
+  const failure = h.render("TestSimulatorWebView", props);
+  assert.ok(find(failure, (node) => node.props?.accessibilityRole === "alert"));
+  assert.equal(updates.at(-1)?.state, "error");
+  h.failWrites(null);
+  find(failure, (node) => node.props?.title === "Retry").props.onPress();
+  h.render("TestSimulatorWebView", props);
+  assert.equal(updates.at(-1)?.state, "connecting");
+  await settle();
+  assert.equal(h.render("TestSimulatorWebView", props).type, "DomWebView");
 });
 
 test("simulator sheet preserves its native header and bounds chooser/viewer content below it", async (t) => {

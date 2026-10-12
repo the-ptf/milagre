@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runInNewContext } from "node:vm";
+import * as receiverModule from "./simulator-receiver.mjs";
 import {
   simulatorGeometry,
   simulatorPoint,
@@ -40,6 +41,64 @@ test("all orientations invert the displayed rotation, without rotating already-l
   }
   assert.equal(simulatorGeometry({ width: 800, height: 400, orientation: "landscape-left" }, { width: 800, height: 800 }).rotation, 0);
   assert.equal(simulatorGeometry({ ...portrait, width: 0 }, { width: 600, height: 600 }), null);
+});
+test("device frame padding leaves the bezel outside the touch screen in either orientation", () => {
+  for (const orientation of ["portrait", "landscape-left"]) {
+    const geometry = simulatorGeometry({ ...portrait, orientation }, { width: 400, height: 600 }, 24);
+    assert.ok(geometry.left >= 24 && geometry.top >= 24);
+    assert.ok(geometry.left + geometry.width <= 376 && geometry.top + geometry.height <= 576);
+    assert.equal(simulatorPoint({ x: geometry.left - 4, y: geometry.top + geometry.height / 2 }, geometry), null);
+    assert.deepEqual(
+      simulatorPoint(
+        {
+          x: geometry.left + geometry.width / 2,
+          y: geometry.top + geometry.height / 2,
+        },
+        geometry,
+      ),
+      { x: 0.5, y: 0.5 },
+    );
+  }
+  assert.equal(simulatorGeometry(portrait, { width: 40, height: 40 }, 24), null);
+});
+test("hardware cutouts follow the model identifier even when the simulator is renamed", () => {
+  const appearance = receiverModule.simulatorAppearance;
+  for (const [model, cutout] of [
+    ["iPhone-17-Pro", "island"],
+    ["iPhone-13", "notch"],
+    ["iPhone-16e", "notch"],
+    ["iPhone-14", "notch"],
+    ["iPhone-14-Pro", "island"],
+    ["iPhone-SE-3rd-generation", "none"],
+    ["iPad-Pro-11-inch-M4", "none"],
+  ]) {
+    assert.equal(
+      appearance?.({
+        platform: "ios",
+        name: "QA device",
+        deviceType: `com.apple.CoreSimulator.SimDeviceType.${model}`,
+      }).cutout,
+      cutout,
+      model,
+    );
+  }
+  assert.equal(appearance?.({ platform: "android", name: "Milagre_Pixel9" }).cutout, "camera");
+  for (const model of ["Pixel_6a", "Pixel_7a", "Pixel_8a", "Pixel_9a", "Pixel_10a"])
+    assert.equal(appearance?.({ platform: "android", name: model }).cutout, "camera", model);
+  assert.equal(appearance?.({ platform: "android", name: "Pixel_9_Pro_Fold" }).cutout, "none", "the inner and outer screens have different camera positions");
+  assert.equal(appearance?.({ platform: "ios", name: "Unknown simulator" }).cutout, "none");
+});
+test("touches cannot start on the rounded bezel, while a captured drag still clamps at the edge", () => {
+  const geometry = { left: 100, top: 20, width: 200, height: 400, rotation: 0 };
+  assert.equal(simulatorPoint({ x: 102, y: 22 }, geometry, false, 28), null);
+  assert.deepEqual(simulatorPoint({ x: 120, y: 40 }, geometry, false, 28), {
+    x: 0.1,
+    y: 0.05,
+  });
+  assert.deepEqual(simulatorPoint({ x: 95, y: 15 }, geometry, true, 28), {
+    x: 0,
+    y: 0,
+  });
 });
 test("slow input coalesces moves while preserving begin/end and one request in flight", async () => {
   const gate = deferred();
@@ -201,23 +260,47 @@ test("bundled script stays identical to tested source and every device uses the 
 });
 
 /** Exercise the exact bundled browser script, with only browser/WebRTC boundaries replaced. */
-function browserHarness(call, { playVideo = true } = {}) {
+function browserHarness(call, { playVideo = true, device } = {}) {
   const listeners = {},
     elements = {},
     timers = new Map(),
     intervals = new Map(),
-    peers = [];
+    peers = [],
+    states = [];
   let serial = 0;
-  for (const id of ["config", "stage", "video", "failure", "message", "retry", "control", "home", "rotate", "back", "blocked", "blocked-text", "repair"])
+  for (const id of [
+    "config",
+    "stage",
+    "device",
+    "screen",
+    "hardware",
+    "waiting",
+    "video",
+    "failure",
+    "message",
+    "retry",
+    "control",
+    "home",
+    "rotate",
+    "back",
+    "blocked",
+    "blocked-text",
+    "repair",
+  ])
     elements[id] = {
-      style: {},
+      style: {
+        setProperty(key, value) {
+          this[key] = value;
+        },
+      },
       clientWidth: 600,
       clientHeight: 600,
-      dataset: { config: JSON.stringify({ deviceId: "sim" }) },
+      dataset: { config: JSON.stringify({ deviceId: "sim", device }) },
       getBoundingClientRect: () => ({ left: 0, top: 0 }),
       setPointerCapture() {},
     };
   const track = { stop() {} };
+  elements.back.hidden = true;
   elements.video.play = async () => {
     if (playVideo) elements.video.onplaying?.();
   };
@@ -228,7 +311,7 @@ function browserHarness(call, { playVideo = true } = {}) {
     },
   };
   const document = {
-    documentElement: { style: rootStyle },
+    documentElement: { style: rootStyle, dataset: {} },
     hidden: false,
     getElementById: (id) => elements[id],
     addEventListener: (name, fn) => {
@@ -241,7 +324,9 @@ function browserHarness(call, { playVideo = true } = {}) {
     },
     ReactNativeWebView: {
       postMessage: (json) => {
-        void bridge.receive(JSON.parse(json));
+        const message = JSON.parse(json);
+        if (message.event === "state") states.push(message.state);
+        else void bridge.receive(message);
       },
     },
   };
@@ -296,6 +381,7 @@ function browserHarness(call, { playVideo = true } = {}) {
     peers,
     bridge,
     intervals,
+    states,
     timeout(delay) {
       for (const [id, value] of timers)
         if (value.delay === delay) {
@@ -321,6 +407,85 @@ function fakeHost(calls, status = readyStatus) {
   };
 }
 const pointer = (pointerId, clientX = 300, clientY = 300) => ({ pointerId, clientX, clientY, button: 0, preventDefault() {} });
+test("the framed viewer reports connection and ownership states to its native header", async () => {
+  const calls = [],
+    host = fakeHost(calls);
+  let controlling = true;
+  const h = browserHarness(async (method, args) => {
+    if (method === "open")
+      return {
+        viewerId: "viewer",
+        iceServers: [],
+        device: {
+          platform: "ios",
+          name: "QA phone",
+          deviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-13",
+        },
+      };
+    const result = await host(method, args);
+    return method === "status" || method === "control" ? { ...result, controlling } : result;
+  });
+  await h.flush();
+  assert.deepEqual(h.states, ["connecting", "live"], "startup must not report a pause");
+  assert.equal(h.elements.device.dataset.cutout, "notch");
+  controlling = false;
+  for (const poll of h.intervals.values()) await poll();
+  assert.equal(h.states.at(-1), "view-only");
+  assert.equal(h.elements.control.hidden, false);
+  h.peers[0].connectionState = "failed";
+  h.peers[0].onconnectionstatechange();
+  await h.flush();
+  assert.deepEqual(h.states, ["connecting", "live", "view-only", "error"], "a failure must not report a pause before disconnecting");
+  h.bridge.dispose();
+});
+test("Reconnect is available on a live stream and releases it before opening the next viewer", async () => {
+  const calls = [],
+    h = browserHarness(fakeHost(calls));
+  await h.flush();
+  assert.equal(h.elements.retry.hidden, false);
+  assert.equal(h.elements.retry.disabled, false);
+  h.elements.retry.onclick();
+  await h.flush();
+  const methods = calls.map(([method]) => method);
+  assert.ok(methods.indexOf("close") < methods.lastIndexOf("open"));
+  assert.equal(methods.filter((method) => method === "open").length, 2);
+  assert.equal(h.peers[0].closed, true);
+  assert.deepEqual(h.states, ["connecting", "live", "connecting", "live"], "Reconnect must not briefly report a pause");
+  h.bridge.dispose();
+});
+test("Reconnect remains available if input becomes unready after a live stream", async () => {
+  const calls = [],
+    host = fakeHost(calls);
+  let ready = true;
+  const h = browserHarness(async (method, args) => {
+    const result = await host(method, args);
+    return method === "status" || method === "control" ? { ...result, ready } : result;
+  });
+  await h.flush();
+  ready = false;
+  for (const poll of h.intervals.values()) await poll();
+  assert.equal(h.states.at(-1), "connecting");
+  assert.equal(h.elements.retry.hidden, false);
+  assert.equal(h.elements.retry.disabled, false, "a stalled input channel can be reopened");
+  ready = true;
+  h.elements.retry.onclick();
+  await h.flush();
+  assert.equal(calls.filter(([method]) => method === "open").length, 2);
+  assert.equal(h.states.at(-1), "live");
+  h.bridge.dispose();
+});
+test("Android landscape keeps already-rotated video intact without guessing the camera edge", async () => {
+  for (const orientation of ["landscape-left", "landscape-right"]) {
+    const h = browserHarness(fakeHost([], { ...readyStatus, width: 800, height: 400, orientation }), {
+      device: { platform: "android", name: "Pixel 9" },
+    });
+    await h.flush();
+    assert.equal(h.elements.device.dataset.sideways, "true");
+    assert.equal(h.elements.device.dataset.cutout, "none");
+    assert.equal(h.elements.video.style.transform, "translate(-50%,-50%) rotate(0deg)");
+    h.bridge.dispose();
+  }
+});
 test("bundled receiver releases pointer cancellation and closes video/control on page hide", async () => {
   const calls = [];
   const h = browserHarness(fakeHost(calls));
@@ -369,6 +534,7 @@ test("bundled receiver reconnects by itself when shown again, but not after a fa
   h.listeners.visibilitychange();
   await h.flush();
   assert.equal(calls.filter(([method]) => method === "open").length, opens);
+  assert.equal(h.states.at(-1), "error", "hiding an already failed viewer must not relabel it as paused");
 });
 test("bundled receiver repairs Device Hub's blocked touches only after a second, confirming tap", async () => {
   const calls = [];
@@ -544,6 +710,26 @@ test("Android Back is shown only for Android and sends a scoped button event", a
   const ios = browserHarness(fakeHost([]));
   await ios.flush();
   assert.equal(ios.elements.back.hidden, true);
+});
+test("a known Android device keeps Back visible but disabled when capture cannot open", async () => {
+  const h = browserHarness(
+    async () => {
+      throw Error("Capture unavailable");
+    },
+    {
+      device: {
+        id: "sim",
+        name: "Pixel 9",
+        platform: "android",
+        version: "16",
+      },
+    },
+  );
+  await h.flush();
+  assert.equal(h.elements.failure.hidden, false);
+  assert.equal(h.elements.back.hidden, false);
+  assert.equal(h.elements.back.disabled, true);
+  h.bridge.dispose();
 });
 
 test("theme updates restyle controls without reopening the stream", async () => {

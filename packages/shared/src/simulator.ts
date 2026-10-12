@@ -1,4 +1,11 @@
-export type SimulatorDevice = { id: string; name: string; platform: "ios" | "android"; version: string };
+export type SimulatorDevice = {
+  id: string;
+  name: string;
+  platform: "ios" | "android";
+  version: string;
+  /** CoreSimulator's model identifier, independent of the device's editable name. */
+  deviceType?: string;
+};
 export type SimulatorOrientation = "portrait" | "portrait-upside-down" | "landscape-left" | "landscape-right";
 export type SimulatorStatus = {
   width: number;

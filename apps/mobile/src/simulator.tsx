@@ -6,7 +6,13 @@ import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
 import { ArrowDown01Icon, ArrowLeft01Icon, Cancel01Icon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import type { SimulatorDevice, SimulatorList } from "@milagre/shared/simulator";
-import { createSimulatorBridge, createSimulatorReceiverHtml } from "@milagre/shared/simulator-receiver";
+import {
+  createSimulatorBridge,
+  createSimulatorReceiverHtml,
+  SIMULATOR_CONNECTION_LABELS,
+  type SimulatorConnection,
+  type SimulatorConnectionState,
+} from "@milagre/shared/simulator-receiver";
 import type { Client } from "./client";
 import { useSession } from "./session";
 import { Icon } from "./icons";
@@ -99,11 +105,13 @@ export function SimulatorSheet({ hostId, chatId }: { hostId?: string; chatId?: s
   const [attaching, setAttaching] = useState(false),
     [busy, setBusy] = useState(false);
   const [chosen, setSelected] = useState<SimulatorDevice | null>(null);
+  const [connection, setConnection] = useState<SimulatorConnection | null>(null);
   const [choosing, setChoosing] = useState(false);
   const selected = attaching
     ? null
     : ((chosen && list?.devices.find((d) => d.id === chosen.id)) ?? (!choosing && list?.devices.length === 1 ? list.devices[0] : null));
   const [paused, setPaused] = useState(AppState.currentState === "background");
+  const connectionState = !source ? "error" : paused ? "paused" : connection?.deviceId === selected?.id && connection ? connection.state : "connecting";
   const [revision, setRevision] = useState(0);
   const pausedRef = useRef(paused);
   const pause = useCallback(() => {
@@ -113,6 +121,7 @@ export function SimulatorSheet({ hostId, chatId }: { hostId?: string; chatId?: s
   const resume = useCallback(() => {
     if (!pausedRef.current) return;
     pausedRef.current = false;
+    setConnection(null);
     setRevision((value) => value + 1);
     setPaused(false);
   }, []);
@@ -152,10 +161,25 @@ export function SimulatorSheet({ hostId, chatId }: { hostId?: string; chatId?: s
     }
   };
   return (
-    <View style={{ flex: 1, backgroundColor: colors.page, paddingTop: insets.top, paddingBottom: insets.bottom }}>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: colors.page,
+        paddingTop: insets.top,
+        paddingBottom: insets.bottom,
+      }}
+    >
       <View
         collapsable={false}
-        style={{ flexShrink: 0, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, gap: 8 }}
+        style={{
+          flexShrink: 0,
+          flexDirection: "row",
+          alignItems: "center",
+          paddingHorizontal: 16,
+          paddingTop: 16,
+          paddingBottom: 8,
+          gap: 8,
+        }}
       >
         {attaching ? (
           <CircleButton
@@ -168,35 +192,73 @@ export function SimulatorSheet({ hostId, chatId }: { hostId?: string; chatId?: s
             }}
           />
         ) : (
-          <View style={{ width: 40 }} />
+          <View style={{ width: 40, alignItems: "center" }}>
+            <Icon icon={SmartphoneIcon} tone="ink2" size={18} />
+          </View>
         )}
         <View style={{ flex: 1, alignItems: "center" }}>
-          {selected ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`${selected.name}, choose simulator`}
-              onPress={() => {
-                setChoosing(true);
-                setSelected(null);
-              }}
-              hitSlop={8}
-              style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}
-            >
-              <Text accessibilityRole="header" numberOfLines={1} style={{ flexShrink: 1, color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-                {selected.name}
-              </Text>
-              <Icon icon={ArrowDown01Icon} tone="ink3" size={16} />
-            </Pressable>
-          ) : (
-            <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-              {attaching ? "Attach simulator" : "Simulators"}
-            </Text>
-          )}
+          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
+            {attaching ? "Attach simulator" : selected ? "Simulator" : "Simulators"}
+          </Text>
           {!selected && <Text style={{ color: colors.ink3, fontSize: 11 }}>{attaching ? "Other devices on this Mac" : "This Chat"}</Text>}
         </View>
         <CircleButton label="Close simulator" icon={Cancel01Icon} onPress={() => router.back()} />
       </View>
       <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>
+        {selected && (
+          <View
+            style={{
+              flexShrink: 0,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingHorizontal: 24,
+              paddingTop: 12,
+              paddingBottom: 4,
+              gap: 12,
+            }}
+          >
+            <View style={{ flex: 1, gap: 4 }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${selected.name}, choose simulator`}
+                onPress={() => {
+                  setChoosing(true);
+                  setSelected(null);
+                }}
+                hitSlop={8}
+                style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    flexShrink: 1,
+                    color: colors.ink,
+                    fontSize: 15,
+                    fontWeight: "600",
+                  }}
+                >
+                  {selected.name}
+                </Text>
+                <Icon icon={ArrowDown01Icon} tone="ink3" size={14} />
+              </Pressable>
+              <Text style={{ color: colors.ink3, fontSize: 11 }}>
+                {selected.platform === "android" ? "Android" : "iOS"} {selected.version}
+              </Text>
+            </View>
+            <View accessibilityLabel={SIMULATOR_CONNECTION_LABELS[connectionState]} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <View
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: 3,
+                  backgroundColor: connectionState === "live" ? colors.green : connectionState === "error" ? colors.red : colors.ink3,
+                }}
+              />
+              <Text style={{ color: colors.ink2, fontSize: 11 }}>{SIMULATOR_CONNECTION_LABELS[connectionState]}</Text>
+            </View>
+          </View>
+        )}
         {!source ? (
           <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this Mac to open its simulators.</Text>
         ) : paused ? (
@@ -205,7 +267,14 @@ export function SimulatorSheet({ hostId, chatId }: { hostId?: string; chatId?: s
             <PillButton title="Retry" onPress={resume} />
           </View>
         ) : selected ? (
-          <SimulatorWebView key={`${selected.id}:${revision}`} client={source} deviceId={selected.id} chatId={chatId!} />
+          <SimulatorWebView
+            key={`${selected.id}:${revision}`}
+            client={source}
+            deviceId={selected.id}
+            device={selected}
+            chatId={chatId!}
+            onConnection={setConnection}
+          />
         ) : (
           <PageScroll
             style={{ flex: 1 }}
@@ -226,7 +295,14 @@ export function SimulatorSheet({ hostId, chatId }: { hostId?: string; chatId?: s
             {(attaching ? (list?.available ?? []) : (list?.attached ?? [])).map((device) => {
               const running = attaching || list?.devices.some((d) => d.id === device.id);
               return (
-                <View key={device.id} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <View
+                  key={device.id}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`${attaching ? "Attach " : ""}${device.name}`}
@@ -265,7 +341,19 @@ export function SimulatorSheet({ hostId, chatId }: { hostId?: string; chatId?: s
   );
 }
 
-function SimulatorWebView({ client, deviceId, chatId }: { client: Client; deviceId: string; chatId: string }) {
+function SimulatorWebView({
+  client,
+  deviceId,
+  device,
+  chatId,
+  onConnection,
+}: {
+  client: Client;
+  deviceId: string;
+  device?: SimulatorDevice;
+  chatId: string;
+  onConnection?(connection: SimulatorConnection): void;
+}) {
   const { colors, scheme } = useTheme();
   const styles = useStyles();
   const theme = useMemo(() => {
@@ -274,6 +362,8 @@ function SimulatorWebView({ client, deviceId, chatId }: { client: Client; device
   }, [colors, scheme]);
   const latestTheme = useRef(theme);
   const view = useRef<DomWebViewRef>(null);
+  // The native viewer is keyed by device id; polling metadata never restarts its WebView.
+  const [receiverConfig] = useState(() => ({ deviceId, device }));
   const syncTheme = useCallback(
     () => view.current?.injectJavaScript(`window.simulatorTheme?.(${JSON.stringify(latestTheme.current).replace(/</g, "\\u003c")});true;`),
     [],
@@ -287,6 +377,7 @@ function SimulatorWebView({ client, deviceId, chatId }: { client: Client; device
     [revision, setRevision] = useState(0);
   const bridge = useRef<ReturnType<typeof createSimulatorBridge> | null>(null);
   useEffect(() => {
+    onConnection?.({ deviceId: receiverConfig.deviceId, state: "connecting" });
     const currentBridge = createSimulatorBridge(
       (method, args) => client.call(`simulator:${method}`, [method === "open" ? { ...(args as object), chatId } : args]),
       (reply) => {
@@ -300,11 +391,20 @@ function SimulatorWebView({ client, deviceId, chatId }: { client: Client; device
     void Promise.resolve()
       .then(() => {
         if (cancelled) return;
-        file.write(createSimulatorReceiverHtml({ deviceId, theme: latestTheme.current }));
+        file.write(
+          createSimulatorReceiverHtml({
+            ...receiverConfig,
+            theme: latestTheme.current,
+            touchControls: true,
+          }),
+        );
         setUri(file.uri);
       })
       .catch((failure) => {
-        if (!cancelled) setError(failure instanceof Error ? failure.message : "Could not prepare the simulator viewer.");
+        if (!cancelled) {
+          setError(failure instanceof Error ? failure.message : "Could not prepare the simulator viewer.");
+          onConnection?.({ deviceId: receiverConfig.deviceId, state: "error" });
+        }
       });
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "background") {
@@ -322,9 +422,10 @@ function SimulatorWebView({ client, deviceId, chatId }: { client: Client; device
         /* The OS may purge cache files while backgrounding. */
       }
     };
-  }, [client, deviceId, chatId, revision]);
+  }, [client, receiverConfig, chatId, revision, onConnection]);
   const failed = () => {
     bridge.current?.dispose();
+    onConnection?.({ deviceId, state: "error" });
     setError("The simulator viewer stopped. Retry to reconnect.");
   };
   if (error)
@@ -363,6 +464,13 @@ function SimulatorWebView({ client, deviceId, chatId }: { client: Client; device
       onMessage={(event) => {
         try {
           const message = JSON.parse(event.nativeEvent.data);
+          if (message.channel === "milagre-simulator" && message.event === "state" && Object.hasOwn(SIMULATOR_CONNECTION_LABELS, message.state)) {
+            onConnection?.({
+              deviceId,
+              state: message.state as SimulatorConnectionState,
+            });
+            return;
+          }
           if (message.channel === "milagre-simulator" && message.method === "open") syncTheme();
           void bridge.current?.receive(message);
         } catch {
