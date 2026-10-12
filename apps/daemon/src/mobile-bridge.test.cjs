@@ -69,6 +69,42 @@ async function fixture(t, { runtimeOptions = {}, bridgeOptions = {} } = {}) {
   return { dataDir, project, bridge, request, rpc, token, daemon };
 }
 
+test("inbox question and approval actions settle through the owner, and Clear removes unread outcomes", async (t) => {
+  const { rpc, request, project } = await fixture(t, { runtimeOptions: demoRuntimeOptions() });
+  await rpc("project:open", [project]);
+  const opened = (await (await request("/snapshot?projectPath=" + encodeURIComponent(project))).json()).result;
+  const worktreeId = Object.values(opened.project.state.worktrees)[0].id;
+  const snapshot = async () => (await (await request("/inbox")).json()).result;
+  const waitFor = async (predicate) => {
+    for (let i = 0; i < 100; i++) {
+      const inbox = await snapshot();
+      if (predicate(inbox)) return inbox;
+      await delay(20);
+    }
+    throw new Error("Inbox did not settle");
+  };
+  for (const body of ["question", "approval"]) {
+    assert.equal((await rpc("chat:send", [{ projectPath: project, worktreeId, body, provider: "codex", model: "demo", permissionMode: "ask" }])).status, 200);
+  }
+  const waiting = await waitFor((inbox) => inbox.items.length === 2);
+  const question = waiting.items.find((item) => item.status === "question");
+  const approval = waiting.items.find((item) => item.status === "approval");
+  assert.ok(question.question);
+  assert.ok(approval.permission);
+  const answer = await rpc("agent:answer-question", [
+    { chatId: question.key, requestId: question.question.requestId, answers: { next: ["Read a Chat"] }, summary: "Next step: Read a Chat" },
+  ]);
+  assert.equal((await answer.json()).result, true);
+  const allow = await rpc("agent:respond-permission", [{ chatId: approval.key, requestId: approval.permission.requestId, decision: "allow" }]);
+  assert.equal((await allow.json()).result, true);
+  const finished = await waitFor((inbox) => inbox.items.length === 2 && inbox.items.every((item) => item.status === "completed"));
+  assert.ok(finished.items.some((item) => item.preview.includes("answer received")));
+  for (const item of finished.items) {
+    await rpc("chat:patch", [item.projectPath, Number(item.key.split("#").at(-1)), { unread: false }]);
+  }
+  await waitFor((inbox) => !inbox.items.length && !inbox.agents.length);
+});
+
 test("Live Activity answers reach the real question handler and persist one answer", async (t) => {
   const { rpc, request, project } = await fixture(t, { runtimeOptions: demoRuntimeOptions() });
   await rpc("project:open", [project]);

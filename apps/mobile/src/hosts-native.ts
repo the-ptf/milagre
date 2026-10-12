@@ -60,6 +60,36 @@ export async function saveAttentionButton(on: boolean) {
   }
 }
 const muriloModeKey = "milagre.murilo-mode.v1";
+const floatingInboxKey = "milagre.floating-inbox.v1";
+export async function readFloatingInbox(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(floatingInboxKey)) === "on";
+  } catch {
+    return false;
+  }
+}
+export async function saveFloatingInbox(on: boolean) {
+  try {
+    await SecureStore.setItemAsync(floatingInboxKey, on ? "on" : "off");
+  } catch {
+    /* best effort */
+  }
+}
+const floatingInboxActivityKey = "milagre.floating-inbox-activity.v1";
+export async function readFloatingInboxActivity(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(floatingInboxActivityKey)) !== "off";
+  } catch {
+    return true;
+  }
+}
+export async function saveFloatingInboxActivity(on: boolean) {
+  try {
+    await SecureStore.setItemAsync(floatingInboxActivityKey, on ? "on" : "off");
+  } catch {
+    /* best effort */
+  }
+}
 /** Experimental: whether a reply's tool calls show in the Chat one row each instead of folding into one line; off unless turned on. */
 export async function readMuriloMode(): Promise<boolean> {
   try {

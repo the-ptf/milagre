@@ -95,6 +95,21 @@ async function openChat(t) {
 
 const shape = (messages) => messages.map((message) => [message.role, message.body]);
 
+test("inbox outcome previews survive idle unloading without reloading transcripts", async (t) => {
+  const { project, chat, send, unload, inMemory, runtime } = await openChat(t);
+  await send("first");
+  await runtime.invoke("chat:patch", [project, chat.id, { unread: true }]);
+  const before = await runtime.invoke("chat:inbox", []);
+  assert.equal(before.items[0].preview, "Reply 1 from claude");
+  await unload();
+  const after = await runtime.invoke("chat:inbox", []);
+  assert.equal(after.items[0].preview, before.items[0].preview);
+  assert.equal(inMemory(), false, "reading the inbox leaves the transcript unloaded");
+  await send("second");
+  await runtime.invoke("chat:patch", [project, chat.id, { unread: true }]);
+  assert.equal((await runtime.invoke("chat:inbox", [])).items[0].preview, "Reply 2 from claude");
+});
+
 test("a turn in a Chat that left memory goes into the whole Chat, in order, and is saved whole", async (t) => {
   const { project, chat, chatMessages, send, unload, inMemory, runtime } = await openChat(t);
   await send("first");

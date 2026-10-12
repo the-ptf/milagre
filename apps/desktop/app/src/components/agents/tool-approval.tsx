@@ -27,9 +27,11 @@ export interface ToolApprovalCodeProps {
   code: string;
   language?: ToolApprovalCodeLanguage;
   className?: string;
+  plain?: boolean;
 }
 
 export interface ToolApprovalProps {
+  variant?: "card" | "inline";
   tool: ReactNode;
   title?: ReactNode;
   description?: ReactNode;
@@ -77,7 +79,13 @@ function StatusIcon({ status, reduce }: { status: ToolApprovalStatus; reduce: bo
   return <Icon icon={SecurityCheckIcon} size={14} />;
 }
 
-export function ToolApprovalCode({ code, language = "bash", className = "" }: ToolApprovalCodeProps) {
+export function ToolApprovalCode({ code, language = "bash", className = "", plain = false }: ToolApprovalCodeProps) {
+  if (plain)
+    return (
+      <pre className={`min-w-0 whitespace-pre-wrap break-words text-xs leading-5 text-ink-2 ${className}`}>
+        <code>{code}</code>
+      </pre>
+    );
   return (
     <div className={`min-w-0 overflow-hidden rounded-control border border-line bg-inset ${className}`}>
       <div className="border-b border-line px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-3">{language}</div>
@@ -89,6 +97,7 @@ export function ToolApprovalCode({ code, language = "bash", className = "" }: To
 }
 
 export function ToolApproval({
+  variant = "card",
   tool,
   title = "Allow this tool to run?",
   description,
@@ -104,6 +113,7 @@ export function ToolApproval({
   className = "",
 }: ToolApprovalProps) {
   const reduce = useReducedMotion();
+  const inline = variant === "inline";
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const detailsOpen = open ?? internalOpen;
   const isPending = status === "pending";
@@ -123,32 +133,49 @@ export function ToolApproval({
 
   return (
     <motion.section
-      role="dialog"
+      role={inline ? "group" : "dialog"}
       aria-label="Tool approval"
       aria-busy={isBusy}
-      initial={reduce ? false : { opacity: 0, y: 8, scale: 0.98 }}
+      initial={reduce || inline ? false : { opacity: 0, y: 8, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={reduce ? undefined : { opacity: 0, y: 6, scale: 0.985 }}
       transition={reduce ? { duration: 0 } : SPRING_SWAP}
-      className={`flex max-h-[min(72vh,620px)] w-full flex-col overflow-hidden rounded-card border border-line bg-surface shadow-overlay ${className}`}
+      className={`${inline ? "flex w-full flex-col gap-4" : "flex max-h-[min(72vh,620px)] w-full flex-col overflow-hidden rounded-card border border-line bg-surface shadow-overlay"} ${className}`}
     >
-      <div className="flex items-start gap-3 p-4">
+      <div className={`flex items-start gap-3 ${inline ? "" : "p-4"}`}>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="truncate text-[11px] font-medium text-ink-3">{tool}</p>
               <h2 className="mt-0.5 text-sm font-semibold text-ink">{title}</h2>
             </div>
-            <span className={`inline-flex shrink-0 items-center gap-1 rounded-chip border px-2 py-1 text-[10px] font-semibold ${statusTone(status)}`}>
-              <StatusIcon status={status} reduce={Boolean(reduce)} />
-              {STATUS_COPY[status]}
-            </span>
+            {!inline && (
+              <span className={`inline-flex shrink-0 items-center gap-1 rounded-chip border px-2 py-1 text-[10px] font-semibold ${statusTone(status)}`}>
+                <StatusIcon status={status} reduce={Boolean(reduce)} />
+                {STATUS_COPY[status]}
+              </span>
+            )}
           </div>
           {description && <p className="mt-2 text-xs leading-5 text-ink-2">{description}</p>}
+          {inline && isBusy && (
+            <p role="status" className="mt-2 text-xs text-ink-3">
+              Sending decision…
+            </p>
+          )}
         </div>
       </div>
 
-      {parameters.length > 0 && (
+      {inline && parameters.length > 0 && (
+        <div className="grid gap-3">
+          {parameters.map((parameter) => (
+            <div key={parameter.id} className="grid gap-1 text-xs">
+              <span className="font-medium text-ink-3">{parameter.label}</span>
+              <div className="min-w-0 break-words text-ink-2">{parameter.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {!inline && parameters.length > 0 && (
         <div className="flex min-h-0 flex-1 flex-col border-t border-line">
           <button
             type="button"
@@ -193,7 +220,7 @@ export function ToolApproval({
             animate={{ opacity: 1, y: 0 }}
             exit={reduce ? undefined : { opacity: 0, y: 6 }}
             transition={reduce ? { duration: 0 } : SPRING_SWAP}
-            className="flex flex-wrap justify-end gap-2 border-t border-line bg-inset px-4 py-3"
+            className={inline ? "flex flex-wrap justify-end gap-2" : "flex flex-wrap justify-end gap-2 border-t border-line bg-inset px-4 py-3"}
           >
             <motion.button
               type="button"

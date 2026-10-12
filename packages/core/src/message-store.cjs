@@ -1,4 +1,13 @@
-const { readChatRows, readChatBodies, readChatRowsContaining, readChatMarks, readPositions, findRow, readDetailRefs } = require("./chat-db.cjs");
+const {
+  readChatRows,
+  readChatBodies,
+  readChatPreviews,
+  readChatRowsContaining,
+  readChatMarks,
+  readPositions,
+  findRow,
+  readDetailRefs,
+} = require("./chat-db.cjs");
 
 // Which Chats' messages a state holds in memory (#321). A Project's state used to hold every message of every Chat; now
 // a Chat nobody has touched for a while is unloaded: its messages leave `state.messages`, and its rows in chats.db
@@ -288,6 +297,31 @@ function chatMessages(directory, state, chats) {
   return mergeRows(loaded, rowsOf(directory, unloaded), positionsOf(directory, state));
 }
 
+/** A projection for the inbox, with bounded assistant previews for unread outcomes, including unloaded Chats. */
+function inboxState(directory, state) {
+  const chats = Object.values(state.sessions)
+    .filter((session) => !session.archived && session.unread && ["completed", "failed"].includes(session.summary?.lastOutcome))
+    .map((session) => session.id);
+  const unloaded = readableUnloaded(state);
+  const messages = chats
+    .filter((chat) => !unloaded.has(chat))
+    .map((chat) => state.messages.findLast((message) => message.session_id === chat && message.role === "assistant"))
+    .filter(Boolean)
+    .map(({ session_id, body }) => ({
+      session_id,
+      role: "assistant",
+      body: body?.slice(0, 240) ?? "",
+    }));
+  if (directory)
+    messages.push(
+      ...readChatPreviews(
+        directory,
+        chats.filter((chat) => unloaded.has(chat)),
+      ),
+    );
+  return { ...state, messages };
+}
+
 /**
  * Every message in memory, and those of unloaded Chats whose saved JSON contains one of `needles` (read for this call
  * only), in the Project's order: what a lookup that matches on some text has to look at.
@@ -367,6 +401,7 @@ module.exports = {
   forgetRest,
   allMessages,
   chatMessages,
+  inboxState,
   messagesContaining,
   messageMarks,
   searchableMessages,

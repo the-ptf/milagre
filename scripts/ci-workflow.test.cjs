@@ -231,5 +231,5 @@ test("a native-gate job always reports for branch protection and only fails when
   assert.deepEqual(gate.needs, ["native-tests"]);
   const run = gate.steps.map((step) => step.run).join("\n");
   assert.match(run, /success\|skipped\) exit 0/);
-  assert.deepEqual(ci.jobs.release.needs, ["javascript", "native-gate"]);
+  assert.deepEqual(ci.jobs.release.needs, ["javascript", "native-gate", "macos-desktop-smoke"]);
 });

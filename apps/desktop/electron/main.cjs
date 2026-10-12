@@ -17,6 +17,7 @@ const {
   safeStorage,
   powerMonitor,
   net,
+  screen,
 } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("node:path");
@@ -34,6 +35,48 @@ const { createDeviceNotices } = require("./device-notices.cjs");
 const { createMediaHandler } = require("./media.cjs");
 protocol.registerSchemesAsPrivileged([{ scheme: "milagre-media", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 async function startDesktop() {
+  /** @type {Electron.BrowserWindow | null} */
+  let mainWindow = null;
+  const indexFile = path.join(__dirname, "../dist/index.html");
+  const appUrl = app.isPackaged ? pathToFileURL(indexFile).href : process.env.MILAGRE_DEV_SERVER_URL || "http://127.0.0.1:5173";
+  const { createFloatingInbox } = require("./floating-inbox.cjs");
+  await app.whenReady();
+  const floating = createFloatingInbox({
+    BrowserWindow,
+    screen,
+    positionFile: path.join(app.getPath("userData"), "floating-inbox-position.json"),
+    preload: path.join(__dirname, "preload.cjs"),
+    load: (window, view) => {
+      guardNavigation(window.webContents, { appUrl, openExternal: (url) => shell.openExternal(url).catch(() => {}) });
+      const url = new URL(appUrl);
+      url.searchParams.set("floating-inbox", view);
+      void window.loadURL(url.href);
+    },
+  });
+  ipcMain.handle("settings:floating-inbox", (_event, on) => floating.setEnabled(on === true));
+  ipcMain.handle("floating-inbox:toggle", () => floating.toggle());
+  ipcMain.handle("floating-inbox:select", (_event, key) => floating.openItem(key));
+  ipcMain.handle("floating-inbox:selected", () => floating.selectedKey());
+  ipcMain.handle("floating-inbox:is-open", () => floating.isOpen());
+  ipcMain.handle("floating-inbox:dock-expanded", (_event, on, reducedMotion) => floating.setDockExpanded(on === true, reducedMotion === true));
+  ipcMain.handle("floating-inbox:close", () => floating.close());
+  ipcMain.handle("floating-inbox:preview", (_event, key, y) => floating.showPreview(key, y));
+  ipcMain.handle("floating-inbox:preview-key", () => floating.previewKey());
+  ipcMain.handle("floating-inbox:placement", () => floating.placement());
+  ipcMain.handle("floating-inbox:drag-begin", (_event, reducedMotion) => floating.beginDrag(reducedMotion === true));
+  ipcMain.handle("floating-inbox:drag-move", () => floating.moveDrag());
+  ipcMain.handle("floating-inbox:drag-end", (_event, cancel) => floating.endDrag(cancel === true));
+  ipcMain.handle("floating-inbox:drag-overlay", (event) => floating.overlayState(BrowserWindow.fromWebContents(event.sender)));
+  ipcMain.handle("floating-inbox:count", (_event, count) => floating.setCount(Math.max(0, Math.min(12, Number(count) || 0))));
+  ipcMain.handle("floating-inbox:height", (_event, height, reducedMotion) => floating.setInboxHeight(height, reducedMotion === true));
+  ipcMain.handle("floating-inbox:open-chat", (_event, key) => {
+    floating.close();
+    if (typeof key === "string") openChatFromNotification(key);
+  });
+  ipcMain.handle("floating-inbox:settings", () => {
+    floating.close();
+    openFromNotification("notification:open-experimental");
+  });
   const appIconPath = path.join(__dirname, "../app/public/logo-milagre-image.png");
   const { createReleaseChannelStore, prepareUpdater } = require("./release-channel.cjs");
   const { createAppUpdates, watchAppUpdates } = require("./app-updates.cjs");
@@ -141,7 +184,7 @@ async function startDesktop() {
 
   // Brings the window back from a notification click and tells it what to open.
   function openFromNotification(channel, ...args) {
-    const window = BrowserWindow.getAllWindows().find((item) => !item.isDestroyed());
+    const window = mainWindow;
     if (!window) return;
     if (window.isMinimized()) window.restore();
     window.show();
@@ -153,7 +196,7 @@ async function startDesktop() {
 
   const notifier = new AttentionNotifier({
     createNotification: ({ title, subtitle, body }) => new Notification({ title, body, ...(subtitle ? { subtitle } : {}) }),
-    isAppFocused: () => Boolean(BrowserWindow.getFocusedWindow()),
+    isAppFocused: () => Boolean(mainWindow?.isFocused()),
     openChat: openChatFromNotification,
     openPhoneSettings: () => openFromNotification("notification:open-phone-settings"),
     setBadge: (value) => app.dock?.setBadge(value),
@@ -308,6 +351,25 @@ async function startDesktop() {
         if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(channel, payload);
     },
   });
+  ipcMain.handle("floating-inbox:snapshot", async () => {
+    const local = await runtime.invoke("chat:inbox", []);
+    const { qualifyResult } = require("./computer-routing.cjs");
+    const remote = await Promise.all(
+      computers
+        .list()
+        .filter((computer) => computer.state === "online")
+        .map(async (computer) => {
+          try {
+            const snapshot = qualifyResult(computer.id, "chat:inbox", await computers.invoke(computer.id, "chat:inbox", []));
+            const label = (item) => ({ ...item, computer: computer.name });
+            return { agents: snapshot.agents.map(label), items: snapshot.items.map(label) };
+          } catch {
+            return { agents: [], items: [] };
+          }
+        }),
+    );
+    return { agents: [...local.agents, ...remote.flatMap((value) => value.agents)], items: [...local.items, ...remote.flatMap((value) => value.items)] };
+  });
   // An older host can't load very large Projects; the window offers to replace it with this desktop's own.
   ipcMain.handle("runtime:restart-host", async () => {
     await runtime.restartHost();
@@ -339,24 +401,24 @@ async function startDesktop() {
         nodeIntegration: false,
       },
     });
+    mainWindow = window;
+    window.on("closed", () => {
+      if (mainWindow === window) mainWindow = null;
+    });
     manageWindowState(window, statePath);
 
-    const indexFile = path.join(__dirname, "../dist/index.html");
-    const appUrl = app.isPackaged ? pathToFileURL(indexFile).href : process.env.MILAGRE_DEV_SERVER_URL || "http://127.0.0.1:5173";
-    // On macOS the close button hides the window; the shared host also survives a desktop quit.
-    if (process.platform === "darwin") {
-      window.on("close", (event) => {
-        if (quitting) return;
-        event.preventDefault();
-        // A full-screen window hidden as is leaves a black space behind.
-        if (window.isFullScreen()) {
-          window.once("leave-full-screen", () => window.hide());
-          window.setFullScreen(false);
-        } else {
-          window.hide();
-        }
-      });
-    }
+    // Keep the renderer ready for dock actions on every platform while the floating inbox is enabled.
+    window.on("close", (event) => {
+      if (quitting || (process.platform !== "darwin" && !floating.isEnabled())) return;
+      event.preventDefault();
+      // A full-screen window hidden as is leaves a black space behind.
+      if (window.isFullScreen()) {
+        window.once("leave-full-screen", () => window.hide());
+        window.setFullScreen(false);
+      } else {
+        window.hide();
+      }
+    });
     guardNavigation(window.webContents, { appUrl, openExternal: (url) => shell.openExternal(url).catch(() => {}) });
     forwardAppShortcuts(window.webContents);
     // A reload keeps every turn running: the main process saves them, and the renderer takes the
@@ -381,18 +443,21 @@ async function startDesktop() {
     createWindow();
     void runtime.resumeRecentProjects().catch((error) => console.warn(error.message));
     void deviceNotices.connected();
-    app.on("browser-window-focus", () => {
+    app.on("browser-window-focus", (_event, window) => {
+      if (floating.owns(window)) return;
       void runtime.setFocused(true).catch(() => {});
       computers.setFocused(true);
     });
-    app.on("browser-window-blur", () => {
+    app.on("browser-window-blur", (_event, window) => {
+      if (floating.owns(window)) return;
       void runtime.setFocused(false).catch(() => {});
       computers.setFocused(false);
     });
     if (app.isPackaged) watchAppUpdates(updates, { app, powerMonitor });
     else void updates.check();
     app.on("activate", () => {
-      const window = BrowserWindow.getAllWindows().find((item) => !item.isDestroyed());
+      if (floating.owns(BrowserWindow.getFocusedWindow())) return;
+      const window = mainWindow;
       if (window) window.show();
       else createWindow();
     });
@@ -412,6 +477,7 @@ async function startDesktop() {
     quitting = true;
     quitPrepared ??= (async () => {
       notifier.closeAll();
+      floating.dispose();
       // Each computer's channels close too; nothing on the other Macs stops.
       try {
         await Promise.all([runtime.close(), computers.close()]);

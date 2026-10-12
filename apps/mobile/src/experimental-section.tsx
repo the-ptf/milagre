@@ -15,6 +15,7 @@ import { useFocusEffect } from "expo-router";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { CustomThemeSection } from "./custom-theme-section";
 import { useMuriloMode } from "./murilo-mode";
+import { useFloatingInbox, useFloatingInboxActivity } from "./floating-inbox-setting";
 import { useUltracodeFatality } from "./ultracode-fatality-setting";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
@@ -25,6 +26,8 @@ export function ExperimentalSection() {
   const styles = useStyles();
   const session = useSession();
   const [muriloMode, setMuriloMode] = useMuriloMode();
+  const [floatingInbox, setFloatingInbox] = useFloatingInbox();
+  const [inboxActivity, setInboxActivity] = useFloatingInboxActivity();
   const [fatality, setFatality] = useUltracodeFatality();
   const { settings, set } = useTheme();
   // On: start from the current theme's colors and select Custom. Off while Custom is selected: back to Milagre Blue, seeds kept.
@@ -86,6 +89,18 @@ export function ExperimentalSection() {
   return (
     <View style={{ gap: 8 }}>
       {/* This phone's own switches, kept on the phone. */}
+      <View style={[styles.card, { gap: 4 }]}>
+        <Toggle title="Floating inbox" selected={floatingInbox} onPress={() => setFloatingInbox(!floatingInbox)} />
+        <Text style={styles.caption}>
+          A movable inbox button in the Chat. Tap to answer questions or approve requests. Flick it toward the left or right edge to tuck it away.
+        </Text>
+        {floatingInbox && (
+          <View style={{ marginLeft: 16, gap: 4 }}>
+            <Toggle title="Show chat activity" selected={inboxActivity} onPress={() => setInboxActivity(!inboxActivity)} />
+            <Text style={styles.caption}>Include working chats with a progress summary and finished updates. Off: only questions and permission requests.</Text>
+          </View>
+        )}
+      </View>
       <View style={[styles.card, { gap: 4 }]}>
         <Toggle title="Murilo mode" selected={muriloMode} onPress={() => setMuriloMode(!muriloMode)} />
         <Text style={styles.caption}>

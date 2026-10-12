@@ -136,7 +136,8 @@ jobs:
             node_modules
             apps/*/node_modules
             packages/*/node_modules
-          key: node-modules-core-daemon-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('package-lock.json') }}
+          # Windows workspace junctions contain absolute paths. A repository rename changes the checkout path.
+          key: node-modules-core-daemon-${{ github.repository }}-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('package-lock.json') }}
       - name: Install core and daemon dependencies
         if: matrix.os == 'windows-latest' && steps.windows-cache.outputs.cache-hit != 'true'
         run: npm ci --workspace @milagre/core --workspace @milagre/daemon --ignore-scripts --omit=optional --no-audit --no-fund
@@ -221,13 +222,36 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  macos-desktop-smoke:
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Exercise the macOS desktop before signing a release
+        run: npm test -- --only test-desktop
+      - name: Upload dock failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-dock-diagnostics
+          path: ${{ runner.temp }}/milagre-dock-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+
   release:
     # Every CI-green push to main becomes a release candidate: a tag and a DRAFT GitHub release.
     # Stable installs never see drafts (they ask for GitHub's latest release). The tag does show in the releases
     # atom feed, so beta installs resolve their feed through the REST API instead (electron/release-channel.cjs).
     # The "Publish" workflow ships a candidate to beta or stable.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'the-ptf/milagre-ade'
-    needs: [javascript, native-gate]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'the-ptf/milagre'
+    needs: [javascript, native-gate, macos-desktop-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

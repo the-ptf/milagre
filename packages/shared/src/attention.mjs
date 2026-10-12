@@ -2,7 +2,7 @@ import { providerName } from "./providers.mjs";
 // System notifications for chats that wait on the user, built by the main process, which sees every
 // project's chats (see notifications.cjs). Types: attention.d.mts.
 import { chatTitle } from "./chats.mjs";
-import { chatInProject, projectOfKey } from "./agent-runs.mjs";
+import { chatInProject, projectOfKey, subagentActive } from "./agent-runs.mjs";
 import { isLinkScopeKey } from "./chat-scopes.mjs";
 
 /**
@@ -60,4 +60,75 @@ export function waitingFor(run) {
   const approval = run?.approvals?.[0];
   if (approval) return approval.command?.split("\n")[0].trim() || approval.title;
   return run?.questions?.[0]?.questions?.[0]?.question;
+}
+
+/** Small, live inbox projection. Transcripts and tool output stay with their Chats. */
+const inboxPriority = (item) => (item.status === "approval" || item.status === "question" ? 0 : 1);
+
+export function inboxSnapshot(scopes, runs = {}) {
+  const agents = [];
+  for (const { path, name, state } of scopes) {
+    for (const session of Object.values(state.sessions)) {
+      if (session.archived) continue;
+      const key = `${path}#${session.id}`;
+      const run = runs[key];
+      const permission = run?.approvals?.find((request) => !run.answered?.[request.requestId]);
+      const question = permission ? undefined : run?.questions?.find((request) => !run.answered?.[request.requestId]);
+      const background = session.subagents?.some((agent) => agent.background && subagentActive(agent));
+      const outcome = session.summary?.lastOutcome;
+      const status = permission
+        ? "approval"
+        : question
+          ? "question"
+          : run || background
+            ? "working"
+            : session.unread && (outcome === "completed" || outcome === "failed")
+              ? outcome
+              : null;
+      if (!status) continue;
+      const last = state.messages?.findLast((message) => message.session_id === session.id && message.role === "assistant");
+      agents.push({
+        key,
+        projectPath: path,
+        project: name,
+        title: chatTitle(session, []),
+        provider: session.provider,
+        status,
+        at: run?.startedAt ?? session.summary?.lastAt ?? 0,
+        ...(permission ? { permission } : {}),
+        ...(question ? { question } : {}),
+        ...(status === "working"
+          ? {
+              preview: (
+                run?.steps?.findLast((step) => step.status === "running")?.title ||
+                run?.text ||
+                (background ? "Working in the background." : "The agent is working.")
+              )
+                .replace(/\s+/g, " ")
+                .trim()
+                .slice(0, 240),
+            }
+          : {}),
+        ...(status === "completed" || status === "failed"
+          ? {
+              preview:
+                last?.body?.slice(0, 240) ||
+                (status === "failed" ? "The turn failed. Open the Chat for details." : "The agent finished its turn. Open the Chat to review the result."),
+            }
+          : {}),
+      });
+    }
+  }
+  const items = agents
+    .filter((item) => item.status !== "working")
+    .toSorted((a, b) => inboxPriority(a) - inboxPriority(b) || (inboxPriority(a) === 0 ? a.at - b.at : b.at - a.at) || a.key.localeCompare(b.key));
+  return { agents, items };
+}
+
+/** The experimental activity switch applies equally to the dots and inbox pages. */
+export function visibleInbox(snapshot, activity = true) {
+  const visible = (item) => activity || item.status === "question" || item.status === "approval";
+  const agents = snapshot.agents.filter(visible);
+  const items = snapshot.items.filter(visible);
+  return { agents, items: [...items, ...agents.filter((item) => item.status === "working" && !items.some((row) => row.key === item.key))] };
 }

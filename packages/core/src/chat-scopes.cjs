@@ -38,6 +38,10 @@ function createChatScopes({ projects, links, validateLink }) {
       const [store, id] = target(key);
       return store.chatMessages(id, chats);
     },
+    inboxState(key) {
+      const [store, id] = target(key);
+      return store.inboxState(id);
+    },
     messageMarks(key, options) {
       const [store, id] = target(key);
       return store.messageMarks(id, options);

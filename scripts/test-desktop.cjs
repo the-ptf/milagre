@@ -138,6 +138,112 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     assert.ok(JSON.stringify(skills).includes("tldr"), "Bundled skills resolve after relocation");
     assert.equal(typeof (await evaluate("window.milagre.getAppVersion()")), "string");
     await waitFor(() => evaluate('!document.querySelector(".startup-splash-screen")'), "desktop ready for shared controls");
+    // The Experimental switch owns both native windows. Disabling removes them without closing the main app.
+    const pages = async () => fetch(`http://127.0.0.1:${debuggerPort}/json/list`).then((response) => response.json());
+    assert.equal((await pages()).filter((page) => page.url.includes("floating-inbox=")).length, 0);
+    await evaluate("window.milagre.openInboxSettings()");
+    await waitFor(() => evaluate(`!!document.querySelector('[role="switch"][aria-label="Floating inbox"]')`), "Floating inbox Experimental switch");
+    if (process.env.MILAGRE_SCREENSHOT_DIR) {
+      const shot = await connection.call("Page.captureScreenshot");
+      await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "floating-inbox-settings.png"), Buffer.from(shot.data, "base64"));
+    }
+    await evaluate(`document.querySelector('[role="switch"][aria-label="Floating inbox"]').click()`);
+    const dockPage = await waitFor(async () => (await pages()).find((page) => page.url.includes("floating-inbox=dock")), "native floating bar");
+    const dock = await connect(dockPage.webSocketDebuggerUrl);
+    try {
+      const readDock = async (expression) => (await dock.call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
+      await waitFor(() => readDock('!!document.querySelector("[data-floating-bar]")'), "bar rendered through the real preload");
+      assert.equal(await readDock('document.querySelector("[data-floating-bar]").getBoundingClientRect().width'), 28);
+      try {
+        assert.equal(await readDock("getComputedStyle(document.body).backgroundColor"), "rgba(0, 0, 0, 0)");
+      } catch (error) {
+        console.error(
+          "Floating dock at failure:",
+          await readDock(`JSON.stringify({ url: location.href, readyState: document.readyState, userAgent: navigator.userAgent,
+            root: document.documentElement.outerHTML.slice(0, document.documentElement.outerHTML.indexOf('>') + 1),
+            body: document.body.getAttribute('style'), background: getComputedStyle(document.body).background,
+            rootBackground: getComputedStyle(document.documentElement).background,
+            appBackground: getComputedStyle(document.getElementById('root')).background,
+            sheets: [...document.styleSheets].map(sheet => ({href: sheet.href, disabled: sheet.disabled})) })`),
+        );
+        await dock.call("DOM.enable");
+        await dock.call("CSS.enable");
+        const { root } = await dock.call("DOM.getDocument");
+        const { nodeId } = await dock.call("DOM.querySelector", { nodeId: root.nodeId, selector: "body" });
+        const styles = await dock.call("CSS.getMatchedStylesForNode", { nodeId });
+        const computed = await dock.call("CSS.getComputedStyleForNode", { nodeId });
+        console.error(
+          "Floating dock CSS computed background:",
+          JSON.stringify(computed.computedStyle.filter((property) => property.name.startsWith("background"))),
+        );
+        console.error(
+          "Floating dock matched rules:",
+          JSON.stringify({ rules: styles.matchedCSSRules, inline: styles.inlineStyle, attributes: styles.attributesStyle }),
+        );
+        console.error(
+          "Floating dock color state:",
+          await readDock(`JSON.stringify({
+          background: getComputedStyle(document.body).backgroundColor,
+          bodyClass: document.body.className, parent: document.body.parentElement.tagName,
+          forcedColors: matchMedia('(forced-colors: active)').matches,
+          colorScheme: getComputedStyle(document.body).colorScheme,
+          forcedColorAdjust: getComputedStyle(document.body).forcedColorAdjust,
+          stripe: getComputedStyle(document.body).getPropertyValue('--stripe-bg'),
+          animations: document.getAnimations().filter(a => a.effect?.target === document.body).map(a => ({state:a.playState,frames:a.effect?.getKeyframes()})),
+          animationStyles: ${JSON.stringify(styles.cssAnimationStyles ?? [])}
+        })`),
+        );
+        await readDock("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+        console.error("Floating dock background after two frames:", await readDock("getComputedStyle(document.body).backgroundColor"));
+        const directory = path.join(process.env.RUNNER_TEMP || os.tmpdir(), "milagre-dock-diagnostics");
+        await fs.mkdir(directory, { recursive: true });
+        const shot = await dock.call("Page.captureScreenshot");
+        await fs.writeFile(path.join(directory, "opaque-dock.png"), Buffer.from(shot.data, "base64"));
+        throw error;
+      }
+      await dock.call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+      await readDock(`document.documentElement.removeAttribute('data-floating-inbox');
+        getComputedStyle(document.body).backgroundColor`);
+      await readDock("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+      const restoredCanvas = await readDock(`(() => {
+        document.documentElement.setAttribute('data-floating-inbox', '');
+        return { background: getComputedStyle(document.body).backgroundColor,
+          animations: document.body.getAnimations().length };
+      })()`);
+      assert.deepEqual(
+        restoredCanvas,
+        { background: "rgba(0, 0, 0, 0)", animations: 0 },
+        "reduced motion must not animate the floating canvas from opaque to transparent",
+      );
+      await evaluate("window.milagre.toggleFloatingInbox()");
+      const inboxPage = await waitFor(async () => (await pages()).find((page) => page.url.includes("floating-inbox=inbox")), "native inbox");
+      const inbox = await connect(inboxPage.webSocketDebuggerUrl);
+      try {
+        await waitFor(
+          async () =>
+            (await inbox.call("Runtime.evaluate", { expression: '!!document.querySelector("[data-inbox-panel]")', returnByValue: true })).result.value,
+          "native inbox rendered",
+        );
+        if (process.env.MILAGRE_SCREENSHOT_DIR) {
+          const shot = await inbox.call("Page.captureScreenshot");
+          await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "native-inbox.png"), Buffer.from(shot.data, "base64"));
+        }
+        await evaluate("window.milagre.openInboxChat(" + JSON.stringify(project + "#2") + ")");
+        await waitFor(() => evaluate(`!!document.querySelector('textarea[aria-label="Prompt"]')`), "inbox opens Chat in the main window");
+        await evaluate("window.milagre.openInboxSettings()");
+        await waitFor(() => evaluate(`!!document.querySelector('[role="switch"][aria-label="Floating inbox"]')`), "return to Experimental settings");
+        assert.equal(await evaluate('JSON.parse(localStorage.getItem("milagre-settings")).floatingInbox'), true);
+        await evaluate(`document.querySelector('[role="switch"][aria-label="Floating inbox"]').click()`);
+        await waitFor(async () => !(await pages()).some((page) => page.url.includes("floating-inbox=")), "disabled experiment destroys both native windows");
+        assert.equal(await evaluate('JSON.parse(localStorage.getItem("milagre-settings")).floatingInbox'), false);
+      } finally {
+        inbox.close();
+      }
+    } finally {
+      dock.close();
+    }
+    await evaluate("window.milagre.openInboxChat(" + JSON.stringify(project + "#2") + ")");
+    console.log("PASS: Experimental switch opens the 28 px native bar and inbox, routes to the main Chat, saves its state and removes both surfaces when off");
     const shared = await require("@milagre/daemon/client").connect({ dataDir: profile });
     try {
       assert.notEqual((await shared.call("daemon:status")).pid, child.pid, "Desktop uses a separate persistent host");
@@ -290,6 +396,7 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
 }
 
 async function main() {
+  if (process.env.MILAGRE_SCREENSHOT_DIR) await fs.mkdir(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
   const temporary = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-desktop-")));
   try {
     const project = path.join(temporary, "project");

@@ -3,6 +3,7 @@ import test from "node:test";
 import type { ComputerView } from "../electron.d.ts";
 
 (globalThis as any).window = {
+  addEventListener() {},
   localStorage: { getItem: () => null, setItem() {} },
   matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
 };

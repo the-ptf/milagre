@@ -78,6 +78,30 @@ async function fixture(t, { allowedRoot = true, runtime = (options) => options, 
 
 const refusedBody = { v: 1, error: { message: REFUSED } };
 
+test("a confined inbox excludes Chats and requests from other Projects in HTTP and RPC", async (t) => {
+  const f = await fixture(t);
+  for (const projectPath of [f.demo, f.outside]) {
+    const opened = await f.owner.call("project:open", [projectPath]);
+    const worktreeId = Object.values(opened.state.worktrees)[0].id;
+    await f.owner.call("chat:send", [{ projectPath, worktreeId, body: "question", provider: "codex", model: "demo", permissionMode: "ask" }]);
+  }
+  let inbox;
+  for (let i = 0; i < 100; i++) {
+    inbox = await f.owner.call("chat:inbox");
+    if (inbox.items.filter((item) => item.status === "question").length === 2) break;
+    await delay(20);
+  }
+  assert.equal(inbox.items.length, 2);
+  const http = (await (await f.request("/inbox")).json()).result;
+  const rpc = (await f.rpc("chat:inbox")).body.result;
+  for (const snapshot of [http, rpc]) {
+    assert.equal(snapshot.items.length, 1);
+    assert.equal(snapshot.agents.length, 1);
+    assert.equal(snapshot.items[0].projectPath, f.demo);
+    assert.equal(JSON.stringify(snapshot).includes(f.outside), false);
+  }
+});
+
 // Every command the phone may call that names a path, with that path pointing at `target`.
 const callsAt = (target, demo) => [
   ["project:open", [target]],

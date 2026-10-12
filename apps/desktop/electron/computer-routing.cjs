@@ -28,6 +28,7 @@ const LOCAL_ONLY_PREFIXES = Object.freeze([
   "devices:",
   "editor:",
   "image:",
+  "floating-inbox:",
   "linked:",
   "notification:",
   "phone:",
@@ -116,6 +117,10 @@ const RESULTS = {
   "project:snapshot": withPath,
   "chat:ports": withChat,
   "chat:runs": (id, result) => field(id, result, "runs", keyed),
+  "chat:inbox": (id, result) => {
+    const item = (id, value) => field(id, field(id, value, "key", key), "projectPath", key);
+    return { agents: each(id, result.agents, item), items: each(id, result.items, item) };
+  },
   "agent:ports": keyed,
   "worktree:create": (id, result) => field(id, result, "project", withPath),
   "worktree:link-issue": (id, result) => field(id, result, "project", withPath),

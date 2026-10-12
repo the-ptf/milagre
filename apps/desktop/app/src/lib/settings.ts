@@ -31,6 +31,9 @@ export interface AppSettings {
   showDockBadge: boolean;
   /** The top-right button that opens a chat waiting on the user in another project. */
   showAttentionButton: boolean;
+  /** Experimental: a thin screen-edge bar and an inbox over other apps. */
+  floatingInbox: boolean;
+  floatingInboxActivity: boolean;
   /** Keep the Mac from sleeping while an agent works; the screen can still turn off. */
   keepAwake: boolean;
   /** The editor that "Open in" uses, by id; empty means the first one found. */
@@ -85,6 +88,8 @@ const DEFAULTS: AppSettings = {
   notifyOnCompletion: true,
   showDockBadge: true,
   showAttentionButton: true,
+  floatingInbox: false,
+  floatingInboxActivity: true,
   keepAwake: true,
   editorId: "",
   claudeReplies: "concise",
@@ -124,6 +129,8 @@ function load(): AppSettings {
       notifyOnCompletion: typeof saved.notifyOnCompletion === "boolean" ? saved.notifyOnCompletion : DEFAULTS.notifyOnCompletion,
       showDockBadge: typeof saved.showDockBadge === "boolean" ? saved.showDockBadge : DEFAULTS.showDockBadge,
       showAttentionButton: typeof saved.showAttentionButton === "boolean" ? saved.showAttentionButton : DEFAULTS.showAttentionButton,
+      floatingInbox: typeof saved.floatingInbox === "boolean" ? saved.floatingInbox : false,
+      floatingInboxActivity: typeof saved.floatingInboxActivity === "boolean" ? saved.floatingInboxActivity : true,
       keepAwake: typeof saved.keepAwake === "boolean" ? saved.keepAwake : DEFAULTS.keepAwake,
       editorId: typeof saved.editorId === "string" ? saved.editorId : DEFAULTS.editorId,
       tldrEnabled: typeof saved.tldrEnabled === "boolean" ? saved.tldrEnabled : DEFAULTS.tldrEnabled,
@@ -169,6 +176,12 @@ export function updateSettings(patch: Partial<AppSettings>) {
 export function useSettings() {
   return useSyncExternalStore(subscribe, getSettings);
 }
+// The bar, inbox and main window share the saved settings, including live theme changes.
+window.addEventListener("storage", (event) => {
+  if (event.key !== STORAGE_KEY) return;
+  current = load();
+  listeners.forEach((listener) => listener());
+});
 
 const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
 
