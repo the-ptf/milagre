@@ -365,19 +365,20 @@ function publishFixture(t, files) {
   const missing = 'for a in "$@"; do case "$a" in release/*) [ -e "$a" ] || { echo "no matches found for \\`$a\\`" >&2; exit 1; };; esac; done\n';
   fs.writeFileSync(path.join(root, "bin/gh"), `${log}${missing}if [ "$2" = view ]; then echo true; fi\n`, { mode: 0o755 });
   fs.writeFileSync(path.join(root, "bin/node"), `${log}exit "\${FEED_EXIT:-0}"\n`, { mode: 0o755 });
-  // `npm run package:managers` writes the package manager files the stable upload names.
-  const managers =
-    'if [ "$2" = package:managers ]; then mkdir -p release/package-managers/homebrew release/package-managers/winget; touch release/package-managers/SHA256SUMS release/package-managers/homebrew/milagre.rb release/package-managers/winget/Milagre.Milagre.yaml; fi\n';
+  // Run the real generator so platform-specific omissions match the release job.
+  const managers = 'if [ "$2" = package:managers ]; then shift 3; exec "$NODE_BINARY" "$PACKAGE_MANAGERS_SCRIPT" "$@"; fi\n';
   fs.writeFileSync(path.join(root, "bin/npm"), `${log}${managers}`, { mode: 0o755 });
   const env = {
     PATH: `${path.join(root, "bin")}${path.delimiter}${process.env.PATH}`,
     CALL_LOG: path.join(root, "calls.log"),
     SOURCE_TAG: "v9.9.9",
     WINDOWS: "false",
+    NODE_BINARY: process.execPath,
+    PACKAGE_MANAGERS_SCRIPT: path.join(__dirname, "generate-package-managers.cjs"),
   };
   return { root, env, calls: () => (fs.existsSync(env.CALL_LOG) ? fs.readFileSync(env.CALL_LOG, "utf8") : "") };
 }
-const macFiles = ["Milagre-9.9.9-arm64.dmg", "Milagre-9.9.9-arm64-mac.zip", "Milagre-9.9.9-arm64.dmg.blockmap"];
+const macFiles = ["Milagre-9.9.9-arm64.dmg", "Milagre-9.9.9-x64.dmg", "Milagre-9.9.9-arm64-mac.zip", "Milagre-9.9.9-arm64.dmg.blockmap"];
 const linuxFiles = ["Milagre-9.9.9-x86_64.AppImage", "Milagre-9.9.9-amd64.deb", "Milagre-9.9.9-x86_64.rpm", "milagre-linux-repository.tar.gz"];
 
 test("a beta without Linux ships macOS as a prerelease that is never latest", (t) => {
@@ -421,7 +422,7 @@ test("a feed check failure stops publication before any upload", (t) => {
   assert.doesNotMatch(f.calls(), /gh /);
 });
 
-test("a stable release uploads every platform with package metadata, then publishes the draft as latest", (t) => {
+test("a stable release with Windows disabled uploads macOS and Linux metadata, then publishes the draft as latest", (t) => {
   const f = publishFixture(t, [...macFiles, ...linuxFiles, "latest-mac.yml", "beta-mac.yml", "latest-linux.yml", "beta-linux.yml"]);
   const result = runStep(publishStep, f.root, { ...f.env, CHANNEL: "stable", RELEASE_TAG: "v9.9.9" });
   assert.equal(result.status, 0, result.stderr);
@@ -433,4 +434,20 @@ test("a stable release uploads every platform with package metadata, then publis
   assert.match(calls, /release\/package-managers\/SHA256SUMS release\/package-managers\/homebrew\/milagre\.rb/);
   assert.match(calls, /gh release upload[\s\S]*gh release edit v9\.9\.9 --draft=false --latest/);
   assert.doesNotMatch(calls, /release create/);
+  assert.doesNotMatch(calls, /winget/);
+});
+
+test("a stable release with Windows enabled uploads the WinGet manifest with the installer", (t) => {
+  const windowsFiles = ["Milagre-Setup-9.9.9-x64.exe", "latest.yml", "beta.yml"];
+  const f = publishFixture(t, [...macFiles, ...linuxFiles, ...windowsFiles]);
+  const result = runStep(publishStep, f.root, { ...f.env, CHANNEL: "stable", RELEASE_TAG: "v9.9.9", WINDOWS: "true" });
+  assert.equal(result.status, 0, result.stderr);
+  const calls = f.calls();
+  assert.match(calls, /npm run package:managers -- --tag v9\.9\.9 --platform macos,linux,windows/);
+  for (const asset of [...windowsFiles, "package-managers/winget/Milagre.Milagre.yaml"])
+    assert.ok(
+      calls.split("\n").find((line) => line.startsWith("gh release upload ") && line.includes(`release/${asset}`)),
+      asset,
+    );
+  assert.match(calls, /gh release upload[\s\S]*gh release edit v9\.9\.9 --draft=false --latest/);
 });

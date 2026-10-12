@@ -297,7 +297,10 @@ jobs:
           assets=(release/*.dmg release/*.zip release/*.AppImage release/*.deb release/*.rpm release/*.exe release/*.blockmap release/*.yml release/milagre-linux-repository*.tar.gz)
           if [ "$CHANNEL" = stable ]; then
             npm run package:managers -- --tag "$RELEASE_TAG" --platform "$platforms"
-            assets+=(release/package-managers/SHA256SUMS release/package-managers/homebrew/milagre.rb release/package-managers/winget/Milagre.Milagre.yaml)
+            assets+=(release/package-managers/SHA256SUMS release/package-managers/homebrew/milagre.rb)
+            if [ ${#windows[@]} -gt 0 ]; then
+              assets+=(release/package-managers/winget/Milagre.Milagre.yaml)
+            fi
             test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
             gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
             gh release edit "$RELEASE_TAG" --draft=false --latest
