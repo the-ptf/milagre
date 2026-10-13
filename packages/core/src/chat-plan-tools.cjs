@@ -5,15 +5,16 @@ const { PHASES, currentPhase, setPhase, setTasks, updateTask } = require("@milag
 // batch of task_update calls sees each other's results.
 const MARKS = { completed: "[x]", in_progress: "[~]", pending: "[ ]" };
 const status = z.enum(["pending", "in_progress", "completed"]);
-const task = z.lazy(() =>
-  z.object({
-    id: z.string().max(20).optional().describe("Keep an existing task's id to keep its status; omit for a new task."),
-    title: z.string().min(1).max(200),
-    activeForm: z.string().max(200).optional().describe("Shown while in progress, e.g. 'Saving wishlist changes'."),
-    status: status.optional(),
-    children: z.array(task).optional(),
-  }),
-);
+// Three levels at most, written out so the JSON schema has no $ref or $defs (some providers' function schemas reject them).
+const base = {
+  id: z.string().max(20).optional().describe("Keep an existing task's id to keep its status; omit for a new task."),
+  title: z.string().min(1).max(200),
+  activeForm: z.string().max(200).optional().describe("Shown while in progress, e.g. 'Saving wishlist changes'."),
+  status: status.optional(),
+};
+const leaf = z.object(base);
+const level2 = z.object({ ...base, children: z.array(leaf).optional() });
+const level1 = z.object({ ...base, children: z.array(level2).optional() });
 
 function formatPlan(plan) {
   if (!plan || (!plan.tasks.length && !plan.phases.length)) return "No task list yet.";
@@ -42,7 +43,7 @@ function createChatPlanTools({ read, write, now = Date.now }) {
     });
     const settled = next.catch(() => {});
     queues.set(chatId, settled);
-    void settled.then(() => {
+    void settled.finally(() => {
       if (queues.get(chatId) === settled) queues.delete(chatId);
     });
     return next;
@@ -53,7 +54,7 @@ function createChatPlanTools({ read, write, now = Date.now }) {
         name: "tasks_set",
         description:
           "Write this Chat's task list, shown in its Tasks pill on desktop and phone. Send the whole tree, at most 3 levels deep. Keep a task's id to keep its status; new tasks get ids from Milagre. Returns the list with ids.",
-        input: { tasks: z.array(task).min(1).max(100) },
+        input: { tasks: z.array(level1).min(1).max(100) },
         readOnly: false,
         run: async ({ tasks }) => formatPlan(await change(chatId, (plan, at) => setTasks(plan, tasks, at))),
       },

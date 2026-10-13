@@ -77,4 +77,5 @@ test("every tool's input renders as a JSON schema, including the recursive task 
   const schema = inputSchema(tools.definitions("/p#1").find((tool) => tool.name === "tasks_set"));
   assert.equal(schema.type, "object");
   assert.ok(schema.properties.tasks);
+  assert.doesNotMatch(JSON.stringify(schema), /\$ref|\$defs/);
 });
