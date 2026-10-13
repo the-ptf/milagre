@@ -198,3 +198,12 @@ test("runTool passes images through and mcpContent orders text before images", a
     { text: "boom", images: [], isError: true },
   );
 });
+
+test("runTool reads text and images only from a plain object with a text key", async () => {
+  const run = async (value) => (await runTool({ name: "v", input: {}, run: async () => value }, {})).text;
+  assert.equal(await run(["a", "b"]), "a,b");
+  assert.equal(await run({ id: "x" }), "[object Object]");
+  assert.equal(await run(42), "42");
+  assert.equal(await run(null), "null");
+  assert.deepEqual(await runTool({ name: "t", input: {}, run: async () => ({ text: "only text" }) }, {}), { text: "only text", images: [], isError: false });
+});

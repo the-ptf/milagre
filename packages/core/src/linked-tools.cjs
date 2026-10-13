@@ -325,7 +325,9 @@ async function runTool(definition, args) {
   try {
     const parsed = (definition.strict ? z.strictObject(definition.input) : z.object(definition.input)).parse(args ?? {});
     const result = await definition.run(parsed);
-    if (result && typeof result === "object") return { text: result.text ?? "", images: result.images ?? [], isError: false };
+    // Only a design-style result ({ text, images }) carries images; an array or any other value is plain text.
+    if (result && typeof result === "object" && !Array.isArray(result) && "text" in result)
+      return { text: String(result.text ?? ""), images: Array.isArray(result.images) ? result.images : [], isError: false };
     return { text: String(result), images: [], isError: false };
   } catch (error) {
     const text =
