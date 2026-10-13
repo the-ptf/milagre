@@ -257,7 +257,7 @@ async function browserChecks() {
       false,
       "older hosts without a sharing service expose no Share button in the page or review canvas",
     );
-    assert.equal(await evaluate('document.querySelector("[data-slot=design-tool-rail]").querySelectorAll("button").length'), 6);
+    assert.equal(await evaluate('document.querySelector("[data-slot=design-tool-rail]").querySelectorAll("button").length'), 7);
     await screenshot("floating-tools");
     if (preview) {
       console.log(`READY: Milagre Design Lab at ${process.argv[2]} (Electron window). Disposable versions: ${path.join(temp, "artifacts")}`);
@@ -289,6 +289,18 @@ async function browserChecks() {
     await click('[data-slot="design-layers-toggle"]');
     await click('[data-slot="design-layers-toggle"]');
     assert.equal(await evaluate('!!document.querySelector("[data-slot=design-layers-panel]")'), false, "the toolbar toggles Layers closed");
+
+    // Icon layers: add, rename to another Lucide icon, and see the new geometry in the preview.
+    await click('[aria-label="Add icon"]');
+    const iconField = 'document.querySelector("input[aria-label=Icon]")';
+    assert.equal(await evaluate(`${iconField}.value`), "star", "a new icon layer starts as a star");
+    await input("Icon", "chevron-left");
+    await waitFor(
+      `new DOMParser().parseFromString(${editor}.querySelector("iframe").srcdoc, "text/html").querySelector('[data-design-node^="icon-"] svg path')?.getAttribute("d") === "m15 18-6-6 6-6"`,
+    );
+    assert.equal(await evaluate('!!document.querySelector("input[aria-label=Stroke]")'), false, "icons have no border stroke field");
+    assert.equal(await evaluate('!!document.querySelector("input[aria-label=\\"Line weight\\"]")'), true);
+    await screenshot("icon-layer");
 
     // Remote Chats use their own shared subscription; an event wins over an older read response.
     assert.equal(localReads, 1, "cards, feedback, settings and editor share one local flag subscription");

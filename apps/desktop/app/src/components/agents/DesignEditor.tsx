@@ -6,6 +6,7 @@ import {
   createDesignInstance,
   detachDesignInstance,
   designHtml,
+  designIcons,
   designInstanceRoot,
   designLayout,
   diffDesignDocuments,
@@ -552,13 +553,28 @@ export function DesignDocumentEditor({
     const id = `${type}-${crypto.randomUUID().slice(0, 8)}`;
     const node: DesignNode = {
       id,
-      name: type === "text" ? "Text" : type === "frame" ? "Frame" : type === "image" ? "Image" : type === "ellipse" ? "Ellipse" : "Rectangle",
+      name:
+        type === "text"
+          ? "Text"
+          : type === "frame"
+            ? "Frame"
+            : type === "image"
+              ? "Image"
+              : type === "icon"
+                ? "Icon"
+                : type === "ellipse"
+                  ? "Ellipse"
+                  : "Rectangle",
       type,
       x: 32,
       y: 32,
-      width: type === "text" ? 240 : 160,
-      height: type === "text" ? 44 : 120,
-      ...(type === "text" ? { text: "New text", fontSize: 24, fill: "#1f2937" } : { fill: "#dce6df", radius: 12 }),
+      width: type === "text" ? 240 : type === "icon" ? 24 : 160,
+      height: type === "text" ? 44 : type === "icon" ? 24 : 120,
+      ...(type === "text"
+        ? { text: "New text", fontSize: 24, fill: "#1f2937" }
+        : type === "icon"
+          ? { icon: "star", fill: "#1f2937", strokeWidth: 2 }
+          : { fill: "#dce6df", radius: 12 }),
       ...(type === "frame" ? { layout: "free" as const } : {}),
     };
     if (change([{ op: "insert", node }])) setSelection([id]);
@@ -1087,14 +1103,16 @@ export function DesignDocumentEditor({
                       onCommit={(fill) => patch({ fill })}
                     />
                     <div className="grid grid-cols-2 gap-2">
-                      <Field
-                        label="Radius"
-                        value={selectedNode.radius ?? 0}
-                        number
-                        min={0}
-                        disabled={saving}
-                        onCommit={(radius) => patch({ radius: Number(radius) })}
-                      />
+                      {selectedNode.type !== "icon" && (
+                        <Field
+                          label="Radius"
+                          value={selectedNode.radius ?? 0}
+                          number
+                          min={0}
+                          disabled={saving}
+                          onCommit={(radius) => patch({ radius: Number(radius) })}
+                        />
+                      )}
                       <Field
                         label="Opacity"
                         value={selectedNode.opacity ?? 1}
@@ -1105,17 +1123,44 @@ export function DesignDocumentEditor({
                         onCommit={(opacity) => patch({ opacity: Number(opacity) })}
                       />
                     </div>
-                    <Field label="Stroke" value={selectedNode.stroke ?? "transparent"} disabled={saving} onCommit={(stroke) => patch({ stroke })} />
-                    <Field
-                      label="Stroke width"
-                      value={selectedNode.strokeWidth ?? (selectedNode.stroke ? 1 : 0)}
-                      number
-                      min={0}
-                      disabled={saving}
-                      onCommit={(strokeWidth) => patch({ strokeWidth: Number(strokeWidth) })}
-                    />
+                    {selectedNode.type !== "icon" && (
+                      <Field label="Stroke" value={selectedNode.stroke ?? "transparent"} disabled={saving} onCommit={(stroke) => patch({ stroke })} />
+                    )}
+                    {selectedNode.type !== "icon" && (
+                      <Field
+                        label="Stroke width"
+                        value={selectedNode.strokeWidth ?? (selectedNode.stroke ? 1 : 0)}
+                        number
+                        min={0}
+                        disabled={saving}
+                        onCommit={(strokeWidth) => patch({ strokeWidth: Number(strokeWidth) })}
+                      />
+                    )}
                     {selectedNode.type === "image" && (
                       <Field label="Image URL" value={selectedNode.src ?? ""} disabled={saving} onCommit={(src) => patch({ src })} />
+                    )}
+                    {selectedNode.type === "icon" && (
+                      <>
+                        <Field
+                          label="Icon"
+                          value={selectedNode.icon ?? ""}
+                          disabled={saving}
+                          onCommit={(icon) => {
+                            const name = icon.trim().toLowerCase();
+                            if (Object.hasOwn(designIcons, name)) patch({ icon: name });
+                            else setNotice(`No Lucide icon named "${name}". Try a name from lucide.dev/icons.`);
+                          }}
+                        />
+                        <Field
+                          label="Line weight"
+                          value={selectedNode.strokeWidth ?? 2}
+                          number
+                          min={0.5}
+                          max={4}
+                          disabled={saving}
+                          onCommit={(strokeWidth) => patch({ strokeWidth: Number(strokeWidth) })}
+                        />
+                      </>
                     )}
                     {selectedNode.type === "frame" && (
                       <>

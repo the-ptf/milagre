@@ -4,6 +4,7 @@ export { designFontFamily, designFontFaces, designInterWeight } from "./design-f
 import { designRenderBudget, visibleDesignTextLines } from "./design-render-limits.mjs";
 import { designLayout, designTextLayout } from "./design-layout.mjs";
 import { designIcons, designIconSuggestions } from "./design-icons.mjs";
+export { designIcons } from "./design-icons.mjs";
 import { renderDesignSvg } from "./design-svg.mjs";
 import { synchronizeDesignComponents, designInstanceRoot } from "./design-components.mjs";
 import { DESIGN_CONTROLLER_SCRIPT } from "./design-controller-script.mjs";

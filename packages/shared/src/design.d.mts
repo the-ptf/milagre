@@ -1,5 +1,7 @@
 import type { z } from "zod";
 export { DESIGN_CONTROLLER_SCRIPT } from "./design-controller-script.mjs";
+/** Lucide icon name to SVG inner markup. */
+export const designIcons: Record<string, string>;
 /** Build-time only: regenerate the checked-in controller after editing its source. */
 export function buildDesignControllerScript(): string;
 

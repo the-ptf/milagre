@@ -9,6 +9,7 @@ import {
   Image01Icon,
   Layers01Icon,
   SquareIcon,
+  StarIcon,
   TextFontIcon,
 } from "@hugeicons/core-free-icons";
 import type { DesignDocument, DesignNode } from "@milagre/shared/design";
@@ -21,6 +22,7 @@ const tools = [
   { type: "ellipse", label: "Add ellipse", icon: CircleIcon },
   { type: "text", label: "Add text", icon: TextFontIcon },
   { type: "image", label: "Add image", icon: Image01Icon },
+  { type: "icon", label: "Add icon", icon: StarIcon },
 ] as const;
 const iconButton =
   "flex size-9 items-center justify-center rounded-control text-ink-2 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
@@ -113,9 +115,11 @@ export function DesignTools({
                   ? "#"
                   : node.type === "image"
                     ? "▧"
-                    : node.type === "ellipse"
-                      ? "○"
-                      : "□"}
+                    : node.type === "icon"
+                      ? "✦"
+                      : node.type === "ellipse"
+                        ? "○"
+                        : "□"}
         </span>
         <span className={`min-w-0 truncate ${node.hidden ? "opacity-50" : ""}`}>{node.name ?? node.id}</span>
       </button>
