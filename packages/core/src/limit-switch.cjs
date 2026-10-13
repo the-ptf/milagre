@@ -52,7 +52,7 @@ function createLimitSwitch({ file, assign, scope, chats, now = Date.now }) {
     const snapshot = await assign(projectPath, provider, accountId);
     const account = snapshot.providers.find((group) => group.provider === provider)?.accounts.find((item) => item.id === accountId);
     const label = account?.email || account?.label || "another account";
-    const continued = await chats.continueAfterLimit(projectPath, Number(sessionId), label);
+    const continued = await chats.continueAfterLimit(projectPath, Number(sessionId), provider, label);
     return { continued, label };
   }
 

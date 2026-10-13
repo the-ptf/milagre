@@ -28,8 +28,8 @@ function setup({ effectiveId = "default", accounts } = {}) {
       return snapshot();
     },
     chats: {
-      continueAfterLimit: async (projectPath, sessionId, label) => {
-        calls.push(["continue", projectPath, sessionId, label]);
+      continueAfterLimit: async (projectPath, sessionId, provider, label) => {
+        calls.push(["continue", projectPath, sessionId, provider, label]);
         return true;
       },
     },
@@ -49,7 +49,7 @@ test("a switch assigns the account to the Chat's Project, then continues the Cha
   assert.deepEqual(await limits.switchTo(PROJECT, "3", "claude", "work"), { continued: true, label: "me@work.com" });
   assert.deepEqual(calls, [
     ["assign", PROJECT, "claude", "work"],
-    ["continue", PROJECT, 3, "me@work.com"],
+    ["continue", PROJECT, 3, "claude", "me@work.com"],
   ]);
 });
 
@@ -78,7 +78,7 @@ test("auto-switch moves to the next ready account that isn't limited, and stops 
   assert.deepEqual(await limits.observe(`${PROJECT}#3`, failed("default", RESET)), { continued: true, label: "me@work.com" });
   assert.deepEqual(calls, [
     ["assign", PROJECT, "claude", "work"],
-    ["continue", PROJECT, 3, "me@work.com"],
+    ["continue", PROJECT, 3, "claude", "me@work.com"],
   ]);
   // The work account hits its limit too: the default one is still limited and the old one is signed out.
   assert.equal(await limits.observe(`${PROJECT}#3`, failed("work")), null);
