@@ -44,6 +44,12 @@ _Avoid_: tab (a browser's own UI term), session (the page's sign-in state is par
 An interactive shell the user opens in a **Chat**. It starts in that **Chat**'s **Worktree** with the user's own login shell and environment. It belongs to the **Chat**: other **Chats**, even in the same **Worktree**, do not see it, and the **Chat**'s agent neither reads nor types in it. A **Chat** can have several. A **Terminal** keeps running when the desktop app closes, and ends when its shell exits or its **Chat** is archived. See ADR-0008.
 _Avoid_: console, shell (the program running inside a **Terminal**)
 
+**Task list**:
+A **Chat**'s tree of tasks, at most three levels deep, written by the agent with Milagre's `tasks_set` and `task_update`. Saved with the **Chat**; a provider's own todo list fills it until Milagre's tools take over.
+
+**Phase**:
+Where a **Chat**'s work is (Start, Plan, Build, Test, Review, Merge, Release, Done), set by the agent with `phase_set` and drawn on the Tasks pill's phase graph.
+
 ### Linking
 
 **Named Link**:
