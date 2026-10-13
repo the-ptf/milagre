@@ -12,6 +12,56 @@ function fixture(t) {
 }
 const config = { label: "Editor", grants: { designs: { chatId: "/project#1", designIds: ["one"], capabilities: ["read", "write"] } } };
 
+test("Windows private JSON protects staged files before replacement and preserves state when ACL setup fails", (t) => {
+  const vm = require("node:vm");
+  const directory = fixture(t);
+  const protectedFiles = new Set();
+  let refuseProtection = false;
+  const module = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(require.resolve("./local-mcp-store.cjs"), "utf8"), {
+    module,
+    process: { platform: "win32" },
+    structuredClone,
+    require(name) {
+      if (name === "./private-files.cjs")
+        return {
+          preparePrivateDirectory() {},
+          assertPrivate(file) {
+            fs.statSync(file);
+            assert.ok(protectedFiles.has(file), "a reopened file must belong to the current user");
+          },
+          windowsAcl(file, options) {
+            assert.equal(options.mode, "protect");
+            assert.ok(file.endsWith(".tmp"), "protect before publishing the file");
+            assert.doesNotThrow(() => JSON.parse(fs.readFileSync(file, "utf8")));
+            if (refuseProtection) throw Error("ACL setup denied");
+            protectedFiles.add(file);
+          },
+        };
+      if (name === "node:fs")
+        return {
+          ...fs,
+          renameSync(from, to) {
+            assert.ok(protectedFiles.has(from), "never publish an unprotected staging file");
+            fs.renameSync(from, to);
+            protectedFiles.delete(from);
+            protectedFiles.add(to);
+          },
+        };
+      return require(name);
+    },
+  });
+  const open = () => module.exports.privateJson(directory, "endpoint.json", null);
+  open().write({ port: 1234 });
+  assert.equal(open().read().port, 1234);
+  open().write({ port: 5678 });
+  assert.equal(open().read().port, 5678);
+  refuseProtection = true;
+  assert.throws(() => open().write({ port: 9999 }), /ACL setup denied/);
+  assert.equal(open().read().port, 5678);
+  assert.deepEqual(fs.readdirSync(directory), ["endpoint.json"]);
+});
+
 test("credentials persist as hashes, rotate and revoke without leaking through listing", (t) => {
   const { createLocalMcpStore } = require("./local-mcp-store.cjs");
   const directory = fixture(t);

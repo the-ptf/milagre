@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { randomBytes, randomUUID, createHash } = require("node:crypto");
 const { z } = require("zod");
-const { preparePrivateDirectory, assertPrivate } = require("./private-files.cjs");
+const { preparePrivateDirectory, assertPrivate, windowsAcl } = require("./private-files.cjs");
 
 const paths = z.array(z.string().max(8192).refine(path.isAbsolute, "Absolute Project paths are required")).max(100);
 const capabilities = (values) => z.array(z.enum(values)).min(1);
@@ -46,6 +46,7 @@ function privateJson(directory, name, fallback) {
         fs.fsyncSync(fd);
         fs.closeSync(fd);
         fd = undefined;
+        if (process.platform === "win32") windowsAcl(temporary, { mode: "protect" });
         fs.renameSync(temporary, file);
         if (process.platform !== "win32") {
           const directoryFd = fs.openSync(directory, "r");

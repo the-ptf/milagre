@@ -1,7 +1,7 @@
 import { validateDesignDocument, type DesignDocument, type DesignNode } from "@milagre/shared/design";
 import { ipcErrorMessage } from "@milagre/shared/result";
 
-export type DesignConflictField = { key: string; label: string; mine: unknown; latest: unknown };
+type DesignConflictField = { key: string; label: string; mine: unknown; latest: unknown };
 export type DesignConflictChoices = Record<string, "mine" | "latest">;
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const instanceFields = new Set(["x", "y", "parentId", "name", "hidden", "locked"]);

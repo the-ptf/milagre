@@ -1,7 +1,5 @@
 export const MAX_BODY_BYTES: number;
-export const MAX_HTML_BYTES: number;
 export const CHUNK_BYTES: number;
-export const PAGE_ID: RegExp;
 export const SECURITY_HEADERS: Record<string, string>;
 export function response(body: BodyInit | null, status?: number, type?: string): Response;
 export function digest(bytes: Uint8Array): Promise<string>;

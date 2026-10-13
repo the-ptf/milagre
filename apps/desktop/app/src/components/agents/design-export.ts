@@ -99,7 +99,7 @@ async function pngSvg(document: DesignDocument): Promise<string> {
   return new XMLSerializer().serializeToString(svg);
 }
 
-export async function designExportBlob(document: DesignDocument, format: DesignExportFormat, scale = 1): Promise<Blob> {
+async function designExportBlob(document: DesignDocument, format: DesignExportFormat, scale = 1): Promise<Blob> {
   if (format === "json")
     return new Blob([JSON.stringify(document, null, 2)], {
       type: "application/json",

@@ -26,8 +26,3 @@ export function useArtifactCatalog(client: Client | null, chatId: string | undef
     return format === "html" ? "html" : enabled && format === "design" ? "design" : null;
   };
 }
-
-export function useDesignCatalog(client: Client | null, chatId: string | undefined, refs: ArtifactRef[], enabled: boolean) {
-  const format = useArtifactCatalog(client, chatId, refs, enabled);
-  return (ref: ArtifactRef) => format(ref) === "design";
-}

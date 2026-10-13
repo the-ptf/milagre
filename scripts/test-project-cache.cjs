@@ -58,6 +58,7 @@ import { ProjectNavigation } from '/@fs/${path.resolve("apps/mobile/src/project-
 ${data}
 window.makeClient = host => ({
   url: host.address,
+  live: (_scope, { onStatus }) => { onStatus?.(true); return { close() {} }; },
   recentScopes: async () => [{ path: '/alpha', name: 'alpha' }, { path: '/beta', name: 'beta' }],
   open: async path => ({ project: await window.request(host.address, path), runs: { runs: {}, seq: 0 } }),
   call: async (method, args) => method === 'project:recent' ? [{ path: '/alpha', name: 'alpha' }, { path: '/beta', name: 'beta' }] : method === 'project:open' ? { path: args[0] } : null,
