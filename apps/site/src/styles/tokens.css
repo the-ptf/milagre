@@ -9,7 +9,8 @@
   --hover-2: oklch(0.31 0.036 258);
   --ink: oklch(0.95 0.012 255);
   --ink-2: oklch(0.74 0.03 256);
-  --ink-3: oklch(0.56 0.035 257);
+  /* Lighter than the app's 0.56 so small print keeps 4.5:1 on every site surface. */
+  --ink-3: oklch(0.64 0.035 257);
   --line: oklch(0.3 0.035 258);
   --line-strong: oklch(0.35 0.035 258);
   --accent: oklch(0.68 0.173 253.301);

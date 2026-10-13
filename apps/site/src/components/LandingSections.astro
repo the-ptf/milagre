@@ -1,0 +1,190 @@
+---
+import DownloadButtons from "./DownloadButtons.astro";
+import DesignsDemo from "./DesignsDemo.astro";
+import SidebarDemo from "./SidebarDemo.astro";
+import { DOWNLOAD_ANDROID, IPHONE_BETA_URL, REPO_URL } from "../links";
+
+// Parallel work (the live sidebar) is off for now, not gone: set this to true to show it again.
+const SHOW_PARALLEL_WORK = false;
+---
+
+<!-- The Designs panel, the sidebar and the canvas are live copies of the app; the phone plays the hero's recording. -->
+<div class="story below-fold" id="features">
+  <section class="linked container" aria-labelledby="designs-title" id="designs">
+    <div class="linked-copy">
+      <h2 id="designs-title">Design in the app. <em>Comment right on the screen.</em></h2>
+    </div>
+    <div class="canvas-live designs-live"><DesignsDemo /></div>
+  </section>
+
+  {
+    SHOW_PARALLEL_WORK && (
+      <section class="feature container" aria-labelledby="parallel-title" id="parallel-work">
+        <div class="feature-copy">
+          <h2 id="parallel-title">Several changes at once. <em>Each in its own Worktree.</em></h2>
+        </div>
+        <div class="sidebar-demo"><SidebarDemo /></div>
+      </section>
+    )
+  }
+
+  <section class="linked container" aria-labelledby="linked-title" id="linked-projects">
+    <div class="linked-copy">
+      <h2 id="linked-title">Link your Projects. <em>Let their agents talk.</em></h2>
+    </div>
+    <div class="canvas-live" data-canvas-host></div>
+  </section>
+
+  <section class="feature phone container" aria-labelledby="phone-title" id="phone-companion">
+    <div class="feature-copy">
+      <h2 id="phone-title">The agent needs you. <em>Your desk doesn't.</em></h2>
+      <div class="phone-downloads">
+        <a class="button button-primary" href={IPHONE_BETA_URL}>
+          <svg aria-hidden="true" width="16" height="16"><use href="/icons.svg#apple" /></svg>
+          Download for iOS
+        </a>
+        <a class="button" href={DOWNLOAD_ANDROID}>
+          <svg aria-hidden="true" width="18" height="18"><use href="/icons.svg#android" /></svg>
+          Download for Android
+        </a>
+      </div>
+    </div>
+    <figure class="phone-shot">
+      <!-- The phone's half of the hero's recording, on the same 3D phone; Android visitors get the Android take. -->
+      <div class="device" data-phone-demo>
+        <video class="device-video" muted playsinline loop preload="none" aria-label="The Milagre iPhone app: the agent asks to run the mobile checks and the request is approved from the phone."></video>
+      </div>
+    </figure>
+  </section>
+
+  <section class="questions container" aria-labelledby="questions-title" id="questions">
+    <h2 id="questions-title">Before you install. <em>A few answers.</em></h2>
+    <div class="answers">
+      <details><summary>What do I need installed?</summary><p>Milagre and at least one coding agent you are signed in to: Claude Code, Codex or Antigravity. Milagre uses that agent's login, so there is no Milagre account to create.</p></details>
+      <details><summary>How does my phone reach my computer?</summary><p>Pair the phone app with your computer once. On the same network the two talk directly. Away from it they connect through Milagre's relay on Cloudflare, and Chat content and files are encrypted between your devices on the way.</p></details>
+      <details><summary>Where does my work live?</summary><p>On your computer. Milagre stores Chat history and Project files there, and your agents send context to their model providers using your own account.</p></details>
+      <details><summary>Which computers does it run on?</summary><p>macOS on Apple silicon and Intel, and Linux as an AppImage, .deb or .rpm. Windows is in progress. The phone app is in beta for iPhone and Android.</p></details>
+      <details><summary>Do I need the phone app?</summary><p>No. Everything works on desktop. Pair the phone when you want to follow your agents and reply away from your desk.</p></details>
+    </div>
+  </section>
+
+  <section class="closing" aria-labelledby="closing-title">
+    <h2 id="closing-title">Put your agents to work. <em>Then go for a walk.</em></h2>
+    <p>Free and open source under the MIT license.</p>
+    <DownloadButtons />
+  </section>
+
+  <footer class="container">
+    <a class="footer-brand" href="#top">Milagre</a>
+    <nav aria-label="Footer"><a href={REPO_URL}>GitHub</a><a href="/privacy">Privacy</a><a href="/support">Support</a><a href="#top">Back to top</a></nav>
+  </footer>
+</div>
+
+<script>
+  const canvasHost = document.querySelector<HTMLElement>("[data-canvas-host]");
+  if (canvasHost) {
+    const near = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return;
+        near.disconnect();
+        void import("../scripts/mount-canvas").then(({ mountCanvas }) => mountCanvas(canvasHost));
+      },
+      { rootMargin: "400px" },
+    );
+    near.observe(canvasHost);
+  }
+
+  const device = document.querySelector<HTMLElement>("[data-phone-demo]");
+  const video = device?.querySelector<HTMLVideoElement>("video");
+  if (device && video) {
+    const android = document.documentElement.dataset.platform === "android";
+    if (android) device.classList.add("android");
+    const still = matchMedia("(prefers-reduced-motion: reduce)");
+    let mounted = false;
+    // Loads, plays and builds the 3D phone only once the section is near; pauses when it scrolls away.
+    new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return video.pause();
+        // Nothing of this take loads until the section is near.
+        if (!video.src) {
+          video.poster = `/demo/${android ? "android" : "phone"}.webp`;
+          video.src = `/demo/${android ? "android" : "phone"}.mp4`;
+        }
+        if (!still.matches) void video.play().catch(() => {});
+        if (mounted) return;
+        mounted = true;
+        void import("../scripts/phone3d").then(({ mountPhone3D, webglAvailable }) => {
+          if (!webglAvailable()) return;
+          // Turned a little toward the copy beside it.
+          mountPhone3D({ host: device, video, kind: device.classList.contains("android") ? "android" : "iphone", tilt: () => 0.3 });
+          device.classList.add("three");
+        });
+      },
+      { rootMargin: "200px" },
+    ).observe(device);
+  }
+</script>
+
+<style>
+  .story { --gap: clamp(40px, 6vw, 88px); }
+  h2 { font-size: clamp(30px, 3.4vw, 44px); font-weight: 600; letter-spacing: -0.035em; line-height: 1.1; text-wrap: balance; }
+  /* Every title reads like the hero's: the claim in Geist, the payoff in the italic serif on its own line. */
+  h2 em { display: block; font-family: var(--font-serif); font-size: 1.12em; font-weight: 400; letter-spacing: -0.01em; color: oklch(0.86 0.06 255); }
+  figure { margin: 0; min-width: 0; }
+
+
+  .feature { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: var(--gap); padding-block: clamp(72px, 9vw, 128px); }
+  .sidebar-demo { display: flex; justify-content: center; }
+
+  /* The canvas gets the full width: it's the part of Milagre nothing else has. */
+  .linked { padding-block: clamp(72px, 9vw, 128px) 0; }
+  /* Holds the canvas's height until it renders in the browser, so nothing below moves. */
+  .canvas-live { height: clamp(460px, 52vw, 620px); margin-top: clamp(40px, 5vw, 64px); }
+  .designs-live { height: auto; }
+
+  .phone .feature-copy { order: 2; }
+  .phone-downloads { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+  .phone-downloads svg { flex: none; transform: translateY(-1px); }
+  .phone-shot { order: 1; justify-self: center; }
+  /* The hero's phone frame, standing alone: the flat fallback until (or unless) the 3D phone takes over. */
+  .device { position: relative; width: 260px; aspect-ratio: 1206 / 2622; padding: 10px; box-sizing: content-box; border-radius: 48px; background: #0b0b0c; box-shadow: inset 0 0 0 1.5px oklch(1 0 0 / 0.16), 0 0 0 1px oklch(0 0 0 / 0.6), 0 30px 70px oklch(0 0 0 / 0.6); }
+  .device-video { display: block; width: 100%; height: 100%; border-radius: 38px; object-fit: cover; }
+  .device.android { aspect-ratio: 1080 / 2424; border-radius: 28px; }
+  .device.android .device-video { border-radius: 17px; }
+  .device :global(.phone-canvas) { position: absolute; top: -18%; left: -40%; width: 180%; height: 136%; pointer-events: none; }
+  .device.three { background: transparent; box-shadow: none; }
+  .device.three .device-video { opacity: 0; }
+
+  .questions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: var(--gap); padding-block: clamp(72px, 9vw, 128px); }
+  details { border-bottom: 1px solid var(--line); }
+  details:first-child { border-top: 1px solid var(--line); }
+  summary { position: relative; padding: 20px 36px 20px 0; cursor: pointer; list-style: none; font-size: 17px; font-weight: 500; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before, summary::after { content: ""; position: absolute; top: 50%; right: 4px; width: 12px; height: 1.5px; background: var(--ink-3); transition: transform 200ms var(--ease-out-strong); }
+  summary::after { transform: rotate(90deg); }
+  details[open] summary::after { transform: rotate(0deg); }
+  summary:hover::before, summary:hover::after { background: var(--ink); }
+  details p { max-width: 60ch; padding: 0 36px 22px 0; color: var(--ink-2); font-size: 16px; line-height: 1.65; }
+
+  .closing { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: clamp(88px, 11vw, 152px) 20px clamp(72px, 9vw, 120px); text-align: center; }
+  .closing h2 { max-width: 16ch; font-size: clamp(36px, 5vw, 64px); line-height: 1.05; }
+  .closing > p { margin-bottom: 14px; color: var(--ink-2); font-size: 16px; }
+
+  footer { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-block: 20px 28px; border-top: 1px solid var(--line); font-size: 14px; }
+  footer a { display: inline-flex; align-items: center; min-height: 44px; text-decoration: none; }
+  footer a:hover { text-decoration: underline; text-underline-offset: 4px; }
+  .footer-brand { font-size: 15px; font-weight: 600; }
+  footer nav { display: flex; flex-wrap: wrap; column-gap: 24px; color: var(--ink-2); }
+
+  @media (max-width: 860px) {
+    .feature, .questions { grid-template-columns: minmax(0, 1fr); }
+    .feature { gap: 48px; }
+    .phone .feature-copy { order: 1; }
+    .phone-shot { order: 2; }
+  }
+  @media (max-width: 480px) {
+    summary { font-size: 16px; }
+    details p { font-size: 15px; }
+    footer { flex-direction: column; align-items: flex-start; gap: 0; }
+  }
+</style>
