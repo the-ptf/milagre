@@ -237,3 +237,24 @@ test("the worker is recycled after its render quota and when idle, and a slow re
   designRasterTesting.configure({});
   assert.equal((await renderDesignPng(document)).mime, "image/png", "the next render starts a fresh worker");
 });
+
+test("layers wholly off the screen are left out instead of crashing resvg", async () => {
+  const document = phone([
+    { id: "seen", type: "rectangle", x: 0, y: 0, width: 20, height: 20, fill: "#000000" },
+    { id: "right", type: "rectangle", x: 1000, y: 10, width: 40, height: 8, fill: "#ff0000", opacity: 0.5 },
+    { id: "below", type: "text", x: 10, y: 3000, width: 40, height: 20, text: "Gone" },
+    { id: "card", type: "frame", x: 300, y: 100, width: 200, height: 100, fill: "#ffffff" },
+    { id: "inside", parentId: "card", type: "icon", icon: "x", x: 900, y: 120, width: 24, height: 24 },
+  ]);
+  const image = decode((await renderDesignPng(document)).base64);
+  assert.deepEqual(pixelAt(image, 10, 10), [0, 0, 0]);
+  assert.equal((await renderDesignPng(phone([]))).mime, "image/png");
+});
+
+test("a failed render ends its worker so the next render starts clean", async () => {
+  designRasterTesting.retire();
+  const before = designRasterTesting.workersStarted();
+  await assert.rejects(renderDesignPng({ schemaVersion: 1, width: 390, height: 844, nodes: [{ id: "bad", type: "nope" }] }));
+  assert.equal((await renderDesignPng(phone([]))).mime, "image/png");
+  assert.equal(designRasterTesting.workersStarted() - before, 2);
+});

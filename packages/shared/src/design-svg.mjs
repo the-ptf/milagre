@@ -76,9 +76,11 @@ function shape(node, box, inset = 0) {
  * textLayout(node, width): {lines: string[], width, height, lineHeight}, with lineHeight in pixels.
  * resolveColor(value, fallback): a token-resolved CSS color.
  * fontFaces: optional @font-face CSS the caller wants embedded in the SVG.
+ * onCanvasOnly: leave out layers wholly outside the screen. Nothing of them is visible, and resvg panics on some of them
+ * (an opacity or clip group far past the right or bottom edge), so the agent's rasterizer drops them.
  * HTTPS image references and font-family names remain references; this pure function does not fetch or embed them.
  */
-export function renderDesignSvg(document, bounds, textLayout, resolveColor, fontFaces = "") {
+export function renderDesignSvg(document, bounds, textLayout, resolveColor, fontFaces = "", { onCanvasOnly = false } = {}) {
   const children = new Map();
   for (const [index, node] of document.nodes.entries()) {
     const siblings = children.get(node.parentId) ?? [];
@@ -121,6 +123,7 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
       .map(({ node, index }) => {
         const box = bounds.get(node.id);
         if (node.hidden || !box) return "";
+        if (onCanvasOnly && (box.x >= document.width || box.y >= document.height || box.x + box.width <= 0 || box.y + box.height <= 0)) return "";
         if (node.type === "icon") {
           const { color, opacity } = paint(resolveColor(node.fill, "#202720"));
           return take(

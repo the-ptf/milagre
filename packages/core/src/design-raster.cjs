@@ -88,6 +88,8 @@ function post(document) {
     };
     const onMessage = (message) => {
       if (message.id !== id) return;
+      // A failed render may be a WebAssembly panic, which leaves resvg unusable; the next render gets a fresh worker.
+      if (message.error && worker === current) retire();
       settle(() => (message.error ? reject(new Error(message.error)) : resolve(message.result)));
     };
     const onError = (error) => {

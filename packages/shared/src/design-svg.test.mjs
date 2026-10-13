@@ -205,3 +205,16 @@ test("Inter text names the measured face it draws with; other families keep the 
     ["600", "400", "650"],
   );
 });
+
+test("onCanvasOnly leaves out layers wholly outside the screen and keeps partly visible ones", () => {
+  const document = screen([
+    { id: "partly", type: "rectangle", x: 370, y: 10, width: 40, height: 8, fill: "red" },
+    { id: "right", type: "rectangle", x: 390, y: 10, width: 40, height: 8, fill: "red" },
+    { id: "left", type: "rectangle", x: -40, y: 10, width: 40, height: 8, fill: "red" },
+    { id: "below", type: "rectangle", x: 10, y: 844, width: 40, height: 8, fill: "red" },
+    { id: "above", type: "icon", icon: "x", x: 10, y: -24, width: 24, height: 24 },
+  ]);
+  const ids = (svg) => [...svg.matchAll(/id="layer-([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(ids(render(document)), ["partly", "right", "left", "below", "above"]);
+  assert.deepEqual(ids(renderDesignSvg(document, literalBounds(document.nodes), lines, color, "", { onCanvasOnly: true })), ["partly"]);
+});

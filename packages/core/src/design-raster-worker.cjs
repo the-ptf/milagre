@@ -23,15 +23,18 @@ async function render(document) {
   let resvg;
   let rendered;
   try {
-    resvg = new Resvg(designSvg(document, { embedFonts: false }), {
+    resvg = new Resvg(designSvg(document, { embedFonts: false, onCanvasOnly: true }), {
       font: { fontBuffers, loadSystemFonts: false, defaultFontFamily: "Inter", sansSerifFamily: "Inter" },
       fitTo: { mode: "zoom", value: scale },
     });
     rendered = resvg.render();
     return { mime: "image/png", base64: Buffer.from(rendered.asPng()).toString("base64"), width: rendered.width, height: rendered.height };
   } finally {
-    rendered?.free();
-    resvg?.free();
+    // After a panic resvg refuses to free its objects; the worker is replaced then, so the original error is what matters.
+    try {
+      rendered?.free();
+      resvg?.free();
+    } catch {}
   }
 }
 
