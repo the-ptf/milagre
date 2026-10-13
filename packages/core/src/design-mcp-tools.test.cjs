@@ -95,3 +95,61 @@ test("revoking a connection while a document read or export is running withholds
     await assert.rejects(tools[tool].run(input), /Connection revoked/);
   }
 });
+
+test("composed registry rejects queued design and comment mutations after revocation or a grant edit", async (t) => {
+  const { createLocalMcpRegistry } = require("./local-mcp-registry.cjs");
+  for (const change of ["revoke", "edit"]) {
+    for (const [method, name, args] of [
+      ["showDesign", "design_show", { id: "allowed", title: "Changed", document, expectedVersion: 1 }],
+      ["apply", "design_apply", { id: "allowed", expectedVersion: 1, operations: [{ op: "replace", document: { ...document, width: 400 } }] }],
+      ["resolveComment", "artifact_resolve_comment", { note: "Resolved" }],
+    ]) {
+      const directory = await fs.mkdtemp(path.join(os.tmpdir(), "design-mcp-queued-"));
+      t.after(() => fs.rm(directory, { recursive: true, force: true }));
+      const chatId = "/project#1";
+      let hold = false;
+      const blocked = Promise.withResolvers();
+      const entered = Promise.withResolvers();
+      const artifacts = createChatArtifacts({
+        directory,
+        validateChat: async () => {
+          if (hold) {
+            entered.resolve();
+            await blocked.promise;
+          }
+        },
+      });
+      await artifacts.showDesign({ chatId, id: "allowed", title: "Original", document });
+      const [comment] = await artifacts.addComments({ chatId, comments: [{ design: { id: "allowed", title: "Original", version: 1 }, text: "Change this" }] });
+      let grant = { revision: 1, grants: { designs: { chatId, designIds: ["allowed"], capabilities: ["read", "write"] } } };
+      const registry = createLocalMcpRegistry({
+        connection: () => {
+          if (!grant) throw Error("Connection revoked");
+          return grant;
+        },
+      });
+      registry.registerToolGroup(createDesignToolGroup({ artifacts }));
+      const tool = registry.toolsFor("connection").find((item) => item.name === name);
+      const original = artifacts[method];
+      let blocker;
+      artifacts[method] = (...input) => {
+        hold = true;
+        blocker = artifacts.list({ chatId });
+        return original(...input);
+      };
+      const operation = tool.run(method === "resolveComment" ? { ...args, id: comment.id } : args);
+      const rejected = assert.rejects(operation, /changed or revoked|Connection revoked/);
+      await entered.promise;
+      grant = change === "revoke" ? null : { ...grant, revision: 2 };
+      hold = false;
+      blocked.resolve();
+      await blocker;
+      await rejected;
+      const saved = await artifacts.get({ chatId, id: "allowed" });
+      assert.equal(saved.version, 1, `${name} cannot commit after ${change}`);
+      assert.equal(saved.title, "Original");
+      assert.equal((await artifacts.comments({ chatId }))[0].resolved, undefined);
+      await artifacts.close();
+    }
+  }
+});

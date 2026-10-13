@@ -27,7 +27,7 @@ function createDesignToolGroup({ artifacts }) {
       const permit = (id) => {
         if (ids && !ids.has(id)) throw Error("This design is outside the connection's scope.");
       };
-      const tools = artifactToolDefinitions(chatId, artifacts).map((tool) => {
+      const tools = artifactToolDefinitions(chatId, artifacts, { assertActive: () => active("write") }).map((tool) => {
         const capability = tool.readOnly ? "read" : "write";
         return {
           ...tool,

@@ -1277,6 +1277,7 @@ async function browserChecks() {
     await button("Discard changes");
     await waitFor(`!${editor}`);
     await openEditor();
+    await waitFor(`${editor}.querySelectorAll('[data-slot="design-page-frame"]').length === 2`);
     await click('[aria-label="Select design Evening walk"]');
     await click('[data-node-id="brand"]');
     assert.equal(

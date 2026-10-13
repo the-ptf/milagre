@@ -183,6 +183,22 @@ test("design-only configuration never exposes management or public publishing", 
   await assert.rejects(call(connection, "project_list"), /unavailable/);
   await assert.rejects(call(connection, "worktree_create", {}), /unavailable/);
   await assert.rejects(call(connection, "design_publish", {}), /unavailable/);
+  const document = { schemaVersion: 1, width: 390, height: 844, nodes: [] };
+  const created = await call(connection, "design_show", { id: "page", title: "Page", document });
+  assert.equal(created.version, 1);
+  assert.equal((await call(connection, "design_list"))[0].id, "page");
+  assert.deepEqual((await call(connection, "design_read", { id: "page" })).document, document);
+  const edited = await call(connection, "design_apply", {
+    id: "page",
+    expectedVersion: 1,
+    operations: [{ op: "replace", document: { ...document, width: 400 } }],
+  });
+  assert.equal(edited.version, 2);
+  assert.equal((await call(connection, "design_read", { id: "page" })).document.width, 400);
+  await f.runtime.invoke("designs:enabled:save", [false]);
+  await assert.rejects(call(connection, "design_list"), /unavailable/);
+  await f.runtime.invoke("designs:enabled:save", [true]);
+  assert.equal((await call(connection, "design_list"))[0].version, 2);
   await f.runtime.invoke("local-mcp:revoke", [connection.connection.id]);
   assert.equal((await fetch(connection.url, { headers: { authorization: `Bearer ${connection.token}` } })).status, 401);
 });

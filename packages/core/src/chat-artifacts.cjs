@@ -70,19 +70,20 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
   const designFolder = (folder, id) => path.join(folder, checkId(id));
   const htmlFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.html`);
   const documentFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.design.json`);
-  async function atomicWrite(file, content) {
+  async function atomicWrite(file, content, assertActive) {
     const temporary = `${file}.${randomUUID()}.tmp`;
     try {
       await fs.writeFile(temporary, content, { mode: 0o600 });
+      await assertActive?.();
       await fs.rename(temporary, file);
     } finally {
       await fs.rm(temporary, { force: true });
     }
   }
   // Metadata excludes the document and preview, so listing a Chat's designs stays cheap.
-  async function writeMeta(folder, meta) {
+  async function writeMeta(folder, meta, assertActive) {
     await fs.mkdir(designFolder(folder, meta.id), { recursive: true, mode: 0o700 });
-    await atomicWrite(path.join(designFolder(folder, meta.id), "meta.json"), JSON.stringify(meta));
+    await atomicWrite(path.join(designFolder(folder, meta.id), "meta.json"), JSON.stringify(meta), assertActive);
   }
   async function load(folder, id) {
     const file = path.join(designFolder(folder, id), "meta.json");
@@ -101,7 +102,7 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
   function editable(artifact) {
     if (artifact && artifact.versions.at(-1)?.format !== "design") throw Error(RETIRED);
   }
-  async function writeVersion(folder, id, previous, entry, html, document) {
+  async function writeVersion(folder, id, previous, entry, html, document, assertActive) {
     const artifact = { id, versions: [...previous, entry].slice(-MAX_VERSIONS) };
     const files = [htmlFile(folder, id, entry.version), documentFile(folder, id, entry.version)];
     await fs.mkdir(designFolder(folder, id), { recursive: true, mode: 0o700 });
@@ -109,7 +110,7 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
       await atomicWrite(files[0], html);
       await atomicWrite(files[1], JSON.stringify(document));
       // Publishing metadata is the commit: readers cannot observe a partial document/preview pair.
-      await writeMeta(folder, artifact);
+      await writeMeta(folder, artifact, assertActive);
     } catch (error) {
       await Promise.all(files.map((file) => fs.rm(file, { force: true }).catch(() => {})));
       throw error;
@@ -160,8 +161,9 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
         }
         return { schemaVersion: 1, title: request.title, designs };
       }),
-    showDesign: (request) =>
+    showDesign: (request, { assertActive } = {}) =>
       serial(async () => {
+        await assertActive?.();
         const folder = await chat(request?.chatId);
         if (typeof request?.title !== "string" || !request.title.trim()) throw Error("A design needs a title.");
         const id = request.id ?? randomUUID().slice(0, 8);
@@ -178,11 +180,12 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
           format: "design",
           createdAt: Date.now(),
         };
-        const artifact = await writeVersion(folder, id, previous, entry, designHtml(document), document);
+        const artifact = await writeVersion(folder, id, previous, entry, designHtml(document), document, assertActive);
         return summary(artifact, entry);
       }),
-    apply: (request) =>
+    apply: (request, { assertActive } = {}) =>
       serial(async () => {
+        await assertActive?.();
         const folder = await chat(request?.chatId);
         const existing = await load(folder, request?.id);
         if (!existing) throw Error("This design is no longer available.");
@@ -199,7 +202,7 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
           createdAt: Date.now(),
         };
         const html = designHtml(document);
-        const artifact = await writeVersion(folder, existing.id, existing.versions, entry, html, document);
+        const artifact = await writeVersion(folder, existing.id, existing.versions, entry, html, document, assertActive);
         return { ...summary(artifact, entry), latest: entry.version, html, document };
       }),
     get: (request) =>
@@ -281,8 +284,9 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
         return comments.filter((_comment, index) => visible[index]);
       }),
     /** Marks a comment resolved, with the agent's note on what it did about it. */
-    resolveComment: (request) =>
+    resolveComment: (request, { assertActive } = {}) =>
       serial(async () => {
+        await assertActive?.();
         const folder = await chat(request?.chatId);
         const note = typeof request?.note === "string" ? request.note.trim().slice(0, 2000) : "";
         if (!note) throw Error("Say how the comment was resolved.");
@@ -291,7 +295,7 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
         if (!comment) throw Error(`No comment ${request?.id} in this Chat. List them with artifact_comments.`);
         await commentDesign(folder, comment);
         comment.resolved = { note, at: Date.now() };
-        await writeComments(folder, all);
+        await writeComments(folder, all, assertActive);
         return comment;
       }),
     /** Deletes every design and comment of a Chat that is gone. */
@@ -321,12 +325,13 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
       throw error;
     }
   }
-  async function writeComments(folder, comments) {
+  async function writeComments(folder, comments, assertActive) {
     await fs.mkdir(folder, { recursive: true, mode: 0o700 });
     const file = path.join(folder, COMMENTS);
     const temporary = `${file}.${randomUUID()}.tmp`;
     try {
       await fs.writeFile(temporary, JSON.stringify(comments), { mode: 0o600 });
+      await assertActive?.();
       await fs.rename(temporary, file);
     } finally {
       await fs.rm(temporary, { force: true });
@@ -334,7 +339,7 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
   }
 }
 
-function artifactToolDefinitions(chatId, api) {
+function artifactToolDefinitions(chatId, api, authorization) {
   if (!api.enabled()) return [];
   return [
     {
@@ -348,7 +353,7 @@ function artifactToolDefinitions(chatId, api) {
         expectedVersion: z.number().int().nonnegative().optional(),
       },
       readOnly: false,
-      run: async (args) => JSON.stringify(await api.showDesign({ chatId, ...args })),
+      run: async (args) => JSON.stringify(await api.showDesign({ chatId, ...args }, authorization)),
     },
     {
       name: "design_read",
@@ -372,7 +377,7 @@ function artifactToolDefinitions(chatId, api) {
       },
       readOnly: false,
       run: async (args) => {
-        const { html: _html, document: _document, ...design } = await api.apply({ chatId, ...args });
+        const { html: _html, document: _document, ...design } = await api.apply({ chatId, ...args }, authorization);
         return JSON.stringify(design);
       },
     },
@@ -398,7 +403,7 @@ function artifactToolDefinitions(chatId, api) {
         "Mark one of the user's comments on a design resolved once you have addressed it (usually after showing a revised version), with a short note on what you changed. The user sees the comment resolved, with your note, in the chat and on the canvas. The comment's id is in the user's message, or from artifact_comments.",
       input: { id: z.string().regex(COMMENT_ID), note: z.string().min(1).max(2000) },
       readOnly: false,
-      run: async (args) => JSON.stringify(await api.resolveComment({ chatId, ...args })),
+      run: async (args) => JSON.stringify(await api.resolveComment({ chatId, ...args }, authorization)),
     },
   ];
 }
