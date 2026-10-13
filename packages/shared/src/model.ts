@@ -125,6 +125,8 @@ export interface AgentSession {
   /** Session ids of the providers this chat is not on right now, so switching back resumes them. */
   native_sessions?: Partial<Record<ModelProvider, string>>;
   subagents?: Subagent[];
+  /** The Chat's task list and phase history (chat-plan.mjs); absent until an agent writes one. */
+  plan?: ChatPlan;
   /** Automatic title from the first message; a manual title takes precedence. */
   generatedTitle?: string;
   /** Persisted until background naming finishes, including across restarts. */
@@ -518,6 +520,38 @@ export interface AgentTask {
   status: "pending" | "in_progress" | "completed";
 }
 
+/** A Chat task's state. A parent's is derived from its subtasks (chat-plan.mjs). */
+export type ChatTaskStatus = "pending" | "in_progress" | "completed";
+
+/** One item of a Chat's task list, at most three levels deep. Ids are Milagre's: "1", "1.2", "1.2.1". */
+export interface ChatTask {
+  id: string;
+  title: string;
+  /** Present-continuous wording shown while in progress ("Saving wishlist changes"). */
+  activeForm?: string;
+  status: ChatTaskStatus;
+  children?: ChatTask[];
+}
+
+/** Where a Chat's work is, set by the agent with phase_set. In graph row order, bottom to top. */
+export type ChatPhase = "start" | "plan" | "build" | "test" | "review" | "merge" | "release" | "done";
+
+export interface ChatPhaseEntry {
+  phase: ChatPhase;
+  /** When the agent moved to this phase, in milliseconds since epoch. */
+  at: number;
+}
+
+/** A Chat's task list and phase history. Lives on the session, so it outlasts turns and restarts. */
+export interface ChatPlan {
+  /** "milagre" once tasks_set or task_update wrote it; "native" while it mirrors the provider's own todo list. */
+  source: "milagre" | "native";
+  tasks: ChatTask[];
+  /** Oldest first, at most 200; the last is the current phase. */
+  phases: ChatPhaseEntry[];
+  updatedAt: number;
+}
+
 /** A TCP port a chat's commands listen on, such as a dev server. */
 export interface AgentPort {
   port: number;
@@ -541,6 +575,8 @@ export type AgentEvent =
   | { type: "subagent-update"; agent: Subagent }
   | { type: "subagents-waiting"; waiting: boolean }
   | { type: "tasks-updated"; tasks: AgentTask[] }
+  /** Milagre's own event: a task tool changed the Chat's plan; null clears it. */
+  | { type: "plan-updated"; plan: ChatPlan | null }
   | ({ type: "context-usage" } & ContextUsage)
   | { type: "context-compacting" }
   /** The provider compacted the conversation: token counts when reported; `manual` when `/compact` asked for it. */

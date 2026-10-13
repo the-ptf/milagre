@@ -79,6 +79,10 @@
       "types": "./src/chat-summary.d.mts",
       "default": "./src/chat-summary.mjs"
     },
+    "./chat-plan": {
+      "types": "./src/chat-plan.d.mts",
+      "default": "./src/chat-plan.mjs"
+    },
     "./state-patch": {
       "types": "./src/state-patch.d.mts",
       "default": "./src/state-patch.mjs"
