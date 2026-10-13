@@ -590,23 +590,6 @@ test("answers to a question join the chat as the user's message, after the reply
   }
 });
 
-test("tasks-updated sets, replaces and clears the run's to-do list, and is ignored without a run", () => {
-  const tasks = [
-    { id: "0", content: "Write tests", status: "completed" as const },
-    { id: "1", content: "Fix bug", activeForm: "Fixing bug", status: "in_progress" as const },
-  ];
-  const none = applyAgentEvent(base(), {}, PROJECT, key(1), { type: "tasks-updated", tasks });
-  assert.deepEqual(none.runs, {});
-  assert.equal(none.changed, false);
-  let { state, runs, changed } = applyAgentEvent(base(), startRun({}, key(1), "claude"), PROJECT, key(1), { type: "tasks-updated", tasks });
-  assert.equal(changed, false);
-  assert.deepEqual(runs[key(1)].tasks, tasks);
-  ({ state, runs } = applyAgentEvent(state, runs, PROJECT, key(1), { type: "tasks-updated", tasks: [tasks[0]] }));
-  assert.deepEqual(runs[key(1)].tasks, [tasks[0]]);
-  ({ state, runs } = applyAgentEvent(state, runs, PROJECT, key(1), { type: "tasks-updated", tasks: [] }));
-  assert.equal("tasks" in runs[key(1)], false);
-});
-
 test("context-usage follows the run and is saved on the chat when the turn ends", () => {
   let { state, runs, changed } = applyAgentEvent(base(), startRun({}, key(1), "codex"), PROJECT, key(1), { type: "context-usage", used: 1000, size: 4000 });
   assert.equal(changed, false);
@@ -614,16 +597,6 @@ test("context-usage follows the run and is saved on the chat when the turn ends"
   ({ state, runs, changed } = applyAgentEvent(state, runs, PROJECT, key(1), { type: "turn-failed", message: "at capacity" }));
   assert.equal(changed, true);
   assert.deepEqual(state.sessions[1].contextUsage, { used: 1000, size: 4000 });
-});
-
-test("tasks survive a steering split and go with the run when the turn ends", () => {
-  const tasks = [{ id: "0", content: "Write tests", status: "pending" as const }];
-  let { state, runs } = applyAgentEvent(base(), startRun({}, key(1), "claude"), PROJECT, key(1), { type: "tasks-updated", tasks });
-  ({ state, runs } = applyAgentEvent(state, runs, PROJECT, key(1), { type: "text-delta", messageId: "m", text: "Working" }));
-  const split = splitRunForSteer(state, runs, PROJECT, key(1));
-  assert.deepEqual(split.runs[key(1)].tasks, tasks);
-  const ended = applyAgentEvent(split.state, split.runs, PROJECT, key(1), { type: "turn-completed" });
-  assert.equal(ended.runs[key(1)], undefined);
 });
 
 test("answers keep each question with what was picked or typed, in the request's order, with typed secrets masked", () => {
@@ -769,4 +742,40 @@ test("an automatic compaction interrupted before its boundary saves a failed div
     assert.equal(ended.state.messages[0].context?.kind, "compaction");
     assert.equal((ended.state.messages[0].context as { status: string }).status, "failed");
   }
+});
+
+test("a session without plan takes a native list", () => {
+  let runs = startRun({}, key(1), "gpt-5.5");
+  const first = applyAgentEvent(base(), runs, PROJECT, key(1), {
+    type: "tasks-updated",
+    tasks: [{ id: "0", content: "Read", status: "in_progress" }],
+  });
+  assert.equal(first.changed, true);
+  assert.equal(first.state.sessions["1"].plan?.source, "native");
+  assert.deepEqual(first.state.sessions["1"].plan?.tasks, [{ id: "0", title: "Read", status: "in_progress" }]);
+  assert.equal("tasks" in (first.runs[key(1)] ?? {}), false);
+});
+
+test("plan-updated stores the plan and native lists stop once Milagre owns it", () => {
+  const plan = { source: "milagre" as const, tasks: [{ id: "1", title: "Mine", status: "pending" as const }], phases: [], updatedAt: 1 };
+  const runs = startRun({}, key(1), "gpt-5.5");
+  const owned = applyAgentEvent(base(), runs, PROJECT, key(1), { type: "plan-updated", plan });
+  assert.equal(owned.changed, true);
+  assert.deepEqual(owned.state.sessions["1"].plan, plan);
+  const ignored = applyAgentEvent(owned.state, owned.runs, PROJECT, key(1), {
+    type: "tasks-updated",
+    tasks: [{ id: "0", content: "Other", status: "pending" }],
+  });
+  assert.equal(ignored.changed, false);
+  const cleared = applyAgentEvent(owned.state, owned.runs, PROJECT, key(1), { type: "plan-updated", plan: null });
+  assert.equal(cleared.state.sessions["1"].plan, undefined);
+});
+
+test("the plan outlives the turn", () => {
+  const plan = { source: "milagre" as const, tasks: [{ id: "1", title: "Mine", status: "pending" as const }], phases: [], updatedAt: 1 };
+  const runs = startRun({}, key(1), "gpt-5.5");
+  const owned = applyAgentEvent(base(), runs, PROJECT, key(1), { type: "plan-updated", plan });
+  const ended = applyAgentEvent(owned.state, owned.runs, PROJECT, key(1), { type: "turn-completed" });
+  assert.deepEqual(ended.state.sessions["1"].plan, plan);
+  assert.equal(ended.runs[key(1)], undefined);
 });

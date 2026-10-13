@@ -4,6 +4,7 @@
 
 import { hasTranscriptTail } from "./subagent-transcript.mjs";
 import { qualifyKey } from "./chat-scopes.mjs";
+import { nativePlan } from "./chat-plan.mjs";
 
 export { LOCAL_COMPUTER, computerOfKey, qualifyKey, unqualifyKey } from "./chat-scopes.mjs";
 
@@ -163,12 +164,6 @@ export function applyRunEvent(runs, chatId, event, model = "") {
     }
     case "subagents-waiting":
       return run ? { ...runs, [chatId]: { ...run, waitingForSubagents: event.waiting } } : runs;
-    // The agent's to-do list as it last reported it; an empty list clears it.
-    case "tasks-updated": {
-      if (!run) return runs;
-      const { tasks: _cleared, ...rest } = run;
-      return { ...runs, [chatId]: event.tasks.length ? { ...rest, tasks: event.tasks } : rest };
-    }
     case "context-usage":
       return run ? { ...runs, [chatId]: { ...run, contextUsage: { used: event.used, size: event.size } } } : runs;
     // The user's answers to a question were saved as their message, after the reply so far (see recordAnswers).
@@ -258,6 +253,19 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
       if (agent.detailsOnDemand === undefined) delete agent.detailsOnDemand;
       const subagents = previous ? children.map((child) => (child.id === agent.id ? agent : child)) : [...children, agent];
       return { state: { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, subagents } } }, runs, changed: true };
+    }
+    // A Chat's plan lives on its session (chat-plan.mjs), so it outlasts the turn. Milagre's task tools replace it whole.
+    case "plan-updated": {
+      const { plan: _previous, ...rest } = session;
+      const next = event.plan ? { ...rest, plan: event.plan } : rest;
+      return { state: { ...state, sessions: { ...state.sessions, [sessionId]: next } }, runs, changed: true };
+    }
+    // A provider's own todo list fills the plan until Milagre's tools own it.
+    case "tasks-updated": {
+      const plan = nativePlan(session.plan, event.tasks, Date.now());
+      if (plan === session.plan) return { state, runs, changed: false };
+      const { plan: _previous, ...rest } = session;
+      return { state: { ...state, sessions: { ...state.sessions, [sessionId]: plan ? { ...rest, plan } : rest } }, runs, changed: true };
     }
     case "session-started": {
       if (session.native_session_id === event.nativeId) return { state, runs, changed: false };

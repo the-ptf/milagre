@@ -1,7 +1,6 @@
 import type {
   AgentEvent,
   AnsweredQuestion,
-  AgentTask,
   ChatStep,
   ContextUsage,
   CoordinatorState,
@@ -34,8 +33,6 @@ export interface AgentRun {
   split?: boolean;
   /** The agent waits on its subagents, so the indicator says so instead of "Working". */
   waitingForSubagents?: boolean;
-  /** The agent's to-do list as it last reported it; gone with the run when the turn ends. */
-  tasks?: AgentTask[];
   /** How full the agent's context window is; saved on the chat when the turn ends. */
   contextUsage?: ContextUsage;
 }
