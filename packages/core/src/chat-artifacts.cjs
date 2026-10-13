@@ -316,7 +316,9 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
           version: current.version,
           filename: `${current.id}-v${current.version}.${request.format}`,
           mimeType: svg ? "image/svg+xml" : "application/json",
-          content: svg ? designSvg(current.document) : JSON.stringify(current.document, null, 2),
+          // Agents read this through a tool result, so Inter stays a font-family reference instead of ~250 KB of embedded faces.
+          // The desktop download builds its own SVG with the fonts embedded.
+          content: svg ? designSvg(current.document, { embedFonts: false }) : JSON.stringify(current.document, null, 2),
         };
       }),
     list: (request) =>
@@ -561,7 +563,7 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
     {
       name: "design_export",
       description:
-        "Export an editable design version as its source JSON document or a standalone SVG. Returns the filename, MIME type and file content. Save the content to a file when the user requests a downloadable export.",
+        "Export an editable design version as its source JSON document or a standalone SVG. The SVG names its fonts without embedding them. Returns the filename, MIME type and file content. Save the content to a file when the user requests a downloadable export.",
       input: { id: z.string().regex(ID), version: z.number().int().positive().optional(), format: z.enum(["json", "svg"]) },
       readOnly: true,
       run: async (args) => JSON.stringify(await api.exportDesign({ chatId, ...args })),

@@ -444,6 +444,8 @@ test("JSON and SVG exports use the requested immutable design version", async (t
   assert.equal(svg.mimeType, "image/svg+xml");
   assert.match(svg.content, /<svg/);
   assert.match(svg.content, /New title/);
+  assert.doesNotMatch(svg.content, /@font-face/, "fonts are not embedded in the agent's export");
+  assert.ok(svg.content.length < 20_000, `the agent's SVG stays small (${svg.content.length} characters)`);
   await assert.rejects(api.exportDesign({ chatId: CHAT, id: "welcome", format: "html" }), /Choose json or svg/);
 });
 
