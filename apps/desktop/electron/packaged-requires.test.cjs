@@ -34,3 +34,10 @@ test("the design rasterizer's WebAssembly ships outside the asar", () => {
   const unpack = require(path.join(root, "package.json")).build.asarUnpack;
   assert.ok(unpack.includes("node_modules/@resvg/resvg-wasm/**/*"));
 });
+
+test("core resolves the rasterizer's WebAssembly and worker thread", () => {
+  const core = path.join(root, "packages/core/src");
+  assert.ok(fs.existsSync(require.resolve("@resvg/resvg-wasm/index_bg.wasm", { paths: [core] })));
+  assert.match(fs.readFileSync(path.join(core, "design-raster.cjs"), "utf8"), /path\.join\(__dirname, "design-raster-worker\.cjs"\)/);
+  assert.ok(fs.existsSync(path.join(core, "design-raster-worker.cjs")));
+});

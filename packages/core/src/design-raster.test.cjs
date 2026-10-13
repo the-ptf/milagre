@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const zlib = require("node:zlib");
-const { renderDesignPng } = require("./design-raster.cjs");
+const { renderDesignPng, designRasterTesting } = require("./design-raster.cjs");
 
 const phone = (nodes, extra = {}) => ({ schemaVersion: 1, width: 390, height: 844, background: "#ffffff", nodes, ...extra });
 
@@ -104,6 +104,13 @@ function rightmostPainted(image, { y, height }) {
   return right;
 }
 
+const weightPng = async (fontWeight) =>
+  (
+    await renderDesignPng(
+      phone([{ id: "title", type: "text", x: 16, y: 60, width: 340, height: 40, text: "Weekly summary 2026", fontSize: 24, fontWeight, fill: "#111111" }]),
+    )
+  ).base64;
+
 test("each measured Inter weight draws with its own face", async () => {
   const { createHash } = require("node:crypto");
   const hashes = [];
@@ -115,14 +122,8 @@ test("each measured Inter weight draws with its own face", async () => {
   }
   assert.equal(new Set(hashes).size, 4, "400, 500, 600 and 700 each render differently");
   // In-between weights draw with the face the layout measured.
-  const at = async (fontWeight) =>
-    (
-      await renderDesignPng(
-        phone([{ id: "title", type: "text", x: 16, y: 60, width: 340, height: 40, text: "Weekly summary 2026", fontSize: 24, fontWeight, fill: "#111111" }]),
-      )
-    ).base64;
-  assert.ok((await at(650)) === (await at(600)), "650 draws as 600");
-  assert.ok((await at(450)) === (await at(400)), "450 draws as 400");
+  assert.ok((await weightPng(650)) === (await weightPng(600)), "650 draws as 600");
+  assert.ok((await weightPng(450)) === (await weightPng(400)), "450 draws as 400");
 });
 
 test("a 22/600 hug title is not clipped by its own box", async () => {
@@ -151,4 +152,88 @@ test("a 22/600 hug title is not clipped by its own box", async () => {
   // The same title in a wide box ends at the same column, so nothing was cut.
   const wide = decode((await renderDesignPng(phone([{ ...document.nodes[0], widthMode: "fixed", width: 340 }]))).base64);
   assert.equal(rightmostPainted(wide, { y: Math.floor(box.y), height: Math.ceil(box.height) }), right);
+});
+
+const pixelAt = (image, x, y) => [...image.pixels.subarray((y * image.width + x) * image.channels, (y * image.width + x) * image.channels + 3)];
+
+// A real PNG of the given size, one black pixel row repeated, so resvg would decode and draw it.
+function blackPng(width, height) {
+  const chunk = (type, body) => {
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(body.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(Buffer.concat([Buffer.from(type), body])));
+    return Buffer.concat([length, Buffer.from(type), body, crc]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 2;
+  const rows = Buffer.alloc((width * 3 + 1) * height);
+  return `data:image/png;base64,${Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", header),
+    chunk("IDAT", zlib.deflateSync(rows)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]).toString("base64")}`;
+}
+
+test("a remote image paints the grey placeholder, not a blank", async () => {
+  const image = decode(
+    (
+      await renderDesignPng(
+        phone([{ id: "hero", type: "image", x: 20, y: 100, width: 200, height: 120, src: "https://example.com/hero.png", fill: "transparent" }]),
+      )
+    ).base64,
+  );
+  assert.deepEqual(pixelAt(image, 120, 160), [0xd8, 0xde, 0xd8]);
+});
+
+test("an inline image drawn by resvg, but one past 4096 px on a side, is a placeholder", async () => {
+  const small = decode((await renderDesignPng(phone([{ id: "photo", type: "image", x: 20, y: 100, width: 100, height: 100, src: blackPng(8, 8) }]))).base64);
+  assert.deepEqual(pixelAt(small, 70, 150), [0, 0, 0]);
+  const huge = decode((await renderDesignPng(phone([{ id: "photo", type: "image", x: 20, y: 100, width: 100, height: 100, src: blackPng(5000, 2) }]))).base64);
+  assert.deepEqual(pixelAt(huge, 70, 150), [0xd8, 0xde, 0xd8]);
+});
+
+test("concurrent renders all resolve, in order", async () => {
+  const documents = Array.from({ length: 6 }, (_, index) =>
+    phone([{ id: "box", type: "rectangle", x: 0, y: 0, width: 10 + index * 10, height: 10, fill: "#000000" }]),
+  );
+  const images = await Promise.all(documents.map((document) => renderDesignPng(document)));
+  assert.equal(images.length, 6);
+  images.forEach((png, index) => {
+    const image = decode(png.base64);
+    assert.deepEqual(pixelAt(image, 5 + index * 10, 5), [0, 0, 0]);
+    assert.deepEqual(pixelAt(image, 15 + index * 10, 5), [255, 255, 255]);
+  });
+});
+
+test("the worker is recycled after its render quota and when idle, and a slow render is cut off", async (t) => {
+  t.after(() => {
+    designRasterTesting.configure({});
+    designRasterTesting.retire();
+  });
+  const document = phone([{ id: "box", type: "rectangle", x: 0, y: 0, width: 10, height: 10, fill: "#000000" }]);
+  designRasterTesting.retire();
+  designRasterTesting.configure({ maxRenders: 2 });
+  let before = designRasterTesting.workersStarted();
+  for (let index = 0; index < 5; index++) await renderDesignPng(document);
+  assert.equal(designRasterTesting.workersStarted() - before, 3, "five renders at two per worker need three workers");
+
+  designRasterTesting.retire();
+  designRasterTesting.configure({ idleMs: 20 });
+  before = designRasterTesting.workersStarted();
+  await renderDesignPng(document);
+  await renderDesignPng(document);
+  assert.equal(designRasterTesting.workersStarted() - before, 1, "back-to-back renders share a worker");
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  await renderDesignPng(document);
+  assert.equal(designRasterTesting.workersStarted() - before, 2, "an idle worker is ended");
+
+  designRasterTesting.configure({ timeoutMs: 1 });
+  await assert.rejects(renderDesignPng(document), /Rendering took too long/);
+  designRasterTesting.configure({});
+  assert.equal((await renderDesignPng(document)).mime, "image/png", "the next render starts a fresh worker");
 });

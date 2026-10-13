@@ -1,32 +1,137 @@
-const fs = require("node:fs");
+const path = require("node:path");
+const { Worker } = require("node:worker_threads");
 
 // The agent's view of a design: the shared SVG, drawn by resvg in WebAssembly so it works on any daemon, headless too.
 // resvg reads fonts from buffers, not @font-face, so the SVG is built without embedded fonts and Inter is passed in
-// directly. Remote https images are not fetched and keep their placeholder.
-const MAX_EDGE = 1568;
-let ready;
+// directly. Drawing runs on a worker thread (design-raster-worker.cjs) so a large design never blocks the daemon, and
+// the worker is ended now and then so the WebAssembly memory goes back to the operating system.
+// Images resvg would not draw, or should not decode, keep their placeholder: remote https images (never fetched) and
+// inline images larger than MAX_IMAGE_EDGE on either side.
+const MAX_IMAGE_EDGE = 4096;
+const defaults = { maxRenders: 50, idleMs: 60_000, timeoutMs: 10_000 };
+let options = { ...defaults };
+let worker;
+let rendersOnWorker = 0;
+let workersStarted = 0;
+let idleTimer;
+let queue = Promise.resolve();
+let nextId = 0;
 
-async function load() {
-  const [{ initWasm, Resvg }, { designSvg, designInterFonts }] = await Promise.all([import("@resvg/resvg-wasm"), import("@milagre/shared/design")]);
-  await initWasm(fs.readFileSync(require.resolve("@resvg/resvg-wasm/index_bg.wasm")));
-  const fontBuffers = Object.values(designInterFonts).map((base64) => new Uint8Array(Buffer.from(base64, "base64")));
-  return { Resvg, designSvg, fontBuffers };
+/** Width and height from a PNG, GIF or JPEG header, or null when the bytes are not one of those. */
+function imageSize(bytes) {
+  if (bytes.length >= 24 && bytes.readUInt32BE(0) === 0x89504e47 && bytes.subarray(12, 16).toString("latin1") === "IHDR")
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  if (bytes.length >= 10 && bytes.subarray(0, 3).toString("latin1") === "GIF") return { width: bytes.readUInt16LE(6), height: bytes.readUInt16LE(8) };
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] !== 0xff) return null;
+      const marker = bytes[offset + 1];
+      if (marker === 0xff) {
+        offset++;
+        continue;
+      }
+      // Start-of-frame markers carry the size; C4 (DHT), C8 (JPG) and CC (DAC) share the range but do not.
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker))
+        return { width: bytes.readUInt16BE(offset + 7), height: bytes.readUInt16BE(offset + 5) };
+      offset += 2 + bytes.readUInt16BE(offset + 2);
+    }
+  }
+  return null;
 }
 
-async function renderDesignPng(document) {
-  ready ??= load().catch((error) => {
-    ready = undefined;
-    throw error;
+function oversized(src) {
+  const comma = src.indexOf(",");
+  const size = imageSize(Buffer.from(src.slice(comma + 1), "base64"));
+  return !!size && (size.width > MAX_IMAGE_EDGE || size.height > MAX_IMAGE_EDGE);
+}
+
+/** A copy of the document in which every image resvg cannot honestly draw shows the grey placeholder instead. */
+function rasterDocument(document) {
+  return {
+    ...document,
+    nodes: document.nodes.map((node) => {
+      if (node.type !== "image" || !node.src || (node.src.startsWith("data:") && !oversized(node.src))) return node;
+      const { src: _src, fill: _fill, ...placeholder } = node;
+      return placeholder;
+    }),
+  };
+}
+
+function retire() {
+  clearTimeout(idleTimer);
+  idleTimer = undefined;
+  const ending = worker;
+  worker = undefined;
+  rendersOnWorker = 0;
+  ending?.terminate().catch(() => {});
+}
+
+function start() {
+  workersStarted++;
+  return new Worker(path.join(__dirname, "design-raster-worker.cjs"));
+}
+
+function post(document) {
+  clearTimeout(idleTimer);
+  worker ??= start();
+  const current = worker;
+  current.ref();
+  const id = ++nextId;
+  return new Promise((resolve, reject) => {
+    const settle = (finish) => {
+      clearTimeout(timer);
+      current.off("message", onMessage);
+      current.off("error", onError);
+      current.off("exit", onExit);
+      finish();
+    };
+    const onMessage = (message) => {
+      if (message.id !== id) return;
+      settle(() => (message.error ? reject(new Error(message.error)) : resolve(message.result)));
+    };
+    const onError = (error) => {
+      if (worker === current) retire();
+      settle(() => reject(error));
+    };
+    const onExit = () => {
+      if (worker === current) retire();
+      settle(() => reject(new Error("The design renderer stopped.")));
+    };
+    const timer = setTimeout(() => {
+      if (worker === current) retire();
+      settle(() => reject(new Error("Rendering took too long")));
+    }, options.timeoutMs);
+    current.on("message", onMessage);
+    current.on("error", onError);
+    current.on("exit", onExit);
+    // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker_threads port, not a window
+    current.postMessage({ id, document });
+  }).finally(() => {
+    if (worker !== current) return;
+    rendersOnWorker++;
+    if (rendersOnWorker >= options.maxRenders) return retire();
+    current.unref();
+    idleTimer = setTimeout(retire, options.idleMs);
+    idleTimer.unref();
   });
-  const { Resvg, designSvg, fontBuffers } = await ready;
-  const scale = Math.min(1, MAX_EDGE / Math.max(document.width, document.height));
-  const rendered = new Resvg(designSvg(document, { embedFonts: false }), {
-    font: { fontBuffers, loadSystemFonts: false, defaultFontFamily: "Inter", sansSerifFamily: "Inter" },
-    fitTo: { mode: "zoom", value: scale },
-  }).render();
-  const result = { mime: "image/png", base64: Buffer.from(rendered.asPng()).toString("base64"), width: rendered.width, height: rendered.height };
-  rendered.free?.();
+}
+
+/** Draws a validated design as a PNG, at most 1568 px on the long edge. Renders run one at a time. */
+function renderDesignPng(document) {
+  const prepared = rasterDocument(document);
+  const result = queue.then(() => post(prepared));
+  queue = result.catch(() => {});
   return result;
 }
 
-module.exports = { renderDesignPng };
+/** Test hooks: tune recycling and the time limit, and count the workers started so far. */
+const designRasterTesting = {
+  configure: (next) => {
+    options = { ...defaults, ...next };
+  },
+  workersStarted: () => workersStarted,
+  retire,
+};
+
+module.exports = { renderDesignPng, designRasterTesting };

@@ -64,6 +64,29 @@ async function connect(url) {
   };
 }
 
+// The agent's design PNG: resvg's WebAssembly (unpacked from the asar) drawn on a worker thread loaded from core. The
+// daemon runs in the main process; Node mode loads the same asar paths with the same Electron runtime.
+async function checkDesignRaster({ executable, raster, label }) {
+  const script = `require(process.argv[1]).renderDesignPng({ schemaVersion: 1, width: 390, height: 844, nodes: [
+    { id: "title", type: "text", x: 16, y: 60, width: 300, height: 40, text: "Packaged", fontSize: 24, fontWeight: 600 }] })
+    .then((png) => { console.log(JSON.stringify({ mime: png.mime, width: png.width, height: png.height, bytes: png.base64.length })); process.exit(0); },
+      (error) => { console.error(error.stack); process.exit(1); });`;
+  const child = spawn(executable, ["-e", script, raster], { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "pipe", "pipe"] });
+  let output = "";
+  for (const stream of [child.stdout, child.stderr]) stream.on("data", (data) => (output += data.toString()));
+  const [code] = await once(child, "exit");
+  assert.equal(code, 0, output);
+  const png = JSON.parse(output.trim().split("\n").at(-1));
+  assert.deepEqual([png.mime, png.width, png.height], ["image/png", 390, 844], output);
+  assert.ok(png.bytes > 1000, output);
+  console.log(`PASS: ${label} core draws a design PNG on its worker thread`);
+}
+
+function packagedRaster(executable) {
+  const resources = process.platform === "darwin" ? path.join(path.dirname(executable), "../Resources") : path.join(path.dirname(executable), "resources");
+  return path.join(resources, "app.asar/node_modules/@milagre/core/src/design-raster.cjs");
+}
+
 async function checkApp({ executable, args, profile, project, expectTheme, expectStartupError = false, recoverOwnership }) {
   console.log(`CHECK: ${expectTheme ? "installed" : "source"} desktop${expectStartupError ? " ownership recovery" : ""}`);
   const env = { ...process.env };
@@ -438,10 +461,13 @@ async function main() {
       JSON.stringify({ projects: { [project]: { setupCommand: "npm ci", filesToCopy: [".env"] } } }),
     );
     await checkApp({ executable: require("electron"), args: [path.join(root, "apps/desktop")], profile, project, expectTheme: false });
+    await checkDesignRaster({ executable: require("electron"), raster: path.join(root, "packages/core/src/design-raster.cjs"), label: "source" });
     const packagedIndex = process.argv.indexOf("--packaged");
     if (packagedIndex !== -1) {
       assert.ok(process.argv[packagedIndex + 1], "Pass the packaged application path after --packaged");
-      await checkApp({ executable: await packagedExecutable(process.argv[packagedIndex + 1]), args: [], profile, project, expectTheme: true });
+      const executable = await packagedExecutable(process.argv[packagedIndex + 1]);
+      await checkApp({ executable, args: [], profile, project, expectTheme: true });
+      await checkDesignRaster({ executable, raster: packagedRaster(executable), label: "packaged" });
     }
     const { acquireOwnership } = require("@milagre/core/ownership");
     const owner = acquireOwnership(path.join(project, ".milagre/runtime.lock"));
