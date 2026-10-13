@@ -1396,6 +1396,7 @@ function chatHost({
     "expo-crypto": { randomUUID: require("node:crypto").randomUUID },
     "../archive-progress": archiveProgress,
     "../attention": { AttentionPill: () => null },
+    "../plan-pill": { PlanPill: () => null },
     "../chat-actions": load("chat-actions.ts", {
       "react-native": { Alert: { alert } },
       "expo-clipboard": { setStringAsync: async () => {} },
