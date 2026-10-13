@@ -22,6 +22,32 @@ export function notificationTarget(value: unknown, hosts: SavedHost[]): Notifica
   const host = hosts.find((host) => host.id === data.hostId);
   return host ? { host, projectPath: data.projectPath, sessionId: Number(data.sessionId), eventId: data.eventId } : null;
 }
+// The routes app/_layout.tsx presents as a sheet or a transparent modal: the Chat they open over stays on screen behind
+// them. A full-screen modal or a pushed page hides it.
+export const SHEETS_OVER_CHAT = new Set([
+  "update-sheet",
+  "confirm-sheet",
+  "choice-sheet",
+  "add-computer",
+  "link-projects",
+  "link-chat",
+  "choose-projects",
+  "context-sheet",
+  "permission-sheet",
+  "model-sheet",
+  "agents",
+  "inbox",
+  "ports-sheet",
+  "browser-sheet",
+  "activity",
+  "handoff-brief",
+  "viewer",
+]);
+/** The Chat on screen: the one at /chat (`chat`), or the one a sheet opened over (`previous`), while its computer is connected. */
+export function viewedChat(path: string, chat: PushView, previous: PushView, connected: string | undefined): PushView {
+  if (path === "/chat") return chat;
+  return previous && previous.hostId === connected && SHEETS_OVER_CHAT.has(path.slice(1)) ? previous : null;
+}
 export function shouldPresentNotification(value: unknown, view: PushView) {
   const data = value as Record<string, unknown> | null;
   return !(view && data?.kind === "milagre-chat" && data.hostId === view.hostId && `${data.projectPath}#${data.sessionId}` === view.chatId);
