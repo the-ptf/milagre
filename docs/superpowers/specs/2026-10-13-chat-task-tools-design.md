@@ -15,7 +15,7 @@ That fix keeps the native fallback below working for Claude.
 
 | Question | Decision |
 | --- | --- |
-| Native todo tools | Milagre tools win. A provider's native list (Claude Task*/TodoWrite, Codex plan, ACP plan) is shown only until a Milagre task tool first writes to that Chat; after that, native updates are ignored for that Chat. |
+| Native todo tools | Milagre tools win. A provider's native list (Claude Task*/TodoWrite, Codex plan, ACP plan) is shown only until `tasks_set` or `task_update` first writes to that Chat; after that, native updates are ignored for that Chat. `phase_set` alone doesn't take the list over, so phases work next to a native list. |
 | Lifetime | Persisted with the Chat. Survives turn end, app restart and idle unload. |
 | Phases | Set by the agent through `phase_set`, timestamped by Milagre. Fixed list of eight. |
 | Tool shape | Hybrid: `tasks_set` writes the whole tree, `task_update` changes one task, `tasks_read` returns both, `phase_set` moves the phase. |
