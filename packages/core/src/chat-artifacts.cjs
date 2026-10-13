@@ -11,6 +11,7 @@ const {
   designSvg,
   designWarnings,
   designWarningText,
+  designUsesInter,
 } = require("@milagre/shared/design");
 const { renderDesignPng } = require("./design-raster.cjs");
 
@@ -433,27 +434,55 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
   }
 }
 
+// The most warnings the summary JSON on line 1 carries; the text block below it lists them the same way.
+const MAX_SUMMARY_WARNINGS = 20;
+// The renderer only has Inter, so text in any other family is drawn in Inter in the agent's image. Names the families.
+const nonInterFamilies = (document) => {
+  const families = new Set();
+  for (const node of document.nodes) {
+    if (node.type !== "text" || node.hidden || !node.fontFamily || designUsesInter(node.fontFamily)) continue;
+    const family = node.fontFamily
+      .split(",")[0]
+      .trim()
+      .replace(/^["']|["']$/g, "");
+    if (family) families.add(family);
+  }
+  return [...families];
+};
+
 // What the agent sees after a design call: the summary (first line, which the Chat card parses), the warnings, and
-// the saved version drawn as a PNG. Drawing never fails the call; the version is already saved.
-async function designFeedback(saved, document, renderPng) {
-  const warnings = designWarnings(document);
-  const notes = [JSON.stringify({ ...saved, warnings })];
+// the saved version drawn as a PNG. Neither drawing nor checking fails the call; the version is already saved.
+async function designFeedback(saved, document, { renderPng, warnings: findWarnings }) {
+  const problems = [];
+  let warnings = [];
+  try {
+    warnings = findWarnings(document);
+  } catch (error) {
+    problems.push(`Layout warnings could not be computed: ${error?.message ?? String(error)}.`);
+  }
+  const head = { ...saved, warnings: warnings.slice(0, MAX_SUMMARY_WARNINGS) };
+  if (warnings.length > MAX_SUMMARY_WARNINGS) head.warningCount = warnings.length;
+  const notes = [JSON.stringify(head)];
   let images = [];
   try {
     images = [await renderPng(document)];
     notes.push(
       "Look at the image: check icons, spacing, alignment and density against the brief, fix what looks wrong and every warning below with design_apply, then reply.",
     );
+    const fonts = nonInterFamilies(document);
+    if (fonts.length) notes.push(`Your image shows ${fonts.join(", ")} in Inter; the user sees the real font.`);
   } catch (error) {
-    notes.push(`The preview could not be rendered: ${error.message}. Check the warnings below.`);
+    notes.push(`The preview could not be rendered: ${error?.message ?? String(error)}. Check the warnings below.`);
   }
+  notes.push(...problems);
   const text = designWarningText(warnings);
   if (text) notes.push(`Warnings:\n${text}`);
   return { text: notes.join("\n"), images };
 }
 
-function artifactToolDefinitions(chatId, api, authorization, { renderPng = renderDesignPng } = {}) {
+function artifactToolDefinitions(chatId, api, authorization, { renderPng = renderDesignPng, warnings = designWarnings } = {}) {
   if (!api.enabled()) return [];
+  const feedback = { renderPng, warnings };
   return [
     {
       name: "design_show",
@@ -468,7 +497,7 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
       readOnly: false,
       run: async (args) => {
         const design = await api.showDesign({ chatId, ...args }, authorization);
-        return designFeedback(design, validateDesignDocument(args.document), renderPng);
+        return designFeedback(design, validateDesignDocument(args.document), feedback);
       },
     },
     {
@@ -494,7 +523,7 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
       readOnly: false,
       run: async (args) => {
         const { html: _html, document, ...design } = await api.apply({ chatId, ...args }, authorization);
-        return designFeedback(design, document, renderPng);
+        return designFeedback(design, document, feedback);
       },
     },
     {

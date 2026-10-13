@@ -99,6 +99,8 @@ export function designFontFamily(value?: string): string;
 export function designFontFaces(document: DesignDocument): string;
 /** The measured Inter weight a requested weight renders with. */
 export function designInterWeight(fontWeight?: number): 400 | 500 | 600 | 700;
+/** Whether Inter is the first family in a font-family list, so the document renders in the embedded Inter. */
+export function designUsesInter(fontFamily?: string): boolean;
 export function designHtml(document: DesignDocument, options?: { interactive?: boolean; selectedId?: string | null }): string;
 /** A portable SVG with native shapes, text and image elements. Inter is embedded unless `embedFonts` is false. JSON is the lossless design export. */
 export function designSvg(document: DesignDocument, options?: { embedFonts?: boolean }): string;

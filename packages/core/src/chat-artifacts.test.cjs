@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { z } = require("zod");
+const { createExampleDesign } = require("@milagre/shared/design");
 const { createChatArtifacts, artifactToolDefinitions, htmlArtifactToolDefinitions, artifactCommentToolDefinitions } = require("./chat-artifacts.cjs");
 
 const CHAT = "/repo#3";
@@ -566,4 +567,56 @@ test("a design_show that fails validation or conflicts still throws before anyth
     tools.design_apply.run({ id: "welcome", expectedVersion: 9, operations: [{ op: "delete", id: "heading" }] }),
     /version|changed|conflict/i,
   );
+});
+
+test("the agent is told which fonts its image draws in Inter", async (t) => {
+  const { tools } = await fixture(t);
+  const stock = await tools.design_show.run({ id: "stock", title: "Stock", document: createExampleDesign() });
+  assert.match(stock.text, /\nYour image shows .*Georgia.* in Inter; the user sees the real font\.(\n|$)/);
+  const inter = await tools.design_show.run({ id: "inter", title: "Inter", document: designDocument() });
+  assert.doesNotMatch(inter.text, /Your image shows/);
+  const hidden = designDocument();
+  hidden.nodes.push({ id: "serif", type: "text", hidden: true, width: 100, height: 20, text: "x", fontFamily: "Georgia, serif" });
+  assert.doesNotMatch((await tools.design_show.run({ id: "hidden", title: "Hidden", document: hidden })).text, /Your image shows/);
+  const failing = Object.fromEntries(
+    artifactToolDefinitions(CHAT, (await fixture(t)).api, undefined, {
+      renderPng: async () => {
+        throw "plain string";
+      },
+    }).map((tool) => [tool.name, tool]),
+  );
+  const none = await failing.design_show.run({ id: "stock", title: "Stock", document: createExampleDesign() });
+  assert.doesNotMatch(none.text, /Your image shows/);
+  assert.match(none.text, /preview could not be rendered: plain string/);
+});
+
+test("a failing layout check still saves and returns the design with a note", async (t) => {
+  const { api } = await fixture(t);
+  const tools = Object.fromEntries(
+    artifactToolDefinitions(CHAT, api, undefined, {
+      warnings: () => {
+        throw new Error("measure failed");
+      },
+    }).map((tool) => [tool.name, tool]),
+  );
+  const shown = await tools.design_show.run({ id: "welcome", title: "Welcome", document: designDocument() });
+  assert.deepEqual(firstLine(shown).warnings, []);
+  assert.match(shown.text, /\nLayout warnings could not be computed: measure failed\./);
+  assert.equal(shown.images.length, 1);
+  assert.equal((await api.get({ chatId: CHAT, id: "welcome" })).version, 1);
+});
+
+test("the summary JSON carries at most 20 warnings and their total", async (t) => {
+  const { tools } = await fixture(t);
+  const document = designDocument();
+  for (let index = 0; index < 25; index++) {
+    document.nodes.push({ id: `off${index}`, type: "rectangle", x: 1000, y: 10 * index, width: 40, height: 8, fill: "#ff0000" });
+  }
+  const shown = await tools.design_show.run({ id: "many", title: "Many", document });
+  const summary = firstLine(shown);
+  assert.equal(summary.warnings.length, 20);
+  assert.equal(summary.warningCount, 25);
+  assert.match(shown.text, /…and 5 more/);
+  const few = firstLine(await tools.design_show.run({ id: "few", title: "Few", document: designDocument() }));
+  assert.equal(few.warningCount, undefined);
 });

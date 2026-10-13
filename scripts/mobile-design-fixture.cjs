@@ -205,7 +205,8 @@ async function startFixture({ port = 8794, metroPort = 8894, root: resumeRoot } 
             });
             if (result.isError) throw new Error(result.text);
             // The summary is the first line; the rest is notes for the agent.
-            ({ warnings: _warnings, ...shown } = JSON.parse(result.text.split("\n", 1)[0]));
+            const { warnings: _warnings, warningCount: _count, ...summary } = JSON.parse(result.text.split("\n", 1)[0]);
+            shown = summary;
           }
           options.emit({ type: "step-started", step: { id: "design-preview", kind: "artifact", title: "Created Fieldnotes", artifact: shown } });
           options.emit({ type: "step-completed", id: "design-preview", status: "done", artifact: shown });
