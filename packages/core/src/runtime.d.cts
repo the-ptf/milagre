@@ -13,6 +13,8 @@ export interface RuntimeOptions {
   keepAwake?: KeepAwake;
   simulators?: Simulators;
   browsers?: Browsers;
+  /** Injectable public snapshot endpoint for an isolated sharing fixture. */
+  designSharing?: { origin?: string; fetch?: typeof fetch };
   isFocused?: () => boolean;
   emit?: (channel: string, payload: unknown) => void;
   observeAgentEvent?: (chatId: string, event: AgentEvent) => void;

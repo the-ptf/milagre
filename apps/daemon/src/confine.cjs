@@ -66,7 +66,14 @@ const PATHS = Object.freeze({
   "terminal:close": denied,
   // A design is read through its Chat, which must be in the folder.
   "artifact:get": ([value]) => [chatProject(value?.chatId)],
+  "artifact:apply": denied,
   "artifact:list": ([value]) => [chatProject(value?.chatId)],
+  "artifact:page-shares": ([value]) => [chatProject(value?.chatId)],
+  "artifact:sharing-status": denied,
+  "artifact:all-page-shares": denied,
+  "artifact:share-page": denied,
+  "artifact:revoke-page-share": denied,
+  "artifact:revoke-saved-page-share": denied,
   "artifact:add-comments": ([value]) => [chatProject(value?.chatId)],
   "artifact:comments": ([value]) => [chatProject(value?.chatId)],
   // Live Activities summarize every open Project and Link, beyond a confined demo folder.
@@ -108,6 +115,8 @@ const PATHS = Object.freeze({
   "linear:status": none,
   "linear:enabled:read": none,
   "linear:enabled:save": denied,
+  "designs:enabled:read": none,
+  "designs:enabled:save": denied,
   "linear:move-to-started:save": denied,
   // Issues name no folder. A Project's worktree issues name the Project's folder, like its other reads.
   "linear:issues": none,

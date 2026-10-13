@@ -216,13 +216,14 @@ function fakeSdk(script) {
   return { calls, loadSdk: async () => ({ query }) };
 }
 
-function claude(t, { script = scripts.reply, resumeId, tldrEnabled, analysisOnly, command = "/usr/local/bin/claude", interruptGraceMs } = {}) {
+function claude(t, { script = scripts.reply, resumeId, tldrEnabled, designsEnabled, analysisOnly, command = "/usr/local/bin/claude", interruptGraceMs } = {}) {
   const sdk = fakeSdk(script);
   const events = [];
   const session = new ClaudeSession({
     cwd: "/repo",
     resumeId,
     tldrEnabled,
+    designsEnabled,
     analysisOnly,
     command,
     emit: (event) => events.push(event),
@@ -1069,6 +1070,17 @@ test("TLDR can be disabled when starting or resuming Claude", async (t) => {
     await ended(events);
     assert.ok(!calls.options.systemPrompt.append.includes("# tldr eval"));
     assert.match(calls.options.systemPrompt.append, /TLDR.*disabled/);
+    assert.equal(calls.options.resume, resumeId);
+  }
+});
+
+test("Designs can be disabled when starting or resuming Claude", async (t) => {
+  for (const resumeId of [undefined, "session-existing"]) {
+    const { session, events, calls } = claude(t, { designsEnabled: false, resumeId });
+    await session.startTurn(TURN);
+    await ended(events);
+    assert.match(calls.options.systemPrompt.append, /Designs are off/);
+    assert.doesNotMatch(calls.options.systemPrompt.append, /design_show|design_read|design_apply/);
     assert.equal(calls.options.resume, resumeId);
   }
 });

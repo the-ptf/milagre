@@ -1275,6 +1275,49 @@ test("account assignment changes notify live phones independently of Project sta
   assert.equal(phone.messages.filter((type) => type === "accounts").length, 1);
 });
 
+test("Designs setting changes reach every phone, including Settings without a selected Project", async (t) => {
+  const { project, bridge, rpc, token } = await fixture(t);
+  const auth = { authorization: `Bearer ${token}` };
+  const projectPhone = await openLive(bridge, project, auth);
+  const settingsPhone = await openLive(bridge, "", auth);
+  assert.equal(settingsPhone.socket.readyState, WebSocket.OPEN);
+  assert.deepEqual((await (await rpc("designs:enabled:read")).json()).result, { enabled: true });
+  assert.deepEqual((await (await rpc("designs:enabled:save", [false])).json()).result, { enabled: false });
+  await until(() => projectPhone.messages.includes("designs") && settingsPhone.messages.includes("designs"));
+  assert.deepEqual((await (await rpc("designs:enabled:read")).json()).result, { enabled: false });
+  assert.deepEqual((await (await rpc("designs:enabled:save", [true])).json()).result, { enabled: true });
+  await until(() => settingsPhone.messages.filter((type) => type === "designs").length === 2);
+});
+
+test("confined phones receive Designs changes on their permitted Project socket", async (t) => {
+  const { project, dataDir, rpc, token } = await fixture(t);
+  await rpc("project:open", [project]);
+  const bridge = await startMobileBridge({ dataDir, port: 0, token, allowedRoot: project });
+  t.after(() => bridge.close());
+  const auth = { authorization: "Bearer " + token };
+  assert.equal((await openLive(bridge, "", auth)).status, 400);
+  const phone = await openLive(bridge, project, auth);
+  const read = async (method) => {
+    const response = await fetch(bridge.url + "/rpc", {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ v: 1, method, args: [] }),
+    });
+    assert.equal(response.status, 200);
+    return (await response.json()).result;
+  };
+  assert.deepEqual(
+    (await read("project:recent")).map((entry) => entry.path),
+    [project],
+  );
+  await rpc("designs:enabled:save", [false]);
+  await until(() => phone.messages.includes("designs"));
+  assert.deepEqual(await read("designs:enabled:read"), { enabled: false });
+  await rpc("designs:enabled:save", [true]);
+  await until(() => phone.messages.filter((type) => type === "designs").length === 2);
+  assert.deepEqual(await read("designs:enabled:read"), { enabled: true });
+});
+
 test("a Link made or removed on the computer tells live phones to read the Links again", async (t) => {
   const { project, bridge, rpc, token } = await fixture(t);
   const commit = (folder) =>

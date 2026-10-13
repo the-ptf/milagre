@@ -1,0 +1,19 @@
+{
+  "name": "@milagre/design-share",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test src/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "dev": "npx wrangler@4.147.0 dev --local-upstream localhost --var ALLOW_LOCALHOST:true",
+    "deploy": "npx wrangler@4.147.0 deploy"
+  },
+  "dependencies": {
+    "@milagre/shared": "0.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261004.1",
+    "typescript": "~6.0.3"
+  }
+}

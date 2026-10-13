@@ -4,17 +4,28 @@ import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon } from "@hugei
 import { ARTIFACT_CSP, ARTIFACT_ESCAPE, artifactDocument, type Artifact } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import Tooltip from "../primitives/Tooltip";
+import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey } from "../../lib/computer-bridge";
+import { DesignPageEditor as DesignEditor } from "./DesignPageEditor";
+import { designLayout, designNodeAt, type DesignDocument } from "@milagre/shared/design";
 
 /** A comment the user pinned on a design and hasn't sent yet. */
-export type DesignPin = { key: string; design: ArtifactRef; x: number; y: number; text: string; resolved?: string };
+export type DesignPin = {
+  key: string;
+  design: ArtifactRef;
+  x: number;
+  y: number;
+  text: string;
+  nodeId?: string;
+  resolved?: string;
+};
 /** The comments pinned on the canvas, the one whose bubble is open, and what changes them. */
 export type PinControls = {
   pins: DesignPin[];
   /** Comments already sent: shown where they were left, to read, not to change. */
   sent: DesignPin[];
   open: string | null;
-  onPin: (design: ArtifactRef, x: number, y: number) => void;
+  onPin: (design: ArtifactRef, x: number, y: number, nodeId?: string) => void;
   onOpen: (key: string | null) => void;
   onText: (key: string, text: string) => void;
   onRemove: (key: string) => void;
@@ -28,7 +39,10 @@ export type ChoiceControls = {
   onChoose: ((design: ArtifactRef) => void) | null;
 };
 export type CanvasView = { x: number; y: number; scale: number };
-export type CanvasHandle = { zoomBy: (factor: number) => void; fitAll: () => void };
+export type CanvasHandle = {
+  zoomBy: (factor: number) => void;
+  fitAll: () => void;
+};
 
 const GAP = 80;
 const SEND_KEYS = /Mac/.test(navigator.userAgent) ? "⌘Enter" : "Ctrl+Enter";
@@ -43,12 +57,16 @@ const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value))
 const versionsRead = new Map<string, Promise<Artifact>>();
 const versionsKept = new Map<string, Artifact>();
 const KEEP = 48;
+const structured = (artifact: Artifact) => {
+  if (artifact.format !== "design" || !artifact.document) throw new Error("Only editable designs can be opened.");
+  return artifact;
+};
 function readArtifact(chatId: string, id: string, version: number | null): Promise<Artifact> {
-  if (version === null) return bridgeForKey(chatId).artifacts.get({ chatId, id });
+  if (version === null) return bridgeForKey(chatId).artifacts.get({ chatId, id }).then(structured);
   const key = `${chatId}\n${id}\n${version}`;
   let read = versionsRead.get(key);
   if (!read) {
-    read = bridgeForKey(chatId).artifacts.get({ chatId, id, version });
+    read = bridgeForKey(chatId).artifacts.get({ chatId, id, version }).then(structured);
     versionsRead.set(key, read);
     read.then(
       (artifact) => {
@@ -69,18 +87,29 @@ const keptArtifact = (chatId: string | null, id: string, version: number | null)
   (chatId && version !== null && versionsKept.get(`${chatId}\n${id}\n${version}`)) || null;
 
 export function useArtifact(chatId: string | null, id: string, version: number | null) {
-  const [state, setState] = useState<{ artifact: Artifact | null; error: string | null }>(() => ({ artifact: keptArtifact(chatId, id, version), error: null }));
+  const { enabled } = useDesignsEnabled(chatId);
+  const [state, setState] = useState<{
+    artifact: Artifact | null;
+    error: string | null;
+  }>(() => ({ artifact: keptArtifact(chatId, id, version), error: null }));
   useEffect(() => {
-    if (!chatId) return;
+    if (!enabled || !chatId) return;
     let live = true;
     readArtifact(chatId, id, version)
       .then((artifact) => live && setState({ artifact, error: null }))
-      .catch((error: unknown) => live && setState({ artifact: null, error: error instanceof Error ? error.message : String(error) }));
+      .catch(
+        (error: unknown) =>
+          live &&
+          setState({
+            artifact: null,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+      );
     return () => {
       live = false;
     };
-  }, [chatId, id, version]);
-  return state;
+  }, [chatId, id, version, enabled]);
+  return enabled && chatId ? state : { artifact: null, error: null };
 }
 
 /**
@@ -146,14 +175,22 @@ export const ArtifactCanvas = forwardRef<
     const width = port.clientWidth,
       height = port.clientHeight;
     const scale = clamp(Math.min((width - 48) / (right - left), (height - 48) / (bottom - top), 1));
-    setView({ scale, x: (width - (right - left) * scale) / 2 - left * scale, y: (height - (bottom - top) * scale) / 2 - top * scale });
+    setView({
+      scale,
+      x: (width - (right - left) * scale) / 2 - left * scale,
+      y: (height - (bottom - top) * scale) / 2 - top * scale,
+    });
   }, []);
 
   const zoomAt = useCallback((factor: number, px: number, py: number) => {
     moved.current = true;
     setView((current) => {
       const scale = clamp(current.scale * factor);
-      return { scale, x: px - (px - current.x) * (scale / current.scale), y: py - (py - current.y) * (scale / current.scale) };
+      return {
+        scale,
+        x: px - (px - current.x) * (scale / current.scale),
+        y: py - (py - current.y) * (scale / current.scale),
+      };
     });
   }, []);
   useImperativeHandle(
@@ -197,7 +234,11 @@ export const ArtifactCanvas = forwardRef<
       if (event.ctrlKey || event.metaKey) zoomAt(Math.exp(-event.deltaY * 0.01), event.clientX - rect.left, event.clientY - rect.top);
       else {
         moved.current = true;
-        setView((current) => ({ ...current, x: current.x - event.deltaX, y: current.y - event.deltaY }));
+        setView((current) => ({
+          ...current,
+          x: current.x - event.deltaX,
+          y: current.y - event.deltaY,
+        }));
       }
     };
     port.addEventListener("wheel", onWheel, { passive: false });
@@ -210,7 +251,7 @@ export const ArtifactCanvas = forwardRef<
   useEffect(() => {
     if (!active) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector("[data-slot=design-editor]")) return;
       // Leaves the design, not the canvas.
       event.preventDefault();
       setActive(null);
@@ -232,14 +273,27 @@ export const ArtifactCanvas = forwardRef<
       const port = viewport.current;
       if (!port) return;
       port.focus({ preventScroll: true });
-      port.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      port.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, []);
   // `design` is the design a press started on: released without dragging, it hands that design the mouse. (The pointer
   // capture that keeps a drag going sends the click to the canvas, so a click handler on the design never fires.)
-  const drag = useRef<{ pointer: number; x: number; y: number; startX: number; startY: number; design: string | null } | null>(null);
+  const drag = useRef<{
+    pointer: number;
+    x: number;
+    y: number;
+    startX: number;
+    startY: number;
+    design: string | null;
+  } | null>(null);
   // Whether the last press moved the canvas: a drag that starts on a design pans, and doesn't then select it.
   const dragged = useRef(false);
   const onPointerDown = (event: React.PointerEvent) => {
@@ -264,7 +318,11 @@ export const ArtifactCanvas = forwardRef<
     if (!dragged.current && Math.hypot(event.clientX - start.startX, event.clientY - start.startY) < 4) return;
     dragged.current = true;
     moved.current = true;
-    setView((current) => ({ ...current, x: event.clientX - start.x, y: event.clientY - start.y }));
+    setView((current) => ({
+      ...current,
+      x: event.clientX - start.x,
+      y: event.clientY - start.y,
+    }));
   };
   const endDrag = (event: React.PointerEvent) => {
     const start = drag.current;
@@ -291,7 +349,10 @@ export const ArtifactCanvas = forwardRef<
       <div
         ref={board}
         className="absolute top-0 left-0 flex origin-top-left items-start"
-        style={{ gap: GAP, transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
+        style={{
+          gap: GAP,
+          transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+        }}
       >
         {designs.map((design, index) => (
           <DesignFrame
@@ -344,17 +405,60 @@ const DesignFrame = memo(function DesignFrame({
 }) {
   // Following the newest unless the user stepped back; a revision the agent shows replaces what is in the frame.
   const { artifact, error } = useArtifact(chatId, design.id, version ?? design.version);
+  const [editing, setEditing] = useState<(Artifact & { document: DesignDocument }) | null>(null);
+  const [openingEditor, setOpeningEditor] = useState(false);
+  const [editError, setEditError] = useState("");
+  const edit = async () => {
+    setOpeningEditor(true);
+    setEditError("");
+    try {
+      // Versions remain immutable; an editor always begins at the newest saved document.
+      const latest = await bridgeForKey(chatId).artifacts.get({
+        chatId,
+        id: design.id,
+      });
+      if (!latest.document) throw new Error("The latest version has no editable layers.");
+      setEditing({ ...latest, document: latest.document });
+    } catch (cause) {
+      setEditError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setOpeningEditor(false);
+    }
+  };
   const width = artifact?.width ?? 1280,
     height = artifact?.height ?? 800;
   useLayoutEffect(onSized, [width, height, onSized]);
-  const shown: ArtifactRef = { id: design.id, version: artifact?.version ?? version ?? design.version, title: artifact?.title ?? design.title };
+  const shown: ArtifactRef = {
+    id: design.id,
+    version: artifact?.version ?? version ?? design.version,
+    title: artifact?.title ?? design.title,
+  };
   const last = Math.max(artifact?.latest ?? 1, design.version);
   // Chosen and sent, or chosen here and waiting for Send; a pending choice of another design outranks a sent one.
   const pendingHere = choice.pending?.id === design.id && choice.pending.version === shown.version;
   const sentHere = !choice.pending && choice.sent?.id === design.id && choice.sent.version === shown.version;
   const isChosen = pendingHere || sentHere;
   const framePins = comments.pins.filter((pin) => pin.design.id === design.id && pin.design.version === shown.version);
-  const sentPins = comments.sent.filter((pin) => pin.design.id === design.id && pin.design.version === shown.version);
+  const followsLayer = comments.sent.some((pin) => pin.design.id === design.id && pin.nodeId && shown.version >= pin.design.version);
+  const pinDocument = artifact?.document;
+  const layerBounds = useMemo(() => (followsLayer && pinDocument ? designLayout(pinDocument) : null), [pinDocument, followsLayer]);
+  const sentPins = comments.sent.flatMap((pin) => {
+    if (pin.design.id !== design.id) return [];
+    if (pin.nodeId && layerBounds && shown.version >= pin.design.version) {
+      const bounds = layerBounds.get(pin.nodeId);
+      // A layer's comments move with its current bounds; removed or hidden layers have no visible pin.
+      return bounds
+        ? [
+            {
+              ...pin,
+              x: (bounds.x + bounds.width / 2) / width,
+              y: (bounds.y + bounds.height / 2) / height,
+            },
+          ]
+        : [];
+    }
+    return pin.design.version === shown.version ? [pin] : [];
+  });
   const go = (next: number) => onVersion(design.id, next >= last ? null : next);
   // Too narrow on screen for the title and its controls on one row, the controls go under the title.
   const narrow = width * scale < 300;
@@ -364,7 +468,11 @@ const DesignFrame = memo(function DesignFrame({
       <div className="relative shrink-0" style={{ height: (narrow ? HEADER * 2 : HEADER) / scale }}>
         <div
           className={`absolute bottom-0 left-0 flex origin-bottom-left items-center gap-1 pb-1.5 text-[12px] text-ink ${narrow ? "flex-wrap content-end" : ""}`}
-          style={{ width: width * scale, height: narrow ? HEADER * 2 : HEADER, transform: `scale(${1 / scale})` }}
+          style={{
+            width: width * scale,
+            height: narrow ? HEADER * 2 : HEADER,
+            transform: `scale(${1 / scale})`,
+          }}
         >
           <span className="text-ink-3">{number}</span>
           <span className={`min-w-0 flex-1 truncate ${narrow ? "basis-[calc(100%-1.5rem)]" : ""}`}>{shown.title}</span>
@@ -393,6 +501,18 @@ const DesignFrame = memo(function DesignFrame({
               <HugeiconsIcon icon={ArrowRight01Icon} size={14} aria-hidden />
             </button>
           </Tooltip>
+          {artifact?.document && (
+            <button
+              type="button"
+              data-slot="artifact-edit"
+              aria-label={`Edit ${shown.title}`}
+              disabled={openingEditor}
+              onClick={() => void edit()}
+              className="rounded-[6px] border border-line bg-surface px-2 py-0.5 text-ink hover:bg-hover disabled:opacity-40"
+            >
+              {openingEditor ? "Opening..." : "Edit"}
+            </button>
+          )}
           {sentHere ? (
             <span data-slot="artifact-chosen" className="flex items-center gap-1.5 rounded-[6px] bg-accent/10 px-2 py-0.5 text-accent">
               <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} aria-hidden />
@@ -444,7 +564,9 @@ const DesignFrame = memo(function DesignFrame({
             onClick={(event) => {
               if (!commenting || !artifact || event.target !== event.currentTarget) return;
               const rect = event.currentTarget.getBoundingClientRect();
-              comments.onPin(shown, (event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
+              const x = (event.clientX - rect.left) / rect.width;
+              const y = (event.clientY - rect.top) / rect.height;
+              comments.onPin(shown, x, y, artifact.document ? designNodeAt(artifact.document, x * width, y * height)?.id : undefined);
             }}
           >
             {sentPins.map((pin) => (
@@ -464,6 +586,12 @@ const DesignFrame = memo(function DesignFrame({
           </div>
         )}
       </div>
+      {editError && (
+        <p role="alert" className="max-w-full px-2 text-[12px] text-red">
+          {editError}
+        </p>
+      )}
+      {editing && <DesignEditor chatId={chatId} artifact={editing} latestVersion={last} onClose={() => setEditing(null)} />}
     </div>
   );
 });
@@ -508,7 +636,12 @@ function CommentPin({
     <div
       // Above the frames beside it, so an open bubble that reaches past its design stays whole.
       className={`pointer-events-auto absolute ${open ? "z-10" : ""}`}
-      style={{ left: `${pin.x * 100}%`, top: `${pin.y * 100}%`, transform: `translateY(-100%) scale(${1 / scale})`, transformOrigin: "bottom left" }}
+      style={{
+        left: `${pin.x * 100}%`,
+        top: `${pin.y * 100}%`,
+        transform: `translateY(-100%) scale(${1 / scale})`,
+        transformOrigin: "bottom left",
+      }}
     >
       <button
         type="button"

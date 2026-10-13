@@ -68,6 +68,8 @@ const MEDIA_AT_ONCE = 4;
 const LONG_CALLS = new Set(["worktree:create", "worktree:remove", "link:send", "link:open"]);
 // Settings › MCP: the Mac caps one check at 30 s (packages/core/src/mcp/index.cjs); wait a little longer for its answer.
 const MCP_CALLS = new Set(["mcp:accounts", "mcp:check"]);
+// The Mac embeds images before uploading a public snapshot; match its desktop RPC deadline.
+const DESIGN_SHARE_CALLS = new Set(["artifact:share-page", "artifact:revoke-page-share", "artifact:revoke-saved-page-share"]);
 
 /**
  * One request through a transport, the relay's or the LAN's. The relay's own failures, and a phone key that can't be read, carry copy for the
@@ -329,7 +331,13 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       request<T>(
         "/rpc",
         { v: 1, method, args },
-        LONG_CALLS.has(method) ? Math.max(timeoutMs, 330000) : MCP_CALLS.has(method) ? Math.max(timeoutMs, 45000) : timeoutMs,
+        LONG_CALLS.has(method)
+          ? Math.max(timeoutMs, 330000)
+          : DESIGN_SHARE_CALLS.has(method)
+            ? Math.max(timeoutMs, method === "artifact:share-page" ? 360000 : 120000)
+            : MCP_CALLS.has(method)
+              ? Math.max(timeoutMs, 45000)
+              : timeoutMs,
       ),
     media,
     /** A relay computer's image, fetched once into the cache folder; resolves to its file:// URI. */

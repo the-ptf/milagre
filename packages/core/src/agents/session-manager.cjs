@@ -65,6 +65,7 @@ class SessionManager {
     const { chatId, provider, cwd } = request;
     const existing = this.sessions.get(chatId);
     const tldrEnabled = request.tldrEnabled !== false;
+    const designsEnabled = request.designsEnabled !== false;
     const accountId = request.accountId ?? "default";
     const workspaceRoots = [...new Set(request.workspaceRoots ?? [])].sort();
     const sameChat =
@@ -78,7 +79,9 @@ class SessionManager {
     if (
       sameChat &&
       !existing.session.closed &&
-      ((existing.tldrEnabled === tldrEnabled && existing.accountId === accountId) || existing.session.turnActive || existing.activeChildren?.size)
+      ((existing.tldrEnabled === tldrEnabled && existing.designsEnabled === designsEnabled && existing.accountId === accountId) ||
+        existing.session.turnActive ||
+        existing.activeChildren?.size)
     )
       return existing;
     const resumeId = sameChat && !existing.session.closed ? (existing.session.nativeId ?? request.resumeId) : request.resumeId;
@@ -87,6 +90,7 @@ class SessionManager {
       provider,
       cwd,
       tldrEnabled,
+      designsEnabled,
       accountId,
       command: request.command,
       env: request.env,
@@ -103,6 +107,7 @@ class SessionManager {
       workspaceInstructions: request.workspaceInstructions,
       resumeId,
       tldrEnabled,
+      designsEnabled,
       command: request.command,
       ...(request.env ? { env: request.env } : {}),
       // An ACP agent's companion binary and launch arguments, from its resolved install (Antigravity only).

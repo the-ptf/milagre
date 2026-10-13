@@ -392,7 +392,7 @@ export default function ChatScreen() {
   useFocusEffect(
     useCallback(() => {
       if (designKey && params.id) sendDesign.current();
-    }, [designKey, params.id]),
+    }, [designKey, params.id, session.designs.enabled]),
   );
   useEffect(() => {
     if (!busy && !picking && designDeferred.current) sendDesign.current();
@@ -548,6 +548,7 @@ export default function ChatScreen() {
   sendGenui.current = (text: string) => send(text, false);
   // eslint-disable-next-line react-hooks/refs -- latest-callback ref for design messages.
   sendDesign.current = () => {
+    if (session.designs.enabled !== true) return;
     const message = designKey ? peekDesignMessage(designKey) : null;
     if (!message || !designKey) return;
     void send(message.text, false).then((sent) => {

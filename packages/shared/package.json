@@ -176,6 +176,14 @@
     "./skill-catalog": "./src/skill-catalog.ts",
     "./simulator": "./src/simulator.ts",
     "./artifact": "./src/artifact.ts",
+    "./design-page": {
+      "types": "./src/design-page.d.mts",
+      "default": "./src/design-page.mjs"
+    },
+    "./design": {
+      "types": "./src/design.d.mts",
+      "default": "./src/design.mjs"
+    },
     "./genui": "./src/genui.ts",
     "./file-link": "./src/file-link.ts",
     "./simulator-receiver": {

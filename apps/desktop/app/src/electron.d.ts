@@ -252,6 +252,10 @@ export type MilagreBridge = {
   saveMainSyncDefault: (value: boolean) => Promise<{ syncMain: boolean }>;
   /** A main branch sync finished, before a new Worktree. */
   onMainSyncStatus: (callback: (status: MainSyncStatus) => void) => () => void;
+  /** The host's default-on Experimental Designs switch, shared with its phones and paired computers. */
+  readDesignsEnabled: () => Promise<{ enabled: boolean }>;
+  saveDesignsEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
+  onDesignsEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   readLinearStatus: () => Promise<LinearStatus>;
   /** Opens Linear in the browser and resolves once the Mac is connected. A second call replaces a waiting one. */
   /** `window`: sign in from a window of its own with an empty session (Add workspace), not the browser. */

@@ -141,6 +141,37 @@ function codexFileRequest(id, params, changes = []) {
   });
 }
 
+// Codex 0.160 asks about MCP calls through elicitation, with an empty form and tool details
+// in _meta. Other elicitation forms need user input that a permission card cannot collect.
+function codexMcpRequest(id, params) {
+  const { _meta: meta } = params;
+  const schema = params.requestedSchema;
+  if (
+    params.mode !== "form" ||
+    meta?.codex_approval_kind !== "mcp_tool_call" ||
+    schema?.type !== "object" ||
+    !schema.properties ||
+    Object.keys(schema.properties).length ||
+    (schema.required?.length ?? 0)
+  )
+    return null;
+  return compact({
+    requestId: String(id),
+    kind: "other",
+    tool: `MCP: ${params.serverName}`,
+    title: params.message || `Use ${params.serverName}?`,
+    description: typeof meta.tool_description === "string" ? capText(meta.tool_description) : undefined,
+    detail: meta.tool_params === undefined ? undefined : capText(JSON.stringify(meta.tool_params, null, 2)),
+    // Approve this call only. Never send the provider's "always" persistence choice.
+    allowForChat: false,
+  });
+}
+
+function codexMcpResponse(decision) {
+  if (decision === "allow") return { action: "accept", content: {} };
+  return { action: decision === "cancelled" ? "cancel" : "decline", content: null };
+}
+
 const CODEX_DECISIONS = { allow: "accept", "allow-for-chat": "acceptForSession", deny: "decline", cancelled: "cancel" };
 
 function codexDecision(decision) {
@@ -259,5 +290,7 @@ module.exports = {
   codexCommandRequest,
   codexDecision,
   codexFileRequest,
+  codexMcpRequest,
+  codexMcpResponse,
   unwrapShell,
 };

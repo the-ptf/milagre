@@ -7,6 +7,7 @@ import { relayRuntime } from "./relay-native";
 import { learnRoutes, lanRoutes } from "./routes-native";
 import { syncProject } from "./live";
 import { refreshLinks } from "./use-links";
+import { useDesigns } from "./use-designs";
 import { readPermission, savedChatDefaults, savedHosts, savedNavigation, savedProjectOrder, savePermission } from "./hosts-native";
 import type { ChatLocation } from "./navigation-store";
 import type { SavedHost } from "./hosts-store";
@@ -32,6 +33,7 @@ function useSessionState() {
   // The computer whose Projects list `recent` holds, once it has answered: an empty list before that is not "no Projects".
   const listedFor = useRef<string | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const designs = useDesigns(client, snapshot?.project.path, recent[0]?.path);
   const [error, setError] = useState("");
   const [models, setModels] = useState<AgentModels | null>(null);
   const [cliStatus, setCliStatus] = useState<AgentCliStatus | null>(null);
@@ -352,6 +354,7 @@ function useSessionState() {
   const expectActivity = () => {
     busyUntil.current = Date.now() + 15000;
   };
+  const { refresh: refreshDesigns, connectionChanged: designsConnectionChanged } = designs;
   // The bridge's live socket says when to fetch; polling is the fallback while it is down or the bridge predates it.
   useEffect(() => {
     if (!client || !projectPath) return;
@@ -364,6 +367,8 @@ function useSessionState() {
         void refreshProviders();
       },
       links: () => void refreshLinks(client),
+      designs: () => void refreshDesigns(),
+      liveStatus: designsConnectionChanged,
       onError: (error) => setError(error.message),
       active: () => AppState.currentState === "active",
       watchActive: (listener) => {
@@ -373,7 +378,7 @@ function useSessionState() {
       // Live turns refresh every second; an idle Project only needs a slower check for changes made elsewhere.
       pollDelay: () => (running.current || Date.now() < busyUntil.current ? 1000 : 4000),
     });
-  }, [client, projectPath, refresh, refreshRuns, refreshProviders]);
+  }, [client, projectPath, refresh, refreshRuns, refreshProviders, refreshDesigns, designsConnectionChanged]);
   const selected = selection.current;
   const isSelected = () => selected !== null && selection.current === selected;
   const disconnect = () => {
@@ -398,6 +403,7 @@ function useSessionState() {
     hostName,
     expectActivity,
     client,
+    designs,
     recent,
     snapshot,
     error,

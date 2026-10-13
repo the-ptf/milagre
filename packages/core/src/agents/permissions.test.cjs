@@ -12,8 +12,36 @@ const {
   codexCommandRequest,
   codexDecision,
   codexFileRequest,
+  codexMcpRequest,
+  codexMcpResponse,
   unwrapShell,
 } = require("./permissions.cjs");
+
+test("Codex: MCP approvals show the exact call without offering permanent grants", () => {
+  const params = {
+    serverName: "milagre",
+    mode: "form",
+    message: 'Allow the milagre MCP server to run tool "design_show"?',
+    requestedSchema: { type: "object", properties: {} },
+    _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_description: "Create a design", tool_params: { id: "screen" } },
+  };
+  assert.deepEqual(codexMcpRequest("mcp-1", params), {
+    requestId: "mcp-1",
+    kind: "other",
+    tool: "MCP: milagre",
+    title: params.message,
+    description: "Create a design",
+    detail: '{\n  "id": "screen"\n}',
+    allowForChat: false,
+  });
+  assert.equal(codexMcpRequest("mcp-1", { ...params, mode: "url", url: "https://example.com/login" }), null);
+  assert.equal(codexMcpRequest("mcp-1", { ...params, _meta: {} }), null);
+  assert.equal(codexMcpRequest("mcp-1", { ...params, requestedSchema: { type: "object", properties: { name: { type: "string" } } } }), null);
+  assert.equal(codexMcpRequest("mcp-1", { ...params, requestedSchema: { type: "object", properties: {}, required: ["name"] } }), null);
+  assert.deepEqual(codexMcpResponse("allow"), { action: "accept", content: {} });
+  assert.deepEqual(codexMcpResponse("deny"), { action: "decline", content: null });
+  assert.deepEqual(codexMcpResponse("cancelled"), { action: "cancel", content: null });
+});
 
 function pending() {
   const events = [];

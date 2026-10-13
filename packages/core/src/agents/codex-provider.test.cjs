@@ -12,13 +12,14 @@ const { waitUntil } = require("./test-helpers.cjs");
 const FAKE = path.join(__dirname, "fixtures", "fake-app-server.cjs");
 const TURN = { prompt: "Hi", images: [], model: "gpt-6-sol", permissionMode: "auto" };
 
-function codex(t, { scenario = "reply", resumeId, tldrEnabled, analysisOnly, linked, command = process.execPath, interruptGraceMs } = {}) {
+function codex(t, { scenario = "reply", resumeId, tldrEnabled, designsEnabled, analysisOnly, linked, command = process.execPath, interruptGraceMs } = {}) {
   const events = [];
   const requests = [];
   const session = new CodexSession({
     cwd: os.tmpdir(),
     resumeId,
     tldrEnabled,
+    designsEnabled,
     analysisOnly,
     linked,
     command,
@@ -236,6 +237,51 @@ test("switching to Full mid-turn approves the waiting command", async (t) => {
     events.find((event) => event.type === "permission-resolved"),
     { type: "permission-resolved", requestId: "srv-1", decision: "allow" },
   );
+});
+
+test("MCP tool calls in Ask mode reach the permission card and accept once", async (t) => {
+  const { session, events } = codex(t, { scenario: "mcp-approval" });
+  await session.startTurn({ ...TURN, permissionMode: "ask" });
+  await asked(events);
+  const request = events.find((event) => event.type === "permission-request");
+  assert.equal(request.kind, "other");
+  assert.equal(request.tool, "MCP: milagre");
+  assert.equal(request.title, 'Allow the milagre MCP server to run tool "design_show"?');
+  assert.deepEqual(JSON.parse(request.detail), { id: "daily-notes" });
+  assert.equal(request.allowForChat, false);
+  // A stale or forged "always" UI choice cannot make Codex write a settings rule.
+  session.respondToPermission("srv-mcp", "allow-for-chat");
+  await ended(events);
+  assert.equal(replyText(events), 'answer:{"action":"accept","content":{}}');
+  assert.equal(session.respondToPermission("srv-mcp", "allow"), false);
+});
+
+test("MCP permission denial and cancellation use elicitation responses", async (t) => {
+  const denied = codex(t, { scenario: "mcp-approval" });
+  await denied.session.startTurn(TURN);
+  await asked(denied.events);
+  denied.session.respondToPermission("srv-mcp", "deny");
+  await ended(denied.events);
+  assert.equal(replyText(denied.events), 'answer:{"action":"decline","content":null}');
+  const cancelled = codex(t, { scenario: "mcp-approval" });
+  await cancelled.session.startTurn(TURN);
+  await asked(cancelled.events);
+  await cancelled.session.interrupt();
+  await ended(cancelled.events);
+  assert.ok((await received(cancelled.session)).some((message) => message.id === "srv-mcp" && message.result?.action === "cancel"));
+});
+
+test("MCP approvals never grant analysis-only access or submit unknown forms", async (t) => {
+  for (const options of [{ scenario: "mcp-approval", analysisOnly: true }, { scenario: "mcp-form" }]) {
+    const { session, events } = codex(t, options);
+    await session.startTurn({ ...TURN, permissionMode: "full" });
+    await ended(events);
+    assert.equal(replyText(events), 'answer:{"action":"decline","content":null}');
+    assert.equal(
+      events.some((event) => event.type === "permission-request"),
+      false,
+    );
+  }
 });
 
 test("switching to Auto mid-turn leaves a waiting command to the user", async (t) => {
@@ -802,6 +848,18 @@ test("TLDR can be disabled when starting or resuming Codex", async (t) => {
     const params = calls.find((call) => call.method === (resumeId ? "thread/resume" : "thread/start")).params;
     assert.ok(!params.developerInstructions.includes("# tldr eval"));
     assert.match(params.developerInstructions, /TLDR.*disabled/);
+  }
+});
+
+test("Designs can be disabled when starting or resuming Codex", async (t) => {
+  for (const resumeId of [undefined, "thread-existing"]) {
+    const { session, events } = codex(t, { designsEnabled: false, resumeId });
+    await session.startTurn(TURN);
+    await ended(events);
+    const calls = await received(session);
+    const params = calls.find((call) => call.method === (resumeId ? "thread/resume" : "thread/start")).params;
+    assert.match(params.developerInstructions, /Designs are off/);
+    assert.doesNotMatch(params.developerInstructions, /design_show|design_read|design_apply/);
   }
 });
 

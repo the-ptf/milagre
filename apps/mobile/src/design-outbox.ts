@@ -4,6 +4,11 @@
 export type DesignMessage = { text: string; onSent: () => void };
 const waiting = new Map<string, DesignMessage>();
 
+/** Turning Designs off cancels unsent review requests for that computer. Saved designs stay untouched. */
+export function clearDesignMessages(hostId: string) {
+  for (const key of waiting.keys()) if (key.startsWith(`${hostId}|`)) waiting.delete(key);
+}
+
 export function postDesignMessage(chatKey: string, message: DesignMessage) {
   waiting.set(chatKey, message);
 }

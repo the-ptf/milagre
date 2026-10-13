@@ -7,6 +7,10 @@ const { VERSION, MAX_PENDING, wire } = require("./protocol.cjs");
 // Commands core lets run longer than the default deadline (git/client.cjs LIMITS, gh, the CLI installers), plus a
 // margin. A shorter client deadline reported a slow pre-commit hook or push as failed while it was still running.
 const SLOW_METHODS = Object.freeze({
+  // Image preparation gets 30 s; an 8 MiB upload on a slow uplink can take up to 300 s.
+  "artifact:share-page": 360000,
+  "artifact:revoke-page-share": 120000,
+  "artifact:revoke-saved-page-share": 120000,
   "git:commit": 330000,
   "git:push": 330000,
   "git:open-pr": 120000,

@@ -107,6 +107,15 @@ test("parent Stop cancels owned advisors and late completion cannot resume the p
   const current = await f.runtime.openProject(f.project);
   assert.equal(current.state.sessions[f.id].subagents[0].status, "cancelled");
 });
+test("new advisors inherit the current host Designs availability", async (t) => {
+  const f = await fixture(t);
+  await f.runtime.invoke("designs:enabled:save", [false]);
+  const reply = await runTool(f.tool("create_advisor"), { title: "Review", prompt: "Assess" });
+  assert.equal(reply.isError, false);
+  await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1);
+  assert.equal(f.sessions[1].options.designsEnabled, false);
+  assert.ok(!f.sessions[1].options.linked.tools.some((tool) => tool.name.startsWith("design_")));
+});
 test("advisor completion waits for a human question before steering", async (t) => {
   const f = await fixture(t);
   await runTool(f.tool("create_advisor"), { title: "Review", prompt: "Assess" });

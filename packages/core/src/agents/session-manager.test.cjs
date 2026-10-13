@@ -460,6 +460,32 @@ test("TLDR changes resume the same chat with new instructions between turns", as
   assert.equal(created[2].options.tldrEnabled, true);
 });
 
+test("Designs changes refresh instructions and tools between turns while preserving native history", async (t) => {
+  const { manager, created } = harness();
+  t.after(() => manager.closeAll());
+  let enabled = true;
+  manager.linkedFor = () => ({ tools: enabled ? [{ name: "design_show" }] : [] });
+  await manager.startTurn(request("1"));
+  assert.equal(created[0].options.designsEnabled, true);
+  created[0].nativeId = "thread-current";
+  created[0].turnActive = true;
+  enabled = false;
+  await manager.startTurn(request("1", { designsEnabled: false }));
+  assert.equal(created.length, 1, "changing the setting does not interrupt a running turn");
+  created[0].turnActive = false;
+  await manager.startTurn(request("1", { designsEnabled: false }));
+  assert.equal(created[0].closed, true);
+  assert.equal(created[1].options.designsEnabled, false);
+  assert.equal(created[1].options.resumeId, "thread-current");
+  assert.deepEqual(created[1].options.linked.tools, []);
+  created[1].nativeId = "thread-current";
+  enabled = true;
+  await manager.startTurn(request("1", { designsEnabled: true }));
+  assert.equal(created[2].options.designsEnabled, true);
+  assert.deepEqual(created[2].options.linked.tools, [{ name: "design_show" }]);
+  assert.equal(created[2].options.resumeId, "thread-current");
+});
+
 test("TLDR changes leave a running turn alone and apply once it finishes", async (t) => {
   const { manager, created } = harness();
   t.after(() => manager.closeAll());

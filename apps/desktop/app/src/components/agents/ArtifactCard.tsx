@@ -17,6 +17,7 @@ import {
   chosenDesign,
   designActivity,
   designFeedbackMessage,
+  designFeedbackText,
   newCommentId,
   parseDesignFeedback,
   resolutionNotes,
@@ -28,7 +29,11 @@ import { DESIGNS_EXPANDED, dockLayer, useDockArea, useSidePanelRoom } from "./do
 import { useSidePanel } from "./PanelToggles";
 import { DockSlide } from "./DockSlide";
 import { ArtifactCanvas, ArtifactFrame, useArtifact, type CanvasHandle, type CanvasView, type DesignPin, type PinControls } from "./ArtifactCanvas";
+import { useDesignsEnabled } from "../../lib/designs-enabled";
+import { useDesignSharingAvailable } from "../../lib/design-sharing-available";
 import { bridgeForKey } from "../../lib/computer-bridge";
+import { DESIGN_SAVED, type DesignSaved } from "./DesignEditor";
+import { DesignPageShareDialog } from "./DesignPageShareDialog";
 
 // Docked width plus the 12px gap to the chat. The chat panes reserve it through --artifact-dock.
 const DOCK_WIDTH = 560;
@@ -49,6 +54,7 @@ function useShown() {
 }
 
 type ArtifactsValue = {
+  enabled: boolean;
   /** The Chat's key, or null where designs can't be read (a new Chat, a shared Link Chat). */
   chatId: string | null;
   /** The newest version of each design the Chat's replies showed, by id, in the order they were first shown. */
@@ -62,6 +68,7 @@ type ArtifactsValue = {
   resolutions: Map<string, string>;
 };
 const Artifacts = createContext<ArtifactsValue>({
+  enabled: false,
   chatId: null,
   latest: new Map(),
   open: () => {},
@@ -145,14 +152,23 @@ function ScaledPreview({
       {scale > 0 && seen && (
         <div
           className="absolute top-0 left-0 origin-top-left"
-          style={{ width, height, transform: `translate(${(size.width - width * scale) / 2}px, ${(size.height - height * scale) / 2}px) scale(${scale})` }}
+          style={{
+            width,
+            height,
+            transform: `translate(${(size.width - width * scale) / 2}px, ${(size.height - height * scale) / 2}px) scale(${scale})`,
+          }}
         >
           <ArtifactFrame html={html} title={title} preview />
           {pin && (
             <span
               aria-hidden
               className={`absolute grid size-5 place-items-center rounded-full rounded-bl-none text-[10px] font-medium text-white shadow-raised ${pin.resolved ? "bg-green" : "bg-accent"}`}
-              style={{ left: `${pin.x * 100}%`, top: `${pin.y * 100}%`, transform: `translateY(-100%) scale(${1 / scale})`, transformOrigin: "bottom left" }}
+              style={{
+                left: `${pin.x * 100}%`,
+                top: `${pin.y * 100}%`,
+                transform: `translateY(-100%) scale(${1 / scale})`,
+                transformOrigin: "bottom left",
+              }}
             >
               {pin.label}
             </span>
@@ -165,10 +181,12 @@ function ScaledPreview({
 
 /** A design the agent showed: its first screen, and a button that opens it on the canvas beside the chat. */
 const ArtifactCard = memo(function ArtifactCard({ step }: { step: ChatStep & { artifact: ArtifactRef } }) {
-  const { chatId, latest, open } = useContext(Artifacts);
+  const { chatId, latest, open, enabled } = useContext(Artifacts);
   const { id, version, title } = step.artifact;
-  const { artifact, error } = useArtifact(chatId, id, version);
+  const allowed = enabled && latest.has(id);
+  const { artifact, error } = useArtifact(allowed ? chatId : null, id, version);
   const newest = latest.get(id)?.version ?? version;
+  if (!allowed) return null;
   return (
     <div data-slot="artifact-card" data-artifact={id} className="my-2 max-w-xl overflow-hidden rounded-[10px] border border-line bg-surface">
       <div className="relative h-56 overflow-hidden border-b border-line bg-white">
@@ -213,31 +231,49 @@ export function DesignFeedbackCard({
   feedback: { choice: ArtifactRef | null; comments: DesignComment[] };
   messageId: number | string;
 }) {
-  const { chatId, openComment } = useContext(Artifacts);
+  const { chatId, openComment, enabled, latest } = useContext(Artifacts);
+  const choice = feedback.choice && latest.has(feedback.choice.id) ? feedback.choice : null;
+  const comments = feedback.comments.filter((comment) => latest.has(comment.design.id));
+  if (!enabled || (!choice && !comments.length)) return <FeedbackText feedback={feedback} />;
+  const remaining = {
+    choice: feedback.choice && !choice ? feedback.choice : null,
+    comments: feedback.comments.filter((comment) => !comments.includes(comment)),
+  };
   return (
-    <div data-slot="design-feedback" className="w-full max-w-md overflow-hidden rounded-xl border border-line bg-surface text-[13px]">
-      <div className="flex items-center gap-2 border-b border-line px-3 py-2 text-[12px] text-ink-2">
-        <HugeiconsIcon icon={PaintBoardIcon} size={14} aria-hidden />
-        Feedback on the designs
-      </div>
-      {feedback.choice && (
-        <div data-slot="design-feedback-choice" className="flex w-full items-center gap-2 px-3 py-2">
-          <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} className="shrink-0 text-accent" aria-hidden />
-          <span className="min-w-0 flex-1 truncate">
-            Chose <span className="font-medium">{feedback.choice.title}</span>
-          </span>
-          <span className="text-[11px] text-ink-3">v{feedback.choice.version}</span>
+    <div className="flex w-full max-w-md flex-col gap-2">
+      <div data-slot="design-feedback" className="w-full max-w-md overflow-hidden rounded-xl border border-line bg-surface text-[13px]">
+        <div className="flex items-center gap-2 border-b border-line px-3 py-2 text-[12px] text-ink-2">
+          <HugeiconsIcon icon={PaintBoardIcon} size={14} aria-hidden />
+          Feedback on the designs
         </div>
-      )}
-      {feedback.comments.map((comment, index) => (
-        <FeedbackComment
-          key={index}
-          comment={comment}
-          number={index + 1}
-          // A pinned comment opens on the canvas, where it was left; one without a spot has nowhere to go.
-          onOpen={chatId && comment.x !== undefined ? () => openComment(`${messageId}:${index}`) : undefined}
-        />
-      ))}
+        {choice && (
+          <div data-slot="design-feedback-choice" className="flex w-full items-center gap-2 px-3 py-2">
+            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} className="shrink-0 text-accent" aria-hidden />
+            <span className="min-w-0 flex-1 truncate">
+              Chose <span className="font-medium">{choice.title}</span>
+            </span>
+            <span className="text-[11px] text-ink-3">v{choice.version}</span>
+          </div>
+        )}
+        {comments.map((comment) => (
+          <FeedbackComment
+            key={feedback.comments.indexOf(comment)}
+            comment={comment}
+            number={feedback.comments.indexOf(comment) + 1}
+            // A pinned comment opens on the canvas, where it was left; one without a spot has nowhere to go.
+            onOpen={chatId && comment.x !== undefined ? () => openComment(`${messageId}:${feedback.comments.indexOf(comment)}`) : undefined}
+          />
+        ))}
+      </div>
+      {(remaining.choice || remaining.comments.length > 0) && <FeedbackText feedback={remaining} />}
+    </div>
+  );
+}
+
+function FeedbackText({ feedback }: { feedback: { choice: ArtifactRef | null; comments: DesignComment[] } }) {
+  return (
+    <div data-slot="design-feedback-text" className="max-w-full whitespace-pre-wrap break-words rounded-xl bg-field px-3 py-2 text-[13px] text-ink">
+      {designFeedbackText(feedback)}
     </div>
   );
 }
@@ -250,7 +286,13 @@ function FeedbackComment({ comment, number, onOpen }: { comment: DesignComment; 
   return (
     <Row
       data-slot="design-feedback-comment"
-      {...(onOpen ? { type: "button" as const, onClick: onOpen, "aria-label": `Show comment ${number} on ${comment.design.title}` } : {})}
+      {...(onOpen
+        ? {
+            type: "button" as const,
+            onClick: onOpen,
+            "aria-label": `Show comment ${number} on ${comment.design.title}`,
+          }
+        : {})}
       className={`flex w-full items-start gap-3 border-t border-line px-3 py-2 text-left first:border-t-0 ${onOpen ? "hover:bg-hover" : ""}`}
     >
       <span className="relative block h-16 w-24 shrink-0 overflow-hidden rounded-[6px] border border-line">
@@ -263,7 +305,12 @@ function FeedbackComment({ comment, number, onOpen }: { comment: DesignComment; 
             pin={
               comment.x === undefined || comment.y === undefined
                 ? undefined
-                : { x: comment.x, y: comment.y, label: String(number), resolved: resolved !== undefined }
+                : {
+                    x: comment.x,
+                    y: comment.y,
+                    label: String(number),
+                    resolved: resolved !== undefined,
+                  }
             }
           />
         )}
@@ -286,26 +333,27 @@ function FeedbackComment({ comment, number, onOpen }: { comment: DesignComment; 
 
 /** The designs one reply showed: a card for one, a strip of thumbnails for several. */
 export function ArtifactCards({ steps }: { steps: (ChatStep & { artifact: ArtifactRef })[] }) {
-  const { chatId, openAll } = useContext(Artifacts);
-  if (steps.length === 0) return null;
-  if (steps.length === 1) return <ArtifactCard step={steps[0]!} />;
+  const { chatId, openAll, enabled, latest } = useContext(Artifacts);
+  const visibleSteps = steps.filter((step) => latest.has(step.artifact.id));
+  if (!enabled || visibleSteps.length === 0) return null;
+  if (visibleSteps.length === 1) return <ArtifactCard step={visibleSteps[0]!} />;
   return (
     <div data-slot="artifact-group" className="my-2 max-w-xl overflow-hidden rounded-[10px] border border-line bg-surface">
       <div className="flex gap-2 overflow-x-auto border-b border-line p-2">
-        {steps.map((step) => (
+        {visibleSteps.map((step) => (
           <GroupThumb key={step.id} design={step.artifact} />
         ))}
       </div>
       <div className="flex items-center gap-2 px-3 py-2">
         <HugeiconsIcon icon={PaintBoardIcon} size={16} className="shrink-0 text-ink-2" aria-hidden />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] text-ink">{steps.length} designs</div>
-          <div className="truncate text-[11px] text-ink-3">{steps.map((step) => step.artifact.title).join(" · ")}</div>
+          <div className="truncate text-[13px] text-ink">{visibleSteps.length} designs</div>
+          <div className="truncate text-[11px] text-ink-3">{visibleSteps.map((step) => step.artifact.title).join(" · ")}</div>
         </div>
         <button
           type="button"
           disabled={!chatId}
-          onClick={() => openAll(steps.map((step) => step.artifact))}
+          onClick={() => openAll(visibleSteps.map((step) => step.artifact))}
           className="rounded-[8px] border border-line px-2.5 py-1 text-[12px] text-ink hover:bg-hover disabled:opacity-50"
         >
           Open
@@ -365,7 +413,58 @@ export function ArtifactsProvider({
   onSend?: (text: string) => Promise<boolean>;
   children: React.ReactNode;
 }) {
-  const latest = useMemo(() => latestArtifacts(steps), [steps]);
+  const { enabled } = useDesignsEnabled(chatId);
+  const fromSteps = useMemo(() => latestArtifacts(steps), [steps]);
+  const revisionKey = [...fromSteps.values()].map((design) => `${design.id}:${design.version}`).join("|");
+  const [savedDesigns, setSavedDesigns] = useState<{
+    chatId: string | null;
+    refs: ArtifactRef[];
+  }>({ chatId: null, refs: [] });
+  // Direct edits create versions without a new Chat reply. Read their metadata on open and when agent versions change.
+  useEffect(() => {
+    if (!enabled || !chatId || !window.milagre) return;
+    const list = bridgeForKey(chatId).artifacts?.list;
+    if (!list) return;
+    let live = true;
+    list({ chatId })
+      .then((refs) => {
+        if (live)
+          setSavedDesigns({
+            chatId,
+            refs: refs.filter((ref) => ref.format === "design"),
+          });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [chatId, revisionKey, enabled]);
+  useEffect(() => {
+    const changed = (event: Event) => {
+      const detail = (event as CustomEvent<DesignSaved>).detail;
+      if (!enabled || detail.chatId !== chatId || detail.artifact.format !== "design") return;
+      const ref: ArtifactRef = {
+        id: detail.artifact.id,
+        title: detail.artifact.title,
+        version: detail.artifact.version,
+        format: "design",
+      };
+      setSavedDesigns((current) => ({
+        chatId,
+        refs: [...(current.chatId === chatId ? current.refs.filter((item) => item.id !== ref.id) : []), ref],
+      }));
+    };
+    window.addEventListener(DESIGN_SAVED, changed);
+    return () => window.removeEventListener(DESIGN_SAVED, changed);
+  }, [chatId, enabled]);
+  const latest = useMemo(() => {
+    if (!enabled) return new Map<string, ArtifactRef>();
+    const refs = new Map([...fromSteps].filter(([, ref]) => ref.format === "design"));
+    for (const ref of savedDesigns.chatId === chatId ? savedDesigns.refs : []) {
+      if ((refs.get(ref.id)?.version ?? 0) < ref.version) refs.set(ref.id, ref);
+    }
+    return refs;
+  }, [fromSteps, savedDesigns, chatId, enabled]);
   const chosen = useMemo(() => chosenDesign(userMessages.map((message) => message.body)), [userMessages]);
   const moved = useMemo(
     () =>
@@ -375,7 +474,7 @@ export function ArtifactsProvider({
       ),
     [steps, userMessages],
   );
-  const resolutions = useResolutions(chatId, moved);
+  const resolutions = useResolutions(enabled ? chatId : null, moved);
   // Comments already sent stay on the canvas, where the user left them, resolved once the agent has addressed them.
   const sent = useMemo<DesignPin[]>(
     () =>
@@ -390,6 +489,7 @@ export function ArtifactsProvider({
               x: comment.x,
               y: comment.y,
               text: comment.text,
+              ...(comment.nodeId ? { nodeId: comment.nodeId } : {}),
               ...(resolved === undefined ? {} : { resolved }),
             },
           ];
@@ -399,21 +499,30 @@ export function ArtifactsProvider({
   );
   // What is open belongs to the Chat it opened in: switching Chats closes it.
   const [openedIn, setOpenedIn] = useState<Opened | null>(null);
-  const opened = openedIn?.chatId === chatId ? openedIn : null;
+  const opened = enabled && openedIn?.chatId === chatId ? openedIn : null;
+  useEffect(() => {
+    if (!enabled) setOpenedIn(null);
+  }, [enabled]);
   // A card opens the version it shows; when that is the newest, its frame follows the agent's next revisions.
   const value = useMemo<ArtifactsValue>(
     () => ({
+      enabled,
       chatId,
       latest,
       open: (ref) =>
+        enabled &&
+        latest.has(ref.id) &&
         setOpenedIn((current) => ({
           chatId,
           focus: { id: ref.id, nonce: (current?.focus.nonce ?? 0) + 1 },
-          versions: { ...(current?.chatId === chatId ? current.versions : {}), [ref.id]: latest.get(ref.id)?.version === ref.version ? null : ref.version },
+          versions: {
+            ...(current?.chatId === chatId ? current.versions : {}),
+            [ref.id]: latest.get(ref.id)?.version === ref.version ? null : ref.version,
+          },
         })),
       openComment: (key) => {
         const pin = sent.find((item) => item.key === key);
-        if (!pin) return;
+        if (!enabled || !pin || !latest.has(pin.design.id)) return;
         setOpenedIn((current) => ({
           chatId,
           focus: { id: pin.design.id, nonce: (current?.focus.nonce ?? 0) + 1 },
@@ -426,6 +535,7 @@ export function ArtifactsProvider({
       },
       resolutions,
       openAll: (refs) =>
+        enabled &&
         setOpenedIn((current) => ({
           chatId,
           focus: { id: null, nonce: (current?.focus.nonce ?? 0) + 1 },
@@ -435,40 +545,56 @@ export function ArtifactsProvider({
           },
         })),
     }),
-    [chatId, latest, sent, resolutions],
+    [chatId, latest, sent, resolutions, enabled],
   );
   // The window's top-right corner offers the designs too, while this Chat has any.
-  const toggleDesigns = useCallback(() => (opened ? setOpenedIn(null) : value.openAll([...latest.values()])), [opened, value, latest]);
-  useSidePanel("designs", chatId && latest.size ? { open: !!opened, toggle: toggleDesigns } : null);
+  const toggleDesigns = useCallback(() => {
+    // The global corner control remains above the modal. It must not unmount an editor with local changes.
+    if (!enabled || document.querySelector("[data-slot=design-editor]")) return;
+    if (opened) setOpenedIn(null);
+    else value.openAll([...latest.values()]);
+  }, [opened, value, latest, enabled]);
+  useSidePanel("designs", enabled && chatId && latest.size ? { open: !!opened, toggle: toggleDesigns } : null);
   const onVersion = useCallback(
-    (id: string, version: number | null) => setOpenedIn((current) => current && { ...current, versions: { ...current.versions, [id]: version } }),
+    (id: string, version: number | null) =>
+      setOpenedIn(
+        (current) =>
+          current && {
+            ...current,
+            versions: { ...current.versions, [id]: version },
+          },
+      ),
     [],
   );
   // The canvas belongs to the chat: while something else takes the chat's place, it steps aside and comes back with it.
   const [anchor, chatShown] = useShown();
-  const closeDesigns = useCallback(() => setOpenedIn(null), []);
+  const closeDesigns = useCallback(() => {
+    if (!document.querySelector("[data-slot=design-editor]")) setOpenedIn(null);
+  }, []);
   useSidePanelRoom("designs", !!opened && !!chatId && chatShown, DOCK_WIDTH + 12, closeDesigns);
   return (
     <Artifacts.Provider value={value}>
       <span ref={anchor} aria-hidden className="pointer-events-none absolute top-0 left-0 h-px w-px" />
       {children}
-      <AnimatePresence>
-        {opened && chatId && chatShown && (
-          <ArtifactDock
-            key="designs"
-            chatId={chatId}
-            designs={[...latest.values()]}
-            focus={opened.focus}
-            versions={opened.versions}
-            onVersion={onVersion}
-            chosen={chosen}
-            sent={sent}
-            openComment={opened.comment}
-            onSend={onSend}
-            onClose={() => setOpenedIn(null)}
-          />
-        )}
-      </AnimatePresence>
+      {enabled && (
+        <AnimatePresence>
+          {opened && chatId && chatShown && (
+            <ArtifactDock
+              key="designs"
+              chatId={chatId}
+              designs={[...latest.values()]}
+              focus={opened.focus}
+              versions={opened.versions}
+              onVersion={onVersion}
+              chosen={chosen}
+              sent={sent}
+              openComment={opened.comment}
+              onSend={onSend}
+              onClose={closeDesigns}
+            />
+          )}
+        </AnimatePresence>
+      )}
     </Artifacts.Provider>
   );
 }
@@ -497,6 +623,8 @@ function ArtifactDock({
   onClose: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [sharingChat, setSharingChat] = useState<string | null>(null);
+  const sharingAvailable = useDesignSharingAvailable(chatId);
   const area = useDockArea();
   const reduced = useReducedMotion();
   // The designs' frames mount once the panel has slid in: building them while it moves is what makes it stutter.
@@ -519,7 +647,7 @@ function ArtifactDock({
   // Escape leaves comment mode first, then closes the canvas.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector("[data-slot=design-editor], [data-slot=design-page-share]")) return;
       if (commenting) setCommenting(false);
       else onClose();
     };
@@ -535,7 +663,14 @@ function ArtifactDock({
     try {
       // Each pin's key is its comment's id, which the agent resolves it by. The host records the comments once the
       // message went, so a send that fails records none.
-      const comments: DesignComment[] = written.map(({ key, design, x, y, text }) => ({ id: key, design, x, y, text }));
+      const comments: DesignComment[] = written.map(({ key, design, x, y, text, nodeId }) => ({
+        id: key,
+        design,
+        x,
+        y,
+        text,
+        ...(nodeId ? { nodeId } : {}),
+      }));
       if (await onSend(designFeedbackMessage({ choice, comments }))) {
         if (comments.length)
           void bridgeForKey(chatId)
@@ -558,10 +693,13 @@ function ArtifactDock({
     pins,
     sent,
     open: openPin,
-    onPin: (design, x, y) => {
+    onPin: (design, x, y, nodeId) => {
       const key = newCommentId();
       // A new pin closes the open bubble, dropping it if it was left empty.
-      setPins((current) => [...current.filter((pin) => pin.key !== openPin || pin.text.trim()), { key, design, x, y, text: "" }]);
+      setPins((current) => [
+        ...current.filter((pin) => pin.key !== openPin || pin.text.trim()),
+        { key, design, x, y, text: "", ...(nodeId ? { nodeId } : {}) },
+      ]);
       setOpenPin(key);
     },
     onOpen: setOpenPin,
@@ -588,7 +726,12 @@ function ArtifactDock({
       // Beside a docked simulator and the git changes panel, not over them.
       style={
         full && area
-          ? { top: area.top, left: area.left, right: `calc(${area.right + 12}px + var(--simulator-dock, 0px))`, bottom: area.bottom }
+          ? {
+              top: area.top,
+              left: area.left,
+              right: `calc(${area.right + 12}px + var(--simulator-dock, 0px))`,
+              bottom: area.bottom,
+            }
           : {
               top: area?.top ?? 40,
               right: `calc(${(area?.right ?? 0) + 12}px + var(--simulator-dock, 0px))`,
@@ -601,7 +744,12 @@ function ArtifactDock({
       <header className="flex shrink-0 items-center gap-1 border-b border-line px-3 py-2">
         <HugeiconsIcon icon={PaintBoardIcon} size={16} aria-hidden />
         <div className="ml-1 min-w-0 flex-1">
-          <div className="truncate text-[13px]">Designs</div>
+          <div className="flex items-center gap-2">
+            <span className="truncate text-[13px]">Designs</span>
+            <span data-slot="designs-experimental" className="rounded border border-line px-1.5 py-0.5 text-[9px] leading-none text-ink-3">
+              Experimental
+            </span>
+          </div>
           <div className="text-[11px] text-ink-3">{designs.length === 1 ? "1 design" : `${designs.length} designs`} in this Chat</div>
         </div>
         {feedback > 0 && (
@@ -615,6 +763,16 @@ function ArtifactDock({
           >
             {error ? "Retry send" : "Send"}
             <span className="rounded-full bg-surface/20 px-1.5 text-[11px] tabular-nums">{feedback}</span>
+          </button>
+        )}
+        {sharingAvailable && (
+          <button
+            type="button"
+            aria-label="Share page"
+            onClick={() => setSharingChat(chatId)}
+            className="rounded px-2 py-1 text-[12px] text-ink-2 hover:bg-hover"
+          >
+            Share
           </button>
         )}
         <Tooltip label={commenting ? "Stop commenting" : "Comment on a design"}>
@@ -690,6 +848,7 @@ function ArtifactDock({
       ) : (
         <div className="min-h-0 flex-1 bg-canvas" />
       )}
+      {sharingChat === chatId && <DesignPageShareDialog key={chatId} chatId={chatId} onClose={() => setSharingChat(null)} />}
     </DockSlide>,
     dockLayer(),
   );

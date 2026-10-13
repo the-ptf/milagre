@@ -123,6 +123,7 @@ const callsAt = (target, demo) => [
   ["agent:respond-permission", [{ chatId: `${target}#1`, requestId: "x", decision: "allow" }]],
   ["agent:answer-question", [{ chatId: `${target}#1`, requestId: "x", answers: { next: ["A"] }, summary: "A" }]],
   ["agent:set-permission-mode", [{ chatId: `${target}#1`, mode: "auto" }]],
+  ["artifact:page-shares", [{ chatId: `${target}#1` }]],
   ["worktree:pull-request", [target]],
   ["worktree:pull-requests", [target, ["246"]]],
   ["worktree:create", [{ projectPath: target, baseBranch: "main", prompt: "Escape" }]],
@@ -606,6 +607,33 @@ test("a confined phone reads Linear status and the switch but can't change it", 
   await confine.checkCall("linear:enabled:read", []);
   await assert.rejects(confine.checkCall("linear:enabled:save", [true]), { status: 403, message: REFUSED });
   await assert.rejects(confine.checkCall("linear:move-to-started:save", [true]), { status: 403, message: REFUSED });
+});
+
+test("a confined phone reads Designs availability but cannot change the host setting", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await confine.checkCall("designs:enabled:read", []);
+  await assert.rejects(confine.checkCall("designs:enabled:save", [false]), { status: 403, message: REFUSED });
+});
+
+test("a confined phone reviews designs but cannot apply edits even in its own Project", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await assert.rejects(confine.checkCall("artifact:apply", [{ chatId: `${os.tmpdir()}#1`, id: "welcome", expectedVersion: 1, operations: [] }]), {
+    status: 403,
+    message: REFUSED,
+  });
+});
+
+test("even a Chat inside the demo Project cannot publish, revoke or enumerate owner publications", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  const chatId = `${os.tmpdir()}#1`;
+  for (const [method, args] of [
+    ["artifact:share-page", [{ chatId, title: "Demo", acknowledgePublic: true }]],
+    ["artifact:revoke-page-share", [{ chatId, id: "x".repeat(43) }]],
+    ["artifact:revoke-saved-page-share", [{ id: "x".repeat(43) }]],
+    ["artifact:all-page-shares", []],
+    ["artifact:sharing-status", []],
+  ])
+    await assert.rejects(confine.checkCall(method, args), { status: 403, message: REFUSED });
 });
 
 test("a confined phone reads Linear issues, and only its own Project's worktree issues", async () => {

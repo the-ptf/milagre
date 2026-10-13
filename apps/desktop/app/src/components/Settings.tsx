@@ -1,3 +1,5 @@
+import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
+import { useDesignsEnabled } from "../lib/designs-enabled";
 import { showUpdateNotice } from "./UpdateNotice";
 import { ProjectAccountsGroup, ProjectAccountsSettings } from "./ProjectAccountsSettings";
 import { AccountsSettings } from "./AccountsSettings";
@@ -388,15 +390,16 @@ function Row({ label, description, children }: { label: string; description?: st
   );
 }
 
-function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+function Switch({ label, checked, onChange, disabled = false }: { label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       role="switch"
       aria-label={label}
       aria-checked={checked}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative flex h-5 w-8 items-center rounded-full transition-colors duration-150 ${checked ? "bg-ink" : "bg-line-strong"}`}
+      className={`relative flex h-5 w-8 items-center rounded-full transition-colors duration-150 disabled:opacity-40 ${checked ? "bg-ink" : "bg-line-strong"}`}
     >
       <span
         className={`absolute left-0.5 size-4 rounded-full bg-surface shadow-card transition-transform duration-150 ${checked ? "translate-x-3" : "translate-x-0"}`}
@@ -424,11 +427,37 @@ function PercentSlider({
   );
 }
 
+export function DesignsSettings() {
+  const designs = useDesignsEnabled();
+  const [publishedPages, setPublishedPages] = useState(false);
+  return (
+    <div data-slot="designs-setting">
+      <Row label="Designs" description="Create editable designs in Chat.">
+        <Switch label="Designs" checked={designs.enabled} disabled={!designs.ready || designs.saving} onChange={(enabled) => void designs.save(enabled)} />
+      </Row>
+      {designs.enabled && (
+        <Row label="Published pages" description="Manage public links, including pages from deleted Chats.">
+          <button type="button" className="rounded-[8px] border border-line px-3 py-1.5 text-[12px] hover:bg-hover" onClick={() => setPublishedPages(true)}>
+            Manage
+          </button>
+        </Row>
+      )}
+      {designs.enabled && publishedPages && <DesignPageShareDialog onClose={() => setPublishedPages(false)} />}
+      {designs.error && (
+        <p role="alert" className="px-4 pb-3 text-[12px] text-red">
+          {designs.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ExperimentalSettings() {
   const settings = useSettings();
   return (
     <>
       <Group title="Beta">
+        <DesignsSettings />
         <Row
           label="Floating inbox"
           description="A thin bar attached to the screen edge. Drag its grip to show docking targets over a dimmed desktop. Drop left, right, or bottom; release elsewhere to return. The bottom bar is horizontal. Hover a dot to preview its Chat."

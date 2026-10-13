@@ -94,6 +94,7 @@ class ClaudeSession {
     workspaceRoots,
     workspaceInstructions,
     tldrEnabled = true,
+    designsEnabled = true,
     analysisOnly = false,
     linked = null,
     loadSdk = () => import("@anthropic-ai/claude-agent-sdk"),
@@ -109,6 +110,7 @@ class ClaudeSession {
       workspaceRoots,
       workspaceInstructions,
       tldrEnabled,
+      designsEnabled,
       analysisOnly,
       linked,
       loadSdk,
@@ -294,7 +296,7 @@ class ClaudeSession {
         systemPrompt: {
           type: "preset",
           preset: "claude_code",
-          append: [milagreInstructions(this.tldrEnabled, this.workspaceInstructions), this.analysisOnly ? ANALYSIS_INSTRUCTIONS : ""]
+          append: [milagreInstructions(this.tldrEnabled, this.workspaceInstructions, this.designsEnabled), this.analysisOnly ? ANALYSIS_INSTRUCTIONS : ""]
             .filter(Boolean)
             .join("\n\n"),
         },

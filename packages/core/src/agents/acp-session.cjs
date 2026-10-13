@@ -112,6 +112,7 @@ class AcpSession {
     workspaceRoots,
     workspaceInstructions,
     tldrEnabled = true,
+    designsEnabled = true,
     linked = null,
     clientVersion = "0.0.0",
     interruptGraceMs = 3000,
@@ -129,6 +130,7 @@ class AcpSession {
       workspaceRoots,
       workspaceInstructions,
       tldrEnabled,
+      designsEnabled,
       linked,
       clientVersion,
       interruptGraceMs,
@@ -247,7 +249,7 @@ class AcpSession {
     if (!this.instructionsSent)
       blocks.push({
         type: "text",
-        text: `<milagre_instructions>\n${milagreInstructions(this.tldrEnabled, this.workspaceInstructions)}\n\n${workspaceNote(this.cwd, this.workspaceRoots)}\n</milagre_instructions>`,
+        text: `<milagre_instructions>\n${milagreInstructions(this.tldrEnabled, this.workspaceInstructions, this.designsEnabled)}\n\n${workspaceNote(this.cwd, this.workspaceRoots)}\n</milagre_instructions>`,
       });
     blocks.push({ type: "text", text: prompt });
     for (const image of images) blocks.push({ type: "image", mimeType: image.mime, data: image.base64 ?? Buffer.from(image.bytes).toString("base64") });
