@@ -191,3 +191,17 @@ test("an image with a source paints no placeholder shape; one without keeps it",
   assert.match(layer("empty"), /<rect[^>]*fill="#d8ded8"/);
   assert.match(layer("tinted"), /<rect[^>]*fill="#ff0000"/);
 });
+
+test("Inter text names the measured face it draws with; other families keep the requested weight", () => {
+  const svg = render(
+    screen([
+      { id: "inter", type: "text", x: 0, y: 0, width: 200, height: 40, text: "Inter", fontWeight: 650 },
+      { id: "light", type: "text", x: 0, y: 40, width: 200, height: 40, text: "Light", fontFamily: "Inter, sans-serif", fontWeight: 450 },
+      { id: "arial", type: "text", x: 0, y: 80, width: 200, height: 40, text: "Arial", fontFamily: "Arial", fontWeight: 650 },
+    ]),
+  );
+  assert.deepEqual(
+    [...svg.matchAll(/font-weight="(\d+)"/g)].map((match) => match[1]),
+    ["600", "400", "650"],
+  );
+});

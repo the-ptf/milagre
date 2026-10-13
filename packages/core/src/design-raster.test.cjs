@@ -91,3 +91,64 @@ test("an Inter 600 title and a token-coloured icon paint visible pixels", async 
   const blank = decode((await renderDesignPng(phone([]))).base64);
   assert.equal(nonWhiteIn(blank, { x: 0, y: 0, width: 390, height: 844 }), 0);
 });
+
+// The rightmost painted column in a band of rows, or -1.
+function rightmostPainted(image, { y, height }) {
+  let right = -1;
+  for (let row = y; row < y + height; row++) {
+    for (let column = 0; column < image.width; column++) {
+      const at = (row * image.width + column) * image.channels;
+      if ((image.pixels[at] < 200 || image.pixels[at + 1] < 200 || image.pixels[at + 2] < 200) && column > right) right = column;
+    }
+  }
+  return right;
+}
+
+test("each measured Inter weight draws with its own face", async () => {
+  const { createHash } = require("node:crypto");
+  const hashes = [];
+  for (const fontWeight of [400, 500, 600, 700]) {
+    const png = await renderDesignPng(
+      phone([{ id: "title", type: "text", x: 16, y: 60, width: 340, height: 40, text: "Weekly summary 2026", fontSize: 24, fontWeight, fill: "#111111" }]),
+    );
+    hashes.push(createHash("sha256").update(png.base64).digest("hex"));
+  }
+  assert.equal(new Set(hashes).size, 4, "400, 500, 600 and 700 each render differently");
+  // In-between weights draw with the face the layout measured.
+  const at = async (fontWeight) =>
+    (
+      await renderDesignPng(
+        phone([{ id: "title", type: "text", x: 16, y: 60, width: 340, height: 40, text: "Weekly summary 2026", fontSize: 24, fontWeight, fill: "#111111" }]),
+      )
+    ).base64;
+  assert.ok((await at(650)) === (await at(600)), "650 draws as 600");
+  assert.ok((await at(450)) === (await at(400)), "450 draws as 400");
+});
+
+test("a 22/600 hug title is not clipped by its own box", async () => {
+  const { designLayout, validateDesignDocument } = await import("@milagre/shared/design");
+  const document = phone([
+    {
+      id: "title",
+      type: "text",
+      x: 16,
+      y: 60,
+      width: 10,
+      height: 30,
+      widthMode: "hug",
+      heightMode: "hug",
+      text: "Weekly summary",
+      fontSize: 22,
+      fontWeight: 600,
+      fill: "#111111",
+    },
+  ]);
+  const box = designLayout(validateDesignDocument(document)).get("title");
+  const image = decode((await renderDesignPng(document)).base64);
+  const right = rightmostPainted(image, { y: Math.floor(box.y), height: Math.ceil(box.height) });
+  assert.ok(right > box.x + box.width / 2, "the title is drawn");
+  assert.ok(right < Math.floor(box.x + box.width), `glyphs end at ${right}, inside the box's right edge ${box.x + box.width}`);
+  // The same title in a wide box ends at the same column, so nothing was cut.
+  const wide = decode((await renderDesignPng(phone([{ ...document.nodes[0], widthMode: "fixed", width: 340 }]))).base64);
+  assert.equal(rightmostPainted(wide, { y: Math.floor(box.y), height: Math.ceil(box.height) }), right);
+});

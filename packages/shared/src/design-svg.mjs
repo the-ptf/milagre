@@ -1,5 +1,5 @@
 import { designRenderBudget, visibleDesignTextLines } from "./design-render-limits.mjs";
-import { designFontFamily } from "./design-fonts.mjs";
+import { designFontFamily, designInterWeight, designUsesInter } from "./design-fonts.mjs";
 import { designIcons } from "./design-icons.mjs";
 
 const xml = (value) =>
@@ -101,12 +101,15 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
     const anchor = node.textAlign === "center" ? "middle" : node.textAlign === "right" ? "end" : "start";
     const x = box.x + border + (anchor === "middle" ? contentWidth / 2 : anchor === "end" ? contentWidth : 0);
     const baseline = box.y + border + (lineHeight - fontSize) / 2 + fontSize * 0.8;
+    // Inter text names the measured face it draws with. Browsers already pick that face through the @font-face weight ranges;
+    // renderers that match by weight alone (resvg) would otherwise round 650 up to Bold, wider than the layout measured.
+    const fontWeight = designUsesInter(node.fontFamily) ? designInterWeight(node.fontWeight) : (node.fontWeight ?? 400);
     const spans = visibleDesignTextLines(node, box, layout)
       .map((line, index) => take(`<tspan x="${number(x)}" y="${number(baseline + index * lineHeight)}">${xml(line)}</tspan>`, node))
       .join("");
     return (
       take(
-        `<text ${colorAttributes("fill", node.fill, "#202720")} font-family="${xml(designFontFamily(node.fontFamily))}" font-size="${number(fontSize)}" font-weight="${node.fontWeight ?? 400}" text-anchor="${anchor}" xml:space="preserve" style="font-kerning:none;font-variant-ligatures:none;font-feature-settings:&quot;calt&quot; 0">`,
+        `<text ${colorAttributes("fill", node.fill, "#202720")} font-family="${xml(designFontFamily(node.fontFamily))}" font-size="${number(fontSize)}" font-weight="${fontWeight}" text-anchor="${anchor}" xml:space="preserve" style="font-kerning:none;font-variant-ligatures:none;font-feature-settings:&quot;calt&quot; 0">`,
         node,
       ) +
       spans +

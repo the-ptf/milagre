@@ -13,7 +13,11 @@ async function main() {
   const out = path.resolve(__dirname, "../packages/shared/src");
   const fonts = {};
   for (const [weight, style] of Object.entries(WEIGHTS)) {
-    const font = await subsetFont(fs.readFileSync(path.join(source, "ttf", `Inter-${style}.ttf`)), CHARACTERS, { targetFormat: "truetype" });
+    const font = await subsetFont(fs.readFileSync(path.join(source, "ttf", `Inter-${style}.ttf`)), CHARACTERS, {
+      targetFormat: "truetype",
+      // Keep the typographic family and subfamily (name IDs 16/17): without them resvg sees only Regular and Bold under "Inter".
+      preserveNameIds: [16, 17],
+    });
     fonts[weight] = font.toString("base64");
   }
   fs.writeFileSync(
