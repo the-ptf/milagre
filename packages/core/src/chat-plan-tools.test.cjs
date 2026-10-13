@@ -71,6 +71,16 @@ test("formatPlan says when there is nothing yet", () => {
   assert.equal(formatPlan(undefined), "No task list yet.");
 });
 
+test("tasks_set refuses a fourth level and writes nothing", async () => {
+  const { writes, call } = harness();
+  const result = await call("tasks_set", { tasks: [{ title: "A", children: [{ title: "B", children: [{ title: "C", children: [{ title: "D" }] }] }] }] });
+  assert.equal(result.isError, true);
+  assert.match(result.text, /Invalid arguments/);
+  assert.equal(writes.length, 0);
+  const ok = await call("tasks_set", { tasks: [{ title: "A", children: [{ title: "B", children: [{ title: "C" }] }] }] });
+  assert.equal(ok.isError, false);
+});
+
 test("every tool's input renders as a JSON schema, including the recursive task tree", () => {
   const { tools } = harness();
   for (const definition of tools.definitions("/p#1")) assert.doesNotThrow(() => inputSchema(definition));

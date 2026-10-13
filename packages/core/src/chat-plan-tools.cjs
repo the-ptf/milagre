@@ -12,7 +12,8 @@ const base = {
   activeForm: z.string().max(200).optional().describe("Shown while in progress, e.g. 'Saving wishlist changes'."),
   status: status.optional(),
 };
-const leaf = z.object(base);
+// Strict, so a fourth level is an error instead of being dropped.
+const leaf = z.strictObject(base);
 const level2 = z.object({ ...base, children: z.array(leaf).optional() });
 const level1 = z.object({ ...base, children: z.array(level2).optional() });
 
