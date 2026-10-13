@@ -491,6 +491,7 @@ function ExperimentalSettings() {
             }}
           />
         </Row>
+        <LimitAutoSwitchSetting />
         <LinearSettings />
       </Group>
       {settings.customThemeEnabled && (
@@ -1555,6 +1556,46 @@ export function MainSyncDefaultSetting() {
       </Row>
       {error && <p className="px-4 pb-3 break-words text-[12px] text-red">{error}</p>}
     </div>
+  );
+}
+
+// Experimental > Switch accounts at usage limits: Mac-owned (core), so a Chat can switch while no window is open.
+function LimitAutoSwitchSetting() {
+  // null until read.
+  const [autoSwitch, setAutoSwitch] = useState<boolean | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve()
+      .then(() => window.milagre.readLimitAutoSwitch())
+      .then(
+        (value) => live && setAutoSwitch(value?.autoSwitch === true),
+        () => live && setAutoSwitch(false),
+      );
+    return () => {
+      live = false;
+    };
+  }, []);
+  async function change(next: boolean) {
+    setError(null);
+    setAutoSwitch(next);
+    try {
+      setAutoSwitch((await window.milagre.saveLimitAutoSwitch(next)).autoSwitch);
+    } catch (failure) {
+      setAutoSwitch(!next);
+      setError(ipcErrorMessage(failure));
+    }
+  }
+  if (autoSwitch === null) return null;
+  return (
+    <Row
+      label="Switch accounts at usage limits"
+      description={
+        "When a Chat hits its plan's usage limit, move its Project to the next signed-in account and continue." + (error ? ` Could not save: ${error}` : "")
+      }
+    >
+      <Switch label="Switch accounts at usage limits" checked={autoSwitch} onChange={(next) => void change(next)} />
+    </Row>
   );
 }
 

@@ -8,6 +8,8 @@ import { GenerativeUIProvider } from "./genui/GenerativeUI";
 import { AnswerCard } from "./agents/AnswerCard";
 import { PullRequestActionCard } from "./agents/PullRequestActionCard";
 import { LinearIssueCard } from "./agents/LinearIssueCard";
+import { UsageLimitCard } from "./agents/UsageLimitCard";
+import { usageLimitOf } from "@milagre/shared/usage-limit";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
@@ -139,6 +141,8 @@ const MessageSection = memo(function MessageSection({
   waitingStepIds = [],
   animate = false,
   onOpenChat,
+  limitInteractive = false,
+  onOpenAccounts,
   models,
 }: {
   message: AppChatMessage;
@@ -157,6 +161,10 @@ const MessageSection = memo(function MessageSection({
   animate?: boolean;
   /** Opens another Chat by key, from a message it sent across a Link. */
   onOpenChat?: (chatKey: string) => void;
+  /** The usage-limit card may offer account switches: this is the Chat's last message and no turn runs. */
+  limitInteractive?: boolean;
+  /** Opens Settings > Accounts, from the limit card. */
+  onOpenAccounts?: () => void;
 }) {
   if (isHandoff(message)) return <HandoffDivider context={message.context} models={models} />;
   if (isWorktreeLinked(message)) return <WorktreeLinkDivider context={message.context} />;
@@ -177,6 +185,7 @@ const MessageSection = memo(function MessageSection({
   const outdatedProvider = !isUser && !streaming ? extractOutdatedProvider(message.body) : null;
   const isCurrentlyOutdated = outdatedProvider ? (cliStatus ? cliStatus[outdatedProvider]?.state === "outdated" : true) : false;
   const showUpdateButton = Boolean(outdatedProvider && onUpdateCli && (isCurrentlyOutdated || updatingCli === outdatedProvider));
+  const limit = !isUser && !streaming ? usageLimitOf(message) : null;
   const steps = message.steps ?? [];
   return (
     <article
@@ -228,6 +237,7 @@ const MessageSection = memo(function MessageSection({
             <ReplyContent body={message.body} steps={steps} streaming={streaming} asking={asking} waitingStepIds={waitingStepIds} />
           </StepDetailsMessage>
         )}
+        {limit && <UsageLimitCard limit={limit} sessionId={message.session_id} interactive={limitInteractive} onOpenAccounts={onOpenAccounts} />}
         {showUpdateButton && outdatedProvider && onUpdateCli && (
           <div className="mt-2.5 flex items-center gap-2">
             <button
@@ -266,6 +276,8 @@ const MessageTranscript = memo(function MessageTranscript({
   updatingCli,
   cliStatus,
   onOpenLinkedChat,
+  onOpenAccounts,
+  offlineName,
   findOpen,
   models,
   earlier,
@@ -284,6 +296,8 @@ const MessageTranscript = memo(function MessageTranscript({
   | "updatingCli"
   | "cliStatus"
   | "onOpenLinkedChat"
+  | "onOpenAccounts"
+  | "offlineName"
   | "findOpen"
   | "models"
 >) {
@@ -388,6 +402,8 @@ const MessageTranscript = memo(function MessageTranscript({
   }
 
   const openingIds = openingMessages.current.ids;
+  // Only the Chat's last message, once its turn is over, can still switch accounts.
+  const limitMessageId = isSending || offlineName ? undefined : messages.at(-1)?.id;
   return (
     <>
       {historyError && (
@@ -420,6 +436,8 @@ const MessageTranscript = memo(function MessageTranscript({
           waitingStepIds={message === streamingMessage ? waitingStepIds : undefined}
           animate={!message.clientMessageId && !openingIds.has(message.id)}
           onOpenChat={onOpenLinkedChat}
+          limitInteractive={message.id === limitMessageId}
+          onOpenAccounts={onOpenAccounts}
           models={models}
         />
       ))}
@@ -492,6 +510,8 @@ interface ChatComposerProps {
   runStartedAt?: number;
   /** Opens the Chat a Delegation, report or agreement came from, in whichever Project it is. */
   onOpenLinkedChat?: (chatKey: string) => void;
+  /** Opens Settings > Accounts, from the usage-limit card when the Project has no other account to switch to. */
+  onOpenAccounts?: () => void;
   /** A chat a quit stopped longer ago than Milagre resumes by itself: Continue starts its turn again. */
   resume?: { onContinue: () => void };
   /** The models the picker offers (see mergeModels). */
@@ -773,6 +793,7 @@ export function ChatComposer({
   sessionProvider,
   runStartedAt,
   onOpenLinkedChat,
+  onOpenAccounts,
   resume,
   models,
   cliStatus,
@@ -916,6 +937,8 @@ export function ChatComposer({
                       updatingCli={updatingCli}
                       cliStatus={cliStatus}
                       onOpenLinkedChat={onOpenLinkedChat}
+                      onOpenAccounts={onOpenAccounts}
+                      offlineName={offlineName}
                       models={models}
                     />
                   </StepDetailsScope>

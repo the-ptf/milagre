@@ -67,6 +67,7 @@ export function LinkWorkspace({
   onEditLink,
   onOpenProject,
   onSettings,
+  onOpenAccounts,
   linkedWork,
   onCanvasChat,
   usage,
@@ -91,6 +92,8 @@ export function LinkWorkspace({
   onEditLink: (id: string) => void;
   onOpenProject: () => void;
   onSettings: () => void;
+  /** Settings > Accounts, from a Chat's usage-limit card. */
+  onOpenAccounts: () => void;
   linkedWork: LinkedWork;
   onCanvasChat: (path: string, id: number) => void;
   usage?: ReactNode;
@@ -518,6 +521,7 @@ export function LinkWorkspace({
                         onFastModeChange={composerPrefs.setFastMode}
                         permissionMode={composerPrefs.permissionMode}
                         scopeKind="link"
+                        onOpenAccounts={onOpenAccounts}
                         store={draftStore}
                         projectPath={root}
                         messageScope={owner}

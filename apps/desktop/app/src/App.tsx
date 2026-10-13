@@ -1765,6 +1765,10 @@ function App() {
     void openCanvasChat(scopeKey, sessionId);
   });
   const openSettings = useEvent(() => setView("settings"));
+  const openAccounts = useEvent(() => {
+    setSettingsSection("accounts");
+    setView("settings");
+  });
   // The computers popover's gears: a computer's own section, or This Mac's devices.
   const openComputerSettings = useEvent((id: string | null) => {
     if (id === null) setSettingsSection("devices");
@@ -1945,6 +1949,7 @@ function App() {
             setSettingsSection("project-accounts");
             setView("settings");
           }}
+          onOpenAccounts={openAccounts}
           linkedWork={linkedWork}
           onCanvasChat={(path, id) => void openCanvasChat(path, id)}
           usage={sidebarUsage}
@@ -2370,6 +2375,7 @@ function App() {
                         : undefined
                     }
                     onOpenLinkedChat={openLinkedChat}
+                    onOpenAccounts={openAccounts}
                     models={models}
                     cliStatus={cliStatus}
                     onModelPickerOpen={refreshCliStatus}
