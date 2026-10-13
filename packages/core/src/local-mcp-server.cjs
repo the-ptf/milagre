@@ -1,5 +1,5 @@
 const http = require("node:http");
-const { inputSchema, runTool } = require("./linked-tools.cjs");
+const { inputSchema, mcpContent, runTool } = require("./linked-tools.cjs");
 const VERSIONS = ["2025-03-26", "2025-06-18"];
 const MAX_BODY = 1024 * 1024;
 // A 1,000,000 UTF-16-unit design can encode each unit as six ASCII bytes.
@@ -124,7 +124,7 @@ function createLocalMcpServer({ authenticate, toolsFor, internalConnection }) {
       const tool = tools.find((item) => item.name === message.params?.name);
       if (!tool) return ok({ content: [{ type: "text", text: "Tool unavailable for this connection" }], isError: true });
       const result = await runTool({ ...tool, strict: true }, message.params?.arguments);
-      return ok({ content: [{ type: "text", text: result.text }], isError: result.isError });
+      return ok({ content: mcpContent(result), isError: result.isError });
     }
     return { jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Method not found" } };
   }

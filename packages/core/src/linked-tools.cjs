@@ -324,14 +324,19 @@ function inputSchema(definition) {
 async function runTool(definition, args) {
   try {
     const parsed = (definition.strict ? z.strictObject(definition.input) : z.object(definition.input)).parse(args ?? {});
-    return { text: String(await definition.run(parsed)), isError: false };
+    const result = await definition.run(parsed);
+    if (result && typeof result === "object") return { text: String(result.text), images: result.images ?? [], isError: false };
+    return { text: String(result), images: [], isError: false };
   } catch (error) {
     const text =
       error instanceof z.ZodError
         ? `Invalid arguments: ${error.issues.map((issue) => `${issue.path.join(".") || "input"} ${issue.message}`).join("; ")}`
         : error.message;
-    return { text, isError: true };
+    return { text, images: [], isError: true };
   }
 }
 
-module.exports = { chatLabel, createLinkedReads, delegationReply, inputSchema, linkedToolDefinitions, runTool };
+/** MCP content for a tool result: its text, then any images, which Claude and Codex both read. */
+const mcpContent = ({ text, images = [] }) => [{ type: "text", text }, ...images.map((image) => ({ type: "image", data: image.base64, mimeType: image.mime }))];
+
+module.exports = { chatLabel, createLinkedReads, delegationReply, inputSchema, linkedToolDefinitions, mcpContent, runTool };

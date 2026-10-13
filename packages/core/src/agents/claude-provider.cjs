@@ -6,7 +6,7 @@ const { killTree } = require("./process-tree.cjs");
 const { milagreInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, isTerminal, mapClaudeMessage, missingCliMessage } = require("./events.cjs");
 const { PendingPermissions, claudeRequest, claudeResult, insideRoot, insideWorkspace } = require("./permissions.cjs");
 const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = require("./questions.cjs");
-const { runTool } = require("../linked-tools.cjs");
+const { mcpContent, runTool } = require("../linked-tools.cjs");
 const { advisorPolicy, ANALYSIS_INSTRUCTIONS } = require("./advisor-policy.cjs");
 
 // Milagre permission mode -> Claude Code permission mode. In Ask (`default`) Claude Code checks with
@@ -72,8 +72,8 @@ function linkedOptions(tools, sdk) {
         definition.description,
         definition.input,
         async (args) => {
-          const { text, isError } = await runTool(definition, args);
-          return { content: [{ type: "text", text }], isError };
+          const result = await runTool(definition, args);
+          return { content: mcpContent(result), isError: result.isError };
         },
         { annotations: { readOnlyHint: definition.readOnly } },
       ),

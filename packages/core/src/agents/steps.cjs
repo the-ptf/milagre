@@ -61,10 +61,10 @@ const artifactStep = (step, title, tool) => step("artifact", artifactTitle(title
 // Resolving a comment the user left on a design reads as that, not as a tool call.
 const isResolveTool = (server, tool) => server === "milagre" && tool === "artifact_resolve_comment";
 
-// The artifact a finished design tool made, from its result text.
+// The artifact a finished design tool made, from the first line of its result: the JSON summary. Attached images follow it.
 function artifactRef(text) {
   try {
-    const { id, version, title, format } = JSON.parse(text);
+    const { id, version, title, format } = JSON.parse(String(text).split("\n", 1)[0]);
     return typeof id === "string" && Number.isInteger(version) && typeof title === "string"
       ? { id, version, title, ...(["design", "html"].includes(format) ? { format } : {}) }
       : undefined;

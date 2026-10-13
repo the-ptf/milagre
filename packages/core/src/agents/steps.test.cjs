@@ -407,3 +407,27 @@ test("HTML artifact tool renders a typed artifact card for both providers", () =
     title: "Showed `Explanation`",
   });
 });
+
+test("a design result with an image attached still produces the Chat card", () => {
+  const artifact = { id: "welcome", version: 2, title: "Welcome", format: "design" };
+  const summary = JSON.stringify({ ...artifact, warnings: [] });
+  // The block list a Claude tool_result carries when Milagre attaches the rendered design.
+  const block = ok([
+    { type: "text", text: summary },
+    { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+  ]);
+  const step = claudeStepResult({ id: "call-1", name: "mcp__milagre__design_show", input: {} }, block, undefined);
+  assert.deepEqual(step.artifact, artifact);
+  // Codex's mcpToolCall carries MCP-shaped blocks.
+  const call = { type: "mcpToolCall", id: "design-3", server: "milagre", tool: "design_show", status: "completed", arguments: {} };
+  const codex = codexStepResult({
+    ...call,
+    result: {
+      content: [
+        { type: "text", text: summary },
+        { type: "image", data: "AAAA", mimeType: "image/png" },
+      ],
+    },
+  });
+  assert.deepEqual(codex.artifact, artifact);
+});

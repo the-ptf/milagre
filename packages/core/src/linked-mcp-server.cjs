@@ -1,6 +1,6 @@
 const http = require("node:http");
 const { randomBytes } = require("node:crypto");
-const { inputSchema, runTool } = require("./linked-tools.cjs");
+const { inputSchema, mcpContent, runTool } = require("./linked-tools.cjs");
 
 const MAX_BODY = 1024 * 1024;
 // Design documents allow 1,000,000 UTF-16 units in their canonical JSON. A JSON encoder can escape
@@ -104,8 +104,8 @@ function createLinkedMcpServer({ toolsFor }) {
       case "tools/call": {
         const tool = tools.find((item) => item.name === message.params?.name);
         if (!tool) return ok({ content: [{ type: "text", text: `Unknown tool: ${message.params?.name}` }], isError: true });
-        const { text, isError } = await runTool(tool, message.params?.arguments);
-        return ok({ content: [{ type: "text", text }], isError });
+        const result = await runTool(tool, message.params?.arguments);
+        return ok({ content: mcpContent(result), isError: result.isError });
       }
       default:
         return { jsonrpc: "2.0", id: message.id, error: { code: -32601, message: `Method not found: ${message.method}` } };
