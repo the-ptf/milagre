@@ -131,3 +131,23 @@ test("taskCounts counts leaves only", () => {
   );
   assert.deepEqual(taskCounts(plan.tasks), { done: 2, total: 3 });
 });
+
+test("an unnamed item never inherits a dropped task's state", () => {
+  let plan = setTasks(undefined, [{ title: "A" }, { title: "B", activeForm: "Doing B" }], 1);
+  plan = updateTask(plan, { id: "1", status: "completed" }, 2);
+  plan = updateTask(plan, { id: "2", status: "in_progress" }, 3);
+  plan = setTasks(plan, [{ id: "1", title: "A" }, { title: "C new" }], 4);
+  assert.deepEqual(ids(plan), ["1:completed", "2:pending"]);
+  assert.equal(plan.tasks[1].title, "C new");
+  assert.equal(plan.tasks[1].activeForm, undefined);
+});
+
+test("a plan made by setPhase stays native until a task tool writes", () => {
+  const phased = setPhase(undefined, "plan", 1);
+  assert.equal(phased.source, "native");
+  const mirrored = nativePlan(phased, [{ id: "0", content: "x", status: "pending" }], 2)!;
+  assert.equal(mirrored.source, "native");
+  assert.deepEqual(mirrored.tasks, [{ id: "0", title: "x", status: "pending" }]);
+  assert.deepEqual(mirrored.phases, [{ phase: "plan", at: 1 }]);
+  assert.throws(() => updateTask(phased, { id: "1" }, 2), /tasks_set/);
+});

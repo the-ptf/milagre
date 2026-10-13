@@ -54,13 +54,14 @@ export function setTasks(plan, input, now) {
       const title = text(item.title);
       if (!title) throw new Error(`Task ${prefix}${index + 1} has no title.`);
       if (++count > MAX_TASKS) throw new Error(`A task list holds at most ${MAX_TASKS} tasks.`);
-      let id = text(item.id);
+      const named = text(item.id);
+      let id = named;
       if (!id) {
         while (explicit.has(`${prefix}${next}`)) next++;
         id = `${prefix}${next}`;
         explicit.add(id);
       }
-      const previous = known.get(id);
+      const previous = named ? known.get(id) : undefined;
       const activeForm = text(item.activeForm) || previous?.activeForm;
       const children = item.children?.length ? build(item.children, `${id}.`, depth + 1) : undefined;
       return {
@@ -95,9 +96,9 @@ export function updateTask(plan, change, now) {
   return { ...plan, tasks: deriveTasks(patch(plan.tasks)), updatedAt: now };
 }
 
-/** Moves the Chat to `phase`; the same phase twice in a row is one entry. Keeps the plan's source. */
+/** Moves the Chat to `phase`; the same phase twice in a row is one entry. Keeps the plan's source; a fresh plan is "native", since only the task tools take ownership. */
 export function setPhase(plan, phase, now) {
-  const base = plan ?? { source: "milagre", tasks: [], phases: [], updatedAt: now };
+  const base = plan ?? { source: "native", tasks: [], phases: [], updatedAt: now };
   if (currentPhase(base) === phase) return base;
   return { ...base, phases: [...base.phases, { phase, at: now }].slice(-MAX_PHASES), updatedAt: now };
 }
