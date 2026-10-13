@@ -65,6 +65,7 @@ import { useOpenProject } from "../use-open-project";
 import { ErrorNotice, GlassIconButton, IconButton, PageScroll, PillButton, PullDown, useStyles } from "../ui";
 import { PromptField } from "../prompt-field";
 import { ContextRing } from "../context-ring";
+import { PlanPill } from "../plan-pill";
 import { useTheme } from "../theme";
 import { archiveFromPhone, showArchiveNotice } from "../archive";
 import { confirmSheet } from "../confirm-store";
@@ -1510,6 +1511,7 @@ export default function ChatScreen() {
                       onPress={() => router.push({ pathname: "/permission-sheet", params: { chatId, ...(run ? { busy: "1" } : {}) } })}
                     />
                     <View style={{ flex: 1 }} />
+                    {params.id && <PlanPill plan={chat?.plan} onPress={() => router.push({ pathname: "/plan-sheet", params: { id: params.id } })} />}
                     {contextUsage && contextUsage.size > 0 && params.id && (
                       <ContextRing
                         {...contextUsage}

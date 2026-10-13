@@ -86,6 +86,7 @@ export default function Layout() {
                       <Stack.Screen name="choose-projects" options={{ ...sheet, sheetAllowedDetents: [0.6, 1], sheetInitialDetentIndex: 0 }} />
                       <Stack.Screen name="chat" options={{ title: "Chat" }} />
                       <Stack.Screen name="context-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
+                      <Stack.Screen name="plan-sheet" options={{ ...sheet, sheetAllowedDetents: [0.6, 1] }} />
                       <Stack.Screen name="permission-sheet" options={{ ...sheet, sheetAllowedDetents: [0.42, 0.6], sheetInitialDetentIndex: 0 }} />
                       {/* Full height: the effort, Fast and Ultracode panel pinned at the bottom leaves a half-height sheet room for one model. */}
                       <Stack.Screen name="model-sheet" options={{ ...sheet, sheetAllowedDetents: [1] }} />

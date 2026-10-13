@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Image, Pressable, Text, View, type ImageSourcePropType } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { router } from "expo-router";
-import { Alert02Icon, ArrowRight01Icon, CheckmarkCircle02Icon, CircleIcon, Maximize01Icon } from "@hugeicons/core-free-icons";
+import { Alert02Icon, ArrowRight01Icon, Maximize01Icon } from "@hugeicons/core-free-icons";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { ChatMessage, ChatStep } from "@milagre/shared/model";
 import { activitySummary, replyActivity, unspokenThought } from "@milagre/shared/reply-parts";
@@ -309,16 +309,6 @@ export const ChatReply = memo(function ChatReply({
           <Markdown text={thought} media={savedMedia} basePath={basePath} />
         </View>
       )}
-      {run?.tasks?.length ? (
-        <View style={[styles.card, { gap: 8 }]}>
-          {run.tasks.map((task) => (
-            <View key={task.id} style={[styles.row, { flexWrap: "nowrap" }]}>
-              <Icon icon={task.status === "completed" ? CheckmarkCircle02Icon : CircleIcon} tone={task.status === "completed" ? "green" : "ink3"} size={16} />
-              <Text style={[styles.muted, { flex: 1 }]}>{task.status === "in_progress" ? task.activeForm || task.content : task.content}</Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
       {!run && message?.outcome === "cancelled" && <Text style={styles.muted}>Turn stopped</Text>}
       {limit && message && <UsageLimitCard limit={limit} sessionId={message.session_id} projectPath={limitProjectPath} />}
       {!run && !limit && message?.outcome === "failed" && (
