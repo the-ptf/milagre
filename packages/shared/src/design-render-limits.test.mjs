@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { designHtml, designSvg, validateDesignDocument } from "./design.mjs";
+import { designFontFaces, designHtml, designSvg, validateDesignDocument } from "./design.mjs";
 import { designRenderBudget, MAX_DESIGN_RENDER_BYTES } from "./design-render-limits.mjs";
 
 const screen = (nodes) => ({ schemaVersion: 1, width: 390, height: 844, nodes });
@@ -12,8 +12,11 @@ test("narrow text keeps source content but emits only visible lines in HTML and 
   const before = JSON.stringify(document);
   assert.equal(count(designHtml(document), "span"), 1);
   assert.equal(count(designSvg(document), "tspan"), 1);
-  assert.ok(Buffer.byteLength(designHtml(document)) < 3000);
-  assert.ok(Buffer.byteLength(designSvg(document)) < 2000);
+  // The embedded Inter faces are a fixed cost; the markup around them must stay small.
+  const faces = Buffer.byteLength(designFontFaces(validateDesignDocument(document)));
+  assert.ok(faces > 0);
+  assert.ok(Buffer.byteLength(designHtml(document)) - faces < 3000);
+  assert.ok(Buffer.byteLength(designSvg(document)) - faces < 2000);
   assert.equal(JSON.stringify(document), before);
   assert.equal(validateDesignDocument(document).nodes[0].text.length, 20000);
 });

@@ -74,9 +74,10 @@ function shape(node, box, inset = 0) {
  * bounds: Map<nodeId, {x,y,width,height}> in absolute canvas coordinates.
  * textLayout(node, width): {lines: string[], width, height, lineHeight}, with lineHeight in pixels.
  * resolveColor(value, fallback): a token-resolved CSS color.
+ * fontFaces: optional @font-face CSS the caller wants embedded in the SVG.
  * HTTPS image references and font-family names remain references; this pure function does not fetch or embed them.
  */
-export function renderDesignSvg(document, bounds, textLayout, resolveColor) {
+export function renderDesignSvg(document, bounds, textLayout, resolveColor, fontFaces = "") {
   const children = new Map();
   for (const [index, node] of document.nodes.entries()) {
     const siblings = children.get(node.parentId) ?? [];
@@ -104,7 +105,7 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor) {
       .join("");
     return (
       take(
-        `<text ${colorAttributes("fill", node.fill, "#202720")} font-family="${xml(designFontFamily(node.fontFamily))}" font-size="${number(fontSize)}" font-weight="${node.fontWeight ?? 400}" text-anchor="${anchor}" xml:space="preserve" style="font-kerning:none;font-variant-ligatures:none">`,
+        `<text ${colorAttributes("fill", node.fill, "#202720")} font-family="${xml(designFontFamily(node.fontFamily))}" font-size="${number(fontSize)}" font-weight="${node.fontWeight ?? 400}" text-anchor="${anchor}" xml:space="preserve" style="font-kerning:none;font-variant-ligatures:none;font-feature-settings:&quot;calt&quot; 0">`,
         node,
       ) +
       spans +
@@ -160,7 +161,7 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor) {
     take(
       `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${document.width}" height="${document.height}" viewBox="0 0 ${document.width} ${document.height}" overflow="hidden">`,
     ) +
-    (definitions.length ? take("<defs>") + definitions.join("") + take("</defs>") : "") +
+    (definitions.length || fontFaces ? take("<defs>") + (fontFaces ? take(`<style>${fontFaces}</style>`) : "") + definitions.join("") + take("</defs>") : "") +
     take(`<rect x="0" y="0" width="${document.width}" height="${document.height}" ${colorAttributes("fill", document.background, "#ffffff")}/>`) +
     body +
     take("</svg>")

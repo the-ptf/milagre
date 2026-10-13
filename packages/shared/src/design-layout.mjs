@@ -1,4 +1,5 @@
 import { designFontMetrics } from "./design-font-metrics.mjs";
+import { DESIGN_INTER_PATTERN, nearestDesignWeight } from "./design-fonts.mjs";
 
 const bounded = (value, minimum = 0) => Math.max(1, minimum, Math.min(16000, value));
 const round = (value) => Math.round(value * 1000) / 1000;
@@ -10,7 +11,7 @@ const graphemes = (text) =>
 /** Shared line breaking deliberately has no browser dependency. Inter, Arial, Georgia, Times New Roman and Courier New are measured; other fonts use the closest generic metrics. */
 export function designTextLayout(node, width = Infinity) {
   const family = (node.fontFamily ?? "Inter").toLowerCase();
-  const kind = /inter/.test(family)
+  const kind = DESIGN_INTER_PATTERN.test(family)
     ? "inter"
     : /courier|mono/.test(family)
       ? "mono"
@@ -21,9 +22,7 @@ export function designTextLayout(node, width = Infinity) {
           : "sans";
   const measured = designFontMetrics[kind];
   const requested = node.fontWeight ?? 400;
-  const weight = Object.keys(measured)
-    .map(Number)
-    .reduce((best, candidate) => (Math.abs(candidate - requested) < Math.abs(best - requested) ? candidate : best));
+  const weight = nearestDesignWeight(Object.keys(measured).map(Number), requested);
   const metrics = measured[weight];
   const size = node.fontSize ?? 16;
   const advances = new Map();

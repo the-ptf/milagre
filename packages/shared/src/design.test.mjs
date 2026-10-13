@@ -5,6 +5,7 @@ import {
   buildDesignControllerScript,
   createExampleDesign,
   designColor,
+  designFontFaces,
   designHtml,
   designLayout,
   designNodeAt,
@@ -132,7 +133,8 @@ test("the bundled example is a valid editable document without remote assets", (
   const document = validateDesignDocument(createExampleDesign());
   assert.equal(document.width, 390);
   assert.equal(designLayout(document).size, document.nodes.length);
-  assert.ok(designHtml(document).length < 20000);
+  // The embedded Inter faces are a fixed cost; the markup around them must stay small.
+  assert.ok(designHtml(document).length - designFontFaces(document).length < 20000);
 });
 
 test("feedback hit testing follows the frontmost layer and respects a clipped frame", () => {

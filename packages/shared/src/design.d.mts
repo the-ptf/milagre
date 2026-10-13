@@ -82,6 +82,10 @@ export function designNodeAt(document: DesignDocument, x: number, y: number): De
 export function designColor(document: DesignDocument, value?: string, fallback?: string): string;
 /** Serialize plain family names as CSS, preserving generic fallback families. */
 export function designFontFamily(value?: string): string;
+/** CSS @font-face rules (data URIs) for the Inter weights a document's visible text uses, or "". */
+export function designFontFaces(document: DesignDocument): string;
+/** The measured Inter weight a requested weight renders with. */
+export function designInterWeight(fontWeight?: number): 400 | 500 | 600 | 700;
 export function designHtml(document: DesignDocument, options?: { interactive?: boolean; selectedId?: string | null }): string;
 /** A portable SVG with native shapes, text and image elements. JSON is the lossless design export. */
 export function designSvg(document: DesignDocument): string;

@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { designFontFamily, validDesignFontFamily } from "./design-fonts.mjs";
-export { designFontFamily } from "./design-fonts.mjs";
+import { designFontFamily, designFontFaces, validDesignFontFamily } from "./design-fonts.mjs";
+export { designFontFamily, designFontFaces, designInterWeight } from "./design-fonts.mjs";
 import { designRenderBudget, visibleDesignTextLines } from "./design-render-limits.mjs";
 import { designLayout, designTextLayout } from "./design-layout.mjs";
 import { renderDesignSvg } from "./design-svg.mjs";
@@ -323,6 +323,7 @@ function nodeStyles(document, node, box, parentBox, parentNode) {
           `line-height:${node.lineHeight ?? 1.35}`,
           "font-kerning:none",
           "font-variant-ligatures:none",
+          'font-feature-settings:"calt" 0',
           "white-space:pre-wrap",
           "overflow-wrap:normal",
         ]
@@ -389,10 +390,11 @@ export function designHtml(value, options = {}) {
   const box = selected && bounds.get(selected);
   const interactive = options.interactive === true;
   const selection = `<div id="design-selection" style="position:absolute;box-sizing:border-box;pointer-events:none;border:2px solid #367bf5;z-index:2147483646;${box ? `left:${box.x}px;top:${box.y}px;width:${box.width}px;height:${box.height}px` : "display:none"}">${interactive ? '<span id="design-resize" style="position:absolute;right:-5px;bottom:-5px;width:10px;height:10px;border:1px solid #367bf5;background:white;pointer-events:auto;cursor:nwse-resize"></span>' : ""}</div>`;
+  const fontFaces = designFontFaces(document);
   const take = designRenderBudget("HTML");
   return (
     take(
-      `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=${document.width}, initial-scale=1"><style>html,body{margin:0;padding:0;width:${document.width}px;height:${document.height}px;overflow:hidden}body{background:${escape(designColor(document, document.background, "#ffffff"))}}*{box-sizing:border-box}#design-root{position:relative;width:100%;height:100%;${interactive ? "touch-action:none;user-select:none;cursor:default" : ""}}</style></head><body><main id="design-root">`,
+      `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=${document.width}, initial-scale=1"><style>html,body{margin:0;padding:0;width:${document.width}px;height:${document.height}px;overflow:hidden}body{background:${escape(designColor(document, document.background, "#ffffff"))}}*{box-sizing:border-box}#design-root{position:relative;width:100%;height:100%;${interactive ? "touch-action:none;user-select:none;cursor:default" : ""}}</style>${fontFaces ? `<style>${fontFaces}</style>` : ""}</head><body><main id="design-root">`,
     ) +
     designMarkup(document, bounds, textLayout, take) +
     take(
@@ -668,7 +670,13 @@ function previewController(design, selected, bounds) {
 export function designSvg(value) {
   const document = validateDesignDocument(value);
   const textLayout = cachedTextLayout();
-  return renderDesignSvg(document, designLayout(document, textLayout), textLayout, (value, fallback) => designColor(document, value, fallback));
+  return renderDesignSvg(
+    document,
+    designLayout(document, textLayout),
+    textLayout,
+    (value, fallback) => designColor(document, value, fallback),
+    designFontFaces(document),
+  );
 }
 
 /** A compact, editable screen used by the isolated desktop and phone fixtures. */
