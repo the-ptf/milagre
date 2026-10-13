@@ -109,6 +109,7 @@ async function createWorktree({
   copyPatterns,
   copyLimits,
   fetched = false,
+  beforeCreate,
 }) {
   await checkBase(projectPath, baseBranch);
   // A named branch (from issueBranch) keeps its name; its folder takes the last segment of that name.
@@ -118,6 +119,7 @@ async function createWorktree({
   const worktreePath = path.join(root, path.basename(projectPath), name);
   await fs.mkdir(path.dirname(worktreePath), { recursive: true });
   const start = await resolveStartRef(projectPath, baseBranch, { fetched });
+  beforeCreate?.();
   // --no-track: the chat's branch must not push to, or pull from, the branch it started on.
   await client.write.checked(projectPath, ["worktree", "add", "--no-track", "-b", branch, "--end-of-options", worktreePath, start]);
   // Ignored files the project needs (env files) come along; a failed copy never fails the worktree.

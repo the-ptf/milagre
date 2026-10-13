@@ -6940,7 +6940,17 @@ test("mobile Settings opens Experimental as its own page, like desktop's section
     "the Linear switch lives on the Experimental page",
   );
   find(tree, (n) => n.type === "ListRow" && n.props.title === "Experimental").props.onPress();
-  assert.deepEqual(opened, ["experimental"]);
+  find(tree, (n) => n.type === "ListRow" && n.props.title === "Milagre MCP").props.onPress();
+  assert.deepEqual(opened, ["experimental", "local-mcp"]);
+  const { default: LocalScreen } = load("app/local-mcp.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "expo-router": { Stack: { Screen: "Screen" } },
+    "../ui": { PageScroll: "PageScroll" },
+    "../local-mcp-section": { LocalMcpSection: "LocalMcpSection" },
+  });
+  const localPage = LocalScreen();
+  assert.equal(find(localPage, (n) => n.type === "Screen").props.options.title, "Milagre MCP");
+  assert.ok(find(localPage, (n) => n.type === "LocalMcpSection"));
   const { default: Screen } = load("app/experimental.tsx", {
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "expo-router": { Stack: { Screen: "Screen" } },
@@ -8405,4 +8415,158 @@ test("mobile Published pages entry requires owner history access and Designs ena
       undefined,
     );
   }
+});
+
+test("local MCP phone settings configure a client, disable it and copy a custom design-only connection", async () => {
+  const hooks = hookHost({ effects: true });
+  const shared = require("../packages/shared/src/local-mcp.ts");
+  const { useLocalMcp } = load("../../../packages/shared/src/use-local-mcp.ts", { react: hooks });
+  const records = [],
+    calls = [];
+  let clients = [{ id: "codex", label: "Codex CLI", state: "off", enabled: false, configPath: "/fixture/config.toml" }];
+  let copied = "";
+  const client = {
+    call: async (method, args) => {
+      calls.push({ method, args });
+      if (method === "local-mcp:status")
+        return { url: "http://127.0.0.1:1234/mcp", connections: [...records], clients, projects: [], groups: [{ id: "designs", enabled: true }] };
+      if (method === "local-mcp:enableClient") {
+        clients = clients.map((c) =>
+          c.id === args[0] ? { ...c, enabled: true, state: "configured", connection: { ...args[1], id: "managed", clientId: c.id } } : c,
+        );
+        return clients[0];
+      }
+      if (method === "local-mcp:disableClient") {
+        clients = clients.map((c) => ({ ...c, enabled: false, state: "off", connection: undefined }));
+        return clients[0];
+      }
+      if (method === "local-mcp:create") {
+        const connection = { ...args[0], id: "c", revision: 1, createdAt: "now" };
+        records.push(connection);
+        return { connection, url: "http://127.0.0.1:1234/mcp", token: "phone-fixture" };
+      }
+      if (method === "local-mcp:revoke") {
+        records[0] = { ...records[0], revokedAt: "now" };
+        return;
+      }
+      throw Error("Unexpected method " + method);
+    },
+  };
+  const componentJsx = (type, props, key) => (typeof type === "function" ? type(props) : jsx(type, props, key));
+  const { LocalMcpSection } = load("local-mcp-section.tsx", {
+    react: hooks,
+    "react/jsx-runtime": { jsx: componentJsx, jsxs: componentJsx },
+    "react-native": { Text: "Text", View: "View", Pressable: "Pressable" },
+    "expo-clipboard": {
+      setStringAsync: async (text) => {
+        copied = text;
+      },
+    },
+    "@milagre/shared/local-mcp": shared,
+    "@milagre/shared/use-local-mcp": { useLocalMcp },
+    "./session": { useSession: () => ({ client }) },
+    "./icons": { Icon: "Icon" },
+    "@hugeicons/core-free-icons": { Tick02Icon: "tick" },
+    "./ui": { Button: "Button", Field: "Field", Toggle: "Toggle" },
+  });
+  const render = () => {
+    hooks.begin();
+    return LocalMcpSection();
+  };
+  render();
+  await settle();
+  assert.equal(
+    find(render(), (node) => node.type === "Field"),
+    undefined,
+  );
+  find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.onPress();
+  find(
+    render(),
+    (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "Designs only",
+  ).props.onPress();
+  find(render(), (node) => node.type === "Field" && node.props.label === "Chat reference").props.onChangeText("/project#2");
+  find(render(), (node) => node.type === "Button" && node.props.title === "Enable Codex CLI").props.onPress();
+  await settle();
+  assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, true);
+  assert.deepEqual(calls.find((call) => call.method === "local-mcp:enableClient").args[1].grants, {
+    designs: { chatId: "/project#2", designIds: "*", capabilities: ["read"] },
+  });
+  find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.onPress();
+  await settle();
+  assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, false);
+  assert.equal(
+    find(render(), (node) => node.type === "Button" && node.props.title === "Create MCP config"),
+    undefined,
+  );
+  find(render(), (node) => node.type === "Toggle" && node.props.title === "Custom MCP").props.onPress();
+  find(render(), (node) => node.type === "Field" && node.props.label === "Connection name").props.onChangeText("Designs phone");
+  find(
+    render(),
+    (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "Designs only",
+  ).props.onPress();
+  find(render(), (node) => node.type === "Field" && node.props.label === "Chat reference").props.onChangeText("/project#2");
+  find(render(), (node) => node.type === "Field" && node.props.label === "Design IDs").props.onChangeText("one, two");
+  find(
+    render(),
+    (node) => node.type === "Pressable" && node.props.accessibilityRole === "checkbox" && node.props.accessibilityLabel === "Allow design edits",
+  ).props.onPress();
+  find(render(), (node) => node.type === "Button" && node.props.title === "Create configuration").props.onPress();
+  await settle();
+  assert.deepEqual(calls.find((call) => call.method === "local-mcp:create").args[0].grants, {
+    designs: { chatId: "/project#2", designIds: ["one", "two"], capabilities: ["read", "write"] },
+  });
+  find(render(), (node) => node.type === "Button" && node.props.title === "Copy MCP config").props.onPress();
+  await settle();
+  assert.equal(JSON.parse(copied).mcpServers.milagre.headers.Authorization, "Bearer phone-fixture");
+  find(render(), (node) => node.type === "Toggle" && node.props.title === "Custom MCP").props.onPress();
+  assert.equal(
+    find(render(), (node) => node.type === "Button" && node.props.title === "Manage custom connections (1)"),
+    undefined,
+  );
+  assert.equal(records[0].revokedAt, undefined);
+  find(render(), (node) => node.type === "Toggle" && node.props.title === "Custom MCP").props.onPress();
+  assert.equal(
+    find(render(), (node) => node.type === "Button" && node.props.title === "Copy MCP config"),
+    undefined,
+  );
+  find(render(), (node) => node.type === "Button" && node.props.title === "Manage custom connections (1)").props.onPress();
+  find(render(), (node) => node.type === "Button" && node.props.title === "Revoke").props.onPress();
+  await settle();
+  assert.equal(
+    find(render(), (node) => node.type === "Button" && node.props.title === "Revoke"),
+    undefined,
+  );
+});
+
+test("local MCP shared state refreshes a failed revoke and ignores an older status reply", async () => {
+  const hooks = hookHost({ effects: true });
+  const { useLocalMcp } = load("../../../packages/shared/src/use-local-mcp.ts", { react: hooks });
+  let enabled = true;
+  let late;
+  const api = {
+    status: async () => (late ? late.promise : { clients: [{ id: "codex", enabled }], connections: [], projects: [], groups: [] }),
+    disableClient: async () => {
+      enabled = false;
+      throw Error("private credential must never appear in the UI");
+    },
+  };
+  const render = () => {
+    hooks.begin();
+    return useLocalMcp(api);
+  };
+  render();
+  await settle();
+  assert.equal(render().status.clients[0].enabled, true);
+  late = deferred();
+  const oldReply = late;
+  const oldRefresh = render().refresh();
+  late = undefined;
+  assert.equal(await render().disableClient("codex"), false);
+  assert.equal(render().status.clients[0].enabled, false);
+  assert.match(render().error, /Could not confirm access was revoked/);
+  assert.equal(render().error.includes("private credential"), false);
+  oldReply.resolve({ clients: [{ id: "codex", enabled: true }], connections: [], projects: [], groups: [] });
+  await oldRefresh;
+  assert.equal(render().status.clients[0].enabled, false);
+  assert.match(render().error, /Could not confirm access was revoked/);
 });

@@ -15,7 +15,7 @@ const { createGit } = require("./git/client.cjs");
 const { syncMainBranch } = require("./main-sync.cjs");
 const fs = require("node:fs/promises");
 const { acquireOwnership } = require("./ownership.cjs");
-const { mkdirSync, realpathSync } = require("node:fs");
+const { mkdirSync, realpathSync, existsSync } = require("node:fs");
 const path = require("node:path");
 const { migrateImages, withDetails } = require("./project-content.cjs");
 const { chatPage, chatSearch } = require("./chat-pages.cjs");
@@ -727,6 +727,7 @@ function createRuntime(options) {
       copyPatterns: settings.filesToCopy,
       // The sync already fetched main's upstream (or timed out trying): don't wait on it a second time.
       fetched: synced?.branch === baseBranch,
+      beforeCreate: event?.localMcp?.assertActive,
     });
     if (created.copy?.notes.length) console.warn("Milagre worktree file copy:", created.copy.notes.join(" "));
     // The setup command runs before the chat's first turn (see agent:start-turn).
@@ -744,7 +745,12 @@ function createRuntime(options) {
               ...latest,
               worktrees: {
                 ...latest.worktrees,
-                [worktree.id]: { ...worktree, base: created.base, ...(issue ? { linearIssue: issue.key, linearWorkspace: issue.workspace } : {}) },
+                [worktree.id]: {
+                  ...worktree,
+                  base: created.base,
+                  ...(event?.localMcp ? { localMcpOperation: event.localMcp.operationId } : {}),
+                  ...(issue ? { linearIssue: issue.key, linearWorkspace: issue.workspace } : {}),
+                },
               },
             }
           : latest;
@@ -1324,11 +1330,13 @@ function createRuntime(options) {
     extraTools: (chatId) => [
       ...simulatorToolDefinitions(chatId, simulators),
       ...require("./chat-browsers.cjs").browserToolDefinitions(chatId, browsers),
-      ...artifactToolDefinitions(chatId, artifacts),
+      ...(existsSync(path.join(__dirname, "design-mcp-tools.cjs")) ? [] : artifactToolDefinitions(chatId, artifacts)),
+      ...localMcp.agentTools(chatId),
       ...require("./advisor-tools.cjs").advisorToolDefinitions(chatId, advisors),
       // Milagre's own Linear sign-in, so agents don't reach for a Linear MCP or connector.
       ...(linear.enabled() ? linearToolDefinitions(linearTools) : []),
     ],
+    createMcpServer: ({ toolsFor }) => ({ url: (chatId) => localMcp.chatUrl(chatId, toolsFor), close: async () => {} }),
   });
   const advisorStore = require("./advisor-store.cjs").createAdvisorStore({ dataDir });
   const advisorTransports = new Map();
@@ -1684,9 +1692,54 @@ function createRuntime(options) {
   const projectFinder = createProjectFinder(options.projectSearchRoot || require("node:os").homedir());
   commands.handle("project:find", (_event, query) => projectFinder.search(typeof query === "string" ? query.slice(0, 200) : ""));
 
+  // The Designs branch supplies this adapter. An absent adapter grants no design tools.
+  const designAdapter = path.join(__dirname, "design-mcp-tools.cjs");
+  const localMcp = require("./local-mcp.cjs").createLocalMcp({
+    dataDir,
+    emit,
+    environmentReady,
+    clientOptions: options.localMcpClients,
+    designGroup: existsSync(designAdapter) ? require(designAdapter).createDesignToolGroup({ artifacts }) : undefined,
+    agentScope: (chatId) => {
+      const projectPath = projectOfKey(chatId);
+      const state = isLinkScopeKey(projectPath) ? linkStore.cached(scopeFromKey(projectPath).linkId) : states.states.get(projectPath);
+      const session = state?.sessions[sessionIdFromKey(chatId)];
+      if (!session || session.archived) throw Error("Chat is unavailable or archived");
+      const designGrant = { designs: { chatId, designIds: "*", capabilities: ["read", "write"] } };
+      if (isLinkScopeKey(projectPath)) return designGrant;
+      return {
+        ...designGrant,
+        projects: { projectPaths: [projectPath], capabilities: ["read"] },
+        worktrees: { projectPaths: [projectPath], capabilities: ["read", "create"] },
+        chats: { projectPaths: [projectPath], capabilities: ["read", "create", "start"] },
+      };
+    },
+    host: require("./local-mcp-host.cjs").createLocalMcpHost({
+      projects: () => projectRegistry().list(),
+      readProject,
+      scopeStates,
+      chats,
+      permissionMode: (chatId) => agents.permissionMode(chatId),
+      createWorktree: (context, request) => handlers.get("worktree:create")(context, request),
+      validateDesignChat: async (chatId) => {
+        const scope = projectOfKey(chatId);
+        if (!isLinkScopeKey(scope)) {
+          if (!(await projectRegistry().list()).some((project) => project.path === scope)) throw Error("Open this Project in Milagre first");
+          await readProject(scope);
+        }
+        await existingChat("connecting Designs")(chatId);
+      },
+    }),
+  });
+  for (const method of ["status", "create", "update", "rotate", "revoke", "enableClient", "disableClient"])
+    commands.handle(`local-mcp:${method}`, (_context, ...args) => localMcp[method](...args));
+  // No runtime is started by MCP. This listener belongs to the runtime holding the profile lock.
+  void localMcp.resume().catch(() => console.warn("Local MCP could not resume its loopback listener. Open Settings > Milagre MCP to retry."));
+
   function close() {
     closing = true;
     closed ??= (async () => {
+      await localMcp.close();
       await advisorDelivery.close();
       await advisors.close();
       await advisorMcp.close();

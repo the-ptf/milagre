@@ -23,6 +23,8 @@
     "@milagre/core": "0.1.0",
     "@milagre/daemon": "0.1.0",
     "@milagre/shared": "0.1.0",
+    "@radix-ui/react-checkbox": "^1.4.1",
+    "@radix-ui/react-radio-group": "^1.5.1",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/addon-webgl": "0.19.0",
     "@xterm/xterm": "6.0.0",

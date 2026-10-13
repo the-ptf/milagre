@@ -78,6 +78,14 @@ async function fixture(t, { allowedRoot = true, runtime = (options) => options, 
 
 const refusedBody = { v: 1, error: { message: REFUSED } };
 
+test("a confined phone cannot list or issue local MCP connection grants", async (t) => {
+  const f = await fixture(t);
+  for (const method of ["status", "create", "update", "rotate", "revoke"]) {
+    const response = await f.rpc(`local-mcp:${method}`, []);
+    assert.equal(response.status, 403);
+  }
+});
+
 test("a confined inbox excludes Chats and requests from other Projects in HTTP and RPC", async (t) => {
   const f = await fixture(t);
   for (const projectPath of [f.demo, f.outside]) {

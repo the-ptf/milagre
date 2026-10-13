@@ -7,6 +7,7 @@ import { ProjectAccountsGroup, ProjectAccountsSettings } from "./ProjectAccounts
 import { AccountsSettings } from "./AccountsSettings";
 import { SkillsSettings } from "./SkillsSettings";
 import { McpSettings } from "./McpSettings";
+import { LocalMcpSettings } from "./LocalMcpSettings";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import {
   LINEAR_ADD_WORKSPACE,
@@ -83,6 +84,7 @@ export type SettingsSection =
   | "appearance"
   | "skills"
   | "mcp"
+  | "local-mcp"
   | "devices"
   | "experimental"
   | "privacy"
@@ -97,6 +99,7 @@ const SECTIONS: Array<{ key: SettingsSection; label: string; icon: IconData }> =
   { key: "appearance", label: "Appearance", icon: PaintBoardIcon },
   { key: "skills", label: "Skills", icon: MagicWand01Icon },
   { key: "mcp", label: "MCP", icon: PlugSocketIcon },
+  { key: "local-mcp", label: "Milagre MCP", icon: PlugSocketIcon },
   { key: "devices", label: "Devices", icon: SmartphoneIcon },
   { key: "experimental", label: "Experimental", icon: TestTube01Icon },
   { key: "privacy", label: "Privacy & AI", icon: SecurityCheckIcon },
@@ -341,6 +344,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
         <section data-computer-mcp className="mt-6">
           <h2 className="px-1 text-[12px] font-medium text-ink-3">MCP servers</h2>
           <McpSettings key={id} bridge={bridgeFor(id)} />
+          <LocalMcpSettings key={`local-${id}`} bridge={bridgeFor(id)} />
         </section>
       )}
       {error && (
@@ -1844,6 +1848,7 @@ export function SettingsPanel({
             <p className="mt-6 text-[13px] text-ink-3">Open a project to see its skills.</p>
           ))}
         {section === "mcp" && <McpSettings />}
+        {section === "local-mcp" && <LocalMcpSettings bridge={window.milagre} />}
         {section === "devices" && <DevicesSettings />}
         {section === "experimental" && <ExperimentalSettings />}
         {section === "computer" && computerId && <ComputerSettings key={computerId} id={computerId} onRemoved={() => onSectionChange?.("devices")} />}
