@@ -87,3 +87,16 @@ test("a weight between measured ones uses the nearest, ties going lighter", () =
   assert.equal(at(550), at(400));
   assert.equal(at(600), at(700));
 });
+
+test("Inter's Latin punctuation is measured; other families keep their approximation", () => {
+  const at = (character, fontFamily, fontWeight = 400) =>
+    designTextLayout({ id: "t", type: "text", width: 1000, height: 40, text: character, fontSize: 100, fontFamily, fontWeight }).width;
+  // Inter's middle dot and apostrophe are far narrower than the 0.65em guess; the em dash is wider.
+  assert.ok(at("·", "Inter") < 30, `middle dot ${at("·", "Inter")}`);
+  assert.ok(at("’", "Inter") < 30);
+  assert.ok(at("—", "Inter") > 90);
+  for (const character of "·’—é€™…→\u00a0") assert.notEqual(at(character, "Inter"), 65, `${character} is measured`);
+  assert.ok(at("é", "Inter", 700) > at("é", "Inter", 400), "extra advances are per weight");
+  assert.equal(at("·", "Arial"), 65, "Arial keeps the 0.65em fallback");
+  assert.equal(at("é", "Arial"), at("e", "Arial"), "accents still strip for other families");
+});

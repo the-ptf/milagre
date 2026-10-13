@@ -667,7 +667,8 @@ function previewController(design, selected, bounds) {
   });
 }
 
-export function designSvg(value) {
+/** embedFonts: false leaves Inter as a font-family reference, for callers that must stay small (a shared page of many designs). */
+export function designSvg(value, { embedFonts = true } = {}) {
   const document = validateDesignDocument(value);
   const textLayout = cachedTextLayout();
   return renderDesignSvg(
@@ -675,7 +676,7 @@ export function designSvg(value) {
     designLayout(document, textLayout),
     textLayout,
     (value, fallback) => designColor(document, value, fallback),
-    designFontFaces(document),
+    embedFonts ? designFontFaces(document) : "",
   );
 }
 

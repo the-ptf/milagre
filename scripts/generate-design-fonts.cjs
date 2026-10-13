@@ -5,10 +5,10 @@ const path = require("node:path");
 const subsetFont = require("subset-font");
 
 const WEIGHTS = { 400: "Regular", 500: "Medium", 600: "SemiBold", 700: "Bold" };
-const range = (from, to) => Array.from({ length: to - from + 1 }, (_, index) => String.fromCharCode(from + index)).join("");
-const CHARACTERS = range(0x20, 0x7e) + range(0xa0, 0xff) + "‘’“”–—…•·→←↑↓€™";
 
 async function main() {
+  const { DESIGN_ASCII_CHARACTERS, DESIGN_EXTRA_CHARACTERS } = await import("../packages/shared/src/design-font-characters.mjs");
+  const CHARACTERS = DESIGN_ASCII_CHARACTERS + DESIGN_EXTRA_CHARACTERS;
   const source = path.dirname(require.resolve("inter-font/package.json"));
   const out = path.resolve(__dirname, "../packages/shared/src");
   const fonts = {};

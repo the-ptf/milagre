@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-async function measureFonts(inter) {
+async function measureFonts(inter, extraCharacters) {
   for (const [weight, base64] of Object.entries(inter)) {
     const face = new FontFace(
       "Milagre Inter",
@@ -31,6 +31,14 @@ async function measureFonts(inter) {
       result[name][weight] = Array.from({ length: 95 }, (_, index) => Math.round(context.measureText(String.fromCharCode(32 + index)).width) / 1000);
     }
   }
+  // Inter also measures its non-ASCII characters, keyed by code point, the same way as the ASCII advances.
+  result.inter.extra = {};
+  for (const weight of families.inter[1]) {
+    context.font = `${weight} 1000px "Milagre Inter"`;
+    result.inter.extra[weight] = Object.fromEntries(
+      Array.from(extraCharacters, (character) => [character.codePointAt(0), Math.round(context.measureText(character).width) / 1000]),
+    );
+  }
   return result;
 }
 
@@ -50,7 +58,10 @@ async function main() {
     const window = new BrowserWindow({ show: false });
     await window.loadURL("about:blank");
     const { designInterFonts } = await import("../packages/shared/src/design-font-data.mjs");
-    const metrics = await window.webContents.executeJavaScript(`(${measureFonts.toString()})(${JSON.stringify(designInterFonts)})`);
+    const { DESIGN_EXTRA_CHARACTERS } = await import("../packages/shared/src/design-font-characters.mjs");
+    const metrics = await window.webContents.executeJavaScript(
+      `(${measureFonts.toString()})(${JSON.stringify(designInterFonts)}, ${JSON.stringify(DESIGN_EXTRA_CHARACTERS)})`,
+    );
     const file = path.resolve(__dirname, "../packages/shared/src/design-font-metrics.mjs");
     fs.writeFileSync(
       file,

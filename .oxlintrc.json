@@ -42,7 +42,8 @@
     "apps/mobile/android/**",
     "squashfs-root/**",
     "docs/**",
-    "packages/shared/src/design-font-data.mjs"
+    "packages/shared/src/design-font-data.mjs",
+    "packages/shared/src/design-font-metrics.mjs"
   ],
   "overrides": [
     {

@@ -1,5 +1,5 @@
 import { designFontMetrics } from "./design-font-metrics.mjs";
-import { DESIGN_INTER_PATTERN, nearestDesignWeight } from "./design-fonts.mjs";
+import { designUsesInter, nearestDesignWeight } from "./design-fonts.mjs";
 
 const bounded = (value, minimum = 0) => Math.max(1, minimum, Math.min(16000, value));
 const round = (value) => Math.round(value * 1000) / 1000;
@@ -11,7 +11,7 @@ const graphemes = (text) =>
 /** Shared line breaking deliberately has no browser dependency. Inter, Arial, Georgia, Times New Roman and Courier New are measured; other fonts use the closest generic metrics. */
 export function designTextLayout(node, width = Infinity) {
   const family = (node.fontFamily ?? "Inter").toLowerCase();
-  const kind = DESIGN_INTER_PATTERN.test(family)
+  const kind = designUsesInter(node.fontFamily)
     ? "inter"
     : /courier|mono/.test(family)
       ? "mono"
@@ -22,12 +22,24 @@ export function designTextLayout(node, width = Infinity) {
           : "sans";
   const measured = designFontMetrics[kind];
   const requested = node.fontWeight ?? 400;
-  const weight = nearestDesignWeight(Object.keys(measured).map(Number), requested);
+  const weight = nearestDesignWeight(
+    Object.keys(measured)
+      .filter((key) => key !== "extra")
+      .map(Number),
+    requested,
+  );
   const metrics = measured[weight];
   const size = node.fontSize ?? 16;
   const advances = new Map();
   const advance = (character) => {
     if (advances.has(character)) return advances.get(character);
+    // Inter's non-ASCII Latin and punctuation are measured; every other character falls back to an approximation.
+    const point = character.codePointAt(0);
+    const measuredExtra = kind === "inter" && String.fromCodePoint(point) === character ? measured.extra?.[weight]?.[point] : undefined;
+    if (measuredExtra !== undefined) {
+      advances.set(character, measuredExtra * size);
+      return measuredExtra * size;
+    }
     const base = character.normalize("NFD").replace(/\p{M}/gu, "").codePointAt(0);
     const advanceWidth = base === undefined ? 0 : base >= 32 && base <= 126 ? metrics[base - 32] * size : (base >= 0x2e80 ? 1 : 0.65) * size;
     advances.set(character, advanceWidth);

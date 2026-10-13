@@ -43,10 +43,23 @@ export function designInterWeight(fontWeight = 400) {
   return nearestDesignWeight(DESIGN_INTER_WEIGHTS, fontWeight);
 }
 
-/** Matches Inter as a family name, not letters inside another one such as Interstate. */
-export const DESIGN_INTER_PATTERN = /\binter\b/i;
+/** Inter is detected when it is the first family in the list, exactly. A later Inter is only a fallback the viewer may never reach. */
+export function designUsesInter(fontFamily = DESIGN_DEFAULT_FONT_FAMILY) {
+  return fontFamily.split(",")[0].trim().toLowerCase() === "inter";
+}
 
-const usesInter = (node) => node.type === "text" && !node.hidden && DESIGN_INTER_PATTERN.test(node.fontFamily ?? DESIGN_DEFAULT_FONT_FAMILY);
+const usesInter = (node) => node.type === "text" && !node.hidden && designUsesInter(node.fontFamily);
+
+/**
+ * The CSS weight range a face answers to: the weights designInterWeight maps to it, ties lighter. CSS matching is not nearest-weight
+ * (between 401 and 499 it prefers heavier faces up to 500, above 500 it prefers heavier), so each face claims its own partition.
+ */
+function weightRange(weight) {
+  const index = DESIGN_INTER_WEIGHTS.indexOf(weight);
+  const previous = DESIGN_INTER_WEIGHTS[index - 1];
+  const next = DESIGN_INTER_WEIGHTS[index + 1];
+  return `${previous === undefined ? 1 : (previous + weight) / 2 + 1} ${next === undefined ? 1000 : (weight + next) / 2}`;
+}
 
 /** Data-URI faces for the Inter weights a document's visible text uses, so every viewer renders the measured font. */
 export function designFontFaces(document) {
@@ -54,7 +67,7 @@ export function designFontFaces(document) {
   return DESIGN_INTER_WEIGHTS.filter((weight) => weights.has(weight))
     .map(
       (weight) =>
-        `@font-face{font-family:"Inter";font-weight:${weight};font-style:normal;src:url(data:font/ttf;base64,${designInterFonts[weight]}) format("truetype")}`,
+        `@font-face{font-family:"Inter";font-weight:${weightRange(weight)};font-style:normal;src:url(data:font/ttf;base64,${designInterFonts[weight]}) format("truetype")}`,
     )
     .join("");
 }

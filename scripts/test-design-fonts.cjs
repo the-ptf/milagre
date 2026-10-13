@@ -7,9 +7,10 @@ async function check() {
   app.setPath("userData", path.join(require("node:os").tmpdir(), `milagre-design-fonts-${process.pid}`));
   await app.whenReady();
   const { designHtml, designTextLayout, validateDesignDocument } = await import("../packages/shared/src/design.mjs");
-  // Printable ASCII only: the measured tables stop at U+007E, and anything else is approximated (a middle dot is off by 6px).
-  const sample = "The quick brown fox jumps over the lazy dog. Reservations 0123456789 - Filter and sort (A/B) {x} @ # $ % & *";
-  const nodes = [400, 500, 600, 700].map((fontWeight, index) => ({
+  const sample = "The quick brown fox jumps over the lazy dog. Reservations 0123456789 · Filter and sort — it’s “quoted” café € 5 → 6…";
+  // 450 and 650 sit between measured weights: they must render with the face the layout measured, not CSS's heavier pick.
+  const weights = [400, 450, 500, 600, 650, 700];
+  const nodes = weights.map((fontWeight, index) => ({
     id: `w${fontWeight}`,
     type: "text",
     y: index * 40,
@@ -24,12 +25,17 @@ async function check() {
   try {
     await window.loadURL(`data:text/html;base64,${Buffer.from(designHtml(document)).toString("base64")}`);
     await window.webContents.executeJavaScript("document.fonts.ready");
+    // document.fonts.check() also passes when Inter is installed system-wide, so inspect the declared faces themselves.
+    const faces = await window.webContents.executeJavaScript(
+      `[...document.fonts].map((face) => ({ family: face.family.replace(/["']/g, ""), weight: face.weight, status: face.status }))`,
+    );
     for (const node of nodes) {
-      assert.equal(
-        await window.webContents.executeJavaScript(`document.fonts.check('${node.fontWeight} 16px "Inter"')`),
-        true,
-        `Inter ${node.fontWeight} is loaded`,
-      );
+      const covering = faces.filter((face) => {
+        const [from, to = from] = face.weight.split(" ").map(Number);
+        return face.family === "Inter" && node.fontWeight >= from && node.fontWeight <= to;
+      });
+      assert.equal(covering.length, 1, `exactly one embedded Inter face covers weight ${node.fontWeight}: ${JSON.stringify(faces)}`);
+      assert.equal(covering[0].status, "loaded", `the Inter face for ${node.fontWeight} is loaded`);
       const rendered = await window.webContents.executeJavaScript(
         `(() => { const span = document.querySelector('[data-design-node="${node.id}"] span'); const range = document.createRange(); range.selectNodeContents(span); return range.getBoundingClientRect().width; })()`,
       );
