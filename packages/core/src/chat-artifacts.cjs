@@ -2,7 +2,17 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
 const { z } = require("zod");
-const { designDocumentSchema, designOperationSchema, validateDesignDocument, applyDesignOperations, designHtml, designSvg } = require("@milagre/shared/design");
+const {
+  designDocumentSchema,
+  designOperationSchema,
+  validateDesignDocument,
+  applyDesignOperations,
+  designHtml,
+  designSvg,
+  designWarnings,
+  designWarningText,
+} = require("@milagre/shared/design");
+const { renderDesignPng } = require("./design-raster.cjs");
 
 // Each artifact keeps immutable versions, so a reply's card shows the design as it was then while the docked
 // viewer follows the latest. Structured designs and HTML explanatory artifacts keep separate formats.
@@ -423,7 +433,26 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
   }
 }
 
-function artifactToolDefinitions(chatId, api, authorization) {
+// What the agent sees after a design call: the summary (first line, which the Chat card parses), the warnings, and
+// the saved version drawn as a PNG. Drawing never fails the call; the version is already saved.
+async function designFeedback(saved, document, renderPng) {
+  const warnings = designWarnings(document);
+  const notes = [JSON.stringify({ ...saved, warnings })];
+  let images = [];
+  try {
+    images = [await renderPng(document)];
+    notes.push(
+      "Look at the image: check icons, spacing, alignment and density against the brief, fix what looks wrong and every warning below with design_apply, then reply.",
+    );
+  } catch (error) {
+    notes.push(`The preview could not be rendered: ${error.message}. Check the warnings below.`);
+  }
+  const text = designWarningText(warnings);
+  if (text) notes.push(`Warnings:\n${text}`);
+  return { text: notes.join("\n"), images };
+}
+
+function artifactToolDefinitions(chatId, api, authorization, { renderPng = renderDesignPng } = {}) {
   if (!api.enabled()) return [];
   return [
     {
@@ -437,7 +466,10 @@ function artifactToolDefinitions(chatId, api, authorization) {
         expectedVersion: z.number().int().nonnegative().optional(),
       },
       readOnly: false,
-      run: async (args) => JSON.stringify(await api.showDesign({ chatId, ...args }, authorization)),
+      run: async (args) => {
+        const design = await api.showDesign({ chatId, ...args }, authorization);
+        return designFeedback(design, validateDesignDocument(args.document), renderPng);
+      },
     },
     {
       name: "design_read",
@@ -461,8 +493,8 @@ function artifactToolDefinitions(chatId, api, authorization) {
       },
       readOnly: false,
       run: async (args) => {
-        const { html: _html, document: _document, ...design } = await api.apply({ chatId, ...args }, authorization);
-        return JSON.stringify(design);
+        const { html: _html, document, ...design } = await api.apply({ chatId, ...args }, authorization);
+        return designFeedback(design, document, renderPng);
       },
     },
     {

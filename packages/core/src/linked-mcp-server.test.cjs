@@ -47,7 +47,7 @@ test("the live MCP endpoint removes Designs tools while off and never exposes re
   };
   const shown = await call("design_show", { id: "welcome", title: "Welcome", document });
   assert.equal(shown.isError, false);
-  assert.equal(JSON.parse(shown.content[0].text).format, "design");
+  assert.equal(JSON.parse(shown.content[0].text.split("\n", 1)[0]).format, "design");
   await api.setEnabled(false);
   assert.deepEqual(names(await list()), []);
   for (const name of ["design_show", "design_read", "design_apply", "artifact_show", "artifact_read"]) {
@@ -109,7 +109,7 @@ test("MCP accepts maximum-sized design documents encoded as UTF-8 and escaped JS
     assert.equal(editResponse.status, 200);
     const editResult = (await editResponse.json()).result;
     assert.equal(editResult.isError, false, editResult.content[0].text);
-    assert.equal(JSON.parse(editResult.content[0].text).version, 2);
+    assert.equal(JSON.parse(editResult.content[0].text.split("\n", 1)[0]).version, 2);
   }
 });
 

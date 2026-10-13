@@ -82,7 +82,8 @@ async function call(connection, name, args = {}) {
   });
   const payload = await response.json();
   if (payload.result.isError) throw Error(payload.result.content[0].text);
-  return JSON.parse(payload.result.content[0].text);
+  // design_show and design_apply put their JSON summary on the first line, then notes for the agent.
+  return JSON.parse(payload.result.content[0].text.split("\n", 1)[0]);
 }
 
 test("host MCP registers Worktrees, prepares setup, starts Chats in Ask mode and preserves retry results after restart", async (t) => {

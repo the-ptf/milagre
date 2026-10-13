@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { createChatArtifacts } = require("./chat-artifacts.cjs");
 const { createDesignToolGroup } = require("./design-mcp-tools.cjs");
+const firstLine = (result) => JSON.parse(result.text.split("\n", 1)[0]);
 const document = { schemaVersion: 1, width: 390, height: 844, nodes: [] };
 async function fixture(t, designIds = ["allowed"], capabilities = ["read", "write"]) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "design-mcp-"));
@@ -48,7 +49,7 @@ test("design-only adapter lists and reads only explicitly granted designs", asyn
   await assert.rejects(tools.design_read.run({ id: "allowed", chatId: "/other#2" }), /Unrecognized key/);
   await assert.rejects(tools.design_show.run({ title: "Implicit", document }), /outside/);
   await assert.rejects(tools.design_show.run({ id: "outside", title: "Other", document, expectedVersion: 1 }), /outside/);
-  assert.equal(JSON.parse(await tools.design_show.run({ id: "allowed", title: "Revised", document, expectedVersion: 1 })).version, 2);
+  assert.equal(firstLine(await tools.design_show.run({ id: "allowed", title: "Revised", document, expectedVersion: 1 })).version, 2);
 });
 test("comment scope follows the comment's design, not the comment ID", async (t) => {
   const { tools, comments, artifacts, scope } = await fixture(t);
@@ -72,7 +73,7 @@ test("revocation, capabilities and Designs OFF govern already cached tool calls"
 });
 test("wildcard creation is confined to the granted Chat and empty scope grants nothing", async (t) => {
   const wildcard = await fixture(t, "*");
-  const created = JSON.parse(await wildcard.tools.design_show.run({ title: "New", document }));
+  const created = firstLine(await wildcard.tools.design_show.run({ title: "New", document }));
   assert.ok(created.id);
   const empty = await fixture(t, []);
   assert.deepEqual(JSON.parse(await empty.tools.design_list.run({})), []);

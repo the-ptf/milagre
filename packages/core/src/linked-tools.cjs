@@ -325,7 +325,7 @@ async function runTool(definition, args) {
   try {
     const parsed = (definition.strict ? z.strictObject(definition.input) : z.object(definition.input)).parse(args ?? {});
     const result = await definition.run(parsed);
-    if (result && typeof result === "object") return { text: String(result.text), images: result.images ?? [], isError: false };
+    if (result && typeof result === "object") return { text: result.text ?? "", images: result.images ?? [], isError: false };
     return { text: String(result), images: [], isError: false };
   } catch (error) {
     const text =

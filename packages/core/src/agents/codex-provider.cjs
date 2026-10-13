@@ -76,8 +76,11 @@ function saveGeneratedImage(item, directory = path.join(os.tmpdir(), "milagre-ge
   }
 }
 
-// Tool image blocks are separate visible steps; their base64 never bloats the saved transcript.
+// Tool image blocks are separate visible steps; their base64 never bloats the saved transcript. Milagre's design tools
+// return a render for the agent to look at; the design card already shows the design, so it is not repeated.
+const isDesignRender = (item) => item?.type === "mcpToolCall" && item.server === "milagre" && ["design_show", "design_apply"].includes(item.tool);
 function toolImageEvents(item) {
+  if (isDesignRender(item)) return [];
   if (!["mcpToolCall", "dynamicToolCall"].includes(item?.type) || item.status !== "completed" || item.success === false || item.error) return [];
   const content = item.type === "mcpToolCall" ? item.result?.content : item.contentItems;
   if (!Array.isArray(content)) return [];

@@ -139,7 +139,7 @@ async function startHarness(settings) {
             try {
               const result = await tool.run(args);
               trace.outputBytes = bytes(result);
-              trace.result = JSON.parse(result);
+              trace.result = JSON.parse(typeof result === "string" ? result : result.text.split("\n", 1)[0]);
               return result;
             } catch (error) {
               trace.error = error.message;

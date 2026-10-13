@@ -1376,3 +1376,23 @@ test("Codex tool image blocks become visible image steps, including dynamic tool
   assert.deepEqual(fs.readFileSync(images[0].file), Buffer.from(data, "base64"));
   assert.ok(events.some((event) => event.type === "step-started" && event.step.kind === "image"));
 });
+
+test("a design tool's rendered PNG is not repeated as an image step, but another server's image still is", async (t) => {
+  const events = [];
+  const session = new CodexSession({ emit: (event) => events.push(event) });
+  session.state.threadId = "parent";
+  t.after(() => session.close());
+  const data = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from("design render")]).toString("base64");
+  const content = [{ type: "image", data, mimeType: "image/png" }];
+  const complete = (id, server, tool) =>
+    session.handleNotification("item/completed", {
+      threadId: "parent",
+      item: { id, type: "mcpToolCall", server, tool, status: "completed", result: { content } },
+    });
+  complete("show", "milagre", "design_show");
+  complete("apply", "milagre", "design_apply");
+  assert.equal(events.filter((event) => event.step?.kind === "image").length, 0);
+  complete("other", "browser", "design_show");
+  complete("shot", "milagre", "screenshot");
+  assert.equal(events.filter((event) => event.step?.kind === "image").length, 2);
+});
