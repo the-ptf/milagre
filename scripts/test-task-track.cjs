@@ -100,6 +100,12 @@ async function browserChecks() {
     throw new Error(`Timed out: ${source}`);
   }
   const pill = "[data-slot=task-track] > span > button";
+  const assertDotOnRow = async () => {
+    const offset = await evaluate(
+      `(() => {const c=[...document.querySelectorAll("[data-slot=phase-graph] circle")].at(-1).getBoundingClientRect(), l=document.querySelector("[data-slot=phase-graph] [data-current-phase]").getBoundingClientRect();return Math.abs((c.top+c.bottom)/2-(l.top+l.bottom)/2)})()`,
+    );
+    assert.ok(offset <= 2, `Phase dot is ${offset}px off its row label`);
+  };
   try {
     await window.loadURL(process.argv[2]);
     await waitFor('!!document.querySelector("[data-slot=task-track]")');
@@ -229,6 +235,8 @@ async function browserChecks() {
       assert.ok(await evaluate('!!document.querySelector("[data-slot=phase-graph] path")'));
       assert.equal(await evaluate('document.querySelector("[data-slot=phase-graph] [data-current-phase]").textContent'), "Review");
       assert.match(await evaluate('document.querySelector("[data-slot=phase-graph] [data-gap]").textContent'), /^3h$/);
+      // Every dot sits on its legend row: the current phase's dot is level with its label.
+      await assertDotOnRow();
       // Collapsing a parent hides its children.
       await evaluate('document.querySelector("[data-task-row] button[aria-expanded]").click()');
       assert.equal(await evaluate('document.querySelectorAll("[data-task-row]").length'), 6);
@@ -261,6 +269,7 @@ async function browserChecks() {
       ),
       "Popover escapes the narrow viewport",
     );
+    await assertDotOnRow();
     await screenshot("task-popover-narrow");
     window.setContentSize(800, 600);
     await evaluate("window.setPlan(p => ({...p, tasks: []}))");
