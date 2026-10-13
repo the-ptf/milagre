@@ -19,16 +19,19 @@ function Fixture() {
     {id:"tests",title:"Run tests",status:"failed",startedAt:Date.now()-40000,updatedAt:Date.now(),endedAt:Date.now(),transcript:[{id:"b",kind:"tool",text:"Tests failed"}]}
   ]);
   const [sending, setSending] = useState(true);
-  const [tasks, setTasks] = useState([
-    {id:"0",content:"Read the composer",status:"completed"},
-    {id:"1",content:"Add the task pill",activeForm:"Adding the task pill",status:"in_progress"},
-    {id:"2",content:"Write tests",status:"pending"},
-    {id:"3",content:"Run the build",status:"pending"},
-    {id:"4",content:"Take screenshots",status:"pending"},
-    {id:"5",content:"Fix the A very long task name that has to wrap onto a second line because the popover is narrow",status:"completed"},
-    {id:"6",content:"Commit",status:"pending"}
-  ]);
-  window.setTasks = setTasks;
+  const [plan, setPlan] = useState({ source: "milagre", updatedAt: 0, tasks: [
+    {id:"1",title:"Persist wishlist items",status:"in_progress",children:[
+      {id:"1.1",title:"Save wishlist changes on this device",activeForm:"Saving wishlist changes",status:"in_progress"},
+      {id:"1.2",title:"Restore the wishlist on startup",status:"completed"}]},
+    {id:"2",title:"Verify wishlist persistence",status:"completed",children:[
+      {id:"2.1",title:"Verify items survive a browser restart",status:"completed",children:[
+        {id:"2.1.1",title:"Chrome",status:"completed"}]},
+      {id:"2.2",title:"Verify removed items stay removed",status:"completed"}]},
+    {id:"3",title:"Prepare the wishlist evidence for review",status:"pending"}],
+    phases: [
+      {phase:"start",at:Date.now()-5*3600e3},{phase:"plan",at:Date.now()-4.8*3600e3},{phase:"build",at:Date.now()-4.5*3600e3},
+      {phase:"test",at:Date.now()-4.2*3600e3},{phase:"review",at:Date.now()-1*3600e3}] });
+  window.setPlan = setPlan;
   window.setDark = (dark) => document.documentElement.classList.toggle("dark", dark);
   const archive = (id,archived) => setChildren(items=>items.map(child=>child.id===id ? {...child,archived} : child));
   const archiveFinished = () => setChildren(items=>items.map(child=>["completed","failed","cancelled"].includes(child.status) ? {...child,archived:true} : child));
@@ -52,7 +55,7 @@ function Fixture() {
   return <div style={{ height: "100%", padding: 12 }}>
     <ChatComposer messages={[...messages, ...extra]} onCompact={() => window.compacted.push(Date.now())}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture" draft={draft} onDraftChange={setDraft} onSend={noop} isSending={sending} sendBlocked={false} tasks={tasks} contextUsage={usage} streamingText="" streamingSteps={[{ id: "c-1", kind: "other", title: "Compacting context", status: "running", offset: 0 }]} subagents={children} onArchiveFinishedSubagents={archiveFinished} onArchiveSubagent={archive} waitingForSubagents={true}
+      projectPath="/fixture" draft={draft} onDraftChange={setDraft} onSend={noop} isSending={sending} sendBlocked={false} plan={plan} contextUsage={usage} streamingText="" streamingSteps={[{ id: "c-1", kind: "other", title: "Compacting context", status: "running", offset: 0 }]} subagents={children} onArchiveFinishedSubagents={archiveFinished} onArchiveSubagent={archive} waitingForSubagents={true}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={fastMode} onFastModeChange={setFastMode} permissionMode="auto" onPermissionModeChange={noop}
@@ -100,7 +103,7 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor('!!document.querySelector("[data-slot=task-track]")');
-    assert.equal(await evaluate(`document.querySelector("${pill}").textContent`), "2/7");
+    assert.equal(await evaluate(`document.querySelector("${pill}").textContent`), "3/5");
     // The context ring sits beside Send, on the same row.
     const ring = "button[aria-label^=Context]";
     assert.equal(await evaluate(`document.querySelector("${ring}").getAttribute("aria-label")`), "Context: 37% used (366k of 1M tokens)");
@@ -217,13 +220,20 @@ async function browserChecks() {
       await waitFor('!!document.querySelector("[data-slot=task-popover]")');
       assert.equal(await evaluate(`document.querySelector("${pill}").getAttribute("aria-expanded")`), "true");
       assert.equal(await evaluate('document.querySelectorAll("dialog[open], [aria-modal=true]").length'), 0);
-      assert.equal(await evaluate('document.querySelectorAll("[data-task-row]").length'), 7);
-      assert.deepEqual(await evaluate('[...document.querySelectorAll("[data-task-row]")].slice(0,3).map(row => row.dataset.status + ":" + row.textContent)'), [
-        "completed:Completed: Read the composer",
-        "in_progress:In progress: Adding the task pill",
-        "pending:Pending: Write tests",
-      ]);
-      assert.equal(await evaluate('document.querySelectorAll("[data-task-row][data-status=in_progress] svg").length'), 1);
+      assert.equal(await evaluate('document.querySelectorAll("[data-task-row]").length'), 8);
+      assert.deepEqual(
+        await evaluate('[...document.querySelectorAll("[data-task-row]")].slice(0,2).map(row => row.dataset.depth + ":" + row.dataset.status)'),
+        ["0:in_progress", "1:in_progress"],
+      );
+      assert.match(await evaluate('document.querySelector("[data-task-row][data-depth=\\"1\\"]").textContent'), /Saving wishlist changes/);
+      assert.ok(await evaluate('!!document.querySelector("[data-slot=phase-graph] path")'));
+      assert.equal(await evaluate('document.querySelector("[data-slot=phase-graph] [data-current-phase]").textContent'), "Review");
+      assert.match(await evaluate('document.querySelector("[data-slot=phase-graph] [data-gap]").textContent'), /^3h$/);
+      // Collapsing a parent hides its children.
+      await evaluate('document.querySelector("[data-task-row] button[aria-expanded]").click()');
+      assert.equal(await evaluate('document.querySelectorAll("[data-task-row]").length'), 6);
+      await evaluate('document.querySelector("[data-task-row] button[aria-expanded]").click()');
+      assert.equal(await evaluate('document.querySelectorAll("[data-task-row]").length'), 8);
       const bounds = await evaluate(
         '(() => {const r=document.querySelector("[data-slot=task-popover]").getBoundingClientRect(), t=document.querySelector("[data-slot=task-track] button").getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,w:innerWidth,h:innerHeight,gap:t.top-r.bottom}})()',
       );
@@ -253,9 +263,9 @@ async function browserChecks() {
     );
     await screenshot("task-popover-narrow");
     window.setContentSize(800, 600);
-    await evaluate('window.setTasks(items => items.map(task => ({...task, status: "completed"})))');
-    await waitFor(`document.querySelector("${pill}").textContent === "7/7"`);
-    await evaluate("window.setTasks([])");
+    await evaluate("window.setPlan(p => ({...p, tasks: []}))");
+    await waitFor(`document.querySelector("${pill}").textContent === "Review"`);
+    await evaluate("window.setPlan(undefined)");
     await waitFor('!document.querySelector("[data-slot=task-track]") && !document.querySelector("[data-slot=task-popover]")');
     assert.ok(await evaluate('!!document.querySelector("[data-slot=subagent-track] > button")'));
     console.log(

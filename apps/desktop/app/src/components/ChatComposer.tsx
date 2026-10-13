@@ -15,7 +15,7 @@ import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import { SubagentCanvas } from "./agents/SubagentCanvas";
 import { useEvent } from "../lib/stable";
-import type { AgentPort, AgentTask, ContextUsage, Subagent } from "../model";
+import type { AgentPort, ChatPlan, ContextUsage, Subagent } from "../model";
 import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -488,8 +488,8 @@ interface ChatComposerProps {
   onStopAdvisor?: (id: string) => void;
   onRetryAdvisor?: (id: string) => void;
   waitingForSubagents?: boolean;
-  /** The running turn's to-do list, shown as a pill beside the subagents. */
-  tasks?: AgentTask[];
+  /** The Chat's plan (tasks and phases), shown as a pill beside the subagents. */
+  plan?: ChatPlan;
   /** How full the agent's context window is, shown as a ring beside Send. */
   contextUsage?: ContextUsage;
   /** The ports the chat's commands listen on, shown as a pill beside the to-do list. */
@@ -782,7 +782,7 @@ export function ChatComposer({
   onStopAdvisor,
   onRetryAdvisor,
   waitingForSubagents = false,
-  tasks,
+  plan,
   contextUsage,
   ports,
   agentChatId,
@@ -996,7 +996,7 @@ export function ChatComposer({
               </span>
             )}
             <PortTrack key={`ports-${messages[0]?.session_id ?? "new"}`} ports={ports} onStop={onStopPort} />
-            <TaskTrack key={`tasks-${messages[0]?.session_id ?? "new"}`} tasks={tasks} />
+            <TaskTrack key={`tasks-${messages[0]?.session_id ?? "new"}`} plan={plan} />
             <BrowserTrack key={`browser-${agentChatId ?? chatId}`} chatId={agentChatId} />
             {!isNewChat && runtimeChat && <SimulatorTrack key={`simulator-${runtimeChat}`} chatId={runtimeChat} />}
             <SubagentTrack

@@ -537,7 +537,7 @@ export function LinkWorkspace({
                         runStartedAt={run?.startedAt}
                         runModelName={run?.model}
                         sessionProvider={session?.provider}
-                        tasks={run?.tasks}
+                        plan={session?.plan}
                         contextUsage={run?.contextUsage ?? session?.contextUsage}
                         subagents={session?.subagents?.filter((agent) => agent.id !== session.native_session_id)}
                         ports={chatId ? ports[chatId] : undefined}
