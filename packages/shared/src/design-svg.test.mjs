@@ -176,3 +176,17 @@ test("XML output replaces invalid control characters without dropping Unicode te
 test("an empty design is still a standalone document with a background", () => {
   assert.match(render(screen([])), /<rect x="0" y="0" width="390" height="844" fill="#ffffff"\/><\/svg>$/);
 });
+
+test("an image with a source paints no placeholder shape; one without keeps it", () => {
+  const document = screen([
+    { id: "icon", type: "image", x: 0, y: 0, width: 24, height: 24, src: "data:image/png;base64,iVBORw0KGgo=" },
+    { id: "empty", type: "image", x: 0, y: 40, width: 24, height: 24 },
+    { id: "tinted", type: "image", x: 0, y: 80, width: 24, height: 24, src: "data:image/png;base64,iVBORw0KGgo=", fill: "#ff0000" },
+  ]);
+  const svg = render(document);
+  const layer = (id) => new RegExp(`<g id="layer-${id}"[\\s\\S]*?</g>`).exec(svg)[0];
+  assert.doesNotMatch(layer("icon"), /<rect[^>]*fill=/);
+  assert.match(layer("icon"), /<image /);
+  assert.match(layer("empty"), /<rect[^>]*fill="#d8ded8"/);
+  assert.match(layer("tinted"), /<rect[^>]*fill="#ff0000"/);
+});

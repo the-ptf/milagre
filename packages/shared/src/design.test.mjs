@@ -162,3 +162,23 @@ test("feedback on a generated component child names its editable instance", () =
   const revised = applyDesignOperations(document, [{ op: "update", id: hit.id, patch: { x: 200 } }]);
   assert.equal(revised.nodes.find((node) => node.id === "copy").x, 200);
 });
+
+const PIXEL = "data:image/png;base64,iVBORw0KGgo=";
+
+test("an image with a source paints no placeholder behind its transparent pixels", () => {
+  const document = validateDesignDocument({
+    schemaVersion: 1,
+    width: 390,
+    height: 844,
+    nodes: [
+      { id: "icon", type: "image", width: 24, height: 24, src: PIXEL },
+      { id: "empty", type: "image", y: 40, width: 24, height: 24 },
+      { id: "tinted", type: "image", y: 80, width: 24, height: 24, src: PIXEL, fill: "#ff0000" },
+    ],
+  });
+  const html = designHtml(document);
+  const style = (id) => new RegExp(`data-design-node="${id}"[^>]*style="([^"]*)"`).exec(html)[1];
+  assert.match(style("icon"), /background:transparent/);
+  assert.match(style("empty"), /background:#d8ded8/);
+  assert.match(style("tinted"), /background:#ff0000/);
+});

@@ -297,7 +297,9 @@ const escape = (value) =>
 const safeJson = (value) => JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
 
 function nodeStyles(document, node, box, parentBox, parentNode) {
-  const background = node.type === "text" ? "transparent" : designColor(document, node.fill, node.type === "frame" ? "transparent" : "#d8ded8");
+  // Transparent images (icons, cut-outs) show what is behind them; the grey placeholder marks an image still to add.
+  const placeholder = node.type === "frame" || (node.type === "image" && node.src) ? "transparent" : "#d8ded8";
+  const background = node.type === "text" ? "transparent" : designColor(document, node.fill, placeholder);
   const parentStroke = parentNode?.stroke ? (parentNode.strokeWidth ?? 1) : 0;
   return [
     "position:absolute",

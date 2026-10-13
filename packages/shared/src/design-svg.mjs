@@ -130,7 +130,8 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor) {
           contents = clipContent(renderText(node, box));
           if (stroke) contents += take(`<${geometry} fill="none"${stroke}/>`, node);
         } else if (node.type === "image") {
-          contents = take(`<${shape(node, box)} ${colorAttributes("fill", node.fill, "#d8ded8")}/>`, node);
+          // Only a missing image gets the placeholder; a transparent one shows what is behind it.
+          contents = node.fill || !node.src ? take(`<${shape(node, box)} ${colorAttributes("fill", node.fill, "#d8ded8")}/>`, node) : "";
           if (node.src)
             contents += clipContent(
               take(
