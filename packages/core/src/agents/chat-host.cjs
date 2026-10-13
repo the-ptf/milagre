@@ -548,7 +548,11 @@ class ChatHost {
           const message = latest.messages.find((item) => item.id === pendingId);
           const divider = latest.messages.find((item) => item.id === dividerId);
           const withoutPending = { ...latest, messages: latest.messages.filter((item) => item.id !== pendingId && item.id !== dividerId) };
-          const sent = applyAgentEvent(withoutPending, this.runs, projectPath, target.chatId, { type: "message-sent", model: runModel });
+          const sent = applyAgentEvent(withoutPending, this.runs, projectPath, target.chatId, {
+            type: "message-sent",
+            model: runModel,
+            permissionMode: request.permissionMode,
+          });
           added = sent.state.messages.slice(withoutPending.messages.length).filter((message) => message.role === "assistant");
           this.runs = sent.runs;
           seq = ++this.seq;
@@ -564,7 +568,7 @@ class ChatHost {
         }
         throw error;
       });
-    this.publish(target.chatId, { type: "message-sent", model: runModel }, state, seq);
+    this.publish(target.chatId, { type: "message-sent", model: runModel, permissionMode: request.permissionMode }, state, seq);
     if (state.sessions[target.sessionId].titlePending) void this.nameChat(projectPath, target.sessionId).catch(() => {});
     const turn = {
       provider: runProvider,

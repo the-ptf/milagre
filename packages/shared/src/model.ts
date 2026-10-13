@@ -535,7 +535,7 @@ export type AgentPorts = Record<string, AgentPort[]>;
 
 export type AgentEvent =
   /** Milagre's own event: the user's message was saved, so a turn starts, or a running one is steered and its reply split. */
-  | { type: "message-sent"; model: string }
+  | { type: "message-sent"; model: string; permissionMode?: PermissionMode }
   /** Milagre's own event: the user's answers to a question were saved as their message, after the reply so far. */
   | { type: "answers-sent" }
   | { type: "subagent-update"; agent: Subagent }

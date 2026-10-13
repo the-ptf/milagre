@@ -59,7 +59,8 @@ function createLocalMcpHost({ projects, readProject, scopeStates, chats, createW
       const id = await chats.emptyChat(projectPath, worktreeId, { operationId, assertActive });
       return { chatId: `${projectPath}#${id}` };
     },
-    async startChat({ projectPath, chatId, prompt, provider, model }, operationId, assertActive) {
+    // A Chat with no live agent takes the mode of the Chat whose agent called the tool; other clients start it in Ask.
+    async startChat({ projectPath, chatId, prompt, provider, model }, operationId, assertActive, caller) {
       const { state, session } = await chat(projectPath, chatId);
       if (session.archived) throw Error("This Chat is archived");
       const latest = chats.turnSettings(chatId) ?? {};
@@ -67,7 +68,8 @@ function createLocalMcpHost({ projects, readProject, scopeStates, chats, createW
       const chosenModel = latest.model || lastUserModel({ ...state, messages }, session.id) || model;
       if (!chosenModel) throw Error("Choose a model for this Chat before starting it");
       assertActive();
-      const mode = permissionMode(chatId);
+      const modeNow = () => permissionMode(chatId, caller ? permissionMode(caller) : "ask");
+      const mode = modeNow();
       const result = await chats.send({
         ...latest,
         projectPath,
@@ -82,7 +84,7 @@ function createLocalMcpHost({ projects, readProject, scopeStates, chats, createW
         operationId,
         canStart: () => {
           assertActive();
-          if (permissionMode(chatId) !== mode) throw Error("Chat permission mode changed; inspect the Chat before retrying");
+          if (modeNow() !== mode) throw Error("Chat permission mode changed; inspect the Chat before retrying");
           return true;
         },
       });

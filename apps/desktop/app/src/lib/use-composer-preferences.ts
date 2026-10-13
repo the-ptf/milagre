@@ -73,6 +73,8 @@ export function useComposerPreferences(chatKey: string) {
     fastMode,
     setFastMode,
     permissionMode,
+    /** The mode picked for this Chat, if any; `permissionMode` falls back to the default for new Chats. */
+    pickedPermissionMode: current.permissionMode,
     setPermissionMode,
   };
 }
