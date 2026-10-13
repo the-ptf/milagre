@@ -7,11 +7,24 @@ const segmenter = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(unde
 const graphemes = (text) =>
   /^[ -~]*$/.test(text) ? text.split("") : segmenter ? Array.from(segmenter.segment(text), (item) => item.segment) : Array.from(text);
 
-/** Shared line breaking deliberately has no browser dependency. Custom fonts use the closest generic metrics. */
+/** Shared line breaking deliberately has no browser dependency. Inter, Arial, Georgia, Times New Roman and Courier New are measured; other fonts use the closest generic metrics. */
 export function designTextLayout(node, width = Infinity) {
-  const family = (node.fontFamily ?? "Arial").toLowerCase();
-  const kind = /courier|mono/.test(family) ? "mono" : /times/.test(family) ? "times" : /georgia|(?<!sans-)serif/.test(family) ? "serif" : "sans";
-  const metrics = designFontMetrics[kind][(node.fontWeight ?? 400) >= 600 ? 700 : 400];
+  const family = (node.fontFamily ?? "Inter").toLowerCase();
+  const kind = /inter/.test(family)
+    ? "inter"
+    : /courier|mono/.test(family)
+      ? "mono"
+      : /times/.test(family)
+        ? "times"
+        : /georgia|(?<!sans-)serif/.test(family)
+          ? "serif"
+          : "sans";
+  const measured = designFontMetrics[kind];
+  const requested = node.fontWeight ?? 400;
+  const weight = Object.keys(measured)
+    .map(Number)
+    .reduce((best, candidate) => (Math.abs(candidate - requested) < Math.abs(best - requested) ? candidate : best));
+  const metrics = measured[weight];
   const size = node.fontSize ?? 16;
   const advances = new Map();
   const advance = (character) => {

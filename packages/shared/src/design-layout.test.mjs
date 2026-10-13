@@ -69,3 +69,21 @@ test("text wrapping preserves explicit lines and long words with no executable m
   assert.equal(layout.height, layout.lines.length * 24);
   assert.ok(layout.lines.every((line) => designTextLayout({ ...text, text: line }).width <= 60.001));
 });
+
+test("Inter is measured at four weights and is the default family", () => {
+  const text = { id: "t", type: "text", width: 1000, height: 40, text: "Filter and sort", fontSize: 20 };
+  const regular = designTextLayout({ ...text, fontFamily: "Inter" });
+  const semibold = designTextLayout({ ...text, fontFamily: "Inter", fontWeight: 600 });
+  const bold = designTextLayout({ ...text, fontFamily: "Inter", fontWeight: 700 });
+  assert.ok(regular.width < semibold.width && semibold.width < bold.width, "each weight has its own advances");
+  assert.equal(designTextLayout(text).width, regular.width, "no family means Inter");
+  assert.notEqual(designTextLayout({ ...text, fontFamily: "Arial" }).width, regular.width, "Arial keeps its own metrics");
+});
+
+test("a weight between measured ones uses the nearest, ties going lighter", () => {
+  const text = { id: "t", type: "text", width: 1000, height: 40, text: "Reservations", fontSize: 20, fontFamily: "Arial" };
+  const at = (fontWeight) => designTextLayout({ ...text, fontWeight }).width;
+  assert.equal(at(500), at(400));
+  assert.equal(at(550), at(400));
+  assert.equal(at(600), at(700));
+});
