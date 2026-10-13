@@ -365,8 +365,8 @@ export interface ArtifactRef {
   id: string;
   version: number;
   title: string;
-  /** Older transcript entries have no format; the host's design list identifies their surviving structured documents. */
-  format?: "design";
+  /** Older transcript entries have no format; resolve them through the host's catalog. */
+  format?: "design" | "html";
 }
 
 /** One tool call in an agent's reply (a `setup` step is the worktree's setup command, which Milagre ran, not the agent) (a command, an edit, a read, a search or another tool), or a stretch of its thinking. */

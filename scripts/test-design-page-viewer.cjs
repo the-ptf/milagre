@@ -171,6 +171,53 @@ const samplePage = () => ({
   ],
 });
 
+function artifactPage(origin) {
+  const blocked = `${origin}/blocked`;
+  return {
+    schemaVersion: 1,
+    kind: "artifacts",
+    title: "An explanation </h1><script>window.outerInjected=true</script>",
+    artifacts: [
+      {
+        title: 'Interactive explanation " onload="window.outerInjected=true',
+        width: 1280,
+        height: 800,
+        html: `<!doctype html><html><head><style>body{font-family:system-ui;padding:28px;color:#243a32}button{padding:12px}#remote-background{background-image:url('${blocked}/background')}</style></head><body>
+        <h1>Why the result changes</h1><p>Adjust the count to explore the explanation.</p>
+        <button id="increment">Add one</button><output id="count">0</output>
+        <p id="remote-background">Embedded interactive content remains usable.</p>
+        "></iframe><script>window.escapeMarker=true</script>
+        <script>
+          window.artifactProbe = { inline: true, violations: [] };
+          const probe = window.artifactProbe;
+          document.addEventListener('securitypolicyviolation', event => probe.violations.push(event.effectiveDirective));
+          const denied = action => { try { action(); return false; } catch (error) { return error.name === 'SecurityError'; } };
+          probe.parentDOM = denied(() => parent.document.body);
+          probe.parentCookies = denied(() => parent.document.cookie);
+          probe.cookies = denied(() => document.cookie);
+          probe.localStorage = denied(() => localStorage.getItem('public-session'));
+          probe.sessionStorage = denied(() => sessionStorage.getItem('public-session'));
+          probe.node = typeof require === 'undefined' && typeof process === 'undefined';
+          document.getElementById('increment').onclick = () => document.getElementById('count').textContent = String(Number(document.getElementById('count').textContent) + 1);
+          fetch('${blocked}/fetch').then(() => probe.fetch = false, () => probe.fetch = true);
+          const image = new Image(); image.onload = () => probe.image = false; image.onerror = () => probe.image = true; image.src = '${blocked}/image'; document.body.append(image);
+          const script = document.createElement('script'); script.onerror = () => probe.script = true; script.src = '${blocked}/script'; document.body.append(script);
+          const frame = document.createElement('iframe'); frame.src = '${blocked}/nested-frame'; document.body.append(frame);
+          window.attemptArtifactNavigation = () => {
+            probe.popup = window.open('${blocked}/popup') === null;
+            probe.top = denied(() => top.location.href = '${blocked}/top');
+            const form = document.createElement('form'); form.action = '${blocked}/form'; form.method = 'POST'; document.body.append(form); form.submit();
+            const link = document.createElement('a'); link.href = '${blocked}/self-link'; document.body.append(link); link.click();
+            window.location.href = '${blocked}/self-script';
+            const refresh = document.createElement('meta'); refresh.httpEquiv = 'refresh'; refresh.content = '0;url=${blocked}/self-refresh'; document.head.append(refresh);
+            probe.navigationAttempted = true;
+          };
+        </script></body></html>`,
+      },
+    ],
+  };
+}
+
 async function check() {
   const { app, BrowserWindow } = require("electron");
   app.setPath("userData", process.argv[3]);
@@ -182,6 +229,8 @@ async function check() {
     show: false,
     webPreferences: { nodeIntegration: false, contextIsolation: true },
   });
+  const failedLoads = [];
+  window.webContents.on("did-fail-load", (_event, code, description, url) => failedLoads.push({ code, description, url }));
   const evaluate = (code) => window.webContents.executeJavaScript(code);
   const ready = () => evaluate("Promise.all([...document.images].map(image => image.decode()))");
   const screenshot = async (name) => {
@@ -266,7 +315,69 @@ async function check() {
     assert.equal(await evaluate("document.querySelectorAll('script').length"), 1);
     assert.equal(await evaluate("document.querySelector('h1').textContent"), "</h1><script>window.injected=true</script>");
     assert.equal(await evaluate("document.querySelector('figcaption').textContent"), '<img src=x onerror="window.injected=true">');
-    console.log("PASS: public page renders both designs and embedded raster under CSP; desktop/phone zoom, pan, pinch, escaping and 20-design Fit work");
+    // Execute the actual public HTML under the same HTTP CSP as the Worker. The opaque
+    // srcdoc frame must remain interactive without inheriting the public origin's authority.
+    window.setContentSize(1280, 900);
+    await window.loadURL(process.argv[2] + "/artifact");
+    await evaluate("localStorage.setItem('public-session','parent-secret');sessionStorage.setItem('public-session','parent-secret')");
+    assert.match(await evaluate("document.cookie"), /public-session=parent-secret/, "the parent origin has a cookie for the isolation probe");
+    const frame = window.webContents.mainFrame.frames.find((child) => child.url === "about:srcdoc");
+    assert.ok(frame, "the public Artifact loads its srcdoc under frame-src none");
+    const evaluateArtifact = (code) => frame.executeJavaScript(code);
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (await evaluateArtifact("!!(window.artifactProbe?.fetch && window.artifactProbe?.image && window.artifactProbe?.script)")) break;
+      await delay(20);
+    }
+    const probe = await evaluateArtifact("window.artifactProbe");
+    for (const field of ["inline", "parentDOM", "parentCookies", "cookies", "localStorage", "sessionStorage", "node", "fetch", "image", "script"])
+      assert.equal(probe[field], true, `Artifact sandbox/CSP check: ${field}`);
+    assert.equal(
+      await evaluate("window.escapeMarker || window.outerInjected"),
+      undefined,
+      "malicious HTML and titles cannot escape srcdoc into the public wrapper",
+    );
+    assert.equal(await evaluateArtifact("window.escapeMarker"), true, "the escape probe remains inside the opaque frame");
+    assert.deepEqual(await evaluate("[...document.querySelectorAll('iframe')].map(frame => frame.getAttribute('sandbox'))"), ["allow-scripts"]);
+    assert.equal(
+      await evaluate("document.querySelectorAll('script, #canvas, #viewport, #fit, nav, select').length"),
+      0,
+      "Artifact snapshots have no design canvas, chooser or history controls",
+    );
+    await delay(150);
+    await screenshot("viewer-artifact-before-click");
+    const click = await evaluateArtifact(
+      "(() => {const r=document.getElementById('increment').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()",
+    );
+    const outer = await evaluate("(() => {const r=document.querySelector('iframe').getBoundingClientRect();return {x:r.x,y:r.y}})()");
+    window.webContents.debugger.attach("1.3");
+    for (const type of ["mousePressed", "mouseReleased"])
+      await window.webContents.debugger.sendCommand("Input.dispatchMouseEvent", {
+        type,
+        button: "left",
+        clickCount: 1,
+        x: outer.x + click.x,
+        y: outer.y + click.y,
+      });
+    window.webContents.debugger.detach();
+    await delay(50);
+    assert.equal(await evaluateArtifact("document.getElementById('count').textContent"), "1", "a native click runs the Artifact's inline interaction");
+    await screenshot("viewer-artifact-desktop");
+    await evaluateArtifact("window.attemptArtifactNavigation()");
+    await delay(150);
+    assert.equal(window.webContents.getURL(), process.argv[2] + "/artifact", "the Artifact cannot navigate the public wrapper");
+    assert.ok(
+      failedLoads.some((failure) => failure.url.includes("/blocked/self-") && failure.description === "ERR_BLOCKED_BY_CSP"),
+      "CSP refuses remote self navigation (Chromium may display its blocked-page document)",
+    );
+    // Reload the immutable page after the deliberate navigation attack for the phone rendering check.
+    await window.loadURL(process.argv[2] + "/artifact");
+    window.setContentSize(390, 844);
+    await delay(50);
+    assert.ok(await evaluate("document.querySelector('iframe').getBoundingClientRect().right <= innerWidth"), "the live page fits the phone viewport");
+    await screenshot("viewer-artifact-phone");
+    console.log(
+      "PASS: public Designs and Artifact pages render under Worker CSP; canvas gestures and opaque Artifact interaction, escaping and blocked network/navigation verified",
+    );
   } finally {
     window.destroy();
     app.quit();
@@ -295,9 +406,15 @@ async function run() {
     ["/large", renderDesignPage(large)],
     ["/escaped", renderDesignPage(escaped)],
   ]);
+  const blockedRequests = [];
   const server = http.createServer((request, response) => {
-    const page = pages.get(request.url);
-    response.writeHead(page ? 200 : 404, { ...SECURITY_HEADERS, "Content-Type": "text/html; charset=utf-8" });
+    if (request.url.startsWith("/blocked/")) blockedRequests.push(request.url);
+    const page = request.url === "/artifact" ? renderDesignPage(artifactPage(`http://127.0.0.1:${server.address().port}`)) : pages.get(request.url);
+    response.writeHead(page ? 200 : 404, {
+      ...SECURITY_HEADERS,
+      "Content-Type": "text/html; charset=utf-8",
+      ...(request.url === "/artifact" ? { "Set-Cookie": "public-session=parent-secret; SameSite=Lax" } : {}),
+    });
     response.end(page ?? "Not found");
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -306,6 +423,7 @@ async function run() {
     delete env.ELECTRON_RUN_AS_NODE;
     const child = spawn(require("electron"), [__filename, `http://127.0.0.1:${server.address().port}`, profile], { env, stdio: "inherit" });
     process.exitCode = await new Promise((resolve) => child.once("exit", (code) => resolve(code ?? 1)));
+    assert.deepEqual(blockedRequests, [], "no Artifact fetch, image, script, form, popup or frame navigation reaches the server");
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await fs.rm(profile, { recursive: true, force: true });

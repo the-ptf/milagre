@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal, flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, Cancel01Icon, FitToScreenIcon, MinusSignIcon, RedoIcon, UndoIcon } from "@hugeicons/core-free-icons";
-import type { Artifact } from "@milagre/shared/artifact";
+import type { DesignArtifact as Artifact } from "@milagre/shared/artifact";
 import type { DesignDocument } from "@milagre/shared/design";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { bridgeForKey } from "../../lib/computer-bridge";

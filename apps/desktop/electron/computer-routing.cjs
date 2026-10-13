@@ -23,6 +23,7 @@ const LOCAL_ONLY = Object.freeze([
 ]);
 const LOCAL_ONLY_PREFIXES = Object.freeze([
   "app:",
+  "artifact-preview:",
   "canvas:",
   "computers:",
   "devices:",

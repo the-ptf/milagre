@@ -5,7 +5,7 @@ export const PAGE_ID = /^[A-Za-z0-9_-]{43}$/;
 const encoder = new TextEncoder();
 export const SECURITY_HEADERS = {
   "Content-Security-Policy":
-    "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "Cache-Control": "no-store",
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",

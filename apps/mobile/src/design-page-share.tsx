@@ -12,26 +12,28 @@ import { useTheme } from "./theme";
 export function DesignPageShareSheet({
   client,
   chatId,
+  kind = "designs",
   onClose,
   onBusyChange,
   onAvailabilityChange,
 }: {
   client: Client;
   chatId?: string | null;
+  kind?: "designs" | "artifacts";
   onClose: () => void;
   onBusyChange?: (busy: boolean) => void;
   onAvailabilityChange?: (available: boolean | null) => void;
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
-  const sharing = useMemo(() => createDesignPageSharing(client, chatId), [client, chatId]);
+  const sharing = useMemo(() => createDesignPageSharing(client, chatId, kind), [client, chatId, kind]);
   const state = useSyncExternalStore(sharing.subscribe, sharing.getSnapshot);
   useEffect(() => {
     onAvailabilityChange?.(state.checking ? null : (state.availability?.available ?? null));
   }, [state.checking, state.availability?.available, onAvailabilityChange]);
   useEffect(() => onBusyChange?.(!!state.busy), [state.busy, onBusyChange]);
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
-  const [title, setTitle] = useState("Designs");
+  const [title, setTitle] = useState(kind === "artifacts" ? "Artifact" : "Designs");
   const [confirm, setConfirm] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [publishedId, setPublishedId] = useState<string | null>(null);
@@ -64,13 +66,36 @@ export function DesignPageShareSheet({
     } else setHistoryOpen(true);
   };
   const details = (share: DesignPageShare, prominent = false) => (
-    <View key={share.id} style={{ gap: 10, paddingVertical: prominent ? 0 : 14, borderBottomWidth: prominent ? 0 : 1, borderBottomColor: colors.line }}>
-      <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-        <Text selectable style={{ color: colors.ink, fontSize: 15, fontWeight: "500", flex: 1 }}>
+    <View
+      key={share.id}
+      style={{
+        gap: 10,
+        paddingVertical: prominent ? 0 : 14,
+        borderBottomWidth: prominent ? 0 : 1,
+        borderBottomColor: colors.line,
+      }}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <Text
+          selectable
+          style={{
+            color: colors.ink,
+            fontSize: 15,
+            fontWeight: "500",
+            flex: 1,
+          }}
+        >
           {share.title}
         </Text>
         <Text style={styles.muted}>
-          {share.designCount} {share.designCount === 1 ? "design" : "designs"}
+          {share.kind === "artifacts" ? "Artifact" : `${share.designCount} ${share.designCount === 1 ? "design" : "designs"}`}
           {share.revoked ? " · Revoked" : ""}
         </Text>
       </View>
@@ -83,7 +108,14 @@ export function DesignPageShareSheet({
           <Text
             selectable
             accessibilityLabel="Snapshot link"
-            style={{ color: colors.ink2, fontSize: 13, lineHeight: 20, padding: 12, borderRadius: 10, backgroundColor: colors.field }}
+            style={{
+              color: colors.ink2,
+              fontSize: 13,
+              lineHeight: 20,
+              padding: 12,
+              borderRadius: 10,
+              backgroundColor: colors.field,
+            }}
           >
             {share.url}
           </Text>
@@ -128,16 +160,46 @@ export function DesignPageShareSheet({
   );
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, padding: 16 }}>
-        <CircleButton label={chatId ? "Back to designs" : "Back to Experimental"} icon={ArrowLeft01Icon} onPress={state.busy ? undefined : onClose} />
-        <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 19, fontWeight: "600", flex: 1 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          padding: 16,
+        }}
+      >
+        <CircleButton
+          label={chatId ? (kind === "artifacts" ? "Back to artifact" : "Back to designs") : "Back to Experimental"}
+          icon={ArrowLeft01Icon}
+          onPress={state.busy ? undefined : onClose}
+        />
+        <Text
+          accessibilityRole="header"
+          style={{
+            color: colors.ink,
+            fontSize: 19,
+            fontWeight: "600",
+            flex: 1,
+          }}
+        >
           {!chatId ? "Published pages" : featured ? (featured.revoked ? "Snapshot removed" : "Snapshot shared") : "Share a snapshot"}
         </Text>
       </View>
-      <PageScroll style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, gap: 16 }}>
+      <PageScroll
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingBottom: 24,
+          gap: 16,
+        }}
+      >
         {chatId && (
           <Text style={{ color: colors.ink2, fontSize: 14, lineHeight: 21 }}>
-            {featured ? "This snapshot stays frozen. Later edits stay private." : "A frozen copy of every saved design on this page. Later edits stay private."}
+            {featured
+              ? "This snapshot stays frozen. Later edits stay private."
+              : kind === "artifacts"
+                ? "A frozen copy of this artifact. Later edits stay private."
+                : "A frozen copy of every saved design on this page. Later edits stay private."}
           </Text>
         )}
         {featured && details(featured, true)}
@@ -145,7 +207,11 @@ export function DesignPageShareSheet({
           <Text style={{ color: colors.ink, fontSize: 13, fontWeight: "600" }}>Public access</Text>
           <Text style={styles.muted}>Anyone with the link can view, copy or redistribute it. Copies may remain online permanently.</Text>
           {chatId && (
-            <Text style={styles.muted}>Unsaved edits, comments and Chat messages stay private. Shared files can include content clipped by frames.</Text>
+            <Text style={styles.muted}>
+              {kind === "artifacts"
+                ? "Comments and Chat messages stay private. The full saved HTML, including hidden content, is shared. External resources are blocked."
+                : "Unsaved edits, comments and Chat messages stay private. Shared files can include content clipped by frames."}
+            </Text>
           )}
         </View>
         {chatId && !featured && (
@@ -210,7 +276,13 @@ export function DesignPageShareSheet({
           <Text style={styles.muted}>No snapshots published yet.</Text>
         ) : null}
         {!!history.length && (
-          <View style={{ borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 12 }}>
+          <View
+            style={{
+              borderTopWidth: 1,
+              borderTopColor: colors.line,
+              paddingTop: 12,
+            }}
+          >
             {chatId && !state.error && !history.some((share) => share.pending && !share.revoked) ? (
               <PillButton
                 title={`${showHistory ? "Hide" : "Show"} published snapshots (${history.length})`}

@@ -443,14 +443,12 @@ export function DesignsSettings() {
       <Row label="Designs" description="Create editable designs in Chat.">
         <Switch label="Designs" checked={designs.enabled} disabled={!designs.ready || designs.saving} onChange={(enabled) => void designs.save(enabled)} />
       </Row>
-      {designs.enabled && (
-        <Row label="Published pages" description="Manage public links, including pages from deleted Chats.">
-          <button type="button" className="rounded-[8px] border border-line px-3 py-1.5 text-[12px] hover:bg-hover" onClick={() => setPublishedPages(true)}>
-            Manage
-          </button>
-        </Row>
-      )}
-      {designs.enabled && publishedPages && <DesignPageShareDialog onClose={() => setPublishedPages(false)} />}
+      <Row label="Published pages" description="Manage public links, including pages from deleted Chats.">
+        <button type="button" className="rounded-[8px] border border-line px-3 py-1.5 text-[12px] hover:bg-hover" onClick={() => setPublishedPages(true)}>
+          Manage
+        </button>
+      </Row>
+      {publishedPages && <DesignPageShareDialog onClose={() => setPublishedPages(false)} />}
       {designs.error && (
         <p role="alert" className="px-4 pb-3 text-[12px] text-red">
           {designs.error}

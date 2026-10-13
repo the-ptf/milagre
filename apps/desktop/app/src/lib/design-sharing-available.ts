@@ -3,10 +3,16 @@ import type { MilagreBridge } from "../electron";
 import { bridgeForKey } from "./computer-bridge";
 
 type Store = { subscribe: (listener: () => void) => () => void; snapshot: () => boolean; confirm: (available: boolean) => void };
-const stores = new WeakMap<MilagreBridge, Store>();
+type PageKind = "designs" | "artifacts";
+const stores = new WeakMap<MilagreBridge, Map<PageKind, Store>>();
 
-function storeFor(bridge: MilagreBridge): Store {
-  const existing = stores.get(bridge);
+function storeFor(bridge: MilagreBridge, kind: PageKind): Store {
+  let host = stores.get(bridge);
+  if (!host) {
+    host = new Map();
+    stores.set(bridge, host);
+  }
+  const existing = host.get(kind);
   if (existing) return existing;
   let available = false;
   let generation = 0;
@@ -22,7 +28,7 @@ function storeFor(bridge: MilagreBridge): Store {
     pending = true;
     const current = ++generation;
     try {
-      const result = await bridge.artifacts.sharingStatus();
+      const result = await bridge.artifacts.sharingStatus({ kind });
       if (current === generation) update(result?.available === true);
     } catch {
       if (current === generation) update(false);
@@ -65,17 +71,17 @@ function storeFor(bridge: MilagreBridge): Store {
       };
     },
   };
-  stores.set(bridge, store);
+  host.set(kind, store);
   return store;
 }
 
 /** One health check per host, shared by the review canvas and editor. Unknown or older hosts keep Share hidden. */
-export function useDesignSharingAvailable(chatId: string) {
-  const store = storeFor(bridgeForKey(chatId));
+export function useDesignSharingAvailable(chatId: string, kind: PageKind = "designs") {
+  const store = storeFor(bridgeForKey(chatId), kind);
   return useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
 }
 
 /** A newer dialog check also updates the page entry points, including a service failure after opening. */
-export function confirmDesignSharingAvailability(chatId: string, available: boolean) {
-  storeFor(bridgeForKey(chatId)).confirm(available);
+export function confirmDesignSharingAvailability(chatId: string, available: boolean, kind: PageKind = "designs") {
+  storeFor(bridgeForKey(chatId), kind).confirm(available);
 }

@@ -15,11 +15,11 @@ const {
   failedWith,
 } = require("./events.cjs");
 
-test("disabled Designs instructions omit design tools and stop the retired fallback", () => {
+test("disabled Designs instructions omit design tools while preserving explanatory artifacts", () => {
   const instructions = milagreInstructions(true, "Project context", false);
   assert.match(instructions, /Designs are off/);
   assert.match(instructions, /Do not attempt to create, read or revise/);
-  assert.doesNotMatch(instructions, /design_show|design_read|design_apply|artifact_show|artifact_read|bundled design skill/);
+  assert.doesNotMatch(instructions, /design_show|design_read|design_apply|bundled design skill/);
   assert.match(instructions, /Project context/);
 });
 
@@ -658,7 +658,8 @@ test("design instructions teach editable documents and version-safe revisions", 
   assert.match(MILAGRE_INSTRUCTIONS, /create an editable document with milagre design_show/);
   assert.match(MILAGRE_INSTRUCTIONS, /design_read before revising it/);
   assert.match(MILAGRE_INSTRUCTIONS, /design_apply with its expectedVersion/);
-  assert.doesNotMatch(MILAGRE_INSTRUCTIONS, /artifact_show|artifact_read/);
+  assert.match(MILAGRE_INSTRUCTIONS, /artifact_show/);
+  assert.match(MILAGRE_INSTRUCTIONS, /one live artifact page/);
 });
 
 test("the instructions point the agent at the bundled genui skill, which exists", () => {

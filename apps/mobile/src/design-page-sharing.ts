@@ -13,7 +13,8 @@ export type PageSharingState = {
 };
 
 /** A Chat publishing session, or host history when chatId is absent. */
-export function createDesignPageSharing(client: Caller, chatId?: string | null) {
+export function createDesignPageSharing(client: Caller, chatId?: string | null, kind: "designs" | "artifacts" = "designs") {
+  const scope = kind === "artifacts" ? { kind } : {};
   let state: PageSharingState = {
     shares: [],
     loading: false,
@@ -32,13 +33,13 @@ export function createDesignPageSharing(client: Caller, chatId?: string | null) 
     state = next;
     for (const listener of listeners) listener();
   };
-  const history = () => client.call<DesignPageShare[]>(chatId ? "artifact:page-shares" : "artifact:all-page-shares", chatId ? [{ chatId }] : []);
+  const history = () => client.call<DesignPageShare[]>(chatId ? "artifact:page-shares" : "artifact:all-page-shares", chatId ? [{ chatId, ...scope }] : []);
   const checkAvailability = async () => {
     if (disposed || !chatId) return;
     const current = ++statusGeneration;
     update({ ...state, checking: true });
     try {
-      const value = await client.call<{ available: boolean; reason?: string }>("artifact:sharing-status", []);
+      const value = await client.call<{ available: boolean; reason?: string }>("artifact:sharing-status", kind === "artifacts" ? [{ kind }] : []);
       if (current === statusGeneration)
         update({
           ...state,
@@ -85,7 +86,7 @@ export function createDesignPageSharing(client: Caller, chatId?: string | null) 
       const current = ++generation;
       update({ ...state, loading: false, busy: "publish", error: "" });
       try {
-        const share = await client.call<DesignPageShare>("artifact:share-page", [{ chatId, title: title.trim(), acknowledgePublic: true }]);
+        const share = await client.call<DesignPageShare>("artifact:share-page", [{ chatId, ...scope, title: title.trim(), acknowledgePublic: true }]);
         if (current === generation)
           update({
             ...state,
@@ -114,7 +115,7 @@ export function createDesignPageSharing(client: Caller, chatId?: string | null) 
       const current = ++generation;
       update({ ...state, loading: false, busy: id, error: "" });
       try {
-        await client.call(chatId ? "artifact:revoke-page-share" : "artifact:revoke-saved-page-share", [chatId ? { chatId, id } : { id }]);
+        await client.call(chatId ? "artifact:revoke-page-share" : "artifact:revoke-saved-page-share", [chatId ? { chatId, id, ...scope } : { id }]);
         if (current === generation)
           update({
             ...state,

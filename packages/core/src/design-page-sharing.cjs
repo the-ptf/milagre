@@ -26,12 +26,13 @@ async function boundedResponseText(response, limit) {
     reader.releaseLock();
   }
 }
-const publicEntry = ({ id, url, title, createdAt, designCount, revoked, published }) => ({
+const publicEntry = ({ id, url, title, createdAt, designCount, revoked, published, kind }) => ({
   id,
   url,
   title,
   createdAt,
   designCount,
+  ...(kind === "artifacts" ? { kind } : {}),
   ...(revoked ? { revoked: true } : {}),
   ...(!published && !revoked ? { pending: true } : {}),
 });
@@ -60,11 +61,15 @@ function createDesignPageSharing({
     queue = result.catch(() => {});
     return result;
   };
-  const checkEnabled = () => {
-    if (!artifacts.enabled()) throw Error("Designs are off in Settings > Experimental. Turn Designs on before sharing.");
+  const pageKind = (kind = "designs") => {
+    if (kind !== "designs" && kind !== "artifacts") throw Error("Choose Designs or Artifacts to share.");
+    return kind;
   };
-  const check = async (chatId) => {
-    checkEnabled();
+  const checkEnabled = (kind) => {
+    if (pageKind(kind) === "designs" && !artifacts.enabled()) throw Error("Designs are off in Settings > Experimental. Turn Designs on before sharing.");
+  };
+  const check = async (chatId, kind) => {
+    checkEnabled(kind);
     if (typeof chatId !== "string" || !chatId || chatId.length > 8192) throw Error("An existing Chat is required.");
     await validateChat(chatId);
   };
@@ -127,8 +132,8 @@ function createDesignPageSharing({
       }
     }
   };
-  const status = async () => {
-    if (!artifacts.enabled()) return { available: false, reason: "Designs are off in Settings > Experimental." };
+  const status = async (request = {}) => {
+    if (pageKind(request.kind) === "designs" && !artifacts.enabled()) return { available: false, reason: "Designs are off in Settings > Experimental." };
     try {
       const response = await fetcher(`${endpoint.origin}/health`, { method: "GET", redirect: "error", signal: AbortSignal.timeout(5000) });
       if (response.status === 200 && (await boundedResponseText(response, 64)).trim() === "ok") return { available: true };
@@ -157,7 +162,7 @@ function createDesignPageSharing({
         response.status === 429
           ? "The page sharing limit has been reached. Try again later."
           : response.status === 413
-            ? "This Designs page is too large to publish."
+            ? "This page is too large to publish."
             : `The sharing service refused this request (${response.status}). Try again later.`,
       );
     }
@@ -182,48 +187,49 @@ function createDesignPageSharing({
   return {
     status,
     listAll: async () => {
-      checkEnabled();
       const entries = [];
       for await (const history of histories()) entries.push(...history.entries.map(publicEntry));
-      checkEnabled();
       return entries.toSorted((a, b) => b.createdAt - a.createdAt);
     },
     // Owner-only RPC. A saved capability remains manageable after its original Chat is deleted.
     revokeSaved: async ({ id }) => {
-      checkEnabled();
       if (!ID.test(id ?? "")) throw Error("A published page id is required.");
       for await (const { filename, entries } of histories()) {
         const entry = entries.find((item) => item.id === id);
         if (!entry) continue;
-        checkEnabled();
         await revokeEntry(filename, entry);
         return;
       }
       throw Error("This published page is not in this computer's saved history.");
     },
     // Atomic history files can be read while an upload is running. Pending links remain inspectable.
-    list: async ({ chatId }) => {
-      await check(chatId);
+    list: async ({ chatId, kind }) => {
+      await check(chatId, kind);
       const entries = await read(chatId);
-      await check(chatId);
-      return entries.map(publicEntry).reverse();
+      await check(chatId, kind);
+      return entries
+        .filter((entry) => pageKind(entry.kind) === pageKind(kind))
+        .map(publicEntry)
+        .reverse();
     },
     publish: (request) =>
       serial(async () => {
-        const { chatId, title, acknowledgePublic } = request ?? {};
-        await check(chatId);
-        if (acknowledgePublic !== true) throw Error("Confirm that the entire Designs page will be public before publishing.");
+        const { chatId, title, acknowledgePublic, kind } = request ?? {};
+        const selectedKind = pageKind(kind);
+        await check(chatId, kind);
+        if (acknowledgePublic !== true) throw Error("Confirm that the entire page will be public before publishing.");
         if (typeof title !== "string" || !title.trim() || title.length > 120) throw Error("A public page title must have 1 to 120 characters.");
-        const availability = await status();
+        const availability = await status({ kind });
         if (!availability.available) throw Error(availability.reason);
-        const snapshot = validateDesignPageSnapshot(await embedImages(publicPageContent(await artifacts.pageSnapshot({ chatId, title }))));
+        const current = await artifacts.pageSnapshot({ chatId, title, kind: selectedKind });
+        const snapshot = validateDesignPageSnapshot(selectedKind === "artifacts" ? current : await embedImages(publicPageContent(current)));
         const payload = JSON.stringify(snapshot);
         const digest = hash(payload);
         const filename = file(chatId);
         const entry = await updateHistory(filename, (entries) => {
           const pending = entries.find((item) => !item.published && !item.revoked && item.digest === digest && item.origin === endpoint.origin);
           if (pending) return pending;
-          if (entries.length >= 200) throw Error("This Designs page has reached its limit of 200 published snapshots.");
+          if (entries.length >= 200) throw Error("This Chat has reached its limit of 200 published snapshots.");
           const secret = randomBytes(32);
           const id = hash(secret);
           const created = {
@@ -233,7 +239,8 @@ function createDesignPageSharing({
             url: `${endpoint.origin}/s/${id}`,
             title: snapshot.title,
             createdAt: Date.now(),
-            designCount: snapshot.designs.length,
+            designCount: selectedKind === "artifacts" ? 1 : snapshot.designs.length,
+            ...(selectedKind === "artifacts" ? { kind: selectedKind } : {}),
             digest,
             published: false,
           };
@@ -241,7 +248,7 @@ function createDesignPageSharing({
           // Save the capability before upload. A failed acknowledgement can retry the same immutable ID.
           return created;
         });
-        await check(chatId);
+        await check(chatId, kind);
         await send(entry, "PUT", payload);
         return updateHistory(filename, (entries) => {
           const current = entries.find((item) => item.id === entry.id);
@@ -250,11 +257,11 @@ function createDesignPageSharing({
           return publicEntry(current);
         });
       }),
-    revoke: async ({ chatId, id }) => {
-      await check(chatId);
+    revoke: async ({ chatId, id, kind }) => {
+      await check(chatId, kind);
       if (!ID.test(id ?? "")) throw Error("A published page id is required.");
       const entries = await read(chatId);
-      const entry = entries.find((item) => item.id === id);
+      const entry = entries.find((item) => item.id === id && pageKind(item.kind) === pageKind(kind));
       if (!entry) throw Error("This published page does not belong to this Chat.");
       await revokeEntry(file(chatId), entry);
     },

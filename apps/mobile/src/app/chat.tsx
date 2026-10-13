@@ -563,9 +563,8 @@ export default function ChatScreen() {
   sendGenui.current = (text: string) => send(text, false);
   // eslint-disable-next-line react-hooks/refs -- latest-callback ref for design messages.
   sendDesign.current = () => {
-    if (session.designs.enabled !== true) return;
     const message = designKey ? peekDesignMessage(designKey) : null;
-    if (!message || !designKey) return;
+    if (!message || !designKey || (message.kind !== "artifacts" && session.designs.enabled !== true)) return;
     void send(message.text, false).then((sent) => {
       designDeferred.current = sent === "busy";
       if (sent === true) designMessageSent(designKey, message);

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ARTIFACT_CSP, ARTIFACT_ESCAPE, artifactDocument, type Artifact } from "@milagre/shared/artifact";
+import { ARTIFACT_CSP, ARTIFACT_ESCAPE, artifactDocument, type DesignArtifact as Artifact } from "@milagre/shared/artifact";
 import {
   applyDesignOperations,
   createDesignInstance,
@@ -397,7 +397,7 @@ export function DesignDocumentEditor({
       .artifacts.get({ chatId, id: saved.id })
       .then(
         (latest) => {
-          if (live) receiveLatest(latest);
+          if (live && latest.format === "design") receiveLatest(latest);
           return null;
         },
         (cause) => {
@@ -443,6 +443,7 @@ export function DesignDocumentEditor({
       if (isDesignVersionConflict(message)) {
         try {
           const latest = await bridgeForKey(chatId).artifacts.get({ chatId, id: base.id });
+          if (latest.format !== "design") throw new Error("This page is no longer an editable design.");
           // Only disjoint fields can merge automatically. A new Save is still required.
           if (replace || !stageMerge(latest)) {
             setIncoming(latest);
@@ -475,6 +476,7 @@ export function DesignDocumentEditor({
     state.current.saving = true;
     try {
       const latest = await bridgeForKey(chatId).artifacts.get({ chatId, id: saved.id });
+      if (latest.format !== "design") throw new Error("This page is no longer an editable design.");
       const current = state.current;
       const hadDraft = fingerprint(current.document) !== fingerprint(current.saved.document);
       if (hadDraft) setRecovery({ saved: current.saved, history: { ...current.history, present: current.document } });

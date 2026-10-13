@@ -54,8 +54,9 @@ function blocksText(content) {
 // --- Artifacts ---
 
 // Milagre's design tools show their result as a card in the Chat.
-const isArtifactTool = (server, tool) => server === "milagre" && ["design_show", "design_apply"].includes(tool);
-const artifactTitle = (title, tool) => `${tool === "design_apply" ? "Edited" : "Showed"} ${code(title || "a design")}`;
+const isArtifactTool = (server, tool) => server === "milagre" && ["design_show", "design_apply", "artifact_show"].includes(tool);
+const artifactTitle = (title, tool) =>
+  `${tool === "design_apply" ? "Edited" : "Showed"} ${code(title || (tool === "artifact_show" ? "an artifact" : "a design"))}`;
 const artifactStep = (step, title, tool) => step("artifact", artifactTitle(title, tool));
 // Resolving a comment the user left on a design reads as that, not as a tool call.
 const isResolveTool = (server, tool) => server === "milagre" && tool === "artifact_resolve_comment";
@@ -65,7 +66,7 @@ function artifactRef(text) {
   try {
     const { id, version, title, format } = JSON.parse(text);
     return typeof id === "string" && Number.isInteger(version) && typeof title === "string"
-      ? { id, version, title, ...(format === "design" ? { format } : {}) }
+      ? { id, version, title, ...(["design", "html"].includes(format) ? { format } : {}) }
       : undefined;
   } catch {
     return undefined;
@@ -130,7 +131,7 @@ function claudeStepResult(call, block, structured) {
   if (name === "Bash") return end({ detail: capOutput(`$ ${input.command ?? ""}\n${text}`) });
   if (failed) return end({ detail: text ? capText(text) : undefined });
   if (name === "Read") return end();
-  const designTool = /^mcp__milagre__(design_show|design_apply)$/.exec(name)?.[1];
+  const designTool = /^mcp__milagre__(design_show|design_apply|artifact_show)$/.exec(name)?.[1];
   if (designTool) {
     const artifact = artifactRef(text);
     return end({ artifact, title: artifact ? artifactTitle(artifact.title, designTool) : undefined });

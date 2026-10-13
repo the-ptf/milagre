@@ -23,6 +23,7 @@ const title = (value) => {
 
 /** Only design content crosses this boundary. Unknown envelope fields are never retained. */
 export function validateDesignPageSnapshot(value) {
+  if (value?.kind === "artifacts") return validateArtifactPageSnapshot(value);
   if (!value || value.schemaVersion !== 1 || !Array.isArray(value.designs) || !value.designs.length || value.designs.length > 20)
     throw Error("A shared page must contain between 1 and 20 designs.");
   if (bytes(JSON.stringify(value)) > MAX_DESIGN_PAGE_BYTES) throw limitError("This Designs page exceeds the 8 MB sharing limit.");
@@ -70,6 +71,7 @@ const escape = (value) => String(value).replace(/[&<>"']/g, (char) => ({ "&": "&
 /** Public output contains generated SVG images and a fixed controller, never source JSON or Chat metadata. */
 export function renderDesignPage(input) {
   const page = validatedSnapshots.has(input) ? input : validateDesignPageSnapshot(input);
+  if (page.kind === "artifacts") return renderArtifactPage(page);
   const width = page.designs.reduce((sum, item) => sum + item.document.width, 0) + 64 * (page.designs.length - 1);
   const height = Math.max(...page.designs.map((item) => item.document.height)) + 42;
   let frameBytes = 0;
@@ -87,5 +89,37 @@ export function renderDesignPage(input) {
 (()=>{const port=document.getElementById('viewport'),canvas=document.getElementById('canvas'),label=document.getElementById('zoom');let x=0,y=0,scale=1;const points=new Map();const paint=()=>{canvas.style.transform='translate('+x+'px,'+y+'px) scale('+scale+')';label.textContent=(scale<.01?Math.round(scale*1000)/10:Math.round(scale*100))+'%'};const zoom=(factor,px=port.clientWidth/2,py=port.clientHeight/2)=>{const next=Math.max(.0001,Math.min(4,scale*factor));x=px-(px-x)*next/scale;y=py-(py-y)*next/scale;scale=next;paint()};const fit=()=>{scale=Math.min(1,Math.max(.0001,Math.min((port.clientWidth-48)/${width},(port.clientHeight-48)/${height})));x=(port.clientWidth-${width}*scale)/2;y=(port.clientHeight-${height}*scale)/2;paint()};document.getElementById('in').onclick=()=>zoom(1.25);document.getElementById('out').onclick=()=>zoom(.8);document.getElementById('fit').onclick=fit;port.addEventListener('wheel',e=>{e.preventDefault();if(e.ctrlKey||e.metaKey){const r=port.getBoundingClientRect();zoom(Math.exp(-e.deltaY*.01),e.clientX-r.left,e.clientY-r.top)}else{x-=e.deltaX;y-=e.deltaY;paint()}},{passive:false});port.onpointerdown=e=>{if(e.button!==0)return;port.setPointerCapture(e.pointerId);points.set(e.pointerId,{x:e.clientX,y:e.clientY})};port.onpointermove=e=>{const old=points.get(e.pointerId);if(!old)return;if(points.size===1){x+=e.clientX-old.x;y+=e.clientY-old.y;paint()}else{const other=[...points.entries()].find(([id])=>id!==e.pointerId)[1];const before=Math.hypot(old.x-other.x,old.y-other.y),after=Math.hypot(e.clientX-other.x,e.clientY-other.y),r=port.getBoundingClientRect();if(before>0){zoom(after/before,(old.x+other.x)/2-r.left,(old.y+other.y)/2-r.top);x+=(e.clientX-old.x)/2;y+=(e.clientY-old.y)/2;paint()}}points.set(e.pointerId,{x:e.clientX,y:e.clientY})};port.onpointerup=port.onpointercancel=port.onlostpointercapture=e=>points.delete(e.pointerId);port.onkeydown=e=>{if(e.key==='+'||e.key==='='){e.preventDefault();zoom(1.25)}if(e.key==='-'){e.preventDefault();zoom(.8)}if(e.key==='0'){e.preventDefault();fit()}};new ResizeObserver(fit).observe(port);fit()})();
 </script></body></html>`;
   if (bytes(html) > MAX_DESIGN_PAGE_HTML_BYTES) throw limitError("Rendered Designs page exceeds the 8 MB sharing limit.");
+  return html;
+}
+
+/** An Artifact is one current HTML page. Publishing freezes that content in an opaque sandbox. */
+function validateArtifactPageSnapshot(value) {
+  if (value.schemaVersion !== 1 || !Array.isArray(value.artifacts) || value.artifacts.length !== 1)
+    throw Error("An Artifact snapshot contains exactly one page.");
+  if (bytes(JSON.stringify(value)) > MAX_DESIGN_PAGE_BYTES) throw limitError("This Artifact exceeds the 8 MB sharing limit.");
+  const item = value.artifacts[0];
+  if (typeof item?.html !== "string" || !item.html.trim()) throw Error("An Artifact snapshot needs its HTML.");
+  if (item.html.length > 1000000) throw limitError("Artifact HTML is limited to 1000000 characters.");
+  const dimension = (number) => {
+    if (!Number.isInteger(number) || number < 240 || number > 3840) throw Error("Invalid Artifact page dimensions.");
+    return number;
+  };
+  const snapshot = {
+    schemaVersion: 1,
+    kind: "artifacts",
+    title: title(value.title),
+    artifacts: [{ title: title(item.title), html: item.html, width: dimension(item.width), height: dimension(item.height) }],
+  };
+  freeze(snapshot);
+  validatedSnapshots.add(snapshot);
+  return snapshot;
+}
+
+function renderArtifactPage(page) {
+  const artifact = page.artifacts[0];
+  // The HTTP policy is inherited by srcdoc, including blocked network and frame navigation.
+  // The sandbox deliberately omits same-origin, forms, popups, downloads and top navigation.
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${escape(page.title)} | Milagre Artifact</title><style>*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:#111922;color:#e5edf3}body{display:flex;flex-direction:column}header{padding:14px 20px;background:#182330;border-bottom:1px solid #2a3643}h1{font-size:16px;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}small{display:block;color:#9eafbd;font-size:12px;margin-top:4px}main{flex:1;min-height:0;background:white}iframe{display:block;width:100%;height:100%;border:0}footer{font-size:11px;color:#9eafbd;padding:9px 20px;background:#182330;border-top:1px solid #2a3643}</style></head><body><header><h1>${escape(page.title)}</h1><small>Artifact · Published snapshot</small></header><main><iframe title="${escape(artifact.title)}" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${escape(artifact.html)}"></iframe></main><footer>Made with Milagre · A frozen copy. Later edits stay private. External resources are blocked.</footer></body></html>`;
+  if (bytes(html) > MAX_DESIGN_PAGE_HTML_BYTES) throw limitError("Rendered Artifact exceeds the 8 MB sharing limit.");
   return html;
 }

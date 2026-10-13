@@ -8,9 +8,12 @@ const { setTimeout: delay } = require("node:timers/promises");
 const attribute = (value) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 async function check() {
-  const { app, BrowserWindow } = require("electron");
+  const { app, BrowserWindow, protocol } = require("electron");
+  protocol.registerSchemesAsPrivileged([{ scheme: "milagre-artifact", privileges: { standard: true, secure: true } }]);
   app.setPath("userData", path.join(process.argv[2], "profile"));
   await app.whenReady();
+  const previews = require("../apps/desktop/electron/artifact-preview.cjs").createArtifactPreviews();
+  protocol.handle("milagre-artifact", (request) => previews.handle(request));
   const window = new BrowserWindow({
     width: 600,
     height: 900,
@@ -52,8 +55,33 @@ async function check() {
       true,
       "Escape reaches the parent under CSP",
     );
+    const url = previews.register(
+      window.webContents.id,
+      '<button id="counter" onclick="this.textContent=Number(this.textContent)+1">0</button><script>window.artifactScriptRan=true</script>',
+    );
+    await window.webContents.executeJavaScript(
+      `(() => { const frame=document.createElement('iframe');frame.sandbox='allow-scripts';frame.src=${JSON.stringify(url)};document.body.append(frame); })()`,
+    );
+    let htmlFrame;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      htmlFrame = window.webContents.mainFrame.frames.find((item) => item.url === url);
+      if (htmlFrame && (await htmlFrame.executeJavaScript("!!document.getElementById('counter')"))) break;
+      await delay(20);
+    }
+    assert.ok(htmlFrame, "the HTML artifact loads under production frame-src");
+    assert.equal(await htmlFrame.executeJavaScript("window.artifactScriptRan"), true, "artifact inline scripts run under their isolated response CSP");
+    await htmlFrame.executeJavaScript("document.getElementById('counter').click()");
+    assert.equal(await htmlFrame.executeJavaScript("document.getElementById('counter').textContent"), "1", "artifact buttons work");
+    assert.equal(await htmlFrame.executeJavaScript("!!window.require || !!window.milagre"), false, "HTML artifacts have no host bridge");
+    assert.equal(
+      await htmlFrame.executeJavaScript("(()=>{try{return !!parent.document.body}catch{return false}})()"),
+      false,
+      "HTML artifact cannot read the parent app",
+    );
+    assert.equal(await htmlFrame.executeJavaScript("fetch('https://example.com').then(()=>false,()=>true)"), true, "artifact script requests remain blocked");
+    previews.clear(window.webContents.id);
     window.webContents.debugger.detach();
-    console.log("PASS: production CSP permits design selection and Escape while blocking untrusted inline scripts");
+    console.log("PASS: production CSP isolates interactive HTML artifacts and permits trusted design controllers");
   } finally {
     window.destroy();
     app.quit();

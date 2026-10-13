@@ -202,3 +202,22 @@ test("resolutions are read again only when a comment resolves or feedback is sen
     [["a", "Done"]],
   );
 });
+
+test("HTML feedback requests in-place Artifact edits without design versions or design-tool instructions", () => {
+  const comment = {
+    id: "1234abcd",
+    design: { id: "explanation", title: "How it works", version: 7, format: "html" as const },
+    text: "Explain the final step",
+    x: 0.2,
+    y: 0.3,
+  };
+  const message = designFeedbackMessage({ comments: [comment] });
+  assert.match(message, /On the artifact "How it works" \(explanation\)/);
+  assert.match(message, /artifact_read.*artifact_show/);
+  assert.doesNotMatch(message, /version|design_read|design_apply/);
+  const parsed = parseDesignFeedback(message)!;
+  assert.equal(parsed.comments[0].design.format, "html");
+  assert.equal(parsed.comments[0].text, comment.text);
+  assert.equal(parsed.comments[0].id, comment.id);
+  assert.equal(designFeedbackText(parsed), "How it works: Explain the final step");
+});

@@ -230,3 +230,37 @@ test("history stays readable when availability check fails, and closing drops a 
   store.dispose();
   await store.publish("Blocked");
 });
+
+test("artifact snapshot requests keep their kind separate from designs", async () => {
+  const calls: unknown[] = [];
+  const store = createDesignPageSharing(
+    {
+      call: async <T>(method: string, args: unknown[]) => {
+        calls.push([method, args]);
+        return (method === "artifact:sharing-status" ? { available: true } : method === "artifact:page-shares" ? [] : { ...snapshot, kind: "artifacts" }) as T;
+      },
+    },
+    "project#chat",
+    "artifacts",
+  );
+  await store.refresh();
+  await store.checkAvailability();
+  await store.publish("Explanation");
+  await store.revoke(snapshot.id);
+  assert.deepEqual(calls, [
+    ["artifact:page-shares", [{ chatId: "project#chat", kind: "artifacts" }]],
+    ["artifact:sharing-status", [{ kind: "artifacts" }]],
+    [
+      "artifact:share-page",
+      [
+        {
+          chatId: "project#chat",
+          kind: "artifacts",
+          title: "Explanation",
+          acknowledgePublic: true,
+        },
+      ],
+    ],
+    ["artifact:revoke-page-share", [{ chatId: "project#chat", id: snapshot.id, kind: "artifacts" }]],
+  ]);
+});

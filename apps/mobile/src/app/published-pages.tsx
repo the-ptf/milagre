@@ -23,13 +23,11 @@ export default function PublishedPagesScreen() {
           paddingBottom: insets.bottom,
         }}
       >
-        {session.client && session.designs.enabled === true ? (
+        {session.client ? (
           <DesignPageShareSheet key={session.client.url} client={session.client} onClose={() => router.back()} onBusyChange={setBusy} />
         ) : (
           <View style={{ padding: 20, gap: 16 }}>
-            <Text style={styles.muted}>
-              {session.client ? "Designs is off for this Mac. Turn it on in Settings > Experimental." : "Connect to a Mac to manage its published pages."}
-            </Text>
+            <Text style={styles.muted}>Connect to a Mac to manage its published pages.</Text>
             <PillButton title="Back to Experimental" onPress={() => router.back()} />
           </View>
         )}

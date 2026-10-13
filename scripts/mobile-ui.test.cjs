@@ -7866,6 +7866,8 @@ test("the phone receives Designs changes without an open Project and clears only
   const pending = { text: "Request", onSent() {} };
   outbox.postDesignMessage("design-host|/p#7", pending);
   outbox.postDesignMessage("other-host|/p#7", pending);
+  const artifactPending = { ...pending, kind: "artifacts" };
+  outbox.postDesignMessage("design-host|/p#8", artifactPending);
   enabled = false;
   events.onSignal("designs");
   assert.equal(render().enabled, true, "the current design stays mounted until the host confirms OFF");
@@ -7874,6 +7876,8 @@ test("the phone receives Designs changes without an open Project and clears only
   assert.equal(render().enabled, false);
   assert.equal(outbox.peekDesignMessage("design-host|/p#7"), null);
   assert.equal(outbox.peekDesignMessage("other-host|/p#7"), pending);
+  assert.equal(outbox.peekDesignMessage("design-host|/p#8"), artifactPending, "turning Designs off keeps Artifact feedback");
+  outbox.designMessageSent("design-host|/p#8", artifactPending);
   events.onStatus(true);
   await settle();
   events.onStatus(false);
@@ -8066,12 +8070,13 @@ test("turning Designs off closes an open phone review and preserves plain feedba
   assert.deepEqual(calls, [], "off does not fetch saved designs or feedback");
 });
 
-test("phone cards preserve unmarked structured designs while removing HTML refs, with one shared catalog per Chat", async () => {
+test("phone cards preserve unmarked structured designs while excluding unverified refs, with one shared catalog per Chat", async () => {
   const catalog = require("../apps/mobile/src/design-catalog.ts");
   let calls = 0;
   const client = {
     url: "catalog-host",
-    call: async () => {
+    call: async (method) => {
+      if (method !== "artifact:list") throw Error("Unknown artifact");
       calls++;
       return [
         { id: "structured", format: "design", version: 2 },
@@ -8126,7 +8131,7 @@ test("the phone refuses a retired HTML design response even while Designs is ena
     find(tree, (node) => node.props.title === "Choose"),
     undefined,
   );
-  assert.ok(find(tree, (node) => node.props.children === "This design is no longer available."));
+  assert.ok(find(tree, (node) => node.props.children === "This page is no longer available."));
   h.cleanup();
 });
 
@@ -8357,7 +8362,7 @@ test("mobile publishing checks availability, retries, and keeps history availabl
   assert.ok(find(tree, (n) => n.props?.children === "Published pages"));
 });
 
-test("mobile Published pages entry requires owner history access and Designs enabled", async () => {
+test("mobile Published pages entry requires owner access and remains available when Designs is off", async () => {
   for (const allowed of [true, false]) {
     const react = hookHost();
     const focuses = [];
@@ -8410,10 +8415,10 @@ test("mobile Published pages entry requires owner history access and Designs ena
       assert.deepEqual(pushed, ["/published-pages"]);
     }
     session.designs.enabled = false;
-    assert.equal(
-      find(render(), (n) => n.props?.title === "Published pages"),
-      undefined,
-    );
+    assert.equal(!!find(render(), (n) => n.props?.title === "Published pages"), allowed);
+    focuses.at(-1)();
+    await settle();
+    assert.equal(!!find(render(), (n) => n.props?.title === "Published pages"), allowed);
   }
 });
 
@@ -8569,4 +8574,137 @@ test("local MCP shared state refreshes a failed revoke and ignores an older stat
   await oldRefresh;
   assert.equal(render().status.clients[0].enabled, false);
   assert.match(render().error, /Could not confirm access was revoked/);
+});
+
+test("HTML artifact opens the current single page with Designs off, without versions or Choose", async () => {
+  const page = { id: "current", format: "html", title: "How it works", version: 1, latest: 1, html: "<h1>Current explanation</h1>" };
+  const calls = [];
+  const client = {
+    url: "artifact-host",
+    call: async (method, args) => {
+      calls.push([method, args]);
+      if (method === "artifact:list") return [page];
+      if (method === "artifact:sharing-status") return { available: true };
+      return page;
+    },
+  };
+  const feature = { ...designsOn, enabled: false };
+  let backs = 0;
+  const h = artifactHost(client, [], { back: () => backs++ }, feature);
+  const props = { hostId: client.url, chatId: "/p#7", id: "historical-id", version: "3" };
+  h.render("ArtifactSheet", props);
+  await settle();
+  h.render("ArtifactSheet", props);
+  await settle();
+  const tree = h.render("ArtifactSheet", props);
+  assert.equal(backs, 0);
+  assert.ok(find(tree, (n) => n.props.html === page.html));
+  assert.ok(find(tree, (n) => n.props.label === "Close artifact"));
+  assert.ok(find(tree, (n) => n.props.title === "Comment"));
+  assert.equal(
+    find(tree, (n) => n.props.title === "Choose" || n.props.children === "Experimental" || /version|Previous design|Next design/.test(n.props.label ?? "")),
+    undefined,
+  );
+  page.html = "<h1>Updated in the same page</h1>";
+  h.appState("active");
+  h.render("ArtifactSheet", props);
+  await settle();
+  const refreshed = h.render("ArtifactSheet", props);
+  assert.ok(find(refreshed, (n) => n.props.html === page.html));
+  find(refreshed, (n) => n.props.accessibilityLabel === "Share artifact").props.onPress();
+  const sharing = find(h.render("ArtifactSheet", props), (n) => n.type === "DesignPageShareSheet");
+  assert.equal(sharing.props.kind, "artifacts");
+  assert.ok(calls.some(([method, args]) => method === "artifact:sharing-status" && args[0]?.kind === "artifacts"));
+  h.cleanup();
+});
+
+test("HTML cards stay visible with Designs off and open without historical version selection", async () => {
+  const pushes = [];
+  const client = {
+    url: "html-card-host",
+    call: async (method) => (method === "artifact:list" ? [{ id: "current", format: "html", version: 1 }] : { id: "current", format: "html", version: 1 }),
+  };
+  const h = artifactHost(client, pushes, undefined, { ...designsOn, enabled: false });
+  const step = { id: "old-step", artifact: { id: "old", title: "Explanation", version: 9 } };
+  h.render("ArtifactCards", { steps: [step], chatId: "/p#7" });
+  await settle();
+  const tree = h.render("ArtifactCards", { steps: [step], chatId: "/p#7" });
+  assert.ok(find(tree, (n) => n.props.kind === "html"));
+  const card = h.render("ArtifactCard", { step, chatId: "/p#7", kind: "html" });
+  assert.equal(card.props.accessibilityLabel, "Artifact Explanation. Open full screen");
+  card.props.onPress();
+  assert.equal(pushes[0].params.kind, "html");
+  assert.equal(pushes[0].params.version, undefined);
+  h.cleanup();
+});
+
+test("Artifact feedback sends from the Chat while Designs is off", async () => {
+  const outbox = require("../apps/mobile/src/design-outbox.ts");
+  let recorded = 0;
+  const message = { kind: "artifacts", text: "Make the explanation shorter.", onSent: () => recorded++ };
+  outbox.postDesignMessage("mac|/p#7", message);
+  const h = chatHost({ effects: true, call: async () => ({}) });
+  h.params.id = "7";
+  h.session.designs = { ...designsOn, enabled: false };
+  h.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1, provider: "codex" };
+  h.render();
+  await settle();
+  assert.ok(
+    h.calls.some((call) => call.method === "chat:send"),
+    "Artifact feedback reaches the agent while Designs is off",
+  );
+  assert.equal(recorded, 1);
+  assert.equal(outbox.peekDesignMessage("mac|/p#7"), null);
+});
+
+test("mobile catalog verifies historical HTML aliases without guessing disabled structured refs", async () => {
+  const { readDesignCatalog, designCatalog } = require("../apps/mobile/src/design-catalog.ts");
+  const reads = [];
+  const client = {
+    call: async (method, args) => {
+      if (method === "artifact:list") return [{ id: "current", format: "html", version: 3 }];
+      reads.push(args[0].id);
+      if (args[0].id === "old-html") return { id: "current", format: "html", version: 3 };
+      throw Error("Designs is off");
+    },
+  };
+  await readDesignCatalog(client, "/p#7", "old-html:1|structured:1", ["old-html", "structured"]);
+  const catalog = designCatalog(client, "/p#7");
+  assert.equal(catalog.find((item) => item.id === "old-html").format, "html");
+  assert.equal(
+    catalog.find((item) => item.id === "structured"),
+    undefined,
+  );
+  await readDesignCatalog(client, "/p#7", "old-html:1|structured:1", ["old-html", "structured"]);
+  assert.deepEqual(reads, ["old-html", "structured"], "each revision resolves unknown ids once");
+});
+
+test("unmarked design cards reload their catalog after Designs is turned on", async () => {
+  const feature = { ...designsOn, enabled: false };
+  const client = {
+    url: "toggle-catalog",
+    call: async (method) => {
+      if (method === "artifact:list") return feature.enabled ? [{ id: "structured", format: "design", version: 1 }] : [];
+      throw Error("Designs is off");
+    },
+  };
+  const h = artifactHost(client, [], undefined, feature);
+  const props = { steps: [{ id: "step", artifact: { id: "structured", title: "Screen", version: 1 } }], chatId: "/p#7" };
+  h.render("ArtifactCards", props);
+  await settle();
+  assert.equal(h.render("ArtifactCards", props), null);
+  feature.enabled = true;
+  h.render("ArtifactCards", props);
+  await settle();
+  const tree = h.render("ArtifactCards", props);
+  assert.equal(tree.props.step.artifact.id, "structured");
+  feature.enabled = false;
+  h.render("ArtifactCards", props);
+  await settle();
+  assert.equal(h.render("ArtifactCards", props), null);
+  feature.enabled = true;
+  h.render("ArtifactCards", props);
+  await settle();
+  assert.equal(h.render("ArtifactCards", props).props.step.artifact.id, "structured", "seen revisions are invalidated on a second enable");
+  h.cleanup();
 });

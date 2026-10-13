@@ -159,7 +159,7 @@ function createRuntime(options) {
     file: path.join(dataDir, "simulator-attachments.json"),
     validateChat: existingChat("attaching a simulator"),
   });
-  const { createChatArtifacts, artifactToolDefinitions } = require("./chat-artifacts.cjs");
+  const { createChatArtifacts, artifactToolDefinitions, htmlArtifactToolDefinitions, artifactCommentToolDefinitions } = require("./chat-artifacts.cjs");
   const artifacts = createChatArtifacts({
     directory: path.join(dataDir, "artifacts"),
     settingsFile: path.join(dataDir, "designs.json"),
@@ -172,7 +172,7 @@ function createRuntime(options) {
     ...options.designSharing,
   });
   commands.handle("artifact:page-shares", (_context, request) => designPageSharing.list(request));
-  commands.handle("artifact:sharing-status", () => designPageSharing.status());
+  commands.handle("artifact:sharing-status", (_context, request) => designPageSharing.status(request));
   commands.handle("artifact:all-page-shares", () => designPageSharing.listAll());
   commands.handle("artifact:revoke-saved-page-share", (_context, request) => designPageSharing.revokeSaved(request));
   commands.handle("artifact:share-page", (_context, request) => designPageSharing.publish(request));
@@ -1330,8 +1330,12 @@ function createRuntime(options) {
     extraTools: (chatId) => [
       ...simulatorToolDefinitions(chatId, simulators),
       ...require("./chat-browsers.cjs").browserToolDefinitions(chatId, browsers),
-      ...(existsSync(path.join(__dirname, "design-mcp-tools.cjs")) ? [] : artifactToolDefinitions(chatId, artifacts)),
-      ...localMcp.agentTools(chatId),
+      ...(existsSync(path.join(__dirname, "design-mcp-tools.cjs"))
+        ? []
+        : artifactToolDefinitions(chatId, artifacts).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name))),
+      ...localMcp.agentTools(chatId).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name)),
+      ...htmlArtifactToolDefinitions(chatId, artifacts),
+      ...artifactCommentToolDefinitions(chatId, artifacts),
       ...require("./advisor-tools.cjs").advisorToolDefinitions(chatId, advisors),
       // Milagre's own Linear sign-in, so agents don't reach for a Linear MCP or connector.
       ...(linear.enabled() ? linearToolDefinitions(linearTools) : []),

@@ -153,3 +153,19 @@ test("composed registry rejects queued design and comment mutations after revoca
     }
   }
 });
+
+test("external Designs adapter never exposes HTML artifacts or their comments", async (t) => {
+  const { tools, artifacts, scope } = await fixture(t, "*");
+  const html = await artifacts.show({ chatId: scope.chatId, title: "Private explainer", html: "<p>Explanation</p>" });
+  const [comment] = await artifacts.addComments({
+    chatId: scope.chatId,
+    comments: [{ design: { id: html.id, version: html.version }, text: "HTML feedback" }],
+  });
+  assert.equal(tools.artifact_show, undefined);
+  assert.equal(tools.artifact_read, undefined);
+  assert.ok(JSON.parse(await tools.design_list.run({})).every((item) => item.format === "design"));
+  assert.ok(JSON.parse(await tools.artifact_comments.run({ all: true })).every((item) => item.id !== comment.id));
+  await assert.rejects(tools.design_read.run({ id: html.id }), /separate formats/);
+  await assert.rejects(tools.design_apply.run({ id: html.id, expectedVersion: html.version, operations: [{ op: "replace", document }] }), /separate formats/);
+  await assert.rejects(tools.artifact_resolve_comment.run({ id: comment.id, note: "Do not resolve" }), /outside/);
+});

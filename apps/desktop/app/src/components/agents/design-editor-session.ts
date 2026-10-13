@@ -1,5 +1,5 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
-import type { Artifact } from "@milagre/shared/artifact";
+import type { DesignArtifact as Artifact } from "@milagre/shared/artifact";
 import type { DesignDocument } from "@milagre/shared/design";
 
 export interface DesignEditorSession {

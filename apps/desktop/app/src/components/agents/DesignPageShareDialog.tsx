@@ -9,12 +9,12 @@ import { ScrollArea } from "../primitives/ScrollArea";
 const button = "rounded-[8px] border border-line px-3 py-1.5 text-[12px] hover:bg-hover disabled:opacity-40";
 
 /** A public snapshot always contains the entire saved Designs page, regardless of the viewed version or selection. */
-export function DesignPageShareDialog({ chatId, onClose }: { chatId?: string | null; onClose: () => void }) {
+export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { chatId?: string | null; kind?: "designs" | "artifacts"; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const alive = useRef(false);
   const working = useRef(false);
   const reads = useRef(0);
-  const [title, setTitle] = useState("Designs");
+  const [title, setTitle] = useState(kind === "artifacts" ? "Artifact" : "Designs");
   const [shares, setShares] = useState<DesignPageShare[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -35,7 +35,7 @@ export function DesignPageShareDialog({ chatId, onClose }: { chatId?: string | n
     async (preserveError = false) => {
       const read = ++reads.current;
       try {
-        const rows = await (chatId ? api.pageShares({ chatId }) : api.allPageShares());
+        const rows = await (chatId ? api.pageShares({ chatId, kind }) : api.allPageShares());
         if (alive.current && read === reads.current) {
           setShares(rows);
           if (rows.some((share) => share.pending && !share.revoked)) setHistoryOpen(true);
@@ -49,25 +49,25 @@ export function DesignPageShareDialog({ chatId, onClose }: { chatId?: string | n
         if (alive.current && read === reads.current) setLoading(false);
       }
     },
-    [api, chatId],
+    [api, chatId, kind],
   );
   const checkAvailability = useCallback(async () => {
     setChecking(true);
     try {
-      const status = await api.sharingStatus();
+      const status = await api.sharingStatus({ kind });
       if (alive.current) {
         setAvailability(status);
-        if (chatId) confirmDesignSharingAvailability(chatId, status.available === true);
+        if (chatId) confirmDesignSharingAvailability(chatId, status.available === true, kind);
       }
     } catch (cause) {
       if (alive.current) {
         setAvailability({ available: false, reason: ipcErrorMessage(cause) });
-        if (chatId) confirmDesignSharingAvailability(chatId, false);
+        if (chatId) confirmDesignSharingAvailability(chatId, false, kind);
       }
     } finally {
       if (alive.current) setChecking(false);
     }
-  }, [api, chatId]);
+  }, [api, chatId, kind]);
   useEffect(() => {
     alive.current = true;
     const element = dialog.current;
@@ -92,6 +92,7 @@ export function DesignPageShareDialog({ chatId, onClose }: { chatId?: string | n
         chatId,
         title: title.trim(),
         acknowledgePublic: true,
+        kind,
       });
       if (alive.current) {
         setShares((rows) => [share, ...rows.filter((row) => row.id !== share.id)]);
@@ -120,7 +121,7 @@ export function DesignPageShareDialog({ chatId, onClose }: { chatId?: string | n
     setError("");
     setNotice("");
     try {
-      if (chatId) await api.revokePageShare({ chatId, id });
+      if (chatId) await api.revokePageShare({ chatId, id, kind });
       else await api.revokeSavedPageShare({ id });
       if (alive.current) {
         setShares((rows) => rows.map((row) => (row.id === id ? { ...row, revoked: true } : row)));
@@ -147,7 +148,8 @@ export function DesignPageShareDialog({ chatId, onClose }: { chatId?: string | n
       <div className="flex items-baseline justify-between gap-3">
         <span className="truncate text-[13px] font-medium">{share.title}</span>
         <span className="shrink-0 text-[11px] text-ink-3">
-          {share.designCount} {share.designCount === 1 ? "design" : "designs"}
+          {share.designCount}{" "}
+          {share.kind === "artifacts" ? (share.designCount === 1 ? "artifact" : "artifacts") : share.designCount === 1 ? "design" : "designs"}
           {share.revoked ? " · Revoked" : ""}
         </span>
       </div>
@@ -235,7 +237,9 @@ export function DesignPageShareDialog({ chatId, onClose }: { chatId?: string | n
             <p className="mb-4 text-[13px] leading-5 text-ink-2">
               {featured
                 ? "This snapshot stays frozen. Later edits stay private."
-                : "A frozen copy of every saved design on this page. Later edits stay private."}
+                : kind === "artifacts"
+                  ? "A frozen copy of this Chat's saved artifact page. Later edits stay private."
+                  : "A frozen copy of every saved design on this page. Later edits stay private."}
             </p>
           )}
           {featured && shareDetails(featured, true)}
@@ -243,7 +247,11 @@ export function DesignPageShareDialog({ chatId, onClose }: { chatId?: string | n
             <p className="font-medium text-ink">Public access</p>
             <p className="text-ink-2">Anyone with the link can view, copy or redistribute it. Copies may remain online permanently.</p>
             {chatId && (
-              <p className="text-ink-3">Unsaved edits, comments and Chat messages stay private. Shared files can include content clipped by frames.</p>
+              <p className="text-ink-3">
+                {kind === "artifacts"
+                  ? "Comments and Chat messages stay private. The full saved HTML, including hidden content, is shared. External resources are blocked."
+                  : "Unsaved edits, comments and Chat messages stay private. Shared files can include content clipped by frames."}
+              </p>
             )}
           </div>
           {chatId && !featured && (

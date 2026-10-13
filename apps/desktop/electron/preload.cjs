@@ -26,6 +26,7 @@ const LOCAL_ONLY = [
 ];
 const LOCAL_ONLY_PREFIXES = [
   "app:",
+  "artifact-preview:",
   "canvas:",
   "computers:",
   "devices:",
@@ -89,8 +90,10 @@ function makeBridge(invoke, listen, send) {
     readDesignsEnabled: () => invoke("designs:enabled:read"),
     saveDesignsEnabled: (value) => invoke("designs:enabled:save", value),
     onDesignsEnabledChanged: (callback) => listen("designs:enabled-changed", callback),
+    createArtifactPreview: (html) => invoke("artifact-preview:register", html),
+    releaseArtifactPreview: (url) => invoke("artifact-preview:release", url),
     artifacts: {
-      sharingStatus: () => invoke("artifact:sharing-status"),
+      sharingStatus: (request) => invoke("artifact:sharing-status", request),
       allPageShares: () => invoke("artifact:all-page-shares"),
       revokeSavedPageShare: (request) => invoke("artifact:revoke-saved-page-share", request),
       pageShares: (request) => invoke("artifact:page-shares", request),

@@ -390,3 +390,20 @@ test("resolving a design comment reads as that, with the agent's note", () => {
     },
   );
 });
+
+test("HTML artifact tool renders a typed artifact card for both providers", () => {
+  const artifact = { id: "explanation", title: "Explanation", version: 2, format: "html" };
+  const args = { title: artifact.title, html: "<p>Why it works</p>" };
+  const text = JSON.stringify({ ...artifact, versions: 1, width: 1280, height: 800 });
+  const name = "mcp__milagre__artifact_show";
+  assert.deepEqual(claudeStep("html-1", name, args), { id: "html-1", kind: "artifact", title: "Showed `Explanation`" });
+  assert.deepEqual(claudeStepResult({ id: "html-1", name, input: args }, ok(text)), { id: "html-1", status: "done", artifact, title: "Showed `Explanation`" });
+  const call = { type: "mcpToolCall", id: "html-2", server: "milagre", tool: "artifact_show", status: "inProgress", arguments: args };
+  assert.deepEqual(codexStep(call), { id: "html-2", kind: "artifact", title: "Showed `Explanation`" });
+  assert.deepEqual(codexStepResult({ ...call, status: "completed", result: { content: [{ type: "text", text }] } }), {
+    id: "html-2",
+    status: "done",
+    artifact,
+    title: "Showed `Explanation`",
+  });
+});

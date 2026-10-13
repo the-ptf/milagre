@@ -189,6 +189,8 @@ export type CliProgress =
   | { provider: ModelProvider; phase: "extract" | "validate" | "done" };
 
 export type MilagreBridge = {
+  createArtifactPreview: (html: string) => Promise<string>;
+  releaseArtifactPreview: (url: string) => Promise<void>;
   simulators: SimulatorApi;
   browsers: BrowserApi;
   terminals: TerminalApi;

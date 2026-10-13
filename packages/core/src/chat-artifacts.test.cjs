@@ -4,7 +4,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { z } = require("zod");
-const { createChatArtifacts, artifactToolDefinitions } = require("./chat-artifacts.cjs");
+const { createChatArtifacts, artifactToolDefinitions, htmlArtifactToolDefinitions, artifactCommentToolDefinitions } = require("./chat-artifacts.cjs");
 
 const CHAT = "/repo#3";
 const designDocument = () => ({
@@ -34,7 +34,7 @@ async function fixture(t) {
 test("Designs is on by default, persists off, and gates already cached tools and all operations", async (t) => {
   const { api, tools, directory } = await fixture(t);
   assert.equal(api.enabled(), true);
-  assert.equal(api.show, undefined);
+  assert.equal(typeof api.show, "function");
   assert.equal(tools.artifact_show, undefined);
   assert.equal(tools.artifact_read, undefined);
   await tools.design_show.run({ id: "welcome", title: "Welcome", document: designDocument() });
@@ -47,12 +47,14 @@ test("Designs is on by default, persists off, and gates already cached tools and
     () => tools.design_read.run({ id: "welcome" }),
     () => tools.design_apply.run({ id: "welcome", expectedVersion: 1, operations: [{ op: "delete", id: "heading" }] }),
     () => tools.design_export.run({ id: "welcome", format: "json" }),
-    () => api.list(request),
+    () => api.list({ ...request, format: "design" }),
     () => api.addComments({ ...request, comments: [{ design: { id: "welcome", version: 1 }, text: "Hidden" }] }),
-    () => tools.artifact_comments.run({}),
+
     () => tools.artifact_resolve_comment.run({ id: comment.id, note: "Done" }),
   ];
   for (const call of calls) await assert.rejects(call(), /Designs are off/);
+  assert.deepEqual(await api.list(request), []);
+  assert.deepEqual(await api.comments(request), []);
   const restarted = createChatArtifacts({ directory, validateChat: async () => {} });
   assert.equal(restarted.enabled(), false);
   await restarted.setEnabled(true);
@@ -79,44 +81,97 @@ test("turning Designs off is ordered with accepted writes and rejects queued lat
   assert.equal(api.enabled(), true);
 });
 
-test("legacy HTML files stay untouched and are excluded from every active design path", async (t) => {
+test("legacy HTML reopens as one current artifact and keeps old files and comments", async (t) => {
   const { api, directory } = await fixture(t);
   await api.showDesign({ chatId: CHAT, id: "active", title: "Active", document: designDocument() });
   const folder = await chatFolder(directory);
-  const legacyFile = path.join(folder, "old.json");
-  const old = JSON.stringify({ id: "old", versions: [{ version: 1, title: "Old", html: "<p>Unchanged</p>" }] });
-  await fs.writeFile(legacyFile, old);
+  await fs.writeFile(path.join(folder, "old.json"), JSON.stringify({ id: "old", versions: [{ version: 1, title: "Old", html: "<p>Old</p>", createdAt: 1 }] }));
   const split = path.join(folder, "split");
   await fs.mkdir(split);
-  const meta = JSON.stringify({ id: "split", versions: [{ version: 1, title: "Old", createdAt: 1 }] });
-  await fs.writeFile(path.join(split, "meta.json"), meta);
-  await fs.writeFile(path.join(split, "v1.html"), "<p>Keep this file</p>");
+  await fs.writeFile(path.join(split, "meta.json"), JSON.stringify({ id: "split", versions: [{ version: 1, title: "Newer", createdAt: 2 }] }));
+  await fs.writeFile(path.join(split, "v1.html"), "<p>Newer</p>");
   assert.deepEqual(
-    (await api.list({ chatId: CHAT })).map((item) => item.id),
-    ["active"],
+    (await api.list({ chatId: CHAT, format: "html" })).map((item) => item.id),
+    ["split"],
   );
+  assert.equal((await api.get({ chatId: CHAT, id: "old", version: 1 })).html, "<p>Newer</p>");
+  assert.equal((await api.get({ chatId: CHAT, id: "old" })).format, "html");
+  assert.equal(await fs.readFile(path.join(folder, "old", "v1.html"), "utf8"), "<p>Old</p>");
   for (const id of ["old", "split"]) {
-    await assert.rejects(api.get({ chatId: CHAT, id }), /retired HTML format/);
-    await assert.rejects(api.showDesign({ chatId: CHAT, id, title: "Overwrite", document: designDocument() }), /retired HTML format/);
-    await assert.rejects(api.exportDesign({ chatId: CHAT, id, format: "json" }), /retired HTML format/);
-    await assert.rejects(api.addComments({ chatId: CHAT, comments: [{ design: { id, version: 1 }, text: "Old" }] }), /retired HTML format/);
+    await assert.rejects(api.showDesign({ chatId: CHAT, id, title: "Overwrite", document: designDocument() }), /separate formats/);
+    await assert.rejects(api.exportDesign({ chatId: CHAT, id, format: "json" }), /separate formats/);
   }
-  assert.equal(await fs.readFile(legacyFile, "utf8"), old);
-  assert.equal(await fs.readFile(path.join(split, "meta.json"), "utf8"), meta);
-  assert.equal(await fs.readFile(path.join(split, "v1.html"), "utf8"), "<p>Keep this file</p>");
-  assert.deepEqual((await fs.readdir(folder)).sort(), ["active", "old.json", "split"]);
-  const comments = JSON.stringify([
-    { id: "00000001", design: { id: "old", version: 1 }, text: "Keep old feedback", createdAt: 1 },
-    { id: "00000002", design: { id: "split", version: 1 }, text: "Keep split feedback", createdAt: 2 },
-    { id: "00000003", design: { id: "active", version: 1 }, text: "Show structured feedback", createdAt: 3 },
-  ]);
-  await fs.writeFile(path.join(folder, "comments"), comments);
+  await fs.writeFile(
+    path.join(folder, "comments"),
+    JSON.stringify([
+      { id: "00000001", design: { id: "old", version: 1 }, text: "Keep old feedback", createdAt: 1 },
+      { id: "00000002", design: { id: "split", version: 1 }, text: "Keep split feedback", createdAt: 2 },
+      { id: "00000003", design: { id: "active", version: 1 }, text: "Design feedback", createdAt: 3 },
+    ]),
+  );
+  assert.equal((await api.comments({ chatId: CHAT })).length, 3);
+  await api.resolveComment({ chatId: CHAT, id: "00000001", note: "Updated the live artifact" });
+  await api.setEnabled(false);
   assert.deepEqual(
     (await api.comments({ chatId: CHAT })).map((comment) => comment.id),
-    ["00000003"],
+    ["00000001", "00000002"],
   );
-  await assert.rejects(api.resolveComment({ chatId: CHAT, id: "00000001", note: "Hidden" }), /retired HTML format/);
-  assert.equal(await fs.readFile(path.join(folder, "comments"), "utf8"), comments);
+  assert.equal((await api.list({ chatId: CHAT }))[0].id, "split");
+  assert.equal((await api.get({ chatId: CHAT, id: "old", version: 1 })).html, "<p>Newer</p>");
+  await api.show({ chatId: CHAT, title: "Current explanation", html: "<p>Current</p>" });
+  assert.equal((await api.get({ chatId: CHAT, id: "old", version: 1 })).html, "<p>Current</p>");
+  assert.equal(await fs.readFile(path.join(split, "v1.html"), "utf8"), "<p>Newer</p>", "legacy HTML remains recoverable on disk");
+});
+
+test("HTML tool updates one live page independently of Designs, without version history", async (t) => {
+  const { api, directory } = await fixture(t);
+  const tools = Object.fromEntries([...htmlArtifactToolDefinitions(CHAT, api), ...artifactCommentToolDefinitions(CHAT, api)].map((tool) => [tool.name, tool]));
+  await api.setEnabled(false);
+  const first = JSON.parse(await tools.artifact_show.run({ title: "Explainer", html: "<p>One</p>" }));
+  const updated = JSON.parse(await tools.artifact_show.run({ id: "different-id", title: "Updated", html: "<p>Two</p>" }));
+  assert.equal(updated.id, first.id);
+  assert.equal(updated.version, first.version + 1);
+  assert.equal(updated.versions, 1);
+  const folder = path.join(directory, require("node:crypto").createHash("sha256").update(CHAT).digest("hex").slice(0, 32), first.id);
+  assert.deepEqual((await fs.readdir(folder)).sort(), ["meta.json", "v2.html"], "live updates retain only the current page");
+  const read = JSON.parse(await tools.artifact_read.run({ id: first.id, version: first.version }));
+  assert.equal(read.html, "<p>Two</p>");
+  assert.equal(read.document, undefined);
+  assert.equal(JSON.parse(await tools.artifact_list.run({})).length, 1);
+  const snapshot = await api.pageSnapshot({ chatId: CHAT, title: "Shared explainer", kind: "artifacts" });
+  assert.deepEqual(snapshot, {
+    schemaVersion: 1,
+    kind: "artifacts",
+    title: "Shared explainer",
+    artifacts: [{ title: "Updated", html: "<p>Two</p>", width: 1280, height: 800 }],
+  });
+  const [comment] = await api.addComments({ chatId: CHAT, comments: [{ design: { id: first.id, version: updated.version }, text: "Explain this" }] });
+  await tools.artifact_show.run({ title: "Updated again", html: "<p>Three</p>" });
+  await tools.artifact_resolve_comment.run({ id: comment.id, note: "Expanded explanation" });
+  assert.equal(JSON.parse(await tools.artifact_comments.run({ all: true }))[0].resolved.note, "Expanded explanation");
+  await assert.rejects(api.pageSnapshot({ chatId: CHAT, title: "Designs" }), /Designs are off/);
+  await api.setEnabled(true);
+  await api.showDesign({ chatId: CHAT, id: "screen", title: "Screen", document: designDocument() });
+  await assert.rejects(tools.artifact_show.run({ id: "screen", title: "Overwrite", html: "<p>x</p>" }), /separate formats/);
+  await assert.rejects(tools.artifact_read.run({ id: "screen" }), /separate formats/);
+  await assert.rejects(api.get({ chatId: CHAT, id: first.id, format: "design" }), /separate formats/);
+  await assert.rejects(tools.artifact_show.run({ title: "Oversized", html: "a".repeat(1_000_001) }), /limited/);
+});
+
+test("HTML feedback survives edits made while the comment is being composed", async (t) => {
+  const { api } = await fixture(t);
+  const first = await api.show({ chatId: CHAT, title: "Explainer", html: "<p>One</p>" });
+  await api.show({ chatId: CHAT, title: "Explainer", html: "<p>Two</p>" });
+  await api.setEnabled(false);
+  const [comment] = await api.addComments({
+    chatId: CHAT,
+    comments: [{ id: "12345678", design: first, text: "Explain this paragraph" }],
+  });
+  assert.equal(comment.design.version, first.version);
+  assert.equal((await api.comments({ chatId: CHAT }))[0].id, comment.id);
+  await api.resolveComment({ chatId: CHAT, id: comment.id, note: "Expanded the paragraph" });
+  assert.equal((await api.comments({ chatId: CHAT }))[0].resolved.note, "Expanded the paragraph");
+  await assert.rejects(api.addComments({ chatId: CHAT, comments: [{ design: { ...first, version: 3 }, text: "Future revision" }] }), /not available/);
 });
 
 test("design documents and comment batches retain input and size validation", async (t) => {

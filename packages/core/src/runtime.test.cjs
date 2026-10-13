@@ -46,13 +46,14 @@ test("the host Designs switch defaults on, broadcasts saves, gates API calls and
   assert.ok([...allSkills.skills, ...allSkills.shadowed].some((skill) => skill.path === bundled));
   assert.deepEqual(await runtime.invoke("designs:enabled:save", [false]), { enabled: false });
   assert.deepEqual(events.find((event) => event.channel === "designs:enabled-changed").payload, { enabled: false });
-  await assert.rejects(runtime.invoke("artifact:list", [{ chatId: "/unopened#1" }]), /Designs are off/);
+  await assert.rejects(runtime.invoke("artifact:list", [{ chatId: "/unopened#1" }]), /existing Chat/);
   await assert.rejects(runtime.invoke("artifact:page-shares", [{ chatId: "/unopened#1" }]), /Designs are off/);
   await assert.rejects(runtime.invoke("artifact:share-page", [{ chatId: "/unopened#1", title: "Designs", acknowledgePublic: true }]), /Designs are off/);
   await assert.rejects(runtime.invoke("artifact:revoke-page-share", [{ chatId: "/unopened#1", id: "x".repeat(43) }]), /Designs are off/);
-  await assert.rejects(runtime.invoke("artifact:add-comments", [{}]), /Designs are off/);
+  await assert.rejects(runtime.invoke("artifact:add-comments", [{}]), /existing Chat/);
   const disabledSkills = await runtime.invoke("skills:list", [null]);
   assert.ok(![...disabledSkills.skills, ...disabledSkills.shadowed].some((skill) => skill.path === bundled));
+  assert.ok([...disabledSkills.skills, ...disabledSkills.shadowed].some((skill) => skill.name === "artifacts"));
   await assert.rejects(runtime.invoke("skills:read", [null, bundled]), /no longer there/);
   await assert.rejects(runtime.invoke("designs:enabled:save", ["yes"]), /boolean/);
   await runtime.close();

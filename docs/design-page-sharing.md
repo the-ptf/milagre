@@ -1,4 +1,4 @@
-# Share a Designs page
+# Share a Designs page or Artifact
 
 The Share action publishes every saved structured design in the current Chat as one read-only page. It has no selection of individual designs or elements. The snapshot uses the latest saved version of each design, captured together under the store queue. Unsaved editor changes, comments, Chat history and Project files are excluded.
 
@@ -6,9 +6,15 @@ Publishing asks for a public title and shows this notice before any upload:
 
 > This publishes every saved design on this page. Anyone with the link can view, copy or redistribute it. Copies may remain online permanently.
 
-Both publish dialogs also explain that shared files can include content clipped by frames. The viewer uses vectors, so clipping is not a way to redact content.
+Both Designs publish dialogs also explain that shared files can include content clipped by frames. The viewer uses vectors, so clipping is not a way to redact content.
 
 Every deliberate publication creates a new immutable URL. Later local edits do not update old links. Share history can copy, open and revoke each hosted snapshot. A lost upload acknowledgement leaves a visible "Publication not confirmed" entry that can be retried or revoked. Revocation removes the hosted page and permanently refuses that ID, including delayed uploads; it cannot remove downloaded copies.
+
+## Artifact snapshots
+
+Artifacts publish the Chat's one current HTML page. Updating that page in place never changes an existing share URL. `kind: "artifacts"` selects this path; omitted `kind` means Designs. The host and Worker require exactly one HTML page, bounded to 1,000,000 characters and the same 8 MiB request/render limits. Share histories stay separate by kind.
+
+The public Artifact is a responsive iframe with `sandbox="allow-scripts"`. Inline interaction works in an opaque origin. Parent DOM, cookies, storage, host APIs, remote requests, forms, popups and navigation are blocked. Shared Artifacts must be self-contained; external images, fonts and scripts are not fetched or embedded. The share dialog and viewer disclose this restriction. The complete HTML is published, including any hidden content in the source, so the notice applies to the entire page.
 
 ## Implementation
 
@@ -19,9 +25,9 @@ Every deliberate publication creates a new immutable URL. Later local edits do n
 - `@milagre/shared/design-page` validates snapshots and generates a standalone SVG canvas viewer with pan, zoom and fit. No source JSON or comments appear in public HTML. Limits are 20 designs, 5,000 layers, 50,000 text characters after component expansion, 8 MiB of snapshot JSON and 8 MiB of rendered HTML; an oversized page fails as a whole. Validated snapshots are immutable and reuse validation during rendering.
 - `apps/design-share` hosts immutable pages on Cloudflare Durable Objects. See its README for authorization, quotas, deployment configuration and launch requirements.
 
-Desktop and mobile use `artifact:page-shares`, `artifact:share-page` and `artifact:revoke-page-share`. Publishing requires the literal `acknowledgePublic: true`. Each command validates its Chat and the Designs flag. `artifact:sharing-status` disables publishing while the service is unavailable.
+Desktop and mobile use `artifact:page-shares`, `artifact:share-page` and `artifact:revoke-page-share`. Publishing requires the literal `acknowledgePublic: true`. Each command validates its Chat and page kind. The Designs flag applies only to structured pages. `artifact:sharing-status` checks the requested kind; both UIs hide Share while publication is unavailable.
 
-Settings > Experimental > Published pages uses owner-only `artifact:all-page-shares` and `artifact:revoke-saved-page-share`. These work after the original Chat is deleted and retain Designs flag checks. Unreadable history files are skipped with a host warning so other pages remain manageable. Confined demo phones cannot publish, revoke, inspect global history or query sharing status. Mobile remains review-only for design editing.
+Settings > Experimental > Published pages uses owner-only `artifact:all-page-shares` and `artifact:revoke-saved-page-share`. These work after the original Chat is deleted and while Designs is off. Unreadable history files are skipped with a host warning so other pages remain manageable. Confined demo phones cannot publish, revoke, inspect global history or query sharing status. Mobile remains review-only for design editing.
 
 The production origin is `https://share.milagre.cloud`. Isolated runtimes can inject `designSharing.origin` and a fetch implementation for local checks. This change does not deploy the Worker or publish an app update.
 
@@ -31,4 +37,4 @@ The production origin is `https://share.milagre.cloud`. Isolated runtimes can in
 
 The adapter exposes `design_list` and the existing structured design/comment tools. An explicit ID list rejects implicit creation and all access outside that list. Comment resolution checks the comment's owning design. Every execution rechecks connection activity and Designs enabled; reads recheck after completion before returning data. Read-only grants omit writes. Inputs reject unknown keys, so a caller cannot substitute another Chat.
 
-Public publication is not an MCP write capability. The adapter has no publish tool, Project tool, Worktree tool or Chat management tool. Transport, persisted grants and their configuration are owned by the linked Local Milagre MCP Worktree. The adapter is ready for that integration; adding this file alone does not start an external MCP service.
+Public publication is not an MCP write capability. The adapter has no publish tool, Project tool, Worktree tool or Chat management tool. The integrated local MCP service owns transport, persisted grants and client configuration. HTML Artifacts and their comments are excluded from its Designs-only scope. Queued writes recheck the grant immediately before committing.

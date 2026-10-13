@@ -395,3 +395,27 @@ test("rendered size limits return 413 without a quota reservation", async () => 
   assert.equal((await budget.send("PUT")).status, 413);
   assert.equal(budget.reservations.length, 0);
 });
+
+test("one interactive Artifact publishes as an immutable sandboxed page and can be revoked", async () => {
+  const f = await fixture({ validate: validateDesignPageSnapshot, render: renderDesignPage });
+  const snapshot = {
+    schemaVersion: 1,
+    kind: "artifacts",
+    title: "Explanation",
+    artifacts: [{ title: "Explanation", width: 1280, height: 800, html: '<!doctype html><button onclick="this.textContent=42">Explore</button>' }],
+  };
+  assert.equal((await f.send("PUT", snapshot)).status, 201);
+  assert.equal((await f.send("PUT", snapshot)).status, 200);
+  const page = await f.send("GET");
+  assert.match(page.headers.get("content-security-policy"), /frame-src 'none'/);
+  const html = await page.text();
+  assert.match(html, /sandbox="allow-scripts"/);
+  assert.match(html, /Explore/);
+  assert.doesNotMatch(html, /allow-same-origin|Canvas zoom/);
+  snapshot.artifacts[0].html = "<h1>Later private edit</h1>";
+  assert.equal((await f.send("PUT", snapshot)).status, 409);
+  assert.equal(await (await f.send("GET")).text(), html);
+  assert.equal((await f.send("DELETE")).status, 204);
+  assert.equal((await f.send("GET")).status, 404);
+  assert.equal((await f.send("PUT", snapshot)).status, 410);
+});

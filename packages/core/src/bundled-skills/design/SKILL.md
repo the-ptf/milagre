@@ -5,6 +5,8 @@ description: Create editable screen designs in a Milagre Chat with named layers,
 
 # Designing in a Chat
 
+Use this tool for UI screens, mockups and visual designs. For a page explaining a topic, a report or an interactive explainer, use `artifact_show` and the artifacts skill. Each Chat has one live HTML artifact page, separate from its editable designs.
+
 If the user named another design tool (Pencil, Figma, Paper or any other MCP or app), use that tool. Their choice wins over Milagre designs.
 
 1. **Ground it.** In a project with an app, read its screens, colors, type and components first, and design in that style. Ask one question only if the platform or screen is unclear.
@@ -121,6 +123,6 @@ Use `insert` with a `node` and optional `index` to add a layer, `delete` with an
 
 ## Availability
 
-Designs is enabled by default under Settings > Experimental. Turning it off removes the Designs interface and tools on this host. If a cached call reports that Designs is off, stop design work and continue other requested work; there is no HTML fallback. Existing HTML artifacts are retired and cannot be opened or revised. Create new structured documents with new ids when replacing them.
+Designs is enabled by default under Settings > Experimental. Turning it off removes the Designs interface and tools on this host. If a cached call reports that Designs is off, stop design work and continue other requested work; there is no HTML fallback. HTML Artifacts remain available as the Chat's single explanatory page through `artifact_read` and `artifact_show`. Use the artifacts skill for that purpose; do not use it to bypass a disabled Designs setting.
 
 Keep replies short: say what differs between variants or what changed. The card shows the design.

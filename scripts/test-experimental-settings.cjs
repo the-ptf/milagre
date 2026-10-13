@@ -104,7 +104,13 @@ async function browserChecks() {
     await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Close").click()`);
     await waitFor(`!${shareDialog}`);
     await evaluate(`${designsSetting}.querySelector('[role="switch"][aria-label="Designs"]').click()`);
-    await waitFor(`!${designsSetting}.textContent.includes("Published pages")`);
+    await waitFor(`${designsSetting}.querySelector('[role="switch"][aria-label="Designs"]').getAttribute("aria-checked") === "false"`);
+    assert.equal(await evaluate(`${designsSetting}.textContent.includes("Published pages")`), true, "all public links remain manageable while Designs is off");
+    await evaluate(`[...${designsSetting}.querySelectorAll("button")].find((b) => b.textContent === "Manage").click()`);
+    await waitFor(`${shareDialog}?.open && ${shareDialog}.textContent.includes("Deleted Chat page")`);
+    await screenshot("published-pages-designs-off");
+    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Close").click()`);
+    await waitFor(`!${shareDialog}`);
     await evaluate(`${designsSetting}.querySelector('[role="switch"][aria-label="Designs"]').click()`);
     await waitFor(`${designsSetting}.textContent.includes("Published pages")`);
     await evaluate(`${toggle}.click()`);

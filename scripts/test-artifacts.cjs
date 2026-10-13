@@ -189,23 +189,23 @@ window.shareCalls = [];
 window.shares = [];
 window.milagre = {
   listEditors: async () => [],
-  readDesignsEnabled: async () => ({ enabled: true }),
-  onDesignsEnabledChanged: () => () => {},
+  readDesignsEnabled: async () => ({ enabled: window.designsEnabled !== false }),
+  onDesignsEnabledChanged: (listener) => { window.designsChanged = listener; return () => {}; },
   artifacts: {
     sharingStatus: async () => {
       if (window.holdHealth) await new Promise((resolve) => { window.finishHealth = resolve; });
       return window.sharingOffline ? { available: false, reason: "The sharing service could not be reached." } : { available: true };
     },
-    pageShares: async ({ chatId }) => {
+    pageShares: async ({ chatId, kind = "designs" }) => {
       window.shareCalls.push(["list", chatId]);
       if (window.shareListError) throw new Error("Sharing is unavailable. Try again.");
-      return window.shares.slice();
+      return window.shares.filter(share => (share.kind ?? "designs") === kind);
     },
     sharePage: async (input) => {
       window.shareCalls.push(["publish", input]);
       if (window.sharePublishError) throw new Error("Publish failed. Try again.");
       if (window.holdPublish) await new Promise((resolve) => { window.finishPublish = resolve; });
-      const row = { id: "snapshot-" + (window.shares.length + 1), url: "https://share.milagre.cloud/s/snapshot-" + (window.shares.length + 1), title: input.title, createdAt: 1780000000000, designCount: 2 };
+      const row = { id: "snapshot-" + (window.shares.length + 1), url: "https://share.milagre.cloud/s/snapshot-" + (window.shares.length + 1), title: input.title, createdAt: 1780000000000, designCount: input.kind === "artifacts" ? 1 : 2, ...(input.kind === "artifacts" ? { kind: "artifacts" } : {}) };
       if (window.uncertainShare) row.pending = true;
       window.shares.unshift(row);
       if (window.uncertainShare) throw new Error("Publication could not be confirmed.");
@@ -219,8 +219,8 @@ window.milagre = {
     list: async () => [
       { id: "login", version: window.latest, title: "Login screen, warmer", format: "design", versions: window.latest, width: 1280, height: 800 },
       { id: "home", version: 1, title: "Home", format: "design", versions: 1, width: 390, height: 844 },
-      { id: "legacy", version: 1, title: "Retired HTML", versions: 1, width: 1280, height: 800 },
-    ],
+      { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, width: 1280, height: 800 },
+    ].filter((ref) => window.designsEnabled !== false || ref.format === "html"),
     addComments: async ({ comments }) => {
       const added = comments.map((comment) => ({ ...comment, createdAt: 1 }));
       window.kept = [...(window.kept ?? []), ...added];
@@ -231,8 +231,9 @@ window.milagre = {
       window.calls.push([chatId, id, version ?? null]);
       // As the daemon: a key under a Worktree's path is no open Chat.
       if (chatId.split("#")[0] !== "/fixture") throw new Error("Open an existing Chat before showing a design.");
+      if (window.designsEnabled === false && id !== "legacy" && id !== "current-artifact") throw new Error("Designs is disabled.");
       if (id === "home") return { id, version: 1, title: "Home", versions: 1, latest: 1, width: 390, height: 844, format: "design", document: home, html: designHtml(home) };
-      if (id === "legacy") throw new Error("Retired HTML must never be requested");
+      if (id === "legacy" || id === "current-artifact") return { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, latest: window.htmlVersion ?? 1, width: 1280, height: 800, html: "<!doctype html><h1>How this works " + (window.htmlVersion ?? 1) + "</h1>" };
       const latest = window.latest;
       const shown = version ?? latest;
       return { id, version: shown, title: shown === 1 ? "Login screen" : "Login screen, warmer", versions: latest, latest, width: 1280, height: 800, format: "design", document: designs[shown], html: designHtml(designs[shown]) };
@@ -258,6 +259,8 @@ function Fixture() {
   useSidePanelRoom("changes", changes, 332, () => setChanges(false));
   window.setDiff = setDiff;
   window.revise = () => { window.latest = 3; setRevised(true); };
+  const [htmlRevised, setHtmlRevised] = useState(false);
+  window.reviseHtml = () => { window.htmlVersion = 2; window.htmlId = "current-artifact"; setHtmlRevised(true); };
   const [said, setSaid] = useState([]);
   window.appendFeedback = (feedback) => setSaid((current) => [...current, designFeedbackMessage(feedback)]);
   const [resolvedReply, setResolvedReply] = useState(false);
@@ -266,10 +269,11 @@ function Fixture() {
   const onSendDesignMessage = async (text) => { window.sent.push(text); setSaid((current) => [...current, text]); return true; };
   const messages = [
     { id: 1, session_id: 1, context: null, role: "user", body: "design a login screen" },
-    { id: 2, session_id: 1, context: null, role: "assistant", body: "Here is a first pass.", steps: [step(1, 0), { id: "retired", kind: "artifact", title: "Retired HTML", status: "done", offset: 0, artifact: { id: "legacy", version: 1, title: "Retired HTML" } }] },
+    { id: 2, session_id: 1, context: null, role: "assistant", body: "Here is a first pass.", steps: [step(1, 0), { id: "retired", kind: "artifact", title: "Explanation", status: "done", offset: 0, artifact: { id: "legacy", version: 1, title: "Explanation" } }] },
     { id: 3, session_id: 1, context: null, role: "user", body: "warmer, please" },
     { id: 4, session_id: 1, context: null, role: "assistant", body: "Warmer greens, and the home screen.", steps: [step(2, 0), { id: "h1", kind: "artifact", title: "Showed \`Home\`", status: "done", offset: 0, artifact: { id: "home", version: 1, title: "Home" } }] },
     ...(revised ? [{ id: 5, session_id: 1, context: null, role: "assistant", body: "Orange accent.", steps: [step(3, 0)] }] : []),
+    ...(htmlRevised ? [{ id: 31, session_id: 1, context: null, role: "assistant", body: "Updated explanation.", steps: [{ id: "html-update", kind: "artifact", status: "done", title: "Updated artifact", offset: 0, artifact: { id: "current-artifact", version: 2, title: "Explanation", format: "html" } }] }] : []),
     ...said.map((body, index) => ({ id: 10 + index, session_id: 1, context: null, role: "user", body })),
     ...(resolvedReply ? [{ id: 30, session_id: 1, context: null, role: "assistant", body: "Made it bigger.", steps: [{ id: "r1", kind: "other", title: "Resolved a design comment", status: "done", offset: 0 }] }] : []),
   ];
@@ -325,7 +329,7 @@ async function browserChecks() {
     }
     throw new Error(`Timed out: ${source}`);
   }
-  const cards = 'document.querySelectorAll("[data-slot=artifact-card]")';
+  const cards = 'document.querySelectorAll("[data-slot=artifact-card]:not([data-artifact=legacy])")';
   const group = 'document.querySelector("[data-slot=artifact-group]")';
   const thumb = (id) => `${group}.querySelector("[data-slot=artifact-thumb][data-artifact=${id}]")`;
   const dock = 'document.querySelector("[data-slot=artifact-dock]")';
@@ -339,6 +343,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`[...${cards}].some((card) => card.closest("[data-slot=activity]"))`), false, "designs are not folded into the activity");
     assert.deepEqual(await evaluate("window.calls.slice().sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))"), [
       ["/fixture#1", "home", 1],
+      ["/fixture#1", "legacy", null],
       ["/fixture#1", "login", 1],
       ["/fixture#1", "login", 2],
     ]);
@@ -346,7 +351,7 @@ async function browserChecks() {
       `(() => { const f = ${cards}[0].querySelector("iframe"); return { sandbox: f.getAttribute("sandbox"), csp: f.srcdoc.includes("Content-Security-Policy") }; })()`,
     );
     assert.deepEqual(preview, { sandbox: "allow-scripts", csp: true }, "the preview runs without same origin, under the policy");
-    assert.equal(await evaluate('!!document.querySelector("[data-artifact=legacy]")'), false, "retired HTML designs are hidden");
+    assert.equal(await evaluate('!!document.querySelector("[data-artifact=legacy]")'), true, "legacy HTML is restored as an Artifact");
     // CSP still blocks script-issued requests inside the generated sandbox.
     let previews = [];
     for (let attempt = 0; attempt < 100; attempt++) {
@@ -450,6 +455,7 @@ async function browserChecks() {
       chatId: "/fixture#1",
       title: "Designs",
       acknowledgePublic: true,
+      kind: "designs",
     });
     assert.equal(await evaluate(`${shareDialog}.querySelector("a").getAttribute("href")`), "https://share.milagre.cloud/s/snapshot-1");
     assert.match(await evaluate(`${shareDialog}.textContent`), /2 designs/);
@@ -830,23 +836,67 @@ async function browserChecks() {
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     await waitFor(`!${dock}`);
     assert.equal(await evaluate('getComputedStyle(document.documentElement).getPropertyValue("--artifact-dock")'), "", "closing gives the chat its width back");
-    // Historical HTML feedback keeps the person's words without a design widget or tool instructions.
+    // Restored HTML feedback keeps the person's words without exposing revision controls.
     await evaluate(
-      'window.appendFeedback({ choice: { id: "legacy", version: 1, title: "Retired HTML" }, comments: [{ design: { id: "legacy", version: 1, title: "Retired HTML" }, text: "Keep the original wording" }] })',
+      'window.appendFeedback({ choice: { id: "legacy", version: 1, title: "Explanation" }, comments: [{ design: { id: "legacy", version: 1, title: "Explanation" }, text: "Keep the original wording" }] })',
+    );
+    await waitFor('[...document.querySelectorAll("[data-slot=design-feedback]")].some(node => node.textContent.includes("Keep the original wording"))');
+    const legacyFeedback = await evaluate(
+      '[...document.querySelectorAll("[data-slot=design-feedback]")].find(node => node.textContent.includes("Keep the original wording")).textContent',
+    );
+    assert.match(legacyFeedback, /Explanation/);
+    assert.match(legacyFeedback, /Artifact/);
+    assert.doesNotMatch(legacyFeedback, /v1|version 1|design_read|design_apply|artifact_show|artifact_resolve_comment/);
+    // Unknown references still fall back to readable feedback instead of empty bubbles.
+    await evaluate(
+      'window.appendFeedback({ choice: { id: "missing", version: 1, title: "Missing design", format: "design" }, comments: [{ design: { id: "missing", version: 1, title: "Missing design", format: "design" }, text: "Preserve this older feedback too" }] })',
     );
     await waitFor('!!document.querySelector("[data-slot=design-feedback-text]")');
-    const legacyFeedback = await evaluate('document.querySelector("[data-slot=design-feedback-text]").textContent');
-    assert.match(legacyFeedback, /Chose Retired HTML \(version 1\)/);
-    assert.match(legacyFeedback, /Keep the original wording/);
-    assert.doesNotMatch(legacyFeedback, /design_read|design_apply|artifact_show|artifact_resolve_comment/);
-    assert.equal(await evaluate('!!document.querySelector("[data-slot=design-feedback-text] iframe, [data-slot=design-feedback-text] button")'), false);
-    await evaluate(
-      'window.appendFeedback({ choice: { id: "home", version: 1, title: "Home" }, comments: [{ design: { id: "legacy", version: 1, title: "Retired HTML" }, text: "Preserve this older feedback too" }] })',
-    );
-    await waitFor('document.querySelectorAll("[data-slot=design-feedback-text]").length === 2');
-    assert.match(await evaluate('[...document.querySelectorAll("[data-slot=design-feedback-text]")].at(-1).textContent'), /Preserve this older feedback too/);
-    await evaluate('[...document.querySelectorAll("[data-slot=design-feedback-text]")].at(-1).scrollIntoView()');
+    assert.match(await evaluate('document.querySelector("[data-slot=design-feedback-text]").textContent'), /Preserve this older feedback too/);
+    await evaluate('document.querySelector("[data-slot=design-feedback-text]").scrollIntoView()');
     await screenshot("historical-feedback-text");
+    // The one HTML page is independent of Designs, with no version/choice/editor controls.
+    await evaluate("window.designsEnabled=false; window.designsChanged({enabled:false})");
+    await waitFor('!document.querySelector("[data-panel-toggle=designs]") && !!document.querySelector("[data-panel-toggle=artifacts]")');
+    await evaluate('document.querySelector("[data-panel-toggle=artifacts]").click()');
+    await waitFor(`${dock}?.getAttribute("aria-label") === "Artifacts" && !!document.querySelector("[data-slot=artifact-page] iframe")`);
+    assert.equal(await evaluate(`${dock}.querySelectorAll('[data-slot=artifact-edit], [data-slot=artifact-frame-version], [aria-label^="Choose"]').length`), 0);
+    assert.equal(await evaluate(`${dock}.querySelectorAll('iframe').length`), 1, "a single HTML page is shown");
+    assert.equal(await evaluate('!!document.querySelector("[data-artifact=legacy]")'), true);
+    assert.equal(await evaluate('!!document.querySelector("[data-artifact=login]")'), false, "Designs OFF hides only structured designs");
+    assert.equal(await evaluate('!!document.querySelector("[data-artifact=home]")'), false, "unmarked structured refs stay hidden when Designs is OFF");
+    await waitFor(`${dock}.querySelector('[aria-label="Share page"]')`);
+    await evaluate(`${dock}.querySelector('button[aria-label="Comment on artifact"]').click()`);
+    await waitFor(`${dock}.querySelector('[data-slot="artifact-page-comment"] textarea')`);
+    await evaluate(`(() => {
+      const input = ${dock}.querySelector('[data-slot="artifact-page-comment"] textarea');
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(input, "Explain the next step");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    })()`);
+    await waitFor(`${dock}.querySelector('[data-slot="artifact-send"]')`);
+    await screenshot("artifact-comment-designs-off");
+    await evaluate(`${dock}.querySelector('[data-slot="artifact-send"]').click()`);
+    await waitFor('window.sent.at(-1).includes("Explain the next step")');
+    const htmlComment = await evaluate("window.sent.at(-1)");
+    assert.match(htmlComment, /On the artifact "Explanation" \(legacy\): Explain the next step/);
+    assert.match(htmlComment, /artifact_read.*artifact_show/s);
+    assert.doesNotMatch(htmlComment, /version|design_read|design_apply|I chose/);
+    await waitFor('window.kept.at(-1).design.format === "html"');
+    await evaluate("window.reviseHtml()");
+    await waitFor('document.querySelector("[data-artifact=legacy] iframe")?.srcdoc.includes("How this works 2")');
+    await waitFor(
+      '[...document.querySelectorAll("[data-slot=design-feedback-comment]")].filter(node => /Keep the original wording|Explain the next step/.test(node.textContent)).every(node => node.querySelector("iframe")?.srcdoc.includes("How this works 2"))',
+    );
+    await waitFor('document.querySelector("[data-slot=artifact-page] iframe")?.srcdoc.includes("How this works 2")');
+    await screenshot("artifact-page-designs-off");
+    await evaluate(`${dock}.querySelector('[aria-label="Share page"]').click()`);
+    await waitFor(`${shareDialog}.querySelector('[data-slot="design-page-publish"]')?.disabled === false`);
+    await evaluate(`${shareDialog}.querySelector('[data-slot="design-page-publish"]').click()`);
+    await waitFor(`${shareDialog}.textContent.includes("Snapshot shared")`);
+    assert.equal(await evaluate('window.shareCalls.filter(([kind])=>kind==="publish").at(-1)[1].kind'), "artifacts");
+    assert.match(await evaluate(`${shareDialog}.textContent`), /1 artifact/);
+    assert.equal(await evaluate(`${shareDialog}.textContent.includes("Published snapshots (3)")`), false, "Artifact history excludes Designs snapshots");
+    await screenshot("artifact-share");
     console.log(
       "PASS: a shown design is a card outside the activity with a sandboxed preview at its own screen size that can't make requests; Open docks a canvas of every design at the top right beside the chat (beside the git changes panel, away while the diff replaces the chat, filling the workspace when expanded or narrow), where frames follow revisions and step back through versions, zoom and fit work, wheel over a design pans until the design is clicked, choosing and Figma-like pinned comments wait for Send and reach the agent in one message, and Escape closes it",
     );

@@ -96,8 +96,8 @@ test("saved publication capabilities survive Chat deletion and remain revocable 
   assert.equal((await restarted.listAll())[0].revoked, true);
   await assert.rejects(restarted.revokeSaved({ id: "z".repeat(43) }), /not in this computer/);
   await artifacts.setEnabled(false);
-  await assert.rejects(restarted.listAll(), /Designs are off/);
-  await assert.rejects(restarted.revokeSaved({ id: share.id }), /Designs are off/);
+  assert.equal((await restarted.listAll())[0].revoked, true);
+  await restarted.revokeSaved({ id: share.id });
 });
 test("publication and revocation require exact service acknowledgements", async (t) => {
   const { options, request } = await fixture(t);
@@ -324,4 +324,44 @@ test("embedding honors the case-insensitive HTTPS schemes accepted by designs", 
   );
   assert.deepEqual(sources, ["HTTPS://example.com/picture.png"]);
   assert.match(result.designs[0].document.nodes[0].src, /^data:image\/png/);
+});
+
+test("Artifact sharing freezes one live page, separates history and works while Designs is off", async (t) => {
+  const { api, artifacts, calls, request, options } = await fixture(t);
+  const designShare = await api.publish(request);
+  await artifacts.show({ chatId: CHAT, title: "Explanation", html: "<h1>First explanation</h1>", width: 1280, height: 800 });
+  await artifacts.setEnabled(false);
+  assert.equal((await api.status()).available, false);
+  assert.equal((await api.status({ kind: "artifacts" })).available, true);
+  const artifactRequest = { ...request, kind: "artifacts" };
+  const first = await api.publish(artifactRequest);
+  const firstBody = calls.at(-1).body;
+  assert.equal(first.kind, "artifacts");
+  assert.equal(first.designCount, 1);
+  const page = JSON.parse(firstBody);
+  assert.equal(page.kind, "artifacts");
+  assert.equal(page.designs, undefined);
+  assert.equal(page.artifacts.length, 1);
+  assert.equal(page.artifacts[0].html, "<h1>First explanation</h1>");
+  await artifacts.show({ chatId: CHAT, title: "Explanation", html: "<h1>Revised explanation</h1>" });
+  const next = await api.publish(artifactRequest);
+  assert.notEqual(first.id, next.id);
+  assert.equal(JSON.parse(firstBody).artifacts[0].html, "<h1>First explanation</h1>");
+  assert.equal(JSON.parse(calls.at(-1).body).artifacts[0].html, "<h1>Revised explanation</h1>");
+  assert.deepEqual(
+    (await api.list({ chatId: CHAT, kind: "artifacts" })).map((item) => item.id),
+    [next.id, first.id],
+  );
+  await artifacts.setEnabled(true);
+  assert.deepEqual(
+    (await api.list({ chatId: CHAT })).map((item) => item.id),
+    [designShare.id],
+  );
+  await assert.rejects(api.revoke({ chatId: CHAT, id: first.id }), /does not belong/);
+  await artifacts.setEnabled(false);
+  await api.revoke({ chatId: CHAT, id: first.id, kind: "artifacts" });
+  assert.equal((await api.list({ chatId: CHAT, kind: "artifacts" }))[1].revoked, true);
+  await api.revokeSaved({ id: designShare.id });
+  assert.equal((await api.listAll()).find((item) => item.id === designShare.id).revoked, true);
+  assert.equal((await createDesignPageSharing(options).listAll()).length, 3);
 });

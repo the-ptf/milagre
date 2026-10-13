@@ -24,7 +24,7 @@ const CSP = [
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",
-  "frame-src 'self'",
+  "frame-src 'self' milagre-artifact:",
 ].join("; ");
 const contentSecurityPolicy = {
   name: "milagre-csp",

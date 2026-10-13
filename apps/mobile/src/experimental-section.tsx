@@ -33,24 +33,34 @@ export function ExperimentalSection() {
   // On: start from the current theme's colors and select Custom. Off while Custom is selected: back to Milagre Blue, seeds kept.
   function changeCustomTheme(enabled: boolean) {
     if (!enabled) {
-      set({ customThemeEnabled: false, ...(settings.colorTheme === "custom" ? { colorTheme: DEFAULT_THEME_ID } : {}) });
+      set({
+        customThemeEnabled: false,
+        ...(settings.colorTheme === "custom" ? { colorTheme: DEFAULT_THEME_ID } : {}),
+      });
       return;
     }
     const from = settings.colorTheme === "custom" ? DEFAULT_THEME_ID : settings.colorTheme;
-    set({ customThemeEnabled: true, customTheme: settings.customTheme ?? seedsFrom(from), colorTheme: "custom" });
+    set({
+      customThemeEnabled: true,
+      customTheme: settings.customTheme ?? seedsFrom(from),
+      colorTheme: "custom",
+    });
   }
   // The Mac's Linear switch and connection; null until the Mac answers (an older Mac never does). Re-read on focus:
   // the phone gets no event when the Mac connects or disconnects.
   // `moveToStarted` is on when a Mac that predates the switch sends none.
-  const [linear, setLinear] = useState<{ enabled: boolean; moveToStarted: boolean; status: LinearStatus } | null>(null);
+  const [linear, setLinear] = useState<{
+    enabled: boolean;
+    moveToStarted: boolean;
+    status: LinearStatus;
+  } | null>(null);
   const [linearError, setLinearError] = useState("");
-  const designsEnabled = session.designs?.enabled;
   const [sharingOwner, setSharingOwner] = useState<typeof session.client>(null);
   useFocusEffect(
     useCallback(() => {
       const client = session.client;
       setSharingOwner(null);
-      if (!client || designsEnabled !== true) return;
+      if (!client) return;
       let live = true;
       // Owner history remains available without a live Chat or a reachable sharing service.
       // Confined demo phones and older hosts reject this call or return no history.
@@ -61,7 +71,7 @@ export function ExperimentalSection() {
       return () => {
         live = false;
       };
-    }, [session.client, designsEnabled]),
+    }, [session.client]),
   );
   useFocusEffect(
     useCallback(() => {
@@ -71,7 +81,16 @@ export function ExperimentalSection() {
       Promise.all([client.call<{ enabled: boolean; moveToStarted?: boolean }>("linear:enabled:read", []), client.call<LinearStatus>("linear:status", [])]).then(
         // An older Mac answers null for commands it lacks: no Linear card.
         ([value, status]) =>
-          live && setLinear(value && status ? { enabled: value.enabled === true, moveToStarted: value.moveToStarted !== false, status } : null),
+          live &&
+          setLinear(
+            value && status
+              ? {
+                  enabled: value.enabled === true,
+                  moveToStarted: value.moveToStarted !== false,
+                  status,
+                }
+              : null,
+          ),
         () => live && setLinear(null),
       );
       return () => {
@@ -147,7 +166,7 @@ export function ExperimentalSection() {
             onPress={() => void session.designs.save(session.designs.enabled !== true)}
           />
           <Text style={styles.caption}>Create editable designs in Chat.</Text>
-          {session.designs.enabled === true && sharingOwner === session.client && (
+          {sharingOwner === session.client && (
             <ListRow
               compact
               title="Published pages"

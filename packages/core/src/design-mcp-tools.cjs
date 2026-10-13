@@ -36,12 +36,12 @@ function createDesignToolGroup({ artifacts }) {
             const args = z.object(tool.input).strict().parse(input);
             await active(capability);
             if (tool.name === "artifact_comments") {
-              const comments = await artifacts.comments({ chatId });
+              const comments = await artifacts.comments({ chatId, format: "design" });
               await active(capability);
               return JSON.stringify(comments.filter((comment) => (!ids || ids.has(comment.design.id)) && (args.all || !comment.resolved)));
             }
             if (tool.name === "artifact_resolve_comment") {
-              const comments = await artifacts.comments({ chatId });
+              const comments = await artifacts.comments({ chatId, format: "design" });
               const comment = comments.find((item) => item.id === args.id && (!ids || ids.has(item.design.id)));
               if (!comment) throw Error("This comment is outside the connection's scope or is unavailable.");
               await active(capability);
@@ -61,7 +61,7 @@ function createDesignToolGroup({ artifacts }) {
         run: async (input) => {
           z.object({}).strict().parse(input);
           await active("read");
-          const designs = await artifacts.list({ chatId });
+          const designs = await artifacts.list({ chatId, format: "design" });
           await active("read");
           return JSON.stringify(designs.filter((design) => !ids || ids.has(design.id)));
         },

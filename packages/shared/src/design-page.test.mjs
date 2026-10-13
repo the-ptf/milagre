@@ -74,3 +74,25 @@ test("rendering rejects image amplification at the 8 MiB HTML budget", () => {
   }));
   assert.throws(() => renderDesignPage(input), { status: 413 });
 });
+
+test("an Artifact snapshot freezes one HTML page in an opaque sandbox without private envelope data", () => {
+  const source = '<button onclick="this.textContent=42">Calculate</button><script>window.parent.document.title="escape"</script>';
+  const input = {
+    schemaVersion: 1,
+    kind: "artifacts",
+    title: "Explain",
+    chatId: "/private#1",
+    artifacts: [{ title: "Page", width: 1280, height: 800, html: source, comments: ["private"] }],
+  };
+  const snapshot = validateDesignPageSnapshot(input);
+  assert.equal(snapshot.kind, "artifacts");
+  assert.equal(snapshot.artifacts.length, 1);
+  assert.equal(snapshot.artifacts[0].html, source);
+  assert.equal(Object.isFrozen(snapshot.artifacts[0]), true);
+  const html = renderDesignPage(snapshot);
+  assert.match(html, /sandbox="allow-scripts"/);
+  assert.doesNotMatch(html, /allow-same-origin|allow-top-navigation|allow-popups|allow-forms|private#1|"comments"/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.throws(() => validateDesignPageSnapshot({ ...input, artifacts: [...input.artifacts, ...input.artifacts] }), /exactly one/);
+  assert.throws(() => validateDesignPageSnapshot({ ...input, artifacts: [{ ...input.artifacts[0], html: "x".repeat(1000001) }] }), { status: 413 });
+});

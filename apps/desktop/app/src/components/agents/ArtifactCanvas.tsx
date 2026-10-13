@@ -1,13 +1,13 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
-import { ARTIFACT_CSP, ARTIFACT_ESCAPE, artifactDocument, type Artifact } from "@milagre/shared/artifact";
+import { ARTIFACT_CSP, ARTIFACT_ESCAPE, artifactDocument, type Artifact, type DesignArtifact } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import Tooltip from "../primitives/Tooltip";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { DesignPageEditor as DesignEditor } from "./DesignPageEditor";
-import { designLayout, designNodeAt, type DesignDocument } from "@milagre/shared/design";
+import { designLayout, designNodeAt } from "@milagre/shared/design";
 
 /** A comment the user pinned on a design and hasn't sent yet. */
 export type DesignPin = {
@@ -57,16 +57,12 @@ const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value))
 const versionsRead = new Map<string, Promise<Artifact>>();
 const versionsKept = new Map<string, Artifact>();
 const KEEP = 48;
-const structured = (artifact: Artifact) => {
-  if (artifact.format !== "design" || !artifact.document) throw new Error("Only editable designs can be opened.");
-  return artifact;
-};
 function readArtifact(chatId: string, id: string, version: number | null): Promise<Artifact> {
-  if (version === null) return bridgeForKey(chatId).artifacts.get({ chatId, id }).then(structured);
+  if (version === null) return bridgeForKey(chatId).artifacts.get({ chatId, id });
   const key = `${chatId}\n${id}\n${version}`;
   let read = versionsRead.get(key);
   if (!read) {
-    read = bridgeForKey(chatId).artifacts.get({ chatId, id, version }).then(structured);
+    read = bridgeForKey(chatId).artifacts.get({ chatId, id, version });
     versionsRead.set(key, read);
     read.then(
       (artifact) => {
@@ -86,14 +82,14 @@ function readArtifact(chatId: string, id: string, version: number | null): Promi
 const keptArtifact = (chatId: string | null, id: string, version: number | null) =>
   (chatId && version !== null && versionsKept.get(`${chatId}\n${id}\n${version}`)) || null;
 
-export function useArtifact(chatId: string | null, id: string, version: number | null) {
+export function useArtifact(chatId: string | null, id: string, version: number | null, revision?: number) {
   const { enabled } = useDesignsEnabled(chatId);
   const [state, setState] = useState<{
     artifact: Artifact | null;
     error: string | null;
   }>(() => ({ artifact: keptArtifact(chatId, id, version), error: null }));
   useEffect(() => {
-    if (!enabled || !chatId) return;
+    if (!chatId) return;
     let live = true;
     readArtifact(chatId, id, version)
       .then((artifact) => live && setState({ artifact, error: null }))
@@ -108,20 +104,61 @@ export function useArtifact(chatId: string | null, id: string, version: number |
     return () => {
       live = false;
     };
-  }, [chatId, id, version, enabled]);
-  return enabled && chatId ? state : { artifact: null, error: null };
+  }, [chatId, id, version, enabled, revision]);
+  return chatId && (enabled || state.artifact?.format === "html") ? state : { artifact: null, error: null };
 }
 
 /**
  * A design runs in a sandbox with no same origin and a policy that blocks its own requests: it can't reach Milagre,
  * the Chat or the network. A preview also takes no input, so the card scrolls with the chat.
  */
-export function ArtifactFrame({ html, title, preview = false }: { html: string; title: string; preview?: boolean }) {
+export function ArtifactFrame({
+  html,
+  title,
+  preview = false,
+  format = "design",
+}: {
+  html: string;
+  title: string;
+  preview?: boolean;
+  format?: "design" | "html";
+}) {
   const document = useMemo(() => artifactDocument(html), [html]);
+  const [registered, setRegistered] = useState<{ html: string; url: string } | null>(null);
+  const [previewError, setPreviewError] = useState("");
+  useEffect(() => {
+    if (format !== "html" || !window.milagre?.createArtifactPreview) return;
+    let live = true;
+    let url: string | undefined;
+    setPreviewError("");
+    void window.milagre
+      .createArtifactPreview(html)
+      .then((value) => {
+        url = value;
+        if (live) setRegistered({ html, url });
+        else void window.milagre.releaseArtifactPreview(url);
+      })
+      .catch((cause) => {
+        if (live) setPreviewError(String(cause));
+      });
+    return () => {
+      live = false;
+      if (url) void window.milagre.releaseArtifactPreview(url);
+    };
+  }, [html, format]);
+  const isolated = format === "html" && !!window.milagre?.createArtifactPreview;
+  const url = registered?.html === html ? registered.url : undefined;
+  if (isolated && !url)
+    return (
+      <div role={previewError ? "alert" : "status"} className="grid size-full place-items-center text-[12px] text-ink-3">
+        {previewError || "Loading artifact..."}
+      </div>
+    );
   return (
     <iframe
       title={title}
-      srcDoc={document}
+      srcDoc={isolated ? undefined : document}
+      src={isolated ? url : undefined}
       sandbox="allow-scripts"
       // The policy a second time, as the embedder's (Chromium holds the document to it), beside the <meta> inside.
       {...{ csp: ARTIFACT_CSP }}
@@ -404,8 +441,8 @@ const DesignFrame = memo(function DesignFrame({
   scale: number;
 }) {
   // Following the newest unless the user stepped back; a revision the agent shows replaces what is in the frame.
-  const { artifact, error } = useArtifact(chatId, design.id, version ?? design.version);
-  const [editing, setEditing] = useState<(Artifact & { document: DesignDocument }) | null>(null);
+  const { artifact, error } = useArtifact(chatId, design.id, design.format === "html" ? null : (version ?? design.version));
+  const [editing, setEditing] = useState<DesignArtifact | null>(null);
   const [openingEditor, setOpeningEditor] = useState(false);
   const [editError, setEditError] = useState("");
   const edit = async () => {
@@ -417,7 +454,7 @@ const DesignFrame = memo(function DesignFrame({
         chatId,
         id: design.id,
       });
-      if (!latest.document) throw new Error("The latest version has no editable layers.");
+      if (latest.format !== "design" || !latest.document) throw new Error("The latest version has no editable layers.");
       setEditing({ ...latest, document: latest.document });
     } catch (cause) {
       setEditError(cause instanceof Error ? cause.message : String(cause));
@@ -432,6 +469,7 @@ const DesignFrame = memo(function DesignFrame({
     id: design.id,
     version: artifact?.version ?? version ?? design.version,
     title: artifact?.title ?? design.title,
+    format: artifact?.format ?? design.format,
   };
   const last = Math.max(artifact?.latest ?? 1, design.version);
   // Chosen and sent, or chosen here and waiting for Send; a pending choice of another design outranks a sent one.
@@ -440,7 +478,7 @@ const DesignFrame = memo(function DesignFrame({
   const isChosen = pendingHere || sentHere;
   const framePins = comments.pins.filter((pin) => pin.design.id === design.id && pin.design.version === shown.version);
   const followsLayer = comments.sent.some((pin) => pin.design.id === design.id && pin.nodeId && shown.version >= pin.design.version);
-  const pinDocument = artifact?.document;
+  const pinDocument = artifact?.format === "design" ? artifact.document : undefined;
   const layerBounds = useMemo(() => (followsLayer && pinDocument ? designLayout(pinDocument) : null), [pinDocument, followsLayer]);
   const sentPins = comments.sent.flatMap((pin) => {
     if (pin.design.id !== design.id) return [];
@@ -476,32 +514,36 @@ const DesignFrame = memo(function DesignFrame({
         >
           <span className="text-ink-3">{number}</span>
           <span className={`min-w-0 flex-1 truncate ${narrow ? "basis-[calc(100%-1.5rem)]" : ""}`}>{shown.title}</span>
-          <Tooltip label="Previous version">
-            <button
-              type="button"
-              aria-label={`Previous version of ${shown.title}`}
-              disabled={shown.version <= 1}
-              onClick={() => go(shown.version - 1)}
-              className={button}
-            >
-              <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden />
-            </button>
-          </Tooltip>
-          <span className="text-ink-3 tabular-nums" data-slot="artifact-frame-version">
-            v{shown.version} of {last}
-          </span>
-          <Tooltip label="Next version">
-            <button
-              type="button"
-              aria-label={`Next version of ${shown.title}`}
-              disabled={shown.version >= last}
-              onClick={() => go(shown.version + 1)}
-              className={button}
-            >
-              <HugeiconsIcon icon={ArrowRight01Icon} size={14} aria-hidden />
-            </button>
-          </Tooltip>
-          {artifact?.document && (
+          {design.format !== "html" && (
+            <>
+              <Tooltip label="Previous version">
+                <button
+                  type="button"
+                  aria-label={`Previous version of ${shown.title}`}
+                  disabled={shown.version <= 1}
+                  onClick={() => go(shown.version - 1)}
+                  className={button}
+                >
+                  <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden />
+                </button>
+              </Tooltip>
+              <span className="text-ink-3 tabular-nums" data-slot="artifact-frame-version">
+                v{shown.version} of {last}
+              </span>
+              <Tooltip label="Next version">
+                <button
+                  type="button"
+                  aria-label={`Next version of ${shown.title}`}
+                  disabled={shown.version >= last}
+                  onClick={() => go(shown.version + 1)}
+                  className={button}
+                >
+                  <HugeiconsIcon icon={ArrowRight01Icon} size={14} aria-hidden />
+                </button>
+              </Tooltip>
+            </>
+          )}
+          {artifact?.format === "design" && (
             <button
               type="button"
               data-slot="artifact-edit"
@@ -542,10 +584,10 @@ const DesignFrame = memo(function DesignFrame({
           className={`size-full overflow-hidden rounded-[12px] border-2 bg-white shadow-raised ${isChosen || active ? "border-accent" : "border-line"} ${active ? "" : "[&_iframe]:pointer-events-none"}`}
         >
           {artifact ? (
-            <ArtifactFrame html={artifact.html} title={shown.title} />
+            <ArtifactFrame html={artifact.html} title={shown.title} format={artifact.format} />
           ) : (
             <div className="grid size-full place-items-center text-ink-3" style={{ fontSize: 24 }}>
-              {error ?? "Loading design…"}
+              {error ?? "Loading…"}
             </div>
           )}
         </div>
@@ -566,7 +608,7 @@ const DesignFrame = memo(function DesignFrame({
               const rect = event.currentTarget.getBoundingClientRect();
               const x = (event.clientX - rect.left) / rect.width;
               const y = (event.clientY - rect.top) / rect.height;
-              comments.onPin(shown, x, y, artifact.document ? designNodeAt(artifact.document, x * width, y * height)?.id : undefined);
+              comments.onPin(shown, x, y, artifact.format === "design" ? designNodeAt(artifact.document, x * width, y * height)?.id : undefined);
             }}
           >
             {sentPins.map((pin) => (

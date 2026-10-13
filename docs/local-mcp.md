@@ -4,7 +4,7 @@ Settings > Milagre MCP lists local clients with enable/disable switches on deskt
 
 The endpoint binds to `127.0.0.1` only. Neither LAN nor relay exposes MCP. The existing daemon owns the listener, grants, operations and Project state; connecting an MCP client never starts a host.
 
-Choose explicit Projects and read access, or allow Worktree/Chat creation and task startup. A separate Designs-only connection binds one Chat and all or selected design IDs. It has no management or public publishing tools. A Designs connection has no tools while its adapter is absent or Designs is off.
+Choose explicit Projects and read access, or allow Worktree/Chat creation and task startup. A separate Designs-only connection binds one Chat and all or selected design IDs. It has no management or public publishing tools. HTML Artifacts and their comments are excluded. A Designs connection has no tools while its adapter is absent or Designs is off.
 
 Automatic setup writes each credential into the client's private configuration. Milagre saves its SHA-256 hash, the grant and installation metadata. Client setup and status responses contain no credential. Turning a client off revokes access before removing the owned configuration entry. Changing access replaces the credential and invalidates the previous grant.
 

@@ -1,6 +1,8 @@
-# Public Designs pages
+# Public Designs and Artifact pages
 
 This Worker publishes one immutable snapshot of the entire Chat Designs page. A page can hold up to 20 saved designs and 5,000 layers, with an 8 MiB JSON limit and 50,000 text characters across the page. It has no endpoints for sharing a selected design or element. The public page contains the design content and public title, without Chat messages, Project paths, comments or local identifiers.
+
+An Artifact snapshot instead contains exactly one HTML page, limited to 1,000,000 characters and the same 8 MiB request/render budgets. It is frozen at publication even though the local Artifact is updated in place.
 
 The service is implemented but is not deployed by this change. The desktop host must keep publishing unavailable until the configured service is reachable. Do not present a localhost preview as a public link.
 
@@ -28,6 +30,8 @@ This first version permits anonymous creation protected by per-page capabilities
 ## Viewer security
 
 The shared renderer generates HTML from validated structured documents. External image URLs are refused; the host embeds supported raster assets before upload. The page CSP permits embedded images, inline styles and the fixed pan/zoom controller, with no external network access, forms, framing or base URL changes. Responses disable caching and referrers and request search engines not index the page. `noindex` is a crawler preference, not an access control. Anyone with a public URL can read or redistribute its content.
+
+Public HTML Artifacts run inside an opaque `srcdoc` iframe with only `allow-scripts`. The wrapper's HTTP CSP is inherited: inline interaction is allowed, remote resources and nested frames are blocked, and the sandbox denies access to the parent origin, cookies, storage, forms, popups, downloads and top navigation. `frame-src 'none'` blocks self navigation while permitting the initial inline document. Escaped titles and `srcdoc` attributes keep arbitrary Artifact source inside the frame. The host does not fetch or embed external resources for Artifacts, so shared pages must be self-contained. The full HTML source, including hidden content, is public.
 
 ## Check and preview
 
