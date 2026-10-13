@@ -22,3 +22,8 @@ class_name = "PublishQuota"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["DesignPage", "PublishQuota"]
+
+[[rules]]
+type = "Data"
+globs = ["**/*.png"]
+fallthrough = true

@@ -78,6 +78,57 @@ function serial() {
   };
 }
 
+/** The generated wrapper keeps its escaped title at the start of the first chunk.
+ * Decorate reads so existing snapshots gain previews without rewriting their content.
+ * Splice bytes, not decoded chunks: UTF-8 characters can span storage boundaries. */
+function withSocialPreview(chunk, requestUrl) {
+  const prefix = new TextDecoder().decode(chunk.subarray(0, 4096));
+  const title = /<title>([^<]{1,1024}) \| Milagre (Designs|Artifact)<\/title>/.exec(prefix);
+  if (!title) return chunk;
+  const url = new URL(requestUrl);
+  url.search = "";
+  url.hash = "";
+  const escape = (value) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+  const decoded = title[1].replace(/&(amp|lt|gt|quot|#39);/g, (_, entity) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" })[entity]);
+  const description = title[2] === "Designs" ? "View this Designs page shared with Milagre." : "Open this interactive Artifact shared with Milagre.";
+  const image = `${url.origin}/og.png`;
+  const properties = {
+    "og:type": "website",
+    "og:site_name": "Milagre",
+    "og:title": decoded,
+    "og:description": description,
+    "og:url": url.href,
+    "og:image": image,
+    "og:image:type": "image/png",
+    "og:image:width": "1200",
+    "og:image:height": "630",
+    "og:image:alt": "Shared with Milagre. Designs and interactive Artifacts.",
+  };
+  const names = {
+    description,
+    "twitter:card": "summary_large_image",
+    "twitter:title": decoded,
+    "twitter:description": description,
+    "twitter:image": image,
+    "twitter:image:alt": properties["og:image:alt"],
+  };
+  const metadata = encoder.encode(
+    Object.entries(properties)
+      .map(([property, content]) => `<meta property="${property}" content="${escape(content)}">`)
+      .join("") +
+      Object.entries(names)
+        .map(([name, content]) => `<meta name="${name}" content="${escape(content)}">`)
+        .join("") +
+      `<link rel="canonical" href="${escape(url.href)}">`,
+  );
+  const offset = encoder.encode(prefix.slice(0, title.index + title[0].length)).byteLength;
+  const output = new Uint8Array(chunk.byteLength + metadata.byteLength);
+  output.set(chunk.subarray(0, offset));
+  output.set(metadata, offset);
+  output.set(chunk.subarray(offset), offset + metadata.byteLength);
+  return output;
+}
+
 /** The adapter's transaction is synchronous and atomic (SQLite Durable Object transactionSync). */
 export function createPageService({ storage, validate, render, admit, reserve }) {
   const enqueue = serial();
@@ -105,7 +156,7 @@ export function createPageService({ storage, validate, render, admit, reserve })
                     }
                     const chunk = storage.get(`html:${index++}`);
                     if (!(chunk instanceof Uint8Array)) throw new Error("Missing stored chunk");
-                    controller.enqueue(chunk);
+                    controller.enqueue(index === 1 ? withSocialPreview(chunk, request.url) : chunk);
                   } catch (error) {
                     controller.error(error);
                   }
@@ -224,6 +275,11 @@ export async function routeRequest(request, env) {
   if (!local && (url.protocol !== "https:" || url.origin !== env.PUBLIC_ORIGIN)) return response("Not found", 404);
   if (url.username || url.password) return response("Not found", 404);
   if (url.pathname === "/health" && request.method === "GET") return response("ok");
+  if (url.pathname === "/og.png") {
+    if (!["GET", "HEAD"].includes(request.method)) return response("Method not allowed", 405);
+    if (!env.previewImage) return response("Not found", 404);
+    return response(request.method === "HEAD" ? null : env.previewImage, 200, "image/png");
+  }
   const read = /^\/s\/([A-Za-z0-9_-]{43})$/.exec(url.pathname);
   const write = /^\/api\/pages\/([A-Za-z0-9_-]{43})$/.exec(url.pathname);
   if (!read && !write) return response("Not found", 404);

@@ -419,3 +419,63 @@ test("one interactive Artifact publishes as an immutable sandboxed page and can 
   assert.equal((await f.send("GET")).status, 404);
   assert.equal((await f.send("PUT", snapshot)).status, 410);
 });
+
+test("public Designs and Artifact pages include escaped social previews and canonical URLs", async () => {
+  for (const kind of ["designs", "artifacts"]) {
+    const snapshot =
+      kind === "designs"
+        ? { schemaVersion: 1, title: 'Research "A" & <B>', designs: [{ title: "Screen", document: { schemaVersion: 1, width: 390, height: 844, nodes: [] } }] }
+        : {
+            schemaVersion: 1,
+            kind,
+            title: 'Research "A" & <B>',
+            artifacts: [{ title: "Page", width: 390, height: 844, html: '<h1>Private source title</h1><meta property="og:title" content="Do not use this">' }],
+          };
+    const f = await fixture({ validate: validateDesignPageSnapshot, render: renderDesignPage });
+    assert.equal((await f.send("PUT", snapshot)).status, 201);
+    const original = f.storage.get("html:0").slice();
+    const url = `https://share.milagre.cloud/s/${f.id}`;
+    const html = await (await f.service.fetch(new Request(url + "?fbclid=tracking"), f.id, "")).text();
+    assert.ok(html.includes('<meta property="og:title" content="Research &quot;A&quot; &amp; &lt;B&gt;">'));
+    assert.ok(html.includes(`<meta property="og:url" content="${url}">`));
+    assert.ok(html.includes('<meta property="og:image" content="https://share.milagre.cloud/og.png">'));
+    assert.ok(html.includes('<meta name="twitter:card" content="summary_large_image">'));
+    assert.ok(html.includes(kind === "designs" ? "View this Designs page shared with Milagre." : "Open this interactive Artifact shared with Milagre."));
+    assert.ok(html.indexOf('property="og:title"') < html.indexOf("</head>"));
+    assert.deepEqual(f.storage.get("html:0"), original, "metadata must not mutate immutable stored content");
+    assert.equal((await f.send("DELETE")).status, 204);
+    const revoked = await f.send("GET");
+    assert.equal(revoked.status, 404);
+    assert.doesNotMatch(await revoked.text(), /og:title/);
+  }
+});
+
+test("legacy snapshots gain previews without corrupting Unicode at chunk boundaries", async () => {
+  const prefix = "<!doctype html><html><head><title>Old &amp; safe | Milagre Designs</title></head><body>";
+  const html = prefix + "a".repeat(CHUNK_BYTES - new TextEncoder().encode(prefix).length - 1) + "🌿".repeat(20) + "</body></html>";
+  const f = await fixture();
+  const bytes = new TextEncoder().encode(html);
+  f.storage.put("meta", { hash: "legacy", chunks: 2 });
+  f.storage.put("html:0", bytes.slice(0, CHUNK_BYTES));
+  f.storage.put("html:1", bytes.slice(CHUNK_BYTES));
+  const rendered = await (await f.send("GET")).text();
+  assert.ok(rendered.includes('<meta property="og:title" content="Old &amp; safe">'));
+  assert.equal(rendered.replace(/<meta (?:property|name)="(?:og:|twitter:|description)[^>]*>/g, "").replace(/<link rel="canonical"[^>]*>/g, ""), html);
+});
+
+test("the public preview image supports GET and HEAD without accessing snapshot storage", async () => {
+  const env = {
+    PUBLIC_ORIGIN: "https://share.milagre.cloud",
+    previewImage: new Uint8Array([137, 80, 78, 71]).buffer,
+    page: () => assert.fail("image must not open a page Durable Object"),
+  };
+  const image = await routeRequest(new Request("https://share.milagre.cloud/og.png"), env);
+  assert.equal(image.status, 200);
+  assert.equal(image.headers.get("content-type"), "image/png");
+  assert.deepEqual(new Uint8Array(await image.arrayBuffer()), new Uint8Array([137, 80, 78, 71]));
+  const head = await routeRequest(new Request("https://share.milagre.cloud/og.png", { method: "HEAD" }), env);
+  assert.equal(head.status, 200);
+  assert.equal(await head.text(), "");
+  assert.equal((await routeRequest(new Request("https://share.milagre.cloud/og.png", { method: "PUT" }), env)).status, 405);
+  assert.equal((await routeRequest(new Request("https://wrong.test/og.png"), env)).status, 404);
+});

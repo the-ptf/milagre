@@ -35,6 +35,7 @@ export function routeRequest(
   env: {
     ALLOW_LOCALHOST?: string;
     PUBLIC_ORIGIN?: string;
+    previewImage?: ArrayBuffer;
     page(id: string, request: Request, ip: string): Promise<Response>;
   },
 ): Promise<Response>;

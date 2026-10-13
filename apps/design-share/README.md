@@ -4,7 +4,7 @@ This Worker publishes one immutable snapshot of the entire Chat Designs page. A 
 
 An Artifact snapshot instead contains exactly one HTML page, limited to 1,000,000 characters and the same 8 MiB request/render budgets. It is frozen at publication even though the local Artifact is updated in place.
 
-The service is implemented but is not deployed by this change. The desktop host must keep publishing unavailable until the configured service is reachable. Do not present a localhost preview as a public link.
+The production service is deployed at `https://share.milagre.cloud`. The host checks its health before offering publication or creating a snapshot. A localhost preview is never a public link.
 
 ## Protocol
 
@@ -26,6 +26,12 @@ A separate Durable Object serializes durable quota reservations. Defaults in `wr
 New uploads check the durable global and per-IP quota before reading or parsing their body. This admission check spends nothing; the later atomic reservation enforces the final byte budget. Identical successful retries do not spend another reservation. A crash after reserving but before storing may spend the budget twice on retry. Revocation does not refund bytes or count. These conservative limits prevent failed writes or create/delete loops from bypassing the budget. The small tombstone also counts toward the lifetime publication count.
 
 This first version permits anonymous creation protected by per-page capabilities and service-wide admission limits. It does not establish a publisher's identity, account ownership or reputation. An attacker can exhaust the shared budget and deny further publications. IP limits also group people behind one NAT. Before a public launch, configure Cloudflare ingress rate limits for request traffic, confirm the initial storage budget and provide an operator abuse/takedown process. Application quotas bound accepted publications; they do not cap requests, rendering CPU or public page traffic. The design service has no access to the phone relay, local MCP or Project management.
+
+## Link previews
+
+Public GET responses include Open Graph and Twitter card metadata: the published title, a description for Designs or Artifacts, the canonical snapshot URL without tracking parameters, and a branded 1200 × 630 PNG at `/og.png`. The image is bundled into the Worker and contains no snapshot or Chat content. Regenerate it with `node scripts/share-og.cjs`.
+
+Metadata is inserted into the first streamed HTML chunk at read time, so existing links receive it without changing their stored snapshot or capability. Original bytes are preserved across UTF-8 chunk boundaries. Revoked pages still return 404 without preview metadata. Sharing apps may retain an earlier preview in their own cache after a deployment or revocation.
 
 ## Viewer security
 

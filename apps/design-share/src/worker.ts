@@ -1,3 +1,4 @@
+import previewImage from "../assets/og.png";
 import { validateDesignPageSnapshot, renderDesignPage } from "@milagre/shared/design-page";
 import { createPageService, createQuotaService, quotaLimits, response, routeRequest, type Storage } from "./service.mjs";
 
@@ -29,6 +30,7 @@ export default {
     try {
       return await routeRequest(request, {
         PUBLIC_ORIGIN: env.PUBLIC_ORIGIN,
+        previewImage,
         ALLOW_LOCALHOST: env.ALLOW_LOCALHOST,
         page: (id, incoming, ip) => {
           const headers = new Headers(incoming.headers);
