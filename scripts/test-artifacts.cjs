@@ -230,7 +230,7 @@ window.milagre = {
     get: async ({ chatId, id, version }) => {
       window.calls.push([chatId, id, version ?? null]);
       // As the daemon: a key under a Worktree's path is no open Chat.
-      if (chatId.split("#")[0] !== "/fixture") throw new Error("Open an existing Chat before showing a design.");
+      if (chatId !== "milagre-link:fixture#1") throw new Error("Open an existing Chat before showing a design.");
       if (window.designsEnabled === false && id !== "legacy" && id !== "current-artifact") throw new Error("Designs is disabled.");
       if (id === "home") return { id, version: 1, title: "Home", versions: 1, latest: 1, width: 390, height: 844, format: "design", document: home, html: designHtml(home) };
       if (id === "legacy" || id === "current-artifact") return { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, latest: window.htmlVersion ?? 1, width: 1280, height: 800, html: "<!doctype html><h1>How this works " + (window.htmlVersion ?? 1) + "</h1>" };
@@ -281,7 +281,7 @@ function Fixture() {
   return <div style={{ display: "flex", height: "100%" }}><div style={{ width: 260, flexShrink: 0, padding: "56px 12px 12px", boxSizing: "border-box" }}><aside aria-label="Workspace navigation" style={{ height: "100%" }} /></div><main data-workspace-main style={{ display: "flex", flex: 1, minWidth: 0, height: "100%" }}><div data-chat-pane className={diff ? "hidden" : undefined} style={{ flex: 1, minWidth: 0, height: "100%", padding: 12 }}>
     <ChatComposer messages={messages} onSendDesignMessage={onSendDesignMessage}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-      projectPath="/fixture/.worktrees/login" messageScope="/fixture" agentChatId="/fixture#1" draft="" onDraftChange={noop} onSend={noop} isSending={false} sendBlocked={false}
+      scopeKind="link" projectPath="/fixture/.worktrees/login" messageScope="milagre-link:fixture" agentChatId="milagre-link:fixture#1" draft="" onDraftChange={noop} onSend={noop} isSending={false} sendBlocked={false}
       streamingText="" asking={false}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={MODEL_CATALOG[0]} onModelChange={noop}
       capability={capabilityFor(MODEL_CATALOG[0], null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
@@ -296,13 +296,14 @@ createRoot(document.getElementById("root")).render(<><Fixture /><ChangesToggle o
 
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
+  const preview = process.argv.includes("--preview");
   app.setPath("userData", require("node:fs").mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-artifacts-")));
   await app.whenReady();
   const window = new BrowserWindow({
     width: 1280,
     height: 820,
     useContentSize: true,
-    show: false,
+    show: preview,
     webPreferences: { backgroundThrottling: false },
   });
   // The app's own guard: a design's frame can't navigate away from its srcdoc.
@@ -342,10 +343,10 @@ async function browserChecks() {
     assert.match(await evaluate(`${group}.textContent`), /2 designs.*Login screen, warmer · Home/);
     assert.equal(await evaluate(`[...${cards}].some((card) => card.closest("[data-slot=activity]"))`), false, "designs are not folded into the activity");
     assert.deepEqual(await evaluate("window.calls.slice().sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))"), [
-      ["/fixture#1", "home", 1],
-      ["/fixture#1", "legacy", null],
-      ["/fixture#1", "login", 1],
-      ["/fixture#1", "login", 2],
+      ["milagre-link:fixture#1", "home", 1],
+      ["milagre-link:fixture#1", "legacy", null],
+      ["milagre-link:fixture#1", "login", 1],
+      ["milagre-link:fixture#1", "login", 2],
     ]);
     const preview = await evaluate(
       `(() => { const f = ${cards}[0].querySelector("iframe"); return { sandbox: f.getAttribute("sandbox"), csp: f.srcdoc.includes("Content-Security-Policy") }; })()`,
@@ -452,7 +453,7 @@ async function browserChecks() {
     await waitFor(`${shareDialog}.querySelectorAll("[data-share-id]").length === 1 && ${shareDialog}.textContent.includes("Snapshot shared")`);
     assert.equal(await evaluate(`!!${publish}`), false, "a confirmed snapshot replaces the publication form with its link");
     assert.deepEqual(await evaluate('window.shareCalls.filter(([kind]) => kind === "publish").at(-1)[1]'), {
-      chatId: "/fixture#1",
+      chatId: "milagre-link:fixture#1",
       title: "Designs",
       acknowledgePublic: true,
       kind: "designs",
@@ -897,10 +898,19 @@ async function browserChecks() {
     assert.match(await evaluate(`${shareDialog}.textContent`), /1 artifact/);
     assert.equal(await evaluate(`${shareDialog}.textContent.includes("Published snapshots (3)")`), false, "Artifact history excludes Designs snapshots");
     await screenshot("artifact-share");
+    if (preview) {
+      await evaluate("window.designsEnabled=true; window.designsChanged({enabled:true})");
+      await waitFor('!!document.querySelector("[data-panel-toggle=designs]")');
+      await evaluate('document.querySelector("[data-panel-toggle=artifacts]")?.click()');
+      await evaluate('document.querySelector("[data-panel-toggle=designs]").click()');
+      await waitFor(`${dock}?.getAttribute("aria-label") === "Designs"`);
+      await evaluate(`${dock}.querySelector("[aria-label='Comment on a design']").click()`);
+      await waitFor(`!!${frame("login")}.querySelector("[data-slot=artifact-comment-layer]")`);
+    }
     console.log(
       "PASS: a shown design is a card outside the activity with a sandboxed preview at its own screen size that can't make requests; Open docks a canvas of every design at the top right beside the chat (beside the git changes panel, away while the diff replaces the chat, filling the workspace when expanded or narrow), where frames follow revisions and step back through versions, zoom and fit work, wheel over a design pans until the design is clicked, choosing and Figma-like pinned comments wait for Send and reach the agent in one message, and Escape closes it",
     );
-    app.exit(0);
+    if (!preview) app.exit(0);
   } catch (error) {
     await screenshot("failure");
     console.error(error);
@@ -940,7 +950,11 @@ async function main() {
     await server.listen();
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
-    const child = spawn(require("electron"), [path.resolve(__filename), `${server.resolvedUrls.local[0]}__artifacts__`], { env, stdio: "inherit" });
+    const child = spawn(
+      require("electron"),
+      [path.resolve(__filename), `${server.resolvedUrls.local[0]}__artifacts__`, ...(process.argv.includes("--preview") ? ["--preview"] : [])],
+      { env, stdio: "inherit" },
+    );
     process.exitCode = await new Promise((resolve, reject) => {
       child.on("error", reject);
       child.on("exit", (code) => resolve(code ?? 1));

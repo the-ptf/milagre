@@ -852,8 +852,8 @@ export function ChatComposer({
 
   // The runtime knows a Chat by its Project's path, not the Worktree's `projectPath` it runs in.
   const runtimeChat = typeof chatId === "number" && chatId > 0 && projectPath ? (agentChatId ?? `${messageScope ?? projectPath}#${chatId}`) : null;
-  // Designs are read through the Chat's key, which a new Chat and a shared Link Chat don't have here.
-  const artifactChat = scopeKind !== "link" ? runtimeChat : null;
+  // Designs are read through the Chat's key; a shared Link Chat uses its Link-scoped key too.
+  const artifactChat = runtimeChat;
   const artifactSteps = useMemo(() => [...messages.flatMap((message) => message.steps ?? []), ...(streamingSteps ?? [])], [messages, streamingSteps]);
   const userMessages = useMemo(() => messages.filter((message) => message.role === "user").map(({ id, body }) => ({ id, body })), [messages]);
 
