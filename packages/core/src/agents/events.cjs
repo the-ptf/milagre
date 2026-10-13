@@ -115,6 +115,20 @@ function codexErrorText(error) {
 // A turn failure made of one of Milagre's own messages; the renderer shows it without an "Agent error:" prefix.
 const failedWith = (message, extra = {}) => ({ type: "turn-failed", message, notice: true, ...extra });
 
+// A reset time from a CLI, in seconds since the epoch, as an ISO date; undefined when there is none.
+const resetIso = (seconds) => (typeof seconds === "number" && seconds > 0 ? new Date(seconds * 1000).toISOString() : undefined);
+
+// The plan's usage limit stopped a turn: which provider, and when known, the window that is full and when it resets.
+function usageLimit(provider, { window, resetsAt } = {}) {
+  return { provider, ...(window ? { window } : {}), ...(resetsAt ? { resetsAt } : {}) };
+}
+
+// The latest reset among the windows Codex reports full: the time the account can be used again.
+function codexLimitReset(rateLimits) {
+  const full = [rateLimits?.primary, rateLimits?.secondary].filter((window) => window && window.usedPercent >= 100 && typeof window.resetsAt === "number");
+  return resetIso(Math.max(0, ...full.map((window) => window.resetsAt)));
+}
+
 // A turn Codex couldn't authenticate: codexErrorInfo is "unauthorized", or an HTTP failure with status 401.
 function codexUnauthorized(error) {
   const info = error?.codexErrorInfo;
@@ -139,6 +153,13 @@ function mapClaudeMessage(message, state) {
   // Claude Code answers a turn it can't authenticate with a reply of its own ("Not logged in · Please run
   // /login") marked authentication_failed, then a failed result.
   if (message.type === "assistant" && message.error === "authentication_failed") state.authFailed = true;
+  // A plan's usage limit: a rejected rate_limit_event says which window is full and when it resets, then a reply
+  // marked rate_limit carries the CLI's own sentence ("You've hit your session limit · resets 12:10pm").
+  if (message.type === "rate_limit_event" && message.rate_limit_info?.status === "rejected") {
+    const info = message.rate_limit_info;
+    state.limit = { window: info.rateLimitType, resetsAt: resetIso(info.resetsAt) };
+  }
+  if (message.type === "assistant" && message.parent_tool_use_id == null && message.error === "rate_limit") state.limitHit = true;
   if (message.type === "system" && message.subtype === "init" && message.session_id && message.session_id !== state.sessionId) {
     state.sessionId = message.session_id;
     events.push({ type: "session-started", nativeId: message.session_id });
@@ -233,12 +254,16 @@ function mapClaudeMessage(message, state) {
     }
     if (message.subtype === "success" && !message.is_error) events.push({ type: "turn-completed" });
     else if (state.authFailed) events.push(failedWith(loginMessage("claude"), { login: true }));
+    else if (state.limitHit || state.limit)
+      events.push(failedWith(message.result || "Claude hit its usage limit.", { limit: usageLimit("claude", state.limit ?? undefined) }));
     else
       events.push({
         type: "turn-failed",
         message: (message.errors?.length ? message.errors.join("\n") : message.result) || "Claude could not finish this turn.",
       });
     state.authFailed = false;
+    state.limitHit = false;
+    state.limit = null;
     state.compacting = null;
   }
   return events;
@@ -251,8 +276,13 @@ function claudeContextUsage(state, used) {
 }
 
 // codex app-server notification -> events. Everything not listed is ignored on purpose:
-// the server also reports MCP startup, hooks, rate limits and the turn's running diff.
+// the server also reports MCP startup, hooks and the turn's running diff. Rate limits are only kept for the reset
+// time of a turn the plan's usage limit stops.
 function mapCodexNotification(method, params, state) {
+  if (method === "account/rateLimits/updated") {
+    state.rateLimits = params.rateLimits;
+    return [];
+  }
   const children = codexSubagents(method, params, state);
   if (children.length) return children;
   if (params.threadId && state.threadId && params.threadId !== state.threadId) return [];
@@ -319,6 +349,8 @@ function mapCodexNotification(method, params, state) {
     if (turn.status === "interrupted") return [{ type: "turn-cancelled" }];
     // A 401 means "log in" only where OpenAI auth is required (state.requiresOpenaiAuth, from account/read); on an
     // API key or a custom provider it is that provider's own error.
+    if (turn.status === "failed" && turn.error?.codexErrorInfo === "usageLimitExceeded")
+      return [failedWith(codexErrorText(turn.error), { limit: usageLimit("codex", { resetsAt: codexLimitReset(state.rateLimits) }) })];
     if (turn.status === "failed")
       return [
         codexUnauthorized(turn.error) && state.requiresOpenaiAuth === true

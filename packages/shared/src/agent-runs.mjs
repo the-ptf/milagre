@@ -310,7 +310,8 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
         id: state.next_id,
         session_id: sessionId,
         body: replyBody(run.text, event, run.steps.length > 0),
-        context: null,
+        // A turn the plan's usage limit stopped carries the limit, so the Chat can offer another account.
+        context: event.type === "turn-failed" && event.limit ? { kind: "limit", ...event.limit } : null,
         role: "assistant",
         model: run.model,
         outcome: event.type === "turn-completed" ? "completed" : event.type === "turn-cancelled" ? "cancelled" : "failed",

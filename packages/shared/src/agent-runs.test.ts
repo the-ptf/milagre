@@ -131,6 +131,16 @@ test("Milagre's own failure messages carry no \"Agent error:\" prefix, the agent
   assert.equal(raw.state.messages[0].body, "Agent error: The model gpt-x is not supported.");
 });
 
+test("a turn the usage limit stopped saves the limit on its reply, other failures save no context", () => {
+  const run = { [key(1)]: { text: "", model: "claude-opus-5-5", approvals: [], steps: [], questions: [], answered: {} } };
+  const limit = { provider: "claude" as const, accountId: "work", window: "five_hour", resetsAt: "2026-10-13T16:10:00.000Z" };
+  const limited = applyAgentEvent(base(), run, PROJECT, key(1), { type: "turn-failed", message: "You've hit your session limit", notice: true, limit });
+  assert.equal(limited.state.messages[0].body, "You've hit your session limit");
+  assert.deepEqual(limited.state.messages[0].context, { kind: "limit", ...limit });
+  const other = applyAgentEvent(base(), run, PROJECT, key(1), { type: "turn-failed", message: "boom" });
+  assert.equal(other.state.messages[0].context, null);
+});
+
 test("keeps partial text when a turn fails or is cancelled", () => {
   const runs = { [key(1)]: { text: "Half an answer", model: "gpt-6-sol", approvals: [], steps: [], questions: [], answered: {} } };
   const failed = applyAgentEvent(base(), runs, PROJECT, key(1), { type: "turn-failed", message: "Codex stopped: boom" });

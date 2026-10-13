@@ -149,7 +149,8 @@ class SessionManager {
         if (!entry.session.turnActive) this.scheduleIdleClose(chatId);
       }
     }
-    this.send(chatId, event);
+    // A usage limit belongs to the account the session runs on, which only this manager knows.
+    this.send(chatId, event.type === "turn-failed" && event.limit ? { ...event, limit: { ...event.limit, accountId: entry.accountId } } : event);
     // A turn the provider started itself (a steer that missed the end of the last one) isn't covered by
     // startTurn's clear; the timer armed by the previous turn's end must not close it mid-run.
     if (event.type === "turn-started") {

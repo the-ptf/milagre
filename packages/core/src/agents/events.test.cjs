@@ -208,6 +208,73 @@ test("Claude: a turn it can't authenticate asks to log in", () => {
   ]);
 });
 
+test("Claude: a turn stopped by the plan's usage limit fails with the limit, its window and reset time", () => {
+  const state = claudeState();
+  const rejected = {
+    type: "rate_limit_event",
+    rate_limit_info: { status: "rejected", resetsAt: 1791993000, rateLimitType: "five_hour" },
+    uuid: "u-1",
+    session_id: "s-1",
+  };
+  const limited = {
+    type: "assistant",
+    error: "rate_limit",
+    parent_tool_use_id: null,
+    message: { model: "<synthetic>", content: [{ type: "text", text: "You've hit your session limit · resets 12:10pm (America/Toronto)" }] },
+  };
+  assert.deepEqual(mapClaudeMessage(rejected, state), []);
+  assert.deepEqual(mapClaudeMessage(limited, state), []);
+  const result = { type: "result", subtype: "success", is_error: true, result: "You've hit your session limit · resets 12:10pm (America/Toronto)" };
+  assert.deepEqual(mapClaudeMessage(result, state), [
+    failedWith("You've hit your session limit · resets 12:10pm (America/Toronto)", {
+      limit: { provider: "claude", window: "five_hour", resetsAt: new Date(1791993000 * 1000).toISOString() },
+    }),
+  ]);
+  // The next turn starts clean.
+  assert.deepEqual(mapClaudeMessage({ type: "result", subtype: "success", is_error: true, result: "boom" }, state), [{ type: "turn-failed", message: "boom" }]);
+});
+
+test("Claude: a rate_limit reply with no limit event still counts, and a warning alone does not", () => {
+  const state = claudeState();
+  mapClaudeMessage({ type: "rate_limit_event", rate_limit_info: { status: "allowed_warning", utilization: 0.9 } }, state);
+  assert.deepEqual(mapClaudeMessage({ type: "result", subtype: "success", is_error: true, result: "boom" }, state), [{ type: "turn-failed", message: "boom" }]);
+  mapClaudeMessage({ type: "assistant", error: "rate_limit", parent_tool_use_id: null, message: { content: [] } }, state);
+  assert.deepEqual(mapClaudeMessage({ type: "result", subtype: "success", is_error: true, result: "" }, state), [
+    failedWith("Claude hit its usage limit.", { limit: { provider: "claude" } }),
+  ]);
+});
+
+test("Codex: a turn stopped by the plan's usage limit fails with the limit and the reset of the full window", () => {
+  const state = codexState();
+  const update = {
+    rateLimits: {
+      primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: 1791993000 },
+      secondary: { usedPercent: 40, windowDurationMins: 10080, resetsAt: 1792500000 },
+    },
+  };
+  assert.deepEqual(mapCodexNotification("account/rateLimits/updated", update, state), []);
+  const failed = mapCodexNotification(
+    "turn/completed",
+    {
+      threadId: "thread-1",
+      turn: { id: "t-1", status: "failed", error: { message: "You've hit your usage limit. Try again at 3:05 PM.", codexErrorInfo: "usageLimitExceeded" } },
+    },
+    state,
+  );
+  assert.deepEqual(failed, [
+    failedWith("You've hit your usage limit. Try again at 3:05 PM.", { limit: { provider: "codex", resetsAt: new Date(1791993000 * 1000).toISOString() } }),
+  ]);
+  // An API rate limit (429) is not the plan's limit.
+  assert.deepEqual(
+    mapCodexNotification(
+      "turn/completed",
+      { threadId: "thread-1", turn: { id: "t-2", status: "failed", error: { message: "slow down", codexErrorInfo: "rateLimitExceeded" } } },
+      codexState(),
+    ),
+    [{ type: "turn-failed", message: "slow down" }],
+  );
+});
+
 test("Codex: a turn it can't authenticate asks to log in, and raw API errors read as their message", () => {
   const failed = (error) =>
     mapCodexNotification(

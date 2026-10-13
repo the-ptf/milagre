@@ -309,6 +309,7 @@ export type ChatContext =
   | CompactionContext
   | PullRequestActionContext
   | LinearIssueContext
+  | UsageLimitContext
   | "handover"
   | null;
 
@@ -558,7 +559,21 @@ export type AgentEvent =
   | { type: "turn-completed" }
   | { type: "turn-cancelled"; quit?: boolean }
   /** `notice`: a message Milagre wrote (it names the CLI and the fix), shown as it is; otherwise it is the agent's own error. */
-  | { type: "turn-failed"; message: string; notice?: boolean; login?: boolean };
+  | { type: "turn-failed"; message: string; notice?: boolean; login?: boolean; limit?: UsageLimit };
+
+/**
+ * The plan's usage limit stopped a turn. `accountId` is the Account the turn ran on (added by the session manager);
+ * `window` is the CLI's name for the full window (Claude: five_hour, seven_day…) and `resetsAt` an ISO date, when known.
+ */
+export interface UsageLimit {
+  provider: ModelProvider;
+  accountId?: string;
+  window?: string;
+  resetsAt?: string;
+}
+
+/** A reply the plan's usage limit stopped: the Chat offers the Project's other Accounts for the provider. */
+export type UsageLimitContext = { kind: "limit" } & UsageLimit;
 
 /** A message for a chat. The main process saves it, then starts or steers the chat's turn. */
 export interface ChatSendRequest {
@@ -705,6 +720,8 @@ export type ProviderAccount = {
   email?: string;
   plan?: string;
   message?: string;
+  /** When the account hit its plan's usage limit in a Chat: the time it can be used again (ISO). Project accounts only. */
+  limitedUntil?: string;
 };
 export type AccountsSnapshot = { providers: { provider: ModelProvider; selectedId: string; accounts: ProviderAccount[] }[] };
 export interface TranscriptState {
