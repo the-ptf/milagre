@@ -82,6 +82,15 @@ export function createDesignInstance(
 export function detachDesignInstance(document: DesignDocument, instanceId: string): DesignOperation[];
 /** The frontmost visible layer at a screen coordinate, respecting clipped parent frames. */
 export function designNodeAt(document: DesignDocument, x: number, y: number): DesignNode | null;
+export interface DesignWarning {
+  id: string;
+  kind: "clipped-text" | "overflow" | "off-canvas" | "low-contrast" | "remote-image";
+  message: string;
+}
+/** Problems an agent can't see in JSON: cut-off text, layers outside their parent or the screen, unreadable text, remote images. */
+export function designWarnings(document: DesignDocument): DesignWarning[];
+/** At most 20 warning lines plus "…and N more", or "" when there are none. */
+export function designWarningText(warnings: DesignWarning[]): string;
 export function designColor(document: DesignDocument, value?: string, fallback?: string): string;
 /** Serialize plain family names as CSS, preserving generic fallback families. */
 export function designFontFamily(value?: string): string;

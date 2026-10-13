@@ -10,6 +10,7 @@ import { synchronizeDesignComponents, designInstanceRoot } from "./design-compon
 import { DESIGN_CONTROLLER_SCRIPT } from "./design-controller-script.mjs";
 export { DESIGN_CONTROLLER_SCRIPT } from "./design-controller-script.mjs";
 export { designLayout, designTextLayout } from "./design-layout.mjs";
+export { designWarnings, designWarningText } from "./design-lint.mjs";
 export { createDesignInstance, detachDesignInstance, designInstanceRoot } from "./design-components.mjs";
 
 const id = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/, "Use a stable layer id with letters, numbers, dots, underscores or dashes.");
