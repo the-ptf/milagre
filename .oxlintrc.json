@@ -34,7 +34,16 @@
     "eslint/preserve-caught-error": "warn",
     "no-await-in-loop": "off"
   },
-  "ignorePatterns": ["**/dist/**", "**/release/**", "**/.expo/**", "apps/mobile/ios/**", "apps/mobile/android/**", "squashfs-root/**", "docs/**"],
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/release/**",
+    "**/.expo/**",
+    "apps/mobile/ios/**",
+    "apps/mobile/android/**",
+    "squashfs-root/**",
+    "docs/**",
+    "packages/shared/src/design-font-data.mjs"
+  ],
   "overrides": [
     {
       "files": ["**/*.test.*", "scripts/test-*.cjs"],

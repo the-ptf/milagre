@@ -53,6 +53,7 @@
     "electron": "^44.5.1",
     "electron-builder": "26.17.0",
     "esbuild": "0.28.2",
+    "inter-font": "3.19.0",
     "knip": "6.39.0",
     "lefthook": "2.1.17",
     "lockfile-lint": "5.0.1",
@@ -60,6 +61,7 @@
     "oxlint": "1.87.0",
     "qrcode-terminal": "^0.12.0",
     "semantic-release": "^25.0.9",
+    "subset-font": "2.9.0",
     "yaml": "^2.9.1"
   },
   "engines": {

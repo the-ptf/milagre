@@ -18,6 +18,7 @@
     "**/.expo/**",
     "docs/superpowers/**",
     "docs/workflow-audit-2026-10.md",
-    "packages/core/src/bundled-skills/**"
+    "packages/core/src/bundled-skills/**",
+    "packages/shared/src/design-font-data.mjs"
   ]
 }
