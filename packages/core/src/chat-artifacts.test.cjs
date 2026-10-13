@@ -620,3 +620,51 @@ test("the summary JSON carries at most 20 warnings and their total", async (t) =
   const few = firstLine(await tools.design_show.run({ id: "few", title: "Few", document: designDocument() }));
   assert.equal(few.warningCount, undefined);
 });
+
+test("remote images are listed as notes, outside the warnings the agent must fix", async (t) => {
+  const { tools } = await fixture(t);
+  const document = designDocument();
+  document.nodes.push(
+    { id: "hero", type: "image", x: 24, y: 300, width: 342, height: 160, src: "https://example.com/hero.png" },
+    { id: "off", type: "rectangle", x: 1000, y: 10, width: 40, height: 8, fill: "#ff0000" },
+  );
+  const shown = await tools.design_show.run({ id: "remote", title: "Remote", document });
+  assert.deepEqual(
+    firstLine(shown)
+      .warnings.map((warning) => warning.kind)
+      .sort(),
+    ["off-canvas", "remote-image"],
+  );
+  const [, warnings = "", notes = ""] = /\nWarnings:\n([\s\S]*?)(?:\nNotes:\n([\s\S]*))?$/.exec(shown.text) ?? [];
+  assert.match(warnings, /"off" extends past/);
+  assert.doesNotMatch(warnings, /remote URL/);
+  assert.match(notes, /Image "hero" is a remote URL/);
+  assert.match(shown.text, /every item under Warnings/);
+});
+
+test("the agent is told which text layers its image leaves blank", async (t) => {
+  const { api, tools } = await fixture(t);
+  const document = designDocument();
+  document.nodes.push(
+    { id: "polish", type: "text", x: 24, y: 300, width: 300, height: 30, text: "Zażółć ✓" },
+    { id: "latin", type: "text", x: 24, y: 340, width: 300, height: 30, text: "Café — naïve “quotes” → 5 €\ttab" },
+    { id: "hiddenStar", type: "text", x: 24, y: 380, width: 300, height: 30, text: "★", hidden: true },
+  );
+  const shown = await tools.design_show.run({ id: "glyphs", title: "Glyphs", document });
+  assert.match(shown.text, /\nYour image can't draw some characters in "polish"; they are blank there but the user sees them\.(\n|$)/);
+  assert.doesNotMatch((await tools.design_show.run({ id: "plain", title: "Plain", document: designDocument() })).text, /can't draw/);
+
+  const many = designDocument();
+  for (const [index, text] of ["Привет", "日本語", "😀", "★", "ł", "ś", "✓"].entries())
+    many.nodes.push({ id: `t${index}`, type: "text", x: 24, y: 300 + index * 30, width: 300, height: 30, text });
+  assert.match((await tools.design_show.run({ id: "many", title: "Many", document: many })).text, /in "t0", "t1", "t2", "t3", "t4" and 2 more;/);
+
+  const failing = Object.fromEntries(
+    artifactToolDefinitions(CHAT, api, undefined, {
+      renderPng: async () => {
+        throw new Error("no wasm");
+      },
+    }).map((tool) => [tool.name, tool]),
+  );
+  assert.doesNotMatch((await failing.design_show.run({ id: "glyphs2", title: "Glyphs", document })).text, /can't draw/);
+});

@@ -1,4 +1,5 @@
 import { designInterFonts, DESIGN_INTER_WEIGHTS } from "./design-font-data.mjs";
+import { DESIGN_ASCII_CHARACTERS, DESIGN_EXTRA_CHARACTERS } from "./design-font-characters.mjs";
 
 export const DESIGN_DEFAULT_FONT_FAMILY = "Inter, Arial, sans-serif";
 
@@ -70,4 +71,11 @@ export function designFontFaces(document) {
         `@font-face{font-family:"Inter";font-weight:${weightRange(weight)};font-style:normal;src:url(data:font/ttf;base64,${designInterFonts[weight]}) format("truetype")}`,
     )
     .join("");
+}
+
+const bundledCharacters = new Set(DESIGN_ASCII_CHARACTERS + DESIGN_EXTRA_CHARACTERS);
+
+/** Whether the bundled Inter subset has a glyph for this character. Whitespace never needs one. */
+export function designInterHasGlyph(character) {
+  return bundledCharacters.has(character) || /^\s$/u.test(character);
 }

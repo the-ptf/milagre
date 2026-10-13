@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { designFontFamily, designHtml, designInterWeight, designSvg, designTextLayout, validateDesignDocument } from "./design.mjs";
-import { designFontFaces } from "./design-fonts.mjs";
+import { designFontFaces, designInterHasGlyph } from "./design-fonts.mjs";
 
 const screen = (fontFamily) => ({
   schemaVersion: 1,
@@ -103,4 +103,9 @@ test("all four weights plus heavy text stay within the 8 MiB render budget", () 
   const document = doc([400, 500, 600, 700].map((fontWeight) => textNode(`w${fontWeight}`, { fontWeight, text: big.slice(0, 20000), height: 4000 })));
   assert.doesNotThrow(() => designHtml(document));
   assert.doesNotThrow(() => designSvg(document));
+});
+
+test("the bundled Inter subset covers ASCII, Latin-1 and common punctuation, not other scripts", () => {
+  for (const character of ["A", "z", "~", "é", "ó", "—", "“", "→", "€", " ", "\t", "\n"]) assert.ok(designInterHasGlyph(character), character);
+  for (const character of ["ł", "ż", "ś", "Ж", "日", "😀", "✓", "★"]) assert.equal(designInterHasGlyph(character), false, character);
 });
