@@ -348,10 +348,10 @@ async function browserChecks() {
       ["milagre-link:fixture#1", "login", 1],
       ["milagre-link:fixture#1", "login", 2],
     ]);
-    const preview = await evaluate(
+    const frameGuard = await evaluate(
       `(() => { const f = ${cards}[0].querySelector("iframe"); return { sandbox: f.getAttribute("sandbox"), csp: f.srcdoc.includes("Content-Security-Policy") }; })()`,
     );
-    assert.deepEqual(preview, { sandbox: "allow-scripts", csp: true }, "the preview runs without same origin, under the policy");
+    assert.deepEqual(frameGuard, { sandbox: "allow-scripts", csp: true }, "the preview runs without same origin, under the policy");
     assert.equal(await evaluate('!!document.querySelector("[data-artifact=legacy]")'), true, "legacy HTML is restored as an Artifact");
     // CSP still blocks script-issued requests inside the generated sandbox.
     let previews = [];
