@@ -83,6 +83,10 @@
       "types": "./src/chat-plan.d.mts",
       "default": "./src/chat-plan.mjs"
     },
+    "./phase-graph": {
+      "types": "./src/phase-graph.d.mts",
+      "default": "./src/phase-graph.mjs"
+    },
     "./state-patch": {
       "types": "./src/state-patch.d.mts",
       "default": "./src/state-patch.mjs"
