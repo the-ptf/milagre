@@ -20,6 +20,8 @@ import { PullRequestActionCard } from "./pr-action-card";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { LinearIssueCard } from "./linear-issue-card";
+import { usageLimitOf } from "@milagre/shared/usage-limit";
+import { UsageLimitCard } from "./usage-limit-card";
 import { useTheme } from "./theme";
 import { useStyles } from "./ui";
 import { showImages, type MediaValue, type ViewerImage } from "./viewer-store";
@@ -198,6 +200,7 @@ export const ChatReply = memo(function ChatReply({
   chatId,
   designChoice,
   designsMoved,
+  limitProjectPath,
 }: {
   message?: ChatMessage;
   run?: AgentRun;
@@ -210,6 +213,8 @@ export const ChatReply = memo(function ChatReply({
   designChoice?: string;
   /** How far the Chat has come (its message count), to read the agent's resolutions of comments again. */
   designsMoved?: number;
+  /** Set when a usage-limit reply is the Chat's last message with no turn running: its card then offers other accounts for this Project. */
+  limitProjectPath?: string;
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -228,6 +233,7 @@ export const ChatReply = memo(function ChatReply({
   const issue = message?.role === "user" && isLinearIssueContext(message.context) ? message.context : null;
   // What the agent concluded only in thinking, once the turn ends or stops on a question.
   const thought = !run || run.questions.length ? unspokenThought(text, steps) : "";
+  const limit = !run && message?.role === "assistant" ? usageLimitOf(message) : null;
   const advisor = typeof message?.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
   if (advisor)
     return (
@@ -314,7 +320,8 @@ export const ChatReply = memo(function ChatReply({
         </View>
       ) : null}
       {!run && message?.outcome === "cancelled" && <Text style={styles.muted}>Turn stopped</Text>}
-      {!run && message?.outcome === "failed" && (
+      {limit && message && <UsageLimitCard limit={limit} sessionId={message.session_id} projectPath={limitProjectPath} />}
+      {!run && !limit && message?.outcome === "failed" && (
         <Text accessibilityRole="alert" style={{ color: colors.error }}>
           The turn failed. Review the response before trying again.
         </Text>

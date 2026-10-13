@@ -1141,6 +1141,8 @@ export default function ChatScreen() {
                     chatId={chatId}
                     designChoice={designChoice}
                     designsMoved={designsMoved}
+                    // A limit card offers other accounts only on the Chat's last message, with no turn running.
+                    limitProjectPath={!run && !pending && message === messages[messages.length - 1] ? project.path : undefined}
                     onActivity={openActivity}
                   />
                 )}

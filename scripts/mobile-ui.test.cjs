@@ -6562,6 +6562,8 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
     "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
+    "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
     "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
     "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
@@ -6666,6 +6668,8 @@ test("mobile Murilo mode shows each tool call and the notes between them in the 
       "./murilo-mode": { useMuriloMode: () => [murilo, () => {}] },
       "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
       "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+      "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
+      "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
       "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
       "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
       "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
@@ -6924,6 +6928,243 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
     find(empty, (n) => n.props?.title === "Linear"),
     undefined,
   );
+});
+
+test("mobile Experimental page shows the Mac's usage-limit auto-switch, saved on the Mac and rolled back when refused", async () => {
+  const react = hookHost();
+  const focused = [];
+  const saves = [];
+  let refuse = false;
+  const client = {
+    async call(method, args) {
+      if (method === "limits:auto-switch:read") return { autoSwitch: false };
+      if (method === "limits:auto-switch:save") {
+        saves.push(args[0]);
+        if (refuse) throw new Error("This computer does not allow changing this setting from a phone.");
+        return { autoSwitch: args[0] };
+      }
+      throw new Error(`unexpected ${method}`);
+    },
+  };
+  const modules = (session) => ({
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/linear": require("../packages/shared/src/linear.ts"),
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+    "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue", seedsFrom: (id) => ({ from: id }) },
+    "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
+    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./session": { useSession: () => session },
+    "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
+  });
+  const { ExperimentalSection } = load("experimental-section.tsx", modules({ client }));
+  const render = () => {
+    react.begin();
+    return ExperimentalSection();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const title = "Switch accounts at usage limits";
+  assert.equal(
+    find(render(), (n) => n.props?.title === title),
+    undefined,
+    "hidden until the Mac answers",
+  );
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  let tree = render();
+  assert.equal(find(tree, (n) => n.props?.title === title).props.selected, false);
+  assert.ok(find(tree, (n) => n.type === "Text" && String(n.props.children).startsWith("When a Chat hits its plan")));
+  find(tree, (n) => n.props?.title === title).props.onPress();
+  await settle();
+  assert.deepEqual(saves, [true]);
+  assert.equal(find(render(), (n) => n.props?.title === title).props.selected, true);
+  refuse = true;
+  find(render(), (n) => n.props?.title === title).props.onPress();
+  await settle();
+  tree = render();
+  assert.deepEqual(saves, [true, false]);
+  assert.equal(find(tree, (n) => n.props?.title === title).props.selected, true, "a refused save puts the switch back");
+  assert.match(find(tree, (n) => n.type === "ErrorNotice").props.message, /does not allow/);
+  const older = load("experimental-section.tsx", modules({ client: { call: async () => null } })).ExperimentalSection;
+  react.begin();
+  older();
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  react.begin();
+  assert.equal(
+    find(older(), (n) => n.props?.title === title),
+    undefined,
+    "an older Mac answers null: no switch",
+  );
+});
+
+test("mobile ChatReply shows the usage-limit card instead of the failed line, with a Project only when it can switch", () => {
+  const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
+  const { ChatReply } = load("chat-reply.tsx", {
+    "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
+    "react-native-svg": { default: "Svg", Path: "Path" },
+    "expo-router": { router: {} },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "./file-chip": { FileChip: "FileChip" },
+    "./markdown": { Markdown: "Markdown" },
+    "./icons": { Icon: "Icon" },
+    "./activity-item": { ActivityTitle: "ActivityTitle" },
+    "./tool-row": { ToolRow: "ToolRow" },
+    "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
+    "./answer-card": { AnswerCard: "AnswerCard" },
+    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
+    "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
+    "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
+    "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
+    "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
+    "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+    "./theme": { hex: () => "#000" },
+    "./viewer-store": { showImages() {} },
+    "./ui": { colors: {}, styles: { card: {}, row: {}, muted: {} } },
+  });
+  const limit = { kind: "limit", provider: "claude", accountId: "a", resetsAt: "2026-10-13T15:10:00.000Z" };
+  const message = { id: 9, session_id: 4, role: "assistant", body: "You've hit your session limit", outcome: "failed", context: limit };
+  const tree = ChatReply({ message, media: () => null, onActivity() {}, limitProjectPath: "/work/app" });
+  const card = find(tree, (n) => n.type === "UsageLimitCard");
+  assert.deepEqual({ ...card.props.limit }, limit);
+  assert.equal(card.props.sessionId, 4);
+  assert.equal(card.props.projectPath, "/work/app");
+  assert.equal(
+    find(tree, (n) => n.type === "Text" && n.props.children === "The turn failed. Review the response before trying again."),
+    undefined,
+    "the generic failure line stays out of a limit reply",
+  );
+  assert.equal(find(ChatReply({ message, media: () => null, onActivity() {} }), (n) => n.type === "UsageLimitCard").props.projectPath, undefined);
+  // A failed reply without the limit keeps its line and gets no card.
+  const failed = ChatReply({ message: { ...message, context: null }, media: () => null, onActivity() {} });
+  assert.equal(
+    find(failed, (n) => n.type === "UsageLimitCard"),
+    undefined,
+  );
+  assert.ok(find(failed, (n) => n.type === "Text" && n.props.children === "The turn failed. Review the response before trying again."));
+});
+
+test("mobile usage-limit card lists the other accounts, switches on tap, and offers Add or Manage accounts when none can be used", async () => {
+  const react = hookHost({ effects: true });
+  const pushed = [];
+  let snapshot;
+  const calls = [];
+  let failSwitch = null;
+  const client = {
+    async call(method, args) {
+      calls.push([method, args]);
+      if (method === "accounts:scope") return snapshot;
+      if (method === "chat:limit-switch") {
+        if (failSwitch) throw new Error(failSwitch);
+        return { continued: true, label: "b@x.com" };
+      }
+      throw new Error(`unexpected ${method}`);
+    },
+  };
+  const session = { client, providerRevision: 0 };
+  const { UsageLimitCard } = load("usage-limit-card.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { ActivityIndicator: "ActivityIndicator", Pressable: "Pressable", StyleSheet: { hairlineWidth: 1 }, Text: "Text", View: "View" },
+    "expo-router": { router: { push: (href) => pushed.push(href) } },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
+    "./icons": { Icon: "Icon" },
+    "./session": { useSession: () => session },
+    "./ui": { ErrorNotice: "ErrorNotice", PillButton: "PillButton" },
+  });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const render = (props) => {
+    react.begin();
+    return UsageLimitCard(props);
+  };
+  const limit = { kind: "limit", provider: "claude", accountId: "a", resetsAt: "2099-10-13T15:10:00.000Z" };
+  const account = (id, extra = {}) => ({ id, label: id, email: `${id}@x.com`, state: "ready", ...extra });
+  const group = (accounts) => ({ scopeKey: "/work/app", providers: [{ provider: "claude", effectiveId: "a", selectedId: "a", accounts }] });
+  const rows = (tree) =>
+    [find(tree, (n) => n.type === "View" && n.props.style?.borderTopWidth === 1)].flatMap((box) => (box ? [box.props.children].flat() : []));
+  const texts = (tree) => {
+    const out = [];
+    const walk = (n) => {
+      if (!n || typeof n !== "object") return;
+      if (Array.isArray(n)) return n.forEach(walk);
+      if (n.type === "Text" && typeof n.props.children === "string") out.push(n.props.children);
+      walk(n.props?.children);
+    };
+    walk(tree);
+    return out;
+  };
+
+  // Not the last message (or a turn runs): the headline only, and no accounts are fetched.
+  const idle = render({ limit, sessionId: 4 });
+  assert.ok(texts(idle).includes("Claude hit its usage limit"));
+  assert.equal(calls.length, 0);
+
+  snapshot = group([account("a"), account("b", { plan: "Max" }), account("c", { state: "signed-out" })]);
+  react.unmount();
+  let tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
+  await settle();
+  assert.equal(JSON.stringify(calls[0]), JSON.stringify(["accounts:scope", ["/work/app", false]]));
+  tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
+  const choices = rows(tree);
+  assert.equal(choices.length, 2);
+  assert.equal(JSON.stringify(texts(choices[0])), JSON.stringify(["Switch to b@x.com", "Personal"]));
+  assert.equal(choices[0].props.disabled, false);
+  assert.equal(choices[1].props.disabled, true, "a signed-out account is dimmed and cannot be picked");
+  assert.equal(
+    find(tree, (n) => n.type === "PillButton"),
+    undefined,
+    "a usable account hides Add and Manage",
+  );
+
+  // A refused switch shows its message inline and keeps the rows.
+  failSwitch = "Open the project before switching its account.";
+  choices[0].props.onPress();
+  tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
+  assert.ok(
+    find(tree, (n) => n.type === "ActivityIndicator"),
+    "a spinner marks the tapped row",
+  );
+  await settle();
+  tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
+  assert.equal(find(tree, (n) => n.type === "ErrorNotice").props.message, failSwitch);
+  assert.equal(rows(tree).length, 2);
+
+  failSwitch = null;
+  rows(tree)[0].props.onPress();
+  await settle();
+  assert.equal(JSON.stringify(calls.at(-1)), JSON.stringify(["chat:limit-switch", ["/work/app", 4, "claude", "b"]]));
+  tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
+  assert.ok(texts(tree).includes("Switched to b@x.com. Continuing…"));
+  assert.equal(rows(tree).length, 0, "the rows give way to the result");
+  // The result stays once the continued turn makes the card non-interactive.
+  assert.ok(texts(render({ limit, sessionId: 4 })).includes("Switched to b@x.com. Continuing…"));
+
+  // Every other account unusable: Manage accounts. No other account at all: Add account.
+  for (const [accounts, title] of [
+    [[account("a"), account("c", { state: "signed-out" })], "Manage accounts"],
+    [[account("a")], "Add account"],
+  ]) {
+    snapshot = group(accounts);
+    react.unmount();
+    const fresh = hookHost({ effects: true });
+    Object.assign(react, fresh);
+    render({ limit, sessionId: 4, projectPath: "/work/app" });
+    await settle();
+    const button = find(render({ limit, sessionId: 4, projectPath: "/work/app" }), (n) => n.type === "PillButton");
+    assert.equal(button.props.title, title);
+    button.props.onPress();
+    assert.equal(pushed.at(-1), "/accounts");
+  }
 });
 
 test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue off, and shows the editor only while on", () => {

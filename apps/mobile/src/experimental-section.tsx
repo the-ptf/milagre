@@ -39,6 +39,36 @@ export function ExperimentalSection() {
     const from = settings.colorTheme === "custom" ? DEFAULT_THEME_ID : settings.colorTheme;
     set({ customThemeEnabled: true, customTheme: settings.customTheme ?? seedsFrom(from), colorTheme: "custom" });
   }
+  // The Mac's limit auto-switch; null until the Mac answers (an older Mac never does).
+  const [autoSwitch, setAutoSwitch] = useState<boolean | null>(null);
+  const [autoSwitchError, setAutoSwitchError] = useState("");
+  useFocusEffect(
+    useCallback(() => {
+      const client = session.client;
+      if (!client) return;
+      let live = true;
+      client.call<{ autoSwitch: boolean } | null>("limits:auto-switch:read", []).then(
+        (value) => live && setAutoSwitch(value ? value.autoSwitch === true : null),
+        () => live && setAutoSwitch(null),
+      );
+      return () => {
+        live = false;
+      };
+    }, [session.client]),
+  );
+  async function changeAutoSwitch(next: boolean) {
+    const client = session.client;
+    if (!client || autoSwitch === null) return;
+    setAutoSwitchError("");
+    setAutoSwitch(next);
+    try {
+      const value = await client.call<{ autoSwitch: boolean }>("limits:auto-switch:save", [next]);
+      setAutoSwitch(value.autoSwitch === true);
+    } catch (failure) {
+      setAutoSwitch(!next);
+      setAutoSwitchError(failure instanceof Error ? failure.message : "Could not change this setting.");
+    }
+  }
   // The Mac's Linear switch and connection; null until the Mac answers (an older Mac never does). Re-read on focus:
   // the phone gets no event when the Mac connects or disconnects.
   // `moveToStarted` is on when a Mac that predates the switch sends none.
@@ -119,6 +149,13 @@ export function ExperimentalSection() {
       </View>
       {settings.customThemeEnabled && <CustomThemeSection />}
       {!session.client && <Text style={styles.caption}>Connect to a Mac to change its experimental features.</Text>}
+      {session.client && autoSwitch !== null && (
+        <View style={[styles.card, { gap: 4 }]}>
+          <Toggle title="Switch accounts at usage limits" selected={autoSwitch} onPress={() => void changeAutoSwitch(!autoSwitch)} />
+          <Text style={styles.caption}>When a Chat hits its plan&apos;s usage limit, move its Project to the next signed-in account and continue.</Text>
+          {autoSwitchError ? <ErrorNotice message={autoSwitchError} /> : null}
+        </View>
+      )}
       {session.client && linear !== null && (
         <View style={[styles.card, { gap: 4 }]}>
           <Toggle title={LINEAR_TITLE} selected={linear.enabled} onPress={() => void changeLinear(!linear.enabled)} />
