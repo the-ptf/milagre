@@ -39,6 +39,7 @@ function guardNavigation(webContents, { appUrl, openExternal }) {
   // the app gave it: a design that sets location to a remote page would show that page inside the app, without the
   // policy its srcdoc carried.
   webContents.on("will-frame-navigate", (event) => {
+    if (/^milagre-artifact:\/\/preview\/[a-f0-9]{48}$/.test(event.url)) return;
     if (event.isMainFrame || isAppUrl(event.url, appUrl) || /^about:(srcdoc|blank)$/.test(event.url)) return;
     event.preventDefault();
   });

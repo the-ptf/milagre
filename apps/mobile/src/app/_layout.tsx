@@ -74,6 +74,7 @@ export default function Layout() {
                       <Stack.Screen name="usage" options={{ title: "Plan usage" }} />
                       <Stack.Screen name="skills" options={{ title: "Skills" }} />
                       <Stack.Screen name="mcp" options={{ title: "MCP" }} />
+                      <Stack.Screen name="local-mcp" options={{ title: "Milagre MCP" }} />
                       <Stack.Screen name="experimental" options={{ title: "Experimental" }} />
                       <Stack.Screen name="skill" options={{ title: "Skill" }} />
                       <Stack.Screen name="add-computer" options={{ ...sheet, sheetAllowedDetents: [1] }} />

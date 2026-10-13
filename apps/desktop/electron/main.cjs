@@ -33,7 +33,10 @@ const { forwardAppShortcuts } = require("./app-shortcuts.cjs");
 const { AttentionNotifier } = require("./notifications.cjs");
 const { createDeviceNotices } = require("./device-notices.cjs");
 const { createMediaHandler } = require("./media.cjs");
-protocol.registerSchemesAsPrivileged([{ scheme: "milagre-media", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
+protocol.registerSchemesAsPrivileged([
+  { scheme: "milagre-artifact", privileges: { standard: true, secure: true } },
+  { scheme: "milagre-media", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+]);
 async function startDesktop() {
   /** @type {Electron.BrowserWindow | null} */
   let mainWindow = null;
@@ -77,6 +80,27 @@ async function startDesktop() {
     floating.close();
     openFromNotification("notification:open-experimental");
   });
+  const previews = require("./artifact-preview.cjs").createArtifactPreviews();
+  const previewOwners = new Set();
+  ipcMain.handle("artifact-preview:register", (event, html) => {
+    if (event.senderFrame !== event.sender.mainFrame) throw new Error("Only the app can create a preview.");
+    const owner = event.sender.id;
+    if (!previewOwners.has(owner)) {
+      previewOwners.add(owner);
+      event.sender.once("destroyed", () => {
+        previews.clear(owner);
+        previewOwners.delete(owner);
+      });
+      event.sender.on("did-start-navigation", (_event, _url, _inPlace, mainFrame) => {
+        if (mainFrame) previews.clear(owner);
+      });
+    }
+    return previews.register(owner, html);
+  });
+  ipcMain.handle("artifact-preview:release", (event, url) => {
+    if (event.senderFrame === event.sender.mainFrame) previews.release(event.sender.id, url);
+  });
+  protocol.handle("milagre-artifact", (request) => previews.handle(request));
   const appIconPath = path.join(__dirname, "../app/public/logo-milagre-image.png");
   const { createReleaseChannelStore, prepareUpdater } = require("./release-channel.cjs");
   const { createAppUpdates, watchAppUpdates } = require("./app-updates.cjs");

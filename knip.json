@@ -39,6 +39,10 @@
     "packages/shared": {
       "entry": ["src/*.ts", "src/*.mjs"],
       "project": ["src/**"]
+    },
+    "apps/design-share": {
+      "entry": ["src/worker.ts", "src/*.test.mjs"],
+      "project": ["src/**"]
     }
   },
   "ignoreDependencies": ["@semantic-release/*"],

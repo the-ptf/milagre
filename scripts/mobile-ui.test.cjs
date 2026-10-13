@@ -98,6 +98,15 @@ const themeHooks = {
   fonts: { mono: "mono" },
 };
 const uiHooks = { useStyles: () => fakeStyles, makeStyles: () => fakeStyles };
+const designsOn = {
+  enabled: true,
+  saving: false,
+  stale: false,
+  error: "",
+  refresh: async () => {},
+  save: async () => {},
+  connectionChanged() {},
+};
 function load(file, modules, extra = "") {
   // These helpers stay private in production; the source harness exposes them only to tests.
   const locals = {
@@ -1032,6 +1041,7 @@ function sessionHost(
       "@milagre/shared/model": {},
       "./link-operations": require("../apps/mobile/src/link-operations.ts"),
       "./use-links": { refreshLinks: async () => {} },
+      "./use-designs": { useDesigns: () => designsOn },
     },
     "\nexport { useSessionState, PendingChatsProvider, ComposerProvider };",
   );
@@ -1297,6 +1307,7 @@ function chatHost({
   };
   const params = { worktreeId: "1" };
   const session = {
+    designs: designsOn,
     client: {
       url: "mac",
       call: (method, args) => {
@@ -6373,9 +6384,10 @@ test("mobile Ports sheet stops only this Chat's process and refuses another host
   assert.deepEqual(calls, []);
 });
 
-function artifactHost(client, pushes = [], router = { back() {} }) {
+function artifactHost(client, pushes = [], router = { back() {} }, feature = designsOn) {
   const react = hookHost({ effects: true }),
     files = new Map();
+  const appListeners = new Set();
   class File {
     constructor(_cache, name) {
       this.uri = "file:///cache/" + name;
@@ -6395,7 +6407,18 @@ function artifactHost(client, pushes = [], router = { back() {} }) {
     {
       react,
       "react/jsx-runtime": { jsx, jsxs: jsx },
-      "react-native": { Text: "Text", View: "View", Pressable: "Pressable", TextInput: "TextInput" },
+      "react-native": {
+        Text: "Text",
+        View: "View",
+        Pressable: "Pressable",
+        TextInput: "TextInput",
+        AppState: {
+          addEventListener: (_event, listener) => {
+            appListeners.add(listener);
+            return { remove: () => appListeners.delete(listener) };
+          },
+        },
+      },
       "expo-router": { router: { back: () => router.back(), push: (route) => pushes.push(route) } },
       "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 47, bottom: 34 }) },
       "react-native-keyboard-controller": { KeyboardAvoidingView: "KeyboardAvoidingView" },
@@ -6404,7 +6427,12 @@ function artifactHost(client, pushes = [], router = { back() {} }) {
       "@hugeicons/core-free-icons": {},
       "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
       "./design-outbox": require("../apps/mobile/src/design-outbox.ts"),
-      "./session": { useSession: () => ({ client }) },
+      "./design-page-share": { DesignPageShareSheet: "DesignPageShareSheet" },
+      "./session": { useSession: () => ({ client, designs: feature }) },
+      "./use-design-catalog": load("use-design-catalog.ts", {
+        react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
+        "./design-catalog": require("../apps/mobile/src/design-catalog.ts"),
+      }),
       "./icons": { Icon: "Icon" },
       "./ui": { CircleButton: "CircleButton", PillButton: "PillButton", colors: {}, styles: {} },
     },
@@ -6412,6 +6440,12 @@ function artifactHost(client, pushes = [], router = { back() {} }) {
   );
   return {
     files,
+    setClient(next) {
+      client = next;
+    },
+    appState(status) {
+      for (const listener of appListeners) listener(status);
+    },
     render(name, props) {
       react.begin();
       const tree = source[name](props);
@@ -6424,6 +6458,68 @@ function artifactHost(client, pushes = [], router = { back() {} }) {
   };
 }
 
+test("structured designs on mobile support review and version browsing without edit controls", async () => {
+  const { createExampleDesign, designHtml } = require("../packages/shared/src/design.mjs");
+  const document = createExampleDesign();
+  const latest = {
+    id: "fieldnotes",
+    version: 2,
+    latest: 2,
+    versions: 2,
+    title: "Fieldnotes",
+    format: "design",
+    width: 390,
+    height: 844,
+    html: designHtml(document),
+    document,
+  };
+  const calls = [];
+  const client = {
+    url: "mac",
+    call: async (method, [request]) => {
+      calls.push([method, request]);
+      if (method === "artifact:list") return [latest];
+      if (method === "artifact:get") return { ...latest, version: request.version ?? 2 };
+      throw new Error(`Unexpected request: ${method}`);
+    },
+  };
+  const h = artifactHost(client);
+  const props = {
+    hostId: "mac",
+    chatId: "/p#7",
+    id: "fieldnotes",
+    version: "2",
+  };
+  h.render("ArtifactSheet", props);
+  await settle();
+  let tree = h.render("ArtifactSheet", props);
+  assert.ok(
+    find(tree, (node) => node.props.html === latest.html),
+    "the structured design renders for review",
+  );
+  assert.equal(
+    find(tree, (node) => /^Edit|^Save$|^Layers$|^Inspect$/.test(node.props.title ?? "")),
+    undefined,
+  );
+  assert.ok(find(tree, (node) => node.props.title === "Choose"));
+  assert.ok(find(tree, (node) => node.props.title === "Comment"));
+  find(tree, (node) => node.props.label === "Previous version of Fieldnotes").props.onPress();
+  h.render("ArtifactSheet", props);
+  await settle();
+  tree = h.render("ArtifactSheet", props);
+  assert.equal(calls.at(-1)[1].version, 1);
+  assert.equal(
+    find(tree, (node) => (node.props.title ?? "").startsWith("Edit")),
+    undefined,
+  );
+  find(tree, (node) => node.props.label === "Next version of Fieldnotes").props.onPress();
+  h.render("ArtifactSheet", props);
+  await settle();
+  assert.equal(calls.at(-1)[0], "artifact:get");
+  assert.equal(calls.at(-1)[1].version, undefined, "returning to the latest version reads the latest saved design");
+  h.cleanup();
+});
+
 test("a design card opens its Chat's design full screen; a new Chat's card can't", () => {
   const pushes = [];
   const h = artifactHost({ url: "mac" }, pushes);
@@ -6435,13 +6531,26 @@ test("a design card opens its Chat's design full screen; a new Chat's card can't
 });
 
 test("the design sheet loads the version it opened under the design policy, framed in a page of its own", async () => {
+  const { createExampleDesign, designHtml } = require("../packages/shared/src/design.mjs");
+  const document = createExampleDesign();
   const calls = [];
   const client = {
     url: "mac",
     call: async (method, args) => {
       calls.push([method, args]);
-      if (method === "artifact:list") return [{ id: "login", version: 2, title: "Login", versions: 2, width: 390, height: 844 }];
-      return { id: "login", version: 1, latest: 2, versions: 2, title: "Login", width: 390, height: 844, html: "<html><head></head><body>hi</body></html>" };
+      if (method === "artifact:list") return [{ id: "login", format: "design", version: 2, title: "Login", versions: 2, width: 390, height: 844 }];
+      return {
+        id: "login",
+        format: "design",
+        document,
+        version: 1,
+        latest: 2,
+        versions: 2,
+        title: "Login",
+        width: 390,
+        height: 844,
+        html: designHtml(document),
+      };
     },
   };
   const h = artifactHost(client);
@@ -6449,6 +6558,7 @@ test("the design sheet loads the version it opened under the design policy, fram
   await settle();
   const tree = h.render("ArtifactSheet", { hostId: "mac", chatId: "/p#7", id: "login", version: "1" });
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    ["artifact:sharing-status", []],
     ["artifact:list", [{ chatId: "/p#7" }]],
     ["artifact:get", [{ chatId: "/p#7", id: "login", version: 1 }]],
   ]);
@@ -6473,6 +6583,8 @@ test("the design sheet loads the version it opened under the design policy, fram
 });
 
 test("on the design sheet, choosing and commenting wait for Send, which hands one message to the Chat", async () => {
+  const { createExampleDesign, designHtml } = require("../packages/shared/src/design.mjs");
+  const document = createExampleDesign();
   const outbox = require("../apps/mobile/src/design-outbox.ts");
   let backs = 0;
   const recorded = [];
@@ -6481,8 +6593,8 @@ test("on the design sheet, choosing and commenting wait for Send, which hands on
     call: async (method, args) => {
       if (method === "artifact:add-comments") recorded.push(...args[0].comments);
       return method === "artifact:list"
-        ? [{ id: "home", version: 1, title: "Home", versions: 1, width: 390, height: 844 }]
-        : { id: "home", version: 1, latest: 1, versions: 1, title: "Home", width: 390, height: 844, html: "<p>home</p>" };
+        ? [{ id: "home", format: "design", version: 1, title: "Home", versions: 1, width: 390, height: 844 }]
+        : { id: "home", format: "design", document, version: 1, latest: 1, versions: 1, title: "Home", width: 390, height: 844, html: designHtml(document) };
     },
   };
   const h = artifactHost(client, [], { back: () => backs++ });
@@ -6507,7 +6619,7 @@ test("on the design sheet, choosing and commenting wait for Send, which hands on
   const id = /\(comment ([a-f0-9]{8})\)/.exec(message.text)?.[1];
   assert.equal(
     message.text,
-    `I chose the design "Home" (home, version 1). Continue from this one.\n\nA comment on the designs:\n\n1. (comment ${id}) On the design "Home" (home, version 1): Bigger title\n\nRevise them with artifact_show and keep their ids. Once you have addressed a comment, resolve it with artifact_resolve_comment and its comment id.`,
+    `I chose the design "Home" (home, version 1). Continue from this one.\n\nA comment on the designs:\n\n1. (comment ${id}) On the design "Home" (home, version 1): Bigger title\n\nRead the latest design with design_read, then revise its layers with design_apply and expectedVersion. Keep its id. Once you have addressed a comment, resolve it with artifact_resolve_comment and its comment id.`,
   );
   assert.equal(recorded.length, 0, "the comments are recorded only once the message went");
   assert.ok(outbox.peekDesignMessage("mac|/p#7"), "it waits until it is sent");
@@ -6522,12 +6634,14 @@ test("on the design sheet, choosing and commenting wait for Send, which hands on
   h.cleanup();
 });
 
-test("feedback from the designs shows as a card of the choice and each comment", () => {
-  const h = artifactHost({ url: "mac" });
+test("feedback from the designs shows as a card of the choice and each comment", async () => {
+  const h = artifactHost({ url: "mac", call: async () => [{ id: "home", format: "design", version: 2, title: "Home" }] });
   const { parseDesignFeedback, designFeedbackMessage } = require("../packages/shared/src/artifact.ts");
   const home = { id: "home", version: 2, title: "Home" };
   const feedback = parseDesignFeedback(designFeedbackMessage({ choice: home, comments: [{ design: home, x: 0.5, y: 0.2, text: "Bigger title" }] }));
-  const tree = h.render("DesignFeedbackCard", { feedback });
+  h.render("DesignFeedbackCard", { feedback, chatId: "/p#7" });
+  await settle();
+  const tree = h.render("DesignFeedbackCard", { feedback, chatId: "/p#7" });
   const texts = [];
   const walk = (node) => {
     if (typeof node === "string" || typeof node === "number") texts.push(String(node));
@@ -6539,6 +6653,7 @@ test("feedback from the designs shows as a card of the choice and each comment",
   assert.match(all, /Chose \|?Home/);
   assert.match(all, /Bigger title/);
   assert.doesNotMatch(all, /artifact_show/, "the agent's instructions stay out of sight");
+  h.cleanup();
 });
 
 test("a reply shows the thinking it wrote nothing after, once it waits on a question or ends, not while working", () => {
@@ -6829,7 +6944,17 @@ test("mobile Settings opens Experimental as its own page, like desktop's section
     "the Linear switch lives on the Experimental page",
   );
   find(tree, (n) => n.type === "ListRow" && n.props.title === "Experimental").props.onPress();
-  assert.deepEqual(opened, ["experimental"]);
+  find(tree, (n) => n.type === "ListRow" && n.props.title === "Milagre MCP").props.onPress();
+  assert.deepEqual(opened, ["experimental", "local-mcp"]);
+  const { default: LocalScreen } = load("app/local-mcp.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "expo-router": { Stack: { Screen: "Screen" } },
+    "../ui": { PageScroll: "PageScroll" },
+    "../local-mcp-section": { LocalMcpSection: "LocalMcpSection" },
+  });
+  const localPage = LocalScreen();
+  assert.equal(find(localPage, (n) => n.type === "Screen").props.options.title, "Milagre MCP");
+  assert.ok(find(localPage, (n) => n.type === "LocalMcpSection"));
   const { default: Screen } = load("app/experimental.tsx", {
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "expo-router": { Stack: { Screen: "Screen" } },
@@ -6873,7 +6998,7 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
       useUltracodeFatality: () => [false, () => {}],
     },
     "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
-    "./session": { useSession: () => session },
+    "./session": { useSession: () => ({ designs: designsOn, ...session }) },
     "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
   });
   const { ExperimentalSection } = load("experimental-section.tsx", modules({ client }));
@@ -6951,14 +7076,14 @@ test("mobile Experimental page shows the Mac's usage-limit auto-switch, saved on
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "@milagre/shared/linear": require("../packages/shared/src/linear.ts"),
     "react-native": { View: "View", Text: "Text" },
-    "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
     "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue", seedsFrom: (id) => ({ from: id }) },
     "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
     "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
     "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
     "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
-    "./session": { useSession: () => session },
-    "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
+    "./session": { useSession: () => ({ designs: { ...designsOn }, ...session }) },
+    "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PillButton: "PillButton", Toggle: "Toggle", styles: {} },
   });
   const { ExperimentalSection } = load("experimental-section.tsx", modules({ client }));
   const render = () => {
@@ -7875,4 +8000,952 @@ test("Composer restores model and permission defaults after relaunch without a p
   assert.equal(defaults.model, "claude-opus-5-5");
   assert.equal(defaults.permissionMode, "full");
   assert.equal(defaults.pickedOn, undefined);
+});
+
+test("the phone Designs setting keeps the last confirmed value through refresh, failed saves and reconnects", async () => {
+  const { createDesignsSetting } = require("../apps/mobile/src/designs-setting.ts");
+  let read = deferred(),
+    save = deferred();
+  const calls = [];
+  const setting = createDesignsSetting({
+    call(method, args) {
+      calls.push([method, args]);
+      return method.endsWith(":read") ? read.promise : save.promise;
+    },
+  });
+  const first = setting.refresh();
+  assert.equal(setting.getSnapshot().enabled, null);
+  read.resolve({ enabled: false });
+  await first;
+  assert.equal(setting.getSnapshot().stale, false);
+  const pending = setting.save(true);
+  assert.equal(setting.getSnapshot().enabled, false, "enabling waits for the host's acknowledgement");
+  assert.equal(setting.getSnapshot().saving, true);
+  save.reject(new Error("Mac disconnected"));
+  await pending;
+  assert.equal(setting.getSnapshot().enabled, false, "a failed enable keeps the last confirmed OFF value");
+  assert.equal(setting.getSnapshot().stale, true);
+  assert.equal(setting.getSnapshot().error, "Mac disconnected");
+  read = deferred();
+  const retry = setting.refresh();
+  read.resolve({ enabled: true });
+  await retry;
+  assert.equal(setting.getSnapshot().enabled, true);
+  read = deferred();
+  const checking = setting.refresh();
+  assert.equal(setting.getSnapshot().enabled, true, "refresh does not unmount an open design");
+  assert.equal(setting.getSnapshot().stale, true);
+  read.reject(new Error("Offline"));
+  await checking;
+  assert.equal(setting.getSnapshot().enabled, true);
+  assert.equal(setting.getSnapshot().error, "Offline");
+  save = deferred();
+  const failedDisable = setting.save(false);
+  save.reject(new Error("Not permitted"));
+  await failedDisable;
+  assert.equal(setting.getSnapshot().enabled, true, "a failed disable also keeps the last confirmed value");
+  read = deferred();
+  const stale = setting.refresh();
+  setting.unavailable("Reconnect");
+  read.resolve({ enabled: false });
+  await stale;
+  assert.equal(setting.getSnapshot().enabled, true, "a read from before disconnection cannot overwrite the last confirmation");
+  assert.equal(setting.getSnapshot().stale, true);
+  assert.equal(setting.getSnapshot().error, "Reconnect");
+  read = deferred();
+  const reconnected = setting.refresh();
+  read.resolve({ enabled: false });
+  await reconnected;
+  assert.equal(setting.getSnapshot().enabled, false, "confirmed remote OFF applies while the last value was ON");
+  assert.equal(setting.getSnapshot().stale, false);
+  assert.deepEqual(calls[1], ["designs:enabled:save", [true]]);
+  setting.dispose();
+  const unsupported = createDesignsSetting({ call: async () => null });
+  await unsupported.refresh();
+  assert.match(unsupported.getSnapshot().error, /Update Milagre/);
+  assert.equal(unsupported.getSnapshot().enabled, null, "a new or unsupported host has no previous confirmation");
+  unsupported.dispose();
+});
+
+test("the phone receives Designs changes without an open Project and clears only that host's pending feedback", async () => {
+  const react = hookHost({ effects: true });
+  const outbox = require("../apps/mobile/src/design-outbox.ts");
+  let enabled = true,
+    events,
+    closed = 0;
+  const client = {
+    url: "design-host",
+    call: async () => ({ enabled }),
+    live(projectPath, options) {
+      assert.equal(projectPath, "");
+      events = options;
+      return {
+        close() {
+          closed++;
+        },
+      };
+    },
+  };
+  const { useDesigns } = load("use-designs.ts", {
+    react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
+    "react-native": {
+      AppState: {
+        currentState: "active",
+        addEventListener: () => ({ remove() {} }),
+      },
+    },
+    "./designs-setting": require("../apps/mobile/src/designs-setting.ts"),
+    "./design-outbox": outbox,
+  });
+  const render = () => {
+    react.begin();
+    return useDesigns(client);
+  };
+  render();
+  await settle();
+  assert.equal(render().enabled, true);
+  const pending = { text: "Request", onSent() {} };
+  outbox.postDesignMessage("design-host|/p#7", pending);
+  outbox.postDesignMessage("other-host|/p#7", pending);
+  const artifactPending = { ...pending, kind: "artifacts" };
+  outbox.postDesignMessage("design-host|/p#8", artifactPending);
+  enabled = false;
+  events.onSignal("designs");
+  assert.equal(render().enabled, true, "the current design stays mounted until the host confirms OFF");
+  assert.equal(render().stale, true);
+  await settle();
+  assert.equal(render().enabled, false);
+  assert.equal(outbox.peekDesignMessage("design-host|/p#7"), null);
+  assert.equal(outbox.peekDesignMessage("other-host|/p#7"), pending);
+  assert.equal(outbox.peekDesignMessage("design-host|/p#8"), artifactPending, "turning Designs off keeps Artifact feedback");
+  outbox.designMessageSent("design-host|/p#8", artifactPending);
+  events.onStatus(true);
+  await settle();
+  events.onStatus(false);
+  assert.equal(render().enabled, false);
+  assert.equal(render().stale, true);
+  assert.match(render().error, /Reconnect/);
+  react.cleanup();
+  outbox.clearDesignMessages("other-host");
+  assert.equal(closed, 1);
+});
+
+test("a confined phone uses its allowed scope, then reuses the Project socket without resetting its confirmed Designs value", async () => {
+  const react = hookHost({ effects: true });
+  let enabled = true,
+    events,
+    closed = 0,
+    reads = 0;
+  const scopes = [];
+  const client = {
+    url: "confined-design-host",
+    call: async () => {
+      reads++;
+      return { enabled };
+    },
+    live(scope, options) {
+      assert.equal(scope, "/allowed", "a confined phone must not try the rejected global scope");
+      scopes.push(scope);
+      events = options;
+      return { close: () => closed++ };
+    },
+  };
+  const { useDesigns } = load("use-designs.ts", {
+    react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
+    "react-native": {
+      AppState: {
+        currentState: "active",
+        addEventListener: () => ({ remove() {} }),
+      },
+    },
+    "./designs-setting": require("../apps/mobile/src/designs-setting.ts"),
+    "./design-outbox": require("../apps/mobile/src/design-outbox.ts"),
+  });
+  let activeClient = client,
+    projectPath;
+  const render = () => {
+    react.begin();
+    return useDesigns(activeClient, projectPath, "/allowed");
+  };
+  render();
+  await settle();
+  events.onStatus(true);
+  await settle();
+  assert.equal(render().enabled, true);
+  projectPath = "/allowed";
+  assert.equal(render().enabled, true);
+  render().connectionChanged(true);
+  await settle();
+  assert.deepEqual(scopes, ["/allowed"], "opening the Project reuses its Session socket");
+  assert.equal(closed, 1);
+  const afterOpen = reads;
+  render().connectionChanged(true);
+  await settle();
+  assert.equal(reads, afterOpen, "repeated connected status does not refetch the setting");
+  enabled = false;
+  await render().refresh(); // Session forwards its Project socket's designs signal here.
+  assert.equal(render().enabled, false);
+  render().connectionChanged(false);
+  assert.equal(render().enabled, false);
+  assert.equal(render().stale, true);
+  enabled = true;
+  render().connectionChanged(true);
+  await settle();
+  assert.equal(render().enabled, true);
+  const firstAnswer = deferred();
+  activeClient = {
+    ...client,
+    url: "another-host",
+    call: () => firstAnswer.promise,
+  };
+  assert.equal(render().enabled, null, "another host never inherits a previous host's confirmation");
+  firstAnswer.resolve({ enabled: false });
+  await settle();
+  assert.equal(render().enabled, false);
+  react.cleanup();
+});
+
+test("legacy design feedback remains plain readable transcript text, including when mixed with structured feedback", async () => {
+  const legacy = { id: "old", title: "Old landing", version: 2 };
+  const modern = {
+    id: "new",
+    format: "design",
+    title: "New landing",
+    version: 1,
+  };
+  const client = { url: "mixed-feedback-host", call: async () => [modern] };
+  const feedback = {
+    choice: legacy,
+    comments: [{ design: legacy, id: "comment-old", text: "Keep the warmer colors." }],
+  };
+  const h = artifactHost(client);
+  h.render("DesignFeedbackCard", { chatId: "/p#7", feedback });
+  await settle();
+  const plain = h.render("DesignFeedbackCard", { chatId: "/p#7", feedback });
+  assert.equal(plain.type, "Text");
+  assert.equal(plain.props.children, "Chose Old landing (version 2).\n\nOld landing (version 2): Keep the warmer colors.");
+  assert.doesNotMatch(plain.props.children, /design_read|design_apply|artifact_show|comment-old/);
+  const mixed = h.render("DesignFeedbackCard", {
+    chatId: "/p#7",
+    feedback: {
+      ...feedback,
+      comments: [...feedback.comments, { design: modern, text: "Enlarge the heading." }],
+    },
+  });
+  assert.ok(find(mixed, (node) => node.props.accessibilityLabel === "Feedback on the designs"));
+  assert.ok(find(mixed, (node) => node.type === "Text" && node.props.children === plain.props.children));
+  assert.ok(find(mixed, (node) => node.type === "Text" && node.props.children === "Enlarge the heading."));
+  h.cleanup();
+});
+
+test("turning Designs off closes an open phone review and preserves plain feedback without design widgets or fetching", async () => {
+  const { createExampleDesign, designHtml } = require("../packages/shared/src/design.mjs");
+  const document = createExampleDesign();
+  const artifact = {
+    id: "sample",
+    format: "design",
+    title: "Sample",
+    version: 1,
+    latest: 1,
+    versions: 1,
+    width: 390,
+    height: 844,
+    document,
+    html: designHtml(document),
+  };
+  const calls = [];
+  const client = {
+    url: "off-host",
+    call: async (method) => {
+      calls.push(method);
+      return method === "artifact:list" ? [artifact] : artifact;
+    },
+  };
+  const feature = { ...designsOn };
+  let backs = 0;
+  const h = artifactHost(client, [], { back: () => backs++ }, feature);
+  const props = { hostId: client.url, chatId: "/p#7", id: "sample" };
+  h.render("ArtifactSheet", props);
+  await settle();
+  let tree = h.render("ArtifactSheet", props);
+  assert.ok(find(tree, (node) => node.props.children === "Experimental"));
+  assert.ok(find(tree, (node) => node.props.title === "Choose"));
+  feature.enabled = false;
+  calls.length = 0;
+  tree = h.render("ArtifactSheet", props);
+  assert.equal(backs, 1);
+  assert.equal(
+    find(tree, (node) => node.props.title === "Choose" || node.props.children === "Experimental" || node.props.html),
+    undefined,
+  );
+  assert.deepEqual(calls, []);
+  h.cleanup();
+  const cards = artifactHost(client, [], undefined, feature);
+  assert.equal(
+    cards.render("ArtifactCards", {
+      chatId: "/p#7",
+      steps: [{ id: "s", artifact }],
+    }),
+    null,
+  );
+  cards.cleanup();
+  const feedback = artifactHost(client, [], undefined, feature);
+  const plain = feedback.render("DesignFeedbackCard", {
+    chatId: "/p#7",
+    feedback: {
+      choice: artifact,
+      comments: [
+        {
+          design: artifact,
+          id: "123abc",
+          x: 0.2,
+          text: "Make the heading larger.",
+        },
+      ],
+    },
+  });
+  assert.equal(plain.type, "Text");
+  assert.equal(plain.props.children, "Chose Sample (version 1).\n\nSample (version 1): Make the heading larger.");
+  assert.doesNotMatch(plain.props.children, /design_read|design_apply|artifact_show|123abc/);
+  feedback.cleanup();
+  assert.deepEqual(calls, [], "off does not fetch saved designs or feedback");
+});
+
+test("phone cards preserve unmarked structured designs while excluding unverified refs, with one shared catalog per Chat", async () => {
+  const catalog = require("../apps/mobile/src/design-catalog.ts");
+  let calls = 0;
+  const client = {
+    url: "catalog-host",
+    call: async (method) => {
+      if (method !== "artifact:list") throw Error("Unknown artifact");
+      calls++;
+      return [
+        { id: "structured", format: "design", version: 2 },
+        { id: "retired", version: 1 },
+      ];
+    },
+  };
+  const steps = [
+    { id: "first", artifact: { id: "structured", version: 1, title: "Kept" } },
+    { id: "second", artifact: { id: "retired", version: 1, title: "HTML" } },
+    {
+      id: "third",
+      artifact: { id: "fresh", format: "design", version: 1, title: "New" },
+    },
+  ];
+  const h = artifactHost(client);
+  const before = h.render("ArtifactCards", { steps, chatId: "/p#7" });
+  assert.equal(before.props.step.artifact.id, "fresh", "marked structured refs render immediately");
+  await settle();
+  const tree = h.render("ArtifactCards", { steps, chatId: "/p#7" });
+  assert.equal(tree.props.accessibilityLabel, "2 designs: Kept, New. Open full screen");
+  const other = artifactHost(client);
+  other.render("ArtifactCards", { steps, chatId: "/p#7" });
+  await settle();
+  assert.equal(calls, 1);
+  assert.deepEqual(
+    catalog.designCatalog(client, "/p#7").map((design) => design.id),
+    ["structured"],
+  );
+  steps[0].artifact.version = 2;
+  h.render("ArtifactCards", { steps, chatId: "/p#7" });
+  await settle();
+  assert.equal(calls, 2, "a completed new version refreshes the catalog");
+  h.cleanup();
+  other.cleanup();
+});
+
+test("the phone refuses a retired HTML design response even while Designs is enabled", async () => {
+  const h = artifactHost({
+    url: "legacy-host",
+    call: async (method) => (method === "artifact:list" ? [] : { id: "old", version: 1, html: "<h1>Retired</h1>" }),
+  });
+  const props = { hostId: "legacy-host", chatId: "/p#7", id: "old" };
+  h.render("ArtifactSheet", props);
+  await settle();
+  const tree = h.render("ArtifactSheet", props);
+  assert.equal(
+    find(tree, (node) => node.props.html),
+    undefined,
+  );
+  assert.equal(
+    find(tree, (node) => node.props.title === "Choose"),
+    undefined,
+  );
+  assert.ok(find(tree, (node) => node.props.children === "This page is no longer available."));
+  h.cleanup();
+});
+
+test("mobile page sharing uses the Chat scope, regardless of the selected design or version", async () => {
+  const design = {
+    id: "one",
+    version: 1,
+    latest: 2,
+    versions: 2,
+    title: "One",
+    format: "design",
+    document: {},
+    html: "<main>One</main>",
+  };
+  const feature = { ...designsOn };
+  const client = {
+    url: "mac",
+    call: async (method) =>
+      method === "artifact:sharing-status" ? { available: true } : method === "artifact:list" ? [design, { ...design, id: "two" }] : design,
+  };
+  const h = artifactHost(client, [], { back() {} }, feature);
+  const props = { hostId: "mac", chatId: "/p#7", id: "one", version: "1" };
+  h.render("ArtifactSheet", props);
+  await settle();
+  let tree = h.render("ArtifactSheet", props);
+  find(tree, (node) => node.props.accessibilityLabel === "Share Designs page").props.onPress();
+  tree = h.render("ArtifactSheet", props);
+  const sheet = find(tree, (node) => node.type === "DesignPageShareSheet");
+  assert.equal(sheet.props.chatId, "/p#7");
+  assert.equal(sheet.props.id, undefined, "sharing must not take an individual design ID");
+  assert.equal(sheet.props.version, undefined, "sharing always captures the latest saved page");
+  sheet.props.onAvailabilityChange(false);
+  tree = h.render("ArtifactSheet", props);
+  assert.ok(
+    find(tree, (node) => node.type === "DesignPageShareSheet"),
+    "an unavailable result keeps the open dialog available for recovery",
+  );
+  sheet.props.onClose();
+  tree = h.render("ArtifactSheet", props);
+  assert.equal(
+    find(tree, (node) => node.props.accessibilityLabel === "Share Designs page"),
+    undefined,
+    "a failed dialog health check also hides the entry point",
+  );
+
+  feature.enabled = false;
+  tree = h.render("ArtifactSheet", props);
+  assert.equal(
+    find(tree, (node) => node.type === "DesignPageShareSheet"),
+    undefined,
+  );
+  assert.equal(
+    find(tree, (node) => node.props.accessibilityLabel === "Share Designs page"),
+    undefined,
+  );
+  h.cleanup();
+});
+
+test("mobile Share stays hidden until the current host is healthy and refreshes on foreground", async () => {
+  const design = { id: "one", version: 1, title: "One", format: "design", document: {}, html: "<main>One</main>" };
+  const requests = [];
+  const makeClient = (url) => ({
+    url,
+    call(method) {
+      if (method !== "artifact:sharing-status") return Promise.resolve(method === "artifact:list" ? [design] : design);
+      const request = deferred();
+      requests.push(request);
+      return request.promise;
+    },
+  });
+  const h = artifactHost(makeClient("first"));
+  const props = { hostId: "first", chatId: "/p#7", id: "one" };
+  const render = () => h.render("ArtifactSheet", props);
+  const share = () => find(render(), (node) => node.props.accessibilityLabel === "Share Designs page");
+  render();
+  await settle();
+  assert.equal(share(), undefined, "initial health request has no Share flash");
+  requests[0].resolve({ available: false });
+  await settle();
+  assert.equal(share(), undefined, "unavailable hosts hide Share");
+  for (const message of ["Unknown method", "Forbidden"]) {
+    h.appState("active");
+    requests.at(-1).reject(new Error(message));
+    await settle();
+    assert.equal(share(), undefined, "older hosts and confined phones hide Share");
+  }
+  h.appState("active");
+  requests.at(-1).resolve({ available: true });
+  await settle();
+  assert.ok(share());
+  h.appState("background");
+  assert.equal(share(), undefined);
+  h.appState("active");
+  const stale = requests.at(-1);
+  assert.equal(share(), undefined, "foreground check is pending");
+  h.setClient(makeClient("second"));
+  props.hostId = "second";
+  assert.equal(share(), undefined, "host switches cannot reuse a healthy status");
+  stale.resolve({ available: true });
+  await settle();
+  assert.equal(share(), undefined, "old host response is ignored");
+  requests.at(-1).resolve({ available: true });
+  await settle();
+  assert.ok(share());
+  props.chatId = "/p#8";
+  assert.equal(share(), undefined, "a different page waits for its own health check");
+  requests.at(-1).resolve({ available: true });
+  await settle();
+  assert.ok(share());
+  h.appState("active");
+  const older = requests.at(-1);
+  h.appState("active");
+  requests.at(-1).resolve({ available: false });
+  await settle();
+  older.resolve({ available: true });
+  await settle();
+  assert.equal(share(), undefined, "a superseded successful response cannot restore Share");
+  h.cleanup();
+});
+
+test("mobile publishing checks availability, retries, and keeps history available in the global manager", async () => {
+  const react = hookHost({ effects: true });
+  let state = {
+    shares: [],
+    loading: false,
+    loaded: true,
+    busy: null,
+    error: "",
+    checking: true,
+    availability: null,
+  };
+  const calls = [];
+  const store = {
+    getSnapshot: () => state,
+    subscribe() {
+      return () => {};
+    },
+    refresh() {
+      calls.push("history");
+    },
+    checkAvailability() {
+      calls.push("status");
+    },
+    async publish(title) {
+      calls.push(["publish", title]);
+      state = { ...state, shares: [{ id: "snapshot", title, url: "https://share.milagre.cloud/s/snapshot", designCount: 2, createdAt: 1 }] };
+    },
+    dispose() {},
+  };
+  const { DesignPageShareSheet } = load("design-page-share.tsx", {
+    react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      View: "View",
+      Text: "Text",
+      TextInput: "TextInput",
+      Platform: { OS: "ios" },
+      Linking: {},
+      Share: {},
+    },
+    "expo-clipboard": { setStringAsync: async (url) => calls.push(["copy", url]) },
+    "@hugeicons/core-free-icons": { ArrowLeft01Icon: "back" },
+    "./design-page-sharing": { createDesignPageSharing: () => store },
+    "./ui": {
+      CircleButton: "CircleButton",
+      PageScroll: "PageScroll",
+      PillButton: "PillButton",
+    },
+  });
+  const availability = [];
+  const onAvailabilityChange = (available) => availability.push(available);
+  const render = (chatId) => {
+    react.begin();
+    return DesignPageShareSheet({ client: {}, chatId, onClose() {}, onAvailabilityChange });
+  };
+  let tree = render("chat");
+  assert.equal(availability.at(-1), null);
+  assert.equal(find(tree, (n) => n.props?.title === "Publish snapshot").props.disabled, true);
+  assert.ok(find(tree, (n) => n.props?.children === "Checking publishing availability..."));
+  state = {
+    ...state,
+    checking: false,
+    availability: { available: false, reason: "Not deployed" },
+  };
+  tree = render("chat");
+  assert.equal(find(tree, (n) => n.props?.title === "Publish snapshot").props.disabled, true);
+  assert.ok(find(tree, (n) => n.props?.children === "Not deployed"));
+  assert.equal(availability.at(-1), false, "dialog health failure updates the entry gate");
+  find(tree, (n) => n.props?.title === "Retry check").props.onPress();
+  assert.equal(calls.at(-1), "status");
+  state = { ...state, availability: { available: true } };
+  assert.equal(find(render("chat"), (n) => n.props?.title === "Publish snapshot").props.disabled, false);
+  assert.equal(availability.at(-1), true);
+  find(render("chat"), (n) => n.props?.title === "Publish snapshot").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  tree = render("chat");
+  assert.ok(find(tree, (n) => n.props?.children === "Snapshot shared"));
+  assert.equal(
+    find(tree, (n) => n.props?.title === "Publish snapshot"),
+    undefined,
+  );
+  assert.ok(find(tree, (n) => n.props?.accessibilityLabel === "Snapshot link"));
+  const copy = find(tree, (n) => n.props?.title === "Copy link");
+  assert.equal(copy.props.secondary, false, "confirmed snapshots make Copy link the primary action");
+  copy.props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"]);
+  assert.ok(find(tree, (n) => typeof n.props?.children === "string" && n.props.children.includes("Shared files can include content clipped by frames")));
+  find(tree, (n) => n.props?.title === "Publish another snapshot").props.onPress();
+  tree = render("chat");
+  assert.ok(find(tree, (n) => n.props?.children === "Share a snapshot"));
+  assert.equal(
+    find(tree, (n) => n.props?.accessibilityLabel === "Snapshot link"),
+    undefined,
+    "older links start collapsed",
+  );
+  find(tree, (n) => n.props?.title === "Show published snapshots (1)").props.onPress();
+  assert.ok(find(render("chat"), (n) => n.props?.accessibilityLabel === "Snapshot link"));
+  tree = render(undefined);
+  assert.equal(
+    find(tree, (n) => n.props?.title === "Publish snapshot"),
+    undefined,
+  );
+  assert.equal(
+    find(tree, (n) => n.props?.accessibilityLabel === "Page title"),
+    undefined,
+  );
+  assert.ok(find(tree, (n) => n.props?.children === "Published pages"));
+});
+
+test("mobile Published pages entry requires owner access and remains available when Designs is off", async () => {
+  for (const allowed of [true, false]) {
+    const react = hookHost();
+    const focuses = [];
+    const pushed = [];
+    const session = {
+      client: {
+        call: async (method) => {
+          if (method === "artifact:all-page-shares") {
+            if (!allowed) throw new Error("403");
+            return [];
+          }
+          return null;
+        },
+      },
+      designs: { ...designsOn },
+    };
+    const { ExperimentalSection } = load("experimental-section.tsx", {
+      react,
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "react-native": { View: "View", Text: "Text" },
+      "@milagre/shared/linear": {},
+      "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue" },
+      "expo-router": {
+        useFocusEffect: (fn) => focuses.push(fn),
+        router: { push: (path) => pushed.push(path) },
+      },
+      "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
+      "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
+      "./floating-inbox-setting": {
+        useFloatingInbox: () => [false, () => {}],
+        useFloatingInboxActivity: () => [true, () => {}],
+      },
+      "./ultracode-fatality-setting": {
+        useUltracodeFatality: () => [false, () => {}],
+      },
+      "./session": { useSession: () => session },
+      "./ui": { Toggle: "Toggle", ListRow: "ListRow" },
+    });
+    const render = () => {
+      react.begin();
+      return ExperimentalSection();
+    };
+    render();
+    focuses[0]();
+    await new Promise((resolve) => setImmediate(resolve));
+    const row = find(render(), (n) => n.props?.title === "Published pages");
+    assert.equal(!!row, allowed);
+    if (allowed) {
+      row.props.onPress();
+      assert.deepEqual(pushed, ["/published-pages"]);
+    }
+    session.designs.enabled = false;
+    assert.equal(!!find(render(), (n) => n.props?.title === "Published pages"), allowed);
+    focuses.at(-1)();
+    await settle();
+    assert.equal(!!find(render(), (n) => n.props?.title === "Published pages"), allowed);
+  }
+});
+
+test("local MCP phone settings configure a client, disable it and copy a custom design-only connection", async () => {
+  const hooks = hookHost({ effects: true });
+  const shared = require("../packages/shared/src/local-mcp.ts");
+  const { useLocalMcp } = load("../../../packages/shared/src/use-local-mcp.ts", { react: hooks });
+  const records = [],
+    calls = [];
+  let clients = [{ id: "codex", label: "Codex CLI", state: "off", enabled: false, configPath: "/fixture/config.toml" }];
+  let copied = "";
+  const client = {
+    call: async (method, args) => {
+      calls.push({ method, args });
+      if (method === "local-mcp:status")
+        return { url: "http://127.0.0.1:1234/mcp", connections: [...records], clients, projects: [], groups: [{ id: "designs", enabled: true }] };
+      if (method === "local-mcp:enableClient") {
+        clients = clients.map((c) =>
+          c.id === args[0] ? { ...c, enabled: true, state: "configured", connection: { ...args[1], id: "managed", clientId: c.id } } : c,
+        );
+        return clients[0];
+      }
+      if (method === "local-mcp:disableClient") {
+        clients = clients.map((c) => ({ ...c, enabled: false, state: "off", connection: undefined }));
+        return clients[0];
+      }
+      if (method === "local-mcp:create") {
+        const connection = { ...args[0], id: "c", revision: 1, createdAt: "now" };
+        records.push(connection);
+        return { connection, url: "http://127.0.0.1:1234/mcp", token: "phone-fixture" };
+      }
+      if (method === "local-mcp:revoke") {
+        records[0] = { ...records[0], revokedAt: "now" };
+        return;
+      }
+      throw Error("Unexpected method " + method);
+    },
+  };
+  const componentJsx = (type, props, key) => (typeof type === "function" ? type(props) : jsx(type, props, key));
+  const { LocalMcpSection } = load("local-mcp-section.tsx", {
+    react: hooks,
+    "react/jsx-runtime": { jsx: componentJsx, jsxs: componentJsx },
+    "react-native": { Text: "Text", View: "View", Pressable: "Pressable" },
+    "expo-clipboard": {
+      setStringAsync: async (text) => {
+        copied = text;
+      },
+    },
+    "@milagre/shared/local-mcp": shared,
+    "@milagre/shared/use-local-mcp": { useLocalMcp },
+    "./session": { useSession: () => ({ client }) },
+    "./icons": { Icon: "Icon" },
+    "@hugeicons/core-free-icons": { Tick02Icon: "tick" },
+    "./ui": { Button: "Button", Field: "Field", Toggle: "Toggle" },
+  });
+  const render = () => {
+    hooks.begin();
+    return LocalMcpSection();
+  };
+  render();
+  await settle();
+  assert.equal(
+    find(render(), (node) => node.type === "Field"),
+    undefined,
+  );
+  find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.onPress();
+  find(
+    render(),
+    (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "Designs only",
+  ).props.onPress();
+  find(render(), (node) => node.type === "Field" && node.props.label === "Chat reference").props.onChangeText("/project#2");
+  find(render(), (node) => node.type === "Button" && node.props.title === "Enable Codex CLI").props.onPress();
+  await settle();
+  assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, true);
+  assert.deepEqual(calls.find((call) => call.method === "local-mcp:enableClient").args[1].grants, {
+    designs: { chatId: "/project#2", designIds: "*", capabilities: ["read"] },
+  });
+  find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.onPress();
+  await settle();
+  assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, false);
+  assert.equal(
+    find(render(), (node) => node.type === "Button" && node.props.title === "Create MCP config"),
+    undefined,
+  );
+  find(render(), (node) => node.type === "Toggle" && node.props.title === "Custom MCP").props.onPress();
+  find(render(), (node) => node.type === "Field" && node.props.label === "Connection name").props.onChangeText("Designs phone");
+  find(
+    render(),
+    (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "Designs only",
+  ).props.onPress();
+  find(render(), (node) => node.type === "Field" && node.props.label === "Chat reference").props.onChangeText("/project#2");
+  find(render(), (node) => node.type === "Field" && node.props.label === "Design IDs").props.onChangeText("one, two");
+  find(
+    render(),
+    (node) => node.type === "Pressable" && node.props.accessibilityRole === "checkbox" && node.props.accessibilityLabel === "Allow design edits",
+  ).props.onPress();
+  find(render(), (node) => node.type === "Button" && node.props.title === "Create configuration").props.onPress();
+  await settle();
+  assert.deepEqual(calls.find((call) => call.method === "local-mcp:create").args[0].grants, {
+    designs: { chatId: "/project#2", designIds: ["one", "two"], capabilities: ["read", "write"] },
+  });
+  find(render(), (node) => node.type === "Button" && node.props.title === "Copy MCP config").props.onPress();
+  await settle();
+  assert.equal(JSON.parse(copied).mcpServers.milagre.headers.Authorization, "Bearer phone-fixture");
+  find(render(), (node) => node.type === "Toggle" && node.props.title === "Custom MCP").props.onPress();
+  assert.equal(
+    find(render(), (node) => node.type === "Button" && node.props.title === "Manage custom connections (1)"),
+    undefined,
+  );
+  assert.equal(records[0].revokedAt, undefined);
+  find(render(), (node) => node.type === "Toggle" && node.props.title === "Custom MCP").props.onPress();
+  assert.equal(
+    find(render(), (node) => node.type === "Button" && node.props.title === "Copy MCP config"),
+    undefined,
+  );
+  find(render(), (node) => node.type === "Button" && node.props.title === "Manage custom connections (1)").props.onPress();
+  find(render(), (node) => node.type === "Button" && node.props.title === "Revoke").props.onPress();
+  await settle();
+  assert.equal(
+    find(render(), (node) => node.type === "Button" && node.props.title === "Revoke"),
+    undefined,
+  );
+});
+
+test("local MCP shared state refreshes a failed revoke and ignores an older status reply", async () => {
+  const hooks = hookHost({ effects: true });
+  const { useLocalMcp } = load("../../../packages/shared/src/use-local-mcp.ts", { react: hooks });
+  let enabled = true;
+  let late;
+  const api = {
+    status: async () => (late ? late.promise : { clients: [{ id: "codex", enabled }], connections: [], projects: [], groups: [] }),
+    disableClient: async () => {
+      enabled = false;
+      throw Error("private credential must never appear in the UI");
+    },
+  };
+  const render = () => {
+    hooks.begin();
+    return useLocalMcp(api);
+  };
+  render();
+  await settle();
+  assert.equal(render().status.clients[0].enabled, true);
+  late = deferred();
+  const oldReply = late;
+  const oldRefresh = render().refresh();
+  late = undefined;
+  assert.equal(await render().disableClient("codex"), false);
+  assert.equal(render().status.clients[0].enabled, false);
+  assert.match(render().error, /Could not confirm access was revoked/);
+  assert.equal(render().error.includes("private credential"), false);
+  oldReply.resolve({ clients: [{ id: "codex", enabled: true }], connections: [], projects: [], groups: [] });
+  await oldRefresh;
+  assert.equal(render().status.clients[0].enabled, false);
+  assert.match(render().error, /Could not confirm access was revoked/);
+});
+
+test("HTML artifact opens the current single page with Designs off, without versions or Choose", async () => {
+  const page = { id: "current", format: "html", title: "How it works", version: 1, latest: 1, html: "<h1>Current explanation</h1>" };
+  const calls = [];
+  const client = {
+    url: "artifact-host",
+    call: async (method, args) => {
+      calls.push([method, args]);
+      if (method === "artifact:list") return [page];
+      if (method === "artifact:sharing-status") return { available: true };
+      return page;
+    },
+  };
+  const feature = { ...designsOn, enabled: false };
+  let backs = 0;
+  const h = artifactHost(client, [], { back: () => backs++ }, feature);
+  const props = { hostId: client.url, chatId: "/p#7", id: "historical-id", version: "3" };
+  h.render("ArtifactSheet", props);
+  await settle();
+  h.render("ArtifactSheet", props);
+  await settle();
+  const tree = h.render("ArtifactSheet", props);
+  assert.equal(backs, 0);
+  assert.ok(find(tree, (n) => n.props.html === page.html));
+  assert.ok(find(tree, (n) => n.props.label === "Close artifact"));
+  assert.ok(find(tree, (n) => n.props.title === "Comment"));
+  assert.equal(
+    find(tree, (n) => n.props.title === "Choose" || n.props.children === "Experimental" || /version|Previous design|Next design/.test(n.props.label ?? "")),
+    undefined,
+  );
+  page.html = "<h1>Updated in the same page</h1>";
+  h.appState("active");
+  h.render("ArtifactSheet", props);
+  await settle();
+  const refreshed = h.render("ArtifactSheet", props);
+  assert.ok(find(refreshed, (n) => n.props.html === page.html));
+  find(refreshed, (n) => n.props.accessibilityLabel === "Share artifact").props.onPress();
+  const sharing = find(h.render("ArtifactSheet", props), (n) => n.type === "DesignPageShareSheet");
+  assert.equal(sharing.props.kind, "artifacts");
+  assert.ok(calls.some(([method, args]) => method === "artifact:sharing-status" && args[0]?.kind === "artifacts"));
+  h.cleanup();
+});
+
+test("HTML cards stay visible with Designs off and open without historical version selection", async () => {
+  const pushes = [];
+  const client = {
+    url: "html-card-host",
+    call: async (method) => (method === "artifact:list" ? [{ id: "current", format: "html", version: 1 }] : { id: "current", format: "html", version: 1 }),
+  };
+  const h = artifactHost(client, pushes, undefined, { ...designsOn, enabled: false });
+  const step = { id: "old-step", artifact: { id: "old", title: "Explanation", version: 9 } };
+  h.render("ArtifactCards", { steps: [step], chatId: "/p#7" });
+  await settle();
+  const tree = h.render("ArtifactCards", { steps: [step], chatId: "/p#7" });
+  assert.ok(find(tree, (n) => n.props.kind === "html"));
+  const card = h.render("ArtifactCard", { step, chatId: "/p#7", kind: "html" });
+  assert.equal(card.props.accessibilityLabel, "Artifact Explanation. Open full screen");
+  card.props.onPress();
+  assert.equal(pushes[0].params.kind, "html");
+  assert.equal(pushes[0].params.version, undefined);
+  h.cleanup();
+});
+
+test("Artifact feedback sends from the Chat while Designs is off", async () => {
+  const outbox = require("../apps/mobile/src/design-outbox.ts");
+  let recorded = 0;
+  const message = { kind: "artifacts", text: "Make the explanation shorter.", onSent: () => recorded++ };
+  outbox.postDesignMessage("mac|/p#7", message);
+  const h = chatHost({ effects: true, call: async () => ({}) });
+  h.params.id = "7";
+  h.session.designs = { ...designsOn, enabled: false };
+  h.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1, provider: "codex" };
+  h.render();
+  await settle();
+  assert.ok(
+    h.calls.some((call) => call.method === "chat:send"),
+    "Artifact feedback reaches the agent while Designs is off",
+  );
+  assert.equal(recorded, 1);
+  assert.equal(outbox.peekDesignMessage("mac|/p#7"), null);
+});
+
+test("mobile catalog verifies historical HTML aliases without guessing disabled structured refs", async () => {
+  const { readDesignCatalog, designCatalog } = require("../apps/mobile/src/design-catalog.ts");
+  const reads = [];
+  const client = {
+    call: async (method, args) => {
+      if (method === "artifact:list") return [{ id: "current", format: "html", version: 3 }];
+      reads.push(args[0].id);
+      if (args[0].id === "old-html") return { id: "current", format: "html", version: 3 };
+      throw Error("Designs is off");
+    },
+  };
+  await readDesignCatalog(client, "/p#7", "old-html:1|structured:1", ["old-html", "structured"]);
+  const catalog = designCatalog(client, "/p#7");
+  assert.equal(catalog.find((item) => item.id === "old-html").format, "html");
+  assert.equal(
+    catalog.find((item) => item.id === "structured"),
+    undefined,
+  );
+  await readDesignCatalog(client, "/p#7", "old-html:1|structured:1", ["old-html", "structured"]);
+  assert.deepEqual(reads, ["old-html", "structured"], "each revision resolves unknown ids once");
+});
+
+test("unmarked design cards reload their catalog after Designs is turned on", async () => {
+  const feature = { ...designsOn, enabled: false };
+  const client = {
+    url: "toggle-catalog",
+    call: async (method) => {
+      if (method === "artifact:list") return feature.enabled ? [{ id: "structured", format: "design", version: 1 }] : [];
+      throw Error("Designs is off");
+    },
+  };
+  const h = artifactHost(client, [], undefined, feature);
+  const props = { steps: [{ id: "step", artifact: { id: "structured", title: "Screen", version: 1 } }], chatId: "/p#7" };
+  h.render("ArtifactCards", props);
+  await settle();
+  assert.equal(h.render("ArtifactCards", props), null);
+  feature.enabled = true;
+  h.render("ArtifactCards", props);
+  await settle();
+  const tree = h.render("ArtifactCards", props);
+  assert.equal(tree.props.step.artifact.id, "structured");
+  feature.enabled = false;
+  h.render("ArtifactCards", props);
+  await settle();
+  assert.equal(h.render("ArtifactCards", props), null);
+  feature.enabled = true;
+  h.render("ArtifactCards", props);
+  await settle();
+  assert.equal(h.render("ArtifactCards", props).props.step.artifact.id, "structured", "seen revisions are invalidated on a second enable");
+  h.cleanup();
 });

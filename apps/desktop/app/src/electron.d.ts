@@ -1,5 +1,6 @@
 import type { MainSyncSettings, MainSyncStatus } from "@milagre/shared/main-sync";
 import type { McpAccount, McpAccountCheck } from "@milagre/shared/mcp";
+import type { LocalMcpApi } from "@milagre/shared/local-mcp";
 import type { LinearIssue, LinearIssuesResult, LinearStatus } from "@milagre/shared/linear";
 import type {
   ProjectAccountScope,
@@ -188,6 +189,8 @@ export type CliProgress =
   | { provider: ModelProvider; phase: "extract" | "validate" | "done" };
 
 export type MilagreBridge = {
+  createArtifactPreview: (html: string) => Promise<string>;
+  releaseArtifactPreview: (url: string) => Promise<void>;
   simulators: SimulatorApi;
   browsers: BrowserApi;
   terminals: TerminalApi;
@@ -252,6 +255,10 @@ export type MilagreBridge = {
   saveMainSyncDefault: (value: boolean) => Promise<{ syncMain: boolean }>;
   /** A main branch sync finished, before a new Worktree. */
   onMainSyncStatus: (callback: (status: MainSyncStatus) => void) => () => void;
+  /** The host's default-on Experimental Designs switch, shared with its phones and paired computers. */
+  readDesignsEnabled: () => Promise<{ enabled: boolean }>;
+  saveDesignsEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
+  onDesignsEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   readLinearStatus: () => Promise<LinearStatus>;
   /** Opens Linear in the browser and resolves once the Mac is connected. A second call replaces a waiting one. */
   /** `window`: sign in from a window of its own with an empty session (Add workspace), not the browser. */
@@ -270,6 +277,7 @@ export type MilagreBridge = {
     accounts: () => Promise<McpAccount[]>;
     check: (provider: McpAccount["provider"], accountId: string) => Promise<McpAccountCheck>;
   };
+  localMcp: LocalMcpApi;
   /** The Experimental Linear switch changed, on this Mac or from a phone. */
   onLinearEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   /** Assigned issues when query is empty, otherwise workspace matches (a key also finds that issue first). Never rejects. */

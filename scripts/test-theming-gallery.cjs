@@ -9,6 +9,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 
+const { designHtml } = require("@milagre/shared/design");
+
 const projectPath = "/demo/milagre";
 const CHAT_TITLES = { shell: "Phone pairing follow-ups", design: "A sidebar for mobile" };
 const topics = [
@@ -57,7 +59,7 @@ const step = (id, title) => ({
   title: `Showed \`${title}\``,
   status: "done",
   offset: 0,
-  artifact: { id, version: 1, title },
+  artifact: { id, version: 1, title, format: "design" },
 });
 const state = {
   next_id: 100,
@@ -221,8 +223,8 @@ const script = ${JSON.stringify(terminalScript)};
 const terminalInfo = (chatId) => ({ id: 'term-1', chatId, title: 'zsh', cwd: '${projectPath}/feat/phone-pairing', label: 'phone-pairing', busy: false, cols: 100, rows: 14, createdAt: 1 });
 const never = () => new Promise(() => {});
 const designs = {
-  chats: { title: 'Chat list', width: 390, height: 844, html: ${JSON.stringify(designChats())} },
-  open: { title: 'Chat open', width: 390, height: 844, html: ${JSON.stringify(designOpen())} },
+  chats: { title: 'Chat list', width: 390, height: 844, format: 'design', document: ${JSON.stringify(designChats())}, html: ${JSON.stringify(designHtml(designChats()))} },
+  open: { title: 'Chat open', width: 390, height: 844, format: 'design', document: ${JSON.stringify(designOpen())}, html: ${JSON.stringify(designHtml(designOpen()))} },
 };
 const replies = {
   getCurrentProject: project, getRuns: {runs:{},seq:1}, getModels: {codex:null,claude:null,antigravity:null},
@@ -231,7 +233,7 @@ const replies = {
   listRecentProjects: [{path:project.path,name:project.name}], listBranches: ['main'],
   getWorktreeRoots: [], getCachedUsage: {providers:[]}, readUsage: {providers:[]}, getAgentPorts: {},
   getProjectImage: null, getUpdateState: null, listSkills: {skills:[],warnings:[]}, listAgentPorts: [],
-  readDiffStats: {}, getDiffStats: {},
+  readDiffStats: {}, getDiffStats: {}, readDesignsEnabled: {enabled: true},
 };
 window.milagre = new Proxy({}, {get(_, name) {
   if (name === 'git') return {
@@ -249,6 +251,7 @@ window.milagre = new Proxy({}, {get(_, name) {
     close: async () => null,
   };
   if (name === 'artifacts') return {
+    list: async () => Object.entries(designs).map(([id, design]) => ({id, version: 1, versions: 1, ...design})),
     comments: async () => [],
     addComments: async () => [],
     get: async ({ id, version }) => ({ id, version: 1, versions: 1, latest: 1, ...designs[id] }),
@@ -264,24 +267,41 @@ createRoot(document.getElementById('root')).render(<App />);
 `;
 
 function designChats() {
-  return `<!doctype html><html><head><style>
-  body{margin:0;font:16px -apple-system,system-ui,sans-serif;background:#f6f4ef;color:#1d1b18;padding:56px 20px}
-  h1{font-size:30px;margin:0 0 18px}.row{background:#fff;border-radius:16px;padding:14px 16px;margin-bottom:10px;box-shadow:0 1px 3px #0001}
-  .row b{display:block;font-size:16px}.row span{color:#7a746c;font-size:13px}.dot{float:right;width:10px;height:10px;border-radius:5px;background:#2f6f4f;margin-top:6px}
-  </style></head><body><h1>Chats</h1>
-  <div class="row"><i class="dot"></i><b>Phone pairing follow-ups</b><span>Testing the reset flow</span></div>
-  <div class="row"><b>Find Projects from the phone</b><span>Waiting for your answer</span></div>
-  <div class="row"><b>A sidebar for mobile</b><span>Stopped</span></div>
-  <div class="row"><b>Swipe between Chat and Changes</b><span>PR #184 ready to merge</span></div></body></html>`;
+  const nodes = [{ id: "heading", type: "text", x: 20, y: 56, width: 350, height: 42, text: "Chats", fontSize: 30, fill: "#1d1b18" }];
+  const rows = [
+    ["Phone pairing follow-ups", "Testing the reset flow"],
+    ["Find Projects from the phone", "Waiting for your answer"],
+    ["A sidebar for mobile", "Stopped"],
+    ["Swipe between Chat and Changes", "PR #184 ready to merge"],
+  ];
+  rows.forEach(([title, subtitle], i) => {
+    const y = 116 + i * 88;
+    nodes.push(
+      { id: `row-${i}`, type: "rectangle", x: 20, y, width: 350, height: 78, radius: 16, fill: "#ffffff" },
+      { id: `title-${i}`, type: "text", x: 36, y: y + 12, width: 306, height: 40, text: title, fontSize: 16, fontWeight: 700, fill: "#1d1b18" },
+      { id: `subtitle-${i}`, type: "text", x: 36, y: y + 54, width: 306, height: 20, text: subtitle, fontSize: 13, fill: "#7a746c" },
+    );
+  });
+  nodes.push({ id: "dot", type: "ellipse", x: 344, y: 132, width: 10, height: 10, fill: "#2f6f4f" });
+  return { schemaVersion: 1, width: 390, height: 844, background: "#f6f4ef", nodes };
 }
 function designOpen() {
-  return `<!doctype html><html><head><style>
-  body{margin:0;font:16px -apple-system,system-ui,sans-serif;background:#1f2a24;color:#fff;padding:56px 20px}
-  h1{font-size:22px;margin:0 0 22px}.msg{background:#ffffff18;border-radius:18px;padding:12px 14px;margin:0 0 10px 40px;font-size:15px}
-  .a{background:#2f6f4f;margin:0 40px 10px 0}.bar{position:fixed;left:16px;right:16px;bottom:28px;background:#ffffff1f;border-radius:24px;padding:14px 18px;color:#ffffffa0}
-  </style></head><body><h1>A sidebar for mobile</h1>
-  <div class="msg">Let's work on a sidebar for mobile.</div><div class="msg a">Opened the Chat list as a drawer; swipe right to reveal it.</div>
-  <div class="msg">Nice. Keep the active Chat highlighted.</div><div class="bar">Prompt or mention a file with @</div></body></html>`;
+  const nodes = [{ id: "heading", type: "text", x: 20, y: 56, width: 350, height: 34, text: "A sidebar for mobile", fontSize: 22, fill: "#ffffff" }];
+  ["Let's work on a sidebar for mobile.", "Opened the Chat list as a drawer; swipe right to reveal it.", "Nice. Keep the active Chat highlighted."].forEach(
+    (text, i) => {
+      const x = i === 1 ? 20 : 60;
+      const y = 112 + i * 90;
+      nodes.push(
+        { id: `message-${i}`, type: "rectangle", x, y, width: 310, height: 80, radius: 18, fill: i === 1 ? "#2f6f4f" : "#354039" },
+        { id: `text-${i}`, type: "text", x: x + 14, y: y + 12, width: 282, height: 56, text, fontSize: 15, fill: "#ffffff" },
+      );
+    },
+  );
+  nodes.push(
+    { id: "prompt", type: "rectangle", x: 16, y: 764, width: 358, height: 52, radius: 24, fill: "#3a443f" },
+    { id: "placeholder", type: "text", x: 34, y: 778, width: 322, height: 28, text: "Prompt or mention a file with @", fontSize: 16, fill: "#b5b9b6" },
+  );
+  return { schemaVersion: 1, width: 390, height: 844, background: "#1f2a24", nodes };
 }
 
 const hexRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));

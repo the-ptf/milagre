@@ -361,11 +361,13 @@ export interface LinkedWork {
 
 export type StepKind = "shell" | "edit" | "read" | "search" | "other" | "thinking" | "setup" | "image" | "artifact";
 
-/** A design an agent showed with artifact_show: which artifact and the version this step made. */
+/** A design an agent showed or revised: which artifact and the version this step made. */
 export interface ArtifactRef {
   id: string;
   version: number;
   title: string;
+  /** Older transcript entries have no format; resolve them through the host's catalog. */
+  format?: "design" | "html";
 }
 
 /** One tool call in an agent's reply (a `setup` step is the worktree's setup command, which Milagre ran, not the agent) (a command, an edit, a read, a search or another tool), or a stretch of its thinking. */

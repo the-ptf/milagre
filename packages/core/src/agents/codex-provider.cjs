@@ -19,7 +19,16 @@ const {
   mapCodexNotification,
   missingCliMessage,
 } = require("./events.cjs");
-const { PendingPermissions, codexCommandRequest, codexDecision, codexFileRequest, insideRoot, insideWorkspace } = require("./permissions.cjs");
+const {
+  PendingPermissions,
+  codexCommandRequest,
+  codexDecision,
+  codexFileRequest,
+  codexMcpRequest,
+  codexMcpResponse,
+  insideRoot,
+  insideWorkspace,
+} = require("./permissions.cjs");
 const { PendingQuestions, codexQuestionRequest, codexQuestionResponse } = require("./questions.cjs");
 
 // Outside Plan mode, Codex offers its question tool (request_user_input) only behind this feature.
@@ -126,6 +135,7 @@ class CodexSession {
     workspaceRoots,
     workspaceInstructions,
     tldrEnabled = true,
+    designsEnabled = true,
     analysisOnly = false,
     linked = null,
     clientVersion = "0.0.0",
@@ -141,6 +151,7 @@ class CodexSession {
       workspaceRoots,
       workspaceInstructions,
       tldrEnabled,
+      designsEnabled,
       analysisOnly,
       linked,
       clientVersion,
@@ -314,7 +325,10 @@ class CodexSession {
       model,
       approvalPolicy: policy.approvalPolicy,
       sandbox: policy.sandbox,
-      developerInstructions: [milagreInstructions(this.tldrEnabled, this.workspaceInstructions), this.analysisOnly ? ANALYSIS_INSTRUCTIONS : ""]
+      developerInstructions: [
+        milagreInstructions(this.tldrEnabled, this.workspaceInstructions, this.designsEnabled),
+        this.analysisOnly ? ANALYSIS_INSTRUCTIONS : "",
+      ]
         .filter(Boolean)
         .join("\n\n"),
       ...(this.analysisOnly ? { environments: [] } : {}),
@@ -505,6 +519,14 @@ class CodexSession {
   }
 
   handleServerRequest(id, method, params = {}) {
+    if (method === "mcpServer/elicitation/request") {
+      const request = codexMcpRequest(id, params);
+      const answer = (decision) => this.reply(id, codexMcpResponse(decision));
+      if (!this.turnActive || this.cancelRequested || this.closed) answer("cancelled");
+      else if (this.analysisOnly || !request) answer("deny");
+      else this.permissions.add(request, answer);
+      return;
+    }
     const answer = (decision) => this.reply(id, { decision: codexDecision(decision) });
     const approval = method === "item/commandExecution/requestApproval" || method === "item/fileChange/requestApproval";
     // A request that arrives once its turn has stopped has nobody to ask.

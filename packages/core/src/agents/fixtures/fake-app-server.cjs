@@ -201,6 +201,27 @@ createInterface({ input: process.stdin }).on("line", (line) => {
           params: { threadId, turnId, itemId: "cmd-1", startedAtMs: 0, command: "/bin/zsh -lc 'rm -rf build'", cwd: "/repo", reason: "Clean the build" },
         });
       }
+      if (["mcp-approval", "mcp-form"].includes(scenario)) {
+        pendingTurn = { threadId, turnId, approvalId: "srv-mcp" };
+        return send({
+          id: "srv-mcp",
+          method: "mcpServer/elicitation/request",
+          params: {
+            threadId,
+            turnId,
+            serverName: "milagre",
+            mode: "form",
+            message: 'Allow the milagre MCP server to run tool "design_show"?',
+            requestedSchema: { type: "object", properties: scenario === "mcp-form" ? { email: { type: "string" } } : {} },
+            _meta: {
+              codex_approval_kind: "mcp_tool_call",
+              persist: ["session", "always"],
+              tool_description: "Create an editable design",
+              tool_params: { id: "daily-notes" },
+            },
+          },
+        });
+      }
       if (scenario === "file-approval") {
         pendingTurn = { threadId, turnId, approvalId: "srv-1" };
         notify("item/started", {

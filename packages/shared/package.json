@@ -19,6 +19,8 @@
     "src/usage.ts",
     "src/main-sync.ts",
     "src/mcp.ts",
+    "src/local-mcp.ts",
+    "src/use-local-mcp.ts",
     "src/linear.ts",
     "src/chat-row.ts",
     "src/simulator.ts",
@@ -176,10 +178,20 @@
     "./usage": "./src/usage.ts",
     "./main-sync": "./src/main-sync.ts",
     "./mcp": "./src/mcp.ts",
+    "./local-mcp": "./src/local-mcp.ts",
+    "./use-local-mcp": "./src/use-local-mcp.ts",
     "./linear": "./src/linear.ts",
     "./skill-catalog": "./src/skill-catalog.ts",
     "./simulator": "./src/simulator.ts",
     "./artifact": "./src/artifact.ts",
+    "./design-page": {
+      "types": "./src/design-page.d.mts",
+      "default": "./src/design-page.mjs"
+    },
+    "./design": {
+      "types": "./src/design.d.mts",
+      "default": "./src/design.mjs"
+    },
     "./genui": "./src/genui.ts",
     "./file-link": "./src/file-link.ts",
     "./simulator-receiver": {

@@ -160,17 +160,26 @@ class ChatHost {
   }
 
   /** A worktree's chat with no messages yet, made when it has none: where a message Milagre sends opens a new chat. Resolves with its id. */
-  async emptyChat(projectPath, worktreeId) {
+  async emptyChat(projectPath, worktreeId, { operationId, assertActive } = {}) {
     let sessionId;
     const { state, changed } = await this.states.update(
       projectPath,
       (latest) => {
+        assertActive?.();
         const worktree = latest.worktrees[worktreeId];
         if (!worktree) throw new Error("That worktree is no longer in the project.");
         if (worktree.sharedChat) throw new Error("This Worktree belongs to a shared Link Chat. Open its Link instead.");
         const result = starterChat(latest, worktree);
         sessionId = result.session.id;
-        return result.state;
+        return operationId
+          ? {
+              ...result.state,
+              sessions: {
+                ...result.state.sessions,
+                [sessionId]: { ...result.session, localMcpOperations: [...(result.session.localMcpOperations ?? []), operationId] },
+              },
+            }
+          : result.state;
       },
       { chats: [] },
     );

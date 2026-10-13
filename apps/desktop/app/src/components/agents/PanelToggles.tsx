@@ -1,12 +1,12 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ComputerTerminal01Icon, PaintBoardIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
+import { File01Icon, ComputerTerminal01Icon, PaintBoardIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import Tooltip from "../primitives/Tooltip";
 import { isModalOpen } from "../../lib/modal";
 
 /** A side panel the open Chat can show: whether it is open, and what shows or hides it. */
 export type SidePanel = { open: boolean; toggle: () => void };
-type PanelName = "terminal" | "designs" | "simulator";
+type PanelName = "terminal" | "designs" | "artifacts" | "simulator";
 
 // The Chat's Terminals, designs and simulator register here while they have something to show, so the window's top-right
 // corner can offer a button for each without owning their state.
@@ -53,6 +53,7 @@ export function useSidePanels() {
 // in VS Code; ⌘T, which adds one, is App's.
 const BUTTONS: { name: PanelName; label: string; icon: typeof PaintBoardIcon; shortcut: string; key: string; shift: boolean }[] = [
   { name: "terminal", label: "Terminals", icon: ComputerTerminal01Icon, shortcut: "⌘J", key: "j", shift: false },
+  { name: "artifacts", label: "artifacts", icon: File01Icon, shortcut: "⌘⇧A", key: "a", shift: true },
   { name: "designs", label: "designs", icon: PaintBoardIcon, shortcut: "⌘⇧E", key: "e", shift: true },
   { name: "simulator", label: "simulator", icon: SmartphoneIcon, shortcut: "⌘⇧S", key: "s", shift: true },
 ];

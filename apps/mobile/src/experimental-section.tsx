@@ -11,7 +11,7 @@ import {
   type LinearStatus,
 } from "@milagre/shared/linear";
 import { Text, View } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { CustomThemeSection } from "./custom-theme-section";
 import { useMuriloMode } from "./murilo-mode";
@@ -19,7 +19,7 @@ import { useFloatingInbox, useFloatingInboxActivity } from "./floating-inbox-set
 import { useUltracodeFatality } from "./ultracode-fatality-setting";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
-import { ErrorNotice, Toggle, useStyles } from "./ui";
+import { ErrorNotice, ListRow, PillButton, Toggle, useStyles } from "./ui";
 
 /** Settings › Experimental: this phone's and the connected Mac's experimental switches, like desktop's Experimental section. */
 export function ExperimentalSection() {
@@ -33,12 +33,46 @@ export function ExperimentalSection() {
   // On: start from the current theme's colors and select Custom. Off while Custom is selected: back to Milagre Blue, seeds kept.
   function changeCustomTheme(enabled: boolean) {
     if (!enabled) {
-      set({ customThemeEnabled: false, ...(settings.colorTheme === "custom" ? { colorTheme: DEFAULT_THEME_ID } : {}) });
+      set({
+        customThemeEnabled: false,
+        ...(settings.colorTheme === "custom" ? { colorTheme: DEFAULT_THEME_ID } : {}),
+      });
       return;
     }
     const from = settings.colorTheme === "custom" ? DEFAULT_THEME_ID : settings.colorTheme;
-    set({ customThemeEnabled: true, customTheme: settings.customTheme ?? seedsFrom(from), colorTheme: "custom" });
+    set({
+      customThemeEnabled: true,
+      customTheme: settings.customTheme ?? seedsFrom(from),
+      colorTheme: "custom",
+    });
   }
+  // The Mac's Linear switch and connection; null until the Mac answers (an older Mac never does). Re-read on focus:
+  // the phone gets no event when the Mac connects or disconnects.
+  // `moveToStarted` is on when a Mac that predates the switch sends none.
+  const [linear, setLinear] = useState<{
+    enabled: boolean;
+    moveToStarted: boolean;
+    status: LinearStatus;
+  } | null>(null);
+  const [linearError, setLinearError] = useState("");
+  const [sharingOwner, setSharingOwner] = useState<typeof session.client>(null);
+  useFocusEffect(
+    useCallback(() => {
+      const client = session.client;
+      setSharingOwner(null);
+      if (!client) return;
+      let live = true;
+      // Owner history remains available without a live Chat or a reachable sharing service.
+      // Confined demo phones and older hosts reject this call or return no history.
+      client.call<unknown>("artifact:all-page-shares", []).then(
+        (history) => live && setSharingOwner(Array.isArray(history) ? client : null),
+        () => live && setSharingOwner(null),
+      );
+      return () => {
+        live = false;
+      };
+    }, [session.client]),
+  );
   // The Mac's limit auto-switch; null until the Mac answers (an older Mac never does).
   const [autoSwitch, setAutoSwitch] = useState<boolean | null>(null);
   const [autoSwitchError, setAutoSwitchError] = useState("");
@@ -69,11 +103,6 @@ export function ExperimentalSection() {
       setAutoSwitchError(failure instanceof Error ? failure.message : "Could not change this setting.");
     }
   }
-  // The Mac's Linear switch and connection; null until the Mac answers (an older Mac never does). Re-read on focus:
-  // the phone gets no event when the Mac connects or disconnects.
-  // `moveToStarted` is on when a Mac that predates the switch sends none.
-  const [linear, setLinear] = useState<{ enabled: boolean; moveToStarted: boolean; status: LinearStatus } | null>(null);
-  const [linearError, setLinearError] = useState("");
   useFocusEffect(
     useCallback(() => {
       const client = session.client;
@@ -82,7 +111,16 @@ export function ExperimentalSection() {
       Promise.all([client.call<{ enabled: boolean; moveToStarted?: boolean }>("linear:enabled:read", []), client.call<LinearStatus>("linear:status", [])]).then(
         // An older Mac answers null for commands it lacks: no Linear card.
         ([value, status]) =>
-          live && setLinear(value && status ? { enabled: value.enabled === true, moveToStarted: value.moveToStarted !== false, status } : null),
+          live &&
+          setLinear(
+            value && status
+              ? {
+                  enabled: value.enabled === true,
+                  moveToStarted: value.moveToStarted !== false,
+                  status,
+                }
+              : null,
+          ),
         () => live && setLinear(null),
       );
       return () => {
@@ -149,6 +187,37 @@ export function ExperimentalSection() {
       </View>
       {settings.customThemeEnabled && <CustomThemeSection />}
       {!session.client && <Text style={styles.caption}>Connect to a Mac to change its experimental features.</Text>}
+      {session.client && (
+        <View style={[styles.card, { gap: 4 }]}>
+          <Toggle
+            title="Designs"
+            selected={session.designs.enabled === true}
+            disabled={session.designs.enabled === null || session.designs.stale || session.designs.saving}
+            onPress={() => void session.designs.save(session.designs.enabled !== true)}
+          />
+          <Text style={styles.caption}>Create editable designs in Chat.</Text>
+          {sharingOwner === session.client && (
+            <ListRow
+              compact
+              title="Published pages"
+              subtitle="Manage public snapshots, including pages from deleted Chats."
+              onPress={() => router.push("/published-pages")}
+            />
+          )}
+          {session.designs.saving ? (
+            <Text style={styles.caption}>Saving...</Text>
+          ) : session.designs.stale && !session.designs.error ? (
+            <Text style={styles.caption}>Checking your Mac...</Text>
+          ) : null}
+          {session.designs.stale && session.designs.enabled !== null && <Text style={styles.caption}>Showing the last confirmed setting.</Text>}
+          {session.designs.error ? (
+            <>
+              <ErrorNotice message={session.designs.error} />
+              <PillButton title="Retry Designs setting" secondary onPress={() => void session.designs.refresh()} />
+            </>
+          ) : null}
+        </View>
+      )}
       {session.client && autoSwitch !== null && (
         <View style={[styles.card, { gap: 4 }]}>
           <Toggle title="Switch accounts at usage limits" selected={autoSwitch} onPress={() => void changeAutoSwitch(!autoSwitch)} />

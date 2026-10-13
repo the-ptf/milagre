@@ -112,6 +112,8 @@ const ALLOWED: Record<string, string[]> = {
   "components/Attachments.tsx": ["showImageMenu"],
   "components/agents/GeneratedImage.tsx": ["copyImage", "saveImage", "showImageMenu"],
   "components/agents/UsageLimitCard.tsx": ["onAccountsChanged"],
+  // Previews register bytes in this renderer's local Electron protocol, even for remote Chats.
+  "components/agents/ArtifactCanvas.tsx": ["createArtifactPreview", "releaseArtifactPreview"],
   "components/motion/MediaLightbox.tsx": ["showImageMenu"],
   "lib/state-events.ts": ["onProjectState", "onLinkState", "onAgentEvent", "onComputerEvent"],
   "lib/computer-bridge.ts": ["on", "onAgentEvent", "onComputerEvent"],

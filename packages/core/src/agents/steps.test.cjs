@@ -329,40 +329,46 @@ test("command output keeps its end when it's long", () => {
   assert.equal(capped, `… truncated\n${"b".repeat(20_000)}`);
 });
 
-test("Milagre's artifact_show is a design card, from either agent", () => {
-  assert.deepEqual(claudeStep("t9", "mcp__milagre__artifact_show", { title: "Login screen", html: "<p>x</p>" }), {
-    id: "t9",
-    kind: "artifact",
-    title: "Showed `Login screen`",
-  });
-  const result = '{"id":"a1b2","title":"Login screen","version":2,"versions":2}';
-  assert.deepEqual(claudeStepResult({ id: "t9", name: "mcp__milagre__artifact_show", input: {} }, ok([{ type: "text", text: result }])), {
-    id: "t9",
-    status: "done",
-    artifact: { id: "a1b2", version: 2, title: "Login screen" },
-  });
-  assert.deepEqual(claudeStepResult({ id: "t9", name: "mcp__milagre__artifact_show", input: {} }, ok("Open an existing Chat", { is_error: true })), {
-    id: "t9",
-    status: "failed",
-    detail: "Open an existing Chat",
-  });
+test("editable design creation and batches show cards for Claude and Codex", () => {
+  const artifact = { id: "welcome", version: 3, title: "Welcome screen", format: "design" };
+  const result = JSON.stringify({ ...artifact, versions: 3, format: "design", width: 390, height: 844 });
+  for (const tool of ["design_show", "design_apply"]) {
+    const args = tool === "design_show" ? { title: "Welcome screen" } : { id: "welcome", expectedVersion: 2, operations: [] };
+    const title = tool === "design_show" ? "Showed `Welcome screen`" : "Edited `a design`";
+    const completedTitle = tool === "design_show" ? "Showed `Welcome screen`" : "Edited `Welcome screen`";
+    const name = `mcp__milagre__${tool}`;
+    assert.deepEqual(claudeStep("design-1", name, args), { id: "design-1", kind: "artifact", title });
+    assert.deepEqual(claudeStepResult({ id: "design-1", name, input: args }, ok(result)), { id: "design-1", status: "done", artifact, title: completedTitle });
+    assert.deepEqual(claudeStepResult({ id: "design-1", name, input: args }, ok("Design version conflict", { is_error: true })), {
+      id: "design-1",
+      status: "failed",
+      detail: "Design version conflict",
+    });
 
-  const call = {
-    type: "mcpToolCall",
-    id: "exec-9",
-    server: "milagre",
-    tool: "artifact_show",
-    status: "inProgress",
-    arguments: { title: "Login screen" },
-    result: null,
-    error: null,
-  };
-  assert.deepEqual(codexStep(call), { id: "exec-9", kind: "artifact", title: "Showed `Login screen`" });
-  assert.deepEqual(codexStepResult({ ...call, status: "completed", result: { content: [{ type: "text", text: result }] } }), {
-    id: "exec-9",
-    status: "done",
-    artifact: { id: "a1b2", version: 2, title: "Login screen" },
-  });
+    const call = { type: "mcpToolCall", id: "design-2", server: "milagre", tool, status: "inProgress", arguments: args };
+    assert.deepEqual(codexStep(call), { id: "design-2", kind: "artifact", title });
+    assert.deepEqual(codexStepResult({ ...call, status: "completed", result: { content: [{ type: "text", text: result }] } }), {
+      id: "design-2",
+      status: "done",
+      artifact,
+      title: completedTitle,
+    });
+    assert.deepEqual(codexStepResult({ ...call, status: "failed", error: { message: "Design version conflict" } }), {
+      id: "design-2",
+      status: "failed",
+      detail: "Design version conflict",
+    });
+  }
+});
+
+test("completed design activity uses the saved title and leaves malformed results without a fabricated title", () => {
+  const call = { id: "design-1", name: "mcp__milagre__design_show", input: { title: "Requested name" } };
+  const content = JSON.stringify({ id: "welcome", version: 1, title: "Saved `screen`\nname", format: "design" });
+  assert.equal(claudeStepResult(call, ok(content)).title, "Showed `Saved 'screen' name`");
+  assert.equal(claudeStepResult(call, ok("invalid result")).title, undefined);
+  const item = { type: "mcpToolCall", id: "design-2", server: "milagre", tool: "design_apply", status: "completed", arguments: { id: "welcome" } };
+  assert.equal(codexStepResult({ ...item, result: { content: [{ type: "text", text: content }] } }).title, "Edited `Saved 'screen' name`");
+  assert.equal(codexStepResult({ ...item, result: { content: [{ type: "text", text: "invalid result" }] } }).title, undefined);
 });
 
 test("resolving a design comment reads as that, with the agent's note", () => {
@@ -383,4 +389,21 @@ test("resolving a design comment reads as that, with the agent's note", () => {
       detail: "Done",
     },
   );
+});
+
+test("HTML artifact tool renders a typed artifact card for both providers", () => {
+  const artifact = { id: "explanation", title: "Explanation", version: 2, format: "html" };
+  const args = { title: artifact.title, html: "<p>Why it works</p>" };
+  const text = JSON.stringify({ ...artifact, versions: 1, width: 1280, height: 800 });
+  const name = "mcp__milagre__artifact_show";
+  assert.deepEqual(claudeStep("html-1", name, args), { id: "html-1", kind: "artifact", title: "Showed `Explanation`" });
+  assert.deepEqual(claudeStepResult({ id: "html-1", name, input: args }, ok(text)), { id: "html-1", status: "done", artifact, title: "Showed `Explanation`" });
+  const call = { type: "mcpToolCall", id: "html-2", server: "milagre", tool: "artifact_show", status: "inProgress", arguments: args };
+  assert.deepEqual(codexStep(call), { id: "html-2", kind: "artifact", title: "Showed `Explanation`" });
+  assert.deepEqual(codexStepResult({ ...call, status: "completed", result: { content: [{ type: "text", text }] } }), {
+    id: "html-2",
+    status: "done",
+    artifact,
+    title: "Showed `Explanation`",
+  });
 });

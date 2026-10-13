@@ -26,6 +26,7 @@ const LOCAL_ONLY = [
 ];
 const LOCAL_ONLY_PREFIXES = [
   "app:",
+  "artifact-preview:",
   "canvas:",
   "computers:",
   "devices:",
@@ -86,9 +87,21 @@ function makeBridge(invoke, listen, send) {
     // ⌘W closes the focused Terminal instead of the window; the main process needs to know where focus is to decide.
     setTerminalFocused: (focused) => send("app:terminal-focused", focused === true),
     onCloseFocusedTerminal: (callback) => listen("app:close-focused-terminal", () => callback()),
+    readDesignsEnabled: () => invoke("designs:enabled:read"),
+    saveDesignsEnabled: (value) => invoke("designs:enabled:save", value),
+    onDesignsEnabledChanged: (callback) => listen("designs:enabled-changed", callback),
+    createArtifactPreview: (html) => invoke("artifact-preview:register", html),
+    releaseArtifactPreview: (url) => invoke("artifact-preview:release", url),
     artifacts: {
+      sharingStatus: (request) => invoke("artifact:sharing-status", request),
+      allPageShares: () => invoke("artifact:all-page-shares"),
+      revokeSavedPageShare: (request) => invoke("artifact:revoke-saved-page-share", request),
+      pageShares: (request) => invoke("artifact:page-shares", request),
+      sharePage: (request) => invoke("artifact:share-page", request),
+      revokePageShare: (request) => invoke("artifact:revoke-page-share", request),
       get: (request) => invoke("artifact:get", request),
       list: (request) => invoke("artifact:list", request),
+      apply: (request) => invoke("artifact:apply", request),
       addComments: (request) => invoke("artifact:add-comments", request),
       comments: (request) => invoke("artifact:comments", request),
     },
@@ -135,6 +148,15 @@ function makeBridge(invoke, listen, send) {
     mcp: {
       accounts: () => invoke("mcp:accounts"),
       check: (provider, accountId) => invoke("mcp:check", provider, accountId),
+    },
+    localMcp: {
+      status: () => invoke("local-mcp:status"),
+      create: (input) => invoke("local-mcp:create", input),
+      update: (id, input) => invoke("local-mcp:update", id, input),
+      rotate: (id) => invoke("local-mcp:rotate", id),
+      revoke: (id) => invoke("local-mcp:revoke", id),
+      enableClient: (id, input) => invoke("local-mcp:enableClient", id, input),
+      disableClient: (id) => invoke("local-mcp:disableClient", id),
     },
     onLinearStatusChanged: (callback) => listen("linear:status-changed", callback),
     onLinearEnabledChanged: (callback) => listen("linear:enabled-changed", callback),

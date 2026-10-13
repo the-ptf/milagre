@@ -42,6 +42,8 @@ const METHODS = new Set([
   "linear:status",
   "linear:enabled:read",
   "linear:enabled:save",
+  "designs:enabled:read",
+  "designs:enabled:save",
   "linear:move-to-started:save",
   "limits:auto-switch:read",
   "limits:auto-switch:save",
@@ -76,7 +78,14 @@ const METHODS = new Set([
   "terminal:resize",
   "terminal:close",
   "artifact:get",
+  "artifact:apply",
   "artifact:list",
+  "artifact:page-shares",
+  "artifact:sharing-status",
+  "artifact:all-page-shares",
+  "artifact:revoke-saved-page-share",
+  "artifact:share-page",
+  "artifact:revoke-page-share",
   "artifact:add-comments",
   "artifact:comments",
   "project:registry",
@@ -103,6 +112,13 @@ const METHODS = new Set([
   "accounts:list",
   "mcp:accounts",
   "mcp:check",
+  "local-mcp:status",
+  "local-mcp:create",
+  "local-mcp:update",
+  "local-mcp:rotate",
+  "local-mcp:revoke",
+  "local-mcp:enableClient",
+  "local-mcp:disableClient",
   "accounts:add",
   "accounts:select",
   "accounts:login",
@@ -491,6 +507,7 @@ async function startMobileBridge({
       // A snapshot carries the runs too, so "project" covers "runs".
       const types = [];
       if (entry.kinds.has("accounts")) types.push("accounts");
+      if (entry.kinds.has("designs")) types.push("designs");
       if (entry.kinds.has("links")) types.push("links");
       if (entry.kinds.has("project")) types.push("project");
       else if (entry.kinds.has("runs")) types.push("runs");
@@ -538,6 +555,7 @@ async function startMobileBridge({
     followState(channel, payload);
     for (const entry of live) {
       if (channel === "accounts:changed" && !confine) signal(entry, "accounts", 0);
+      if (channel === "designs:enabled-changed") signal(entry, "designs", 0);
       // A Link made or removed anywhere (canvas, sidebar, another phone): the phone reads canvas:links again. A confined
       // phone is refused canvas:links, so it isn't told.
       if (channel === "canvas:links-changed" && !confine) signal(entry, "links", 0);
@@ -810,7 +828,7 @@ async function startMobileBridge({
       const target = new URL(req.url, url);
       if (target.pathname !== "/live") throw failure(404, "Unknown endpoint");
       projectPath = target.searchParams.get("projectPath");
-      if (!validScope(projectPath)) throw failure(400, "Choose a valid Project or Link");
+      if (!(projectPath === "" && !confine) && !validScope(projectPath)) throw failure(400, "Choose a valid Project or Link");
     } catch (error) {
       refuse(error);
       return;

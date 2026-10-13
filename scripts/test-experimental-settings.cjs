@@ -14,10 +14,20 @@ import { useApplyOtherComputers } from '/src/lib/computers';
 import { ActivityBlock } from '/src/components/agents/ActivityBlock';
 import '/src/styles.css';
 window.enabledCalls = [];
+window.savedShare = { id: "orphan", url: "https://share.milagre.cloud/s/orphan", title: "Deleted Chat page", createdAt: 1780000000000, designCount: 2 };
+window.shareCalls = [];
 window.milagre = {
   listEditors: async () => [],
   listRecentProjects: async () => [],
   listProjects: async () => [],
+  readDesignsEnabled: async () => ({ enabled: true }),
+  saveDesignsEnabled: async (enabled) => ({ enabled }),
+  onDesignsEnabledChanged: () => () => {},
+  artifacts: {
+    allPageShares: async () => { window.shareCalls.push(["all"]); return [window.savedShare]; },
+    revokeSavedPageShare: async ({ id }) => { window.shareCalls.push(["revoke", id]); window.savedShare = { ...window.savedShare, revoked: true }; },
+    pageShares: async () => { throw new Error("No Chat exists"); },
+  },
   computers: { setEnabled: async (on) => void window.enabledCalls.push(on) },
 };
 const step = (id, title, kind = 'shell') => ({ id, kind, title, status: 'done', note: '1s' });
@@ -78,6 +88,31 @@ async function browserChecks() {
       "Off by default: every project in the sidebar",
     );
     await screenshot("off");
+    const designsSetting = 'document.querySelector("[data-slot=designs-setting]")';
+    await waitFor(`${designsSetting}.textContent.includes("Published pages")`);
+    await evaluate(`[...${designsSetting}.querySelectorAll("button")].find((b) => b.textContent === "Manage").click()`);
+    const shareDialog = 'document.querySelector("[data-slot=design-page-share]")';
+    await waitFor(`${shareDialog}?.open && ${shareDialog}.textContent.includes("Deleted Chat page")`);
+    assert.equal(await evaluate(`${shareDialog}.querySelector("[data-slot=design-page-publish]") === null`), true, "global manager has no publication action");
+    assert.deepEqual(await evaluate("window.shareCalls"), [["all"]], "deleted Chat history requires no Chat or service health call");
+    await screenshot("published-pages-orphan");
+    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Revoke link").click()`);
+    await evaluate(`${shareDialog}.querySelector("[data-slot=design-page-revoke-confirm]").click()`);
+    await waitFor(`${shareDialog}.textContent.includes("Revoked")`);
+    assert.deepEqual(await evaluate("window.shareCalls"), [["all"], ["revoke", "orphan"]]);
+    await screenshot("published-pages-orphan-revoked");
+    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Close").click()`);
+    await waitFor(`!${shareDialog}`);
+    await evaluate(`${designsSetting}.querySelector('[role="switch"][aria-label="Designs"]').click()`);
+    await waitFor(`${designsSetting}.querySelector('[role="switch"][aria-label="Designs"]').getAttribute("aria-checked") === "false"`);
+    assert.equal(await evaluate(`${designsSetting}.textContent.includes("Published pages")`), true, "all public links remain manageable while Designs is off");
+    await evaluate(`[...${designsSetting}.querySelectorAll("button")].find((b) => b.textContent === "Manage").click()`);
+    await waitFor(`${shareDialog}?.open && ${shareDialog}.textContent.includes("Deleted Chat page")`);
+    await screenshot("published-pages-designs-off");
+    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Close").click()`);
+    await waitFor(`!${shareDialog}`);
+    await evaluate(`${designsSetting}.querySelector('[role="switch"][aria-label="Designs"]').click()`);
+    await waitFor(`${designsSetting}.textContent.includes("Published pages")`);
     await evaluate(`${toggle}.click()`);
     await waitFor(`document.querySelector('[data-legacy-sidebar]').dataset.legacySidebar === 'true'`);
     await screenshot("on");

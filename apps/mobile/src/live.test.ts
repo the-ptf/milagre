@@ -223,3 +223,41 @@ test("a Link change passes through the socket and rereads the Links without fetc
   assert.equal(linkChanges, 2);
   stop();
 });
+
+test("Designs changes and connection status use the existing Project socket without fetching Project state", async () => {
+  const { timers } = clock();
+  const { made, create } = sockets();
+  let designs = 0;
+  let snapshots = 0;
+  const statuses: boolean[] = [];
+  const stop = syncProject({
+    connect: (options) => openLive("ws://mac/live?projectPath=/allowed", {}, { ...options, create, timers }),
+    snapshot: async () => {
+      snapshots++;
+    },
+    runs: async () => {
+      throw new Error("A Designs signal must not fetch runs");
+    },
+    designs: () => {
+      designs++;
+    },
+    liveStatus: (open) => statuses.push(open),
+    onError: (error) => {
+      throw error;
+    },
+    active: () => true,
+    watchActive: () => () => {},
+    pollDelay: () => 4000,
+    timers,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  made[0].onopen!();
+  await new Promise((resolve) => setImmediate(resolve));
+  const beforeSignal = snapshots;
+  made[0].onmessage!({ data: '{"type":"designs"}' });
+  assert.equal(designs, 1);
+  assert.equal(snapshots, beforeSignal);
+  made[0].onclose!();
+  assert.deepEqual(statuses, [true, false]);
+  stop();
+});

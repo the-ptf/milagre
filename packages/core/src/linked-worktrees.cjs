@@ -32,6 +32,7 @@ function createLinkedWorktrees({
   agents,
   emit,
   extraTools = () => [],
+  createMcpServer = createLinkedMcpServer,
   store = jsonFileStore(path.join(dataDir, "delegations.json")),
 }) {
   // Codex Chats whose provider refused the linked tools: they get the summary and receive Delegations only.
@@ -190,7 +191,7 @@ function createLinkedWorktrees({
     },
   });
 
-  const mcp = createLinkedMcpServer({ toolsFor });
+  const mcp = createMcpServer({ toolsFor });
 
   /**
    * A line in every Chat a new Link reaches, written when the Link is made: the Worktrees it now sees, and the linked

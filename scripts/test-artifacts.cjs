@@ -1,4 +1,4 @@
-// Run with node scripts/test-artifacts.cjs. Checks that a design an agent shows with artifact_show is a card in the
+// Run with node scripts/test-artifacts.cjs. Checks that a design an agent shows with design_show is a card in the
 // reply, outside the folded activity, with a sandboxed preview that can't make requests of its own; that Open docks a
 // canvas of every design of the Chat beside it, where frames follow revisions and step back through versions, and the
 // user can zoom, choose a design and pin comments for the agent; and where the canvas sits as the layout changes. The
@@ -8,23 +8,167 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 
-// A decoy <head> in a comment comes first: the policy must still apply (the fetch below stays blocked).
-const design = (version, accent) => `<!doctype html><html><!-- <head> --><head><title>Login</title><style>
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: #f4f1ec; display: grid; place-items: center; min-height: 100vh; }
-  .card { width: 340px; background: white; border-radius: 18px; padding: 32px; box-shadow: 0 12px 40px #0001; }
-  h1 { margin: 0 0 6px; font-size: 24px; } p { color: #6b6560; margin: 0 0 24px; }
-  input { width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 10px; border: 1px solid #e3ded7; margin-bottom: 12px; font-size: 15px; }
-  button { width: 100%; padding: 12px; border: 0; border-radius: 10px; color: white; font-size: 15px; font-weight: 600; background: ${accent}; }
-</style></head><body><div class="card"><h1>Welcome back</h1><p>Version ${version} of the login screen</p>
-<input placeholder="Email"><input placeholder="Password" type="password"><button>Sign in</button></div>
-<script>fetch("https://example.com/collect").then(() => parent.postMessage({ request: "sent" }, "*"), () => parent.postMessage({ request: "blocked" }, "*"));</script>
-</body></html>`;
-
-const phone = `<!doctype html><html><head><title>Home</title><style>
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: #1f2a24; color: white; min-height: 100vh; padding: 48px 24px; box-sizing: border-box; }
-  h1 { font-size: 32px; margin: 0 0 24px; } .habit { background: #ffffff14; border-radius: 16px; padding: 18px; margin-bottom: 12px; font-size: 17px; }
-</style></head><body><h1>Good morning</h1><div class="habit">Drink water</div><div class="habit">Morning run</div><div class="habit">Read 20 pages</div>
-<script>setTimeout(() => { location.href = "https://example.com/escape"; }, 200);</script></body></html>`;
+const design = (version, accent) => ({
+  schemaVersion: 1,
+  width: 1280,
+  height: 800,
+  background: "#f4f1ec",
+  nodes: [
+    {
+      id: "card",
+      type: "frame",
+      x: 438,
+      y: 213,
+      width: 404,
+      height: 374,
+      fill: "#ffffff",
+      radius: 18,
+    },
+    {
+      id: "heading",
+      parentId: "card",
+      type: "text",
+      x: 32,
+      y: 32,
+      width: 340,
+      height: 34,
+      text: "Welcome back",
+      fontSize: 24,
+      fontWeight: 700,
+      fill: "#282420",
+    },
+    {
+      id: "caption",
+      parentId: "card",
+      type: "text",
+      x: 32,
+      y: 72,
+      width: 340,
+      height: 24,
+      text: `Version ${version} of the login screen`,
+      fontSize: 16,
+      fill: "#6b6560",
+    },
+    {
+      id: "email",
+      parentId: "card",
+      type: "rectangle",
+      x: 32,
+      y: 120,
+      width: 340,
+      height: 46,
+      fill: "#ffffff",
+      stroke: "#e3ded7",
+      strokeWidth: 1,
+      radius: 10,
+    },
+    {
+      id: "email-label",
+      parentId: "card",
+      type: "text",
+      x: 46,
+      y: 132,
+      width: 310,
+      height: 22,
+      text: "Email",
+      fontSize: 15,
+      fill: "#6b6560",
+    },
+    {
+      id: "password",
+      parentId: "card",
+      type: "rectangle",
+      x: 32,
+      y: 178,
+      width: 340,
+      height: 46,
+      fill: "#ffffff",
+      stroke: "#e3ded7",
+      strokeWidth: 1,
+      radius: 10,
+    },
+    {
+      id: "password-label",
+      parentId: "card",
+      type: "text",
+      x: 46,
+      y: 190,
+      width: 310,
+      height: 22,
+      text: "Password",
+      fontSize: 15,
+      fill: "#6b6560",
+    },
+    {
+      id: "submit",
+      parentId: "card",
+      type: "rectangle",
+      x: 32,
+      y: 248,
+      width: 340,
+      height: 46,
+      fill: accent,
+      radius: 10,
+    },
+    {
+      id: "submit-label",
+      parentId: "card",
+      type: "text",
+      x: 46,
+      y: 260,
+      width: 310,
+      height: 22,
+      text: "Sign in",
+      fontSize: 15,
+      fontWeight: 600,
+      textAlign: "center",
+      fill: "#ffffff",
+    },
+  ],
+});
+const phone = {
+  schemaVersion: 1,
+  width: 390,
+  height: 844,
+  background: "#1f2a24",
+  nodes: [
+    {
+      id: "greeting",
+      type: "text",
+      x: 24,
+      y: 48,
+      width: 342,
+      height: 40,
+      text: "Good morning",
+      fontSize: 32,
+      fontWeight: 700,
+      fill: "#ffffff",
+    },
+    ...["Drink water", "Morning run", "Read 20 pages"].flatMap((text, index) => [
+      {
+        id: `habit-${index}`,
+        type: "rectangle",
+        x: 24,
+        y: 112 + index * 74,
+        width: 342,
+        height: 62,
+        fill: "#ffffff14",
+        radius: 16,
+      },
+      {
+        id: `habit-label-${index}`,
+        type: "text",
+        x: 42,
+        y: 130 + index * 74,
+        width: 306,
+        height: 26,
+        text,
+        fontSize: 17,
+        fill: "#ffffff",
+      },
+    ]),
+  ],
+};
 
 const fixture = `
 import React, { useState } from "react";
@@ -33,17 +177,50 @@ import { ChatComposer } from "/src/components/ChatComposer";
 import { PanelToggles, useSidePanel } from "/src/components/agents/PanelToggles";
 import { useSidePanelRoom } from "/src/components/agents/dock-area";
 import { ChangesToggle } from "/src/components/changes/ChangesChrome";
+import { designHtml } from "@milagre/shared/design";
+import { designFeedbackMessage } from "@milagre/shared/artifact";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
 const noop = () => {};
 const designs = { 1: ${JSON.stringify(design(1, "#8a7f74"))}, 2: ${JSON.stringify(design(2, "#2f6f4f"))}, 3: ${JSON.stringify(design(3, "#c2410c"))} };
 const home = ${JSON.stringify(phone)};
-window.requests = [];
 window.calls = [];
-window.addEventListener("message", (event) => event.data?.request && window.requests.push(event.data.request));
+window.shareCalls = [];
+window.shares = [];
 window.milagre = {
   listEditors: async () => [],
+  readDesignsEnabled: async () => ({ enabled: window.designsEnabled !== false }),
+  onDesignsEnabledChanged: (listener) => { window.designsChanged = listener; return () => {}; },
   artifacts: {
+    sharingStatus: async () => {
+      if (window.holdHealth) await new Promise((resolve) => { window.finishHealth = resolve; });
+      return window.sharingOffline ? { available: false, reason: "The sharing service could not be reached." } : { available: true };
+    },
+    pageShares: async ({ chatId, kind = "designs" }) => {
+      window.shareCalls.push(["list", chatId]);
+      if (window.shareListError) throw new Error("Sharing is unavailable. Try again.");
+      return window.shares.filter(share => (share.kind ?? "designs") === kind);
+    },
+    sharePage: async (input) => {
+      window.shareCalls.push(["publish", input]);
+      if (window.sharePublishError) throw new Error("Publish failed. Try again.");
+      if (window.holdPublish) await new Promise((resolve) => { window.finishPublish = resolve; });
+      const row = { id: "snapshot-" + (window.shares.length + 1), url: "https://share.milagre.cloud/s/snapshot-" + (window.shares.length + 1), title: input.title, createdAt: 1780000000000, designCount: input.kind === "artifacts" ? 1 : 2, ...(input.kind === "artifacts" ? { kind: "artifacts" } : {}) };
+      if (window.uncertainShare) row.pending = true;
+      window.shares.unshift(row);
+      if (window.uncertainShare) throw new Error("Publication could not be confirmed.");
+      return row;
+    },
+    revokePageShare: async ({ chatId, id }) => {
+      window.shareCalls.push(["revoke", chatId, id]);
+      if (window.shareRevokeError) throw new Error("Revoke failed. Try again.");
+      window.shares = window.shares.map((row) => row.id === id ? { ...row, revoked: true } : row);
+    },
+    list: async () => [
+      { id: "login", version: window.latest, title: "Login screen, warmer", format: "design", versions: window.latest, width: 1280, height: 800 },
+      { id: "home", version: 1, title: "Home", format: "design", versions: 1, width: 390, height: 844 },
+      { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, width: 1280, height: 800 },
+    ].filter((ref) => window.designsEnabled !== false || ref.format === "html"),
     addComments: async ({ comments }) => {
       const added = comments.map((comment) => ({ ...comment, createdAt: 1 }));
       window.kept = [...(window.kept ?? []), ...added];
@@ -54,16 +231,18 @@ window.milagre = {
       window.calls.push([chatId, id, version ?? null]);
       // As the daemon: a key under a Worktree's path is no open Chat.
       if (chatId.split("#")[0] !== "/fixture") throw new Error("Open an existing Chat before showing a design.");
-      if (id === "home") return { id, version: 1, title: "Home", versions: 1, latest: 1, width: 390, height: 844, html: home };
+      if (window.designsEnabled === false && id !== "legacy" && id !== "current-artifact") throw new Error("Designs is disabled.");
+      if (id === "home") return { id, version: 1, title: "Home", versions: 1, latest: 1, width: 390, height: 844, format: "design", document: home, html: designHtml(home) };
+      if (id === "legacy" || id === "current-artifact") return { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, latest: window.htmlVersion ?? 1, width: 1280, height: 800, html: "<!doctype html><h1>How this works " + (window.htmlVersion ?? 1) + "</h1>" };
       const latest = window.latest;
       const shown = version ?? latest;
-      return { id, version: shown, title: shown === 1 ? "Login screen" : "Login screen, warmer", versions: latest, latest, ...(shown === 1 ? {} : { width: 1280, height: 800 }), html: designs[shown] };
+      return { id, version: shown, title: shown === 1 ? "Login screen" : "Login screen, warmer", versions: latest, latest, width: 1280, height: 800, format: "design", document: designs[shown], html: designHtml(designs[shown]) };
     },
   },
 };
 window.latest = 2;
 window.sent = [];
-const step = (version, offset) => ({ id: "s" + version, kind: "artifact", title: "Showed \`Login screen\`", status: "done", offset, artifact: { id: "login", version, title: version === 1 ? "Login screen" : "Login screen, warmer" } });
+const step = (version, offset) => ({ id: "s" + version, kind: "artifact", title: "Showed \`Login screen\`", status: "done", offset, artifact: { id: "login", format: "design", version, title: version === 1 ? "Login screen" : "Login screen, warmer" } });
 function Fixture() {
   const [revised, setRevised] = useState(false);
   const [changes, setChanges] = useState(false);
@@ -80,17 +259,21 @@ function Fixture() {
   useSidePanelRoom("changes", changes, 332, () => setChanges(false));
   window.setDiff = setDiff;
   window.revise = () => { window.latest = 3; setRevised(true); };
+  const [htmlRevised, setHtmlRevised] = useState(false);
+  window.reviseHtml = () => { window.htmlVersion = 2; window.htmlId = "current-artifact"; setHtmlRevised(true); };
   const [said, setSaid] = useState([]);
+  window.appendFeedback = (feedback) => setSaid((current) => [...current, designFeedbackMessage(feedback)]);
   const [resolvedReply, setResolvedReply] = useState(false);
   // The agent resolves the comment, then replies: the Chat moving on is what reads the comments again.
   window.agentResolves = (note) => { window.kept = window.kept.map((comment) => ({ ...comment, resolved: { note, at: 2 } })); setResolvedReply(true); };
   const onSendDesignMessage = async (text) => { window.sent.push(text); setSaid((current) => [...current, text]); return true; };
   const messages = [
     { id: 1, session_id: 1, context: null, role: "user", body: "design a login screen" },
-    { id: 2, session_id: 1, context: null, role: "assistant", body: "Here is a first pass.", steps: [step(1, 0)] },
+    { id: 2, session_id: 1, context: null, role: "assistant", body: "Here is a first pass.", steps: [step(1, 0), { id: "retired", kind: "artifact", title: "Explanation", status: "done", offset: 0, artifact: { id: "legacy", version: 1, title: "Explanation" } }] },
     { id: 3, session_id: 1, context: null, role: "user", body: "warmer, please" },
     { id: 4, session_id: 1, context: null, role: "assistant", body: "Warmer greens, and the home screen.", steps: [step(2, 0), { id: "h1", kind: "artifact", title: "Showed \`Home\`", status: "done", offset: 0, artifact: { id: "home", version: 1, title: "Home" } }] },
     ...(revised ? [{ id: 5, session_id: 1, context: null, role: "assistant", body: "Orange accent.", steps: [step(3, 0)] }] : []),
+    ...(htmlRevised ? [{ id: 31, session_id: 1, context: null, role: "assistant", body: "Updated explanation.", steps: [{ id: "html-update", kind: "artifact", status: "done", title: "Updated artifact", offset: 0, artifact: { id: "current-artifact", version: 2, title: "Explanation", format: "html" } }] }] : []),
     ...said.map((body, index) => ({ id: 10 + index, session_id: 1, context: null, role: "user", body })),
     ...(resolvedReply ? [{ id: 30, session_id: 1, context: null, role: "assistant", body: "Made it bigger.", steps: [{ id: "r1", kind: "other", title: "Resolved a design comment", status: "done", offset: 0 }] }] : []),
   ];
@@ -115,7 +298,13 @@ async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   app.setPath("userData", require("node:fs").mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-artifacts-")));
   await app.whenReady();
-  const window = new BrowserWindow({ width: 1280, height: 820, useContentSize: true, show: false, webPreferences: { backgroundThrottling: false } });
+  const window = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    useContentSize: true,
+    show: false,
+    webPreferences: { backgroundThrottling: false },
+  });
   // The app's own guard: a design's frame can't navigate away from its srcdoc.
   require("../apps/desktop/electron/links.cjs").guardNavigation(window.webContents, { appUrl: new URL(process.argv[2]).origin + "/", openExternal: () => {} });
   window.webContents.on("console-message", (details) => {
@@ -140,7 +329,7 @@ async function browserChecks() {
     }
     throw new Error(`Timed out: ${source}`);
   }
-  const cards = 'document.querySelectorAll("[data-slot=artifact-card]")';
+  const cards = 'document.querySelectorAll("[data-slot=artifact-card]:not([data-artifact=legacy])")';
   const group = 'document.querySelector("[data-slot=artifact-group]")';
   const thumb = (id) => `${group}.querySelector("[data-slot=artifact-thumb][data-artifact=${id}]")`;
   const dock = 'document.querySelector("[data-slot=artifact-dock]")';
@@ -152,18 +341,28 @@ async function browserChecks() {
     );
     assert.match(await evaluate(`${group}.textContent`), /2 designs.*Login screen, warmer · Home/);
     assert.equal(await evaluate(`[...${cards}].some((card) => card.closest("[data-slot=activity]"))`), false, "designs are not folded into the activity");
-    assert.deepEqual(await evaluate("window.calls"), [
+    assert.deepEqual(await evaluate("window.calls.slice().sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))"), [
+      ["/fixture#1", "home", 1],
+      ["/fixture#1", "legacy", null],
       ["/fixture#1", "login", 1],
       ["/fixture#1", "login", 2],
-      ["/fixture#1", "home", 1],
     ]);
     const preview = await evaluate(
       `(() => { const f = ${cards}[0].querySelector("iframe"); return { sandbox: f.getAttribute("sandbox"), csp: f.srcdoc.includes("Content-Security-Policy") }; })()`,
     );
     assert.deepEqual(preview, { sandbox: "allow-scripts", csp: true }, "the preview runs without same origin, under the policy");
-    await waitFor("window.requests.length === 2");
-    // The phone design tried to load a remote page into its frame; it is still the design.
-    await delay(600);
+    assert.equal(await evaluate('!!document.querySelector("[data-artifact=legacy]")'), true, "legacy HTML is restored as an Artifact");
+    // CSP still blocks script-issued requests inside the generated sandbox.
+    let previews = [];
+    for (let attempt = 0; attempt < 100; attempt++) {
+      previews = window.webContents.mainFrame.framesInSubtree.filter((frame) => frame !== window.webContents.mainFrame && frame.url.startsWith("about:"));
+      if (previews.length >= 3) break;
+      await delay(25);
+    }
+    assert.ok(previews.length >= 3);
+    const blocked = await Promise.all(previews.map((frame) => frame.executeJavaScript('fetch("https://example.com/collect").then(() => false, () => true)')));
+    assert.ok(blocked.every(Boolean), "generated previews cannot make requests of their own");
+    // Generated designs stay inside the sandbox.
     assert.deepEqual(
       window.webContents.mainFrame.framesInSubtree
         .map((frame) => frame.url)
@@ -171,14 +370,13 @@ async function browserChecks() {
       [],
       "no frame left its design",
     );
-    assert.deepEqual(await evaluate("window.requests"), ["blocked", "blocked"], "a design can't make requests of its own");
     assert.ok(
       await evaluate(
         `(() => { const f = ${thumb("home")}.querySelector("iframe").parentElement; return f.style.width === "390px" && f.style.height === "844px"; })()`,
       ),
       "a phone design previews at the phone screen it was made for",
     );
-    // Version 1 comes from a host that sends no screen size: it previews at the default size, not as a blank card.
+    // Structured documents preview at their explicit screen size.
     assert.deepEqual(
       await evaluate(
         `(() => { const f = ${cards}[0].querySelector("iframe").parentElement; return { width: f.style.width, scaled: /scale\\(0\\.\\d+\\)/.test(f.style.transform) }; })()`,
@@ -192,9 +390,10 @@ async function browserChecks() {
     // Open docks the canvas beside the chat with every design of the Chat, and brings the opened one into view.
     const frames = `${dock}.querySelectorAll("[data-slot=artifact-frame]")`;
     const frame = (id) => `${dock}.querySelector("[data-slot=artifact-frame][data-artifact=${id}]")`;
-    await evaluate(`${thumb("login")}.click()`);
+    await evaluate(`window.holdHealth = true; window.sharingOffline = true; ${thumb("login")}.click()`);
     await waitFor(`${frames}?.length === 2 && [...${frames}].every((f) => f.querySelector("iframe"))`);
     assert.match(await evaluate(`${frame("login")}.textContent`), /Login screen, warmer.*v2 of 2/);
+    assert.equal(await evaluate(`${dock}.querySelector("[data-slot=designs-experimental]").textContent`), "Experimental");
     // The chat's room springs open with the panel, to the panel's width and its gap.
     await waitFor('getComputedStyle(document.documentElement).getPropertyValue("--artifact-dock").trim() === "572px"');
     const inView = (id) =>
@@ -216,6 +415,97 @@ async function browserChecks() {
       "and with its bottom",
     );
     await screenshot("docked");
+    assert.equal(await evaluate(`!!${dock}.querySelector("[aria-label='Share page']")`), false, "Share stays hidden during the initial health check");
+    await evaluate("window.holdHealth = false; window.finishHealth();");
+    await delay(50);
+    assert.equal(await evaluate(`!!${dock}.querySelector("[aria-label='Share page']")`), false, "an unavailable service has no Share entry point");
+    await screenshot("share-hidden-unavailable");
+    await evaluate('window.sharingOffline = false; window.dispatchEvent(new Event("online"))');
+    await waitFor(`!!${dock}.querySelector("[aria-label='Share page']")`);
+    // Sharing is a page-level action; merely opening its modal uploads nothing.
+    const shareDialog = 'document.querySelector("[data-slot=design-page-share]")';
+    const publish = `${shareDialog}.querySelector("[data-slot=design-page-publish]")`;
+    await evaluate(`window.holdHealth = true; window.sharingOffline = true; ${dock}.querySelector("[aria-label='Share page']").click()`);
+    await waitFor(`${shareDialog}?.open && !!window.finishHealth`);
+    assert.equal(await evaluate(`${publish}.disabled`), true, "publishing waits for the host health check");
+    await evaluate("window.holdHealth = false; window.finishHealth();");
+    await waitFor(`${shareDialog}.textContent.includes("Publishing is unavailable")`);
+    assert.equal(await evaluate(`!!${dock}.querySelector("[aria-label='Share page']")`), false, "a failed recheck also hides Share behind the open dialog");
+    assert.equal(await evaluate(`${publish}.disabled`), true, "unreachable service cannot publish");
+    assert.equal(await evaluate('window.shareCalls.some(([kind]) => kind === "publish")'), false);
+    await screenshot("share-page-unavailable");
+    await evaluate(`window.sharingOffline = false; [...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Retry check").click()`);
+    await waitFor(`!${publish}.disabled`);
+    assert.equal(await evaluate(`document.querySelectorAll("[aria-label='Share page']").length`), 1);
+    assert.equal(await evaluate('window.shareCalls.some(([kind]) => kind === "publish")'), false, "opening sharing never publishes");
+    assert.match(await evaluate(`${shareDialog}.textContent`), /every saved design on this page.*Anyone with the link.*Copies may remain online permanently/s);
+    assert.match(await evaluate(`${shareDialog}.textContent`), /Unsaved edits, comments and Chat messages stay private/);
+    assert.match(await evaluate(`${shareDialog}.textContent`), /Shared files can include content clipped by frames/);
+    await screenshot("share-page-warning");
+    // Publishing failures retain the draft title, and retries send only whole-page scope and explicit consent.
+    await evaluate(`window.sharePublishError = true; ${publish}.click()`);
+    await waitFor(`${shareDialog}.querySelector("[role=alert]")?.textContent.includes("Publish failed")`);
+    await evaluate(`window.sharePublishError = false; window.holdPublish = true; ${publish}.click(); ${publish}.click()`);
+    await waitFor(`${publish}.disabled && !!window.finishPublish`);
+    assert.equal(await evaluate('window.shareCalls.filter(([kind]) => kind === "publish").length'), 2, "double click sends one request");
+    await evaluate("window.finishPublish(); window.holdPublish = false;");
+    await waitFor(`${shareDialog}.querySelectorAll("[data-share-id]").length === 1 && ${shareDialog}.textContent.includes("Snapshot shared")`);
+    assert.equal(await evaluate(`!!${publish}`), false, "a confirmed snapshot replaces the publication form with its link");
+    assert.deepEqual(await evaluate('window.shareCalls.filter(([kind]) => kind === "publish").at(-1)[1]'), {
+      chatId: "/fixture#1",
+      title: "Designs",
+      acknowledgePublic: true,
+      kind: "designs",
+    });
+    assert.equal(await evaluate(`${shareDialog}.querySelector("a").getAttribute("href")`), "https://share.milagre.cloud/s/snapshot-1");
+    assert.match(await evaluate(`${shareDialog}.textContent`), /2 designs/);
+    await screenshot("share-page-published-first");
+    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Publish another snapshot").click()`);
+    await evaluate(`${publish}.click()`);
+    await waitFor(`${shareDialog}.textContent.includes("Snapshot shared") && !!${shareDialog}.querySelector('[data-share-id="snapshot-2"]')`);
+    assert.equal(await evaluate(`${shareDialog}.querySelectorAll("[data-share-id]").length`), 1, "older snapshots stay behind the history disclosure");
+    await evaluate(`${shareDialog}.querySelector('[data-slot="design-page-history-toggle"]').click()`);
+    await waitFor(`${shareDialog}.querySelectorAll("[data-share-id]").length === 2`);
+    await screenshot("share-page-published");
+    // Confirmation and failed revocation keep a working link. Success retires only that snapshot.
+    const shareRow = `${shareDialog}.querySelector('[data-share-id="snapshot-2"]')`;
+    await evaluate(`[...${shareRow}.querySelectorAll("button")].find((b) => b.textContent === "Revoke link").click()`);
+    assert.equal(await evaluate('window.shareCalls.some(([kind]) => kind === "revoke")'), false);
+    await evaluate(`window.shareRevokeError = true; ${shareRow}.querySelector("[data-slot=design-page-revoke-confirm]").click()`);
+    await waitFor(`${shareDialog}.querySelector("[role=alert]")?.textContent.includes("Revoke failed")`);
+    assert.ok(await evaluate(`${shareRow}.querySelector("a") !== null`));
+    await evaluate(`window.shareRevokeError = false; ${shareRow}.querySelector("[data-slot=design-page-revoke-confirm]").click()`);
+    await waitFor(`${shareRow}.textContent.includes("Revoked")`);
+    assert.equal(await evaluate(`${shareRow}.querySelector("a") !== null`), false);
+    await screenshot("share-page-revoked");
+    // Native modal Escape returns to the canvas, without closing it too.
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "ESCAPE" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "ESCAPE" });
+    await waitFor(`!${shareDialog} && !!${dock}`);
+    await evaluate(`window.shareListError = true; ${dock}.querySelector("[aria-label='Share page']").click()`);
+    await waitFor(`${shareDialog}.querySelector("[role=alert]")?.textContent.includes("Sharing is unavailable")`);
+    assert.equal(await evaluate(`${publish}.disabled`), true, "failed history read cannot accidentally publish before state is known");
+    await evaluate(`window.shareListError = false; [...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Retry").click()`);
+    await waitFor(`${shareDialog}.querySelectorAll("[data-share-id]").length === 2 && !${publish}.disabled`);
+    await evaluate(`window.uncertainShare = true; ${publish}.click()`);
+    await waitFor(`${shareDialog}.querySelectorAll("[data-share-id]").length === 3 && !${publish}.disabled`);
+    assert.match(await evaluate(`${shareDialog}.querySelector("[role=alert]").textContent`), /Publication could not be confirmed/);
+    const pendingShare = `${shareDialog}.querySelector('[data-share-id="snapshot-3"]')`;
+    assert.match(await evaluate(`${pendingShare}.textContent`), /Publication not confirmed/);
+    assert.ok(await evaluate(`${pendingShare}.querySelector("a") !== null`), "an uncertain upload keeps its URL accessible and revocable");
+    await screenshot("share-page-uncertain");
+    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Close").click()`);
+    await waitFor(`!${shareDialog}`);
+    await evaluate(`${dock}.querySelector("[aria-label='Share page']").click()`);
+    await waitFor(`!!${pendingShare}`);
+    assert.match(await evaluate(`${pendingShare}.textContent`), /Publication not confirmed/, "reopening Share keeps uncertain publications visible");
+    await evaluate(`[...${pendingShare}.querySelectorAll("button")].find((b) => b.textContent === "Revoke link").click(); window.uncertainShare = false;`);
+    await evaluate(`${pendingShare}.querySelector("[data-slot=design-page-revoke-confirm]").click()`);
+    await waitFor(`${pendingShare}.textContent.includes("Revoked")`);
+
+    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Close").click()`);
+    await waitFor(`!${shareDialog} && !!${dock}`);
+
     // The group card's Open frames every design it showed.
     await evaluate(`${group}.querySelector(":scope > div:last-child button").click()`);
     await waitFor(`${inView("login")} && ${inView("home")}`);
@@ -236,23 +526,53 @@ async function browserChecks() {
       `(() => { const r = ${frame("login")}.querySelector("[data-design-body]").getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`,
     );
     const before = await evaluate(board);
-    window.webContents.sendInputEvent({ type: "mouseWheel", x: over.x, y: over.y, deltaX: 0, deltaY: -120 });
+    window.webContents.sendInputEvent({
+      type: "mouseWheel",
+      x: over.x,
+      y: over.y,
+      deltaX: 0,
+      deltaY: -120,
+    });
     await waitFor(`${board} !== ${JSON.stringify(before)}`);
     const moved = await evaluate(
       `(() => { const r = ${frame("login")}.querySelector("[data-design-body]").getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`,
     );
-    window.webContents.sendInputEvent({ type: "mouseDown", x: moved.x, y: moved.y, button: "left", clickCount: 1 });
-    window.webContents.sendInputEvent({ type: "mouseUp", x: moved.x, y: moved.y, button: "left", clickCount: 1 });
+    window.webContents.sendInputEvent({
+      type: "mouseDown",
+      x: moved.x,
+      y: moved.y,
+      button: "left",
+      clickCount: 1,
+    });
+    window.webContents.sendInputEvent({
+      type: "mouseUp",
+      x: moved.x,
+      y: moved.y,
+      button: "left",
+      clickCount: 1,
+    });
     await waitFor(`${frame("login")}.querySelector("[data-design-body]").dataset.active === "true"`);
     assert.equal(await evaluate(`!!${frame("login")}.querySelector("[data-slot=artifact-shield]")`), false, "the design has the mouse");
     // A click in the design gives it the focus, so the window never sees the key: Escape still leaves the design.
-    window.webContents.sendInputEvent({ type: "mouseDown", x: moved.x, y: moved.y, button: "left", clickCount: 1 });
-    window.webContents.sendInputEvent({ type: "mouseUp", x: moved.x, y: moved.y, button: "left", clickCount: 1 });
+    window.webContents.sendInputEvent({
+      type: "mouseDown",
+      x: moved.x,
+      y: moved.y,
+      button: "left",
+      clickCount: 1,
+    });
+    window.webContents.sendInputEvent({
+      type: "mouseUp",
+      x: moved.x,
+      y: moved.y,
+      button: "left",
+      clickCount: 1,
+    });
     await waitFor('document.activeElement?.tagName === "IFRAME"');
     // The key is pressed in the design's own document (sendInputEvent always reaches the window first).
     const at = await evaluate(`[...document.querySelectorAll("iframe")].indexOf(${frame("login")}.querySelector("iframe"))`);
     const login = window.webContents.mainFrame.frames[at];
-    assert.equal(await login.executeJavaScript("document.title"), "Login");
+    assert.equal(await login.executeJavaScript('document.querySelector("[data-design-node=heading]").textContent'), "Welcome back");
     await login.executeJavaScript('document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))');
     await waitFor(`!${frame("login")}.querySelector("[data-design-body]").dataset.active && !!${dock}`);
     assert.notEqual(await evaluate("document.activeElement?.tagName"), "IFRAME", "the focus comes back to the canvas");
@@ -287,8 +607,20 @@ async function browserChecks() {
     const point = await evaluate(
       `(() => { const r = ${frame("login")}.querySelector("[data-slot=artifact-comment-layer]").getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 4) }; })()`,
     );
-    window.webContents.sendInputEvent({ type: "mouseDown", x: point.x, y: point.y, button: "left", clickCount: 1 });
-    window.webContents.sendInputEvent({ type: "mouseUp", x: point.x, y: point.y, button: "left", clickCount: 1 });
+    window.webContents.sendInputEvent({
+      type: "mouseDown",
+      x: point.x,
+      y: point.y,
+      button: "left",
+      clickCount: 1,
+    });
+    window.webContents.sendInputEvent({
+      type: "mouseUp",
+      x: point.x,
+      y: point.y,
+      button: "left",
+      clickCount: 1,
+    });
     await waitFor(`!!${frame("login")}.querySelector("[data-slot=artifact-comment-bubble] textarea") && document.activeElement?.tagName === "TEXTAREA"`);
     const bubble = await evaluate(
       `(() => { const p = ${frame("login")}.querySelector("[data-slot=artifact-pin]").getBoundingClientRect(); const b = ${frame("login")}.querySelector("[data-slot=artifact-comment-bubble]").getBoundingClientRect(); return { gap: b.left - p.right, top: Math.abs(b.top - p.top), width: Math.round(b.width) }; })()`,
@@ -316,8 +648,10 @@ async function browserChecks() {
     await waitFor(`window.kept?.[0]?.id === "${commentId}"`);
     assert.match(
       await evaluate("window.sent[0]"),
-      /^I chose the design "Home" \(home, version 1\)\. Continue from this one\.\n\nA comment on the designs:\n\n1\. \(comment [a-f0-9]{8}\) On the design "Login screen, warmer" \(login, version 2\), 50% across and 2\d% down: Make the button bigger\n\n.*artifact_resolve_comment/s,
+      /^I chose the design "Home" \(home, version 1\)\. Continue from this one\.\n\nA comment on the designs:\n\n1\. \(comment [a-f0-9]{8}\) On the design "Login screen, warmer" \(login, version 2\), 50% across and 2\d% down(?:, layer "[^"]+")?: Make the button bigger\n\n.*artifact_resolve_comment/s,
     );
+    assert.match(await evaluate("window.sent[0]"), /Read the latest design with design_read, then revise its layers with design_apply and expectedVersion/);
+    assert.doesNotMatch(await evaluate("window.sent[0]"), /artifact_show|artifact_read/);
     await waitFor(`!!${frame("home")}.querySelector("[data-slot=artifact-chosen]") && !${dock}.querySelector("[data-slot=artifact-send]")`);
     assert.equal(await evaluate(`${dock}.querySelectorAll("[data-slot=artifact-pin]").length`), 0, "nothing is left waiting to send");
     // A sent comment stays where it was left, to read back.
@@ -331,7 +665,7 @@ async function browserChecks() {
       /Make the button bigger.*Login screen, warmer · v2/,
     );
     assert.equal(
-      await evaluate(`/Revise them with artifact_show/.test(${card}.closest("[data-slot=message]").textContent)`),
+      await evaluate(`/design_read|design_apply/.test(${card}.closest("[data-slot=message]").textContent)`),
       false,
       "the agent's instructions stay out of sight",
     );
@@ -368,15 +702,31 @@ async function browserChecks() {
     const second = await evaluate(
       `(() => { const r = ${frame("login")}.querySelector("[data-slot=artifact-comment-layer]").getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + (r.height * 3) / 4) }; })()`,
     );
-    window.webContents.sendInputEvent({ type: "mouseDown", x: second.x, y: second.y, button: "left", clickCount: 1 });
-    window.webContents.sendInputEvent({ type: "mouseUp", x: second.x, y: second.y, button: "left", clickCount: 1 });
+    window.webContents.sendInputEvent({
+      type: "mouseDown",
+      x: second.x,
+      y: second.y,
+      button: "left",
+      clickCount: 1,
+    });
+    window.webContents.sendInputEvent({
+      type: "mouseUp",
+      x: second.x,
+      y: second.y,
+      button: "left",
+      clickCount: 1,
+    });
     await waitFor(`!!${frame("login")}.querySelector("[data-slot=artifact-comment-bubble] textarea") && document.activeElement?.tagName === "TEXTAREA"`);
     await evaluate(`(() => {
       const box = document.activeElement;
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(box, "Round the corners");
       box.dispatchEvent(new Event("input", { bubbles: true }));
     })()`);
-    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter", modifiers: [process.platform === "darwin" ? "meta" : "control"] });
+    window.webContents.sendInputEvent({
+      type: "keyDown",
+      keyCode: "Enter",
+      modifiers: [process.platform === "darwin" ? "meta" : "control"],
+    });
     await waitFor("window.sent.length === 2");
     assert.match(await evaluate("window.sent[1]"), /Round the corners/);
     await waitFor(`!${dock}.querySelector("[data-slot=artifact-send]") && ${frame("login")}.querySelectorAll("[data-slot=artifact-sent-pin]").length === 2`);
@@ -392,7 +742,11 @@ async function browserChecks() {
     // Holding ⌘ (Control off the Mac) shows each corner button's shortcut under it, short enough not to run into its
     // neighbour's.
     const hintKey = process.platform === "darwin" ? "Meta" : "Control";
-    window.webContents.sendInputEvent({ type: "keyDown", keyCode: hintKey, modifiers: [process.platform === "darwin" ? "meta" : "control"] });
+    window.webContents.sendInputEvent({
+      type: "keyDown",
+      keyCode: hintKey,
+      modifiers: [process.platform === "darwin" ? "meta" : "control"],
+    });
     await waitFor('document.querySelectorAll("body > [aria-hidden=true].fixed").length >= 2');
     const badges = await evaluate(
       '[...document.querySelectorAll("body > [aria-hidden=true].fixed")].map((b) => { const r = b.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, text: b.textContent }; }).sort((a, b) => a.left - b.left)',
@@ -417,9 +771,17 @@ async function browserChecks() {
 
     // ⌘⇧E does the same as the button, also while typing in the composer.
     await evaluate('document.querySelector("textarea").focus()');
-    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "E", modifiers: ["meta", "shift"] });
+    window.webContents.sendInputEvent({
+      type: "keyDown",
+      keyCode: "E",
+      modifiers: ["meta", "shift"],
+    });
     await waitFor(`!!${dock} && ${dock}.querySelectorAll("[data-slot=artifact-frame]").length === 2`);
-    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "E", modifiers: ["meta", "shift"] });
+    window.webContents.sendInputEvent({
+      type: "keyDown",
+      keyCode: "E",
+      modifiers: ["meta", "shift"],
+    });
     await waitFor(`!${dock}`);
     await evaluate(`${toggle}.click()`);
     await waitFor(`!!${dock} && ${dock}.querySelectorAll("[data-slot=artifact-frame]").length === 2`);
@@ -474,11 +836,73 @@ async function browserChecks() {
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     await waitFor(`!${dock}`);
     assert.equal(await evaluate('getComputedStyle(document.documentElement).getPropertyValue("--artifact-dock")'), "", "closing gives the chat its width back");
+    // Restored HTML feedback keeps the person's words without exposing revision controls.
+    await evaluate(
+      'window.appendFeedback({ choice: { id: "legacy", version: 1, title: "Explanation" }, comments: [{ design: { id: "legacy", version: 1, title: "Explanation" }, text: "Keep the original wording" }] })',
+    );
+    await waitFor('[...document.querySelectorAll("[data-slot=design-feedback]")].some(node => node.textContent.includes("Keep the original wording"))');
+    const legacyFeedback = await evaluate(
+      '[...document.querySelectorAll("[data-slot=design-feedback]")].find(node => node.textContent.includes("Keep the original wording")).textContent',
+    );
+    assert.match(legacyFeedback, /Explanation/);
+    assert.match(legacyFeedback, /Artifact/);
+    assert.doesNotMatch(legacyFeedback, /v1|version 1|design_read|design_apply|artifact_show|artifact_resolve_comment/);
+    // Unknown references still fall back to readable feedback instead of empty bubbles.
+    await evaluate(
+      'window.appendFeedback({ choice: { id: "missing", version: 1, title: "Missing design", format: "design" }, comments: [{ design: { id: "missing", version: 1, title: "Missing design", format: "design" }, text: "Preserve this older feedback too" }] })',
+    );
+    await waitFor('!!document.querySelector("[data-slot=design-feedback-text]")');
+    assert.match(await evaluate('document.querySelector("[data-slot=design-feedback-text]").textContent'), /Preserve this older feedback too/);
+    await evaluate('document.querySelector("[data-slot=design-feedback-text]").scrollIntoView()');
+    await screenshot("historical-feedback-text");
+    // The one HTML page is independent of Designs, with no version/choice/editor controls.
+    await evaluate("window.designsEnabled=false; window.designsChanged({enabled:false})");
+    await waitFor('!document.querySelector("[data-panel-toggle=designs]") && !!document.querySelector("[data-panel-toggle=artifacts]")');
+    await evaluate('document.querySelector("[data-panel-toggle=artifacts]").click()');
+    await waitFor(`${dock}?.getAttribute("aria-label") === "Artifacts" && !!document.querySelector("[data-slot=artifact-page] iframe")`);
+    assert.equal(await evaluate(`${dock}.querySelectorAll('[data-slot=artifact-edit], [data-slot=artifact-frame-version], [aria-label^="Choose"]').length`), 0);
+    assert.equal(await evaluate(`${dock}.querySelectorAll('iframe').length`), 1, "a single HTML page is shown");
+    assert.equal(await evaluate('!!document.querySelector("[data-artifact=legacy]")'), true);
+    assert.equal(await evaluate('!!document.querySelector("[data-artifact=login]")'), false, "Designs OFF hides only structured designs");
+    assert.equal(await evaluate('!!document.querySelector("[data-artifact=home]")'), false, "unmarked structured refs stay hidden when Designs is OFF");
+    await waitFor(`${dock}.querySelector('[aria-label="Share page"]')`);
+    await evaluate(`${dock}.querySelector('button[aria-label="Comment on artifact"]').click()`);
+    await waitFor(`${dock}.querySelector('[data-slot="artifact-page-comment"] textarea')`);
+    await evaluate(`(() => {
+      const input = ${dock}.querySelector('[data-slot="artifact-page-comment"] textarea');
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(input, "Explain the next step");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    })()`);
+    await waitFor(`${dock}.querySelector('[data-slot="artifact-send"]')`);
+    await screenshot("artifact-comment-designs-off");
+    await evaluate(`${dock}.querySelector('[data-slot="artifact-send"]').click()`);
+    await waitFor('window.sent.at(-1).includes("Explain the next step")');
+    const htmlComment = await evaluate("window.sent.at(-1)");
+    assert.match(htmlComment, /On the artifact "Explanation" \(legacy\): Explain the next step/);
+    assert.match(htmlComment, /artifact_read.*artifact_show/s);
+    assert.doesNotMatch(htmlComment, /version|design_read|design_apply|I chose/);
+    await waitFor('window.kept.at(-1).design.format === "html"');
+    await evaluate("window.reviseHtml()");
+    await waitFor('document.querySelector("[data-artifact=legacy] iframe")?.srcdoc.includes("How this works 2")');
+    await waitFor(
+      '[...document.querySelectorAll("[data-slot=design-feedback-comment]")].filter(node => /Keep the original wording|Explain the next step/.test(node.textContent)).every(node => node.querySelector("iframe")?.srcdoc.includes("How this works 2"))',
+    );
+    await waitFor('document.querySelector("[data-slot=artifact-page] iframe")?.srcdoc.includes("How this works 2")');
+    await screenshot("artifact-page-designs-off");
+    await evaluate(`${dock}.querySelector('[aria-label="Share page"]').click()`);
+    await waitFor(`${shareDialog}.querySelector('[data-slot="design-page-publish"]')?.disabled === false`);
+    await evaluate(`${shareDialog}.querySelector('[data-slot="design-page-publish"]').click()`);
+    await waitFor(`${shareDialog}.textContent.includes("Snapshot shared")`);
+    assert.equal(await evaluate('window.shareCalls.filter(([kind])=>kind==="publish").at(-1)[1].kind'), "artifacts");
+    assert.match(await evaluate(`${shareDialog}.textContent`), /1 artifact/);
+    assert.equal(await evaluate(`${shareDialog}.textContent.includes("Published snapshots (3)")`), false, "Artifact history excludes Designs snapshots");
+    await screenshot("artifact-share");
     console.log(
       "PASS: a shown design is a card outside the activity with a sandboxed preview at its own screen size that can't make requests; Open docks a canvas of every design at the top right beside the chat (beside the git changes panel, away while the diff replaces the chat, filling the workspace when expanded or narrow), where frames follow revisions and step back through versions, zoom and fit work, wheel over a design pans until the design is clicked, choosing and Figma-like pinned comments wait for Send and reach the agent in one message, and Escape closes it",
     );
     app.exit(0);
   } catch (error) {
+    await screenshot("failure");
     console.error(error);
     app.exit(1);
   }
@@ -488,7 +912,7 @@ async function main() {
   const { createServer } = await import("vite");
   const { spawn } = require("node:child_process");
   const server = await createServer({
-    server: { host: "127.0.0.1", port: 0 },
+    server: { host: "127.0.0.1", port: 0, hmr: false, watch: null },
     plugins: [
       {
         name: "artifacts-fixture",

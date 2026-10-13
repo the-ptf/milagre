@@ -1,3 +1,5 @@
+import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
+import { useDesignsEnabled } from "../lib/designs-enabled";
 import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/ai-consent";
 import { PrivacySettings } from "./AiConsent";
 import { showUpdateNotice } from "./UpdateNotice";
@@ -5,6 +7,7 @@ import { ProjectAccountsGroup, ProjectAccountsSettings } from "./ProjectAccounts
 import { AccountsSettings } from "./AccountsSettings";
 import { SkillsSettings } from "./SkillsSettings";
 import { McpSettings } from "./McpSettings";
+import { LocalMcpSettings } from "./LocalMcpSettings";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import {
   LINEAR_ADD_WORKSPACE,
@@ -81,6 +84,7 @@ export type SettingsSection =
   | "appearance"
   | "skills"
   | "mcp"
+  | "local-mcp"
   | "devices"
   | "experimental"
   | "privacy"
@@ -95,6 +99,7 @@ const SECTIONS: Array<{ key: SettingsSection; label: string; icon: IconData }> =
   { key: "appearance", label: "Appearance", icon: PaintBoardIcon },
   { key: "skills", label: "Skills", icon: MagicWand01Icon },
   { key: "mcp", label: "MCP", icon: PlugSocketIcon },
+  { key: "local-mcp", label: "Milagre MCP", icon: PlugSocketIcon },
   { key: "devices", label: "Devices", icon: SmartphoneIcon },
   { key: "experimental", label: "Experimental", icon: TestTube01Icon },
   { key: "privacy", label: "Privacy & AI", icon: SecurityCheckIcon },
@@ -339,6 +344,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
         <section data-computer-mcp className="mt-6">
           <h2 className="px-1 text-[12px] font-medium text-ink-3">MCP servers</h2>
           <McpSettings key={id} bridge={bridgeFor(id)} />
+          <LocalMcpSettings key={`local-${id}`} bridge={bridgeFor(id)} />
         </section>
       )}
       {error && (
@@ -392,15 +398,16 @@ function Row({ label, description, children }: { label: string; description?: st
   );
 }
 
-function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+function Switch({ label, checked, onChange, disabled = false }: { label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       role="switch"
       aria-label={label}
       aria-checked={checked}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative flex h-5 w-8 items-center rounded-full transition-colors duration-150 ${checked ? "bg-ink" : "bg-line-strong"}`}
+      className={`relative flex h-5 w-8 items-center rounded-full transition-colors duration-150 disabled:opacity-40 ${checked ? "bg-ink" : "bg-line-strong"}`}
     >
       <span
         className={`absolute left-0.5 size-4 rounded-full bg-surface shadow-card transition-transform duration-150 ${checked ? "translate-x-3" : "translate-x-0"}`}
@@ -428,11 +435,35 @@ function PercentSlider({
   );
 }
 
+export function DesignsSettings() {
+  const designs = useDesignsEnabled();
+  const [publishedPages, setPublishedPages] = useState(false);
+  return (
+    <div data-slot="designs-setting">
+      <Row label="Designs" description="Create editable designs in Chat.">
+        <Switch label="Designs" checked={designs.enabled} disabled={!designs.ready || designs.saving} onChange={(enabled) => void designs.save(enabled)} />
+      </Row>
+      <Row label="Published pages" description="Manage public links, including pages from deleted Chats.">
+        <button type="button" className="rounded-[8px] border border-line px-3 py-1.5 text-[12px] hover:bg-hover" onClick={() => setPublishedPages(true)}>
+          Manage
+        </button>
+      </Row>
+      {publishedPages && <DesignPageShareDialog onClose={() => setPublishedPages(false)} />}
+      {designs.error && (
+        <p role="alert" className="px-4 pb-3 text-[12px] text-red">
+          {designs.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ExperimentalSettings() {
   const settings = useSettings();
   return (
     <>
       <Group title="Beta">
+        <DesignsSettings />
         <Row
           label="Floating inbox"
           description="A thin bar attached to the screen edge. Drag its grip to show docking targets over a dimmed desktop. Drop left, right, or bottom; release elsewhere to return. The bottom bar is horizontal. Hover a dot to preview its Chat."
@@ -1856,6 +1887,7 @@ export function SettingsPanel({
             <p className="mt-6 text-[13px] text-ink-3">Open a project to see its skills.</p>
           ))}
         {section === "mcp" && <McpSettings />}
+        {section === "local-mcp" && <LocalMcpSettings bridge={window.milagre} />}
         {section === "devices" && <DevicesSettings />}
         {section === "experimental" && <ExperimentalSettings />}
         {section === "computer" && computerId && <ComputerSettings key={computerId} id={computerId} onRemoved={() => onSectionChange?.("devices")} />}

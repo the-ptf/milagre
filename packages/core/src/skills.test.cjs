@@ -83,6 +83,23 @@ test("a null Project lists user skills only", async (t) => {
   );
 });
 
+test("Designs off removes only the bundled skill from discovery, reads and prompt expansion", async (t) => {
+  const { project, home, skill } = await fixture(t);
+  const on = await discoverSkills(project, { home });
+  const bundled = on.skills.find((entry) => entry.name === "design" && entry.scope === "bundled");
+  assert.ok(bundled);
+  const options = { home, designsEnabled: false };
+  assert.ok(!(await discoverSkills(project, options)).skills.some((entry) => entry.name === "design"));
+  assert.equal(await expandSkillPrompt(project, "/design a welcome screen", options), "/design a welcome screen");
+  await assert.rejects(readDiscoveredSkill(project, bundled.path, options), /no longer there/);
+  const external = await skill(project, ".agents", "design", "Use my external design tool.");
+  const off = await discoverSkills(project, options);
+  assert.equal(off.skills.find((entry) => entry.name === "design").path, external);
+  assert.ok(!off.shadowed.some((entry) => entry.path === bundled.path));
+  assert.match(await expandSkillPrompt(project, "/design a welcome screen", options), /Use my external design tool/);
+  assert.equal(await readDiscoveredSkill(project, external, options), "Use my external design tool.");
+});
+
 test("reads only SKILL.md files discovery returned, shadowed ones included", async (t) => {
   const { project, home, skill } = await fixture(t);
   const user = await skill(home, ".agents", "review", "User copy");
@@ -205,6 +222,7 @@ test("bundles tldr with its checklist for machines without installed skills", as
   assert.deepEqual(
     skills.map(({ name, scope, provider }) => ({ name, scope, provider })),
     [
+      { name: "artifacts", scope: "bundled", provider: "milagre" },
       { name: "browser", scope: "bundled", provider: "milagre" },
       { name: "design", scope: "bundled", provider: "milagre" },
       { name: "genui", scope: "bundled", provider: "milagre" },

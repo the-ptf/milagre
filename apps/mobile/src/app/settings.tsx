@@ -21,7 +21,7 @@ import { ProjectIcon } from "../project-icon";
 import { ErrorNotice, ListRow, PageScroll, Toggle, useStyles } from "../ui";
 import { useAttentionButton } from "../attention";
 
-type SettingsPage = "privacy" | "notifications" | "usage" | "accounts" | "project-accounts" | "skills" | "mcp" | "appearance" | "experimental";
+type SettingsPage = "privacy" | "notifications" | "usage" | "accounts" | "project-accounts" | "skills" | "mcp" | "local-mcp" | "appearance" | "experimental";
 
 export default function SettingsScreen() {
   return (
@@ -111,6 +111,8 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
         <ListRow compact title="Plan usage" leading={<Icon icon={ChartBarLineIcon} tone="ink" size={20} />} onPress={() => onOpen("usage")} />
         <View style={styles.separator} />
         <ListRow compact title="Skills" leading={<Icon icon={MagicWand01Icon} tone="ink" size={20} />} onPress={() => onOpen("skills")} />
+        <View style={styles.separator} />
+        <ListRow compact title="Milagre MCP" leading={<Icon icon={PlugSocketIcon} tone="ink" size={20} />} onPress={() => onOpen("local-mcp")} />
         <View style={styles.separator} />
         <ListRow compact title="MCP" leading={<Icon icon={PlugSocketIcon} tone="ink" size={20} />} onPress={() => onOpen("mcp")} />
         <View style={styles.separator} />

@@ -12,6 +12,7 @@ test("npm discovers the desktop and shared packages from the repository root", (
   assert.deepEqual(workspaces.map((item) => item.name).sort(), [
     "@milagre/core",
     "@milagre/daemon",
+    "@milagre/design-share",
     "@milagre/mobile",
     "@milagre/relay",
     "@milagre/shared",

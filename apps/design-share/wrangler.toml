@@ -1,0 +1,29 @@
+name = "milagre-design-share"
+main = "src/worker.ts"
+compatibility_date = "2026-09-01"
+workers_dev = false
+routes = [{ pattern = "share.milagre.cloud", custom_domain = true }]
+
+[vars]
+PUBLIC_ORIGIN = "https://share.milagre.cloud"
+MAX_TOTAL_BYTES = "1073741824"
+MAX_TOTAL_PAGES = "10000"
+MAX_DAILY_PAGES = "100"
+MAX_DAILY_IP_PAGES = "10"
+
+[[durable_objects.bindings]]
+name = "PAGES"
+class_name = "DesignPage"
+
+[[durable_objects.bindings]]
+name = "QUOTA"
+class_name = "PublishQuota"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DesignPage", "PublishQuota"]
+
+[[rules]]
+type = "Data"
+globs = ["**/*.png"]
+fallthrough = true

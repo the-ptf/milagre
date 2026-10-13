@@ -8,6 +8,7 @@ import {
   chosenDesign,
   designActivity,
   designFeedbackMessage,
+  designFeedbackText,
   newCommentId,
   parseDesignFeedback,
   resolutionNotes,
@@ -39,6 +40,22 @@ test("a decoy <head> in a comment or a script string can't take the policy", () 
 test("the policy blocks requests the design makes itself", () => {
   assert.match(ARTIFACT_CSP, /default-src 'none'/);
   assert.doesNotMatch(ARTIFACT_CSP, /connect-src/);
+  assert.equal(
+    ARTIFACT_CSP.split("; ").find((directive) => directive.startsWith("script-src")),
+    "script-src 'unsafe-inline'",
+  );
+});
+
+test("feedback remains human-readable without preview cards or agent instructions", () => {
+  const design = { id: "login", title: "Login", version: 2 };
+  assert.equal(
+    designFeedbackText({
+      choice: design,
+      comments: [{ design, id: "12345678", nodeId: "button", x: 0.5, y: 0.5, text: "Make this bigger.\nKeep the color." }],
+    }),
+    "Chose Login (version 2).\n\nLogin (version 2): Make this bigger.\nKeep the color.",
+  );
+  assert.equal(designFeedbackText({ comments: [] }), "");
 });
 
 test("a finished design leaves the activity to show as a card; one still running or failed stays a row", () => {
@@ -65,8 +82,31 @@ test("feedback names each design and where on it a comment was pinned", () => {
         { design: { id: "home", version: 1, title: "Home" }, text: "Too busy" },
       ],
     }),
-    'Comments on the designs:\n\n1. On the design "Login" (login, version 2), 42% across and 18% down: Bigger button\n2. On the design "Home" (home, version 1): Too busy\n\nRevise them with artifact_show and keep their ids.',
+    'Comments on the designs:\n\n1. On the design "Login" (login, version 2), 42% across and 18% down: Bigger button\n2. On the design "Home" (home, version 1): Too busy\n\nRead the latest design with design_read, then revise its layers with design_apply and expectedVersion. Keep its id.',
   );
+});
+
+test("editable feedback keeps the selected layer and asks for a version-safe edit", () => {
+  const comment = { design: { id: "welcome", version: 2, title: "Welcome" }, x: 0.5, y: 0.25, nodeId: "heading", id: "1234abcd", text: "Use a larger title" };
+  const message = designFeedbackMessage({ comments: [comment] });
+  assert.match(message, /layer "heading"/);
+  assert.match(message, /design_apply and expectedVersion/);
+  assert.doesNotMatch(message, /artifact_read|artifact_show/);
+  assert.deepEqual(parseDesignFeedback(message), { choice: null, comments: [comment] });
+});
+
+test("feedback without a pinned layer still requests a version-safe structured edit", () => {
+  const comment = { design: { id: "welcome", version: 2, title: "Welcome" }, text: "Use a larger title" };
+  const message = designFeedbackMessage({ comments: [comment] });
+  assert.match(message, /design_read/);
+  assert.match(message, /design_apply and expectedVersion/);
+  assert.doesNotMatch(message, /artifact_read|artifact_show/);
+  assert.deepEqual(parseDesignFeedback(message), { choice: null, comments: [comment] });
+});
+
+test("retired feedback instructions still parse as historical comments", () => {
+  const body = 'A comment on the designs:\n\n1. On the design "Home" (home, version 1): Bigger title\n\nRevise them with artifact_show and keep their ids.';
+  assert.deepEqual(parseDesignFeedback(body), { choice: null, comments: [{ design: { id: "home", title: "Home", version: 1 }, text: "Bigger title" }] });
 });
 
 test("a choice leads the feedback, and reads back as the chosen design", () => {
@@ -161,4 +201,23 @@ test("resolutions are read again only when a comment resolves or feedback is sen
     ],
     [["a", "Done"]],
   );
+});
+
+test("HTML feedback requests in-place Artifact edits without design versions or design-tool instructions", () => {
+  const comment = {
+    id: "1234abcd",
+    design: { id: "explanation", title: "How it works", version: 7, format: "html" as const },
+    text: "Explain the final step",
+    x: 0.2,
+    y: 0.3,
+  };
+  const message = designFeedbackMessage({ comments: [comment] });
+  assert.match(message, /On the artifact "How it works" \(explanation\)/);
+  assert.match(message, /artifact_read.*artifact_show/);
+  assert.doesNotMatch(message, /version|design_read|design_apply/);
+  const parsed = parseDesignFeedback(message)!;
+  assert.equal(parsed.comments[0].design.format, "html");
+  assert.equal(parsed.comments[0].text, comment.text);
+  assert.equal(parsed.comments[0].id, comment.id);
+  assert.equal(designFeedbackText(parsed), "How it works: Explain the final step");
 });

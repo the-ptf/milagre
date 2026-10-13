@@ -14,7 +14,7 @@ const { capText, claudeEditDiff, codexChangesDiff, unwrapShell } = require("./pe
 // A title given at the end replaces the first one, for agents that only know it then.
 // A thinking step streams the agent's thinking summary into its detail and ends with how long it took.
 // An image step is an image the agent generated: it ends with the image's file and the prompt it was made from as its detail.
-// An artifact step is a design the agent showed with artifact_show: it ends with the artifact it made ({ id, version, title }).
+// An artifact step is a design the agent showed or edited: it ends with its reference ({ id, version, title }).
 
 // Command output keeps its end, where results and errors are (capOutput); diffs and other details keep their start.
 const { MAX_OUTPUT, capOutput } = require("@milagre/shared/agent-runs");
@@ -53,17 +53,21 @@ function blocksText(content) {
 
 // --- Artifacts ---
 
-// Milagre's own artifact_show tool is a design the Chat shows as a card, not a generic tool row.
-const isArtifactTool = (server, tool) => server === "milagre" && tool === "artifact_show";
-const artifactStep = (step, title) => step("artifact", `Showed ${code(title || "a design")}`);
+// Milagre's design tools show their result as a card in the Chat.
+const isArtifactTool = (server, tool) => server === "milagre" && ["design_show", "design_apply", "artifact_show"].includes(tool);
+const artifactTitle = (title, tool) =>
+  `${tool === "design_apply" ? "Edited" : "Showed"} ${code(title || (tool === "artifact_show" ? "an artifact" : "a design"))}`;
+const artifactStep = (step, title, tool) => step("artifact", artifactTitle(title, tool));
 // Resolving a comment the user left on a design reads as that, not as a tool call.
 const isResolveTool = (server, tool) => server === "milagre" && tool === "artifact_resolve_comment";
 
-// The artifact a finished artifact_show made, from its result text.
+// The artifact a finished design tool made, from its result text.
 function artifactRef(text) {
   try {
-    const { id, version, title } = JSON.parse(text);
-    return typeof id === "string" && Number.isInteger(version) && typeof title === "string" ? { id, version, title } : undefined;
+    const { id, version, title, format } = JSON.parse(text);
+    return typeof id === "string" && Number.isInteger(version) && typeof title === "string"
+      ? { id, version, title, ...(["design", "html"].includes(format) ? { format } : {}) }
+      : undefined;
   } catch {
     return undefined;
   }
@@ -100,7 +104,7 @@ function claudeStep(id, name, input = {}) {
   if (CLAUDE_AGENT_TOOLS.has(name)) return step("other", `Ran an agent: ${input.description || "a subtask"}`);
   if (name === "TodoWrite") return step("other", "Updated the to-do list");
   const mcp = /^mcp__(.+?)__(.+)$/.exec(String(name));
-  if (mcp && isArtifactTool(mcp[1], mcp[2])) return artifactStep(step, input.title);
+  if (mcp && isArtifactTool(mcp[1], mcp[2])) return artifactStep(step, input.title, mcp[2]);
   if (mcp && isResolveTool(mcp[1], mcp[2])) return step("other", "Resolved a design comment", input.note);
   if (mcp) return step("other", `Used ${code(mcp[2])} from ${mcp[1]}`);
   return step("other", `Used ${name}`);
@@ -127,7 +131,11 @@ function claudeStepResult(call, block, structured) {
   if (name === "Bash") return end({ detail: capOutput(`$ ${input.command ?? ""}\n${text}`) });
   if (failed) return end({ detail: text ? capText(text) : undefined });
   if (name === "Read") return end();
-  if (name === "mcp__milagre__artifact_show") return end({ artifact: artifactRef(text) });
+  const designTool = /^mcp__milagre__(design_show|design_apply|artifact_show)$/.exec(name)?.[1];
+  if (designTool) {
+    const artifact = artifactRef(text);
+    return end({ artifact, title: artifact ? artifactTitle(artifact.title, designTool) : undefined });
+  }
   if (name === "mcp__milagre__artifact_resolve_comment") return end({ detail: input.note });
   if (CLAUDE_EDIT_TOOLS.has(name) || name === "Write") return end({ detail: patchDiff(structured) ?? claudeEditDiff(name, input) });
   if (CLAUDE_AGENT_TOOLS.has(name) && structured?.status === "async_launched") return end({ title: `Started an agent: ${input.description || "a subtask"}` });
@@ -186,7 +194,7 @@ function codexStep(item) {
     case "fileChange":
       return step("edit", changeTitle(item.changes ?? []), undefined, item.changes?.length === 1 ? item.changes[0].path : undefined);
     case "mcpToolCall":
-      if (isArtifactTool(item.server, item.tool)) return artifactStep(step, item.arguments?.title);
+      if (isArtifactTool(item.server, item.tool)) return artifactStep(step, item.arguments?.title, item.tool);
       if (isResolveTool(item.server, item.tool)) return step("other", "Resolved a design comment", item.arguments?.note);
       return step("other", `Used ${code(item.tool)} from ${item.server}`);
     case "dynamicToolCall":
@@ -228,7 +236,10 @@ function codexStepResult(item) {
     case "mcpToolCall": {
       const done = item.status === "completed" && !item.error;
       const text = blocksText(item.result?.content);
-      if (done && isArtifactTool(item.server, item.tool)) return compact({ id, status: "done", artifact: artifactRef(text) });
+      if (done && isArtifactTool(item.server, item.tool)) {
+        const artifact = artifactRef(text);
+        return compact({ id, status: "done", artifact, title: artifact ? artifactTitle(artifact.title, item.tool) : undefined });
+      }
       if (done && isResolveTool(item.server, item.tool)) return compact({ id, status: "done", detail: item.arguments?.note });
       return compact({
         id,

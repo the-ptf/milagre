@@ -1,7 +1,8 @@
 /** What the bridge's live socket says: fetch the runs, or the whole Project, again. It never carries state. */
-export type LiveSignal = "runs" | "project" | "accounts" | "links";
+export type LiveSignal = "runs" | "project" | "accounts" | "links" | "designs";
 /** Whether a live message names a signal this app knows; a newer bridge may send others, which are ignored. */
-export const isLiveSignal = (type: unknown): type is LiveSignal => type === "runs" || type === "project" || type === "accounts" || type === "links";
+export const isLiveSignal = (type: unknown): type is LiveSignal =>
+  type === "runs" || type === "project" || type === "accounts" || type === "links" || type === "designs";
 export type LiveSocket = {
   onopen: (() => void) | null;
   onmessage: ((event: { data?: unknown }) => void) | null;
@@ -126,6 +127,9 @@ export type SyncOptions = {
   accounts?: () => void;
   /** A Link was made or removed on the computer. */
   links?: () => void;
+  /** A host-wide setting also travels over confined Project sockets. */
+  designs?: () => void;
+  liveStatus?: (open: boolean) => void;
   onError: (error: Error) => void;
   active: () => boolean;
   /** Calls back with whether the app is in the foreground; returns an unsubscribe. */
@@ -139,7 +143,20 @@ export type SyncOptions = {
  * Keeps one Project fresh: fetches when the live socket says something changed, and polls only while it is down (an
  * older bridge, or a network that drops WebSockets). The socket closes in the background and opens again on return.
  */
-export function syncProject({ connect, snapshot, runs, accounts, links, onError, active, watchActive, pollDelay, timers = defaultTimers }: SyncOptions) {
+export function syncProject({
+  connect,
+  snapshot,
+  runs,
+  accounts,
+  links,
+  designs,
+  liveStatus,
+  onError,
+  active,
+  watchActive,
+  pollDelay,
+  timers = defaultTimers,
+}: SyncOptions) {
   let stopped = false;
   let open = false;
   let live: Live | null = null;
@@ -181,12 +198,14 @@ export function syncProject({ connect, snapshot, runs, accounts, links, onError,
         if (stopped) return;
         if (signal === "accounts") accounts?.();
         else if (signal === "links") links?.();
+        else if (signal === "designs") designs?.();
         else void pull(signal);
       },
       // On opening, catch up on what changed while it was down; on losing it, poll until it is back.
       onStatus: (next) => {
         if (stopped) return;
         open = next;
+        liveStatus?.(open);
         if (open) timers.clearTimeout(poll);
         void pull("project");
         // A Link made or removed while the socket was down sent its signal to nobody.

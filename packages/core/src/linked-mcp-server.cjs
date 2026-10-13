@@ -3,10 +3,13 @@ const { randomBytes } = require("node:crypto");
 const { inputSchema, runTool } = require("./linked-tools.cjs");
 
 const MAX_BODY = 1024 * 1024;
+// Design documents allow 1,000,000 UTF-16 units in their canonical JSON. A JSON encoder can escape
+// each unit as six ASCII bytes; leave room for one call's arguments and JSON-RPC envelope.
+const MAX_DESIGN_BODY = 6 * 1000000 + 64 * 1024;
 
 // Codex reaches Milagre's linked tools as a streamable-HTTP MCP server named in each thread's config
 // (verified with codex-cli 0.160: the per-thread `config.mcp_servers` entry is started, listed and called,
-// and its calls need no Codex approval). It listens on loopback only; each Chat has its own unguessable
+// with calls approved through elicitation in Ask mode). It listens on loopback only; each Chat has its own unguessable
 // path, which is all that names the Chat. Requests are answered with plain JSON, never a stream.
 function createLinkedMcpServer({ toolsFor }) {
   const tokens = new Map();
@@ -23,21 +26,38 @@ function createLinkedMcpServer({ toolsFor }) {
       response.writeHead(405, { allow: "POST" }).end();
       return;
     }
-    let body = "";
-    request.setEncoding("utf8");
+    let bytes = 0;
+    const chunks = [];
+    let rejected = false;
+    const tooLarge = (limit) => {
+      rejected = true;
+      chunks.length = 0;
+      reply(response, { jsonrpc: "2.0", id: null, error: { code: -32000, message: `Request exceeds the ${limit}-byte MCP limit.` } }, 413);
+      // Drain any remaining input without retaining it, so the caller receives the JSON error.
+      request.resume();
+    };
     request.on("data", (chunk) => {
-      body += chunk;
-      if (body.length > MAX_BODY) request.destroy();
+      if (rejected) return;
+      bytes += chunk.length;
+      if (bytes > MAX_DESIGN_BODY) return tooLarge(MAX_DESIGN_BODY);
+      chunks.push(chunk);
     });
     request.on("end", () => {
+      if (rejected) return;
       let message;
       try {
-        message = JSON.parse(body);
+        message = JSON.parse(Buffer.concat(chunks, bytes).toString("utf8"));
       } catch {
         reply(response, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
         return;
+      } finally {
+        chunks.length = 0;
       }
       const messages = Array.isArray(message) ? message : [message];
+      // Only a single design-writing call gets the larger wire budget. Other tools and multi-call batches
+      // keep their original bound; the document and operation schemas still validate the contents.
+      const designCall = messages.length === 1 && messages[0]?.method === "tools/call" && ["design_show", "design_apply"].includes(messages[0]?.params?.name);
+      if (bytes > MAX_BODY && !designCall) return tooLarge(MAX_BODY);
       Promise.all(messages.map((item) => answer(chatId, item))).then(
         (answers) => {
           const replies = answers.filter(Boolean);
@@ -47,10 +67,16 @@ function createLinkedMcpServer({ toolsFor }) {
         (error) => reply(response, { jsonrpc: "2.0", id: null, error: { code: -32603, message: error.message } }),
       );
     });
+    request.on("error", () => {
+      chunks.length = 0;
+      if (!rejected && !response.writableEnded)
+        reply(response, { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Request was interrupted." } }, 400);
+    });
+    if (Number(request.headers["content-length"]) > MAX_DESIGN_BODY) tooLarge(MAX_DESIGN_BODY);
   });
 
-  function reply(response, payload) {
-    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(payload));
+  function reply(response, payload, status = 200) {
+    response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(payload));
   }
 
   async function answer(chatId, message) {
@@ -113,4 +139,4 @@ function createLinkedMcpServer({ toolsFor }) {
   };
 }
 
-module.exports = { createLinkedMcpServer };
+module.exports = { createLinkedMcpServer, MAX_BODY, MAX_DESIGN_BODY };

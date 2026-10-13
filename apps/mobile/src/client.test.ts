@@ -69,11 +69,14 @@ test("errors and incompatible responses are explicit, and timeouts abort the fet
   await assert.rejects(client.call("daemon:status"), /Connection lost/);
 });
 
-test("creating or removing a worktree gets the desktop deadline instead of the normal request timeout", async (t) => {
+test("slow Worktree and page-sharing calls get the desktop deadline instead of the normal request timeout", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  for (const [method, args] of [
-    ["worktree:create", [{ projectPath: "/p", baseBranch: "main", prompt: "Preview" }]],
-    ["worktree:remove", ["/wt/x", { force: false }]],
+  for (const [method, args, deadline] of [
+    ["worktree:create", [{ projectPath: "/p", baseBranch: "main", prompt: "Preview" }], 330000],
+    ["worktree:remove", ["/wt/x", { force: false }], 330000],
+    ["artifact:share-page", [{ chatId: "/p#1", title: "Designs", acknowledgePublic: true }], 360000],
+    ["artifact:revoke-page-share", [{ chatId: "/p#1", id: "page" }], 120000],
+    ["artifact:revoke-saved-page-share", [{ id: "page" }], 120000],
   ] as const) {
     let signal: AbortSignal | null | undefined;
     const client = createClient(
@@ -87,7 +90,7 @@ test("creating or removing a worktree gets the desktop deadline instead of the n
     const pending = assert.rejects(client.call(method, [...args]), /Connection lost/);
     t.mock.timers.tick(30000);
     assert.equal(signal?.aborted, false, `${method} can still be working after 30 seconds`);
-    t.mock.timers.tick(300000);
+    t.mock.timers.tick(deadline - 30000);
     assert.equal(signal?.aborted, true);
     await pending;
   }

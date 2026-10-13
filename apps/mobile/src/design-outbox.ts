@@ -1,8 +1,13 @@
 // A comment or a choice made on the design sheet, waiting for its Chat's screen to send it as the user's message: the
 // Chat screen owns sending (its draft, pending and error states), so the sheet hands the text over and goes back. It
 // waits until the message went: then `onSent` records the comments it carries.
-export type DesignMessage = { text: string; onSent: () => void };
+export type DesignMessage = { text: string; onSent: () => void; kind?: "designs" | "artifacts" };
 const waiting = new Map<string, DesignMessage>();
+
+/** Turning Designs off cancels unsent review requests for that computer. Saved designs stay untouched. */
+export function clearDesignMessages(hostId: string) {
+  for (const [key, message] of waiting) if (key.startsWith(`${hostId}|`) && message.kind !== "artifacts") waiting.delete(key);
+}
 
 export function postDesignMessage(chatKey: string, message: DesignMessage) {
   waiting.set(chatKey, message);
