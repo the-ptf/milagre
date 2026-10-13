@@ -717,6 +717,11 @@ test("the design instructions point the agent at the bundled design skill, which
   assert.match(require("node:fs").readFileSync(file, "utf8"), /^name: design$/m);
 });
 
+test("the design instructions name icon layers and the rendered image to check", () => {
+  assert.match(MILAGRE_INSTRUCTIONS, /named layers for frames, text, shapes, icons and images/);
+  assert.match(MILAGRE_INSTRUCTIONS, /result includes the saved design rendered as an image, with layout warnings; check both/);
+});
+
 test("the design instructions defer to a design tool the user names", () => {
   assert.match(MILAGRE_INSTRUCTIONS, /When the user names another design tool .*do not call design_show/);
 });
