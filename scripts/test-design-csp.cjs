@@ -91,7 +91,7 @@ async function check() {
 async function run() {
   const { spawn } = require("node:child_process");
   const { build } = require("esbuild");
-  const { artifactDocument } = require("@milagre/shared/artifact");
+  const { artifactDocument } = require("@milagre/shared/artifact-document");
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-design-csp-"));
   try {
     const built = await fs.readFile(path.join(__dirname, "../apps/desktop/dist/index.html"), "utf8");

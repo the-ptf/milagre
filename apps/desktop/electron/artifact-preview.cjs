@@ -1,7 +1,7 @@
 // HTML artifacts run in separate opaque sandboxed documents. Unlike srcdoc, a protocol
 // response gets its own CSP, so the main renderer never needs unsafe-inline scripts.
 const { randomBytes } = require("node:crypto");
-const { ARTIFACT_CSP, artifactDocument } = require("@milagre/shared/artifact");
+const { ARTIFACT_CSP, artifactDocument } = require("@milagre/shared/artifact-document");
 const PREFIX = "milagre-artifact://preview/";
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_TOTAL = 64 * 1024 * 1024;

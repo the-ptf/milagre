@@ -28,6 +28,8 @@
     "src/terminal.ts",
     "src/message-navigation.ts",
     "src/artifact.ts",
+    "src/artifact-document.mjs",
+    "src/artifact-document.d.mts",
     "src/genui.ts",
     "src/file-link.ts",
     "src/message-search.mjs",
@@ -184,6 +186,10 @@
     "./skill-catalog": "./src/skill-catalog.ts",
     "./simulator": "./src/simulator.ts",
     "./artifact": "./src/artifact.ts",
+    "./artifact-document": {
+      "types": "./src/artifact-document.d.mts",
+      "default": "./src/artifact-document.mjs"
+    },
     "./design-page": {
       "types": "./src/design-page.d.mts",
       "default": "./src/design-page.mjs"
