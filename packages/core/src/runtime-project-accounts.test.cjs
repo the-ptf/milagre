@@ -100,6 +100,10 @@ async function fixture(t) {
             this.turnActive = false;
             context.emit({ type: "turn-completed" });
           },
+          limit(resetsAt) {
+            this.turnActive = false;
+            context.emit({ type: "turn-failed", message: "You've hit your session limit", notice: true, limit: { provider: "claude", resetsAt } });
+          },
           close() {
             this.closed = true;
             if (this.turnActive) {
@@ -326,4 +330,44 @@ test("Antigravity usage is read for, and cached apart per, the Account a Project
   const names = await fs.readdir(dataDir);
   assert.ok(names.includes(`usage-${saved.scopes[projects[0]].claude}-default-${agy}.json`));
   assert.ok(names.includes("usage-" + saved.selected.claude + "-default.json"));
+});
+
+test("a usage limit marks the account, the limit card switches the Project and continues the Chat, and auto-switch picks the next one", async (t) => {
+  const { make, projects, ids, profile, created, send } = await fixture(t);
+  const runtime = make();
+  const project = await runtime.openProject(projects[0]);
+  const chatId = Object.values(project.state.sessions)[0].id;
+  const claude = (snapshot) => snapshot.providers.find((provider) => provider.provider === "claude");
+  const lastMessage = async () => (await runtime.invoke("chat:messages", [project.path, chatId])).messages.at(-1);
+  await runtime.invoke("accounts:scope", [project.path, true]);
+  await send(runtime, project.path, chatId, "Wire up the export");
+  await until(() => created.length === 1);
+  const resetsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  created[0].limit(resetsAt);
+  await runtime.flush();
+  await until(() => !created[0].turnActive);
+  const failed = await lastMessage();
+  assert.deepEqual(failed.context, { kind: "limit", provider: "claude", resetsAt, accountId: ids.work });
+  const marked = claude(await runtime.invoke("accounts:scope", [project.path]));
+  assert.equal(marked.accounts.find((account) => account.id === ids.work).limitedUntil, resetsAt);
+
+  // The card: the Project moves to the personal account and the Chat continues on its native session.
+  const result = await runtime.invoke("chat:limit-switch", [project.path, chatId, "claude", ids.personal]);
+  assert.equal(result.continued, true);
+  await until(() => created.length === 2);
+  assert.equal(created[1].context.env.CLAUDE_CONFIG_DIR, profile(ids.personal));
+  assert.equal(created[1].context.resumeId, created[0].nativeId);
+  assert.match(created[1].turns[0].prompt, /usage limit/);
+  assert.equal(claude(await runtime.invoke("accounts:scope", [project.path])).effectiveId, ids.personal);
+
+  // Auto-switch: the personal account hits its limit too, so the Chat moves to the first ready account that isn't limited.
+  assert.deepEqual(await runtime.invoke("limits:auto-switch:save", [true]), { autoSwitch: true });
+  const next = claude(await runtime.invoke("accounts:scope", [project.path])).accounts.find(
+    (account) => account.state === "ready" && ![ids.work, ids.personal].includes(account.id),
+  );
+  created[1].limit();
+  await until(() => created.length === 3);
+  assert.equal(created[2].context.env?.CLAUDE_CONFIG_DIR, next.id === "default" ? undefined : profile(next.id));
+  assert.equal(claude(await runtime.invoke("accounts:scope", [project.path])).effectiveId, next.id);
+  assert.deepEqual(await runtime.invoke("limits:auto-switch:read", []), { autoSwitch: true });
 });

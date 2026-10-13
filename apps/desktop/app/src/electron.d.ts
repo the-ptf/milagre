@@ -261,6 +261,9 @@ export type MilagreBridge = {
   /** `moveToStarted`: a Chat started from an issue moves it to In Progress. A Mac that predates it sends none (on). */
   readLinearEnabled: () => Promise<{ enabled: boolean; moveToStarted?: boolean }>;
   saveLinearMoveToStarted: (value: boolean) => Promise<{ moveToStarted: boolean }>;
+  /** Experimental: after a usage limit, move the Chat's Project to the next ready account and continue by itself. */
+  readLimitAutoSwitch: () => Promise<{ autoSwitch: boolean }>;
+  saveLimitAutoSwitch: (value: boolean) => Promise<{ autoSwitch: boolean }>;
   saveLinearEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
   onLinearStatusChanged: (callback: (status: LinearStatus) => void) => () => void;
   mcp: {
@@ -366,6 +369,13 @@ export type MilagreBridge = {
   sendMessage: (request: ChatSendRequest) => Promise<{ sessionId: number }>;
   /** Continues a chat a quit stopped mid-turn, on its saved options. Resolves false when it has nothing to continue. */
   resumeChat: (projectPath: string, sessionId: number) => Promise<boolean>;
+  /** The limit card: moves the Chat's Project to `accountId`, then continues the Chat there (`continued` false: send again). */
+  switchAccountAfterLimit: (
+    projectPath: string,
+    sessionId: number,
+    provider: ModelProvider,
+    accountId: string,
+  ) => Promise<{ continued: boolean; label: string }>;
   patchChat: (projectPath: string, sessionId: number, patch: SessionPatch) => Promise<void>;
   /** Archives one of a chat's subagents, or brings it back; the provider carries on either way. */
   archiveSubagent: (projectPath: string, sessionId: number, id: string, archived: boolean) => Promise<void>;

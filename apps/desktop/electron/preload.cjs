@@ -130,6 +130,8 @@ function makeBridge(invoke, listen, send) {
     readLinearEnabled: () => invoke("linear:enabled:read"),
     saveLinearEnabled: (value) => invoke("linear:enabled:save", value),
     saveLinearMoveToStarted: (value) => invoke("linear:move-to-started:save", value),
+    readLimitAutoSwitch: () => invoke("limits:auto-switch:read"),
+    saveLimitAutoSwitch: (value) => invoke("limits:auto-switch:save", value),
     mcp: {
       accounts: () => invoke("mcp:accounts"),
       check: (provider, accountId) => invoke("mcp:check", provider, accountId),
@@ -195,6 +197,7 @@ function makeBridge(invoke, listen, send) {
     onProjectState: (callback) => listen("project:state", callback),
     sendMessage: (request) => invoke("chat:send", request),
     resumeChat: (projectPath, sessionId) => invoke("chat:resume", projectPath, sessionId),
+    switchAccountAfterLimit: (projectPath, sessionId, provider, accountId) => invoke("chat:limit-switch", projectPath, sessionId, provider, accountId),
     patchChat: (projectPath, sessionId, patch) => invoke("chat:patch", projectPath, sessionId, patch),
     archiveSubagent: (projectPath, sessionId, id, archived) => invoke("chat:archive-subagent", projectPath, sessionId, id, archived),
     archiveFinishedSubagents: (projectPath, sessionId) => invoke("chat:archive-finished-subagents", projectPath, sessionId),

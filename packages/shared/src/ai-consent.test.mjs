@@ -91,7 +91,7 @@ test("unavailable storage fails closed, and background replies cannot open a con
 });
 
 test("all AI entry points are protected while reading, stopping, and denying remain available", () => {
-  for (const method of ["chat:send", "link:send", "chat:resume", "advisor:retry", "agent:answer-question", "live-activity:answer"])
+  for (const method of ["chat:send", "link:send", "chat:resume", "chat:limit-switch", "advisor:retry", "agent:answer-question", "live-activity:answer"])
     assert.equal(requiresAiConsent(method), true, method);
   assert.equal(requiresAiConsent("agent:respond-permission", [{ decision: "allow" }]), true);
   assert.equal(requiresAiConsent("agent:respond-permission", [{ decision: "deny" }]), false);

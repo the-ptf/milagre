@@ -1,4 +1,5 @@
 const { createAccountRouting } = require("./account-routing.cjs");
+const { createLimitSwitch } = require("./limit-switch.cjs");
 const { createMcp } = require("./mcp/index.cjs");
 const { createAccounts } = require("./accounts.cjs");
 const { createLinkStore } = require("./link-store.cjs");
@@ -828,8 +829,15 @@ function createRuntime(options) {
   const keepAwake = options.keepAwake ?? new KeepAwake({ powerSaveBlocker: { start: () => 0, isStarted: () => true, stop() {} }, enabled: false });
   commands.handle("app:set-keep-awake", (_event, enabled) => keepAwake.setEnabled(enabled === true));
 
+  // Set up with the accounts below; agent events only arrive after start.
+  let limitSwitch = null;
   function publishAgentEvent(chatId, event, state, seq) {
     options.observeAgentEvent?.(chatId, event);
+    // A turn the plan's usage limit stopped marks its account, and may move the Chat to another (auto-switch).
+    if (event.type === "turn-failed" && event.limit && limitSwitch)
+      void Promise.resolve()
+        .then(() => limitSwitch.observe(chatId, event))
+        .catch((error) => console.warn("Milagre couldn't switch accounts after a usage limit:", error.message));
     keepAwake.observe(chatId, event);
     void notifyIfWaiting(chatId, event).catch(() => {});
     if (!isLinkScopeKey(projectOfKey(chatId))) diffs.observe(chatId, event);
@@ -1527,12 +1535,29 @@ function createRuntime(options) {
     return (await resolveProject(cwd)).path;
   }
   commands.handle("accounts:scopes", () => accountScopes());
-  commands.handle("accounts:scope", async (_event, key, refresh) => accounts.scope(await validateAccountScope(key), refresh === true));
-  commands.handle("accounts:assign", (_event, key, provider, id) => {
+  function assignAccount(key, provider, id) {
     const pending = accountMutation.then(async () => accounts.assign(await validateAccountScope(key), provider, id));
     accountMutation = pending.catch(() => {});
     return pending;
+  }
+  limitSwitch = createLimitSwitch({
+    file: path.join(dataDir, "limit-switch.json"),
+    assign: assignAccount,
+    scope: async (key) => accounts.scope(await validateAccountScope(key)),
+    chats,
   });
+  commands.handle("accounts:scope", async (_event, key, refresh) =>
+    limitSwitch.decorate(await accounts.scope(await validateAccountScope(key), refresh === true)),
+  );
+  commands.handle("accounts:assign", async (_event, key, provider, id) => limitSwitch.decorate(await assignAccount(key, provider, id)));
+  // The limit card in a Chat: move its Project to another account, then continue the Chat there.
+  commands.handle("chat:limit-switch", (_event, projectPath, sessionId, provider, accountId) => {
+    if (!scopeStates.has(projectPath)) throw new Error("Open the project before switching its account.");
+    if (typeof accountId !== "string" || !accountId) throw new Error("Choose an account.");
+    return limitSwitch.switchTo(projectPath, Number(sessionId), provider, accountId);
+  });
+  commands.handle("limits:auto-switch:read", () => ({ autoSwitch: limitSwitch.autoSwitch() }));
+  commands.handle("limits:auto-switch:save", (_event, value) => ({ autoSwitch: limitSwitch.setAutoSwitch(value === true) }));
   commands.handle("project:registry", () => projectRegistry().list());
   commands.handle("project:position", (_event, id, position) => projectRegistry().setPosition(id, position));
   commands.handle("canvas:snapshot", async () => {

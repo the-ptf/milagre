@@ -21,6 +21,9 @@ const RESUME_BODY = "Milagre restarted. Continue where you left off.";
 const RESUME_PROMPT =
   "Milagre, the app running you, closed while you were working and has just opened again, so your last turn was cut off. Continue where you left off. Check what is already done before repeating any of it.";
 
+const LIMIT_PROMPT =
+  "Your last turn stopped because the account hit its plan's usage limit, and Milagre switched this chat to another account. Continue where you left off; if the last request has no answer yet, answer it now. Check what is already done before repeating any of it.";
+
 // Saves every chat's turns, in whatever project, whether or not the window shows it. Agent events
 // are folded into the chat's project state (see ProjectStates), and each one is published to the
 // windows along with the state it changed, so a reply never shows twice or goes missing between
@@ -788,6 +791,31 @@ class ChatHost {
     if (changed) this.broadcast(projectPath, state);
     const { prompt, stoppedAt: _stoppedAt, ...options } = turn;
     await this.send({ ...options, projectPath, sessionId, body: RESUME_BODY, prompt: prompt ?? RESUME_PROMPT, images: [], files: [] });
+    return true;
+  }
+
+  /**
+   * Continues a chat whose last turn the plan's usage limit stopped, after its Project moved to the account named
+   * `label`, on that turn's options. Resolves false when nothing is known of the turn (Milagre restarted since) or
+   * the chat runs again: the user sends their message again then.
+   */
+  async continueAfterLimit(projectPath, sessionId, label) {
+    const chatId = chatKey(projectPath, sessionId);
+    const turn = this.turns.get(chatId);
+    if (this.runs[chatId] || !turn) return false;
+    const session = (await this.states.get(projectPath)).sessions[sessionId];
+    if (!session) return false;
+    const { prompt, ...options } = turn;
+    // A session holds the message the limit stopped; one that never started gets the message again.
+    await this.send({
+      ...options,
+      projectPath,
+      sessionId,
+      body: `Switched to ${label} after the usage limit. Continue where you left off.`,
+      prompt: session.native_session_id ? LIMIT_PROMPT : prompt,
+      images: [],
+      files: [],
+    });
     return true;
   }
 

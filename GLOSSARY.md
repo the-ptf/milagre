@@ -9,6 +9,9 @@ Milagre coordinates coding agents across projects and git worktrees on one machi
 **Account**:
 A saved Claude, Codex or Antigravity sign-in on one computer. Each provider has a computer default **Account**. Each **Project** and **Named Link** can select its own **Account** or inherit that default. Desktop and paired phones share these selections. A running reply and its active subagents keep their existing **Account**; subsequent idle turns use the owning Project or Named Link's selection. Switching the viewed Project never changes an Account assignment.
 
+**Usage limit**:
+The provider plan's cap (Claude's session or weekly limit, Codex's usage limit) that stops a turn until it resets. The stopped reply shows a limit card offering the Project's other **Accounts** for that provider; picking one assigns it to the Project or Named Link and continues the Chat. With auto-switch on (Settings › Experimental), Milagre picks the next signed-in **Account** that isn't limited by itself. Not the API's short-term rate limit, which only slows a turn down.
+
 **MCP server**:
 A tool server a provider loads into a Chat. A command server is a process on the Mac; a URL server is remote. Settings › MCP lists each account's servers and their status. Not to be confused with Milagre's own `milagre` server, which every Chat gets and which Settings › MCP does not list.
 

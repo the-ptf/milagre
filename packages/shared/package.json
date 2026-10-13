@@ -42,6 +42,10 @@
       "types": "./src/live-activity.d.mts",
       "default": "./src/live-activity.mjs"
     },
+    "./usage-limit": {
+      "types": "./src/usage-limit.d.mts",
+      "default": "./src/usage-limit.mjs"
+    },
     "./linear-issue": {
       "types": "./src/linear-issue.d.mts",
       "default": "./src/linear-issue.mjs"

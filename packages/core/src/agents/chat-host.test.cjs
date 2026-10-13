@@ -943,6 +943,32 @@ test("a chat a quit stopped continues once on its saved session when its project
   assert.equal(manager.sessions.size, 1);
 });
 
+test("a chat the usage limit stopped continues on the turn's options after its account changes", async (t) => {
+  const { host, manager, saved, session } = harness();
+  t.after(() => manager.closeAll());
+  const chat = await host.send(message(ALPHA, "fix the api", { effort: "high" }));
+  await waitUntil(() => session(ALPHA));
+  // Nothing to continue while the turn runs.
+  assert.equal(await host.continueAfterLimit(ALPHA, chat.sessionId, "me@work.com"), false);
+  session(ALPHA).emit({ type: "session-started", nativeId: "native-7" });
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  session(ALPHA).emit({ type: "turn-failed", message: "You've hit your session limit", notice: true, limit: { provider: "claude" } });
+  await waitUntil(() => saved.get(ALPHA)?.messages.length === 2);
+
+  assert.equal(await host.continueAfterLimit(ALPHA, chat.sessionId, "me@work.com"), true);
+  await host.states.flush();
+  await waitUntil(() => session(ALPHA)?.turns.length === 2);
+  assert.deepEqual(chatMessages(saved.get(ALPHA), chat.sessionId).at(-1), {
+    role: "user",
+    body: "Switched to me@work.com after the usage limit. Continue where you left off.",
+  });
+  const turn = session(ALPHA).turns[1];
+  assert.match(turn.prompt, /usage limit/);
+  assert.equal(turn.effort, "high");
+  // A chat Milagre knows no turn of (it restarted since) waits for the user.
+  assert.equal(await host.continueAfterLimit(BETA, 1, "me@work.com"), false);
+});
+
 test("a chat whose agent hadn't started when Milagre quit is sent its prompt again", async (t) => {
   const { host, manager, saved, session } = harness();
   t.after(() => manager.closeAll());
