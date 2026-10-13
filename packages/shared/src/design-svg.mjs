@@ -1,5 +1,6 @@
 import { designRenderBudget, visibleDesignTextLines } from "./design-render-limits.mjs";
 import { designFontFamily } from "./design-fonts.mjs";
+import { designIcons } from "./design-icons.mjs";
 
 const xml = (value) =>
   String(value)
@@ -117,6 +118,13 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
       .map(({ node, index }) => {
         const box = bounds.get(node.id);
         if (node.hidden || !box) return "";
+        if (node.type === "icon") {
+          const { color, opacity } = paint(resolveColor(node.fill, "#202720"));
+          return take(
+            `<g id="layer-${xml(node.id)}" opacity="${number((node.opacity ?? 1) * opacity)}"><title>${xml(node.name ?? node.id)}</title><svg x="${number(box.x)}" y="${number(box.y)}" width="${number(box.width)}" height="${number(box.height)}" viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" fill="none" stroke="${xml(color)}" stroke-width="${number(node.strokeWidth ?? 2)}" stroke-linecap="round" stroke-linejoin="round" color="${xml(color)}">${designIcons[node.icon]}</svg></g>`,
+            node,
+          );
+        }
         const clip = `clip-${index}`;
         definitions.push(take(`<clipPath id="${clip}" clipPathUnits="userSpaceOnUse"><${shape(node, box)}/></clipPath>`, node));
         const strokeWidth = node.stroke ? Math.min(node.strokeWidth ?? 1, box.width, box.height) : 0;

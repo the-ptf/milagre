@@ -13,7 +13,8 @@ for (const [name, children] of Object.entries(nodes)) {
   icons[name] = children
     .map(([tag, attributes]) => {
       if (!ELEMENTS.has(tag)) throw new Error(`${name}: unexpected <${tag}>`);
-      const pairs = Object.entries(attributes).filter(([key]) => ATTRIBUTE.test(key));
+      // Lucide marks a few small dots fill="currentColor"; keep exactly that so they take the icon's line color.
+      const pairs = Object.entries(attributes).filter(([key, value]) => ATTRIBUTE.test(key) || (key === "fill" && value === "currentColor"));
       return `<${tag} ${pairs.map(([key, value]) => `${key}="${escape(value)}"`).join(" ")}/>`;
     })
     .join("");

@@ -8,6 +8,12 @@ test("the Lucide set covers the icons phone mockups need", () => {
     assert.match(designIcons[name], /^<(path|rect|circle|line|polyline|polygon|ellipse) /, name);
   }
   assert.doesNotMatch(Object.values(designIcons).join(""), /<script|on[a-z]+=|href=/i, "markup is geometry only");
+  const fills =
+    Object.values(designIcons)
+      .join("")
+      .match(/fill="[^"]*"/g) ?? [];
+  assert.ok(fills.length > 0, "dot circles keep fill");
+  assert.deepEqual([...new Set(fills)], ['fill="currentColor"'], "only currentColor fills survive");
 });
 
 test("suggestions rank close names first", () => {

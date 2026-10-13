@@ -14,6 +14,7 @@ import {
   diffDesignDocuments,
   validateDesignDocument,
 } from "./design.mjs";
+import { designIcons } from "./design-icons.mjs";
 
 const screen = () => ({
   schemaVersion: 1,
@@ -194,7 +195,10 @@ const iconScreen = (icon = {}) => ({
 
 test("icon layers name a Lucide icon and reject properties they can't draw", () => {
   assert.equal(validateDesignDocument(iconScreen()).nodes[0].icon, "x");
-  assert.throws(() => validateDesignDocument(iconScreen({ icon: "chevron-up-down" })), /Unknown icon "chevron-up-down"\. Did you mean chevrons-up-down/);
+  assert.throws(
+    () => validateDesignDocument(iconScreen({ icon: "chevron-up-down" })),
+    /Unknown icon "chevron-up-down" on layer "close"\. Did you mean chevrons-up-down/,
+  );
   assert.throws(() => validateDesignDocument(iconScreen({ icon: undefined })), /needs an icon name/);
   for (const extra of [{ stroke: "#000" }, { radius: 4 }, { text: "x" }, { src: "https://example.com/x.png" }]) {
     assert.throws(() => validateDesignDocument(iconScreen(extra)), /Icon layer "close" can't use/, JSON.stringify(extra));
@@ -219,4 +223,34 @@ test("insert, update and replace all validate icon names", () => {
   );
   assert.throws(() => applyDesignOperations(base, [{ op: "replace", document: iconScreen({ icon: "nope" }) }]), /Unknown icon "nope"/);
   assert.equal(applyDesignOperations(base, [{ op: "update", id: "close", patch: { icon: "check" } }]).nodes[0].icon, "check");
+});
+
+test("icon layers render Lucide geometry with their color and weight", () => {
+  const document = validateDesignDocument({ ...iconScreen({ fill: "$ink", strokeWidth: 1.5, width: 32, height: 24 }), tokens: { ink: "#123456" } });
+  const html = designHtml(document);
+  assert.match(html, /data-design-node="close"[^>]*style="[^"]*background:transparent/);
+  assert.match(
+    html,
+    /<svg viewBox="0 0 24 24" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" fill="none" stroke="#123456" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" color="#123456" aria-hidden="true"><path d="M18 6 6 18"\/><path d="m6 6 12 12"\/><\/svg>/,
+  );
+  const svg = designSvg(document);
+  assert.match(
+    svg,
+    /<svg x="20" y="20" width="32" height="24" viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" fill="none" stroke="#123456" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" color="#123456"><path d="M18 6 6 18"\/>/,
+  );
+  assert.doesNotMatch(svg, /<clipPath/, "icons need no clip shape");
+  assert.match(html, /data-design-node="close"[^>]*style="[^"]*border:0px/, "strokeWidth is a line weight, never a border");
+});
+
+test("icon layers default to the ink color and weight 2", () => {
+  const document = iconScreen({ fill: undefined, strokeWidth: undefined });
+  assert.match(designHtml(document), /stroke="#202720" stroke-width="2"/);
+  assert.match(designSvg(document), /stroke="#202720" stroke-width="2"/);
+});
+
+test("icons with currentColor dots take the line color", () => {
+  assert.match(designIcons.tag, /fill="currentColor"/);
+  const document = iconScreen({ icon: "tag", fill: "#ab1234" });
+  assert.match(designHtml(document), /color="#ab1234"[^>]*>.*<circle[^>]*fill="currentColor"/);
+  assert.match(designSvg(document), /color="#ab1234"><path[^>]*\/>.*<circle[^>]*fill="currentColor"/);
 });

@@ -123,7 +123,8 @@ function checkedDesignDocument(value, synchronize = true) {
     checkColor(node.stroke);
     if (node.type === "icon") {
       if (!node.icon) throw new Error(`Icon layer "${node.id}" needs an icon name.`);
-      if (!Object.hasOwn(designIcons, node.icon)) throw new Error(`Unknown icon "${node.icon}". Did you mean ${designIconSuggestions(node.icon).join(", ")}?`);
+      if (!Object.hasOwn(designIcons, node.icon))
+        throw new Error(`Unknown icon "${node.icon}" on layer "${node.id}". Did you mean ${designIconSuggestions(node.icon).join(", ")}?`);
       const unsupported = ["stroke", "radius", "text", "src"].filter((field) => node[field] !== undefined);
       if (unsupported.length)
         throw new Error(`Icon layer "${node.id}" can't use ${unsupported.join(", ")}. Use fill for its color and strokeWidth for its line weight.`);
@@ -314,7 +315,7 @@ const safeJson = (value) => JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, 
 function nodeStyles(document, node, box, parentBox, parentNode) {
   // Transparent images (icons, cut-outs) show what is behind them; the grey placeholder marks an image still to add.
   const placeholder = node.type === "frame" || (node.type === "image" && node.src) ? "transparent" : "#d8ded8";
-  const background = node.type === "text" ? "transparent" : designColor(document, node.fill, placeholder);
+  const background = node.type === "text" || node.type === "icon" ? "transparent" : designColor(document, node.fill, placeholder);
   const parentStroke = parentNode?.stroke ? (parentNode.strokeWidth ?? 1) : 0;
   return [
     "position:absolute",
@@ -326,7 +327,7 @@ function nodeStyles(document, node, box, parentBox, parentNode) {
     `background:${background}`,
     `opacity:${node.opacity ?? 1}`,
     `border-radius:${node.type === "ellipse" ? "50%" : `${node.radius ?? 0}px`}`,
-    `border:${node.stroke ? (node.strokeWidth ?? 1) : 0}px solid ${designColor(document, node.stroke)}`,
+    `border:${node.stroke && node.type !== "icon" ? (node.strokeWidth ?? 1) : 0}px solid ${designColor(document, node.stroke)}`,
     "overflow:hidden",
     ...(node.type === "text"
       ? [
@@ -386,6 +387,12 @@ function designMarkup(document, bounds, textLayout, take) {
       } else if (node.type === "image" && node.src) {
         append(
           `<img src="${escape(node.src)}" alt="${escape(node.name ?? "")}" draggable="false" style="width:100%;height:100%;object-fit:cover;pointer-events:none"/>`,
+          node,
+        );
+      } else if (node.type === "icon") {
+        const color = escape(designColor(document, node.fill, "#202720"));
+        append(
+          `<svg viewBox="0 0 24 24" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" fill="none" stroke="${color}" stroke-width="${node.strokeWidth ?? 2}" stroke-linecap="round" stroke-linejoin="round" color="${color}" aria-hidden="true">${designIcons[node.icon]}</svg>`,
           node,
         );
       }
