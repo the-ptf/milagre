@@ -23,6 +23,7 @@ Users say Milagre Designs look much worse than the same screen made in Pencil (p
 | How the agent sees the result | A PNG attached to the `design_show` / `design_apply` result as image content, plus text warnings. |
 | Rasterizer | `@resvg/resvg-wasm` in the daemon, rendering the existing SVG renderer's output. Works on headless Macs; no browser, no native module. |
 | Icon set | Lucide (ISC), the same set Pencil uses. |
+| Existing designs | Older designs reflow under Inter; accepted (designs shipped the same day, warnings flag clipped text). |
 | Done when | A side-by-side benchmark: the same 3 prompts in Pencil and in Milagre, screenshots in the PR, ours comparable on icons, type and density. |
 
 ## PR 1: image placeholder fix
@@ -119,10 +120,10 @@ Size budget: a document using three weights adds about 300 KB of base64 to each 
 
 | Warning | Rule |
 | --- | --- |
-| Clipped text | A text layer's laid-out lines exceed its box (what `visibleDesignTextLines` drops today). |
+| Clipped text | A text layer's glyphs are actually cut: a laid-out line is dropped (what `visibleDesignTextLines` drops), or the last line's glyphs pass the box by more than 0.5 px. A line box that overhangs with its glyphs intact does not count. |
 | Overflowing child | A visible child's box extends past its parent's box by more than 1 px. |
 | Off canvas | A visible top-level layer lies partly outside the document. |
-| Low contrast | Text colour against the nearest opaque ancestor fill (or the document background) is below 4.5:1, or 3:1 for text 24 px and up. Skipped when an image is behind it. |
+| Low contrast | Text colour is below 3:1 against what is drawn behind the text (paint order); skipped over images or ambiguous backdrops (Ruling 12). |
 | Remote image | An `https:` image the preview could not show. |
 
 ### Tool results with images
