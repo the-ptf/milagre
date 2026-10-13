@@ -281,7 +281,8 @@ class ClaudeSession {
     this.query = sdk.query({
       prompt: this.inbox,
       options: {
-        ...(this.env ? { env: this.env } : {}),
+        // Headless Claude Code hides TaskCreate / TaskUpdate / TaskList, which feed the Chat's task list.
+        env: { ...(this.env ?? process.env), CLAUDE_CODE_ENABLE_TODO_TOOLS: "1" },
         cwd: this.cwd,
         ...(this.workspaceRoots ? { additionalDirectories: this.workspaceRoots.filter((root) => root !== this.cwd) } : {}),
         model,

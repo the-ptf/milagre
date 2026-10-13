@@ -256,6 +256,14 @@ test("analysis-only Claude denies shell tools and cannot switch to Full", async 
   assert.equal(calls.modes.includes("bypassPermissions"), false);
 });
 
+test("turns on Claude Code's task tools, which headless runs hide", async (t) => {
+  const { session, events, calls } = claude(t);
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.equal(calls.options.env.CLAUDE_CODE_ENABLE_TODO_TOOLS, "1");
+  assert.equal(calls.options.env.PATH, process.env.PATH);
+});
+
 test("starts with Milagre's options and streams a reply", async (t) => {
   const { session, events, calls } = claude(t);
   await session.startTurn(TURN);
