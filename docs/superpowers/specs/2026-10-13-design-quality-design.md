@@ -89,7 +89,7 @@ Size budget: a document using three weights adds about 300 KB of base64 to each 
 **Desktop editor.**
 
 - `DesignTools.tsx` gets an icon type glyph in the layers panel, wherever `rectangle` and `ellipse` appear.
-- The `DesignEditor.tsx` inspector gets an icon-name field for icon layers: a searchable list through the shared choice-menu primitive (`docs/agents/ui.md`), plus colour and line weight.
+- The `DesignEditor.tsx` inspector gets a free-text icon-name field for icon layers that accepts only Lucide names and shows a notice otherwise, plus a line-weight field. Fill is already the colour field. A searchable picker is a later improvement.
 - An icon layer can't be turned into another type in the inspector. The agent or the user deletes and inserts instead.
 
 **Mobile.** Mobile has no design editor and no layer-type list (checked: no `"ellipse"` in `apps/mobile/src`). It renders the host HTML, so icons appear with no mobile code change and no OTA. Verify on the phone anyway: the design card and the full-screen viewer, with icons in a design.
