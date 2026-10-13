@@ -5,7 +5,6 @@ import type { TranscriptState, PermissionRequest, QuestionRequest } from "./mode
 /** What a system notification says about a chat that waits on the user. */
 export interface AttentionNotice {
   title: string;
-  subtitle?: string;
   body: string;
 }
 
@@ -16,10 +15,13 @@ export interface AttentionContext {
   provider?: ModelProvider;
 }
 
-/**
- * The notification for an approval or question a turn waits on, e.g. "shop / fix-login - Claude needs input",
- * or null for any other event.
- */
+/** A compact plain-text preview for desktop and phone notifications. */
+export function notificationText(value: string | undefined, options?: { markdown?: boolean }): string;
+/** Keep the beginning of the latest reply; ordinary paragraph breaks stay in the preview. */
+export function notificationPreview(previous: string | undefined, text: string, startsMessage?: boolean): string;
+/** The same chat-only title and result preview on desktop and phones. */
+export function completionNotice(title: string | undefined, result: { failed: boolean; body?: string }): AttentionNotice;
+/** The notification for an approval or question a turn waits on, or null for any other event. */
 export function attentionNotice(event: AgentEvent, context: AttentionContext): AttentionNotice | null;
 export function attentionContext(state: CoordinatorState, projectName: string, sessionId: number): AttentionContext;
 /** Chat keys outside `currentPath` whose turn waits on an approval or question. Link Chats are left out. */

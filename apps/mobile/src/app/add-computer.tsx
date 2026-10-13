@@ -1,3 +1,4 @@
+import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/ai-consent";
 import { useState } from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
@@ -190,6 +191,22 @@ export default function AddComputer() {
             </View>
           </>
         )}
+        <Text style={styles.caption}>Pairing gives this device access to your computer&apos;s Projects and Chats. Keep pairing links private.</Text>
+        <View style={{ flexDirection: "row", gap: 24 }}>
+          {[
+            { title: "Privacy policy", url: PRIVACY_URL },
+            { title: "Support", url: SUPPORT_URL },
+          ].map(({ title, url }) => (
+            <Pressable
+              key={url}
+              accessibilityRole="link"
+              onPress={() => void Linking.openURL(url).catch(() => setError(`Could not open this page. Visit ${url} in your browser.`))}
+              style={{ paddingVertical: 12 }}
+            >
+              <Text style={[styles.text, { textDecorationLine: "underline" }]}>{title}</Text>
+            </Pressable>
+          ))}
+        </View>
         {busy && <PillButton title="Connecting…" loading onPress={() => {}} secondary />}
         {error ? <ErrorNotice message={error} /> : null}
       </View>

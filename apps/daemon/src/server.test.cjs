@@ -820,7 +820,8 @@ test("daemon delivers push after clients leave and Phone reset/disable revokes r
   emit({ type: "turn-completed" });
   await waitFor(() => messages.length === 2);
   assert.equal(messages[1].title, "Hello");
-  assert.equal(messages[1].body, "Turn completed: Completed on the daemon.");
+  assert.equal(messages[1].body, "Completed on the daemon.");
+  assert.ok(!messages[1].subtitle);
   const second = await client();
   await second.call("phone:reset");
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(dataDir, "mobile-push.json"), "utf8")), []);

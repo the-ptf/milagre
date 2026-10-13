@@ -38,6 +38,8 @@ export type ClientHost = { address: string; token: string; access?: Access; rela
 export type RouteView = { current(): RelayTransport | null; subscribe(listener: () => void): () => void };
 /** The phone's side of the relay, injected so this file stays free of native modules. */
 export type RelayRuntime = {
+  /** Device consent runs before the network deadline starts. */
+  beforeCall?(method: string, args: unknown[]): Promise<void>;
   /** The one transport for this Mac, opened on first use and shared by every client. */
   transport(host: { relay: RelayLink; token: string }): Promise<RelayTransport>;
   /** This computer's LAN route; requests and live streams use its transport while `current()` has one. */
@@ -327,8 +329,9 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
     },
     upload: (projectPath: string, name: string, base64: string) => request<{ path: string; name: string }>("/attachments", { projectPath, name, base64 }),
     // Git fetches, worktree setup and removing a worktree get the same deadline as the desktop daemon client.
-    call: <T>(method: string, args: unknown[] = []) =>
-      request<T>(
+    call: async <T>(method: string, args: unknown[] = []) => {
+      if (runtime?.beforeCall) await runtime.beforeCall(method, args);
+      return request<T>(
         "/rpc",
         { v: 1, method, args },
         LONG_CALLS.has(method)
@@ -338,7 +341,8 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
             : MCP_CALLS.has(method)
               ? Math.max(timeoutMs, 45000)
               : timeoutMs,
-      ),
+      );
+    },
     media,
     /** A relay computer's image, fetched once into the cache folder; resolves to its file:// URI. */
     mediaFile: (projectPath: string, path: string) => relayImage(projectPath, path).then((source) => source.uri),

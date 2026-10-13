@@ -1,0 +1,22 @@
+---
+import Legal from "../layouts/Legal.astro";
+import { REPO_URL } from "../links";
+const email = import.meta.env.SITE_CONTACT_EMAIL;
+---
+<Legal title="Milagre support" description="Pair your devices, reconnect to your computer and get help with Milagre.">
+  <p>Milagre on your phone connects to Milagre running on your computer. Keep the computer online and Milagre available. AI work also needs a supported provider account configured on that computer.</p>
+  <h2>Pair or reconnect</h2>
+  <ol>
+    <li>Open Milagre on your computer and go to Settings > Devices.</li>
+    <li>Open Milagre on your phone and choose Add computer. Scan the pairing code or paste the pairing link. Camera access is optional when you paste a link.</li>
+    <li>Approve the device on your computer if prompted. Treat the pairing link as a credential and never post it publicly.</li>
+    <li>If the computer appears offline, check its internet connection and whether it is asleep. Reopen Milagre and retry. Inspect the Chat before resending a message after a connection failure.</li>
+  </ol>
+  <h2>AI sharing and provider access</h2>
+  <p>The first AI action on each device asks permission to share Chat and project context with your AI providers. Not now leaves the action unsent. You can read existing Chats without allowing new AI actions. Review or reset permission under Settings > Privacy & AI. Provider sign-in and usage limits are managed separately under Accounts.</p>
+  <h2>Notifications</h2>
+  <p>Notifications are optional. Turn them on or off in Settings > Notifications. If the operating system has denied permission, open your phone's system settings for Milagre. Notification previews and Live Activities can display Chat content on the lock screen.</p>
+  <h2>Get help</h2>
+  <p>{email && <span>Email <a href={`mailto:${email}`}>{email}</a>, or </span>}<a href={`${REPO_URL}/issues`}>report a problem on GitHub</a>. Include your app version, device and operating system, the steps that failed, and any error message. GitHub issues are public: remove pairing links, tokens, personal information and private code from reports and screenshots.</p>
+  <p>For data handling and privacy choices, read the <a href="/privacy">privacy policy</a>.</p>
+</Legal>

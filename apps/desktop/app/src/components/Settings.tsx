@@ -1,5 +1,7 @@
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
 import { useDesignsEnabled } from "../lib/designs-enabled";
+import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/ai-consent";
+import { PrivacySettings } from "./AiConsent";
 import { showUpdateNotice } from "./UpdateNotice";
 import { ProjectAccountsGroup, ProjectAccountsSettings } from "./ProjectAccountsSettings";
 import { AccountsSettings } from "./AccountsSettings";
@@ -83,6 +85,7 @@ export type SettingsSection =
   | "mcp"
   | "devices"
   | "experimental"
+  | "privacy"
   | "about"
   | "project"
   | "computer";
@@ -96,6 +99,7 @@ const SECTIONS: Array<{ key: SettingsSection; label: string; icon: IconData }> =
   { key: "mcp", label: "MCP", icon: PlugSocketIcon },
   { key: "devices", label: "Devices", icon: SmartphoneIcon },
   { key: "experimental", label: "Experimental", icon: TestTube01Icon },
+  { key: "privacy", label: "Privacy & AI", icon: SecurityCheckIcon },
   { key: "about", label: "About", icon: InformationCircleIcon },
 ];
 
@@ -1041,6 +1045,14 @@ function DevicesSettings() {
               <p data-phone-warning className="text-[12px] text-ink-2">
                 This code gives access to your agents. Don't share it or post a screenshot of it.
               </p>
+              <p className="flex gap-4 text-[12px] underline underline-offset-4">
+                <a href={PRIVACY_URL} target="_blank" rel="noreferrer">
+                  Privacy policy
+                </a>
+                <a href={SUPPORT_URL} target="_blank" rel="noreferrer">
+                  Support
+                </a>
+              </p>
               {pairing && (
                 <div data-phone-pairing={pairing.open ? "open" : "closed"} className="flex flex-wrap items-center gap-3">
                   <span className="text-[12px] text-ink-3">
@@ -1835,6 +1847,7 @@ export function SettingsPanel({
         {section === "devices" && <DevicesSettings />}
         {section === "experimental" && <ExperimentalSettings />}
         {section === "computer" && computerId && <ComputerSettings key={computerId} id={computerId} onRemoved={() => onSectionChange?.("devices")} />}
+        {section === "privacy" && <PrivacySettings />}
         {section === "about" && <AboutSettings update={update} />}
         {section === "project" && project && <ProjectSettings key={project.path} project={project} onManageAccounts={() => onSectionChange?.("accounts")} />}
       </div>

@@ -164,7 +164,7 @@ function acpStepResult(call, diffs = diffsOf(call)) {
 
 function textDelta(state, value) {
   const events = [];
-  if (state.hasText && state.textBreak) events.push({ type: "text-delta", messageId: state.turnId, text: "\n\n" });
+  if (state.hasText && state.textBreak) events.push({ type: "text-delta", messageId: state.turnId, text: "\n\n", startsMessage: true });
   state.textBreak = false;
   state.hasText = true;
   events.push({ type: "text-delta", messageId: state.turnId, text: value });

@@ -1,0 +1,24 @@
+---
+import Base from "./Base.astro";
+import Nav from "../components/Nav.astro";
+interface Props { title: string; description: string; noindex?: boolean }
+const { title, description, noindex = false } = Astro.props;
+---
+<Base title={`${title} | Milagre`} description={description} noindex={noindex}>
+  <Nav />
+  <main class="container legal">
+    <h1>{title}</h1>
+    <slot />
+    <footer><a href="/privacy">Privacy policy</a><a href="/support">Support</a><a href="/">Milagre home</a></footer>
+  </main>
+</Base>
+<style>
+  .legal { max-width: 760px; padding-top: 40px; padding-bottom: 64px; }
+  h1 { font-size: clamp(32px, 7vw, 46px); margin-bottom: 28px; }
+  .legal :global(h2) { font-size: 22px; margin: 36px 0 12px; }
+  .legal :global(p), .legal :global(ul), .legal :global(ol) { margin: 14px 0; line-height: 1.7; color: var(--ink-2); }
+  .legal :global(li) { margin: 8px 0; }
+  .legal :global(a) { text-underline-offset: 4px; overflow-wrap: anywhere; }
+  .legal :global(.draft) { padding: 16px; border: 1px solid var(--line-strong); border-radius: var(--radius-control); color: var(--ink); }
+  footer { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--line-strong); font-size: 14px; }
+</style>

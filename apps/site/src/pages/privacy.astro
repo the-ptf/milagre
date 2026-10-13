@@ -1,0 +1,37 @@
+---
+import Legal from "../layouts/Legal.astro";
+// Confirm these with the operator before publishing. Missing facts stay visibly draft.
+const operator = import.meta.env.SITE_OPERATOR_NAME;
+const email = import.meta.env.SITE_CONTACT_EMAIL;
+const draft = !operator || !email;
+---
+<Legal title="Privacy policy" description="How Milagre handles project data, AI providers, paired devices and notifications." noindex={draft}>
+  {draft && <p class="draft">Draft for review. Operator identity and a private contact address must be confirmed before this policy is published or used for an App Store submission.</p>}
+  <p>Updated October 10, 2026.</p>
+  <p>Milagre lets you work with coding agents on your computer and continue from a paired phone or computer. {operator ? `${operator} operates Milagre.` : "This draft covers the Milagre apps, pairing relay and website."} You do not need to create a Milagre account.</p>
+
+  <h2>Your computer and paired devices</h2>
+  <p>Your computer stores Projects, Chat history, attachments, agent settings and provider profiles. Paired devices receive the content needed to display and control those Projects. Phones also keep pairing credentials, preferences and cached media locally. Pair only devices you trust and protect access to your computer.</p>
+  <p>A local network connection can carry traffic directly between your devices. Internet pairing uses Milagre's relay, hosted on Cloudflare. Chat content and files sent through that relay are encrypted between the paired devices. The relay handles connection metadata, including network addresses, device and host identifiers, public keys, connection times and message sizes. Encryption does not hide this routing metadata.</p>
+
+  <h2>AI providers and connected tools</h2>
+  <p>Sending or continuing a Chat shares prompts, attachments, relevant project files, conversation history and tool results with the AI providers you use: Anthropic (Claude), OpenAI (Codex) or Google (Antigravity). Agents and advisors you configure may use a different provider. This information can contain personal data, secrets or confidential code. Milagre asks for permission on each device before its first AI action.</p>
+  <p>Providers process this information to generate responses and run your requested work. Retention and any use for training depend on the provider, your plan and your account settings. Review the policies for <a href="https://www.anthropic.com/legal/privacy">Anthropic</a>, <a href="https://openai.com/policies/privacy-policy/">OpenAI</a> and <a href="https://policies.google.com/privacy">Google</a>.</p>
+  <p>Tools you connect, such as GitHub, Linear or MCP servers, receive the information needed for actions you or your agents perform. Their own terms and privacy policies apply. Review the tools and permissions in your provider accounts and Milagre Settings before sharing sensitive material.</p>
+
+  <h2>Notifications and Live Activities</h2>
+  <p>If you enable notifications, your computer stores your push token and sends notification content through Expo and Apple or Google. Notifications can include Project or Chat names, question or approval text and response previews. These deliveries are separate from the encrypted pairing relay. Lock-screen notifications and Live Activities can expose content to someone holding your phone. You can turn them off in Settings > Notifications.</p>
+
+  <h2>Updates, website and support</h2>
+  <p>The apps contact update services, including Expo and GitHub, to check for and download releases. Those requests expose ordinary connection information such as an IP address and app/runtime version to the service. Visiting this website sends network and browser information to its Cloudflare hosting service. The site requests the public GitHub star count through its server.</p>
+  <p>If you contact support, we receive the information you choose to provide. Do not send provider credentials, pairing links or private project files. GitHub issues are public.</p>
+
+  <h2>Retention, removal and your choices</h2>
+  <p>Project files and Chat history remain on your computer until you remove them. Removing a provider profile from Milagre does not close the provider account or erase data held by that provider. Forgetting a paired computer removes its saved connection from that device; revoke a lost device from the computer's Settings > Devices as well. Cached media may remain until the app cache or app data is cleared. Secure device credentials can survive an app reinstall on some platforms.</p>
+  <p>Reset AI sharing permission in Settings > Privacy & AI to require consent again for future AI actions from that device. This does not stop agents already running or recall information already sent. Use Stop in the Chat for an active agent and contact the relevant provider about data it holds.</p>
+  <p>Relay routing state supports active connections and device pairing. Hosting, update and AI services may retain operational records under their own policies. This draft does not promise a deletion schedule for those services.</p>
+  <p>Depending on where you live, you may have rights to access, correct, delete or restrict use of personal information. {email ? <span>Contact <a href={`mailto:${email}`}>{email}</a> for privacy requests. Include only the information needed to identify your request.</span> : <span>A private contact method is required before publication.</span>}</p>
+
+  <h2>Policy changes</h2>
+  <p>We will update this page when Milagre's data handling changes. Material changes to AI sharing require a new consent decision in the app.</p>
+</Legal>

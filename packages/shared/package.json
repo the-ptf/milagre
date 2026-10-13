@@ -213,7 +213,11 @@
     "./advisor-result": "./src/advisor-result.ts",
     "./themes": "./src/themes/index.ts",
     "./chat-row": "./src/chat-row.ts",
-    "./genui-renderer": "./src/genui-renderer.tsx"
+    "./genui-renderer": "./src/genui-renderer.tsx",
+    "./ai-consent": {
+      "types": "./src/ai-consent.d.mts",
+      "default": "./src/ai-consent.mjs"
+    }
   },
   "scripts": {
     "test": "node --test src/*.test.ts src/*.test.mjs",

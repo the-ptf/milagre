@@ -13,10 +13,11 @@ let computerEvent: ((event: any) => void) | null = null;
 (globalThis as any).window = { milagre: { ...local, on: (id: string) => (made.push(id), { name: id }) } };
 const { bridgeFor, bridgeForKey, isRemoteKey, forgetBridge, onAnyAgentEvent } = await import("./computer-bridge.ts");
 
-test("this Mac's keys use window.milagre, a computer's use its own bridge, made once", () => {
-  assert.equal(bridgeForKey("/code/app#2"), (globalThis as any).window.milagre);
-  assert.equal(bridgeFor("local"), (globalThis as any).window.milagre);
-  assert.equal(bridgeFor(null), (globalThis as any).window.milagre);
+test("local and remote keys use stable device-protected bridges, made once", () => {
+  assert.equal(bridgeForKey("/code/app#2"), bridgeFor(null));
+  assert.equal((bridgeFor(null) as any).name, "local");
+  assert.equal(bridgeFor("local"), bridgeFor(null));
+  assert.notEqual(bridgeFor(null), (globalThis as any).window.milagre);
   assert.deepEqual(bridgeForKey(`${ID}|/code/app#2`), { name: ID });
   assert.equal(bridgeForKey(`milagre-link:${ID}|f1713d69-569d-405b-a0b2-19bfdf565a76`), bridgeFor(ID));
   assert.deepEqual(made, [ID]);

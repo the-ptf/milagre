@@ -30,7 +30,7 @@ const { revealFolder } = require("./reveal.cjs");
 const { applyTranslucency, OPAQUE_BACKGROUND } = require("./window-translucency.cjs");
 const { guardNavigation } = require("./links.cjs");
 const { forwardAppShortcuts } = require("./app-shortcuts.cjs");
-const { AttentionNotifier, labelFor } = require("./notifications.cjs");
+const { AttentionNotifier } = require("./notifications.cjs");
 const { createDeviceNotices } = require("./device-notices.cjs");
 const { createMediaHandler } = require("./media.cjs");
 protocol.registerSchemesAsPrivileged([{ scheme: "milagre-media", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
@@ -336,12 +336,11 @@ async function startDesktop() {
     ipcMain,
     computers,
     cache: computerCaches,
-    // A computer's chats notify like this Mac's, named with the computer; its turns tell the notifier what completed.
-    onRemoteEvent: (id, channel, payload) => {
+    // A computer's chats notify like this Mac's; its turns tell the notifier what completed.
+    onRemoteEvent: (_id, channel, payload) => {
       if (channel === "agent:event") notifier.observe(payload.chatId, payload.event);
       if (channel === "notification:waiting" && notifyWhenWaiting && Notification.isSupported()) {
-        const name = computers.list().find((computer) => computer.id === id)?.name ?? null;
-        notifier.notify({ ...payload, subtitle: labelFor(payload.subtitle, name) });
+        notifier.notify(payload);
       }
     },
     onForget: (id) => notifier.forgetComputer(id),

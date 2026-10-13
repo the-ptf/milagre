@@ -184,7 +184,13 @@ test("discovery filters running iOS devices and never spawns the helper", async 
         stdout: JSON.stringify({
           devices: {
             "com.apple.CoreSimulator.SimRuntime.iOS-27-0": [
-              { udid: DEVICE, name: "iPhone", state: "Booted", isAvailable: true },
+              {
+                udid: DEVICE,
+                name: "My QA device",
+                deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+                state: "Booted",
+                isAvailable: true,
+              },
               { udid: "off", name: "Off", state: "Shutdown", isAvailable: true },
             ],
             "com.apple.CoreSimulator.SimRuntime.watchOS-27-0": [{ udid: "watch", name: "Watch", state: "Booted", isAvailable: true }],
@@ -197,7 +203,9 @@ test("discovery filters running iOS devices and never spawns the helper", async 
     },
   });
   t.after(() => helper.stop());
-  assert.deepEqual(await helper.list(), [{ id: DEVICE, name: "iPhone", platform: "ios", version: "27.0" }]);
+  assert.deepEqual(await helper.list(), [
+    { id: DEVICE, name: "My QA device", deviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro", platform: "ios", version: "27.0" },
+  ]);
   await helper.list();
   assert.equal(calls, 1);
 });

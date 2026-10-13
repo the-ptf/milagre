@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { EventEmitter } = require("node:events");
-const { AttentionNotifier, labelFor } = require("./notifications.cjs");
+const { AttentionNotifier } = require("./notifications.cjs");
 
 function setup({ focused = false } = {}) {
   const shown = [];
@@ -27,7 +27,7 @@ function setup({ focused = false } = {}) {
 }
 
 const question = { type: "question-request", requestId: "q1", questions: [] };
-const notice = { chatId: "/shop#2", requestId: "q1", title: "shop / main - Claude needs input", subtitle: "Fix login", body: "Which color?" };
+const notice = { chatId: "/shop#2", requestId: "q1", title: "Fix login", subtitle: "shop / main", body: "Which color?" };
 
 test("notifies once about a request the agent waits on while Milagre is in the background", () => {
   const { notifier, shown } = setup();
@@ -36,7 +36,7 @@ test("notifies once about a request the agent waits on while Milagre is in the b
   assert.equal(notifier.notify(notice), false);
   assert.equal(shown.length, 1);
   assert.equal(shown[0].visible, true);
-  assert.deepEqual(shown[0].options, { title: "shop / main - Claude needs input", subtitle: "Fix login", body: "Which color?" });
+  assert.deepEqual(shown[0].options, { title: "Fix login", subtitle: "", body: "Which color?" });
 });
 
 test("stays quiet while a Milagre window has focus", () => {
@@ -100,10 +100,10 @@ test("completion alerts use observed output, show once, and open the originating
   notifier.observe("/shop#2", { type: "turn-started" });
   notifier.observe("/shop#2", { type: "text-delta", text: "Tests passed." });
   notifier.observe("/shop#2", { type: "turn-completed" });
-  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "shop", subtitle: "Fix login" }), true);
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" }), true);
   assert.equal(shown[0].options.title, "Fix login");
-  assert.equal(shown[0].options.subtitle, "shop");
-  assert.equal(shown[0].options.body, "Turn completed: Tests passed.");
+  assert.equal(shown[0].options.subtitle, "");
+  assert.equal(shown[0].options.body, "Tests passed.");
   assert.equal(notifier.notifyCompletion({ chatId: "/shop#2" }), false);
   shown[0].emit("click");
   assert.deepEqual(opened, ["/shop#2"]);
@@ -229,10 +229,14 @@ test("a computer waiting for Allow is announced once while Milagre is in the bac
   assert.equal(notifier.notifyComputerWaiting([{ key: "x".repeat(43), name: "x", at: 3 }]), false);
 });
 
-test("a remote chat's notification puts its computer before the subtitle", () => {
-  assert.equal(labelFor("Fix login", "studio"), "studio · Fix login");
-  assert.equal(labelFor(undefined, "studio"), "studio");
-  assert.equal(labelFor("Fix login", null), "Fix login");
+test("a remote chat notification keeps only the chat name and still opens that computer's chat", () => {
+  const { notifier, shown, opened } = setup();
+  const chatId = "studio|/shop#2";
+  notifier.observe(chatId, question);
+  notifier.notify({ ...notice, chatId, subtitle: "studio · shop / main" });
+  assert.deepEqual(shown[0].options, { title: "Fix login", subtitle: "", body: "Which color?" });
+  shown[0].emit("click");
+  assert.deepEqual(opened, [chatId]);
 });
 
 test("forgetComputer closes what a removed computer waited on and clears the badge", () => {
@@ -262,15 +266,15 @@ test("a turn that ends while a background subagent runs is held; the turn its re
   notifier.observe("/shop#2", backgroundAgent("a", "running"));
   notifier.observe("/shop#2", { type: "text-delta", text: "Waiting on the reviewer." });
   notifier.observe("/shop#2", { type: "turn-completed" });
-  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "shop", subtitle: "Fix login" }), false);
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" }), false);
   assert.equal(shown.length, 0);
   notifier.observe("/shop#2", { type: "turn-started", turnId: "t2", continues: "t1" });
   notifier.observe("/shop#2", backgroundAgent("a", "completed"));
   notifier.observe("/shop#2", { type: "text-delta", text: "Review done: all good." });
   notifier.observe("/shop#2", { type: "turn-completed" });
-  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "shop", subtitle: "Fix login" }), true);
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" }), true);
   assert.equal(shown.length, 1);
-  assert.equal(shown[0].options.body, "Turn completed: Review done: all good.");
+  assert.equal(shown[0].options.body, "Review done: all good.");
 });
 test("a held completion shows once its last background subagent ends with no turn to take the result; failures and foreground subagents never hold", () => {
   const { notifier, shown } = setup();
@@ -280,14 +284,14 @@ test("a held completion shows once its last background subagent ends with no tur
   notifier.observe("/shop#2", backgroundAgent("b", "running"));
   notifier.observe("/shop#2", { type: "text-delta", text: "Dispatched two reviewers." });
   notifier.observe("/shop#2", { type: "turn-completed" });
-  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "shop", subtitle: "Fix login" }), false);
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" }), false);
   notifier.observe("/shop#2", backgroundAgent("a", "completed"));
   assert.equal(shown.length, 0);
   notifier.observe("/shop#2", backgroundAgent("b", "failed"));
   assert.equal(shown.length, 1);
   assert.equal(shown[0].options.title, "Fix login");
-  assert.equal(shown[0].options.subtitle, "shop");
-  assert.equal(shown[0].options.body, "Turn completed: Dispatched two reviewers.");
+  assert.equal(shown[0].options.subtitle, "");
+  assert.equal(shown[0].options.body, "Dispatched two reviewers.");
   notifier.observe("/shop#3", { type: "turn-started", turnId: "t3" });
   notifier.observe("/shop#3", backgroundAgent("c", "running"));
   notifier.observe("/shop#3", { type: "turn-failed", message: "Connection lost" });
@@ -297,4 +301,50 @@ test("a held completion shows once its last background subagent ends with no tur
   notifier.observe("/shop#4", { type: "turn-completed" });
   assert.equal(notifier.notifyCompletion({ chatId: "/shop#4", title: "shop" }), true);
   assert.equal(shown.length, 3);
+});
+
+test("completion previews keep the start of the latest reply, without markdown or a cut-off first word", () => {
+  const { notifier, shown } = setup();
+  notifier.observe("/shop#2", { type: "turn-started" });
+  notifier.observe("/shop#2", { type: "text-delta", messageId: "turn-1", text: "I'll investigate the redirect." });
+  // Providers send this separate delta between assistant messages in the same turn.
+  notifier.observe("/shop#2", { type: "text-delta", messageId: "turn-1", text: "\n\n", startsMessage: true });
+  notifier.observe("/shop#2", {
+    type: "text-delta",
+    messageId: "turn-1",
+    text: "## Login fixed\n\n**The redirect** now uses [the callback](/src/auth.ts).\n- Tests passed. ",
+  });
+  notifier.observe("/shop#2", { type: "text-delta", messageId: "turn-1", text: "Further details about the fix. ".repeat(30) });
+  notifier.observe("/shop#2", { type: "turn-completed" });
+  notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" });
+  const { title, subtitle, body } = shown[0].options;
+  assert.equal(title, "Fix login");
+  assert.equal(subtitle, "");
+  assert.ok(body.startsWith("Login fixed The redirect now uses the callback. Tests passed."));
+  assert.ok(!body.includes("investigate"));
+  assert.ok(!/[#*[\]\n]/.test(body));
+  assert.ok(body.length <= 240);
+  assert.ok(body.endsWith("…"));
+  assert.ok(/\w…$/.test(body));
+});
+
+test("ordinary paragraph breaks keep the opening context in a completion preview", () => {
+  const { notifier, shown } = setup();
+  notifier.observe("/shop#2", { type: "turn-started" });
+  for (const text of ["Login fixed.", "\n\n", "Tests passed."]) notifier.observe("/shop#2", { type: "text-delta", messageId: "turn-1", text });
+  notifier.observe("/shop#2", { type: "turn-completed" });
+  notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" });
+  assert.equal(shown[0].options.body, "Login fixed. Tests passed.");
+});
+
+test("desktop approval notifications preserve the command's shell syntax", () => {
+  const { notifier, shown } = setup();
+  notifier.observe("/shop#2", { type: "permission-request", requestId: "p1" });
+  notifier.notify({
+    chatId: "/shop#2",
+    requestId: "p1",
+    title: "Fix login",
+    body: "Codex needs approval: Run: find . -name *test* && printf '%s' 'two   spaces' && rm -rf __pycache__",
+  });
+  assert.equal(shown[0].options.body, "Codex needs approval: Run: find . -name *test* && printf '%s' 'two   spaces' && rm -rf __pycache__");
 });

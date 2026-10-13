@@ -2,7 +2,7 @@ const { preparePrivateDirectory, assertPrivate } = require("@milagre/core/privat
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
-const { attentionNotice } = require("@milagre/shared/attention");
+const { attentionNotice, completionNotice, notificationPreview } = require("@milagre/shared/attention");
 const { isTurnEnd, projectOfKey, sessionIdFromKey, subagentActive } = require("@milagre/shared/agent-runs");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 const validOwner = (owner) => path.isAbsolute(owner) || isLinkScopeKey(owner);
@@ -98,15 +98,9 @@ function createMobilePush({ dataDir, send, context, now = Date.now, onError = ()
     const eventId = randomUUID();
     const task = (async () => {
       const metadata = await context(chatId);
-      const where =
-        metadata.worktreeName && metadata.worktreeName !== metadata.projectName ? `${metadata.projectName} / ${metadata.worktreeName}` : metadata.projectName;
       const notice = requestId
         ? attentionNotice(event, metadata)
-        : {
-            title: metadata.chatTitle || where,
-            subtitle: metadata.chatTitle ? where : undefined,
-            body: event.type === "turn-failed" ? `Turn failed: ${event.message}` : run.preview ? `Turn completed: ${run.preview}` : "Turn completed.",
-          };
+        : completionNotice(metadata.chatTitle, { failed: event.type === "turn-failed", body: event.type === "turn-failed" ? event.message : run.preview });
       const validEvent = () => epoch === version && chats.get(chatId) === run && (requestId ? !run.ended && run.requests.has(requestId) : run.ended);
       if (!notice || !validEvent()) return;
       for (const device of devices.values()) {
@@ -118,7 +112,6 @@ function createMobilePush({ dataDir, send, context, now = Date.now, onError = ()
             {
               to: device.token,
               title: capped(notice.title, 120),
-              subtitle: capped(notice.subtitle, 120),
               body: capped(notice.body, 240),
               sound: "default",
               channelId: "chats",
@@ -226,7 +219,8 @@ function createMobilePush({ dataDir, send, context, now = Date.now, onError = ()
         background.delete(oldest);
         held.delete(oldest);
       }
-      if (event.type === "text-delta" && !run.ended) run.preview = (run.preview + (event.text || "")).slice(-240);
+      if (event.type === "text-delta" && !run.ended) run.preview = notificationPreview(run.preview, event.text, event.startsMessage);
+      if (event.type === "message-sent" || event.type === "answers-sent") run.preview = "";
       if (event.type === "subagent-update" && event.agent?.background) {
         const ids = background.get(chatId) ?? new Set();
         if (subagentActive(event.agent)) ids.add(event.agent.id);

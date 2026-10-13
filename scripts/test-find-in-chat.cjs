@@ -5,6 +5,7 @@ const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 
 const fixture = `
+window.milagre = Object.freeze({ listEditors: async () => [] });
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
@@ -51,6 +52,9 @@ createRoot(document.getElementById("root")).render(<Fixture />);
 `;
 
 const appFixture = `
+// This fixture exercises a device that has already accepted AI sharing.
+import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
+localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
 import React from "react";
 import { createRoot } from "react-dom/client";
 import "/src/styles.css";

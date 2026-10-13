@@ -1,8 +1,8 @@
 const { isTurnEnd: isTerminal, subagentActive } = require("@milagre/shared/agent-runs");
 const { computerOfKey } = require("@milagre/shared/chat-scopes");
+const { completionNotice, notificationPreview, notificationText } = require("@milagre/shared/attention");
 
 const MAX_TITLE = 120;
-const MAX_BODY = 240;
 
 const capped = (value, max) => {
   const text = typeof value === "string" ? value.trim() : "";
@@ -17,12 +17,6 @@ const keyOf = (chatId, requestId) => `${chatId}\n${requestId}`;
 // A turn's end is announced too (notifyCompletion), unless a subagent the chat runs in the background is still at work:
 // its result wakes the chat with a turn of its own, whose end is the one announced. A completion held that way shows
 // once the last of them ends with no turn to take its result.
-/** A remote chat's subtitle, its computer first (spec "Routing": notifications labeled with the computer). */
-function labelFor(subtitle, computerName) {
-  if (!computerName) return subtitle;
-  return subtitle ? `${computerName} · ${subtitle}` : computerName;
-}
-
 class AttentionNotifier {
   /** @param {{ createNotification: (notice: {title: string; subtitle: string; body: string}) => Electron.Notification; isAppFocused: () => boolean; openChat: (chatId: string) => void; openPhoneSettings?: () => void; setBadge?: (badge: string) => void }} options */
   constructor({ createNotification, isAppFocused, openChat, openPhoneSettings = () => {}, setBadge = () => {} }) {
@@ -48,7 +42,7 @@ class AttentionNotifier {
     // Requests the agents wait on, by key, with the notification shown for each (or null).
     this.open = new Map();
     // Chats whose turn runs; per chat, the ids of its background subagents still at work; and the completions held
-    // while they do ({ title, subtitle, result }).
+    // while they do ({ title, result }).
     this.running = new Set();
     this.background = new Map();
     this.held = new Map();
@@ -87,7 +81,9 @@ class AttentionNotifier {
       this.held.delete(chatId);
       this.running.add(chatId);
     } else if (event.type === "text-delta") {
-      this.previews.set(chatId, ((this.previews.get(chatId) || "") + event.text).slice(-MAX_BODY));
+      this.previews.set(chatId, notificationPreview(this.previews.get(chatId), event.text, event.startsMessage));
+    } else if (event.type === "message-sent" || event.type === "answers-sent") {
+      this.previews.delete(chatId);
     } else if (event.type === "subagent-update" && event.agent?.background) {
       const ids = this.background.get(chatId) ?? new Set();
       if (subagentActive(event.agent)) ids.add(event.agent.id);
@@ -121,14 +117,14 @@ class AttentionNotifier {
   }
 
   // Only a request an agent still waits on is notified about.
-  /** @param {{ chatId?: string; requestId?: string; title?: string; subtitle?: string; body?: string }} [notice] */
-  notify({ chatId, requestId, title, subtitle, body } = {}) {
+  /** @param {{ chatId?: string; requestId?: string; title?: string; body?: string }} [notice] */
+  notify({ chatId, requestId, title, body } = {}) {
     const key = keyOf(String(chatId), String(requestId));
     if (!this.open.has(key) || this.open.get(key) || this.isAppFocused()) return false;
     const notification = this.createNotification({
       title: capped(title, MAX_TITLE) || "Milagre",
-      subtitle: capped(subtitle, MAX_TITLE),
-      body: capped(body, MAX_BODY),
+      subtitle: "",
+      body: notificationText(body, { markdown: false }),
     });
     notification.on("click", () => this.openChat(String(chatId)));
     this.open.set(key, notification);
@@ -136,18 +132,18 @@ class AttentionNotifier {
     return true;
   }
 
-  /** @param {{ chatId?: string; title?: string; subtitle?: string }} [notice] */
-  notifyCompletion({ chatId, title, subtitle } = {}) {
+  /** @param {{ chatId?: string; title?: string }} [notice] */
+  notifyCompletion({ chatId, title } = {}) {
     if (typeof chatId !== "string") return false;
     const result = this.completed.get(chatId);
     this.completed.delete(chatId);
     if (!result || !this.notifyOnCompletion) return false;
     // A turn that ends while the chat's background subagents still work isn't the end of the work.
     if (!result.failed && this.background.get(chatId)?.size) {
-      this.held.set(chatId, { title, subtitle, result });
+      this.held.set(chatId, { title, result });
       return false;
     }
-    return this.showCompletion(chatId, title, subtitle, result);
+    return this.showCompletion(chatId, title, result);
   }
 
   /** Shows the completion held for a chat, now that its last background subagent ended with no turn to take the result. */
@@ -155,18 +151,16 @@ class AttentionNotifier {
     const held = this.held.get(chatId);
     if (!held) return false;
     this.held.delete(chatId);
-    return this.notifyOnCompletion && this.showCompletion(chatId, held.title, held.subtitle, held.result);
+    return this.notifyOnCompletion && this.showCompletion(chatId, held.title, held.result);
   }
 
-  showCompletion(chatId, title, subtitle, result) {
+  showCompletion(chatId, title, result) {
     if (this.isAppFocused() && this.activeChatId === chatId) return false;
+    const notice = completionNotice(title, result);
     const notification = this.createNotification({
-      title: capped(subtitle || title || "Milagre", MAX_TITLE),
-      subtitle: subtitle ? capped(title, MAX_TITLE) : "",
-      body: capped(
-        result.failed ? `Turn failed: ${result.body}` : result.body !== "Turn completed." ? `Turn completed: ${result.body}` : result.body,
-        MAX_BODY,
-      ),
+      title: capped(notice.title, MAX_TITLE),
+      subtitle: "",
+      body: notice.body,
     });
     this.completionNotifications.get(chatId)?.close();
     this.completionNotifications.set(chatId, notification);
@@ -278,4 +272,4 @@ class AttentionNotifier {
   }
 }
 
-module.exports = { AttentionNotifier, labelFor };
+module.exports = { AttentionNotifier };

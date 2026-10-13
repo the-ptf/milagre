@@ -475,7 +475,7 @@ export type MilagreBridge = {
     notifyOnCompletion: boolean;
     showDockBadge: boolean;
   }) => Promise<void>;
-  notifyCompletion: (notice: { chatId: string; title: string; subtitle?: string }) => Promise<boolean>;
+  notifyCompletion: (notice: { chatId: string; title: string }) => Promise<boolean>;
   getInbox: () => Promise<import("@milagre/shared/attention").InboxSnapshot>;
   setFloatingInbox: (on: boolean) => Promise<void>;
   toggleFloatingInbox: () => Promise<void>;

@@ -126,9 +126,9 @@ function codexUnauthorized(error) {
 // The mapper's clock; tests set state.now.
 const now = (state) => (state.now ?? Date.now)();
 
-function textDelta(state, text) {
+function textDelta(state, text, startsMessage = false) {
   state.hasText = true;
-  return { type: "text-delta", messageId: state.turnId, text };
+  return { type: "text-delta", messageId: state.turnId, text, ...(startsMessage ? { startsMessage: true } : {}) };
 }
 
 // Claude Agent SDK message -> events. Partial messages (includePartialMessages) carry the
@@ -168,7 +168,7 @@ function mapClaudeMessage(message, state) {
   }
   if (message.type === "stream_event" && message.parent_tool_use_id == null) {
     const event = message.event ?? {};
-    if (event.type === "content_block_start" && event.content_block?.type === "text" && state.hasText) events.push(textDelta(state, "\n\n"));
+    if (event.type === "content_block_start" && event.content_block?.type === "text" && state.hasText) events.push(textDelta(state, "\n\n", true));
     if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) events.push(textDelta(state, event.delta.text));
     if (event.type === "content_block_start" && (event.content_block?.type === "thinking" || event.content_block?.type === "redacted_thinking")) {
       // The thinking block streaming now; ids count up for the provider's life, so they stay unique in a reply.
@@ -304,7 +304,7 @@ function mapCodexNotification(method, params, state) {
     if (state.turnId && params.turnId && params.turnId !== state.turnId) return [];
     const events = [];
     state.turnId = params.turnId ?? state.turnId;
-    if (state.hasText && state.lastItemId && params.itemId !== state.lastItemId) events.push(textDelta(state, "\n\n"));
+    if (state.hasText && state.lastItemId && params.itemId !== state.lastItemId) events.push(textDelta(state, "\n\n", true));
     state.lastItemId = params.itemId;
     events.push(textDelta(state, params.delta));
     return events;

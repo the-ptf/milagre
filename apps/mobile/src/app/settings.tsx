@@ -10,6 +10,7 @@ import {
   PaintBoardIcon,
   PlugSocketIcon,
   TestTube01Icon,
+  SecurityCheckIcon,
   UserMultipleIcon,
 } from "@hugeicons/core-free-icons";
 import { usePush } from "../push";
@@ -20,7 +21,7 @@ import { ProjectIcon } from "../project-icon";
 import { ErrorNotice, ListRow, PageScroll, Toggle, useStyles } from "../ui";
 import { useAttentionButton } from "../attention";
 
-type SettingsPage = "notifications" | "usage" | "accounts" | "project-accounts" | "skills" | "mcp" | "appearance" | "experimental";
+type SettingsPage = "privacy" | "notifications" | "usage" | "accounts" | "project-accounts" | "skills" | "mcp" | "appearance" | "experimental";
 
 export default function SettingsScreen() {
   return (
@@ -116,6 +117,8 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
         <ListRow compact title="Appearance" leading={<Icon icon={PaintBoardIcon} tone="ink" size={20} />} onPress={() => onOpen("appearance")} />
         <View style={styles.separator} />
         <ListRow compact title="Experimental" leading={<Icon icon={TestTube01Icon} tone="ink" size={20} />} onPress={() => onOpen("experimental")} />
+        <View style={styles.separator} />
+        <ListRow compact title="Privacy & AI" leading={<Icon icon={SecurityCheckIcon} tone="ink" size={20} />} onPress={() => onOpen("privacy")} />
         <View style={styles.separator} />
         {/* Checks now and shows the update sheet, which follows the check to Up to date or Update now. */}
         <ListRow

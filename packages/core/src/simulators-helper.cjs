@@ -260,7 +260,13 @@ function createSimulatorHelper(options = {}) {
           if (!version || !Array.isArray(devices)) continue;
           for (const device of devices)
             if (device.state === "Booted" && device.isAvailable !== false && UUID.test(device.udid))
-              result.push({ id: device.udid, name: String(device.name ?? "iOS Simulator").slice(0, 200), platform: "ios", version });
+              result.push({
+                id: device.udid,
+                name: String(device.name ?? "iOS Simulator").slice(0, 200),
+                platform: "ios",
+                version,
+                ...(typeof device.deviceTypeIdentifier === "string" ? { deviceType: device.deviceTypeIdentifier.slice(0, 200) } : {}),
+              });
         }
         discovery = result;
         discoveryAt = Date.now();

@@ -6,11 +6,10 @@ import { attentionContext, attentionLabel, attentionNotice, chatsNeedingAttentio
 const context = { projectName: "rd-events", worktreeName: "new-events-structure", chatTitle: "Split the events table", provider: "claude" as const };
 const question = (text: string) => ({ id: text, header: "", question: text, options: [], multiSelect: false, allowOther: true, secret: false });
 
-test("a question names the project, worktree and agent, and shows what it asks", () => {
+test("a question uses only the chat title and summarizes what it asks", () => {
   const event: AgentEvent = { type: "question-request", requestId: "q1", questions: [question("Which table layout?"), question("Keep the old view?")] };
   assert.deepEqual(attentionNotice(event, context), {
     title: "Split the events table",
-    subtitle: "rd-events / new-events-structure",
     body: "Claude needs input: Which table layout? (+1 more)",
   });
 });
@@ -27,20 +26,32 @@ test("an approval shows the command's first line, or the request's title", () =>
   };
   assert.deepEqual(attentionNotice(command, { ...context, provider: "codex" }), {
     title: "Split the events table",
-    subtitle: "rd-events / new-events-structure",
     body: "Codex needs approval: Run: npm test",
   });
   const edit: AgentEvent = { type: "permission-request", requestId: "p2", kind: "edit", tool: "Edit", title: "Edit App.tsx?", allowForChat: false };
   assert.equal(attentionNotice(edit, context)?.body, "Claude needs approval: Edit App.tsx?");
 });
 
-test("a chat on the project's own checkout is named by the project alone", () => {
+test("a missing chat title never falls back to a project or worktree label", () => {
   const event: AgentEvent = { type: "question-request", requestId: "q1", questions: [question("Ship it?")] };
-  assert.equal(attentionNotice(event, { projectName: "shop", worktreeName: "shop" })?.title, "shop");
+  assert.equal(attentionNotice(event, { projectName: "shop", worktreeName: "shop" })?.title, "Milagre");
 });
 
 test("other events need no notification", () => {
   assert.equal(attentionNotice({ type: "turn-completed" }, context), null);
+});
+
+test("approval previews preserve shell patterns and filenames", () => {
+  const event: AgentEvent = {
+    type: "permission-request",
+    requestId: "p3",
+    kind: "command",
+    tool: "Shell",
+    title: "Run?",
+    command: "find . -name *test* && printf '%s' 'two   spaces' && rm -rf __pycache__",
+    allowForChat: true,
+  };
+  assert.equal(attentionNotice(event, context)?.body, "Claude needs approval: Run: find . -name *test* && printf '%s' 'two   spaces' && rm -rf __pycache__");
 });
 
 test("the context names a chat's worktree, title and agent, or only its project when the chat is gone", () => {

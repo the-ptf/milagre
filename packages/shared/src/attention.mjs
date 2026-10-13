@@ -5,25 +5,51 @@ import { chatTitle } from "./chats.mjs";
 import { chatInProject, projectOfKey, subagentActive } from "./agent-runs.mjs";
 import { isLinkScopeKey } from "./chat-scopes.mjs";
 
-/**
- * The notification for an approval or question a turn waits on, e.g. "shop / fix-login - Claude needs input",
- * or null for any other event.
- */
+/** A compact plain-text preview for desktop and phone notifications. */
+export function notificationText(value, { markdown = true } = {}) {
+  let text = typeof value === "string" ? value : "";
+  if (markdown)
+    text = text
+      .replace(/```[^\n]*\n[\s\S]*?(?:```|$)/g, " ")
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)/gm, "")
+      .replace(/(?<![\w/])(\*\*|__|~~)(\w.*?)\1/g, "$2")
+      .replace(/(^|\s)([*_])(\w[^*_\n]*?\w|\w)\2(?=$|[\s.,!?;:])/g, "$1$3")
+      .replace(/`+([^`]+)`+/g, "$1");
+  text = (markdown ? text.replace(/\s+/g, " ") : text).trim();
+  if (text.length <= 240) return text;
+  const start = text.slice(0, 239);
+  const space = start.lastIndexOf(" ");
+  return `${space > 120 ? start.slice(0, space) : start}…`;
+}
+
+/** Keep the beginning of the latest reply; ordinary paragraph breaks stay in the preview. */
+export function notificationPreview(previous, text, startsMessage = false) {
+  return ((startsMessage ? "" : previous || "") + (text || "")).slice(0, 4096);
+}
+
+/** The same chat-only title and result preview on desktop and phones. */
+export function completionNotice(title, { failed, body }) {
+  return {
+    title: (typeof title === "string" ? title.trim() : "") || "Milagre",
+    body: notificationText(failed ? `Turn failed: ${body}` : body) || (failed ? "Turn failed." : "Turn completed."),
+  };
+}
+
+/** The notification for an approval or question a turn waits on, or null for any other event. */
 export function attentionNotice(event, context) {
   if (event.type !== "permission-request" && event.type !== "question-request") return null;
-  const where = context.worktreeName && context.worktreeName !== context.projectName ? `${context.projectName} / ${context.worktreeName}` : context.projectName;
   const agent = context.provider ? providerName(context.provider) : "Agent";
-
-  const title = context.chatTitle || where;
-  const subtitle = context.chatTitle ? where : undefined;
+  const title = context.chatTitle?.trim() || "Milagre";
 
   if (event.type === "question-request") {
     const [first, ...rest] = event.questions;
     const more = rest.length ? ` (+${rest.length} more)` : "";
-    return { title, subtitle, body: `${agent} needs input: ${first?.question ?? "Asked a question"}${more}` };
+    return { title, body: notificationText(`${agent} needs input: ${first?.question ?? "Asked a question"}${more}`) };
   }
   const command = event.command?.split("\n")[0].trim();
-  return { title, subtitle, body: `${agent} needs approval: ${command ? `Run: ${command}` : event.title}` };
+  return { title, body: notificationText(`${agent} needs approval: ${command ? `Run: ${command}` : event.title}`, { markdown: !command }) };
 }
 
 /** What a notice names about a chat: its project, worktree, title and agent. */

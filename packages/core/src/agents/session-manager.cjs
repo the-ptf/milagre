@@ -132,7 +132,8 @@ class SessionManager {
     const key = streamKey(event);
     if (key) {
       const buffer = this.buffers.get(chatId);
-      if (buffer && buffer.key !== key) this.flush(chatId);
+      // Reply boundaries must retain their metadata even when several messages arrive in one batch.
+      if (buffer && (buffer.key !== key || event.startsMessage)) this.flush(chatId);
       let next = this.buffers.get(chatId);
       if (!next) {
         next = { key, event, text: "", timer: setTimeout(() => this.flush(chatId), this.batchMs) };

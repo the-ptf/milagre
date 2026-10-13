@@ -88,6 +88,7 @@ test("sends approvals, questions, completion and failure without an attached cli
   push.observe(chatId, approval);
   await push.settled();
   assert.equal(messages[0].title, "Login");
+  assert.ok(!messages[0].subtitle);
   assert.match(messages[0].body, /needs approval: Run: ls/);
   assert.deepEqual(messages[0].data, {
     kind: "milagre-chat",
@@ -104,7 +105,7 @@ test("sends approvals, questions, completion and failure without an attached cli
   push.observe(chatId, { type: "turn-completed" });
   await push.settled();
   assert.equal(messages[2].title, "Login");
-  assert.equal(messages[2].body, "Turn completed: Done fixing login.");
+  assert.equal(messages[2].body, "Done fixing login.");
   push.observe(chatId, { type: "turn-started", turnId: "turn-2" });
   push.observe(chatId, { type: "turn-failed", message: "Provider unavailable" });
   await push.settled();
@@ -306,7 +307,7 @@ test("a turn that ends while a background subagent runs is held; the turn its re
   await push.settled();
   assert.equal(messages.length, 1);
   assert.equal(messages[0].title, "Login");
-  assert.equal(messages[0].body, "Turn completed: First review in; waiting on the second.");
+  assert.equal(messages[0].body, "First review in; waiting on the second.");
   push.observe(chatId, { type: "turn-started", turnId: "t3" });
   push.observe(chatId, agent("c", "running"));
   push.observe(chatId, { type: "turn-failed", message: "Provider unavailable" });
@@ -320,4 +321,51 @@ test("a turn that ends while a background subagent runs is held; the turn its re
   push.observe(chatId, { type: "turn-completed" });
   await push.settled();
   assert.equal(messages.length, 3);
+});
+
+test("phone completion notifications summarize the latest reply without project or branch labels", async (t) => {
+  const { push, messages } = await fixture(t);
+  await push.register(registration());
+  push.observe(chatId, { type: "turn-started" });
+  push.observe(chatId, { type: "text-delta", text: "I'll investigate the redirect." });
+  push.observe(chatId, { type: "text-delta", text: "\n\n", startsMessage: true });
+  push.observe(chatId, { type: "text-delta", text: "## Login fixed\n\n**The redirect** now uses [the callback](/src/auth.ts).\n- Tests passed. " });
+  push.observe(chatId, { type: "text-delta", text: "Further details about the fix. ".repeat(30) });
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages[0].title, "Login");
+  assert.ok(!messages[0].subtitle);
+  assert.ok(messages[0].body.startsWith("Login fixed The redirect now uses the callback. Tests passed."));
+  assert.ok(!messages[0].body.includes("investigate"));
+  assert.ok(!/[#*[\]\n]/.test(messages[0].body));
+  assert.ok(messages[0].body.length <= 240);
+  assert.ok(messages[0].body.endsWith("…"));
+  assert.ok(/\w…$/.test(messages[0].body));
+});
+
+test("phone notifications with no chat name never show the project name", async (t) => {
+  const { push, messages } = await fixture(t, { context: async () => ({ projectName: "Project", worktreeName: "fix-login" }) });
+  await push.register(registration());
+  push.observe(chatId, approval);
+  await push.settled();
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.deepEqual(
+    messages.map(({ title }) => title),
+    ["Milagre", "Milagre"],
+  );
+  assert.ok(messages.every(({ subtitle }) => !subtitle));
+});
+
+test("phone previews preserve paragraphs and shell patterns in approvals", async (t) => {
+  const { push, messages } = await fixture(t);
+  await push.register(registration());
+  push.observe(chatId, { type: "turn-started" });
+  push.observe(chatId, { ...approval, command: "find . -name *test* && printf '%s' 'two   spaces' && rm -rf __pycache__" });
+  await push.settled();
+  assert.equal(messages[0].body, "Codex needs approval: Run: find . -name *test* && printf '%s' 'two   spaces' && rm -rf __pycache__");
+  for (const text of ["Login fixed.", "\n\n", "Tests passed."]) push.observe(chatId, { type: "text-delta", text });
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages[1].body, "Login fixed. Tests passed.");
 });

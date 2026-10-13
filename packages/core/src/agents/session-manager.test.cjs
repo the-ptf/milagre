@@ -556,3 +556,24 @@ test("an Antigravity session's models are recorded for its account once the turn
   );
   forgetAntigravityModels();
 });
+
+test("batched provider messages keep the latest reply's notification context", async (t) => {
+  const { mapCodexNotification } = require("./events.cjs");
+  const { completionNotice, notificationPreview } = require("@milagre/shared/attention");
+  const { manager, created, sent } = harness();
+  t.after(() => manager.closeAll());
+  await manager.startTurn(request("1"));
+  const state = { threadId: "thread-1", turnId: "t1", hasText: false, lastItemId: null };
+  for (const [itemId, delta] of [
+    ["a", "I'll investigate the redirect."],
+    ["b", "Login fixed."],
+    ["b", "\n\n"],
+    ["b", "Tests passed."],
+  ]) {
+    for (const event of mapCodexNotification("item/agentMessage/delta", { threadId: "thread-1", turnId: "t1", itemId, delta }, state)) created[0].emit(event);
+  }
+  created[0].emit({ type: "turn-completed" });
+  let preview = "";
+  for (const { event } of sent) if (event.type === "text-delta") preview = notificationPreview(preview, event.text, event.startsMessage);
+  assert.equal(completionNotice("Fix login", { failed: false, body: preview }).body, "Login fixed. Tests passed.");
+});

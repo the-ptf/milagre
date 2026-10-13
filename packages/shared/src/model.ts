@@ -548,7 +548,8 @@ export type AgentEvent =
   | { type: "session-reset" }
   /** `continues`: the turn whose steering message arrived as it ended, which this turn the agent started by itself takes. */
   | { type: "turn-started"; turnId: string | null; continues?: string }
-  | { type: "text-delta"; messageId: string | null; text: string }
+  /** `startsMessage`: a provider message boundary, distinct from a streamed paragraph break. */
+  | { type: "text-delta"; messageId: string | null; text: string; startsMessage?: boolean }
   | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file"> }
   | { type: "step-output"; id: string; text: string }
   | { type: "step-completed"; id: string; status: "done" | "failed"; title?: string; note?: string; detail?: string; durationMs?: number; file?: string }

@@ -79,6 +79,8 @@ import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
 
 const PAGE = 40;
+const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
+const PLACE_FALLBACK_MS = 500;
 
 /** A row's id: two workspaces can both have an ENG-1. A Mac that predates workspaces sends the key alone. */
 const issueChoiceId = (issue: LinearIssue) => (issue.workspace ? `${issue.workspace}:${issue.key}` : issue.key);
@@ -141,7 +143,7 @@ export default function ChatScreen() {
   const scrollOffset = useRef(0);
   const historyRead = useRef<object | null>(null);
   const pickingNow = useRef(false);
-  const historyAnchor = useRef<{ id: number; y: number; key: string } | null>(null);
+  const historyAnchor = useRef<{ id: number; y: number; offset: number; key: string } | null>(null);
   const scrollScope = `${params.hostId || session.client?.url}|${params.projectPath || session.snapshot?.project.path}`;
   const routeKey = `${scrollScope}|${params.id ?? `new:${params.worktreeId}`}`;
   const [scrollIdentity, setScrollIdentity] = useState({ route: routeKey, key: routeKey, revision: 0 });
@@ -159,9 +161,15 @@ export default function ChatScreen() {
   const [historyState, setHistoryState] = useState({ key: scrollKey, loading: false, error: "" });
   const [jumpState, setJumpState] = useState({ key: scrollKey, visible: false });
   const showJumpToBottom = jumpState.key === scrollKey && jumpState.visible;
+  // A Chat opens already at its newest message: the transcript stays hidden until the scroll view reports its end on
+  // screen. The jump to the end can land frames after a long transcript mounts, and showing it earlier flashes the top.
+  const [placedKey, setPlacedKey] = useState<string | null>(null);
+  const placed = placedKey === scrollKey;
+  const placeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const onEndVisible = useCallback(
     (visible: boolean) => {
       setJumpState((current) => (current.key === scrollKey && current.visible === !visible ? current : { key: scrollKey, visible: !visible }));
+      if (visible) setPlacedKey(scrollKey);
     },
     [scrollKey],
   );
@@ -178,16 +186,23 @@ export default function ChatScreen() {
     currentScrollKey.current = scrollKey;
     historyRead.current = null;
     historyAnchor.current = null;
+    return () => {
+      clearTimeout(placeTimer.current);
+      placeTimer.current = undefined;
+    };
   }, [scrollKey]);
   // Short transcripts never auto-scroll: a scroll to the end while the keyboard is up would stay offset after it hides.
   const viewport = useRef(0);
-  // A Chat opens already at its newest message: the transcript stays hidden until the first jump to the end.
-  const [placedKey, setPlacedKey] = useState<string | null>(null);
-  const placed = placedKey === scrollKey;
   const place = () => {
     if (placed || !viewport.current || !contentHeight.current) return;
-    if (contentHeight.current > viewport.current) scrollToBottom(false);
-    setPlacedKey(scrollKey);
+    if (contentHeight.current <= viewport.current) {
+      setPlacedKey(scrollKey);
+      return;
+    }
+    // Asked again on every layout until shown, so the jump reaches the latest end. The timer shows a Chat whose end
+    // never reports, rather than leaving it hidden.
+    scrollToBottom(false);
+    placeTimer.current ??= setTimeout(() => setPlacedKey(scrollKey), PLACE_FALLBACK_MS);
   };
   const worktreeOf =
     session.snapshot?.project.state.worktrees[
@@ -293,7 +308,7 @@ export default function ChatScreen() {
       if (currentScrollKey.current !== scrollKey) return;
       const first = messages[Math.max(0, messages.length - visible)];
       const y = first && messagePositions.current.get(first.id);
-      historyAnchor.current = first && y !== undefined ? { id: first.id, y, key: scrollKey } : null;
+      historyAnchor.current = first && y !== undefined ? { id: first.id, y, offset: scrollOffset.current, key: scrollKey } : null;
       setShown({ key: scrollKey, count: visible + PAGE });
     } catch (error) {
       if (currentScrollKey.current === scrollKey) setHistoryState({ key: scrollKey, loading: false, error: (error as Error).message });
@@ -1015,6 +1030,9 @@ export default function ChatScreen() {
             keyboardLiftBehavior="whenAtEnd"
             onEndVisible={onEndVisible}
             contentInsetAdjustmentBehavior="never"
+            // Images above the screen load after the Chat is placed. The native view keeps the first visible message
+            // where it was in the same frame; a JS jump from onContentSizeChange arrives frames later and flickers.
+            maintainVisibleContentPosition={KEEP_VISIBLE_POSITION}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             contentContainerStyle={[styles.content, { paddingTop: insets.top + 84, paddingLeft: 28, gap: 16, paddingBottom: dockHeight + 16 }]}
@@ -1026,6 +1044,7 @@ export default function ChatScreen() {
               const previous = scrollOffset.current;
               scrollOffset.current = e.contentOffset.y;
               const distance = e.contentSize.height - e.contentOffset.y - e.layoutMeasurement.height;
+              if (!placed && distance <= 1) setPlacedKey(scrollKey);
               // Native scroll events can arrive before the jump catches up with image layout.
               if (scrollingToBottom.current) {
                 if (distance <= 1) scrollingToBottom.current = false;
@@ -1098,7 +1117,8 @@ export default function ChatScreen() {
                   const anchor = historyAnchor.current;
                   if (anchor?.key === scrollKey && anchor.id === message.id) {
                     historyAnchor.current = null;
-                    const y = Math.max(0, scrollOffset.current + layout.y - anchor.y);
+                    // From the offset when the page was asked for: the native position keeping may have moved it already.
+                    const y = Math.max(0, anchor.offset + layout.y - anchor.y);
                     scrollOffset.current = y;
                     scroll.current?.scrollTo({ y, animated: false });
                   }

@@ -3109,6 +3109,9 @@ test("a long Chat opens hidden and jumps to its newest message without animating
   assert.equal(scrolls.length, 0, "waits for the viewport before placing");
   first.props.onLayout({ nativeEvent: { layout: { height: 600 } } });
   assert.equal(JSON.stringify(scrolls), JSON.stringify([{ animated: false }]));
+  // The jump can land frames after a long transcript mounts; until then the top of the Chat would flash.
+  assert.equal(page().props.style.opacity, 0, "stays hidden until the scroll view reports its end on screen");
+  page().props.onEndVisible(true);
   const placed = page();
   assert.equal(placed.props.style.opacity, 1);
   placed.props.onContentSizeChange(0, 2100);
@@ -3116,6 +3119,38 @@ test("a long Chat opens hidden and jumps to its newest message without animating
   screen.params.id = "42";
   screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex" };
   assert.equal(page().props.style.opacity, 0, "switching Chats hides the next transcript until it is placed");
+});
+
+test("a long Chat shows itself when a scroll event reaches its end, or after a short wait", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const reveal of ["scroll", "timer"]) {
+    const screen = chatHost();
+    const page = () => find(screen.render(), (node) => node.type === "KeyboardChatScrollView");
+    page().props.ref.current = { scrollToEnd() {} };
+    page().props.onContentSizeChange(0, 2000);
+    page().props.onLayout({ nativeEvent: { layout: { height: 600 } } });
+    assert.equal(page().props.style.opacity, 0);
+    if (reveal === "scroll")
+      page().props.onScroll({ nativeEvent: { contentSize: { height: 2000 }, contentOffset: { y: 1400 }, layoutMeasurement: { height: 600 } } });
+    else t.mock.timers.tick(500);
+    assert.equal(page().props.style.opacity, 1, reveal);
+  }
+});
+
+test("a short Chat shows itself at once", () => {
+  const screen = chatHost();
+  const page = () => find(screen.render(), (node) => node.type === "KeyboardChatScrollView");
+  page().props.ref.current = { scrollToEnd() {} };
+  page().props.onContentSizeChange(0, 400);
+  page().props.onLayout({ nativeEvent: { layout: { height: 600 } } });
+  assert.equal(page().props.style.opacity, 1);
+});
+
+test("images that load above the screen leave the visible messages in place", () => {
+  const screen = chatHost();
+  const page = find(screen.render(), (node) => node.type === "KeyboardChatScrollView");
+  // A JS jump after onContentSizeChange lands frames late; the native view must hold the first visible message.
+  assert.equal(JSON.stringify(page.props.maintainVisibleContentPosition), JSON.stringify({ minIndexForVisible: 0 }));
 });
 
 test("first send keeps the placed transcript mounted when the draft adopts its saved Chat", async () => {
@@ -4141,6 +4176,7 @@ test("relay transports: one per Mac, replaced by a new code, closed in the backg
   const identity = { publicKey: new Uint8Array(32), secretKey: new Uint8Array(32) };
   const phoneRandom = (n) => new Uint8Array(n);
   const { relayRuntime } = load("relay-native.ts", {
+    "./ai-consent": { beforeAiCall: async () => {} },
     "react-native": {
       AppState: {
         addEventListener: (_event, listener) => {
@@ -4397,6 +4433,7 @@ function simulatorHost(client, file = "simulator.tsx") {
   const react = hookHost({ effects: true }),
     files = new Map(),
     listeners = new Set();
+  let writeError = null;
   const native = {
     useColorScheme: () => "light",
     Text: "Text",
@@ -4419,6 +4456,7 @@ function simulatorHost(client, file = "simulator.tsx") {
       this.uri = "file:///cache/" + name;
     }
     write(value) {
+      if (writeError) throw writeError;
       files.set(this.uri, value);
     }
     get exists() {
@@ -4434,8 +4472,13 @@ function simulatorHost(client, file = "simulator.tsx") {
       react,
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "react-native": native,
-      "expo-router": { router: { back() {}, push() {} }, useFocusEffect: (fn) => react.effect(fn, [fn]) },
-      "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
+      "expo-router": {
+        router: { back() {}, push() {} },
+        useFocusEffect: (fn) => react.effect(fn, [fn]),
+      },
+      "react-native-safe-area-context": {
+        useSafeAreaInsets: () => ({ bottom: 34 }),
+      },
       "@expo/dom-webview": { DomWebView: "DomWebView" },
       "expo-file-system": { File, Paths: { cache: "/cache" } },
       "expo-clipboard": { setStringAsync: async () => {} },
@@ -4444,15 +4487,36 @@ function simulatorHost(client, file = "simulator.tsx") {
       "./session": { useSession: () => ({ client }) },
       "./icons": { Icon: "Icon" },
       "./theme": {
-        hex: () => ({ page: "#fafafb", surface: "#ffffff", ink: "#1f2124", ink2: "#62656b", line: "#ecedef", hover: "#f4f5f6", accent: "#0285ff" }),
+        hex: () => ({
+          page: "#fafafb",
+          surface: "#ffffff",
+          ink: "#1f2124",
+          ink2: "#62656b",
+          line: "#ecedef",
+          hover: "#f4f5f6",
+          accent: "#0285ff",
+        }),
       },
-      "./ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton", ErrorNotice: "ErrorNotice", colors: {}, styles: {} },
+      "./ui": {
+        CircleButton: "CircleButton",
+        PageScroll: "PageScroll",
+        PillButton: "PillButton",
+        ErrorNotice: "ErrorNotice",
+        colors: {},
+        styles: {},
+      },
     },
     file === "simulator.tsx" ? "\nexports.TestSimulatorWebView = SimulatorWebView;" : "",
   );
   return {
     source,
     files,
+    failWrites(error) {
+      writeError = error;
+    },
+    setClient(value) {
+      client = value;
+    },
     background() {
       native.AppState.currentState = "background";
       for (const fn of listeners) fn("background");
@@ -4523,6 +4587,151 @@ test("mobile simulator chooses the sole running device, but a list never starts 
     if (devices.length === 2) assert.ok(find(tree, (node) => node.type === "Pressable"));
     h.cleanup();
   }
+});
+
+test("mobile simulator status messages update its header without reopening the cached viewer", async () => {
+  const device = {
+    id: "sim",
+    name: "QA phone",
+    deviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+    platform: "ios",
+    version: "27",
+  };
+  const updates = [],
+    calls = [];
+  const client = {
+    call: async (method) => {
+      calls.push(method);
+      return null;
+    },
+  };
+  const h = simulatorHost(client);
+  const props = {
+    client,
+    deviceId: "sim",
+    device,
+    chatId: "/p#7",
+    onConnection: (value) => updates.push(value),
+  };
+  h.render("TestSimulatorWebView", props);
+  await settle();
+  const view = h.render("TestSimulatorWebView", props);
+  const uri = view.props.source.uri;
+  const config = JSON.parse(
+    h.files
+      .get(uri)
+      .match(/data-config="([^"]+)"/)[1]
+      .replaceAll("&quot;", '"'),
+  );
+  assert.equal(config.touchControls, true);
+  assert.equal(config.device.deviceType, device.deviceType);
+  view.props.onMessage({
+    nativeEvent: {
+      data: JSON.stringify({
+        channel: "milagre-simulator",
+        event: "state",
+        state: "live",
+      }),
+    },
+  });
+  view.props.onMessage({
+    nativeEvent: {
+      data: JSON.stringify({
+        channel: "milagre-simulator",
+        event: "state",
+        state: "bogus",
+      }),
+    },
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(updates)), [
+    { deviceId: "sim", state: "connecting" },
+    { deviceId: "sim", state: "live" },
+  ]);
+  assert.equal(calls.length, 0, "status events must not enter the RPC bridge");
+  const changed = {
+    ...props,
+    device: {
+      ...device,
+      name: "Renamed phone",
+      deviceType: undefined,
+      version: "27.1",
+    },
+  };
+  h.render("TestSimulatorWebView", changed);
+  await settle();
+  const next = h.render("TestSimulatorWebView", changed);
+  assert.equal(next.props.source.uri, uri, "discovery and connection updates preserve the video session");
+  h.cleanup();
+});
+
+test("mobile simulator header follows background, resume and host loss without depending on WebView messages", async (t) => {
+  const device = {
+    id: "sim",
+    name: "Pixel 9",
+    platform: "android",
+    version: "16",
+  };
+  const h = simulatorHost({
+    url: "mac",
+    call: async () => ({
+      chatId: "/p#7",
+      supported: true,
+      devices: [device],
+      attached: [device],
+      available: [],
+    }),
+  });
+  t.after(() => h.cleanup());
+  const props = { hostId: "mac", chatId: "/p#7" };
+  const render = () => h.render("SimulatorSheet", props);
+  render();
+  await settle();
+  const viewer = find(render(), (node) => node.props?.deviceId === "sim");
+  viewer.props.onConnection({ deviceId: "sim", state: "live" });
+  assert.ok(find(render(), (node) => node.props?.accessibilityLabel === "Live"));
+  h.background();
+  const paused = render();
+  assert.ok(find(paused, (node) => node.props?.accessibilityLabel === "Paused"));
+  assert.equal(
+    find(paused, (node) => node.props?.deviceId === "sim"),
+    undefined,
+    "background unmounts the viewer before any paused message is required",
+  );
+  h.foreground();
+  assert.ok(
+    find(render(), (node) => node.props?.accessibilityLabel === "Connecting"),
+    "a replacement viewer has not become live yet",
+  );
+  find(render(), (node) => node.props?.deviceId === "sim").props.onConnection({
+    deviceId: "sim",
+    state: "live",
+  });
+  h.setClient(null);
+  assert.ok(find(render(), (node) => node.props?.accessibilityLabel === "Disconnected"));
+});
+
+test("mobile simulator cache failures report disconnected, and Retry starts a fresh connecting state", async (t) => {
+  const updates = [];
+  const h = simulatorHost({ call: async () => null });
+  t.after(() => h.cleanup());
+  h.failWrites(new Error("Cache is unavailable"));
+  const props = {
+    client: {},
+    deviceId: "sim",
+    chatId: "/p#7",
+    onConnection: (value) => updates.push(value),
+  };
+  h.render("TestSimulatorWebView", props);
+  await settle();
+  const failure = h.render("TestSimulatorWebView", props);
+  assert.ok(find(failure, (node) => node.props?.accessibilityRole === "alert"));
+  assert.equal(updates.at(-1)?.state, "error");
+  h.failWrites(null);
+  find(failure, (node) => node.props?.title === "Retry").props.onPress();
+  h.render("TestSimulatorWebView", props);
+  assert.equal(updates.at(-1)?.state, "connecting");
+  await settle();
+  assert.equal(h.render("TestSimulatorWebView", props).type, "DomWebView");
 });
 
 test("simulator sheet preserves its native header and bounds chooser/viewer content below it", async (t) => {
@@ -5068,6 +5277,43 @@ test("scrolling up loads older mobile messages once and preserves the reading po
   assert.equal(transcriptMessages(screen)[0].id, 21);
   find(screen.render(), (node) => node.props?.nativeID === "chat-message-61").props.onLayout({ nativeEvent: { layout: { y: 2100 } } });
   assert.equal(offsets.at(-1).y, 2050, "the previous first message keeps its screen position, including scrolling during the read");
+});
+
+test("a native position correction before the anchor's layout does not move older mobile messages twice", async (t) => {
+  const screen = ongoingChatHost();
+  screen.session.snapshot.project.state.messagesInChats = true;
+  const message = (id) => ({ id, session_id: 7, role: "user", body: `Message ${id}`, context: null });
+  let held = Array.from({ length: 40 }, (_, i) => message(61 + i));
+  globalThis.chatPage = (client, path, id) =>
+    id === 7 && client
+      ? {
+          messages: held,
+          total: 100,
+          hasMore: true,
+          loading: false,
+          loadEarlier: async () => {
+            held = [...Array.from({ length: 40 }, (_, i) => message(21 + i)), ...held];
+          },
+        }
+      : undefined;
+  t.after(() => delete globalThis.chatPage);
+  const offsets = [];
+  const scroller = () => find(screen.render(), (node) => node.type === "KeyboardChatScrollView");
+  scroller().props.ref.current = { scrollTo: (value) => offsets.push(value), scrollToEnd() {} };
+  scroller().props.onLayout({ nativeEvent: { layout: { height: 600 } } });
+  scroller().props.onContentSizeChange(390, 4000);
+  const move = (y, height = 4000) =>
+    scroller().props.onScroll({ nativeEvent: { contentOffset: { y }, contentSize: { height }, layoutMeasurement: { height: 600 } } });
+  move(3400);
+  find(screen.render(), (node) => node.props?.nativeID === "chat-message-61").props.onLayout({ nativeEvent: { layout: { y: 100 } } });
+  move(100);
+  move(50);
+  await settle();
+  assert.equal(transcriptMessages(screen)[0].id, 21);
+  // maintainVisibleContentPosition already moved the offset by the 2000 points the older page added.
+  move(2050, 6000);
+  find(screen.render(), (node) => node.props?.nativeID === "chat-message-61").props.onLayout({ nativeEvent: { layout: { y: 2100 } } });
+  assert.equal(offsets.at(-1)?.y ?? 2050, 2050, "the anchor lands where the native correction left it");
 });
 
 test("failed mobile history stays retryable without dropping the current messages", async (t) => {
@@ -7360,6 +7606,103 @@ test("mobile markdown routes openui fences and passes streaming state", () => {
     find(h.render("```ts\nconst x = 1\n```"), (node) => node.type === "GenerativeUI"),
     undefined,
   );
+});
+
+test("AI consent: native alert cancellation, persistence, reset and headless replies fail closed", async () => {
+  const shared = await import("../packages/shared/src/ai-consent.mjs");
+  let saved = null,
+    alert,
+    prompts = 0;
+  const appState = { currentState: "active" };
+  const { aiConsent, beforeAiCall } = load("ai-consent.ts", {
+    "@milagre/shared/ai-consent": shared,
+    "react-native": {
+      AppState: appState,
+      Linking: { openURL: async () => {} },
+      Alert: {
+        alert: (title, body, buttons, options) => {
+          prompts++;
+          alert = { title, body, buttons, options };
+        },
+      },
+    },
+    "expo-secure-store": {
+      getItemAsync: async () => saved,
+      setItemAsync: async (_key, value) => {
+        saved = value;
+      },
+      deleteItemAsync: async () => {
+        saved = null;
+      },
+      WHEN_UNLOCKED_THIS_DEVICE_ONLY: "device-only",
+    },
+  });
+  const cancelled = beforeAiCall("chat:send", []);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(alert.body, /Anthropic.*OpenAI.*Google/);
+  alert.buttons.find((button) => button.text === "Not now").onPress();
+  await assert.rejects(cancelled, /not sent/);
+  assert.equal(saved, null);
+  const accepted = beforeAiCall("link:send", []);
+  await new Promise((resolve) => setImmediate(resolve));
+  alert.buttons.find((button) => button.text === "Allow sharing").onPress();
+  await accepted;
+  await beforeAiCall("chat:resume", []);
+  assert.equal(prompts, 2);
+  await aiConsent.reset();
+  await assert.rejects(beforeAiCall("live-activity:answer", []), /permission/);
+  appState.currentState = "background";
+  await assert.rejects(beforeAiCall("chat:send", []), /permission/);
+  await beforeAiCall("agent:interrupt", []);
+  assert.equal(prompts, 2);
+});
+
+test("Privacy settings reset consent and expose policies without a paired computer", async () => {
+  const shared = await import("../packages/shared/src/ai-consent.mjs");
+  const host = hookHost({ effects: true });
+  let resets = 0;
+  const urls = [];
+  const { PrivacyView } = load("app/privacy.tsx", {
+    react: host,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      Text: "Text",
+      View: "View",
+      Linking: {
+        openURL: async (url) => {
+          urls.push(url);
+        },
+      },
+    },
+    "expo-router": { Stack: { Screen: "Screen" } },
+    "@milagre/shared/ai-consent": shared,
+    "../ai-consent": {
+      aiConsent: {
+        allowed: async () => true,
+        reset: async () => {
+          resets++;
+        },
+      },
+    },
+    "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", PillButton: "PillButton" },
+  });
+  const render = () => {
+    host.begin();
+    return PrivacyView();
+  };
+  render();
+  await new Promise((resolve) => setImmediate(resolve));
+  let tree = render();
+  const reset = find(tree, (n) => n.props.title === "Reset AI sharing permission");
+  assert.equal(reset.props.disabled, false);
+  reset.props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  tree = render();
+  assert.equal(resets, 1);
+  assert.equal(find(tree, (n) => n.props.title === "Reset AI sharing permission").props.disabled, true);
+  find(tree, (n) => n.props.title === "Milagre privacy policy").props.onPress();
+  find(tree, (n) => n.props.title === "Support").props.onPress();
+  assert.deepEqual(urls, [shared.PRIVACY_URL, shared.SUPPORT_URL]);
 });
 
 test("new Chat restores worktree choices on reopen, falls back from a removed branch and never starts a Linear issue", async () => {

@@ -44,7 +44,7 @@ test("Claude: streams top-level text and separates text blocks", () => {
   assert.deepEqual(mapClaudeMessage(start, state), []);
   assert.deepEqual(mapClaudeMessage(delta("Checking"), state), [{ type: "text-delta", messageId: "turn-a", text: "Checking" }]);
   assert.deepEqual(mapClaudeMessage(delta("ignored", { parent_tool_use_id: "tool-1" }), state), []);
-  assert.deepEqual(mapClaudeMessage(start, state), [{ type: "text-delta", messageId: "turn-a", text: "\n\n" }]);
+  assert.deepEqual(mapClaudeMessage(start, state), [{ type: "text-delta", messageId: "turn-a", text: "\n\n", startsMessage: true }]);
 });
 
 test("Claude: results end the turn", () => {
@@ -64,7 +64,7 @@ test("Codex: streams agent message deltas and separates messages", () => {
     { type: "text-delta", messageId: "t-1", text: "First" },
   ]);
   assert.deepEqual(mapCodexNotification("item/agentMessage/delta", { threadId: "thread-1", turnId: "t-1", itemId: "b", delta: "Second" }, state), [
-    { type: "text-delta", messageId: "t-1", text: "\n\n" },
+    { type: "text-delta", messageId: "t-1", text: "\n\n", startsMessage: true },
     { type: "text-delta", messageId: "t-1", text: "Second" },
   ]);
 });

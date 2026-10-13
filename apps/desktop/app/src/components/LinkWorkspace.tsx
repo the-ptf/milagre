@@ -260,7 +260,8 @@ export function LinkWorkspace({
       const approval = run.approvals[0],
         question = run.questions[0];
       if (approval && !run.answered[approval.requestId]) void agents.respond(chatId, approval.requestId, "deny");
-      else if (question && !run.answered[question.requestId]) void agents.answerQuestion(chatId, question.requestId, null);
+      else if (question && !run.answered[question.requestId])
+        void agents.answerQuestion(chatId, question.requestId, null).catch((failure) => setError(ipcErrorMessage(failure)));
       else void agents.interrupt(chatId);
     }
     window.addEventListener("keydown", shortcut);
@@ -559,7 +560,7 @@ export function LinkWorkspace({
                         }}
                         onPermissionModeChange={(mode) => {
                           composerPrefs.setPermissionMode(mode);
-                          if (chatId) void bridge.setAgentPermissionMode(chatId, mode);
+                          if (chatId) void bridge.setAgentPermissionMode(chatId, mode).catch((failure) => setError(ipcErrorMessage(failure)));
                         }}
                         onRecommendationSelect={(option) => void send(option)}
                         worktrees={[]}
@@ -580,14 +581,18 @@ export function LinkWorkspace({
                               request={approval}
                               waiting={(run?.approvals.length ?? 1) - 1}
                               answering={sentDecision(run, approval.requestId)}
-                              onAnswer={(decision) => void agents.respond(chatId, approval.requestId, decision)}
+                              onAnswer={(decision) =>
+                                void agents.respond(chatId, approval.requestId, decision).catch((failure) => setError(ipcErrorMessage(failure)))
+                              }
                             />
                           ) : question && chatId ? (
                             <QuestionCard
                               request={question}
                               waiting={(run?.questions.length ?? 1) - 1}
                               answering={sentReply(run, question.requestId)}
-                              onAnswer={(answer) => void agents.answerQuestion(chatId, question.requestId, answer)}
+                              onAnswer={(answer) =>
+                                void agents.answerQuestion(chatId, question.requestId, answer).catch((failure) => setError(ipcErrorMessage(failure)))
+                              }
                             />
                           ) : undefined
                         }

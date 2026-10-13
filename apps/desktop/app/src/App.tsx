@@ -1,3 +1,4 @@
+import { AiConsentDialog } from "./components/AiConsent";
 import { UpdateShell, useAppUpdates } from "./components/UpdateNotice";
 import { ComputerAllowPrompt } from "./components/ComputerAllowPrompt";
 import { LinkWorkspace } from "./components/LinkWorkspace";
@@ -103,7 +104,7 @@ import { useUsage } from "./components/usage/useUsage";
 import { loadChatPreferences, saveChatPreferences } from "./lib/chat-preferences";
 import { useComposerPreferences } from "./lib/use-composer-preferences";
 import { startOfflineCache } from "./lib/offline-cache";
-import { isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers, withComputer } from "./lib/computers";
+import { isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers } from "./lib/computers";
 import { OfflineBanner } from "./components/OfflineBanner";
 import { settingsCommands } from "./lib/settings-commands";
 import type { Command } from "./lib/commands";
@@ -1092,13 +1093,9 @@ function App() {
             void window.milagre
               .notifyCompletion({
                 chatId,
-                title: link.link.name,
-                subtitle: withComputer(
-                  chatId,
-                  chatTitle(
-                    session,
-                    latest.messages.filter((message) => message.session_id === session.id),
-                  ),
+                title: chatTitle(
+                  session,
+                  latest.messages.filter((message) => message.session_id === session.id),
                 ),
               })
               .catch(() => {});
@@ -1113,13 +1110,9 @@ function App() {
           void window.milagre
             .notifyCompletion({
               chatId,
-              title: current.name,
-              subtitle: withComputer(
-                chatId,
-                chatTitle(
-                  session,
-                  latest.messages.filter((message) => message.session_id === session.id),
-                ),
+              title: chatTitle(
+                session,
+                latest.messages.filter((message) => message.session_id === session.id),
               ),
             })
             .catch(() => {});
@@ -2552,6 +2545,7 @@ export default function AppWithUpdates() {
       <App />
       {/* Beside the app, so it asks whatever screen is open, Settings and Links included. */}
       <ComputerAllowPrompt />
+      <AiConsentDialog />
     </UpdateShell>
   );
 }

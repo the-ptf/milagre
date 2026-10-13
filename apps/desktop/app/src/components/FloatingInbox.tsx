@@ -10,6 +10,7 @@ import { resolvePalette } from "@milagre/shared/themes";
 import type { QuestionAnswers, QuestionRequest } from "../model";
 import type { FloatingDragOverlay } from "../electron";
 import { bridgeForKey } from "../lib/computer-bridge";
+import { consentOpen } from "../lib/ai-consent";
 import { useInbox } from "../lib/inbox";
 import { useResolvedScheme, useSettings } from "../lib/settings";
 import { applyPalette } from "../lib/theme-sheet";
@@ -19,6 +20,7 @@ import { ScrollArea } from "./primitives/ScrollArea";
 import { RangeSlider } from "./primitives/RangeSlider";
 import { ProviderLogo } from "./ProviderLogo";
 import { PermissionCard } from "./agents/PermissionCard";
+import { AiConsentDialog } from "./AiConsent";
 
 const statusWords: Record<InboxStatus, string> = {
   working: "Working",
@@ -469,6 +471,7 @@ export function InboxPanel({
     receiveSelection();
   }, [selectedChat, selectionRevision, items]);
   const navigate = useEffectEvent((event: KeyboardEvent) => {
+    if (consentOpen()) return;
     if (event.key === "Escape" && !event.isComposing) {
       event.preventDefault();
       event.stopPropagation();
@@ -497,6 +500,7 @@ export function InboxPanel({
   const shortcutOptions = selected?.question?.questions.length === 1 ? selected.question.questions[0].options.slice(0, 9) : [];
   return (
     <div data-inbox-panel aria-label="Inbox" className="floating-inbox-panel m-3 flex h-[calc(100vh-24px)] flex-col gap-2 text-ink">
+      <AiConsentDialog />
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-line-strong bg-surface shadow-sm">
         <header ref={header} className="flex items-center justify-end gap-2 px-4 pt-2">
           {shown.length > 0 && (
