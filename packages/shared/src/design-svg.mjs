@@ -1,6 +1,7 @@
 import { designRenderBudget, visibleDesignTextLines } from "./design-render-limits.mjs";
 import { designFontFamily, designInterWeight, designUsesInter } from "./design-fonts.mjs";
 import { designIcons } from "./design-icons.mjs";
+import { designDefaultFill } from "./design-paint.mjs";
 
 const xml = (value) =>
   String(value)
@@ -111,7 +112,7 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
       .join("");
     return (
       take(
-        `<text ${colorAttributes("fill", node.fill, "#202720")} font-family="${xml(designFontFamily(node.fontFamily))}" font-size="${number(fontSize)}" font-weight="${fontWeight}" text-anchor="${anchor}" xml:space="preserve" style="font-kerning:none;font-variant-ligatures:none;font-feature-settings:&quot;calt&quot; 0">`,
+        `<text ${colorAttributes("fill", node.fill, designDefaultFill(node))} font-family="${xml(designFontFamily(node.fontFamily))}" font-size="${number(fontSize)}" font-weight="${fontWeight}" text-anchor="${anchor}" xml:space="preserve" style="font-kerning:none;font-variant-ligatures:none;font-feature-settings:&quot;calt&quot; 0">`,
         node,
       ) +
       spans +
@@ -125,7 +126,7 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
         if (node.hidden || !box) return "";
         if (onCanvasOnly && (box.x >= document.width || box.y >= document.height || box.x + box.width <= 0 || box.y + box.height <= 0)) return "";
         if (node.type === "icon") {
-          const { color, opacity } = paint(resolveColor(node.fill, "#202720"));
+          const { color, opacity } = paint(resolveColor(node.fill, designDefaultFill(node)));
           return take(
             `<g id="layer-${xml(node.id)}" opacity="${number((node.opacity ?? 1) * opacity)}"><title>${xml(node.name ?? node.id)}</title><svg x="${number(box.x)}" y="${number(box.y)}" width="${number(box.width)}" height="${number(box.height)}" viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" fill="none" stroke="${xml(color)}" stroke-width="${number(node.strokeWidth ?? 2)}" stroke-linecap="round" stroke-linejoin="round" color="${xml(color)}">${designIcons[node.icon]}</svg></g>`,
             node,
@@ -146,7 +147,7 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
           if (stroke) contents += take(`<${geometry} fill="none"${stroke}/>`, node);
         } else if (node.type === "image") {
           // Only a missing image gets the placeholder; a transparent one shows what is behind it.
-          contents = node.fill || !node.src ? take(`<${shape(node, box)} ${colorAttributes("fill", node.fill, "#d8ded8")}/>`, node) : "";
+          contents = node.fill || !node.src ? take(`<${shape(node, box)} ${colorAttributes("fill", node.fill, designDefaultFill(node))}/>`, node) : "";
           if (node.src)
             contents += clipContent(
               take(
@@ -156,7 +157,7 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
             );
           if (stroke) contents += take(`<${geometry} fill="none"${stroke}/>`, node);
         } else {
-          contents = take(`<${shape(node, box)} ${colorAttributes("fill", node.fill, node.type === "frame" ? "transparent" : "#d8ded8")}/>`, node);
+          contents = take(`<${shape(node, box)} ${colorAttributes("fill", node.fill, designDefaultFill(node))}/>`, node);
           if (stroke) contents += take(`<${geometry} fill="none"${stroke}/>`, node);
         }
         if (node.type === "frame") contents += clipContent(renderChildren(node.id));

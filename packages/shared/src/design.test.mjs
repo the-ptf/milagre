@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  DESIGN_INK,
+  DESIGN_PLACEHOLDER,
+  designDefaultFill,
   applyDesignOperations,
   buildDesignControllerScript,
   createExampleDesign,
@@ -253,4 +256,34 @@ test("icons with currentColor dots take the line color", () => {
   const document = iconScreen({ icon: "tag", fill: "#ab1234" });
   assert.match(designHtml(document), /color="#ab1234"[^>]*>.*<circle[^>]*fill="currentColor"/);
   assert.match(designSvg(document), /color="#ab1234"><path[^>]*\/>.*<circle[^>]*fill="currentColor"/);
+});
+
+test("each layer type's default fill matches what the renderers paint", () => {
+  assert.deepEqual(
+    [
+      { type: "text" },
+      { type: "icon" },
+      { type: "frame" },
+      { type: "image", src: "https://example.com/a.png" },
+      { type: "image" },
+      { type: "rectangle" },
+      { type: "ellipse" },
+    ].map(designDefaultFill),
+    [DESIGN_INK, DESIGN_INK, "transparent", "transparent", DESIGN_PLACEHOLDER, DESIGN_PLACEHOLDER, DESIGN_PLACEHOLDER],
+  );
+  assert.deepEqual([DESIGN_INK, DESIGN_PLACEHOLDER], ["#202720", "#d8ded8"]);
+  const document = {
+    schemaVersion: 1,
+    width: 390,
+    height: 844,
+    nodes: [
+      { id: "box", type: "rectangle", x: 0, y: 0, width: 10, height: 10 },
+      { id: "label", type: "text", x: 0, y: 20, width: 100, height: 20, text: "Hi" },
+      { id: "photo", type: "image", x: 0, y: 50, width: 10, height: 10 },
+    ],
+  };
+  const svg = designSvg(document);
+  assert.match(svg, /<rect x="0" y="0" width="10" height="10" rx="0" fill="#d8ded8"\/>/);
+  assert.match(svg, /<text fill="#202720"/);
+  assert.match(svg, /<rect x="0" y="50" width="10" height="10" rx="0" fill="#d8ded8"\/>/);
 });

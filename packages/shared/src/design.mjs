@@ -5,8 +5,10 @@ import { designRenderBudget, visibleDesignTextLines } from "./design-render-limi
 import { designLayout, designTextLayout } from "./design-layout.mjs";
 import { designIcons, designIconSuggestions } from "./design-icons.mjs";
 export { designIcons } from "./design-icons.mjs";
+export { DESIGN_INK, DESIGN_PLACEHOLDER, designDefaultFill } from "./design-paint.mjs";
 export { designInterFonts } from "./design-font-data.mjs";
 import { renderDesignSvg } from "./design-svg.mjs";
+import { designDefaultFill } from "./design-paint.mjs";
 import { synchronizeDesignComponents, designInstanceRoot } from "./design-components.mjs";
 import { DESIGN_CONTROLLER_SCRIPT } from "./design-controller-script.mjs";
 export { DESIGN_CONTROLLER_SCRIPT } from "./design-controller-script.mjs";
@@ -317,8 +319,7 @@ const safeJson = (value) => JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, 
 
 function nodeStyles(document, node, box, parentBox, parentNode) {
   // Transparent images (icons, cut-outs) show what is behind them; the grey placeholder marks an image still to add.
-  const placeholder = node.type === "frame" || (node.type === "image" && node.src) ? "transparent" : "#d8ded8";
-  const background = node.type === "text" || node.type === "icon" ? "transparent" : designColor(document, node.fill, placeholder);
+  const background = node.type === "text" || node.type === "icon" ? "transparent" : designColor(document, node.fill, designDefaultFill(node));
   const parentStroke = parentNode?.stroke ? (parentNode.strokeWidth ?? 1) : 0;
   return [
     "position:absolute",
@@ -334,7 +335,7 @@ function nodeStyles(document, node, box, parentBox, parentNode) {
     "overflow:hidden",
     ...(node.type === "text"
       ? [
-          `color:${designColor(document, node.fill, "#202720")}`,
+          `color:${designColor(document, node.fill, designDefaultFill(node))}`,
           `font-size:${node.fontSize ?? 16}px`,
           `font-family:${designFontFamily(node.fontFamily)}`,
           `font-weight:${node.fontWeight ?? 400}`,
@@ -393,7 +394,7 @@ function designMarkup(document, bounds, textLayout, take) {
           node,
         );
       } else if (node.type === "icon") {
-        const color = escape(designColor(document, node.fill, "#202720"));
+        const color = escape(designColor(document, node.fill, designDefaultFill(node)));
         append(
           `<svg viewBox="0 0 24 24" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" fill="none" stroke="${color}" stroke-width="${node.strokeWidth ?? 2}" stroke-linecap="round" stroke-linejoin="round" color="${color}" aria-hidden="true">${designIcons[node.icon]}</svg>`,
           node,

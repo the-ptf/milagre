@@ -5,6 +5,7 @@ import {
   applyDesignOperations,
   createDesignInstance,
   detachDesignInstance,
+  designDefaultFill,
   designHtml,
   designIcons,
   designInstanceRoot,
@@ -1098,7 +1099,7 @@ export function DesignDocumentEditor({
                     )}
                     <Field
                       label={selectedNode.type === "text" ? "Text color" : "Fill"}
-                      value={selectedNode.fill ?? (selectedNode.type === "text" ? "#202720" : selectedNode.type === "frame" ? "transparent" : "#d8ded8")}
+                      value={selectedNode.fill ?? designDefaultFill(selectedNode)}
                       disabled={saving}
                       onCommit={(fill) => patch({ fill })}
                     />

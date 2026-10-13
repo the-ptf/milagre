@@ -1,5 +1,6 @@
 import { designLayout, designTextLayout } from "./design-layout.mjs";
 import { visibleDesignTextLines } from "./design-render-limits.mjs";
+import { DESIGN_INK } from "./design-paint.mjs";
 
 const MAX_WARNINGS = 20;
 // Only these layers paint a background; an icon's fill is its line colour and text has no backdrop of its own.
@@ -107,7 +108,7 @@ export function designWarnings(document) {
         // Images and partly covered or translucent shapes have no single backdrop colour; stay quiet.
         backdrop = behind.node.type !== "image" && (behind.node.opacity ?? 1) === 1 && contains(behind.box, box) ? resolve(behind.node.fill) : null;
       }
-      const foreground = (node.opacity ?? 1) === 1 ? luminance(resolve(node.fill ?? "#202720")) : null;
+      const foreground = (node.opacity ?? 1) === 1 ? luminance(resolve(node.fill ?? DESIGN_INK)) : null;
       const background = luminance(backdrop);
       if (foreground !== null && background !== null && contrast(foreground, background) < MINIMUM_CONTRAST)
         warnings.push({
