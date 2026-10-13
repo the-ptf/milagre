@@ -1,7 +1,6 @@
 export const MAX_BODY_BYTES = 8 * 1024 * 1024;
 const MAX_HTML_BYTES = 8 * 1024 * 1024;
 export const CHUNK_BYTES = 96 * 1024;
-const PAGE_ID = /^[A-Za-z0-9_-]{43}$/;
 const encoder = new TextEncoder();
 export const SECURITY_HEADERS = {
   "Content-Security-Policy":
