@@ -43,7 +43,8 @@
     "squashfs-root/**",
     "docs/**",
     "packages/shared/src/design-font-data.mjs",
-    "packages/shared/src/design-font-metrics.mjs"
+    "packages/shared/src/design-font-metrics.mjs",
+    "packages/shared/src/design-icons.mjs"
   ],
   "overrides": [
     {

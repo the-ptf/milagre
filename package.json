@@ -57,6 +57,7 @@
     "knip": "6.39.0",
     "lefthook": "2.1.17",
     "lockfile-lint": "5.0.1",
+    "lucide-static": "1.56.0",
     "oxfmt": "0.72.0",
     "oxlint": "1.87.0",
     "qrcode-terminal": "^0.12.0",
