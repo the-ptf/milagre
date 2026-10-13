@@ -3,6 +3,7 @@ import { designFontFamily, designFontFaces, validDesignFontFamily } from "./desi
 export { designFontFamily, designFontFaces, designInterWeight } from "./design-fonts.mjs";
 import { designRenderBudget, visibleDesignTextLines } from "./design-render-limits.mjs";
 import { designLayout, designTextLayout } from "./design-layout.mjs";
+import { designIcons, designIconSuggestions } from "./design-icons.mjs";
 import { renderDesignSvg } from "./design-svg.mjs";
 import { synchronizeDesignComponents, designInstanceRoot } from "./design-components.mjs";
 import { DESIGN_CONTROLLER_SCRIPT } from "./design-controller-script.mjs";
@@ -27,7 +28,7 @@ const nodeSchema = z
   .object({
     id,
     name: z.string().max(160).optional(),
-    type: z.enum(["frame", "text", "rectangle", "ellipse", "image"]),
+    type: z.enum(["frame", "text", "rectangle", "ellipse", "image", "icon"]),
     parentId: id.optional(),
     x: coordinate.optional(),
     y: coordinate.optional(),
@@ -62,6 +63,13 @@ const nodeSchema = z
         "Images need an HTTPS URL or an inline PNG, JPEG, WebP, GIF or AVIF.",
       )
       .optional(),
+    icon: z
+      .string()
+      .max(64)
+      .optional()
+      .describe(
+        "Lucide icon name for an icon layer, such as x, check, chevron-left or battery-full. fill is its line color, strokeWidth its line weight (default 2).",
+      ),
     layout: z.enum(["free", "horizontal", "vertical"]).optional(),
     gap: size.optional(),
     padding: size.optional(),
@@ -113,6 +121,13 @@ function checkedDesignDocument(value, synchronize = true) {
   for (const node of document.nodes) {
     checkColor(node.fill);
     checkColor(node.stroke);
+    if (node.type === "icon") {
+      if (!node.icon) throw new Error(`Icon layer "${node.id}" needs an icon name.`);
+      if (!Object.hasOwn(designIcons, node.icon)) throw new Error(`Unknown icon "${node.icon}". Did you mean ${designIconSuggestions(node.icon).join(", ")}?`);
+      const unsupported = ["stroke", "radius", "text", "src"].filter((field) => node[field] !== undefined);
+      if (unsupported.length)
+        throw new Error(`Icon layer "${node.id}" can't use ${unsupported.join(", ")}. Use fill for its color and strokeWidth for its line weight.`);
+    } else if (node.icon !== undefined) throw new Error(`Only icon layers use "icon"; "${node.id}" is a ${node.type}.`);
     const seen = new Set([node.id]);
     let parentId = node.parentId;
     while (parentId !== undefined) {

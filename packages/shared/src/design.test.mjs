@@ -184,3 +184,39 @@ test("an image with a source paints no placeholder behind its transparent pixels
   assert.match(style("empty"), /background:#d8ded8/);
   assert.match(style("tinted"), /background:#ff0000/);
 });
+
+const iconScreen = (icon = {}) => ({
+  schemaVersion: 1,
+  width: 390,
+  height: 844,
+  nodes: [{ id: "close", type: "icon", icon: "x", x: 20, y: 20, width: 24, height: 24, fill: "#111111", strokeWidth: 2, ...icon }],
+});
+
+test("icon layers name a Lucide icon and reject properties they can't draw", () => {
+  assert.equal(validateDesignDocument(iconScreen()).nodes[0].icon, "x");
+  assert.throws(() => validateDesignDocument(iconScreen({ icon: "chevron-up-down" })), /Unknown icon "chevron-up-down"\. Did you mean chevrons-up-down/);
+  assert.throws(() => validateDesignDocument(iconScreen({ icon: undefined })), /needs an icon name/);
+  for (const extra of [{ stroke: "#000" }, { radius: 4 }, { text: "x" }, { src: "https://example.com/x.png" }]) {
+    assert.throws(() => validateDesignDocument(iconScreen(extra)), /Icon layer "close" can't use/, JSON.stringify(extra));
+  }
+  assert.throws(
+    () =>
+      validateDesignDocument({ ...iconScreen(), nodes: [...iconScreen().nodes, { id: "inside", parentId: "close", type: "rectangle", width: 4, height: 4 }] }),
+    /must be a frame/,
+  );
+  assert.throws(
+    () => validateDesignDocument({ ...iconScreen(), nodes: [{ id: "label", type: "text", width: 10, height: 10, icon: "x" }] }),
+    /Only icon layers use "icon"/,
+  );
+});
+
+test("insert, update and replace all validate icon names", () => {
+  const base = validateDesignDocument(iconScreen());
+  assert.throws(() => applyDesignOperations(base, [{ op: "update", id: "close", patch: { icon: "crosss" } }]), /Unknown icon "crosss"/);
+  assert.throws(
+    () => applyDesignOperations(base, [{ op: "insert", node: { id: "n", type: "icon", icon: "nope", width: 24, height: 24 } }]),
+    /Unknown icon "nope"/,
+  );
+  assert.throws(() => applyDesignOperations(base, [{ op: "replace", document: iconScreen({ icon: "nope" }) }]), /Unknown icon "nope"/);
+  assert.equal(applyDesignOperations(base, [{ op: "update", id: "close", patch: { icon: "check" } }]).nodes[0].icon, "check");
+});

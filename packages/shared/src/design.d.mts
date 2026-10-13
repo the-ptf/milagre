@@ -16,7 +16,7 @@ export interface DesignDocument {
 export interface DesignNode {
   id: string;
   name?: string;
-  type: "frame" | "text" | "rectangle" | "ellipse" | "image";
+  type: "frame" | "text" | "rectangle" | "ellipse" | "image" | "icon";
   parentId?: string;
   x?: number;
   y?: number;
@@ -38,6 +38,7 @@ export interface DesignNode {
   lineHeight?: number;
   textAlign?: "left" | "center" | "right";
   src?: string;
+  icon?: string;
   layout?: "free" | "horizontal" | "vertical";
   gap?: number;
   padding?: number;
