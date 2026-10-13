@@ -487,7 +487,7 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
     {
       name: "design_show",
       description:
-        "Create an editable design in this Chat from a document of named layers, with frames, text, shapes, images, layout and color tokens. The user can edit layers on desktop. On phone they review and choose designs, and request changes through Chat. The document sets the screen size (390 by 844 for a phone). Read the bundled design skill for the document format. A new id creates a design; revising an existing id requires expectedVersion from design_read, so the user's changes are preserved. Prefer design_apply for small revisions. Use a different id for each variant. When the user names another design tool, use that tool instead.",
+        "Create an editable design in this Chat from a document of named layers, with frames, text, shapes, icons, images, layout and color tokens. The user can edit layers on desktop. On phone they review and choose designs, and request changes through Chat. The document sets the screen size (390 by 844 for a phone). Read the bundled design skill for the document format. A new id creates a design; revising an existing id requires expectedVersion from design_read, so the user's changes are preserved. Prefer design_apply for small revisions. Use a different id for each variant. When the user names another design tool, use that tool instead. The result includes the rendered design as an image and layout warnings; check both before replying.",
       input: {
         title: z.string().min(1).max(120),
         document: designDocumentSchema,

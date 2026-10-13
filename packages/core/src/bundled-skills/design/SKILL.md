@@ -10,10 +10,19 @@ Use this tool for UI screens, mockups and visual designs. For a page explaining 
 If the user named another design tool (Pencil, Figma, Paper or any other MCP or app), use that tool. Their choice wins over Milagre designs.
 
 1. **Ground it.** In a project with an app, read its screens, colors, type and components first, and design in that style. Ask one question only if the platform or screen is unclear.
-2. **Show it.** Call `design_show` with a title and one document per screen. Set its width and height (390 by 844 for a phone). Give layers stable, meaningful ids and names. Use real content.
-3. **Offer variants when the direction is open.** Show two or three designs, each with its own id and a title that names the idea ("Alt B, dark timeline"). When the user was specific, show one.
-4. **Act on feedback.** Read the latest document with `design_read`, then call `design_apply` with that version as `expectedVersion` and one batch of operations. The user can edit layers on desktop. On phone they review and choose designs, and request changes through Chat. If a version conflict occurs, read again and adapt your changes to the latest document. After addressing a comment, call `artifact_resolve_comment` with its id and a one-line note. Resolve only what you addressed.
-5. **Build when asked.** Read the chosen design with `design_read` and implement it in the project's own code and components. A choice means continue from that design only. `design_export` returns JSON or SVG when the user needs a file.
+2. **Show it.** Call `design_show` with a title and one document per screen. Set its width and height (390 by 844 for a phone). Give layers stable, meaningful ids and names. Use real content: the dates, names, badges and chips a real screen would show, not a simplified placeholder.
+3. **Look before you reply.** `design_show` and `design_apply` return the saved design as an image, plus warnings for clipped text, layers outside their parent or the screen, and low contrast. Look at the image. Fix every warning and anything that looks off (alignment, uneven spacing, icons, crowding) with `design_apply`. Do at most two fix rounds, then reply. Remote `https:` images show as placeholders in your image only; the user sees them. If your image shows a font in Inter that the document names differently, that is expected; don't change the font for it.
+4. **Offer variants when the direction is open.** Show two or three designs, each with its own id and a title that names the idea ("Alt B, dark timeline"). When the user was specific, show one.
+5. **Act on feedback.** Read the latest document with `design_read`, then call `design_apply` with that version as `expectedVersion` and one batch of operations. The user can edit layers on desktop. On phone they review and choose designs, and request changes through Chat. If a version conflict occurs, read again and adapt your changes to the latest document. After addressing a comment, call `artifact_resolve_comment` with its id and a one-line note. Resolve only what you addressed.
+6. **Build when asked.** Read the chosen design with `design_read` and implement it in the project's own code and components. A choice means continue from that design only. `design_export` returns JSON or SVG when the user needs a file.
+
+## Craft
+
+- **Icons.** Use an `icon` layer for every icon, with a Lucide name from lucide.dev/icons. Never use a Unicode glyph or an image of an icon. `fill` is its color and `strokeWidth` its line weight (2 by default; 1.5 reads closer to SF Symbols). Common names: `chevron-left`, `chevron-right`, `x`, `check`, `chevrons-up-down`, `sliders-horizontal`, `search`, `plus`, `ellipsis`, `signal`, `wifi`, `battery-full`.
+- **Type.** Inter is the default and is measured. Keep one scale per screen; for iOS: 34 large title, 22 title, 17 body and row labels, 15 secondary, 13 captions and section headers. Titles use weight 600, body 400. Make secondary text a lighter color rather than a smaller size.
+- **Spacing.** Work on a 4 px grid. Use 16 to 20 px screen margins on a phone, 44 px minimum touch targets, 12 to 16 px inside grouped rows, and the same gap between siblings of the same kind.
+- **Phone chrome.** Use a 54 px status bar with the time at 17/600 on the left and `signal`, `wifi` and `battery-full` icons at 17 px on the right. Navigation buttons are 44 px circles with a 20 px icon centred inside.
+- **Density.** Match the app you are designing for. A list row in a booking app shows its date, title, time and status; don't drop columns to make the layout easier.
 
 ## Document format
 
@@ -87,12 +96,13 @@ Available layer properties:
 - **Frames:** `layout` (`free`, `horizontal` or `vertical`), `gap`, `padding`, `align` (`start`, `center` or `end`), `justify` (`start`, `center`, `end` or `space-between`). Horizontal and vertical layouts position their children automatically.
 - **Shapes:** use `rectangle` or `ellipse` as the type.
 - **Images:** use `image` as the type and `src` for its image URL. Colors can reference tokens with `$name`.
+- **Icons:** use `icon` as the type and `icon` for its Lucide name. `fill` is the line color and `strokeWidth` the line weight. Icons can't have a stroke, radius, text or children, and an unknown name fails with the closest matches.
 
 ## Content sizing
 
 `widthMode` and `heightMode` each accept `fixed` (the default), `hug` or `fill`. Keep numeric `width` and `height`: fixed uses those pixel sizes, while dynamic modes use them as fallbacks. `hug` fits text or a frame's children. `fill` uses available parent space; siblings with fill sizing share the remaining row or column space. Use `minWidth` and `minHeight` for explicit minima. A fill child inside a hug parent uses its fallback on that axis to avoid a circular size dependency.
 
-For a vertical card, use `heightMode: "hug"` on the frame and `widthMode: "fill", heightMode: "hug"` on its text. Changing the copy then moves the content below it. Text, selection bounds and SVG export share the same line breaks. Text is set in Inter by default, embedded in every preview and measured at weights 400, 500, 600 and 700, including its Latin punctuation (curly quotes, dashes, the middle dot, accented letters). Inter is recognised only as the first family in a list. Arial, Georgia, Times New Roman and Courier New are also measured; other fonts and non-Latin scripts use approximate metrics and render only where the viewer has them installed.
+For a vertical card, use `heightMode: "hug"` on the frame and `widthMode: "fill", heightMode: "hug"` on its text. Changing the copy then moves the content below it. Text, selection bounds and SVG export share the same line breaks. Text is set in Inter by default, embedded in every preview and measured at weights 400, 500, 600 and 700, including its Latin punctuation (curly quotes, dashes, the middle dot, accented letters). Inter is recognised only as the first family in a list. Arial, Georgia, Times New Roman and Courier New are also measured; other fonts and non-Latin scripts use approximate metrics and render only where the viewer has them installed. The image you get back sets every other font in Inter.
 
 ## Reusable components
 
