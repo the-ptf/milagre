@@ -29,3 +29,8 @@ test("main process and core load only JavaScript exports of @milagre/shared", ()
   }
   assert.deepEqual(offenders, []);
 });
+
+test("the design rasterizer's WebAssembly ships outside the asar", () => {
+  const unpack = require(path.join(root, "package.json")).build.asarUnpack;
+  assert.ok(unpack.includes("node_modules/@resvg/resvg-wasm/**/*"));
+});

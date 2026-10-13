@@ -80,7 +80,8 @@
       "node_modules/node-pty/**/*",
       "node_modules/ws/**/*",
       "node_modules/mediabunny/**/*",
-      "node_modules/@fastify/busboy/**/*"
+      "node_modules/@fastify/busboy/**/*",
+      "node_modules/@resvg/resvg-wasm/**/*"
     ],
     "files": [
       "dist/**/*",
