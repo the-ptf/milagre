@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { designWarnings, designWarningText, validateDesignDocument } from "./design.mjs";
+import { applyDesignOperations, createDesignInstance, createExampleDesign, designWarnings, designWarningText, validateDesignDocument } from "./design.mjs";
 
 const doc = (nodes, extra = {}) => validateDesignDocument({ schemaVersion: 1, width: 390, height: 844, background: "#ffffff", nodes, ...extra });
 const kinds = (document) => designWarnings(document).map((warning) => `${warning.kind}:${warning.id}`);
@@ -23,14 +23,16 @@ test("clipped text, overflowing children and off-canvas layers are reported", ()
   assert.deepEqual(kinds(document).toSorted(), ["clipped-text:long", "off-canvas:outside", "overflow:wide"]);
 });
 
-test("low contrast text is reported against the nearest filled ancestor, scaled for large text", () => {
+test("text below 3:1 against its backdrop is reported at every size; readable pairs are not", () => {
   const document = doc([
     { id: "dark", type: "frame", x: 0, y: 0, width: 390, height: 200, fill: "#111111" },
     { id: "muted", parentId: "dark", type: "text", width: 300, height: 30, text: "Muted", fill: "#333333", fontSize: 14 },
-    { id: "big", parentId: "dark", type: "text", y: 40, width: 300, height: 40, text: "Big", fill: "#777777", fontSize: 28 },
+    { id: "big", parentId: "dark", type: "text", y: 40, width: 300, height: 40, text: "Big", fill: "#444444", fontSize: 28 },
+    { id: "soft", parentId: "dark", type: "text", y: 90, width: 300, height: 30, text: "Soft", fill: "#777777", fontSize: 14 },
     { id: "fine", type: "text", y: 300, width: 300, height: 30, text: "Fine", fill: "#111111" },
   ]);
-  assert.deepEqual(kinds(document), ["low-contrast:muted"]);
+  assert.deepEqual(kinds(document), ["low-contrast:muted", "low-contrast:big"]);
+  assert.match(designWarnings(document)[0].message, /^Text "muted" has \d\.\d:1 contrast against its background; below 3:1 it is hard to read\.$/);
 });
 
 test("remote images are named; hidden layers and tight but fitting text are not", () => {
@@ -50,32 +52,111 @@ test("the warning text is capped at 20 lines", () => {
   assert.equal(designWarningText([]), "");
 });
 
-test("an icon's fill is a line colour and never a backdrop for text", () => {
-  const document = doc([
-    { id: "badge", type: "frame", x: 0, y: 0, width: 200, height: 100, fill: "#ffffff" },
-    { id: "glyph", parentId: "badge", type: "icon", x: 0, y: 0, width: 24, height: 24, fill: "#000000", icon: "star" },
-    { id: "label", parentId: "badge", type: "text", y: 40, width: 150, height: 30, text: "Label", fill: "#111111" },
-  ]);
-  assert.deepEqual(kinds(document), []);
+const photo = { id: "photo", type: "image", width: 390, height: 300, src: "data:image/png;base64,AAAA" };
+const caption = (extra = {}) => ({ id: "caption", type: "text", y: 100, width: 200, height: 30, text: "Caption", fill: "#ffffff", ...extra });
+
+test("text over an image is never judged, inside a frame or at the top level", () => {
+  assert.deepEqual(
+    kinds(doc([{ id: "frame", type: "frame", width: 390, height: 300, fill: "#ffffff" }, { ...photo, parentId: "frame" }, caption({ parentId: "frame" })])),
+    [],
+  );
+  assert.deepEqual(kinds(doc([photo, caption()])), []);
 });
 
-test("a text layer is never a backdrop, even if a malformed document nests under it", () => {
-  const document = doc([
-    { id: "dark", type: "frame", x: 0, y: 0, width: 300, height: 100, fill: "#000000" },
-    { id: "plate", parentId: "dark", type: "text", width: 200, height: 40, text: "Plate", fill: "#ffffff" },
-  ]);
-  const withChild = {
-    ...document,
-    nodes: [...document.nodes, { id: "inner", parentId: "plate", type: "text", width: 50, height: 20, text: "In", fill: "#ffffff" }],
-  };
-  assert.deepEqual(kinds(withChild), []);
+test("a shape drawn behind the text is its backdrop, even as a sibling of the text", () => {
+  const frame = { id: "frame", type: "frame", width: 390, height: 300, fill: "#ffffff" };
+  const plate = { id: "plate", parentId: "frame", type: "rectangle", x: 0, y: 90, width: 390, height: 60, fill: "#111111" };
+  assert.deepEqual(kinds(doc([frame, plate, caption({ parentId: "frame" })])), []);
+  assert.deepEqual(kinds(doc([frame, plate, caption({ parentId: "frame", fill: "#333333" })])), ["low-contrast:caption"]);
 });
 
-test("an image ancestor stops the backdrop search instead of lending its fill", () => {
-  const document = doc([{ id: "photo", type: "image", width: 300, height: 100, src: "data:image/png;base64,AAAA", fill: "#000000" }]);
-  const withCaption = {
-    ...document,
-    nodes: [...document.nodes, { id: "caption", parentId: "photo", type: "text", width: 200, height: 30, text: "Caption", fill: "#111111" }],
-  };
-  assert.deepEqual(kinds(withCaption), []);
+test("text only half over a dark shape has no single backdrop and is not judged", () => {
+  const plate = { id: "plate", type: "rectangle", x: 0, y: 90, width: 100, height: 60, fill: "#111111" };
+  assert.deepEqual(kinds(doc([plate, caption()])), []);
+});
+
+test("a shape drawn after the text, or hidden, is not behind it", () => {
+  const plate = { id: "plate", type: "rectangle", x: 0, y: 90, width: 390, height: 60, fill: "#111111" };
+  assert.deepEqual(kinds(doc([caption(), plate])), ["low-contrast:caption"]);
+  assert.deepEqual(kinds(doc([{ ...plate, hidden: true }, caption()])), ["low-contrast:caption"]);
+});
+
+test("an icon or another text layer is never a backdrop", () => {
+  const plate = { id: "plate", type: "rectangle", x: 0, y: 90, width: 390, height: 60, fill: "#111111" };
+  const glyph = { id: "glyph", type: "icon", x: 0, y: 90, width: 390, height: 60, fill: "#ffffff", icon: "star" };
+  assert.deepEqual(kinds(doc([plate, glyph, caption()])), []);
+  const label = { id: "label", type: "text", x: 0, y: 90, width: 390, height: 60, text: "Label", fill: "#ffffff" };
+  assert.deepEqual(kinds(doc([plate, label, caption({ y: 100 })])), []);
+});
+
+const plate = (fill) => ({ id: "plate", type: "rectangle", x: 0, y: 90, width: 390, height: 60, fill });
+
+test("unreadable or translucent colours skip the contrast check instead of warning", () => {
+  for (const fill of ["black", "#000000ff", "hsl(0, 0%, 0%)", "rgba(0, 0, 0, 0.5)"]) {
+    assert.deepEqual(kinds(doc([plate(fill), caption()])), [], `backdrop ${fill}`);
+    assert.deepEqual(kinds(doc([caption({ fill })])), [], `text ${fill}`);
+  }
+  assert.deepEqual(kinds(doc([caption({ fill: "#222222", opacity: 0.4 })])), []);
+  assert.deepEqual(kinds(doc([{ ...plate("#111111"), opacity: 0.5 }, caption({ fill: "#222222" })])), []);
+});
+
+const heading = (height) => ({
+  id: "heading",
+  type: "text",
+  width: 330,
+  height,
+  text: "Make room\nfor a good day.",
+  fontFamily: "Georgia, serif",
+  fontSize: 36,
+  fill: "#111111",
+});
+
+test("text is clipped only when glyphs are cut, not when just the line box overhangs", () => {
+  assert.deepEqual(kinds(doc([heading(96)])), []);
+  assert.deepEqual(kinds(doc([heading(80)])), ["clipped-text:heading"]);
+  assert.deepEqual(kinds(doc([heading(40)])), ["clipped-text:heading"]);
+});
+
+test("ordinary auto-layout, hug sizing and component instances produce no warnings", () => {
+  const column = [
+    { id: "column", type: "frame", x: 20, y: 20, width: 300, height: 260, fill: "#ffffff", layout: "vertical", padding: 16, gap: 12 },
+    { id: "title", parentId: "column", type: "text", width: 268, height: 30, text: "Title", fill: "#111111", fontSize: 22 },
+    {
+      id: "body",
+      parentId: "column",
+      type: "text",
+      widthMode: "fill",
+      width: 268,
+      height: 40,
+      text: "Body copy that wraps onto a second line.",
+      fill: "#222222",
+      fontSize: 14,
+    },
+    { id: "row", parentId: "column", type: "frame", width: 268, height: 40, layout: "horizontal", gap: 8 },
+    { id: "chip", parentId: "row", type: "rectangle", width: 60, height: 40, fill: "#eeeeee" },
+    { id: "grow", parentId: "row", type: "rectangle", widthMode: "fill", width: 10, height: 40, fill: "#dddddd" },
+    {
+      id: "pill",
+      parentId: "column",
+      type: "frame",
+      widthMode: "hug",
+      heightMode: "hug",
+      width: 10,
+      height: 10,
+      layout: "horizontal",
+      padding: 10,
+      fill: "#111111",
+    },
+    { id: "pill-label", parentId: "pill", type: "text", widthMode: "hug", heightMode: "hug", width: 10, height: 10, text: "Hug", fill: "#ffffff" },
+    { id: "button", type: "frame", x: 20, y: 300, width: 180, height: 44, component: true, fill: "#123456", layout: "horizontal", padding: 10 },
+    { id: "button-label", parentId: "button", type: "text", width: 100, height: 24, text: "Continue", fill: "#ffffff" },
+  ];
+  const base = doc(column);
+  const withInstance = applyDesignOperations(base, createDesignInstance(base, "button", "copy", { x: 20, y: 400 }));
+  assert.ok(withInstance.nodes.some((node) => node.componentSourceId === "button-label"));
+  assert.deepEqual(kinds(withInstance), []);
+});
+
+test("the stock example produces no warnings", () => {
+  assert.deepEqual(designWarnings(validateDesignDocument(createExampleDesign())), []);
 });

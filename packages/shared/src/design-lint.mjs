@@ -3,7 +3,34 @@ import { visibleDesignTextLines } from "./design-render-limits.mjs";
 
 const MAX_WARNINGS = 20;
 // Only these layers paint a background; an icon's fill is its line colour and text has no backdrop of its own.
-const BACKDROP_TYPES = new Set(["frame", "rectangle", "ellipse"]);
+const SHAPE_TYPES = new Set(["frame", "rectangle", "ellipse"]);
+// Below 3:1 text is hard to read at any size; stricter limits are the author's call.
+const MINIMUM_CONTRAST = 3;
+const TOLERANCE = 1;
+
+const overlaps = (a, b) => a.x < b.x + b.width - 0.5 && b.x < a.x + a.width - 0.5 && a.y < b.y + b.height - 0.5 && b.y < a.y + a.height - 0.5;
+const contains = (outer, inner) =>
+  inner.x >= outer.x - TOLERANCE &&
+  inner.y >= outer.y - TOLERANCE &&
+  inner.x + inner.width <= outer.x + outer.width + TOLERANCE &&
+  inner.y + inner.height <= outer.y + outer.height + TOLERANCE;
+
+/** Depth-first paint order: a parent before its children, siblings in array order, as the renderers draw. */
+function paintOrder(document) {
+  const children = new Map();
+  for (const node of document.nodes) {
+    const siblings = children.get(node.parentId ?? null) ?? [];
+    siblings.push(node);
+    children.set(node.parentId ?? null, siblings);
+  }
+  const order = [];
+  const visit = (node) => {
+    order.push(node);
+    for (const child of children.get(node.id) ?? []) visit(child);
+  };
+  for (const root of children.get(null) ?? []) visit(root);
+  return order;
+}
 
 // sRGB relative luminance of a 3/6-digit hex or rgb() color; null for anything we can't resolve confidently.
 function luminance(color) {
@@ -28,6 +55,8 @@ export function designWarnings(document) {
   const nodes = new Map(document.nodes.map((node) => [node.id, node]));
   const bounds = designLayout(document, designTextLayout);
   const resolve = (value) => (value?.startsWith("$") ? document.tokens?.[value.slice(1)] : value);
+  const order = paintOrder(document);
+  const position = new Map(order.map((layer, at) => [layer.id, at]));
   const warnings = [];
   for (const node of document.nodes) {
     const box = bounds.get(node.id);
@@ -37,7 +66,9 @@ export function designWarnings(document) {
     if (node.type === "text") {
       const border = node.stroke ? (node.strokeWidth ?? 1) : 0;
       const layout = designTextLayout(node, Math.max(1, box.width - 2 * border));
-      if (visibleDesignTextLines(node, box, layout).length < layout.lines.length || layout.height > box.height - 2 * border + 1)
+      // Line boxes may overhang the layer; only glyphs actually cut off count.
+      const glyphBottom = layout.height - (layout.lineHeight - (node.fontSize ?? 16)) / 2;
+      if (visibleDesignTextLines(node, box, layout).length < layout.lines.length || glyphBottom > box.height - 2 * border + 0.5)
         warnings.push({
           id: node.id,
           kind: "clipped-text",
@@ -62,19 +93,27 @@ export function designWarnings(document) {
         message: `Image "${node.id}" is a remote URL, shown as a placeholder in your preview; the user sees the real image.`,
       });
     if (node.type === "text") {
-      let backdrop = null;
-      for (let ancestor = parent; ancestor && backdrop === null; ancestor = ancestor.parentId ? nodes.get(ancestor.parentId) : null) {
-        if (ancestor.type === "image") break;
-        if (BACKDROP_TYPES.has(ancestor.type) && ancestor.fill) backdrop = resolve(ancestor.fill);
+      // The topmost visible layer drawn before this text that overlaps it is what the text sits on.
+      const index = position.get(node.id);
+      let behind = null;
+      for (let earlier = index - 1; earlier >= 0 && !behind; earlier--) {
+        const candidate = order[earlier];
+        const candidateBox = bounds.get(candidate.id);
+        if (!candidateBox || !overlaps(candidateBox, box)) continue;
+        if (candidate.type === "image" || (SHAPE_TYPES.has(candidate.type) && candidate.fill)) behind = { node: candidate, box: candidateBox };
       }
-      const foreground = luminance(resolve(node.fill ?? "#202720"));
-      const background = luminance(backdrop ?? resolve(document.background ?? "#ffffff"));
-      const minimum = (node.fontSize ?? 16) >= 24 ? 3 : 4.5;
-      if (foreground !== null && background !== null && contrast(foreground, background) < minimum)
+      let backdrop = resolve(document.background ?? "#ffffff");
+      if (behind) {
+        // Images and partly covered or translucent shapes have no single backdrop colour; stay quiet.
+        backdrop = behind.node.type !== "image" && (behind.node.opacity ?? 1) === 1 && contains(behind.box, box) ? resolve(behind.node.fill) : null;
+      }
+      const foreground = (node.opacity ?? 1) === 1 ? luminance(resolve(node.fill ?? "#202720")) : null;
+      const background = luminance(backdrop);
+      if (foreground !== null && background !== null && contrast(foreground, background) < MINIMUM_CONTRAST)
         warnings.push({
           id: node.id,
           kind: "low-contrast",
-          message: `Text "${node.id}" has ${contrast(foreground, background).toFixed(1)}:1 contrast; it needs ${minimum}:1.`,
+          message: `Text "${node.id}" has ${contrast(foreground, background).toFixed(1)}:1 contrast against its background; below 3:1 it is hard to read.`,
         });
     }
   }
