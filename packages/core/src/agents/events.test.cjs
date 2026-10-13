@@ -735,3 +735,10 @@ test("the instructions point the agent at the bundled genui skill, which exists"
   assert.match(require("node:fs").readFileSync(file, "utf8"), /^name: genui$/m);
   assert.match(MILAGRE_INSTRUCTIONS, /fenced block whose info string is `openui`/);
 });
+
+test("Milagre instructions tell every agent to plan with the task tools", () => {
+  const text = milagreInstructions();
+  assert.match(text, /tasks_set/);
+  assert.match(text, /task_update/);
+  assert.match(text, /phase_set/);
+});

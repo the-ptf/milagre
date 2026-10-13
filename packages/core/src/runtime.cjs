@@ -1323,6 +1323,11 @@ function createRuntime(options) {
     await linkedState(projectPath);
     return chatIds ? scopeStates.chatMessages(projectPath, chatIds) : scopeStates.allMessages(projectPath);
   };
+  // Milagre's own task list and phase tools, the same for every provider (chat-plan-tools.cjs).
+  const planTools = require("./chat-plan-tools.cjs").createChatPlanTools({
+    read: (chatId) => chats.plan(chatId),
+    write: (chatId, plan) => chats.receive(chatId, { type: "plan-updated", plan }),
+  });
   const linked = createLinkedWorktrees({
     dataDir,
     registry: projectRegistry,
@@ -1336,6 +1341,7 @@ function createRuntime(options) {
     agents,
     emit,
     extraTools: (chatId) => [
+      ...planTools.definitions(chatId),
       ...simulatorToolDefinitions(chatId, simulators),
       ...require("./chat-browsers.cjs").browserToolDefinitions(chatId, browsers),
       ...(existsSync(path.join(__dirname, "design-mcp-tools.cjs"))

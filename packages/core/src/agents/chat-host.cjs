@@ -358,6 +358,12 @@ class ChatHost {
     if (changed) this.broadcast(projectPath, state);
   }
 
+  /** The Chat's task list and phase history, for Milagre's task tools. */
+  async plan(chatId) {
+    const state = await this.states.get(projectOfKey(chatId));
+    return state.sessions[sessionIdFromKey(chatId)]?.plan;
+  }
+
   /** Adds an assistant line that isn't a reply to a chat (`context` says what it is), after its running turn if it has one. */
   async addNote(chatId, { body, context }) {
     this.notes.set(chatId, [...(this.notes.get(chatId) ?? []), { body, context }]);
