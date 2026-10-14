@@ -381,8 +381,8 @@ async function browserChecks() {
     await evaluate(
       `window.emitAgent({type:'subagent-update',agent:{id:'delta-child',title:'Streaming review',status:'running',startedAt:Date.now()-2000,updatedAt:Date.now(),transcript:[{id:'finding',kind:'message',text:'Both image formats render correctly.'}]}})`,
     );
-    await waitFor(`!!document.querySelector('[data-slot=subagent-track] > button')`);
-    await click("[data-slot=subagent-track] > button");
+    await waitFor(`!!document.querySelector('[data-slot=subagent-track] [data-face=pill] button')`);
+    await click("[data-slot=subagent-track] [data-face=pill] button");
     await waitFor(`!!document.querySelector('[data-subagent-open]')`);
     await click("[data-subagent-open]");
     await waitFor(`document.querySelector('[data-slot=subagent-transcript]')?.textContent.includes('Both image formats render correctly.')`);

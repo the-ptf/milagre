@@ -132,7 +132,7 @@ function Letters({ text }: { text: string }) {
 }
 
 /** An odometer: each digit place rolls to its new digit, upward when the number grows and downward when it shrinks. */
-export function RollingNumber({ value }: { value: number }) {
+function RollingNumber({ value }: { value: number }) {
   const [last, setLast] = useState({ value, direction: 1 });
   if (last.value !== value) setLast({ value, direction: value > last.value ? 1 : -1 });
   const digits = [...String(value)];
