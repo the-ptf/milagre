@@ -272,6 +272,23 @@ export function createQuotaService({ storage, limits, now = Date.now }) {
   };
 }
 
+/** Search crawlers may not fetch shares at all. Link preview bots that honor robots.txt
+ * (Slack, Twitter/X, LinkedIn) stay allowed, or shared links would unfurl without a preview.
+ * A crawler that ignores this still gets the noindex header on every page. */
+export const ROBOTS_TXT = `User-agent: Slackbot-LinkExpanding
+User-agent: Slackbot
+User-agent: Discordbot
+User-agent: Twitterbot
+User-agent: facebookexternalhit
+User-agent: LinkedInBot
+User-agent: WhatsApp
+User-agent: TelegramBot
+Allow: /
+
+User-agent: *
+Disallow: /
+`;
+
 /** Public routing is separate from internal DO requests: clients cannot reach the quota object. */
 export async function routeRequest(request, env) {
   const url = new URL(request.url);
@@ -279,6 +296,10 @@ export async function routeRequest(request, env) {
   if (!local && (url.protocol !== "https:" || url.origin !== env.PUBLIC_ORIGIN)) return response("Not found", 404);
   if (url.username || url.password) return response("Not found", 404);
   if (url.pathname === "/health" && request.method === "GET") return response("ok");
+  if (url.pathname === "/robots.txt") {
+    if (!["GET", "HEAD"].includes(request.method)) return response("Method not allowed", 405);
+    return response(request.method === "HEAD" ? null : ROBOTS_TXT);
+  }
   if (url.pathname === "/og.png") {
     if (!["GET", "HEAD"].includes(request.method)) return response("Method not allowed", 405);
     if (!env.previewImage) return response("Not found", 404);

@@ -173,3 +173,9 @@ test("a Designs link preview names several designs and reads one design's visibl
     undefined,
   );
 });
+
+test("every public page asks crawlers not to index, follow or archive it", () => {
+  const robots = '<meta name="robots" content="noindex,nofollow,noarchive">';
+  assert.ok(renderDesignPage(page()).includes(robots));
+  assert.ok(renderDesignPage(artifactPage("<p>Text</p>")).includes(robots));
+});
