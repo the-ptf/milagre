@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, ArrowExpand01Icon, ArrowShrink01Icon, BrowserIcon, Cancel01Icon, Link01Icon, Unlink04Icon } from "@hugeicons/core-free-icons";
 import type { BrowserApi, BrowserList, BrowserTarget } from "@milagre/shared/browser";
@@ -7,6 +8,7 @@ import { createBrowserBridge, createBrowserReceiverHtml } from "@milagre/shared/
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
+import { PillSlot, StatusPill } from "../primitives/StatusPill";
 import { useAnchoredPopover } from "./useAnchoredPopover";
 import { viewerTheme } from "./viewerTheme";
 import { useBridge } from "../../lib/computer-bridge";
@@ -84,7 +86,7 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
       document.removeEventListener("visibilitychange", visibility);
     };
   }, [api, chatId, close, refresh]);
-  if (!api || !chatId || !list.supported || !list.targets.length) return null;
+  if (!api || !chatId || !list.supported || !list.targets.length) return <AnimatePresence initial={false} />;
   const open = () => {
     if (opened) {
       close();
@@ -125,162 +127,162 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
   const choosing = list.targets.length > 1 || list.others.length > 0;
   const shown = selected ? (page ?? { title: selected.title, url: selected.url }) : null;
   return (
-    <div className="flex" data-slot="browser-track">
-      <Tooltip label="Browser pages this Chat's agent uses" align="end">
-        <button
-          ref={trigger}
-          type="button"
-          aria-haspopup="dialog"
-          aria-expanded={opened}
-          aria-controls={opened ? panelId : undefined}
-          aria-label={`Browser, ${list.targets.length} ${list.targets.length === 1 ? "page" : "pages"} in this Chat`}
-          onClick={open}
-          className="flex h-6 items-center gap-1.5 rounded-full border border-line bg-surface px-2 text-[11px] text-ink-2 hover:bg-hover focus-visible:outline-2"
-        >
-          <HugeiconsIcon icon={BrowserIcon} size={12} aria-hidden />
-          Browser <span className="tabular-nums">{list.targets.length}</span>
-        </button>
-      </Tooltip>
-      {opened &&
-        createPortal(
-          <>
-            {expanded && <div className="fixed inset-0 z-40 bg-black/20 backdrop-blur-overlay" aria-hidden />}
-            <div
-              ref={panel}
-              id={panelId}
-              role="dialog"
-              aria-label="Browser"
-              aria-modal="false"
-              tabIndex={-1}
-              data-slot="browser-popover"
-              data-expanded={expanded || undefined}
-              style={expanded ? { left: 20, right: 20, top: 20, bottom: 20 } : { ...bounds, height: selected ? 600 : undefined }}
-              className="fixed z-50 flex flex-col overflow-hidden rounded-[10px] border border-line bg-surface text-ink shadow-raised focus:outline-none"
-            >
-              <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
-                {selected && choosing ? (
-                  <Tooltip label="Back to pages">
-                    <button
-                      type="button"
-                      aria-label="Back to pages"
-                      onClick={() => {
-                        setSelected(null);
-                        setPage(null);
-                        void refresh();
-                      }}
-                      className="rounded p-1 text-ink-2 hover:bg-hover"
-                    >
-                      <HugeiconsIcon icon={ArrowLeft01Icon} size={16} aria-hidden />
-                    </button>
-                  </Tooltip>
-                ) : (
-                  <HugeiconsIcon icon={BrowserIcon} size={16} aria-hidden />
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px]">{shown?.title || "Browser"}</div>
-                  <div className="truncate text-[11px] text-ink-3">{shown?.url || "This Chat"}</div>
-                </div>
-                {selected && (
-                  <Tooltip label={expanded ? "Collapse browser" : "Expand browser"}>
-                    <button
-                      type="button"
-                      aria-label={expanded ? "Collapse browser" : "Expand browser"}
-                      onClick={() => setExpanded((value) => !value)}
-                      className="rounded p-1 text-ink-2 hover:bg-hover"
-                    >
-                      <HugeiconsIcon icon={expanded ? ArrowShrink01Icon : ArrowExpand01Icon} size={16} aria-hidden />
-                    </button>
-                  </Tooltip>
-                )}
-                <Tooltip label="Close browser">
-                  <button type="button" aria-label="Close browser" onClick={close} className="rounded p-1 text-ink-2 hover:bg-hover">
-                    <HugeiconsIcon icon={Cancel01Icon} size={16} aria-hidden />
-                  </button>
-                </Tooltip>
-              </header>
-              {selected ? (
-                <BrowserFrame key={selected.id} api={api} chatId={chatId} targetId={selected.id} onPage={setPage} onClose={close} />
-              ) : (
-                <ScrollArea className="p-1">
-                  {loading && (
-                    <p role="status" className="p-3 text-[13px] text-ink-2">
-                      Finding browser pages...
-                    </p>
-                  )}
-                  {list.error && (
-                    <p role="alert" className="p-3 text-[13px] text-red">
-                      {list.error}
-                    </p>
-                  )}
-                  {!loading && !list.error && !list.targets.length && (
-                    <p className="p-3 text-[13px] text-ink-2">This Chat's agent has no open pages. Attach a browser below to view it here.</p>
-                  )}
-                  {list.targets.map((target) => (
-                    <div key={target.id} className="flex items-center gap-1">
+    <AnimatePresence initial={false}>
+      <PillSlot key="browser-track" slot="browser-track">
+        <Tooltip label="Browser pages this Chat's agent uses" align="end">
+          <StatusPill
+            ref={trigger}
+            aria-haspopup="dialog"
+            aria-expanded={opened}
+            aria-controls={opened ? panelId : undefined}
+            aria-label={`Browser, ${list.targets.length} ${list.targets.length === 1 ? "page" : "pages"} in this Chat`}
+            onClick={open}
+            icon={BrowserIcon}
+            label="Browser"
+            count={list.targets.length}
+          />
+        </Tooltip>
+        {opened &&
+          createPortal(
+            <>
+              {expanded && <div className="fixed inset-0 z-40 bg-black/20 backdrop-blur-overlay" aria-hidden />}
+              <div
+                ref={panel}
+                id={panelId}
+                role="dialog"
+                aria-label="Browser"
+                aria-modal="false"
+                tabIndex={-1}
+                data-slot="browser-popover"
+                data-expanded={expanded || undefined}
+                style={expanded ? { left: 20, right: 20, top: 20, bottom: 20 } : { ...bounds, height: selected ? 600 : undefined }}
+                className="fixed z-50 flex flex-col overflow-hidden rounded-[10px] border border-line bg-surface text-ink shadow-raised focus:outline-none"
+              >
+                <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
+                  {selected && choosing ? (
+                    <Tooltip label="Back to pages">
                       <button
                         type="button"
-                        data-browser-target={target.id}
-                        onClick={() => setSelected(target)}
-                        className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-hover"
+                        aria-label="Back to pages"
+                        onClick={() => {
+                          setSelected(null);
+                          setPage(null);
+                          void refresh();
+                        }}
+                        className="rounded p-1 text-ink-2 hover:bg-hover"
                       >
-                        <HugeiconsIcon icon={BrowserIcon} size={16} aria-hidden className="shrink-0" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px]">{target.title || target.url}</span>
-                          <span className="block truncate text-[11px] text-ink-3">{target.url}</span>
-                        </span>
-                        <span className="shrink-0 text-[11px] text-ink-3">{target.source === "attached" ? "Attached" : target.browser}</span>
+                        <HugeiconsIcon icon={ArrowLeft01Icon} size={16} aria-hidden />
                       </button>
-                      {target.source === "attached" && (
-                        <Tooltip label="Detach this browser from this Chat">
-                          <button
-                            type="button"
-                            aria-label={`Detach ${target.title || target.url} from this Chat`}
-                            data-browser-detach={target.id.slice(0, target.id.indexOf(":"))}
-                            disabled={attaching !== null}
-                            onClick={() => void detach(target.id.slice(0, target.id.indexOf(":")))}
-                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover disabled:opacity-40"
-                          >
-                            <HugeiconsIcon icon={Unlink04Icon} size={14} aria-hidden />
-                          </button>
-                        </Tooltip>
-                      )}
-                    </div>
-                  ))}
-                  {list.others.length > 0 && (
-                    <>
-                      <h3 className="px-3 pb-1 pt-3 text-[11px] font-medium text-ink-3">Other browsers on this computer</h3>
-                      {list.others.map((other) => (
-                        <div key={other.id} data-browser-other={other.id} className="flex items-center gap-2 rounded-md px-3 py-2">
-                          <HugeiconsIcon icon={BrowserIcon} size={16} aria-hidden className="shrink-0 text-ink-3" />
+                    </Tooltip>
+                  ) : (
+                    <HugeiconsIcon icon={BrowserIcon} size={16} aria-hidden />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px]">{shown?.title || "Browser"}</div>
+                    <div className="truncate text-[11px] text-ink-3">{shown?.url || "This Chat"}</div>
+                  </div>
+                  {selected && (
+                    <Tooltip label={expanded ? "Collapse browser" : "Expand browser"}>
+                      <button
+                        type="button"
+                        aria-label={expanded ? "Collapse browser" : "Expand browser"}
+                        onClick={() => setExpanded((value) => !value)}
+                        className="rounded p-1 text-ink-2 hover:bg-hover"
+                      >
+                        <HugeiconsIcon icon={expanded ? ArrowShrink01Icon : ArrowExpand01Icon} size={16} aria-hidden />
+                      </button>
+                    </Tooltip>
+                  )}
+                  <Tooltip label="Close browser">
+                    <button type="button" aria-label="Close browser" onClick={close} className="rounded p-1 text-ink-2 hover:bg-hover">
+                      <HugeiconsIcon icon={Cancel01Icon} size={16} aria-hidden />
+                    </button>
+                  </Tooltip>
+                </header>
+                {selected ? (
+                  <BrowserFrame key={selected.id} api={api} chatId={chatId} targetId={selected.id} onPage={setPage} onClose={close} />
+                ) : (
+                  <ScrollArea className="p-1">
+                    {loading && (
+                      <p role="status" className="p-3 text-[13px] text-ink-2">
+                        Finding browser pages...
+                      </p>
+                    )}
+                    {list.error && (
+                      <p role="alert" className="p-3 text-[13px] text-red">
+                        {list.error}
+                      </p>
+                    )}
+                    {!loading && !list.error && !list.targets.length && (
+                      <p className="p-3 text-[13px] text-ink-2">This Chat's agent has no open pages. Attach a browser below to view it here.</p>
+                    )}
+                    {list.targets.map((target) => (
+                      <div key={target.id} className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          data-browser-target={target.id}
+                          onClick={() => setSelected(target)}
+                          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-hover"
+                        >
+                          <HugeiconsIcon icon={BrowserIcon} size={16} aria-hidden className="shrink-0" />
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[13px]">{other.title || other.browser}</span>
-                            <span className="block truncate text-[11px] text-ink-3">
-                              {other.browser} · {other.pages} {other.pages === 1 ? "page" : "pages"}
-                            </span>
+                            <span className="block truncate text-[13px]">{target.title || target.url}</span>
+                            <span className="block truncate text-[11px] text-ink-3">{target.url}</span>
                           </span>
-                          <Tooltip label="Show this browser's pages in this Chat">
+                          <span className="shrink-0 text-[11px] text-ink-3">{target.source === "attached" ? "Attached" : target.browser}</span>
+                        </button>
+                        {target.source === "attached" && (
+                          <Tooltip label="Detach this browser from this Chat">
                             <button
                               type="button"
-                              aria-label={`Attach ${other.title || other.browser} to this Chat`}
+                              aria-label={`Detach ${target.title || target.url} from this Chat`}
+                              data-browser-detach={target.id.slice(0, target.id.indexOf(":"))}
                               disabled={attaching !== null}
-                              onClick={() => void attach(other.id)}
-                              className="flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[12px] text-ink-2 hover:bg-hover disabled:opacity-40"
+                              onClick={() => void detach(target.id.slice(0, target.id.indexOf(":")))}
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover disabled:opacity-40"
                             >
-                              <HugeiconsIcon icon={Link01Icon} size={14} aria-hidden />
-                              Attach
+                              <HugeiconsIcon icon={Unlink04Icon} size={14} aria-hidden />
                             </button>
                           </Tooltip>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </ScrollArea>
-              )}
-            </div>
-          </>,
-          document.body,
-        )}
-    </div>
+                        )}
+                      </div>
+                    ))}
+                    {list.others.length > 0 && (
+                      <>
+                        <h3 className="px-3 pb-1 pt-3 text-[11px] font-medium text-ink-3">Other browsers on this computer</h3>
+                        {list.others.map((other) => (
+                          <div key={other.id} data-browser-other={other.id} className="flex items-center gap-2 rounded-md px-3 py-2">
+                            <HugeiconsIcon icon={BrowserIcon} size={16} aria-hidden className="shrink-0 text-ink-3" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[13px]">{other.title || other.browser}</span>
+                              <span className="block truncate text-[11px] text-ink-3">
+                                {other.browser} · {other.pages} {other.pages === 1 ? "page" : "pages"}
+                              </span>
+                            </span>
+                            <Tooltip label="Show this browser's pages in this Chat">
+                              <button
+                                type="button"
+                                aria-label={`Attach ${other.title || other.browser} to this Chat`}
+                                disabled={attaching !== null}
+                                onClick={() => void attach(other.id)}
+                                className="flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[12px] text-ink-2 hover:bg-hover disabled:opacity-40"
+                              >
+                                <HugeiconsIcon icon={Link01Icon} size={14} aria-hidden />
+                                Attach
+                              </button>
+                            </Tooltip>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </ScrollArea>
+                )}
+              </div>
+            </>,
+            document.body,
+          )}
+      </PillSlot>
+    </AnimatePresence>
   );
 }
 

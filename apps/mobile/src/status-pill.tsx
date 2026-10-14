@@ -25,14 +25,14 @@ const ICON_SIZE = 12;
 const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
 const PILL_LAYOUT = LinearTransition.duration(240).easing(EASE_OUT).reduceMotion(ReduceMotion.System);
 
-/** A pill grows in from a slightly smaller size while the pills beside it slide over. */
+/** A pill grows in from a slightly smaller size while the pills beside it slide over; it shows once they have started to. */
 function pillIn() {
   "worklet";
   return {
     initialValues: { opacity: 0, transform: [{ scale: 0.85 }] },
     animations: {
-      opacity: withTiming(1, { duration: 160 }),
-      transform: [{ scale: withTiming(1, { duration: 260, easing: EASE_OUT }) }],
+      opacity: withDelay(90, withTiming(1, { duration: 160 })),
+      transform: [{ scale: withDelay(90, withTiming(1, { duration: 260, easing: EASE_OUT })) }],
     },
   };
 }

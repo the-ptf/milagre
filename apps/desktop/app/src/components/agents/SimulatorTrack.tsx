@@ -14,6 +14,7 @@ import {
 } from "@milagre/shared/simulator-receiver";
 import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
+import { PillSlot, StatusPill } from "../primitives/StatusPill";
 import { useAnchoredPopover } from "./useAnchoredPopover";
 import { viewerTheme } from "./viewerTheme";
 import { dockLayer, useCloseWhenDesignsExpand, useDockArea, useSidePanelRoom } from "./dock-area";
@@ -129,7 +130,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
   }, [opened, close, sole]);
   // The window's top-right corner offers the simulator too, while this Chat has one attached.
   useSidePanel("simulator", api && list.supported && attachedCount ? { open: opened, toggle: open } : null);
-  if (!api || !list.supported || !attachedCount) return null;
+  if (!api || !list.supported || !attachedCount) return <AnimatePresence initial={false} />;
   const panelContent = (
     <>
       <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
@@ -245,71 +246,71 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
     </>
   );
   return (
-    <div className="flex" data-slot="simulator-track">
-      <Tooltip label="Simulators attached to this Chat" align="end">
-        <button
-          ref={trigger}
-          type="button"
-          aria-haspopup="dialog"
-          aria-expanded={opened}
-          aria-controls={opened ? panelId : undefined}
-          aria-label={`Simulators, ${attachedCount} attached to this Chat`}
-          onClick={open}
-          className="flex h-6 items-center gap-1.5 rounded-full border border-line bg-surface px-2 text-[11px] text-ink-2 hover:bg-hover focus-visible:outline-2"
-        >
-          <HugeiconsIcon icon={SmartphoneIcon} size={12} aria-hidden />
-          Simulators <span className="tabular-nums">{attachedCount}</span>
-        </button>
-      </Tooltip>
-      {createPortal(
-        <AnimatePresence>
-          {opened &&
-            (docked ? (
-              <DockSlide
-                key="simulator-dock"
-                // Docked, it opens like the git changes panel, lines up with the sidebar's card, and sits left of the
-                // changes panel; the chat makes room through --simulator-dock.
-                width={DOCK_WIDTH}
-                reserve="--simulator-dock"
-                ref={panel}
-                id={panelId}
-                role="dialog"
-                aria-label="Simulator"
-                aria-modal="false"
-                tabIndex={-1}
-                data-slot="simulator-popover"
-                data-docked
-                style={{ top: dock?.top ?? 40, right: (dock?.right ?? 0) + 12, bottom: dock?.bottom ?? 12 }}
-                className="fixed z-[42] focus:outline-none"
-                panelClassName="overflow-hidden rounded-[10px] border border-line bg-surface text-ink shadow-raised"
-              >
-                {panelContent}
-              </DockSlide>
-            ) : (
-              <motion.div
-                key="simulator"
-                // Anchored over its pill, the device list rises from it.
-                initial={reduced ? false : { opacity: 0, y: 6, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={reduced ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, y: 6, scale: 0.98 }}
-                transition={{ duration: 0.18, ease: EASE_OUT }}
-                ref={panel}
-                id={panelId}
-                role="dialog"
-                aria-label="Simulator"
-                aria-modal="false"
-                tabIndex={-1}
-                data-slot="simulator-popover"
-                style={{ ...bounds, height: selected ? 650 : undefined }}
-                className="fixed z-50 flex flex-col overflow-hidden rounded-[10px] border border-line bg-surface text-ink shadow-raised focus:outline-none"
-              >
-                {panelContent}
-              </motion.div>
-            ))}
-        </AnimatePresence>,
-        dockLayer(),
-      )}
-    </div>
+    <AnimatePresence initial={false}>
+      <PillSlot key="simulator-track" slot="simulator-track">
+        <Tooltip label="Simulators attached to this Chat" align="end">
+          <StatusPill
+            ref={trigger}
+            aria-haspopup="dialog"
+            aria-expanded={opened}
+            aria-controls={opened ? panelId : undefined}
+            aria-label={`Simulators, ${attachedCount} attached to this Chat`}
+            onClick={open}
+            icon={SmartphoneIcon}
+            label="Simulators"
+            count={attachedCount}
+          />
+        </Tooltip>
+        {createPortal(
+          <AnimatePresence>
+            {opened &&
+              (docked ? (
+                <DockSlide
+                  key="simulator-dock"
+                  // Docked, it opens like the git changes panel, lines up with the sidebar's card, and sits left of the
+                  // changes panel; the chat makes room through --simulator-dock.
+                  width={DOCK_WIDTH}
+                  reserve="--simulator-dock"
+                  ref={panel}
+                  id={panelId}
+                  role="dialog"
+                  aria-label="Simulator"
+                  aria-modal="false"
+                  tabIndex={-1}
+                  data-slot="simulator-popover"
+                  data-docked
+                  style={{ top: dock?.top ?? 40, right: (dock?.right ?? 0) + 12, bottom: dock?.bottom ?? 12 }}
+                  className="fixed z-[42] focus:outline-none"
+                  panelClassName="overflow-hidden rounded-[10px] border border-line bg-surface text-ink shadow-raised"
+                >
+                  {panelContent}
+                </DockSlide>
+              ) : (
+                <motion.div
+                  key="simulator"
+                  // Anchored over its pill, the device list rises from it.
+                  initial={reduced ? false : { opacity: 0, y: 6, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={reduced ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, y: 6, scale: 0.98 }}
+                  transition={{ duration: 0.18, ease: EASE_OUT }}
+                  ref={panel}
+                  id={panelId}
+                  role="dialog"
+                  aria-label="Simulator"
+                  aria-modal="false"
+                  tabIndex={-1}
+                  data-slot="simulator-popover"
+                  style={{ ...bounds, height: selected ? 650 : undefined }}
+                  className="fixed z-50 flex flex-col overflow-hidden rounded-[10px] border border-line bg-surface text-ink shadow-raised focus:outline-none"
+                >
+                  {panelContent}
+                </motion.div>
+              ))}
+          </AnimatePresence>,
+          dockLayer(),
+        )}
+      </PillSlot>
+    </AnimatePresence>
   );
 }
 
