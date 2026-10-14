@@ -1,4 +1,5 @@
 const path = require("node:path");
+const { PLAN_TOOL_NAMES } = require("../chat-plan-tools.cjs");
 
 // Approval requests from both agents, in the shape of the `permission-request` event, and the
 // replies each agent expects for the user's answer. A request is
@@ -143,18 +144,21 @@ function codexFileRequest(id, params, changes = []) {
 
 // Codex 0.160 asks about MCP calls through elicitation, with an empty form and tool details
 // in _meta. Other elicitation forms need user input that a permission card cannot collect.
+function isCodexMcpApproval(params) {
+  const { _meta: meta, requestedSchema: schema } = params;
+  return (
+    params.mode === "form" &&
+    meta?.codex_approval_kind === "mcp_tool_call" &&
+    schema?.type === "object" &&
+    Boolean(schema.properties) &&
+    !Object.keys(schema.properties).length &&
+    !(schema.required?.length ?? 0)
+  );
+}
+
 function codexMcpRequest(id, params) {
+  if (!isCodexMcpApproval(params)) return null;
   const { _meta: meta } = params;
-  const schema = params.requestedSchema;
-  if (
-    params.mode !== "form" ||
-    meta?.codex_approval_kind !== "mcp_tool_call" ||
-    schema?.type !== "object" ||
-    !schema.properties ||
-    Object.keys(schema.properties).length ||
-    (schema.required?.length ?? 0)
-  )
-    return null;
   return compact({
     requestId: String(id),
     kind: "other",
@@ -165,6 +169,23 @@ function codexMcpRequest(id, params) {
     // Approve this call only. Never send the provider's "always" persistence choice.
     allowForChat: false,
   });
+}
+
+// Milagre's own task and phase tools only write the Chat's own plan, so every permission mode lets them run
+// without a card. Codex names the tool only in the message: `Allow the milagre MCP server to run tool "tasks_set"?`.
+const PLAN_TOOLS = new Set(PLAN_TOOL_NAMES);
+
+function isCodexPlanToolApproval(params = {}) {
+  if (params.serverName !== "milagre" || !isCodexMcpApproval(params)) return false;
+  const tool = /run tool "([^"]+)"/.exec(String(params.message ?? ""))?.[1];
+  return PLAN_TOOLS.has(tool);
+}
+
+// session/request_permission params. Antigravity's tool call carries the MCP server and tool in _meta.mcp.
+function isAcpPlanToolPermission(params = {}) {
+  const { _meta: meta } = params.toolCall ?? {};
+  const mcp = meta?.mcp;
+  return mcp?.server === "milagre" && PLAN_TOOLS.has(mcp.tool);
 }
 
 function codexMcpResponse(decision) {
@@ -284,6 +305,8 @@ module.exports = {
   claudeEditDiff,
   insideRoot,
   insideWorkspace,
+  isAcpPlanToolPermission,
+  isCodexPlanToolApproval,
   claudeRequest,
   claudeResult,
   codexChangesDiff,

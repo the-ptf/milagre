@@ -3,6 +3,9 @@ const { PHASES, currentPhase, setPhase, setTasks, updateTask } = require("@milag
 
 // Milagre's own task list and phase tools, the same for every provider. Each Chat's writes run one at a time, so a
 // batch of task_update calls sees each other's results.
+// The tool names live here only. Permission code auto-approves them (they just write the Chat's own plan).
+const PLAN_TOOL_NAMES = Object.freeze(["tasks_set", "task_update", "tasks_read", "phase_set"]);
+const [TASKS_SET, TASK_UPDATE, TASKS_READ, PHASE_SET] = PLAN_TOOL_NAMES;
 const MARKS = { completed: "[x]", in_progress: "[~]", pending: "[ ]" };
 const status = z.enum(["pending", "in_progress", "completed"]);
 // Three levels at most, written out so the JSON schema has no $ref or $defs (some providers' function schemas reject them).
@@ -52,7 +55,7 @@ function createChatPlanTools({ read, write, now = Date.now }) {
   function definitions(chatId) {
     return [
       {
-        name: "tasks_set",
+        name: TASKS_SET,
         description:
           "Write this Chat's task list, shown in its Tasks pill on desktop and phone. Send the whole tree, at most 3 levels deep. Keep a task's id to keep its status; new tasks get ids from Milagre. Returns the list with ids.",
         input: { tasks: z.array(level1).min(1).max(100) },
@@ -60,7 +63,7 @@ function createChatPlanTools({ read, write, now = Date.now }) {
         run: async ({ tasks }) => formatPlan(await change(chatId, (plan, at) => setTasks(plan, tasks, at))),
       },
       {
-        name: "task_update",
+        name: TASK_UPDATE,
         description:
           "Change one task in this Chat's task list: mark a subtask in_progress when you start it and completed when it is done, or rename it. A parent's status follows its subtasks.",
         input: {
@@ -73,14 +76,14 @@ function createChatPlanTools({ read, write, now = Date.now }) {
         run: async (input) => formatPlan(await change(chatId, (plan, at) => updateTask(plan, input, at))),
       },
       {
-        name: "tasks_read",
+        name: TASKS_READ,
         description: "Read this Chat's task list with ids, and its current phase.",
         input: {},
         readOnly: true,
         run: async () => formatPlan(await read(chatId)),
       },
       {
-        name: "phase_set",
+        name: PHASE_SET,
         description: `Move this Chat to a work phase, shown on its phase graph: ${PHASES.join(", ")}. Call it when the work moves on, not for every step.`,
         input: { phase: z.enum(PHASES) },
         readOnly: false,
@@ -91,4 +94,4 @@ function createChatPlanTools({ read, write, now = Date.now }) {
   return { definitions };
 }
 
-module.exports = { createChatPlanTools, formatPlan };
+module.exports = { PLAN_TOOL_NAMES, createChatPlanTools, formatPlan };

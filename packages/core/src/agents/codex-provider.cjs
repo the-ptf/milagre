@@ -28,6 +28,7 @@ const {
   codexMcpResponse,
   insideRoot,
   insideWorkspace,
+  isCodexPlanToolApproval,
 } = require("./permissions.cjs");
 const { PendingQuestions, codexQuestionRequest, codexQuestionResponse } = require("./questions.cjs");
 
@@ -524,6 +525,7 @@ class CodexSession {
       const answer = (decision) => this.reply(id, codexMcpResponse(decision));
       if (!this.turnActive || this.cancelRequested || this.closed) answer("cancelled");
       else if (this.analysisOnly || !request) answer("deny");
+      else if (isCodexPlanToolApproval(params)) answer("allow");
       else this.permissions.add(request, answer);
       return;
     }

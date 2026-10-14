@@ -201,7 +201,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
           params: { threadId, turnId, itemId: "cmd-1", startedAtMs: 0, command: "/bin/zsh -lc 'rm -rf build'", cwd: "/repo", reason: "Clean the build" },
         });
       }
-      if (["mcp-approval", "mcp-form"].includes(scenario)) {
+      if (["mcp-approval", "mcp-form", "mcp-plan-approval"].includes(scenario)) {
+        const tool = scenario === "mcp-plan-approval" ? "tasks_set" : "design_show";
         pendingTurn = { threadId, turnId, approvalId: "srv-mcp" };
         return send({
           id: "srv-mcp",
@@ -211,7 +212,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
             turnId,
             serverName: "milagre",
             mode: "form",
-            message: 'Allow the milagre MCP server to run tool "design_show"?',
+            message: `Allow the milagre MCP server to run tool "${tool}"?`,
             requestedSchema: { type: "object", properties: scenario === "mcp-form" ? { email: { type: "string" } } : {} },
             _meta: {
               codex_approval_kind: "mcp_tool_call",

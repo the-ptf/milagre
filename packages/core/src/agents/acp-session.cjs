@@ -17,7 +17,7 @@ const {
   stopReasonEvent,
 } = require("./acp-events.cjs");
 const { milagreInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, loginMessage, missingCliMessage } = require("./events.cjs");
-const { PendingPermissions, capText, insideWorkspace, unwrapShell } = require("./permissions.cjs");
+const { PendingPermissions, capText, insideWorkspace, isAcpPlanToolPermission, unwrapShell } = require("./permissions.cjs");
 const { PendingQuestions } = require("./questions.cjs");
 const { antigravityAcp, makeTempDir } = require("./antigravity-acp.cjs");
 
@@ -437,6 +437,10 @@ class AcpSession {
     // A request that arrives once its turn has stopped has nobody to ask.
     if (!this.turnActive || this.cancelRequested || this.closed) {
       this.reply(id, outcome(null));
+      return;
+    }
+    if (isAcpPlanToolPermission(params)) {
+      this.reply(id, outcome(pickOption(options, "allow")));
       return;
     }
     const requestId = `${this.processCount}:${id}`;

@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { inputSchema, runTool } = require("./linked-tools.cjs");
-const { createChatPlanTools, formatPlan } = require("./chat-plan-tools.cjs");
+const { PLAN_TOOL_NAMES, createChatPlanTools, formatPlan } = require("./chat-plan-tools.cjs");
 
 function harness() {
   const plans = new Map();
@@ -88,4 +88,12 @@ test("every tool's input renders as a JSON schema, including the recursive task 
   assert.equal(schema.type, "object");
   assert.ok(schema.properties.tasks);
   assert.doesNotMatch(JSON.stringify(schema), /\$ref|\$defs/);
+});
+
+test("PLAN_TOOL_NAMES lists exactly the tools served", () => {
+  const { tools } = harness();
+  assert.deepEqual(
+    tools.definitions("/p#1").map((tool) => tool.name),
+    [...PLAN_TOOL_NAMES],
+  );
 });

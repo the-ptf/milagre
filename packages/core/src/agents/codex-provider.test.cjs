@@ -256,6 +256,19 @@ test("MCP tool calls in Ask mode reach the permission card and accept once", asy
   assert.equal(session.respondToPermission("srv-mcp", "allow"), false);
 });
 
+test("Milagre's plan tools are accepted without a card in every mode", async (t) => {
+  for (const permissionMode of ["ask", "auto"]) {
+    const { session, events } = codex(t, { scenario: "mcp-plan-approval" });
+    await session.startTurn({ ...TURN, permissionMode });
+    await ended(events);
+    assert.equal(replyText(events), 'answer:{"action":"accept","content":{}}');
+    assert.equal(
+      events.some((event) => event.type === "permission-request"),
+      false,
+    );
+  }
+});
+
 test("MCP permission denial and cancellation use elicitation responses", async (t) => {
   const denied = codex(t, { scenario: "mcp-approval" });
   await denied.session.startTurn(TURN);

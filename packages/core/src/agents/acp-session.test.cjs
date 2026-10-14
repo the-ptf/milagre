@@ -217,6 +217,27 @@ test("asks before a command and answers with the option picked", async (t) => {
   }
 });
 
+test("Milagre's plan tools are allowed once without a card in every mode", async (t) => {
+  for (const permissionMode of ["ask", "auto"]) {
+    const { session, events } = antigravity(t, { scenario: "mcp-plan-tool" });
+    await session.startTurn({ ...TURN, permissionMode });
+    await ended(events);
+    assert.equal(of(events, "permission-request").length, 0);
+    assert.equal(replyText(events), "picked:allow");
+  }
+});
+
+test("Milagre's other tools still ask", async (t) => {
+  const { session, events } = antigravity(t, { scenario: "mcp-design-tool" });
+  await session.startTurn({ ...TURN, permissionMode: "auto" });
+  await waitUntil(() => of(events, "permission-request").length === 1);
+  const [request] = of(events, "permission-request");
+  assert.equal(request.tool, "milagre_design_show");
+  session.respondToPermission(request.requestId, "deny");
+  await ended(events);
+  assert.equal(replyText(events), "picked:deny");
+});
+
 test("Full answers permission requests without a card", async (t) => {
   const { session, events } = antigravity(t, { scenario: "permission" });
   await session.startTurn({ ...TURN, permissionMode: "full" });

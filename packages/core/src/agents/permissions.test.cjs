@@ -14,8 +14,11 @@ const {
   codexFileRequest,
   codexMcpRequest,
   codexMcpResponse,
+  isAcpPlanToolPermission,
+  isCodexPlanToolApproval,
   unwrapShell,
 } = require("./permissions.cjs");
+const { PLAN_TOOL_NAMES } = require("../chat-plan-tools.cjs");
 
 test("Codex: MCP approvals show the exact call without offering permanent grants", () => {
   const params = {
@@ -41,6 +44,36 @@ test("Codex: MCP approvals show the exact call without offering permanent grants
   assert.deepEqual(codexMcpResponse("allow"), { action: "accept", content: {} });
   assert.deepEqual(codexMcpResponse("deny"), { action: "decline", content: null });
   assert.deepEqual(codexMcpResponse("cancelled"), { action: "cancel", content: null });
+});
+
+test("Codex: only Milagre's own plan tools are auto-approved", () => {
+  const params = (tool, extra = {}) => ({
+    serverName: "milagre",
+    mode: "form",
+    message: `Allow the milagre MCP server to run tool "${tool}"?`,
+    requestedSchema: { type: "object", properties: {} },
+    _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_params: {} },
+    ...extra,
+  });
+  assert.deepEqual(PLAN_TOOL_NAMES, ["tasks_set", "task_update", "tasks_read", "phase_set"]);
+  for (const name of PLAN_TOOL_NAMES) assert.equal(isCodexPlanToolApproval(params(name)), true, name);
+  assert.equal(isCodexPlanToolApproval(params("design_show")), false);
+  assert.equal(isCodexPlanToolApproval(params("tasks_set", { serverName: "other" })), false);
+  assert.equal(isCodexPlanToolApproval(params("tasks_set", { _meta: { codex_approval_kind: "other" } })), false);
+  assert.equal(isCodexPlanToolApproval(params("tasks_set", { requestedSchema: { type: "object", properties: { name: { type: "string" } } } })), false);
+  assert.equal(isCodexPlanToolApproval(params("tasks_set", { message: "Allow the milagre MCP server to run a tool?" })), false);
+  assert.equal(isCodexPlanToolApproval({}), false);
+});
+
+test("ACP: only Milagre's own plan tools are auto-approved", () => {
+  const call = (server, tool) => ({
+    toolCall: { toolCallId: "c1", kind: "other", status: "pending", title: `${server}_${tool}`, _meta: { mcp: { server, tool }, is_mcp_tool_call: true } },
+  });
+  for (const name of PLAN_TOOL_NAMES) assert.equal(isAcpPlanToolPermission(call("milagre", name)), true, name);
+  assert.equal(isAcpPlanToolPermission(call("milagre", "design_show")), false);
+  assert.equal(isAcpPlanToolPermission(call("other", "tasks_set")), false);
+  assert.equal(isAcpPlanToolPermission({ toolCall: { title: "milagre_tasks_set", kind: "other" } }), false);
+  assert.equal(isAcpPlanToolPermission({}), false);
 });
 
 function pending() {
