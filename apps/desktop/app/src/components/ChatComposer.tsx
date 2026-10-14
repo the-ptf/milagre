@@ -844,7 +844,7 @@ export function ChatComposer({
   const retryAdvisor = useEvent((id: string) => onRetryAdvisor?.(id));
   const closeCanvas = useCallback(() => {
     setCanvasChat(null);
-    requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>("[data-slot=subagent-track] > button")?.focus());
+    requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>("[data-slot=subagent-track] [data-face=pill] button")?.focus());
   }, []);
   // A first message, including its preview while setup runs, opens the conversation layout.
   const isNewChat = messages.length === 0;
@@ -978,7 +978,7 @@ export function ChatComposer({
             </div>
           )}
           <div
-            className={`mx-auto flex w-full max-w-3xl shrink-0 items-center justify-end gap-2 px-3 empty:hidden ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3.5 [&>*]:pointer-events-auto"}`}
+            className={`mx-auto flex w-full max-w-3xl shrink-0 items-center justify-end gap-2 px-3 empty:hidden ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3.5 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
           >
             {/* The PR fix sits at the left of the composer's chip row; the chat's ports, to-dos and subagents at the right.
             Each pill is frosted glass; the LayoutGroup slides the others over when one comes or goes. */}

@@ -4746,6 +4746,7 @@ function simulatorHost(client, file = "simulator.tsx") {
       "@milagre/shared/simulator-receiver": require("../packages/shared/src/simulator-receiver.mjs"),
       "./session": { useSession: () => ({ client }) },
       "./icons": { Icon: "Icon" },
+      "./status-pill": { StatusPill: "StatusPill" },
       "./theme": {
         hex: () => ({
           page: "#fafafb",
@@ -5083,6 +5084,7 @@ function browserHost(client) {
       "@milagre/shared/browser-receiver": require("../packages/shared/src/browser-receiver.mjs"),
       "./session": { useSession: () => ({ client }) },
       "./icons": { Icon: "Icon" },
+      "./status-pill": { StatusPill: "StatusPill" },
       "./theme": {
         hex: () => ({ page: "#fafafb", surface: "#ffffff", ink: "#1f2124", ink2: "#62656b", line: "#ecedef", hover: "#f4f5f6", accent: "#0285ff" }),
       },

@@ -181,7 +181,7 @@ async function browserChecks(url) {
     );
     await screenshot("composer-light");
 
-    await click("[data-slot=browser-track] button");
+    await click("[data-slot=browser-track] [data-face=pill] button");
     await waitFor(shownFrame, "the sole page opens directly with a live frame");
     assert.equal(counts.open, 1);
     await waitFor('document.querySelector("[data-slot=browser-popover] header")?.textContent.includes("Fixture login")', "page title in the header");
@@ -265,13 +265,13 @@ async function browserChecks(url) {
 
     // Closing the viewer ends Milagre's capture only; both browsers keep running.
     await click('[aria-label="Close browser"]');
-    await waitFor('!document.querySelector("[data-slot=browser-popover]")');
+    await waitFor('document.querySelector("[data-slot=browser-popover]")?.dataset.state !== "open"');
     await waitUntil(() => counts.close >= 1, "viewer close reaches the host");
     process.kill(agentChrome.pid, 0);
     assert.ok((await pageEval("Someone else", "document.title")).includes("Someone else"), "the attached browser is still open");
 
     // A page that closes while viewed fails clearly and offers Retry.
-    await click("[data-slot=browser-track] button");
+    await click("[data-slot=browser-track] [data-face=pill] button");
     await waitFor('document.querySelectorAll("[data-browser-target]").length===2');
     await evaluate('[...document.querySelectorAll("[data-browser-target]")].find(node=>node.textContent.includes("Attached")).click()');
     await waitFor(shownFrame);
@@ -286,7 +286,7 @@ async function browserChecks(url) {
     await click('[aria-label="Close browser"]');
 
     // Detach ends only this Chat's attachment: the browser is offered again and keeps running.
-    await click("[data-slot=browser-track] button");
+    await click("[data-slot=browser-track] [data-face=pill] button");
     await waitFor('!!document.querySelector("[data-browser-detach]")', "attached pages offer Detach");
     await click("[data-browser-detach]");
     await waitFor(

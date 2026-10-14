@@ -1,14 +1,15 @@
-import { useState, type ButtonHTMLAttributes, type ReactNode, type Ref } from "react";
+import { useState, type ButtonHTMLAttributes, type CSSProperties, type ReactNode, type Ref } from "react";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import { AnimatePresence, motion, useReducedMotion, type Transition } from "motion/react";
 
 const EASE_OUT: Transition["ease"] = [0.23, 1, 0.32, 1];
 const PILL_IN: Transition = { duration: 0.26, ease: EASE_OUT };
 
-const TONES = {
-  ink: "border-line text-ink-2",
-  orange: "border-orange/25 text-orange [--status-pill-tint:var(--orange)] focus-visible:outline-orange",
-  red: "border-red/25 text-red [--status-pill-tint:var(--red)] focus-visible:outline-red",
+// Each tone sets the glass tint and ring the .status-pill surface draws (styles.css), and the text colour.
+export const PILL_TONES = {
+  ink: "text-ink-2",
+  orange: "text-orange [--status-pill-tint:var(--orange)] [--status-pill-ring:color-mix(in_oklab,var(--orange)_25%,transparent)] focus-visible:outline-orange",
+  red: "text-red [--status-pill-tint:var(--red)] [--status-pill-ring:color-mix(in_oklab,var(--red)_25%,transparent)] focus-visible:outline-red",
 } as const;
 
 /**
@@ -16,14 +17,31 @@ const TONES = {
  * slightly smaller size and shrinks out, and its neighbours slide over, inside the row's LayoutGroup. A pill already
  * there when the chat opens does not animate: wrap the slot in `<AnimatePresence initial={false}>`.
  */
-export function PillSlot({ children, className = "flex", slot }: { children: ReactNode; className?: string; slot: string }) {
+export function PillSlot({
+  children,
+  className = "flex",
+  slot,
+  ref,
+  style,
+  still = false,
+}: {
+  children: ReactNode;
+  className?: string;
+  slot: string;
+  ref?: Ref<HTMLDivElement>;
+  style?: CSSProperties;
+  /** No layout slide: a transform would become the containing block of a fixed descendant (an expanded PillMorph). */
+  still?: boolean;
+}) {
   const reduced = useReducedMotion();
   const hidden = reduced ? { opacity: 0 } : { opacity: 0, scale: 0.85 };
   return (
     <motion.div
-      layout="position"
+      ref={ref}
+      layout={still ? false : "position"}
       data-slot={slot}
       className={className}
+      style={style}
       initial={hidden}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ ...hidden, transition: { duration: 0.14 } }}
@@ -46,6 +64,7 @@ export function StatusPill({
   count,
   total,
   tone = "ink",
+  bare = false,
   className = "",
   ref,
   ...props
@@ -55,7 +74,9 @@ export function StatusPill({
   label?: string;
   count?: number;
   total?: number;
-  tone?: keyof typeof TONES;
+  tone?: keyof typeof PILL_TONES;
+  /** Inside a PillMorph, whose surface draws the glass and border. */
+  bare?: boolean;
   ref?: Ref<HTMLButtonElement>;
 } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
@@ -63,7 +84,7 @@ export function StatusPill({
       ref={ref}
       type="button"
       {...props}
-      className={`status-pill flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11px] transition-colors focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-50 ${TONES[tone]} ${className}`}
+      className={`flex h-6 items-center gap-1.5 rounded-full px-2 text-[11px] whitespace-nowrap transition-colors focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-50 ${bare ? "hover:bg-hover focus-visible:-outline-offset-2" : "status-pill"} ${PILL_TONES[tone]} ${className}`}
     >
       {leading}
       {icon && <HugeiconsIcon icon={icon} size={12} aria-hidden />}

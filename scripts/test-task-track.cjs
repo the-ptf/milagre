@@ -144,7 +144,7 @@ async function browserChecks() {
   // The surface overlays the transcript: opening it never moves the composer row's other controls.
   const rowControls = () =>
     evaluate(
-      `["[data-slot=subagent-track] > button","button[aria-label=Send]"].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return [r.left,r.top,r.width,r.height]})`,
+      `["[data-slot=subagent-track] [data-face=pill] button","button[aria-label=Send]"].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return [r.left,r.top,r.width,r.height]})`,
     );
   const assertRowStill = (before, after, when) =>
     assert.ok(
@@ -314,7 +314,7 @@ async function browserChecks() {
     assert.ok(await evaluate(`document.querySelector("${pill}").getBoundingClientRect().height <= 24`));
     // The pill sits right next to Subagents, on the same row.
     const gap = await evaluate(
-      `(() => {const a=document.querySelector("${pill}").getBoundingClientRect(), b=document.querySelector("[data-slot=subagent-track] > button").getBoundingClientRect();return {gap:b.left-a.right,dy:Math.abs(a.top-b.top)}})()`,
+      `(() => {const a=document.querySelector("${pill}").getBoundingClientRect(), b=document.querySelector("[data-slot=subagent-track] [data-face=pill] button").getBoundingClientRect();return {gap:b.left-a.right,dy:Math.abs(a.top-b.top)}})()`,
     );
     assert.ok(gap.gap >= 0 && gap.gap <= 12 && gap.dy < 1, `Pill is not beside Subagents: ${JSON.stringify(gap)}`);
     // Closed, the panel face is mounted but out of reach.
@@ -453,7 +453,7 @@ async function browserChecks() {
     await waitFor(`document.querySelector("${pill}").textContent === "Review"`);
     await evaluate("window.setPlan(undefined)");
     await waitFor('!document.querySelector("[data-slot=task-track]") && !document.querySelector("[data-slot=task-popover]")');
-    assert.ok(await evaluate('!!document.querySelector("[data-slot=subagent-track] > button")'));
+    assert.ok(await evaluate('!!document.querySelector("[data-slot=subagent-track] [data-face=pill] button")'));
     console.log(
       "PASS: pill label, placement beside Subagents, pill-to-panel morph (faces, corner, size, reduced motion), rows and statuses, light and dark, Escape, collapse and outside click, focus return, narrow layout, hidden when empty, context card tones and Compact now, compaction divider",
     );

@@ -209,11 +209,11 @@ async function browserChecks() {
     await assertMainGutters();
     assert.equal(await evaluate('document.querySelector("[data-slot=subagent-track]").textContent.includes("active")'), false);
     assert.equal(await evaluate('document.querySelector("[data-slot=subagent-track]").textContent.includes("failed")'), false);
-    await evaluate('document.querySelector("[data-slot=subagent-track] > button").click()');
-    await waitFor('!!document.querySelector("[data-slot=subagent-popover]")');
+    await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
+    await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state === "open"');
     assert.equal(await evaluate('document.querySelectorAll("dialog[open], [aria-modal=true]").length'), 0);
     assert.equal(await evaluate('document.querySelectorAll("[data-subagent-row]").length'), 2);
-    assert.ok(await evaluate('document.querySelector("[data-slot=subagent-track] > button").getBoundingClientRect().height <= 24'));
+    assert.ok(await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").getBoundingClientRect().height <= 24'));
     const rowPosition = await evaluate(
       '(() => {const r=document.querySelector("[data-subagent-row]").getBoundingClientRect();return {x:Math.round(r.right-38),y:Math.round(r.top+r.height/2)}})()',
     );
@@ -249,7 +249,7 @@ async function browserChecks() {
       "Canvas uses the app background without adding another grid",
     );
     assert.equal(
-      await evaluate('document.querySelectorAll("dialog[open], [aria-modal=true], [data-slot=subagent-popover]").length'),
+      await evaluate('document.querySelectorAll("dialog[open], [aria-modal=true], [data-slot=subagent-popover][data-state=open]").length'),
       0,
       "Canvas replaces the conversation without opening a modal",
     );
@@ -498,11 +498,11 @@ async function browserChecks() {
     assert.deepEqual(await world(), arrangedView, "Live activity updates preserve the viewport");
     await evaluate('document.querySelector("[data-diff-back]").click()');
     await waitFor('!document.querySelector("[data-slot=subagent-canvas]")');
-    await waitFor('document.activeElement === document.querySelector("[data-slot=subagent-track] > button")');
+    await waitFor('document.activeElement === document.querySelector("[data-slot=subagent-track] [data-face=pill] button")');
     await assertMainGutters();
     assert.ok(await evaluate('document.querySelector("textarea[aria-label=Prompt]").getClientRects().length > 0'), "Back restores the composer");
-    await evaluate('document.querySelector("[data-slot=subagent-track] > button").click()');
-    await waitFor('!!document.querySelector("[data-slot=subagent-popover]")');
+    await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
+    await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state === "open"');
     await clickLabel("Open subagent canvas");
     await waitFor('!!document.querySelector("[data-slot=subagent-canvas]")');
     assert.deepEqual(await positions(), arranged, "Closing and reopening preserves the arrangement");
@@ -827,8 +827,8 @@ async function browserChecks() {
     assert.equal(await godAngry(), true);
     await evaluate('document.querySelector("[data-diff-back]").click()');
     await waitFor('!document.querySelector("[data-slot=subagent-canvas]")');
-    await evaluate('document.querySelector("[data-slot=subagent-track] > button").click()');
-    await waitFor('!!document.querySelector("[data-slot=subagent-popover]")');
+    await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
+    await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state === "open"');
     await clickLabel("Open subagent canvas");
     await waitFor('!!document.querySelector("[data-slot=subagent-canvas]")');
     assert.equal(await godAngry(), false, "Closing the canvas clears the awake expression");
@@ -875,12 +875,12 @@ async function browserChecks() {
     await screenshot("subagent-canvas-narrow");
     await key("Escape");
     await waitFor('!document.querySelector("[data-slot=subagent-canvas]")');
-    await waitFor('document.activeElement === document.querySelector("[data-slot=subagent-track] > button")');
+    await waitFor('document.activeElement === document.querySelector("[data-slot=subagent-track] [data-face=pill] button")');
     await assertMainGutters();
     await evaluate('window.setChildren(items => items.filter(item => !item.id.startsWith("arrival-")))');
     window.setContentSize(800, 600);
-    await evaluate('document.querySelector("[data-slot=subagent-track] > button").click()');
-    await waitFor('!!document.querySelector("[data-slot=subagent-popover]")');
+    await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
+    await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state === "open"');
     await clickLabel("Archive Run tests");
     await waitFor('document.querySelectorAll("[data-subagent-row]").length === 1');
     await evaluate('document.querySelector("[data-subagent-archived-toggle]").click()');
@@ -906,28 +906,32 @@ async function browserChecks() {
     await delay(200);
     await screenshot("subagent-transcript");
     await clickLabel("Close subagents");
-    assert.equal(await evaluate('document.activeElement === document.querySelector("[data-slot=subagent-track] > button")'), true);
-    await evaluate('document.querySelector("[data-slot=subagent-track] > button").click()');
+    assert.equal(await evaluate('document.activeElement === document.querySelector("[data-slot=subagent-track] [data-face=pill] button")'), true);
+    await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
-    await waitFor('!document.querySelector("[data-slot=subagent-popover]")');
-    await evaluate('document.querySelector("[data-slot=subagent-track] > button").click()');
-    await waitFor('!!document.querySelector("[data-slot=subagent-popover]")');
+    await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state !== "open"');
+    await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
+    await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state === "open"');
     await evaluate('document.querySelector("textarea[aria-label=Prompt]").dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}))');
-    await waitFor('!document.querySelector("[data-slot=subagent-popover]")');
-    await evaluate('document.querySelector("[data-slot=subagent-track] > button").click()');
-    await waitFor('!!document.querySelector("[data-slot=subagent-popover]")');
+    await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state !== "open"');
+    await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
+    await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state === "open"');
     assert.equal(await evaluate(`document.querySelectorAll('[aria-label^="Unlink"]').length`), 0);
     await evaluate('document.querySelector("[data-subagent-archive-finished]").click()');
     await waitFor('document.querySelectorAll("[data-subagent-row]").length===1');
     assert.ok(await evaluate('document.querySelector("[data-subagent-archive-finished]").disabled'));
     assert.ok(await evaluate('document.querySelector("[data-subagent-row]").textContent.includes("Review authentication")'));
     await evaluate("window.finishChildren()");
-    await waitFor('!document.querySelector("[data-slot=subagent-track] > button svg")');
+    await waitFor('!document.querySelector("[data-slot=subagent-track] [data-face=pill] button svg")');
     await waitFor('!document.querySelector("[data-subagent-archive-finished]").disabled');
     await evaluate('document.querySelector("[data-subagent-archive-finished]").click()');
     await waitFor('document.querySelectorAll("[data-subagent-row]").length===0');
-    assert.equal(await evaluate('document.querySelector("[data-slot=subagent-track] > button")'), null, "Archiving the last visible child hides the pill");
+    // The open panel stands in for the pill; once it closes the empty slot leaves the row.
+    assert.ok(
+      await evaluate('(() => {const face=document.querySelector("[data-slot=subagent-track] [data-face=pill]");return !face || face.inert})()'),
+      "Archiving the last visible child hides the pill",
+    );
     await screenshot("subagents-all-archived");
     await evaluate('document.querySelector("[data-subagent-archived-toggle]").click()');
     await waitFor('document.querySelectorAll("[data-subagent-row]").length===2');
@@ -939,9 +943,9 @@ async function browserChecks() {
       'window.setChildren([{id:"advisor:review",source:"milagre-advisor",provider:"codex",model:"reported",title:"Security",status:"running",startedAt:Date.now(),updatedAt:Date.now(),transcript:[{id:"answer",kind:"message",text:"Advisor finding: prefer validated reads."}]}]); window.setAdvisorResult(true)',
     );
     await waitFor('!!document.querySelector("[data-slot=subagent-track]")');
-    if (await evaluate('!!document.querySelector("[data-slot=subagent-popover]")'))
-      await evaluate('document.querySelector("[data-slot=subagent-track] > button").click()');
-    await evaluate('document.querySelector("[data-slot=subagent-track] > button").click()');
+    if (await evaluate('document.querySelector("[data-slot=subagent-popover]")?.dataset.state === "open"'))
+      await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
+    await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
     await waitFor('!!document.querySelector("[data-advisor-stop]")');
     assert.ok(await evaluate('document.querySelector("[data-subagent-row]").textContent.includes("Codex advisor")'));
     await screenshot("advisor-running");
@@ -966,9 +970,11 @@ async function browserChecks() {
     await evaluate(
       `window.useAntigravity(); window.setChildren(${JSON.stringify(ANTIGRAVITY_CHILDREN)}.map(child => ({...child, startedAt: Date.now() - 16000, updatedAt: Date.now(), ...(child.status === "completed" ? { endedAt: Date.now() } : {})})))`,
     );
-    await waitFor('!!document.querySelector("[data-slot=subagent-track] > button")');
-    await evaluate('document.querySelector("[data-slot=subagent-popover]") || document.querySelector("[data-slot=subagent-track] > button").click()');
-    await waitFor('!!document.querySelector("[data-slot=subagent-popover]")');
+    await waitFor('!!document.querySelector("[data-slot=subagent-track] [data-face=pill] button")');
+    await evaluate(
+      'document.querySelector("[data-slot=subagent-popover][data-state=open]") || document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()',
+    );
+    await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state === "open"');
     // The list may still show the archived children from the checks above.
     await evaluate(
       'document.querySelector("[data-subagent-archived-toggle]")?.textContent === "Back to subagents" && document.querySelector("[data-subagent-archived-toggle]").click()',
@@ -1003,8 +1009,10 @@ async function browserChecks() {
       window.tailOf = tail;
       window.setChildren([tail(30)]);
     })()`);
-    await waitFor('!!document.querySelector("[data-slot=subagent-track] > button")');
-    await evaluate('document.querySelector("[data-slot=subagent-popover]") || document.querySelector("[data-slot=subagent-track] > button").click()');
+    await waitFor('!!document.querySelector("[data-slot=subagent-track] [data-face=pill] button")');
+    await evaluate(
+      'document.querySelector("[data-slot=subagent-popover][data-state=open]") || document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()',
+    );
     await waitFor('!!document.querySelector("[data-subagent-open]")');
     await evaluate('document.querySelector("[data-subagent-open]").click()');
     await waitFor('[...document.querySelectorAll("[data-slot=subagent-transcript] > div.min-w-0")].length === 30');
@@ -1040,8 +1048,10 @@ async function browserChecks() {
       window.summaryAt = started + 60000;
       window.setChildren([{ id: "live", title: "Live child", status: "running", startedAt: Date.now() - 5000, updatedAt: Date.now(), transcript: [] }, summary(window.summaryAt)]);
     })()`);
-    await waitFor('!!document.querySelector("[data-slot=subagent-track] > button")');
-    await evaluate('document.querySelector("[data-slot=subagent-popover]") || document.querySelector("[data-slot=subagent-track] > button").click()');
+    await waitFor('!!document.querySelector("[data-slot=subagent-track] [data-face=pill] button")');
+    await evaluate(
+      'document.querySelector("[data-slot=subagent-popover][data-state=open]") || document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()',
+    );
     await waitFor('!!document.querySelector("[data-subagent-archived-toggle]")');
     await evaluate('document.querySelector("[data-subagent-archived-toggle]").click()');
     await waitFor('[...document.querySelectorAll("[data-subagent-row]")].map(row => row.textContent.trim()).join() === "Archived review"');

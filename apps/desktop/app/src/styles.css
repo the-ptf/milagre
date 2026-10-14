@@ -659,12 +659,14 @@ a {
   display: none;
 }
 
-/* The composer row's pills: frosted glass over the transcript, a tint of their tone, and a lit top edge. */
+/* The composer row's pills: frosted glass over the transcript, a tint of their tone, a hairline ring (a ring, not a
+ * border, so a PillMorph panel inside the surface lines up with its edge) and a lit top edge. */
 .status-pill {
   background: color-mix(in oklab, color-mix(in oklab, var(--status-pill-tint, var(--surface)) 9%, var(--surface)) 68%, transparent);
   backdrop-filter: blur(var(--blur-chip)) saturate(1.6);
   -webkit-backdrop-filter: blur(var(--blur-chip)) saturate(1.6);
   box-shadow:
+    0 0 0 1px var(--status-pill-ring, var(--line)),
     inset 0 1px 0 oklch(1 0 0 / 0.55),
     0 1px 2px oklch(0.24 0.008 258 / 0.05);
 }
@@ -673,6 +675,7 @@ a {
 }
 .dark .status-pill {
   box-shadow:
+    0 0 0 1px var(--status-pill-ring, var(--line)),
     inset 0 1px 0 oklch(1 0 0 / 0.08),
     0 1px 2px oklch(0 0 0 / 0.24);
 }

@@ -32,7 +32,7 @@ function Fixture() {
     { id: 1, session_id: 1, context: null, role: "user", body: "Start the web app and Metro so I can try the new screen." },
     { id: 2, session_id: 1, context: null, role: "assistant", body: "Vite is on 5173, Metro on 8081 and the local database on 54321." },
   ];
-  const tasks = [{ id: "0", content: "Start the dev servers", status: "completed" }, { id: "1", content: "Open the new screen", status: "in_progress" }];
+  const plan = { source: "milagre", tasks: [{ id: "0", title: "Start the dev servers", status: "completed" }, { id: "1", title: "Open the new screen", status: "in_progress" }], phases: [], updatedAt: 0 };
   return <div style={{ display: "flex", height: "100%" }}>
     <aside style={{ width: 240, paddingTop: 10, borderRight: "1px solid var(--color-line)" }}>
       <ChatRow item={{ id: "1", label: "Start the dev servers", details: { branch: "milagre/dev-servers", path: "/fixture/dev-servers", diff: { added: 42, removed: 7 }, ports } }} active collapsed={false} actions={{}} onPick={noop} />
@@ -41,7 +41,7 @@ function Fixture() {
     <div style={{ flex: 1, minWidth: 0, padding: 12 }}>
       <ChatComposer messages={messages}
         imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-        projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={false} sendBlocked={false} tasks={tasks} ports={ports} onStopPort={stopPort} subagents={[]}
+        projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={false} sendBlocked={false} plan={plan} ports={ports} onStopPort={stopPort} subagents={[]}
         models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
         capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
         fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop}
@@ -183,20 +183,20 @@ async function browserChecks() {
     }
     throw new Error(`Timed out: ${source}`);
   }
-  const pill = "[data-slot=port-track] > span > button";
+  const pill = "[data-slot=port-track] [data-face=pill] button";
   const firstRow = 'document.querySelector("[data-row]")';
   try {
     await window.loadURL(process.argv[2]);
     await waitFor('!!document.querySelector("[data-slot=port-track]")');
     assert.equal(await evaluate(`document.querySelector("${pill}").textContent`), "Ports 3");
     const row = await evaluate(
-      `(() => {const a=document.querySelector("${pill}").getBoundingClientRect(), b=document.querySelector("[data-slot=task-track] button").getBoundingClientRect();return {gap:b.left-a.right,dy:Math.abs(a.top-b.top)}})()`,
+      `(() => {const a=document.querySelector("${pill}").getBoundingClientRect(), b=document.querySelector("[data-slot=task-track] [data-face=pill] button").getBoundingClientRect();return {gap:b.left-a.right,dy:Math.abs(a.top-b.top)}})()`,
     );
     assert.ok(row.gap >= 0 && row.gap <= 12 && row.dy < 1, `Ports pill is not beside the to-do pill: ${JSON.stringify(row)}`);
     for (const theme of ["dark", "light"]) {
       await evaluate(`window.setDark(${theme === "dark"})`);
       await evaluate(`document.querySelector("${pill}").click()`);
-      await waitFor('!!document.querySelector("[data-slot=port-popover]")');
+      await waitFor('document.querySelector("[data-slot=port-popover]")?.dataset.state === "open"');
       assert.deepEqual(await evaluate('[...document.querySelectorAll("[data-port-row] a")].map(a => a.getAttribute("href"))'), [
         "http://localhost:5173",
         "http://localhost:8081",
@@ -206,19 +206,19 @@ async function browserChecks() {
       await screenshot(`ports-popover-${theme}`);
       window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
       window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
-      await waitFor('!document.querySelector("[data-slot=port-popover]")');
+      await waitFor('document.querySelector("[data-slot=port-popover]")?.dataset.state !== "open"');
     }
     await evaluate(`document.querySelector("${pill}").click()`);
-    await waitFor('!!document.querySelector("[data-slot=port-popover]")');
+    await waitFor('document.querySelector("[data-slot=port-popover]")?.dataset.state === "open"');
     await evaluate('document.querySelector("[data-port-row] a").click()');
     await delay(100);
     assert.deepEqual(opened, ["http://localhost:5173/"], "A port row opens in the browser");
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
-    await waitFor('!document.querySelector("[data-slot=port-popover]")');
+    await waitFor('document.querySelector("[data-slot=port-popover]")?.dataset.state !== "open"');
 
     // Stop: the row shows a spinner until the port is gone, then leaves the list.
     await evaluate(`document.querySelector("${pill}").click()`);
-    await waitFor('!!document.querySelector("[data-slot=port-popover]")');
+    await waitFor('document.querySelector("[data-slot=port-popover]")?.dataset.state === "open"');
     assert.equal(
       await evaluate('getComputedStyle(document.querySelector("[data-port-stop]").parentElement.parentElement).opacity'),
       "0",

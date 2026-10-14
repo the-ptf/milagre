@@ -1,6 +1,4 @@
-import { memo, useEffect, useId, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { AnimatePresence } from "motion/react";
+import { memo, useEffect, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Archive02Icon, Cancel01Icon, ViewIcon } from "@hugeicons/core-free-icons";
 import { advisorAction, subagentRoleLabel, subagentActivityLabel } from "@milagre/shared/agent-activity";
@@ -12,8 +10,7 @@ import { ProviderLogo } from "../ProviderLogo";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
-import { PillSlot, StatusPill } from "../primitives/StatusPill";
-import { useAnchoredPopover } from "./useAnchoredPopover";
+import { PillMorph } from "../motion/PillMorph";
 
 const labels: Record<Subagent["status"], string> = {
   initializing: "Starting",
@@ -109,7 +106,7 @@ export const SubagentTranscript = memo(function SubagentTranscript({
   );
 });
 
-/** A nonmodal list anchored above the composer. Archiving affects views, not provider execution. */
+/** A "Subagents n" pill that grows in place into their list (see PillMorph). Archiving affects views, not provider execution. */
 export function SubagentTrack({
   chatKey,
   agents,
@@ -129,9 +126,6 @@ export function SubagentTrack({
   onStop?: (id: string) => void;
   onRetry?: (id: string) => void;
 }) {
-  const trigger = useRef<HTMLButtonElement>(null);
-  const panel = useRef<HTMLDivElement>(null);
-  const panelId = useId();
   const [opened, setOpened] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [archived, setArchived] = useState(false);
@@ -139,158 +133,145 @@ export function SubagentTrack({
   const archivedCount = agents.length - visible.length;
   const rows = agents.filter((agent) => Boolean(agent.archived) === archived);
   const child = rows.find((agent) => agent.id === selected);
-  const close = () => {
-    setOpened(false);
-    trigger.current?.focus();
-  };
-
-  const bounds = useAnchoredPopover({ opened, setOpened, trigger, panel, width: child ? 480 : 420, height: child ? 520 : 360 });
-
-  if (!agents.length || (!visible.length && !opened)) return <AnimatePresence initial={false} />;
   const actionClass = "flex size-6 items-center justify-center rounded text-ink-3 hover:bg-hover hover:text-ink focus-visible:outline-2 disabled:opacity-40";
   return (
-    <AnimatePresence initial={false}>
-      <PillSlot key="subagent-track" slot="subagent-track">
-        {visible.length > 0 && (
-          <StatusPill
-            ref={trigger}
-            aria-haspopup="dialog"
-            aria-expanded={opened}
-            aria-controls={opened ? panelId : undefined}
-            onClick={() => {
-              setSelected(null);
-              setArchived(false);
-              setOpened(!opened);
-            }}
-            leading={visible.some(subagentActive) ? <SpinnerRing size={12} /> : undefined}
-            label="Subagents"
-            count={visible.length}
-            className="gap-2"
-          />
-        )}
-        {opened &&
-          createPortal(
-            <div
-              ref={panel}
-              id={panelId}
-              role="dialog"
-              aria-label="Subagents"
-              aria-modal="false"
-              data-slot="subagent-popover"
-              style={bounds}
-              className="fixed z-50 flex flex-col overflow-hidden rounded-[10px] border border-line bg-surface p-1 shadow-raised text-ink"
-              onKeyDown={(event) => {
-                if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
-                const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[data-subagent-open]")];
-                if (!buttons.length) return;
-                event.preventDefault();
-                const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
-                const next =
-                  index < 0
-                    ? event.key === "ArrowDown"
-                      ? 0
-                      : buttons.length - 1
-                    : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
-                buttons[next].focus();
-                buttons[next].scrollIntoView({ block: "nearest" });
-              }}
-            >
-              {child ? (
-                <>
-                  <header className="flex shrink-0 items-center gap-2 border-b border-line px-2 py-2">
-                    <button type="button" onClick={() => setSelected(null)} className="rounded px-1 text-[12px] text-ink-3 hover:text-ink">
-                      Back
-                    </button>
-                    <h2 className="min-w-0 flex-1 truncate text-[13px] font-medium">{child.title}</h2>
-                    <button type="button" aria-label="Close subagents" onClick={close} className={actionClass}>
-                      <HugeiconsIcon icon={Cancel01Icon} size={14} />
-                    </button>
-                  </header>
-                  <ScrollArea>
-                    <SubagentTranscript chatKey={chatKey} agent={child} onStop={onStop} onRetry={onRetry} />
-                  </ScrollArea>
-                </>
-              ) : (
-                <>
-                  {!archived && (
-                    <div className="mb-1 flex shrink-0 items-center gap-1 border-b border-line pb-1">
-                      <button
-                        type="button"
-                        data-subagent-archive-finished
-                        disabled={!onArchiveFinished || !visible.some(subagentFinished)}
-                        onClick={onArchiveFinished}
-                        className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] text-ink-2 hover:bg-hover focus-visible:outline-2 disabled:opacity-40 disabled:hover:bg-transparent"
-                      >
-                        <HugeiconsIcon icon={Archive02Icon} size={14} />
-                        Archive finished subagents
-                      </button>
-                      <Tooltip label="Watch subagents">
-                        <button
-                          type="button"
-                          aria-label="Open subagent canvas"
-                          onClick={() => {
-                            setOpened(false);
-                            onOpenCanvas();
-                          }}
-                          className={`${actionClass} mr-1 shrink-0`}
-                        >
-                          <HugeiconsIcon icon={ViewIcon} size={17} />
-                        </button>
-                      </Tooltip>
-                    </div>
-                  )}
-                  <ScrollArea as="ul">
-                    {rows.map((agent) => (
-                      <li key={agent.id} data-subagent-row className="group flex items-center gap-1 rounded-md px-1 hover:bg-hover focus-within:bg-hover">
-                        <button
-                          type="button"
-                          data-subagent-open
-                          onClick={() => setSelected(agent.id)}
-                          title={`${agent.title} (${labels[agent.status]})`}
-                          className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-1 text-left text-[13px] focus-visible:outline-2"
-                        >
-                          <span className="flex size-4 shrink-0 items-center justify-center text-ink-3">
-                            {subagentActive(agent) ? <SpinnerRing size={12} /> : <ProviderLogo provider={agent.provider ?? provider} size={14} />}
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block truncate">{agent.title}</span>
-                            {subagentRoleLabel(agent) && <span className="block text-[11px] text-ink-3">{subagentRoleLabel(agent)}</span>}
-                          </span>
-                        </button>
-                        <AdvisorControls agent={agent} onStop={onStop} onRetry={onRetry} />
-                        <span className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
-                          <Tooltip label={archived ? "Restore subagent" : "Archive subagent"}>
-                            <button
-                              type="button"
-                              aria-label={`${archived ? "Restore" : "Archive"} ${agent.title}`}
-                              disabled={!onArchive || (agent.source === "milagre-advisor" && subagentActive(agent))}
-                              onClick={() => onArchive?.(agent.id, !archived)}
-                              className={actionClass}
-                            >
-                              <HugeiconsIcon icon={Archive02Icon} size={14} />
-                            </button>
-                          </Tooltip>
-                        </span>
-                      </li>
-                    ))}
-                  </ScrollArea>
-                  {!rows.length && <p className="px-3 py-5 text-[12px] text-ink-3">{archived ? "No archived subagents." : "No subagents to show."}</p>}
-                  {(archivedCount > 0 || archived) && (
+    <PillMorph
+      shown={agents.length > 0 && (visible.length > 0 || opened)}
+      slot="subagent-track"
+      panelSlot="subagent-popover"
+      title="Subagents"
+      tooltip="Subagents"
+      opened={opened}
+      onOpenChange={(next) => {
+        if (next) {
+          setSelected(null);
+          setArchived(false);
+        }
+        setOpened(next);
+      }}
+      width={child ? 480 : 420}
+      height={child ? 520 : 360}
+      pill={{
+        leading: visible.some(subagentActive) ? <SpinnerRing size={12} /> : undefined,
+        label: "Subagents",
+        count: visible.length,
+        className: "gap-2",
+        "aria-label": `Subagents, ${visible.length}${visible.some(subagentActive) ? `, ${visible.filter(subagentActive).length} running` : ""}`,
+      }}
+    >
+      {(close) => (
+        <div
+          className="flex min-h-0 flex-col p-1"
+          onKeyDown={(event) => {
+            if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
+            const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[data-subagent-open]")];
+            if (!buttons.length) return;
+            event.preventDefault();
+            const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+            const next =
+              index < 0
+                ? event.key === "ArrowDown"
+                  ? 0
+                  : buttons.length - 1
+                : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+            buttons[next].focus();
+            buttons[next].scrollIntoView({ block: "nearest" });
+          }}
+        >
+          {child ? (
+            <>
+              <header className="flex shrink-0 items-center gap-2 border-b border-line px-2 py-2">
+                <button type="button" onClick={() => setSelected(null)} className="rounded px-1 text-[12px] text-ink-3 hover:text-ink">
+                  Back
+                </button>
+                <h2 className="min-w-0 flex-1 truncate text-[13px] font-medium">{child.title}</h2>
+                <button type="button" aria-label="Close subagents" onClick={close} className={actionClass}>
+                  <HugeiconsIcon icon={Cancel01Icon} size={14} />
+                </button>
+              </header>
+              <ScrollArea>
+                <SubagentTranscript chatKey={chatKey} agent={child} onStop={onStop} onRetry={onRetry} />
+              </ScrollArea>
+            </>
+          ) : (
+            <>
+              {!archived && (
+                <div className="mb-1 flex shrink-0 items-center gap-1 border-b border-line pb-1">
+                  <button
+                    type="button"
+                    data-subagent-archive-finished
+                    disabled={!onArchiveFinished || !visible.some(subagentFinished)}
+                    onClick={onArchiveFinished}
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] text-ink-2 hover:bg-hover focus-visible:outline-2 disabled:opacity-40 disabled:hover:bg-transparent"
+                  >
+                    <HugeiconsIcon icon={Archive02Icon} size={14} />
+                    Archive finished subagents
+                  </button>
+                  <Tooltip label="Watch subagents">
                     <button
                       type="button"
-                      data-subagent-archived-toggle
-                      onClick={() => setArchived(!archived)}
-                      className="mt-1 border-t border-line px-2 py-2 text-left text-[11px] text-ink-3 hover:text-ink"
+                      aria-label="Open subagent canvas"
+                      onClick={() => {
+                        setOpened(false);
+                        onOpenCanvas();
+                      }}
+                      className={`${actionClass} mr-1 shrink-0`}
                     >
-                      {archived ? "Back to subagents" : `Archived (${archivedCount})`}
+                      <HugeiconsIcon icon={ViewIcon} size={17} />
                     </button>
-                  )}
-                </>
+                  </Tooltip>
+                </div>
               )}
-            </div>,
-            document.body,
+              <ScrollArea as="ul">
+                {rows.map((agent) => (
+                  <li key={agent.id} data-subagent-row className="group flex items-center gap-1 rounded-md px-1 hover:bg-hover focus-within:bg-hover">
+                    <button
+                      type="button"
+                      data-subagent-open
+                      onClick={() => setSelected(agent.id)}
+                      title={`${agent.title} (${labels[agent.status]})`}
+                      className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-1 text-left text-[13px] focus-visible:outline-2"
+                    >
+                      <span className="flex size-4 shrink-0 items-center justify-center text-ink-3">
+                        {subagentActive(agent) ? <SpinnerRing size={12} /> : <ProviderLogo provider={agent.provider ?? provider} size={14} />}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate">{agent.title}</span>
+                        {subagentRoleLabel(agent) && <span className="block text-[11px] text-ink-3">{subagentRoleLabel(agent)}</span>}
+                      </span>
+                    </button>
+                    <AdvisorControls agent={agent} onStop={onStop} onRetry={onRetry} />
+                    <span className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+                      <Tooltip label={archived ? "Restore subagent" : "Archive subagent"}>
+                        <button
+                          type="button"
+                          aria-label={`${archived ? "Restore" : "Archive"} ${agent.title}`}
+                          disabled={!onArchive || (agent.source === "milagre-advisor" && subagentActive(agent))}
+                          onClick={() => onArchive?.(agent.id, !archived)}
+                          className={actionClass}
+                        >
+                          <HugeiconsIcon icon={Archive02Icon} size={14} />
+                        </button>
+                      </Tooltip>
+                    </span>
+                  </li>
+                ))}
+              </ScrollArea>
+              {!rows.length && <p className="px-3 py-5 text-[12px] text-ink-3">{archived ? "No archived subagents." : "No subagents to show."}</p>}
+              {(archivedCount > 0 || archived) && (
+                <button
+                  type="button"
+                  data-subagent-archived-toggle
+                  onClick={() => setArchived(!archived)}
+                  className="mt-1 border-t border-line px-2 py-2 text-left text-[11px] text-ink-3 hover:text-ink"
+                >
+                  {archived ? "Back to subagents" : `Archived (${archivedCount})`}
+                </button>
+              )}
+            </>
           )}
-      </PillSlot>
-    </AnimatePresence>
+        </div>
+      )}
+    </PillMorph>
   );
 }
