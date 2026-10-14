@@ -216,6 +216,31 @@ test("starting a task uses the live permission mode rather than stale turn setti
   assert.equal(sent.permissionMode, "ask");
 });
 
+test("starting a Chat with no live agent takes the calling Chat's mode, and Ask for an outside client", async (t) => {
+  const { createLocalMcpHost } = require("./local-mcp-host.cjs");
+  const projectPath = fs.realpathSync(fixture(t));
+  const live = { [`${projectPath}#2`]: "full" };
+  let sent;
+  const host = createLocalMcpHost({
+    projects: async () => [{ path: projectPath }],
+    readProject: async () => ({ state: { sessions: { 1: { id: 1 } } } }),
+    scopeStates: { chatMessages: async () => [] },
+    permissionMode: (chatId, fallback = "ask") => live[chatId] ?? fallback,
+    chats: {
+      turnSettings: () => ({ model: "fixture" }),
+      send: async (request) => {
+        sent = request;
+        request.canStart();
+        return { sessionId: 1 };
+      },
+    },
+  });
+  await host.startChat({ projectPath, chatId: `${projectPath}#1`, prompt: "Inspect" }, "a", () => {}, `${projectPath}#2`);
+  assert.equal(sent.permissionMode, "full");
+  await host.startChat({ projectPath, chatId: `${projectPath}#1`, prompt: "Inspect" }, "b", () => {});
+  assert.equal(sent.permissionMode, "ask");
+});
+
 test("revocation, expiry, OFF and resource edits invalidate awaiting reads and queued writes", async (t) => {
   const { createLocalMcpStore } = require("./local-mcp-store.cjs");
   const { createLocalMcpRegistry } = require("./local-mcp-registry.cjs");

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentModels } from "@milagre/shared/model";
-import { afterSend, afterSheet, defaultPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "./turn-options.ts";
+import { afterSend, afterSheet, chatPreferences, defaultPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "./turn-options.ts";
 
 const reported: AgentModels = {
   claude: null,
@@ -120,4 +120,11 @@ test("a fresh Chat uses the saved default model while an existing Chat keeps its
   const defaults = { ...defaultPreferences, provider: "claude" as const, model: "opus" };
   assert.deepEqual(turnTarget(undefined, undefined, defaults), { provider: "claude", model: "opus", picked: false });
   assert.deepEqual(turnTarget(undefined, "codex", defaults), { provider: "codex", model: "", picked: false });
+});
+
+test("a Chat with no saved preferences shows the mode its turn runs in", () => {
+  const saved = { ...defaultPreferences, permissionMode: "auto" as const };
+  assert.equal(chatPreferences(undefined, defaultPreferences, "full").permissionMode, "full");
+  assert.equal(chatPreferences(saved, defaultPreferences, "full").permissionMode, "auto");
+  assert.equal(chatPreferences(undefined, defaultPreferences), defaultPreferences);
 });

@@ -46,16 +46,18 @@ import { handoffSides } from "../handoff-sides";
 import { HandoffDivider } from "../handoff-divider";
 import { showBrief } from "../handoff-brief-store";
 import { WorktreeLinkDivider } from "../worktree-link-divider";
+import { AccountSwitchDivider } from "../account-switch-divider";
 import { CompactionDivider } from "../compaction-divider";
 import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
+import { accountSwitchText, isAccountSwitch } from "@milagre/shared/usage-limit";
 import { isWorktreeLinked, worktreeLinkText } from "@milagre/shared/worktree-link";
 import { ThinkingIndicator } from "../running-logo";
 import { BottomFade, EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
 import { Approval, ActivityQuestions } from "../questions";
 import { AgentControls, PermissionChip } from "../agent-controls";
-import { afterSend, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
+import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
 // Linear's mark as a template image, so iOS tints it like the SF Symbols beside it in menus.
 import LINEAR_MARK from "../../assets/linear-mark.png";
 import { Icon, LinearLogo } from "../icons";
@@ -331,7 +333,9 @@ export default function ChatScreen() {
             ? `Go to ${worktreeLinkText(messages[index].context)}, ${index + 1} of ${messages.length}.`
             : isCompaction(messages[index])
               ? `Go to ${compactionText(messages[index].context)}, ${index + 1} of ${messages.length}.`
-              : `Go to ${messageSender(messages[index])} message ${index + 1} of ${messages.length}. ${messages[index].body.slice(0, 88)}`,
+              : isAccountSwitch(messages[index])
+                ? `Go to ${accountSwitchText(messages[index].context)}, ${index + 1} of ${messages.length}.`
+                : `Go to ${messageSender(messages[index])} message ${index + 1} of ${messages.length}. ${messages[index].body.slice(0, 88)}`,
       })),
     [messages, handoffModels],
   );
@@ -486,7 +490,7 @@ export default function ChatScreen() {
     messages.filter((message) => message.role === "user").map((message) => message.body),
   );
   const contextUsage = run?.contextUsage ?? chat?.contextUsage;
-  const preferences = composer.preferences[chatId] || composer.defaults;
+  const preferences = chatPreferences(composer.preferences[chatId], composer.defaults, run?.permissionMode);
   const turn = turnTarget(composer.preferences[chatId], chat?.provider, composer.defaults);
   const actualProvider = turn.provider;
   const model = selectedModel(actualProvider, turn.model || (chat && !turn.picked ? lastUserModel(project.state, chat.id) : ""), session.models);
@@ -1134,6 +1138,8 @@ export default function ChatScreen() {
                   <WorktreeLinkDivider context={message.context} client={session.client} onOpen={(title, text) => openBrief(text, title)} />
                 ) : isCompaction(message) ? (
                   <CompactionDivider context={message.context} />
+                ) : isAccountSwitch(message) ? (
+                  <AccountSwitchDivider context={message.context} />
                 ) : (
                   <ChatReply
                     message={message}

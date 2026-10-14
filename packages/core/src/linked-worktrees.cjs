@@ -110,7 +110,7 @@ function createLinkedWorktrees({
 
   // A delivered message runs on the receiving Chat's latest turn settings. A Chat with none this run takes
   // its own provider and model, else the Project's last used, else the requesting Chat's; its permission
-  // mode is Ask until the user picks one there.
+  // mode is the requesting Chat's, until the user picks one there.
   function turnOptions(key, state, requester) {
     const latest = chats.turnSettings(key);
     if (latest) return latest;
@@ -120,7 +120,7 @@ function createLinkedWorktrees({
     return {
       provider: session?.provider ?? (lastUsed ? state.sessions[lastUsed.session_id].provider : (fallback.provider ?? "claude")),
       model: lastUserModel(state, session.id) || lastUsed?.model || fallback.model,
-      permissionMode: "ask",
+      permissionMode: agents.permissionMode(requester),
       tldrEnabled: fallback.tldrEnabled,
       replies: fallback.replies,
     };

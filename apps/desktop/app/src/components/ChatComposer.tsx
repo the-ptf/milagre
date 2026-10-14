@@ -9,7 +9,7 @@ import { AnswerCard } from "./agents/AnswerCard";
 import { PullRequestActionCard } from "./agents/PullRequestActionCard";
 import { LinearIssueCard } from "./agents/LinearIssueCard";
 import { UsageLimitCard } from "./agents/UsageLimitCard";
-import { usageLimitOf } from "@milagre/shared/usage-limit";
+import { isAccountSwitch, usageLimitOf } from "@milagre/shared/usage-limit";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
@@ -46,6 +46,7 @@ import Tooltip from "./primitives/Tooltip";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { HandoffDivider } from "./Handover";
 import { WorktreeLinkDivider } from "./WorktreeLinkDivider";
+import { AccountSwitchDivider } from "./AccountSwitchDivider";
 import { CompactionDivider } from "./CompactionDivider";
 import { advisorResultLabel, messageSender } from "@milagre/shared/advisor-result";
 import { LinkedMessageHeader, linkedContext } from "./LinkedMessage";
@@ -169,6 +170,7 @@ const MessageSection = memo(function MessageSection({
   if (isHandoff(message)) return <HandoffDivider context={message.context} models={models} />;
   if (isWorktreeLinked(message)) return <WorktreeLinkDivider context={message.context} />;
   if (isCompaction(message)) return <CompactionDivider context={message.context} />;
+  if (isAccountSwitch(message)) return <AccountSwitchDivider context={message.context} />;
   const linked = linkedContext(message);
   const advisor = typeof message.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
   // A PR-blocker pill's message shows as a card, not as the skill prompt the agent read.

@@ -11,6 +11,8 @@ const SKIP_DIRS = new Set(["node_modules", "dist", "release", ".expo", "ios", "a
  */
 const MANIFEST = {
   "test-artifacts.cjs": { seconds: 50 },
+  // Six Lighthouse runs (three mobile, three desktop) on a site build.
+  "test-site-lighthouse.cjs": { seconds: 90 },
   "test-genui.cjs": { seconds: 30 },
   "test-chat-attachments.cjs": { seconds: 20 },
   "test-archive-enter.cjs": { seconds: 15 },

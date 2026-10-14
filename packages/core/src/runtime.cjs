@@ -1754,7 +1754,7 @@ function createRuntime(options) {
       readProject,
       scopeStates,
       chats,
-      permissionMode: (chatId) => agents.permissionMode(chatId),
+      permissionMode: (chatId, fallback) => agents.permissionMode(chatId, fallback),
       createWorktree: (context, request) => handlers.get("worktree:create")(context, request),
       validateDesignChat: async (chatId) => {
         const scope = projectOfKey(chatId);

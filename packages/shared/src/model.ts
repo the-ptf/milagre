@@ -312,6 +312,7 @@ export type ChatContext =
   | PullRequestActionContext
   | LinearIssueContext
   | UsageLimitContext
+  | AccountSwitchContext
   | "handover"
   | null;
 
@@ -569,7 +570,7 @@ export type AgentPorts = Record<string, AgentPort[]>;
 
 export type AgentEvent =
   /** Milagre's own event: the user's message was saved, so a turn starts, or a running one is steered and its reply split. */
-  | { type: "message-sent"; model: string }
+  | { type: "message-sent"; model: string; permissionMode?: PermissionMode }
   /** Milagre's own event: the user's answers to a question were saved as their message, after the reply so far. */
   | { type: "answers-sent" }
   | { type: "subagent-update"; agent: Subagent }
@@ -612,6 +613,9 @@ export interface UsageLimit {
 
 /** A reply the plan's usage limit stopped: the Chat offers the Project's other Accounts for the provider. */
 export type UsageLimitContext = { kind: "limit" } & UsageLimit;
+
+/** The message that continued a Chat on another account after the usage limit, shown as a line like a handoff. `label` names the account. */
+export type AccountSwitchContext = { kind: "account-switch"; provider: ModelProvider; label: string };
 
 /** A message for a chat. The main process saves it, then starts or steers the chat's turn. */
 export interface ChatSendRequest {

@@ -296,14 +296,15 @@ createRoot(document.getElementById("root")).render(<><Fixture /><ChangesToggle o
 
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
-  const preview = process.argv.includes("--preview");
+  // `--preview` leaves the window open on the comment layer; `frameGuard` below checks the first card's frame.
+  const keepOpen = process.argv.includes("--preview");
   app.setPath("userData", require("node:fs").mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-artifacts-")));
   await app.whenReady();
   const window = new BrowserWindow({
     width: 1280,
     height: 820,
     useContentSize: true,
-    show: preview,
+    show: keepOpen,
     webPreferences: { backgroundThrottling: false },
   });
   // The app's own guard: a design's frame can't navigate away from its srcdoc.
@@ -348,10 +349,10 @@ async function browserChecks() {
       ["milagre-link:fixture#1", "login", 1],
       ["milagre-link:fixture#1", "login", 2],
     ]);
-    const preview = await evaluate(
+    const frameGuard = await evaluate(
       `(() => { const f = ${cards}[0].querySelector("iframe"); return { sandbox: f.getAttribute("sandbox"), csp: f.srcdoc.includes("Content-Security-Policy") }; })()`,
     );
-    assert.deepEqual(preview, { sandbox: "allow-scripts", csp: true }, "the preview runs without same origin, under the policy");
+    assert.deepEqual(frameGuard, { sandbox: "allow-scripts", csp: true }, "the preview runs without same origin, under the policy");
     assert.equal(await evaluate('!!document.querySelector("[data-artifact=legacy]")'), true, "legacy HTML is restored as an Artifact");
     // CSP still blocks script-issued requests inside the generated sandbox.
     let previews = [];
@@ -898,7 +899,7 @@ async function browserChecks() {
     assert.match(await evaluate(`${shareDialog}.textContent`), /1 artifact/);
     assert.equal(await evaluate(`${shareDialog}.textContent.includes("Published snapshots (3)")`), false, "Artifact history excludes Designs snapshots");
     await screenshot("artifact-share");
-    if (preview) {
+    if (keepOpen) {
       await evaluate("window.designsEnabled=true; window.designsChanged({enabled:true})");
       await waitFor('!!document.querySelector("[data-panel-toggle=designs]")');
       await evaluate('document.querySelector("[data-panel-toggle=artifacts]")?.click()');
@@ -910,7 +911,7 @@ async function browserChecks() {
     console.log(
       "PASS: a shown design is a card outside the activity with a sandboxed preview at its own screen size that can't make requests; Open docks a canvas of every design at the top right beside the chat (beside the git changes panel, away while the diff replaces the chat, filling the workspace when expanded or narrow), where frames follow revisions and step back through versions, zoom and fit work, wheel over a design pans until the design is clicked, choosing and Figma-like pinned comments wait for Send and reach the agent in one message, and Escape closes it",
     );
-    if (!preview) app.exit(0);
+    if (!keepOpen) app.exit(0);
   } catch (error) {
     await screenshot("failure");
     console.error(error);

@@ -161,6 +161,26 @@ test("focus suppresses only the viewing device and expires after 15 seconds", as
   assert.equal(messages.length, 5);
 });
 
+test("a Chat open in a focused desktop window reaches no phone", async (t) => {
+  let viewed = chatId;
+  const { push, messages } = await fixture(t, { isChatFocused: (id) => id === viewed });
+  await push.register(registration());
+  push.observe(chatId, approval);
+  push.observe("/project#2", approval);
+  await push.settled();
+  assert.deepEqual(
+    messages.map((message) => message.data.sessionId),
+    [2],
+  );
+  viewed = null;
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.deepEqual(
+    messages.map((message) => message.data.sessionId),
+    [2, 1],
+  );
+});
+
 test("preferences, token rotation and unregister are private and survive restart", async (t) => {
   const { push, dataDir, messages } = await fixture(t);
   await push.register(registration({ notifyWhenWaiting: false }));

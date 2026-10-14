@@ -70,7 +70,37 @@ export async function handleRequest(request, { assets, fetchImpl, token }) {
     const stars = await repoStars(fetchImpl, { token });
     return Response.json({ stars }, { headers: { "cache-control": stars === null ? "no-store" : "public, max-age=600" } });
   }
-  return withRange(request, await assets.fetch(request));
+  if (url.pathname === "/" && wantsMarkdown(request)) return markdownHome(request, assets);
+  const response = withRange(request, await assets.fetch(request));
+  return url.pathname === "/" ? varyOnAccept(await response) : response;
+}
+
+// Agents that ask for Markdown (Accept: text/markdown) get the home page as Markdown, public/index.md; browsers keep
+// getting HTML. https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/
+function wantsMarkdown(request) {
+  return /\btext\/markdown\b/i.test(request.headers.get("accept") || "");
+}
+
+async function markdownHome(request, assets) {
+  const page = await assets.fetch(new Request(new URL("/index.md", request.url), { headers: request.headers }));
+  if (!page.ok) return page;
+  const text = await page.text();
+  return new Response(text, {
+    headers: {
+      "content-type": "text/markdown; charset=utf-8",
+      // About four characters to a token: an estimate, which is all the header promises.
+      "x-markdown-tokens": String(Math.ceil(text.length / 4)),
+      "cache-control": page.headers.get("cache-control") || "public, max-age=0, must-revalidate",
+      vary: "Accept",
+    },
+  });
+}
+
+// The same URL answers HTML or Markdown, so caches keep the two apart.
+function varyOnAccept(response) {
+  const headers = new Headers(response.headers);
+  headers.set("vary", headers.has("vary") ? `${headers.get("vary")}, Accept` : "Accept");
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 // Safari plays a video only when the server answers byte ranges, so a whole-file answer is cut to the range asked for.

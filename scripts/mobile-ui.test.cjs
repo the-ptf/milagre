@@ -1469,10 +1469,12 @@ function chatHost({
     "../handoff-divider": { HandoffDivider: "HandoffDivider" },
     "../worktree-link-divider": { WorktreeLinkDivider: "WorktreeLinkDivider" },
     "../compaction-divider": { CompactionDivider: "CompactionDivider" },
+    "../account-switch-divider": { AccountSwitchDivider: "AccountSwitchDivider" },
     "../handoff-brief-store": { showBrief() {} },
     "@milagre/shared/handoff": require("@milagre/shared/handoff"),
     "@milagre/shared/worktree-link": require("@milagre/shared/worktree-link"),
     "@milagre/shared/compaction": require("@milagre/shared/compaction"),
+    "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "../archive": require("../apps/mobile/src/archive.ts"),
     "../confirm-store": { confirmSheet: (...args) => alert(...args) },
   });
@@ -3209,6 +3211,26 @@ test("first send stays visible while the saved Chat's first page is still loadin
   loading = false;
   assert.equal(input()?.id, 8);
   assert.equal(transcriptMessages(screen).length, 1);
+});
+
+test("the message that continued a Chat on another account is a line, not a reply", () => {
+  const screen = chatHost();
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.sessions[42] = { id: 42, provider: "claude" };
+  const context = { kind: "account-switch", provider: "claude", label: "me@work.com" };
+  state.messages = [
+    { id: 1, session_id: 42, role: "user", body: "Fix the api" },
+    { id: 2, session_id: 42, role: "user", body: "Switched to me@work.com after the usage limit", context },
+  ];
+  const tree = screen.render();
+  assert.deepEqual(find(tree, (node) => node.type === "AccountSwitchDivider").props.context, context);
+  assert.deepEqual(
+    transcriptMessages(screen).map((message) => message.id),
+    [1],
+  );
+  const rail = find(tree, (node) => node.type === "MessageNavigation");
+  assert.equal(rail.props.items.at(-1).label, "Go to Switched to me@work.com after the usage limit, 2 of 2.");
 });
 
 test("mobile navigation spans a long Chat with at most 15 lines and loads older targets before scrolling", () => {

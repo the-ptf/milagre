@@ -14,6 +14,11 @@ export type TurnPreferences = {
 };
 export const defaultPreferences: TurnPreferences = { provider: "codex", model: "", effort: "high", fastMode: false, permissionMode: "ask" };
 
+/** A Chat's preferences. One another Chat started (MCP, Delegation) has none saved: it shows the mode its turn runs in, not the default. */
+export function chatPreferences(saved: TurnPreferences | undefined, defaults: TurnPreferences, runMode?: PermissionMode): TurnPreferences {
+  return saved || (runMode ? { ...defaults, permissionMode: runMode } : defaults);
+}
+
 export function modelsFor(provider: ModelProvider, reported?: AgentModels | null): MobileModel[] {
   const offered = reported?.[provider];
   return offered?.length

@@ -92,7 +92,7 @@ function managementToolGroups({ host, operations }) {
         ),
         mutate(
           "chat_start",
-          "Send a task to an existing Chat through Milagre. Keeps its permission mode; a new Chat uses Ask. Reuse requestId on retry.",
+          "Send a task to an existing Chat through Milagre. Keeps its permission mode; a Chat with no running agent takes the calling Chat's mode. Reuse requestId on retry.",
           "start",
           {
             ...chatInput,
@@ -100,7 +100,8 @@ function managementToolGroups({ host, operations }) {
             provider: z.enum(["claude", "codex", "antigravity"]).optional(),
             model: z.string().min(1).max(300).optional(),
           },
-          (args, operationId, assertActive) => host.startChat(args, operationId, assertActive),
+          (args, operationId, assertActive) =>
+            host.startChat(args, operationId, assertActive, connectionId.startsWith("agent:") ? connectionId.slice(6) : undefined),
         ),
       ];
     },
