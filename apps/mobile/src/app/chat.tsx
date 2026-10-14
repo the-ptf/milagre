@@ -1197,11 +1197,6 @@ export default function ChatScreen() {
           ) : null}
           <MessageNavigation items={navigationItems} onSelect={navigateToMessage} top={insets.top + 72} bottom={dockHeight + 12} keyboardOffset={lift} />
           <KeyboardStickyView pointerEvents="box-none" offset={{ closed: 0, opened: lift }} style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}>
-            {showJumpToBottom && (
-              <View pointerEvents="box-none" style={{ height: 56, alignItems: "center", zIndex: 1 }}>
-                <GlassIconButton label="Go to bottom" systemImage="chevron.down" icon={ArrowDown01Icon} onPress={jumpToBottom} />
-              </View>
-            )}
             {/* The transcript blurs and fades under the composer like desktop's. */}
             <BottomFade height={dockHeight + 48} />
             <View
@@ -1563,6 +1558,13 @@ export default function ChatScreen() {
                 </View>
               )}
             </View>
+            {/* Drawn last and floated above the dock, so showing it changes no other view's layout or order: either
+            replays the pills' layout transition. */}
+            {showJumpToBottom && (
+              <View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, bottom: dockHeight, height: 56, alignItems: "center" }}>
+                <GlassIconButton label="Go to bottom" systemImage="chevron.down" icon={ArrowDown01Icon} onPress={jumpToBottom} />
+              </View>
+            )}
           </KeyboardStickyView>
         </PanelSwipe>
         <PlanPanel panel={planPanel} />
