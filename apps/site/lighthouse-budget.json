@@ -1,0 +1,17 @@
+{
+  "$comment": "Lowest Lighthouse scores the landing page may ship with (scripts/test-site-lighthouse.cjs, median of three runs). Raise them when the page gets faster; never lower them to make a change pass.",
+  "$skipAuditsReason": "robots-txt: Lighthouse calls robots.txt's Content-Signal line (contentsignals.org, for AI agents) an unknown directive and takes 8 SEO points for it. Kept on purpose (2026-10-13); every other SEO audit still has to pass.",
+  "skipAudits": ["robots-txt"],
+  "mobile": {
+    "performance": 97,
+    "accessibility": 100,
+    "best-practices": 100,
+    "seo": 100
+  },
+  "desktop": {
+    "performance": 99,
+    "accessibility": 100,
+    "best-practices": 100,
+    "seo": 100
+  }
+}

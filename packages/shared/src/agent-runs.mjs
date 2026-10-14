@@ -48,8 +48,9 @@ export function lastUserModel(state, sessionId) {
   return state.sessions?.[sessionId]?.summary?.lastModel ?? "";
 }
 
-export function startRun(runs, chatId, model) {
-  return { ...runs, [chatId]: { text: "", model, startedAt: Date.now(), steps: [], approvals: [], questions: [], answered: {} } };
+export function startRun(runs, chatId, model, permissionMode) {
+  const run = { text: "", model, startedAt: Date.now(), steps: [], approvals: [], questions: [], answered: {} };
+  return { ...runs, [chatId]: permissionMode ? { ...run, permissionMode } : run };
 }
 
 /** The run with one step changed, or null when it has no such step or `update` declines. */
@@ -130,7 +131,7 @@ export function applyRunEvent(runs, chatId, event, model = "") {
   switch (event.type) {
     // A message sent while a turn runs steers it; otherwise it starts one.
     case "message-sent": {
-      if (!run) return startRun(runs, chatId, event.model);
+      if (!run) return startRun(runs, chatId, event.model, event.permissionMode);
       const split = splitRun(run);
       return split ? { ...runs, [chatId]: split } : runs;
     }

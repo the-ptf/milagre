@@ -9,13 +9,29 @@
 <div class="demo" aria-hidden="true" data-demo>
   <div class="glow"></div>
   <div class="mac">
-    <video class="mac-video" src="/demo/desktop.mp4" poster="/demo/desktop.jpg" muted playsinline preload="auto" data-desktop></video>
+    <video class="mac-video" src="/demo/desktop.mp4" muted playsinline preload="none" data-desktop></video>
     <div class="lights"><i></i><i></i><i></i></div>
   </div>
   <div class="phone">
-    <video class="phone-video" src="/demo/phone.mp4" poster="/demo/phone.jpg" muted playsinline preload="auto" data-phone></video>
+    <video class="phone-video" muted playsinline preload="auto" data-phone></video>
   </div>
 </div>
+<script is:inline>
+  // Set while the page parses, so each device downloads only its own take: the Android or iPhone recording, and the Mac
+  // window's poster and video only where the Mac window shows.
+  (() => {
+    const demo = document.currentScript.previousElementSibling;
+    const take = document.documentElement.dataset.platform === "android" ? "android" : "phone";
+    const phone = demo.querySelector("[data-phone]");
+    phone.poster = `/demo/${take}.webp`;
+    phone.src = `/demo/${take}.mp4`;
+    if (!matchMedia("(max-width: 700px)").matches) {
+      const desktop = demo.querySelector("[data-desktop]");
+      desktop.poster = "/demo/desktop.webp";
+      desktop.preload = "auto";
+    }
+  })();
+</script>
 
 <script>
   const demo = document.querySelector<HTMLElement>("[data-demo]");
@@ -24,13 +40,12 @@
   const phone = demo?.querySelector<HTMLVideoElement>("[data-phone]");
 
   if (demo && stage && desktop && phone) {
-    if (document.documentElement.dataset.platform === "android") {
-      demo.classList.add("android");
-      phone.poster = "/demo/android.jpg";
-      phone.src = "/demo/android.mp4";
-    }
-    // The phone is a 3D model when WebGL is there; otherwise the flat frame below stays.
-    void import("../scripts/phone3d").then(({ mountPhone3D, webglAvailable }) => {
+    if (document.documentElement.dataset.platform === "android") demo.classList.add("android");
+    // The phone is a 3D model when WebGL is there; otherwise the flat frame below stays. three.js is big, so it loads on
+    // the visitor's first move (pointer, touch, scroll or key) and the flat frame and posters paint first.
+    const upgrade = () => {
+      for (const type of WAKE) removeEventListener(type, upgrade);
+      void import("../scripts/phone3d").then(({ mountPhone3D, webglAvailable }) => {
       const host = demo.querySelector<HTMLElement>(".phone");
       if (!host || !webglAvailable()) return;
       mountPhone3D({
@@ -41,7 +56,10 @@
         tilt: () => (narrow.matches ? -0.14 : -0.34),
       });
       demo.classList.add("three");
-    });
+      });
+    };
+    const WAKE = ["pointermove", "pointerdown", "touchstart", "scroll", "keydown"] as const;
+    for (const type of WAKE) addEventListener(type, upgrade, { passive: true });
     const narrow = matchMedia("(max-width: 700px)");
     // The demo is a fixed-size canvas, scaled so its top part, down to both approval cards (y 565 of the canvas), ends
     // just above the download button at the bottom of the page; the rest runs under the button and the blurred fade.
@@ -52,7 +70,9 @@
     let spare = 0;
     const fit = () => {
       const drop = spare / 2;
-      const room = innerHeight - stage.getBoundingClientRect().top - (cta?.offsetHeight ?? 0) - drop - 12;
+      // Measure within the hero so scrolling into the sections doesn't change its size on a resize.
+      const stageTop = stage.getBoundingClientRect().top - (page?.getBoundingClientRect().top ?? 0);
+      const room = (page?.clientHeight ?? innerHeight) - stageTop - (cta?.offsetHeight ?? 0) - drop - 12;
       const scale = Math.max(Math.min(1.7, stage.clientWidth / demo.offsetWidth, room / 565), 0.1);
       demo.style.setProperty("--scale", String(scale));
       const next = Math.max(0, Math.round(spare + room - 565 * scale));
@@ -96,6 +116,8 @@
     });
     visible.observe(demo);
     narrow.addEventListener("change", () => {
+      // A phone-sized window widened: the Mac window shows now, so its poster loads.
+      if (!narrow.matches && !desktop.poster) desktop.poster = "/demo/desktop.webp";
       desktop.pause();
       restart();
     });

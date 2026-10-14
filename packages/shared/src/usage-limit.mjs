@@ -51,3 +51,13 @@ export function limitChoices(snapshot, limit, now = new Date()) {
 export function switchedText({ continued, label }) {
   return continued ? `Switched to ${label}. Continuing…` : `Switched to ${label}. Send your message again to continue.`;
 }
+
+/** The line a Chat shows where it continued on another account after the limit (context kind "account-switch"). */
+export function isAccountSwitch(message) {
+  return message?.context?.kind === "account-switch";
+}
+
+/** The line as text: the message body, and the label screen readers and the transcript use. */
+export function accountSwitchText(context) {
+  return `Switched to ${context.label} after the usage limit`;
+}

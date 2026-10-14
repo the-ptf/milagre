@@ -345,9 +345,11 @@ async function startDaemon({
   let stopping;
   let listening = false;
   const sender = createExpoPush({ ...pushOptions, onError, onInvalid: (token) => push.invalidate(token) });
+  const isChatFocused = (chatId) => [...views.values()].some((view) => view.focused && view.chatId === chatId);
   const push = createMobilePush({
     dataDir,
     send: sender.send,
+    isChatFocused,
     onError,
     context: async (chatId) => {
       const owner = projectOfKey(chatId);
@@ -361,7 +363,7 @@ async function startDaemon({
     ...runtimeOptions,
     dataDir,
     version,
-    isChatFocused: (chatId) => [...views.values()].some((view) => view.focused && view.chatId === chatId),
+    isChatFocused,
     notifyWaiting(notice) {
       broadcast("notification:waiting", notice);
       runtimeOptions.notifyWaiting?.(notice);

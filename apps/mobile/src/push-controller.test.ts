@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPushController, notificationTarget, shouldPresentNotification } from "./push-controller.ts";
+import { readFileSync } from "node:fs";
+import { createPushController, notificationTarget, shouldPresentNotification, SHEETS_OVER_CHAT, viewedChat } from "./push-controller.ts";
 import { createPushStore } from "./push-store.ts";
 import type { SavedHost } from "./hosts-store.ts";
 const deviceId = "b6e2df4b-972b-4e7b-bc65-6cda0a173798";
@@ -138,6 +139,24 @@ test("foreground alerts are suppressed for the current Chat only", () => {
   assert.equal(shouldPresentNotification(data, { hostId: host.id, chatId: "/project#2" }), true);
   assert.equal(shouldPresentNotification(data, null), true);
   assert.equal(shouldPresentNotification(data, { hostId: "https://other.example", chatId: "/project#1" }), true);
+});
+
+test("a sheet over the Chat keeps it viewed; other pages and another computer do not", () => {
+  const chat = { hostId: host.id, chatId: "/project#1" };
+  assert.deepEqual(viewedChat("/chat", chat, null, host.id), chat);
+  assert.deepEqual(viewedChat("/permission-sheet", null, chat, host.id), chat);
+  assert.deepEqual(viewedChat("/viewer", null, chat, host.id), chat);
+  assert.equal(viewedChat("/permission-sheet", null, chat, "https://other.example"), null);
+  assert.equal(viewedChat("/terminal-sheet", null, chat, host.id), null);
+  assert.equal(viewedChat("/changes", null, chat, host.id), null);
+  assert.equal(viewedChat("/", null, chat, host.id), null);
+});
+
+test("the sheets that keep a Chat viewed are the layout's sheets and transparent modals", () => {
+  const layout = readFileSync(new URL("./app/_layout.tsx", import.meta.url), "utf8");
+  const overlays = [...layout.matchAll(/name="([\w-]+)"\s*options=\{\{\s*(?:\.\.\.sheet|presentation: "transparentModal")/g)].map((match) => match[1]);
+  assert.ok(overlays.includes("permission-sheet"));
+  assert.deepEqual([...SHEETS_OVER_CHAT].sort(), overlays.sort());
 });
 
 test("Forget persists removal without waiting for a suspended unregister", async () => {

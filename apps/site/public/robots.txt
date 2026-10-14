@@ -1,5 +1,7 @@
 # Search engines and AI search/answer engines are welcome: Milagre is free and open source.
 User-agent: *
 Allow: /
+# Content Signals (contentsignals.org): training, search and AI answers may all use these pages.
+Content-Signal: ai-train=yes, search=yes, ai-input=yes
 
 Sitemap: https://milagre.cloud/sitemap.xml

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
+  "skills": [
+    {
+      "name": "milagre",
+      "type": "skill-md",
+      "description": "Install Milagre, what it needs, and how to pair the phone app.",
+      "url": "https://milagre.cloud/.well-known/agent-skills/milagre/SKILL.md",
+      "digest": "sha256:227cf561b84d6659ff212cef7e4639c6e98522f8978fde513efb6fb48b5a943b"
+    }
+  ]
+}

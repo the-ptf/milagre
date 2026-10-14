@@ -8,6 +8,7 @@ import { useComposer, useSession } from "../session";
 import { Icon } from "../icons";
 import { CircleButton, useStyles } from "../ui";
 import { useTheme } from "../theme";
+import { chatPreferences } from "../turn-options";
 
 /** Desktop's permission picker as a sheet: Ask approval, Auto mode, Full permission. A tap applies it and closes. */
 export default function PermissionSheet() {
@@ -16,7 +17,7 @@ export default function PermissionSheet() {
   const { chatId, busy } = useLocalSearchParams<{ chatId: string; busy?: string }>();
   const composer = useComposer();
   const session = useSession();
-  const current = (composer.preferences[chatId] || composer.defaults).permissionMode;
+  const current = chatPreferences(composer.preferences[chatId], composer.defaults, session.snapshot?.runs.runs[chatId]?.permissionMode).permissionMode;
   // Like desktop: the pick becomes the default for new Chats and applies to this Chat's agent right away, including a
   // turn that is running (its next tool request uses the new mode). A Chat not yet sent has no agent to tell.
   const pick = (mode: PermissionMode) => {

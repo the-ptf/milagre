@@ -4,6 +4,7 @@ import type { AgentEvent, ChatStep, CoordinatorState, PermissionRequest, Questio
 import {
   answeredQuestions,
   applyAgentEvent,
+  applyRunEvent,
   capOutput,
   chatInProject,
   chatKey,
@@ -204,6 +205,12 @@ const approval = (requestId: string): PermissionRequest => ({
   title: "Run this command?",
   command: "ls",
   allowForChat: true,
+});
+
+test("message-sent keeps the permission mode the turn starts in", () => {
+  const runs = applyRunEvent({}, key(1), { type: "message-sent", model: "claude-opus-5-5", permissionMode: "full" });
+  assert.equal(runs[key(1)].permissionMode, "full");
+  assert.equal(applyRunEvent({}, key(1), { type: "message-sent", model: "claude-opus-5-5" })[key(1)].permissionMode, undefined);
 });
 
 test("turn-started opens a run for a turn this window didn't start", (t) => {

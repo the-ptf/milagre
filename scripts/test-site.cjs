@@ -56,23 +56,25 @@ async function waitFor(evaluate, window, code, description) {
   throw new Error(`Timed out: ${description}`);
 }
 
-// The page is one screen: nothing scrolls, the devices rise from the bottom fade, and the download button sits at the
-// bottom, drawn in front of them.
-async function assertOneScreen(evaluate, window) {
+// The hero is three quarters of the screen. Feature sections scroll below it; the hero's devices and CTA fit the hero.
+async function assertHeroScreen(evaluate, window) {
   const size = await evaluate(
     window,
-    `({ sw: document.documentElement.scrollWidth, sh: document.documentElement.scrollHeight, w: innerWidth, h: innerHeight })`,
+    `({ sw: document.documentElement.scrollWidth, sh: document.querySelector('.page').getBoundingClientRect().height, w: innerWidth, h: innerHeight })`,
   );
   assert.ok(size.sw <= size.w, `scrollWidth ${size.sw} > ${size.w}`);
-  assert.ok(size.sh <= size.h, `scrollHeight ${size.sh} > ${size.h}`);
+  // 75dvh; phone emulation reports a taller innerHeight than the dynamic viewport, hence the range.
+  assert.ok(size.sh >= size.h * 0.6 && size.sh <= size.h * 0.76, `hero height ${size.sh} is not about 75% of ${size.h}`);
+  // Everything below is measured against the hero, not the window.
+  size.h = size.sh;
   const demo = await evaluate(
     window,
     `(() => { const r = document.querySelector(".demo").getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; })()`,
   );
   assert.ok(demo.left >= 0 && demo.right <= size.w + 1, `devices wider than the screen: ${JSON.stringify(demo)}`);
-  // They reach into the bottom of the fade, where it is already solid page colour, so they read as running off the edge.
+  // They run down into the fade, so they read as running off the edge.
   const fade = await evaluate(window, `document.querySelector(".fade").getBoundingClientRect().height`);
-  assert.ok(demo.top < size.h * 0.6 && demo.bottom >= size.h - fade * 0.4, `devices don't reach the bottom fade: ${JSON.stringify({ demo, fade })}`);
+  assert.ok(demo.top < size.h * 0.6 && demo.bottom >= size.h - fade, `devices don't reach the bottom fade: ${JSON.stringify({ demo, fade })}`);
   const button = await evaluate(
     window,
     `(() => { const a = [...document.querySelectorAll(".cta .button")].find((el) => el.offsetParent); const r = a.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, onTop: a.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)) }; })()`,
@@ -83,7 +85,149 @@ async function assertOneScreen(evaluate, window) {
 
 const checks = [
   {
-    name: "desktop: title, both downloads and the star count, all on one screen",
+    name: "feature sections and FAQ below the video hero work on desktop and phone",
+    async run(open, evaluate, shot) {
+      for (const size of [
+        { width: 1440, height: 900 },
+        { width: 390, height: 844, mobile: true },
+      ]) {
+        const window = await open(size);
+        const layout = await evaluate(
+          window,
+          `({
+          sections: [...document.querySelectorAll('section[id]')].map(el => el.id),
+          top: document.querySelector('#bring-your-subscription').getBoundingClientRect().top,
+            hero: document.querySelector('.page').getBoundingClientRect().bottom,
+          pageHeight: document.documentElement.scrollHeight,
+          height: innerHeight
+        })`,
+        );
+        assert.deepEqual(layout.sections, ["bring-your-subscription", "designs", "linked-projects", "phone-companion", "questions"]);
+        assert.ok(layout.top >= layout.hero && layout.top < layout.height, "the first section starts right below the hero, inside the first screen");
+        assert.ok(layout.pageHeight > layout.height, "page scrolls to the sections");
+        await evaluate(window, `document.querySelector('#bring-your-subscription').scrollIntoView()`);
+        assert.ok(await evaluate(window, `document.documentElement.scrollWidth <= innerWidth`), "subscription section fits without horizontal scrolling");
+        await shot(window, size.mobile ? "phone-byos.png" : "desktop-byos.png");
+        await evaluate(window, `document.querySelector('#designs').scrollIntoView()`);
+        assert.ok(await evaluate(window, `document.documentElement.scrollWidth <= innerWidth`), "sections fit without horizontal scrolling");
+        await shot(window, size.mobile ? "phone-sections.png" : "desktop-sections.png");
+        // The phone section plays the hero's phone recording once it scrolls near, on the 3D phone where WebGL works.
+        await evaluate(window, `document.querySelector('#phone-companion').scrollIntoView()`);
+        await waitFor(evaluate, window, `!document.querySelector('[data-phone-demo] video').paused`, "the phone recording plays");
+        assert.equal(await evaluate(window, `new URL(document.querySelector('[data-phone-demo] video').src).pathname`), "/demo/phone.mp4");
+        await delay(600);
+        for (const id of ["linked-projects", "phone-companion", "questions"]) {
+          await evaluate(window, `document.querySelector('#${id}').scrollIntoView()`);
+          if (id === "phone-companion") await delay(400);
+          await shot(window, `${size.mobile ? "phone" : "desktop"}-${id}.png`);
+        }
+        assert.ok(
+          await evaluate(window, `[...document.querySelectorAll('.closing .button')].some(a => a.offsetParent)`),
+          "the closing band offers this device's download",
+        );
+        // The Designs panel: comment mode pins a comment on a design, Choose picks one, and Send hands both to the agent.
+        await evaluate(window, `document.querySelector('#designs').scrollIntoView()`);
+        const designs = await evaluate(
+          window,
+          `(() => {
+            const root = document.querySelector('[data-designs]');
+            root.querySelector('[data-comment]').click();
+            const body = root.querySelector('[data-body="0"]').getBoundingClientRect();
+            const at = { bubbles: true, button: 0, pointerId: 1, clientX: body.left + body.width / 2, clientY: body.top + body.height / 3 };
+            root.querySelector('[data-body="0"]').dispatchEvent(new PointerEvent('pointerdown', at));
+            root.querySelector('[data-viewport]').dispatchEvent(new PointerEvent('pointerup', at));
+            const field = root.querySelector('.bubble textarea');
+            field.value = 'Bigger photos here';
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+            field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            root.querySelector('[data-choose="1"]').click();
+            const count = root.querySelector('[data-send-count]').textContent;
+            const chosen = root.querySelector('[data-frame="1"]').classList.contains('chosen');
+            root.querySelector('[data-send]').click();
+            return { count, chosen, sent: root.querySelectorAll('.pin.sent').length, status: root.querySelector('[data-status]').textContent, sendHidden: root.querySelector('[data-send]').hidden };
+          })()`,
+        );
+        assert.deepEqual(designs, { count: "2", chosen: true, sent: 1, status: "Sent to the agent: 1 comment and your choice.", sendHidden: true });
+        await shot(window, size.mobile ? "phone-designs.png" : "desktop-designs.png");
+        // Parallel work (the live sidebar) is switched off for now; its checks run whenever it is shown again.
+        const sidebarShown = await evaluate(window, `!!document.querySelector('[data-sidebar-demo]')`);
+        if (sidebarShown) {
+          // The sidebar is live: rows select and read, the ⋮ menu archives, Projects fold, PR numbers open the repository.
+          const sidebar = await evaluate(
+            window,
+            `(() => {
+              const chat = (text) => [...document.querySelectorAll('[data-sidebar-demo] [data-chat]')].find(el => el.textContent.includes(text));
+              const prs = [...document.querySelectorAll('[data-sidebar-demo] a.pr')].map(a => [a.getAttribute('href'), a.target]);
+              chat('Find Projects').querySelector('[data-row]').click();
+              const picked = chat('Find Projects').querySelector('[data-row]');
+              chat('Keep the Chat timer').querySelector('[data-more]').click();
+              const menuOpen = !document.querySelector('[data-sidebar-demo] [data-menu]').hidden;
+              document.querySelector('[data-sidebar-demo] [data-action="archive"]').click();
+              document.querySelectorAll('[data-sidebar-demo] [data-scope-toggle]')[1].click();
+              return { prs, current: picked.getAttribute('aria-current'), mark: picked.dataset.mark, menuOpen, relayRows: getComputedStyle(document.querySelectorAll('[data-sidebar-demo] [data-rows]')[1]).display };
+            })()`,
+          );
+          assert.deepEqual(
+            new Set(sidebar.prs.map(String)),
+            new Set(["https://github.com/the-ptf/milagre-ade,_blank"]),
+            "every PR number opens the repository",
+          );
+          assert.equal(sidebar.prs.length, 5);
+          assert.deepEqual([sidebar.current, sidebar.mark, sidebar.menuOpen, sidebar.relayRows], ["page", "idle", true, "none"]);
+          await waitFor(
+            evaluate,
+            window,
+            `![...document.querySelectorAll('[data-sidebar-demo] [data-chat]')].some(el => el.textContent.includes('Keep the Chat timer'))`,
+            "archived row leaves",
+          );
+        }
+        // The canvas is the app's React Flow, hydrated when it scrolls into view: Stop ends the negotiation on its Link,
+        // a selected Link can be removed, and Refresh brings the demo back.
+        await evaluate(window, `document.querySelector('#linked-projects').scrollIntoView()`);
+        await waitFor(evaluate, window, `!!document.querySelector('[data-canvas] .react-flow__edge')`, "canvas hydrates");
+        assert.equal(await evaluate(window, `document.querySelectorAll('[data-canvas] .react-flow__node').length`), 7);
+        await evaluate(window, `document.querySelector('.canvas-activity button').click()`);
+        await waitFor(evaluate, window, `!document.querySelector('.canvas-activity')`, "Stop ends the negotiation");
+        await evaluate(window, `document.querySelector('[data-canvas] .react-flow__edge').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+        await waitFor(
+          evaluate,
+          window,
+          `[...document.querySelectorAll('[data-canvas] button')].some(b => b.textContent === 'Remove Link')`,
+          "a clicked Link offers Remove Link",
+        );
+        await evaluate(window, `[...document.querySelectorAll('[data-canvas] button')].find(b => b.textContent === 'Remove Link').click()`);
+        await waitFor(evaluate, window, `!document.querySelector('[data-canvas] .react-flow__edge')`, "Remove Link removes it");
+        await evaluate(window, `[...document.querySelectorAll('[data-canvas] button')].find(b => b.textContent === 'Refresh').click()`);
+        await waitFor(evaluate, window, `!!document.querySelector('.canvas-activity')`, "Refresh restores the demo");
+        await shot(window, size.mobile ? "phone-canvas.png" : "desktop-canvas.png");
+        if (sidebarShown) {
+          // Three new Chats, then the fourth asks why instead of adding a row.
+          const spam = await evaluate(
+            window,
+            `(() => {
+              const add = document.querySelector('[data-sidebar-demo] [data-new-chat]');
+              for (let i = 0; i < 4; i++) add.click();
+              return { rows: document.querySelectorAll('[data-sidebar-demo] [data-new]').length, modal: document.querySelector('[data-too-many]').open };
+            })()`,
+          );
+          assert.deepEqual(spam, { rows: 3, modal: true });
+          await shot(window, size.mobile ? "phone-too-many.png" : "desktop-too-many.png");
+          await evaluate(window, `document.querySelector('[data-too-many-close]').click()`);
+          assert.equal(await evaluate(window, `document.querySelector('[data-too-many]').open`), false);
+        }
+        await evaluate(window, `document.querySelector('.closing').scrollIntoView({ block: 'end' })`);
+        await shot(window, size.mobile ? "phone-closing.png" : "desktop-closing.png");
+        await evaluate(window, `document.querySelector('details summary').click()`);
+        assert.equal(await evaluate(window, `document.querySelector('details').open`), true, "FAQ opens");
+        await evaluate(window, `document.querySelector('.footer-brand').click()`);
+        assert.equal(await evaluate(window, `window.scrollY`), 0, "back to top returns to the hero");
+        await assertHeroScreen(evaluate, window);
+        window.destroy();
+      }
+    },
+  },
+  {
+    name: "desktop: title, both downloads and the star count in the first screen",
     async run(open, evaluate, shot) {
       const window = await open({ width: 1440, height: 900 });
       assert.equal(await evaluate(window, `document.querySelector("h1").textContent.trim()`), HERO_TITLE);
@@ -93,27 +237,27 @@ const checks = [
       await waitFor(evaluate, window, `!document.querySelector("[data-stars]").hidden`, "star count");
       assert.equal(await evaluate(window, `document.querySelector("[data-stars]").textContent`), "1.2K");
       assert.ok(await evaluate(window, `getComputedStyle(document.querySelector(".mac")).display !== "none"`), "Mac window shown");
-      await assertOneScreen(evaluate, window);
+      await assertHeroScreen(evaluate, window);
       assert.ok(!(await evaluate(window, `/[\\u2013\\u2014]/.test(document.body.innerText)`)), "no en or em dashes in copy");
       await shot(window, "desktop.png");
       window.destroy();
     },
   },
   {
-    name: "short laptop screen still fits without scrolling",
+    name: "short laptop hero still fits in the first screen",
     async run(open, evaluate, shot) {
       const window = await open({ width: 1280, height: 640 });
-      await assertOneScreen(evaluate, window);
+      await assertHeroScreen(evaluate, window);
       await shot(window, "laptop-short.png");
       window.destroy();
     },
   },
   {
-    name: "phone: the phone app alone, on one screen",
+    name: "phone: the phone app alone in the first screen",
     async run(open, evaluate, shot) {
       const window = await open({ width: 390, height: 844, mobile: true });
       assert.equal(await evaluate(window, `getComputedStyle(document.querySelector(".mac")).display`), "none");
-      await assertOneScreen(evaluate, window);
+      await assertHeroScreen(evaluate, window);
       await shot(window, "phone.png");
       window.destroy();
     },
@@ -126,7 +270,7 @@ const checks = [
       const visible = (selector) => `[...document.querySelectorAll('${selector}')].filter((a) => a.offsetParent).length`;
       assert.equal(await evaluate(window, visible('.cta a[href="https://testflight.apple.com/join/K9ExV7bV"]')), 1);
       assert.equal(await evaluate(window, visible('.cta a[href="/download/mac-arm64"]')), 0);
-      await assertOneScreen(evaluate, window);
+      await assertHeroScreen(evaluate, window);
       await shot(window, "iphone.png");
       window.destroy();
       const mac = await open({ width: 1440, height: 900 });
@@ -152,7 +296,7 @@ const checks = [
         `(() => { const v = document.querySelector("[data-phone]"); return !v.paused && v.currentTime > 1; })()`,
         "Android recording playing",
       );
-      await assertOneScreen(evaluate, window);
+      await assertHeroScreen(evaluate, window);
       await shot(window, "android.png");
       window.destroy();
     },
@@ -173,7 +317,7 @@ const checks = [
       assert.ok(
         (await evaluate(window, `[...document.querySelectorAll(".cta .button")].find((a) => a.offsetParent).textContent.trim()`)) === "Download for Linux",
       );
-      await assertOneScreen(evaluate, window);
+      await assertHeroScreen(evaluate, window);
       await shot(window, "linux.png");
       window.destroy();
       const ubuntu = await open({ width: 1440, height: 900, userAgent: "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:141.0) Gecko/20100101 Firefox/141.0" });
@@ -219,6 +363,9 @@ const checks = [
         window,
         `(() => { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); })()`,
       );
+      // three.js loads on the visitor's first move, so the first paint only carries the flat frame.
+      assert.equal(await evaluate(window, `document.querySelector(".demo").classList.contains("three")`), false, "3D phone waits for a first move");
+      await evaluate(window, `dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 10 }))`);
       if (webgl) {
         await waitFor(evaluate, window, `document.querySelector(".demo").classList.contains("three")`, "3D phone");
         const canvas = await evaluate(
@@ -270,8 +417,8 @@ const checks = [
       await delay(800);
       assert.deepEqual(await evaluate(window, `[...document.querySelectorAll(".demo video")].map((v) => v.paused)`), [true, true]);
       assert.deepEqual(await evaluate(window, `[...document.querySelectorAll(".demo video")].map((v) => v.poster.replace(location.origin, ""))`), [
-        "/demo/desktop.jpg",
-        "/demo/phone.jpg",
+        "/demo/desktop.webp",
+        "/demo/phone.webp",
       ]);
       window.destroy();
     },

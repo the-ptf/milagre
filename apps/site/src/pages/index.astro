@@ -3,6 +3,8 @@ import Base from "../layouts/Base.astro";
 import Nav from "../components/Nav.astro";
 import HeroDemo from "../components/HeroDemo.astro";
 import DownloadButtons from "../components/DownloadButtons.astro";
+import LandingSections from "../components/LandingSections.astro";
+import BringYourSubscription from "../components/BringYourSubscription.astro";
 
 import { DOWNLOAD_ARM64, IPHONE_BETA_URL, REPO_URL } from "../links";
 
@@ -62,7 +64,7 @@ const schema = [
 ];
 ---
 <Base title={title} description={description} socialTitle={socialTitle} schema={schema}>
-  <div class="page">
+  <div class="page" id="top">
     <Nav />
     <main class="hero container">
       <h1>Your agents keep working. <em>Answer them from anywhere.</em></h1>
@@ -76,11 +78,13 @@ const schema = [
     <div class="fade" aria-hidden="true"></div>
     <div class="cta" data-cta><DownloadButtons /></div>
   </div>
+  <BringYourSubscription />
+  <LandingSections />
 </Base>
 
 <style>
-  /* One screen, no scroll. The devices rise from the bottom edge, which blurs and fades them out. */
-  .page { position: relative; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+  /* The hero takes three quarters of the window, so the first section already shows below it. */
+  .page { position: relative; display: flex; flex-direction: column; height: 75vh; height: 75dvh; overflow: hidden; }
   .hero { display: flex; flex: 1; flex-direction: column; align-items: center; gap: clamp(22px, 3.6vh, 36px); min-height: 0; padding-top: calc(clamp(20px, 4.5vh, 52px) + var(--lift, 0px)); text-align: center; }
   h1 { max-width: 22ch; font-size: clamp(32px, min(4.6vw, 5.8vh), 60px); font-weight: 600; letter-spacing: -0.035em; line-height: 1.05; }
   /* The payoff line in an italic serif, a touch larger so it reads at the same size as the grotesk. */

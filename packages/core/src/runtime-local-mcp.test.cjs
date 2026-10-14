@@ -47,8 +47,10 @@ async function fixture(t) {
           options,
           turns: [],
           turnActive: false,
+          permissions: { mode: "ask" },
           startTurn: async (request) => {
             session.turns.push(request);
+            session.permissions.mode = request.permissionMode;
             session.turnActive = true;
             options.emit({ type: "turn-started", turnId: "turn" });
             return { turnId: "turn" };
@@ -173,6 +175,21 @@ test("host MCP registers Worktrees, prepares setup, starts Chats in Ask mode and
   );
   assert.equal(f.sessions.length, 1, "reconciliation must not start a second provider session");
   assert.ok(!JSON.stringify(status).includes(connection.token));
+});
+
+test("a Chat an agent starts through its own MCP takes the calling Chat's permission mode", async (t) => {
+  const f = await fixture(t);
+  const caller = Object.values(f.opened.state.sessions)[0];
+  await f.runtime.invoke("chat:send", [
+    { projectPath: f.project, sessionId: caller.id, body: "Delegate", provider: "claude", model: "fixture", permissionMode: "full" },
+  ]);
+  await waitUntil(() => f.sessions.length === 1 && f.sessions[0].turns.length === 1);
+  const agent = { url: await f.sessions[0].options.linked.url(), token: "" };
+  const created = await call(agent, "worktree_create", { projectPath: f.project, baseBranch: "main", requestId: "worktree-1" });
+  const chat = await call(agent, "chat_create", { projectPath: f.project, worktreeId: created.worktreeId, requestId: "chat-1" });
+  await call(agent, "chat_start", { projectPath: f.project, chatId: chat.chatId, prompt: "Review the PR", model: "fixture", requestId: "turn-1" });
+  await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1);
+  assert.equal(f.sessions[1].turns[0].permissionMode, "full");
 });
 
 test("design-only configuration never exposes management or public publishing", async (t) => {

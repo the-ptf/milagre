@@ -14,6 +14,7 @@ const {
 const { archiveFinishedSubagents, patchSession } = require("@milagre/shared/project-edits");
 const { catchUpStart, handoffKind, isHandoff, lastTurnProvider } = require("@milagre/shared/handoff");
 const { renderTranscript } = require("./handover.cjs");
+const { accountSwitchText } = require("@milagre/shared/usage-limit");
 
 // A chat stopped longer ago than this waits for the user instead of continuing by itself.
 const RESUME_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -548,7 +549,11 @@ class ChatHost {
           const message = latest.messages.find((item) => item.id === pendingId);
           const divider = latest.messages.find((item) => item.id === dividerId);
           const withoutPending = { ...latest, messages: latest.messages.filter((item) => item.id !== pendingId && item.id !== dividerId) };
-          const sent = applyAgentEvent(withoutPending, this.runs, projectPath, target.chatId, { type: "message-sent", model: runModel });
+          const sent = applyAgentEvent(withoutPending, this.runs, projectPath, target.chatId, {
+            type: "message-sent",
+            model: runModel,
+            permissionMode: request.permissionMode,
+          });
           added = sent.state.messages.slice(withoutPending.messages.length).filter((message) => message.role === "assistant");
           this.runs = sent.runs;
           seq = ++this.seq;
@@ -564,7 +569,7 @@ class ChatHost {
         }
         throw error;
       });
-    this.publish(target.chatId, { type: "message-sent", model: runModel }, state, seq);
+    this.publish(target.chatId, { type: "message-sent", model: runModel, permissionMode: request.permissionMode }, state, seq);
     if (state.sessions[target.sessionId].titlePending) void this.nameChat(projectPath, target.sessionId).catch(() => {});
     const turn = {
       provider: runProvider,
@@ -804,11 +809,11 @@ class ChatHost {
   }
 
   /**
-   * Continues a chat whose last turn the plan's usage limit stopped, after its Project moved to the account named
-   * `label`, on that turn's options. Resolves false when nothing is known of the turn (Milagre restarted since) or
+   * Continues a chat whose last turn the plan's usage limit stopped, after its Project moved to `provider`'s account
+   * named `label`, on that turn's options. Its message shows as a line, not as something the user typed. Resolves false when nothing is known of the turn (Milagre restarted since) or
    * the chat runs again: the user sends their message again then.
    */
-  async continueAfterLimit(projectPath, sessionId, label) {
+  async continueAfterLimit(projectPath, sessionId, provider, label) {
     const chatId = chatKey(projectPath, sessionId);
     const turn = this.turns.get(chatId);
     if (this.runs[chatId] || !turn) return false;
@@ -816,11 +821,13 @@ class ChatHost {
     if (!session) return false;
     const { prompt, ...options } = turn;
     // A session holds the message the limit stopped; one that never started gets the message again.
+    const context = { kind: "account-switch", provider, label };
     await this.send({
       ...options,
       projectPath,
       sessionId,
-      body: `Switched to ${label} after the usage limit. Continue where you left off.`,
+      body: accountSwitchText(context),
+      context,
       prompt: session.native_session_id ? LIMIT_PROMPT : prompt,
       images: [],
       files: [],

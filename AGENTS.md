@@ -4,6 +4,15 @@
 
 Run `npm run typecheck`, `npm run lint` and `npm test -- --unit` before opening or updating a PR. Run the Electron check for the screen you touched with `npm test -- --only <name>`.
 
+### Landing page Lighthouse budget
+
+Lighthouse scores for `apps/site` never go down. The floors live in `apps/site/lighthouse-budget.json`: 100 for Accessibility, Best Practices and SEO, plus a Performance floor per form factor (mobile 97, desktop 99, median of three runs).
+
+- After any change under `apps/site`, run `npm test -- --only lighthouse`. It builds the site, serves it compressed like production and fails below the budget.
+- Never lower a number in the budget to make a change pass; find what made the page slower. Raise the numbers when the page gets faster.
+- The one exception is `skipAudits`: an audit the site fails on purpose, with the reason beside it in the budget file. Today that is `robots-txt`, for the Content-Signal line agents read. Add to it only with the user's say-so.
+- Heavy code (three.js, React, React Flow) loads after the first paint: on the first interaction or when its section nears the screen. Don't import it into the page's first load.
+
 ### Issue tracker
 
 Issues and specs live in GitHub Issues. See `docs/agents/issue-tracker.md`.

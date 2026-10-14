@@ -2,7 +2,7 @@
 // its headline shows on its own while a turn runs or the reply isn't the Chat's last message; with the Chat idle it
 // lists the Project's other accounts (signed-out ones greyed), a failed switch says why and re-enables, a good one calls
 // the bridge and replaces the buttons with the result; no other account offers Add account, and only limited ones also
-// offer Manage accounts. Also checks the Experimental switch reads and saves through the bridge.
+// offer Manage accounts. The message that continued the Chat on the new account shows as a line, not a bubble. Also checks the Experimental switch reads and saves through the bridge.
 // Set MILAGRE_SCREENSHOT_DIR to keep screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -66,6 +66,12 @@ function Fixture() {
     { id: 1, session_id: 7, context: null, role: "user", body: "Wire up the invoices export" },
     limited,
     ...(scenario === "older" ? [{ id: 3, session_id: 7, context: null, role: "user", body: "Try again" }] : []),
+    ...(scenario === "continued"
+      ? [
+          { id: 3, session_id: 7, role: "user", body: "Switched to work@example.com after the usage limit", context: { kind: "account-switch", provider: "claude", label: "work@example.com" } },
+          { id: 4, session_id: 7, role: "assistant", body: "Picking up the invoices export where it stopped.", outcome: "completed", context: null },
+        ]
+      : []),
   ];
   return <div style={{ height: "100%", padding: 12 }}>
     <BridgeContext.Provider value={bridge}><ScopeContext.Provider value="/fixture">
@@ -160,6 +166,18 @@ async function browserChecks(base) {
     ]);
     await screenshot("switched");
 
+    // The message that continued the Chat is a line between the card and the reply, not a bubble the user typed.
+    await open("continued");
+    const divider = 'document.querySelector("[data-account-switch-divider]")';
+    await waitFor(`!!${divider}`);
+    assert.equal(await evaluate(`${divider}.textContent`), "Switched towork@example.com");
+    assert.equal(await evaluate(`${divider}.getAttribute("aria-label")`), "Switched to work@example.com after the usage limit");
+    assert.equal(
+      await evaluate('[...document.querySelectorAll("[data-slot=message]")].some((item) => item.textContent.includes("after the usage limit"))'),
+      false,
+    );
+    await screenshot("continued");
+
     // No other account: Add account opens Settings > Accounts.
     await open("none");
     await waitFor(`!!${card}.querySelector("[data-usage-limit-add]")`);
@@ -190,7 +208,7 @@ async function browserChecks(base) {
 
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: the limit card shows its headline alone while a turn runs or after the Chat moved on; idle, it lists the other accounts with signed-out ones greyed, reports a failed switch and re-enables, and shows the result of a good one; Add account and Manage accounts open Settings; the Experimental switch saves through the bridge",
+      "PASS: the limit card shows its headline alone while a turn runs or after the Chat moved on; idle, it lists the other accounts with signed-out ones greyed, reports a failed switch and re-enables, and shows the result of a good one; the continue message is a line; Add account and Manage accounts open Settings; the Experimental switch saves through the bridge",
     );
     app.exit(0);
   } catch (error) {
