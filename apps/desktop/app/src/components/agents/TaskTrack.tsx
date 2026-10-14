@@ -51,7 +51,7 @@ function TaskRows({ tasks, depth, folded, toggle }: { tasks: ChatTask[]; depth: 
           </span>
           <span className={`min-w-0 flex-1 break-words ${task.status === "completed" && !parent ? "text-ink-3" : ""}`}>
             <span className="sr-only">{statusLabels[task.status]}: </span>
-            {task.status === "in_progress" && task.activeForm ? task.activeForm : task.title}
+            {task.status === "in_progress" && !parent && task.activeForm ? task.activeForm : task.title}
           </span>
           <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-ink-3">
             <TaskMarker status={task.status} />

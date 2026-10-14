@@ -20,7 +20,7 @@ function Fixture() {
   ]);
   const [sending, setSending] = useState(true);
   const [plan, setPlan] = useState({ source: "milagre", updatedAt: 0, tasks: [
-    {id:"1",title:"Persist wishlist items",status:"in_progress",children:[
+    {id:"1",title:"Persist wishlist items",activeForm:"Persisting wishlist items",status:"in_progress",children:[
       {id:"1.1",title:"Save wishlist changes on this device",activeForm:"Saving wishlist changes",status:"in_progress"},
       {id:"1.2",title:"Restore the wishlist on startup",status:"completed"}]},
     {id:"2",title:"Verify wishlist persistence",status:"completed",children:[
@@ -246,6 +246,10 @@ async function browserChecks() {
         ["0:in_progress", "1:in_progress"],
       );
       assert.match(await evaluate('document.querySelector("[data-task-row][data-depth=\\"1\\"]").textContent'), /Saving wishlist changes/);
+      // Only the in-progress leaf shows its activeForm; its parent keeps the title.
+      const parentRow = await evaluate('document.querySelector("[data-task-row][data-depth=\\"0\\"]").textContent');
+      assert.match(parentRow, /Persist wishlist items/);
+      assert.doesNotMatch(parentRow, /Persisting/);
       assert.ok(await evaluate('!!document.querySelector("[data-slot=phase-graph] path")'));
       assert.equal(await evaluate('document.querySelector("[data-slot=phase-graph] [data-current-phase]").textContent'), "Review");
       assert.match(await evaluate('document.querySelector("[data-slot=phase-graph] [data-gap]").textContent'), /^3h$/);
