@@ -1,16 +1,16 @@
 import { useCallback, useState } from "react";
 import { useFocusEffect } from "expo-router";
-import { AppState, Pressable, Text, View } from "react-native";
+import { AppState, View } from "react-native";
 import { BubbleChatIcon, GitPullRequestIcon, ShieldAlertIcon, Alert02Icon } from "@hugeicons/core-free-icons";
 import type { PullRequest, Subagent, Worktree } from "@milagre/shared/model";
 import { BLOCKERS, pullRequestBlockers } from "@milagre/shared/pr-blockers";
 import { chatMarkTone } from "@milagre/shared/chats";
-import { withAlpha } from "@milagre/shared/themes";
 import { agentCounts, MARK_LABEL, type ChatMark } from "./indicators";
 import { useSession } from "./session";
 import { readPullRequest } from "./pr-status";
 import { Icon, SpinnerRing } from "./icons";
 import { useTheme } from "./theme";
+import { StatusPill } from "./status-pill";
 
 /** The open PR for a Worktree. Slow GitHub lookups are pooled and cached, and stop while the screen is hidden. */
 export function usePullRequest(worktree?: Worktree) {
@@ -83,54 +83,29 @@ export function PullRequestAction({ pr, onRun, disabled }: { pr: PullRequest; on
   if (!blocker) return null;
   const red = BLOCKERS[blocker].tone === "red";
   return (
-    <Pressable
-      accessibilityRole="button"
+    <StatusPill
+      label={BLOCKERS[blocker].action}
+      icon={GitPullRequestIcon}
+      tone={red ? "red" : "orange"}
+      tint={red ? colors.redTint : colors.orangeTint}
       disabled={disabled}
       onPress={onRun}
-      style={({ pressed }) => ({
-        height: 28,
-        paddingHorizontal: 11,
-        borderRadius: 14,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        borderWidth: 1,
-        borderColor: withAlpha(red ? colors.red : colors.orange, 0.2),
-        backgroundColor: red ? colors.redTint : colors.orangeTint,
-        opacity: disabled ? 0.5 : pressed ? 0.7 : 1,
-      })}
-    >
-      <Icon icon={GitPullRequestIcon} tone={red ? "red" : "orange"} size={14} />
-      <Text style={{ color: red ? colors.red : colors.orange, fontSize: 12, fontWeight: "500" }}>{BLOCKERS[blocker].action}</Text>
-    </Pressable>
+    />
   );
 }
 
-/** Desktop's SubagentTrack trigger: a white chip with a ring while any agent works. */
+/** Desktop's SubagentTrack trigger: a chip with a ring while any agent works. */
 export function SubagentChip({ agents, onPress }: { agents: Subagent[]; onPress: () => void }) {
-  const { colors } = useTheme();
   const count = agentCounts(agents);
   if (!count.total) return null;
   return (
-    <Pressable
-      accessibilityRole="button"
+    <StatusPill
+      label="Subagents"
+      count={count.total}
+      leading={count.running > 0 ? <SpinnerRing size={11} /> : undefined}
+      tone={count.failed ? "red" : "ink2"}
       accessibilityLabel={`Subagents, ${count.total}${count.running ? `, ${count.running} running` : ""}`}
       onPress={onPress}
-      style={({ pressed }) => ({
-        height: 28,
-        paddingHorizontal: 11,
-        borderRadius: 14,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        borderWidth: 1,
-        borderColor: colors.line,
-        backgroundColor: colors.surface,
-        opacity: pressed ? 0.7 : 1,
-      })}
-    >
-      {count.running > 0 && <SpinnerRing size={12} />}
-      <Text style={{ color: count.failed ? colors.red : colors.ink2, fontSize: 12 }}>Subagents {count.total}</Text>
-    </Pressable>
+    />
   );
 }

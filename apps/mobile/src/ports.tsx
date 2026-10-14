@@ -10,6 +10,7 @@ import { useSession } from "./session";
 import { Icon } from "./icons";
 import { CircleButton, ErrorNotice, PageScroll, PillButton, useStyles } from "./ui";
 import { useTheme } from "./theme";
+import { StatusPill } from "./status-pill";
 
 /** The host returns only this Chat's proven processes. A Worktree is never an owner. */
 function useChatPorts(client: Client | null, chatId?: string) {
@@ -60,32 +61,17 @@ function useChatPorts(client: Client | null, chatId?: string) {
 }
 
 export function PortsChip({ chatId }: { chatId: string }) {
-  const { colors } = useTheme();
   const { client } = useSession();
   const { ports } = useChatPorts(client, chatId);
   if (!client || !chatId || !ports.length) return null;
   return (
-    <Pressable
-      accessibilityRole="button"
+    <StatusPill
+      label="Ports"
+      count={ports.length}
+      icon={EthernetPortIcon}
       accessibilityLabel={`Ports, ${ports.length} listening`}
       onPress={() => router.push({ pathname: "/ports-sheet", params: { hostId: client.url, chatId } })}
-      hitSlop={8}
-      style={({ pressed }) => ({
-        height: 24,
-        paddingHorizontal: 8,
-        borderRadius: 12,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        borderWidth: 1,
-        borderColor: colors.line,
-        backgroundColor: colors.surface,
-        opacity: pressed ? 0.7 : 1,
-      })}
-    >
-      <Icon icon={EthernetPortIcon} tone="ink2" size={12} />
-      <Text style={{ color: colors.ink2, fontSize: 11 }}>Ports {ports.length}</Text>
-    </Pressable>
+    />
   );
 }
 

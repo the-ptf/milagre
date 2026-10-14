@@ -17,6 +17,7 @@ import type { Client } from "./client";
 import { useSession } from "./session";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
+import { StatusPill } from "./status-pill";
 import { CircleButton, PageScroll, PillButton, useStyles } from "./ui";
 
 /** Poll discovery only while this screen is visible. Discovery never starts a video session. */
@@ -63,35 +64,19 @@ function useSimulators(client: Client | null, chatId?: string) {
   return { list, setList: updateList };
 }
 
-/** Same border, height, spacing and icon size as the desktop Ports pill. */
 export function SimulatorChip({ chatId }: { chatId: string }) {
-  const { colors } = useTheme();
   const { client } = useSession();
   const { list } = useSimulators(client, chatId);
   const attachedCount = list?.attached?.length ?? 0;
   if (!client || !chatId || list?.supported === false || !attachedCount) return null;
   return (
-    <Pressable
-      accessibilityRole="button"
+    <StatusPill
+      label="Simulators"
+      count={attachedCount}
+      icon={SmartphoneIcon}
       accessibilityLabel={`Simulators, ${attachedCount} attached to this Chat`}
       onPress={() => router.push({ pathname: "/simulator-sheet", params: { hostId: client.url, chatId } })}
-      hitSlop={8}
-      style={({ pressed }) => ({
-        height: 24,
-        paddingHorizontal: 8,
-        borderRadius: 12,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        borderWidth: 1,
-        borderColor: colors.line,
-        backgroundColor: colors.surface,
-        opacity: pressed ? 0.7 : 1,
-      })}
-    >
-      <Icon icon={SmartphoneIcon} tone="ink2" size={12} />
-      <Text style={{ color: colors.ink2, fontSize: 11 }}>Simulators {attachedCount}</Text>
-    </Pressable>
+    />
   );
 }
 

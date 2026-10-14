@@ -11,6 +11,7 @@ import type { Client } from "./client";
 import { useSession } from "./session";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
+import { StatusPill } from "./status-pill";
 import { CircleButton, PageScroll, PillButton, useStyles } from "./ui";
 
 /** Poll this Chat's browser pages only while the screen is visible. Listing never starts a capture. */
@@ -57,35 +58,20 @@ function useBrowsers(client: Client | null, chatId: string | undefined) {
   return { list, setList, refresh: () => refresh.current() };
 }
 
-/** Same border, height, spacing and icon size as the Simulators pill. Hidden until this Chat has a page. */
+/** Hidden until this Chat has a page. */
 export function BrowserChip({ chatId }: { chatId?: string }) {
-  const { colors } = useTheme();
   const { client } = useSession();
   const { list } = useBrowsers(client, chatId);
   if (!client || !chatId || !list?.supported || !list.targets.length) return null;
   const count = list.targets.length;
   return (
-    <Pressable
-      accessibilityRole="button"
+    <StatusPill
+      label="Browser"
+      count={count}
+      icon={BrowserIcon}
       accessibilityLabel={`Browser, ${count} ${count === 1 ? "page" : "pages"} in this Chat`}
       onPress={() => router.push({ pathname: "/browser-sheet", params: { hostId: client.url, chatId } })}
-      hitSlop={8}
-      style={({ pressed }) => ({
-        height: 24,
-        paddingHorizontal: 8,
-        borderRadius: 12,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        borderWidth: 1,
-        borderColor: colors.line,
-        backgroundColor: colors.surface,
-        opacity: pressed ? 0.7 : 1,
-      })}
-    >
-      <Icon icon={BrowserIcon} tone="ink2" size={12} />
-      <Text style={{ color: colors.ink2, fontSize: 11 }}>Browser {count}</Text>
-    </Pressable>
+    />
   );
 }
 

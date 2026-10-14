@@ -13,6 +13,7 @@ import type { Client } from "./client";
 import { useSession } from "./session";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
+import { StatusPill } from "./status-pill";
 import { CircleButton, PillButton, useStyles } from "./ui";
 import { createTerminalHtml, scriptValue, xtermTheme, type TerminalTheme, type TerminalViewMessage } from "./terminal-receiver";
 
@@ -65,37 +66,22 @@ function useTerminals(client: Client | null, chatId: string | undefined) {
   return { terminals, setTerminals, refresh: () => refresh.current() };
 }
 
-/** Same border, height and icon size as the Ports pill. Shown for every sent Chat on a Mac that has Terminals. */
+/** Shown for every sent Chat on a Mac that has Terminals. */
 export function TerminalChip({ chatId, places }: { chatId?: string; places?: TerminalPlace[] }) {
-  const { colors } = useTheme();
   const { client } = useSession();
   const { terminals } = useTerminals(client, chatId);
   if (!client || !chatId || !terminals) return null;
   const count = terminals.length;
   return (
-    <Pressable
-      accessibilityRole="button"
+    <StatusPill
+      label="Terminal"
+      count={count || undefined}
+      icon={ComputerTerminal01Icon}
       accessibilityLabel={count ? `Terminal, ${count} open in this Chat` : "Open a Terminal in this Chat"}
       onPress={() =>
         router.push({ pathname: "/terminal-sheet", params: { hostId: client.url, chatId, ...(places?.length ? { places: JSON.stringify(places) } : {}) } })
       }
-      hitSlop={8}
-      style={({ pressed }) => ({
-        height: 24,
-        paddingHorizontal: 8,
-        borderRadius: 12,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        borderWidth: 1,
-        borderColor: colors.line,
-        backgroundColor: colors.surface,
-        opacity: pressed ? 0.7 : 1,
-      })}
-    >
-      <Icon icon={ComputerTerminal01Icon} tone="ink2" size={12} />
-      <Text style={{ color: colors.ink2, fontSize: 11 }}>{count ? `Terminal ${count}` : "Terminal"}</Text>
-    </Pressable>
+    />
   );
 }
 
