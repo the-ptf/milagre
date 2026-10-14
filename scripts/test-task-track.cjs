@@ -106,6 +106,20 @@ async function browserChecks() {
     );
     assert.ok(offset <= 2, `Phase dot is ${offset}px off its row label`);
   };
+  // Every dot, tick label and "Now" sits fully inside the graph's SVG: iOS draws nothing outside it.
+  const assertGraphInsideBox = async (when) => {
+    const outside = await evaluate(
+      `(() => {const svg=document.querySelector("[data-slot=phase-graph] svg[role=img]").getBoundingClientRect();return [...document.querySelectorAll("[data-slot=phase-graph] circle, [data-slot=phase-graph] text")].filter(e=>{const r=e.getBoundingClientRect();return r.left<svg.left-0.5||r.right>svg.right+0.5||r.top<svg.top-0.5||r.bottom>svg.bottom+0.5}).map(e=>{const r=e.getBoundingClientRect();return e.tagName+":"+e.textContent+":"+[r.left,r.right,r.top,r.bottom,svg.left,svg.right,svg.top,svg.bottom].map(Math.round)})})()`,
+    );
+    assert.deepEqual(outside, [], `Phase graph leaves its box (${when})`);
+    assert.ok(await evaluate('[...document.querySelectorAll("[data-slot=phase-graph] text")].some(e=>e.textContent==="Now")'), `No "Now" label (${when})`);
+    assert.ok(await evaluate('document.querySelectorAll("[data-slot=phase-graph] circle").length>=2'), `Dots missing (${when})`);
+    // Every gap chip sits on the line: its centre is within 1.5 px of the path.
+    const chip = await evaluate(
+      `(() => {const path=document.querySelector("[data-slot=phase-graph] svg[role=img] path"), len=path.getTotalLength();return [...document.querySelectorAll("[data-slot=phase-graph] [data-gap] rect")].map(r=>{const cx=r.x.baseVal.value+r.width.baseVal.value/2, cy=r.y.baseVal.value+r.height.baseVal.value/2;let best=Infinity;for(let i=0;i<=len;i+=0.5){const p=path.getPointAtLength(i);best=Math.min(best,Math.hypot(p.x-cx,p.y-cy))}return best})})()`,
+    );
+    assert.ok(chip.length >= 2 && chip.every((distance) => distance <= 1.5), `Gap chip is off the line (${when}): ${JSON.stringify(chip)}`);
+  };
   try {
     await window.loadURL(process.argv[2]);
     await waitFor('!!document.querySelector("[data-slot=task-track]")');
@@ -237,6 +251,7 @@ async function browserChecks() {
       assert.match(await evaluate('document.querySelector("[data-slot=phase-graph] [data-gap]").textContent'), /^3h$/);
       // Every dot sits on its legend row: the current phase's dot is level with its label.
       await assertDotOnRow();
+      await assertGraphInsideBox(theme);
       // Collapsing a parent hides its children.
       await evaluate('document.querySelector("[data-task-row] button[aria-expanded]").click()');
       assert.equal(await evaluate('document.querySelectorAll("[data-task-row]").length'), 6);
@@ -270,6 +285,7 @@ async function browserChecks() {
       "Popover escapes the narrow viewport",
     );
     await assertDotOnRow();
+    await assertGraphInsideBox("narrow");
     await screenshot("task-popover-narrow");
     window.setContentSize(800, 600);
     await evaluate("window.setPlan(p => ({...p, tasks: []}))");

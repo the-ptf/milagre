@@ -15,7 +15,7 @@ import {
   Wrench01Icon,
 } from "@hugeicons/core-free-icons";
 import { PHASES } from "@milagre/shared/chat-plan";
-import { phaseGraph, phaseGraphPath, rowY } from "@milagre/shared/phase-graph";
+import { phaseGraph, phaseGraphLayout } from "@milagre/shared/phase-graph";
 import type { ChatPlan, ChatTask } from "@milagre/shared/model";
 import { withAlpha } from "@milagre/shared/themes";
 import { Icon, SpinnerRing } from "./icons";
@@ -132,8 +132,7 @@ export function PlanPhaseGraph({ plan }: { plan: ChatPlan }) {
   const [width, setWidth] = useState(0);
   const graph = phaseGraph(plan.phases, opened);
   if (!graph.points.length || !graph.current) return null;
-  const last = graph.points.length - 1;
-  const path = width > 0 ? phaseGraphPath(graph.points, width, HEIGHT) : "";
+  const layout = phaseGraphLayout(graph, width, { height: HEIGHT });
   return (
     <View style={{ flexDirection: "row", gap: 8 }}>
       <View style={{ height: HEIGHT, flexDirection: "column-reverse" }}>
@@ -160,32 +159,32 @@ export function PlanPhaseGraph({ plan }: { plan: ChatPlan }) {
       </View>
       <View style={{ flex: 1, minWidth: 0 }} onLayout={(event) => setWidth(Math.max(1, Math.round(event.nativeEvent.layout.width)))}>
         {width > 0 && (
-          <Svg width={width} height={HEIGHT + 18} style={{ overflow: "visible" }} accessibilityLabel={`Current phase: ${PHASE_LABELS[graph.current]}`}>
-            <Path d={path} fill="none" stroke={colors.accent} strokeWidth={2} strokeLinecap="round" />
-            {graph.points.map((point, index) => (
+          <Svg width={width} height={HEIGHT + 18} accessibilityLabel={`Current phase: ${PHASE_LABELS[graph.current]}`}>
+            <Path d={layout.path} fill="none" stroke={colors.accent} strokeWidth={2} strokeLinecap="round" />
+            <Line x1={layout.now.lineX} x2={layout.now.lineX} y1={0} y2={HEIGHT} stroke={colors.accent} strokeWidth={1} strokeDasharray="3 3" />
+            {layout.points.map((point) => (
               <Circle
                 key={`${point.at}-${point.phase}`}
-                cx={point.x * width}
-                cy={rowY(point.row, HEIGHT)}
-                r={index === last ? 5 : 3}
-                fill={index === last ? colors.accent : colors.ink2}
+                cx={point.x}
+                cy={point.y}
+                r={point.current ? 5 : 3}
+                fill={point.current ? colors.accent : colors.ink2}
               />
             ))}
-            {graph.gaps.map((gap) => (
-              <G key={`${gap.x0}-${gap.x1}`}>
-                <Rect x={((gap.x0 + gap.x1) / 2) * width - 12} y={HEIGHT / 2 - 8} width={24} height={16} rx={4} fill={colors.hover} />
-                <SvgText x={((gap.x0 + gap.x1) / 2) * width} y={HEIGHT / 2 + 4} textAnchor="middle" fontSize={10} fill={colors.ink2}>
+            {layout.gaps.map((gap) => (
+              <G key={`${gap.x}-${gap.label}`}>
+                <Rect x={gap.x - 12} y={gap.y - 8} width={24} height={16} rx={4} fill={colors.hover} />
+                <SvgText x={gap.x} y={gap.y + 4} textAnchor="middle" fontSize={10} fill={colors.ink2}>
                   {gap.label}
                 </SvgText>
               </G>
             ))}
-            <Line x1={width} x2={width} y1={0} y2={HEIGHT} stroke={colors.accent} strokeWidth={1} strokeDasharray="3 3" />
-            {graph.ticks.map((tick) => (
-              <SvgText key={tick.x} x={tick.x * width} y={HEIGHT + 14} textAnchor="middle" fontSize={10} fill={colors.ink3}>
+            {layout.ticks.map((tick) => (
+              <SvgText key={tick.x} x={tick.x} y={HEIGHT + 14} textAnchor={tick.anchor} fontSize={10} fill={colors.ink3}>
                 {tick.label}
               </SvgText>
             ))}
-            <SvgText x={width} y={HEIGHT + 14} textAnchor="middle" fontSize={10} fill={colors.ink3}>
+            <SvgText x={layout.now.x} y={HEIGHT + 14} textAnchor={layout.now.anchor} fontSize={10} fill={colors.ink3}>
               Now
             </SvgText>
           </Svg>

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CheckmarkCircle02Icon, EyeIcon, Flag01Icon, GitMergeIcon, Rocket01Icon, Target02Icon, TestTube01Icon, Wrench01Icon } from "@hugeicons/core-free-icons";
 import { PHASES } from "@milagre/shared/chat-plan";
-import { phaseGraph, phaseGraphPath, rowY } from "@milagre/shared/phase-graph";
+import { phaseGraph, phaseGraphLayout } from "@milagre/shared/phase-graph";
 import type { ChatPhase, ChatPlan } from "../../model";
 
 export const PHASE_LABELS: Record<ChatPhase, string> = {
@@ -48,8 +48,7 @@ export function PhaseGraph({ plan, now: fixedNow }: { plan: ChatPlan; now?: numb
   }, [cell]);
   const graph = phaseGraph(plan.phases, opened);
   if (!graph.points.length || !graph.current) return null;
-  const path = phaseGraphPath(graph.points, width, HEIGHT);
-  const last = graph.points.length - 1;
+  const layout = phaseGraphLayout(graph, width, { height: HEIGHT });
   return (
     <section data-slot="phase-graph" aria-label="Phase graph" className="flex shrink-0 flex-col gap-2 px-2 pb-2">
       <h3 className="flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] text-ink-3 uppercase">
@@ -74,32 +73,32 @@ export function PhaseGraph({ plan, now: fixedNow }: { plan: ChatPlan; now?: numb
           })}
         </ol>
         <div ref={setCell} className="relative min-w-0 flex-1">
-          <svg width={width} height={HEIGHT + 18} className="block overflow-visible" role="img" aria-label={`Current phase: ${PHASE_LABELS[graph.current]}`}>
-            <path d={path} fill="none" strokeWidth={2} className="stroke-accent" strokeLinecap="round" />
-            {graph.points.map((point, index) => (
+          <svg width={width} height={HEIGHT + 18} className="block" role="img" aria-label={`Current phase: ${PHASE_LABELS[graph.current]}`}>
+            <path d={layout.path} fill="none" strokeWidth={2} className="stroke-accent" strokeLinecap="round" />
+            <line x1={layout.now.lineX} x2={layout.now.lineX} y1={0} y2={HEIGHT} strokeDasharray="3 3" className="stroke-accent" />
+            {layout.points.map((point) => (
               <circle
                 key={`${point.at}-${point.phase}`}
-                cx={point.x * width}
-                cy={rowY(point.row, HEIGHT)}
-                r={index === last ? 5 : 3}
-                className={index === last ? "fill-accent" : "fill-ink-2"}
+                cx={point.x}
+                cy={point.y}
+                r={point.current ? 5 : 3}
+                className={point.current ? "fill-accent" : "fill-ink-2"}
               />
             ))}
-            {graph.gaps.map((gap) => (
-              <g key={`${gap.x0}-${gap.x1}`} data-gap>
-                <rect x={((gap.x0 + gap.x1) / 2) * width - 12} y={HEIGHT / 2 - 8} width={24} height={16} rx={4} className="fill-hover" />
-                <text x={((gap.x0 + gap.x1) / 2) * width} y={HEIGHT / 2 + 4} textAnchor="middle" className="fill-ink-2 text-[10px]">
+            {layout.gaps.map((gap) => (
+              <g key={`${gap.x}-${gap.label}`} data-gap>
+                <rect x={gap.x - 12} y={gap.y - 8} width={24} height={16} rx={4} className="fill-hover" />
+                <text x={gap.x} y={gap.y + 4} textAnchor="middle" className="fill-ink-2 text-[10px]">
                   {gap.label}
                 </text>
               </g>
             ))}
-            <line x1={width} x2={width} y1={0} y2={HEIGHT} strokeDasharray="3 3" className="stroke-accent" />
-            {graph.ticks.map((tick) => (
-              <text key={tick.x} x={tick.x * width} y={HEIGHT + 14} textAnchor="middle" className="fill-ink-3 text-[10px]">
+            {layout.ticks.map((tick) => (
+              <text key={tick.x} x={tick.x} y={HEIGHT + 14} textAnchor={tick.anchor} className="fill-ink-3 text-[10px]">
                 {tick.label}
               </text>
             ))}
-            <text x={width} y={HEIGHT + 14} textAnchor="middle" className="fill-ink-3 text-[10px]">
+            <text x={layout.now.x} y={HEIGHT + 14} textAnchor={layout.now.anchor} className="fill-ink-3 text-[10px]">
               Now
             </text>
           </svg>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { phaseGraph, phaseGraphPath, rowY } from "./phase-graph.mjs";
+import { phaseGraph, phaseGraphLayout, phaseGraphPath, rowY } from "./phase-graph.mjs";
 
 const HOUR = 3_600_000;
 const format = (ms: number) => `t${ms / 60_000}`;
@@ -84,4 +84,62 @@ test("rows run bottom to top and the path curves between points", () => {
     { formatTime: format },
   );
   assert.match(phaseGraphPath(graph.points, 100, 80), /^M0 [\d.]+ C[\d., ]+ H100$/);
+});
+
+const history = [
+  { phase: "start", at: 0 },
+  { phase: "plan", at: 20 * 60_000 },
+  { phase: "build", at: 40 * 60_000 },
+  { phase: "test", at: 60 * 60_000 },
+  { phase: "review", at: 60 * 60_000 + 3 * HOUR },
+] as const;
+const sample = () => phaseGraph([...history], 60 * 60_000 + 4 * HOUR, { formatTime: format });
+
+test("layout keeps the first tick, the dots and Now inside the box", () => {
+  for (const width of [120, 200, 260, 340, 600]) {
+    const layout = phaseGraphLayout(sample(), width, { height: 168 });
+    assert.equal(layout.ticks[0].anchor, "start");
+    assert.equal(layout.ticks[0].x, 6);
+    assert.deepEqual(layout.now, { x: width, anchor: "end", lineX: width - 6 });
+    for (const point of layout.points) assert.ok(point.x >= 6 && point.x <= width - 6, `${point.x} outside at ${width}`);
+    assert.equal(layout.points[0].x, 6);
+    assert.equal(layout.points.filter((point) => point.current).length, 1);
+  }
+});
+
+test("layout drops ticks whose labels would cross an edge, a neighbour or Now", () => {
+  for (const width of [90, 120, 200, 260, 340, 600]) {
+    const { ticks } = phaseGraphLayout(sample(), width, { height: 168 });
+    let free = 0;
+    for (const tick of ticks) {
+      const start = tick.anchor === "start" ? tick.x : tick.x - 22;
+      const end = start + 44;
+      assert.ok(start >= 0 && end <= width, `tick ${tick.label} crosses an edge at ${width}`);
+      assert.ok(start >= free, `tick ${tick.label} overlaps the previous one at ${width}`);
+      assert.ok(end <= width - 28, `tick ${tick.label} overlaps Now at ${width}`);
+      free = end;
+    }
+  }
+});
+
+test("layout puts a gap chip on the line and the path starts at the left inset", () => {
+  const layout = phaseGraphLayout(sample(), 300, { height: 168 });
+  assert.equal(layout.gaps.length, 1);
+  // The gap runs from test (row 3) to review (row 4): the S-curve crosses their average at the middle.
+  assert.equal(layout.gaps[0].y, Number(((rowY(3, 168) + rowY(4, 168)) / 2).toFixed(2)));
+  assert.match(layout.path, /^M6 /);
+  assert.match(layout.path, / H294$/);
+});
+
+test("layout of a gap that runs on to Now sits at the row the Chat stayed in", () => {
+  const graph = phaseGraph(
+    [
+      { phase: "build", at: 0 },
+      { phase: "test", at: 60_000 },
+    ],
+    60_000 + 5 * HOUR,
+    { formatTime: format },
+  );
+  const layout = phaseGraphLayout(graph, 300, { height: 168 });
+  assert.equal(layout.gaps[0].y, rowY(3, 168));
 });
