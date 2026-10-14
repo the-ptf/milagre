@@ -99,7 +99,67 @@ async function browserChecks() {
     }
     throw new Error(`Timed out: ${source}`);
   }
-  const pill = "[data-slot=task-track] > span > button";
+  const pill = "[data-slot=task-track] [data-face=pill] button";
+  // The pill and its panel are two faces of one surface; both stay mounted and only the shown one is live.
+  const surface = "[data-slot=task-surface]";
+  const panel = "[data-slot=task-popover]";
+  const isOpen = `document.querySelector("${panel}")?.dataset.state === "open"`;
+  const isClosed = `document.querySelector("${panel}")?.dataset.state === "closed"`;
+  const assertFaces = async (open) => {
+    const faces = await evaluate(
+      `(() => {const p=document.querySelector("[data-slot=task-track] [data-face=pill]"), c=document.querySelector("${panel}");return {pill:[p.inert,p.getAttribute("aria-hidden")], panel:[c.inert,c.getAttribute("aria-hidden")]}})()`,
+    );
+    assert.deepEqual(
+      faces,
+      open ? { pill: [true, "true"], panel: [false, null] } : { pill: [false, null], panel: [true, "true"] },
+      `Faces (${open ? "open" : "closed"})`,
+    );
+  };
+  // The surface has stopped moving and takes the size of the face on show.
+  const settle = () =>
+    waitFor(
+      `(() => {const s=document.querySelector("${surface}"), open=${isOpen}, face=open ? document.querySelector("${panel}") : document.querySelector("[data-slot=task-track] [data-face=pill]"), r=s.getBoundingClientRect();return !s.getAnimations().length && Math.abs(r.width-face.offsetWidth)<1 && Math.abs(r.height-face.offsetHeight)<1})()`,
+    );
+  const rect = (selector) =>
+    evaluate(
+      `(() => {const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}})()`,
+    );
+  // The open surface grows up and to the left from the pill: its bottom-right corner stays on the pill's.
+  const assertGrownFromPill = async (pillBox, when) => {
+    const box = await rect(surface);
+    const content = await evaluate(`(() => {const c=document.querySelector("${panel}");return {width:c.offsetWidth,height:c.offsetHeight}})()`);
+    assert.ok(
+      Math.abs(box.right - pillBox.right) <= 1 && Math.abs(box.bottom - pillBox.bottom) <= 1,
+      `Surface left the pill's corner (${when}): ${JSON.stringify({ box, pillBox })}`,
+    );
+    assert.ok(
+      Math.abs(box.width - content.width) <= 1 && Math.abs(box.height - content.height) <= 1,
+      `Surface does not fit its panel (${when}): ${JSON.stringify({ box, content })}`,
+    );
+    assert.ok(box.width <= 380 && box.height > pillBox.height, `Surface did not open (${when}): ${JSON.stringify(box)}`);
+  };
+  // A short frame sequence of the morph, for the PR: Electron's frame subscription paints ~30fps even in a hidden window.
+  async function record(name, run) {
+    if (!screenshotDir) return run();
+    const fs = require("node:fs");
+    const frames = [];
+    window.webContents.beginFrameSubscription(false, (image) => frames.push({ at: Date.now(), image }));
+    try {
+      await run();
+    } finally {
+      window.webContents.endFrameSubscription();
+    }
+    const dir = path.join(screenshotDir, name);
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true });
+    const list = [];
+    frames.forEach((frame, index) => {
+      const file = `${String(index).padStart(4, "0")}.png`;
+      fs.writeFileSync(path.join(dir, file), frame.image.toPNG());
+      list.push(`file '${file}'`, `duration ${(((frames[index + 1]?.at ?? frame.at + 33) - frame.at) / 1000).toFixed(3)}`);
+    });
+    fs.writeFileSync(path.join(dir, "frames.txt"), list.join("\n") + "\n");
+  }
   const assertDotOnRow = async () => {
     const offset = await evaluate(
       `(() => {const c=[...document.querySelectorAll("[data-slot=phase-graph] circle")].at(-1).getBoundingClientRect(), l=document.querySelector("[data-slot=phase-graph] [data-current-phase]").getBoundingClientRect();return Math.abs((c.top+c.bottom)/2-(l.top+l.bottom)/2)})()`,
@@ -233,11 +293,32 @@ async function browserChecks() {
       `(() => {const a=document.querySelector("${pill}").getBoundingClientRect(), b=document.querySelector("[data-slot=subagent-track] > button").getBoundingClientRect();return {gap:b.left-a.right,dy:Math.abs(a.top-b.top)}})()`,
     );
     assert.ok(gap.gap >= 0 && gap.gap <= 12 && gap.dy < 1, `Pill is not beside Subagents: ${JSON.stringify(gap)}`);
+    // Closed, the panel face is mounted but out of reach.
+    await assertFaces(false);
     for (const theme of ["dark", "light"]) {
       await evaluate(`window.setDark(${theme === "dark"})`);
       await screenshot(`task-pill-closed-${theme}`);
+      const pillBox = await rect(pill);
+      if (theme === "dark") {
+        // The recording covers open and close: the pill grows into the panel and shrinks back.
+        await record("task-morph", async () => {
+          await delay(150);
+          await evaluate(`document.querySelector("${pill}").click()`);
+          await waitFor(isOpen);
+          await settle();
+          await delay(400);
+          await clickLabel("Collapse tasks");
+          await waitFor(isClosed);
+          await settle();
+          await delay(250);
+        });
+        assert.equal(await evaluate(`document.activeElement === document.querySelector("${pill}")`), true, "The collapse control returns focus to the pill");
+      }
       await evaluate(`document.querySelector("${pill}").click()`);
-      await waitFor('!!document.querySelector("[data-slot=task-popover]")');
+      await waitFor(isOpen);
+      await assertFaces(true);
+      await settle();
+      await assertGrownFromPill(pillBox, theme);
       assert.equal(await evaluate(`document.querySelector("${pill}").getAttribute("aria-expanded")`), "true");
       assert.equal(await evaluate('document.querySelectorAll("dialog[open], [aria-modal=true]").length'), 0);
       assert.equal(await evaluate('document.querySelectorAll("[data-task-row]").length'), 8);
@@ -262,30 +343,56 @@ async function browserChecks() {
       await evaluate('document.querySelector("[data-task-row] button[aria-expanded]").click()');
       assert.equal(await evaluate('document.querySelectorAll("[data-task-row]").length'), 8);
       const bounds = await evaluate(
-        '(() => {const r=document.querySelector("[data-slot=task-popover]").getBoundingClientRect(), t=document.querySelector("[data-slot=task-track] button").getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,w:innerWidth,h:innerHeight,gap:t.top-r.bottom}})()',
+        `(() => {const r=document.querySelector("${panel}").getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,w:innerWidth,h:innerHeight}})()`,
       );
-      assert.ok(
-        bounds.left >= 0 && bounds.right <= bounds.w && bounds.top >= 0 && bounds.gap >= 0 && bounds.gap < 16,
-        `Popover is misplaced: ${JSON.stringify(bounds)}`,
-      );
+      assert.ok(bounds.left >= 0 && bounds.right <= bounds.w && bounds.top >= 0, `Popover is misplaced: ${JSON.stringify(bounds)}`);
       await screenshot(`task-popover-${theme}`);
       window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
       window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
-      await waitFor('!document.querySelector("[data-slot=task-popover]")');
+      await waitFor(isClosed);
       assert.equal(await evaluate(`document.activeElement === document.querySelector("${pill}")`), true);
+      await assertFaces(false);
+      await settle();
     }
     await evaluate(`document.querySelector("${pill}").click()`);
-    await waitFor('!!document.querySelector("[data-slot=task-popover]")');
+    await waitFor(isOpen);
     await evaluate('document.querySelector("textarea[aria-label=Prompt]").dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}))');
-    await waitFor('!document.querySelector("[data-slot=task-popover]")');
-    window.setContentSize(390, 500);
-    await delay(200);
+    await waitFor(isClosed);
+    await settle();
+    // Reduced motion: the surface jumps straight to the panel, with no transition.
+    const devtools = window.webContents.debugger;
+    devtools.attach("1.3");
+    await devtools.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    assert.equal(await evaluate('matchMedia("(prefers-reduced-motion: reduce)").matches'), true);
     await evaluate(`document.querySelector("${pill}").click()`);
-    await waitFor('!!document.querySelector("[data-slot=task-popover]")');
+    await waitFor(isOpen);
+    // styles.css's global reduced-motion rule turns every transition into 0.01ms, which is no transition.
+    const durations = await evaluate(`getComputedStyle(document.querySelector("${surface}")).transitionDuration.split(", ").map(parseFloat)`);
+    assert.ok(
+      durations.every((seconds) => seconds <= 0.00001),
+      `The surface still transitions under reduced motion: ${durations}`,
+    );
     assert.ok(
       await evaluate(
-        '(() => {const r=document.querySelector("[data-slot=task-popover]").getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && r.top>=0})()',
+        `new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => {const s=document.querySelector("${surface}").getBoundingClientRect(), c=document.querySelector("${panel}");done(Math.abs(s.width-c.offsetWidth)<1 && Math.abs(s.height-c.offsetHeight)<1)})))`,
       ),
+      "The surface did not open at once under reduced motion",
+    );
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+    await waitFor(isClosed);
+    await devtools.sendCommand("Emulation.setEmulatedMedia", { features: [] });
+    devtools.detach();
+    await settle();
+    window.setContentSize(390, 500);
+    await delay(200);
+    const narrowPill = await rect(pill);
+    await evaluate(`document.querySelector("${pill}").click()`);
+    await waitFor(isOpen);
+    await settle();
+    await assertGrownFromPill(narrowPill, "narrow");
+    assert.ok(
+      await evaluate(`(() => {const r=document.querySelector("${panel}").getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && r.top>=0})()`),
       "Popover escapes the narrow viewport",
     );
     await assertDotOnRow();
@@ -298,7 +405,7 @@ async function browserChecks() {
     await waitFor('!document.querySelector("[data-slot=task-track]") && !document.querySelector("[data-slot=task-popover]")');
     assert.ok(await evaluate('!!document.querySelector("[data-slot=subagent-track] > button")'));
     console.log(
-      "PASS: pill label, placement beside Subagents, rows and statuses, light and dark, Escape and outside click, focus return, narrow layout, hidden when empty, context card tones and Compact now, compaction divider",
+      "PASS: pill label, placement beside Subagents, pill-to-panel morph (faces, corner, size, reduced motion), rows and statuses, light and dark, Escape, collapse and outside click, focus return, narrow layout, hidden when empty, context card tones and Compact now, compaction divider",
     );
     app.exit(0);
   } catch (error) {

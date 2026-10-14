@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CheckmarkCircle02Icon, EyeIcon, Flag01Icon, GitMergeIcon, Rocket01Icon, Target02Icon, TestTube01Icon, Wrench01Icon } from "@hugeicons/core-free-icons";
 import { PHASES } from "@milagre/shared/chat-plan";
@@ -32,7 +32,7 @@ const ROW = HEIGHT / PHASES.length;
 const FALLBACK_WIDTH = 260;
 
 /** The Chat's phase history on a time axis that ends at Now; long idle stretches fold into a labelled gap. */
-export function PhaseGraph({ plan, now: fixedNow }: { plan: ChatPlan; now?: number }) {
+export function PhaseGraph({ plan, now: fixedNow, action }: { plan: ChatPlan; now?: number; action?: ReactNode }) {
   // Now is taken when the graph opens, so rerenders do not move the axis.
   const [opened] = useState(() => fixedNow ?? Date.now());
   // The SVG is drawn in real pixels at the cell's width, so its rows line up with the legend beside it.
@@ -51,10 +51,13 @@ export function PhaseGraph({ plan, now: fixedNow }: { plan: ChatPlan; now?: numb
   const layout = phaseGraphLayout(graph, width, { height: HEIGHT });
   return (
     <section data-slot="phase-graph" aria-label="Phase graph" className="flex shrink-0 flex-col gap-2 px-2 pb-2">
-      <h3 className="flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] text-ink-3 uppercase">
-        <span aria-hidden className="h-px w-3 bg-accent" />
-        Phase graph
-      </h3>
+      <div className="flex items-center">
+        <h3 className="flex flex-1 items-center gap-2 text-[11px] font-medium tracking-[0.08em] text-ink-3 uppercase">
+          <span aria-hidden className="h-px w-3 bg-accent" />
+          Phase graph
+        </h3>
+        {action}
+      </div>
       <div className="flex gap-2">
         <ol className="flex shrink-0 flex-col-reverse" style={{ height: HEIGHT }}>
           {PHASES.map((phase) => {

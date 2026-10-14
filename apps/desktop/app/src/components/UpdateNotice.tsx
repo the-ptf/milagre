@@ -2,8 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { createPortal } from "react-dom";
 import { motion, useReducedMotion } from "motion/react";
 import type { UpdateState } from "../electron";
-import { EASE_OUT } from "../lib/ease";
 import { useDismiss } from "../lib/use-dismiss";
+import { HIDDEN_FACE, MORPH_SURFACE, morphFace, useSize } from "./motion/morph";
 
 const Updates = createContext<UpdateState | null>(null);
 const SlotRegistry = createContext<((slot: HTMLElement) => () => void) | null>(null);
@@ -73,22 +73,6 @@ function Gift({ size = 20 }: { size?: number }) {
       <path d="M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8M12 8v13M12 8H7a3 3 0 1 1 3-3l2 3Zm0 0h5a3 3 0 1 0-3-3l-2 3Z" />
     </svg>
   );
-}
-
-const HIDDEN_FACE = "invisible transition-[visibility] duration-100 motion-reduce:duration-0";
-
-/** Reports an element's border-box size as it changes. */
-function useSize() {
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
-  const ref = useCallback((node: HTMLElement | null) => {
-    if (!node) return;
-    const read = () => setSize({ width: node.offsetWidth, height: node.offsetHeight });
-    read();
-    const observer = new ResizeObserver(read);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-  return [size, ref] as const;
 }
 
 function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLElement | null }) {
@@ -166,17 +150,7 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
   }
   // Both faces hang from the pill's spot: centred above the composer, or the window's bottom left.
   const anchor = slot ? { left: "50%", x: "-50%" } : { left: 0 };
-  // A face shows in the same commit and goes invisible as its fade ends, so a closed card's text and
-  // controls leave the page. Only hiding transitions visibility, which stays visible through those 100ms.
-  const face = (shown: boolean) => ({
-    initial: false,
-    animate: shown
-      ? { opacity: 1, filter: "blur(0px)", transition: { duration: reduce ? 0 : 0.18, delay: reduce ? 0 : 0.06, ease: EASE_OUT } }
-      : { opacity: 0, filter: reduce ? "blur(0px)" : "blur(4px)", transition: { duration: reduce ? 0 : 0.1, ease: EASE_OUT } },
-    style: anchor,
-    inert: !shown,
-    "aria-hidden": !shown || undefined,
-  });
+  const face = (shown: boolean) => ({ ...morphFace(shown, reduce), style: anchor });
   const size = open ? cardSize : pillSize;
   const notice = (
     <div
@@ -193,7 +167,7 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
       {/* One surface morphs between the pill and the card; both faces stay mounted and crossfade inside it. */}
       <div
         style={size ? { width: size.width, height: size.height, borderRadius: open ? 16 : size.height / 2 } : undefined}
-        className={`relative overflow-hidden bg-surface transition-[width,height,border-radius,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${
+        className={`relative overflow-hidden bg-surface ${MORPH_SURFACE} ${
           open ? "shadow-overlay" : slot ? "shadow-[0_0_0_1px_var(--line-strong)]" : "shadow-btn"
         }`}
       >
