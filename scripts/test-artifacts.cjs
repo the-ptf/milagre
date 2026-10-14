@@ -296,7 +296,7 @@ createRoot(document.getElementById("root")).render(<><Fixture /><ChangesToggle o
 
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
-  // `--preview` leaves the window open on the comment layer; `preview` below is the first card's frame.
+  // `--preview` leaves the window open on the comment layer; `frameGuard` below checks the first card's frame.
   const keepOpen = process.argv.includes("--preview");
   app.setPath("userData", require("node:fs").mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-artifacts-")));
   await app.whenReady();
