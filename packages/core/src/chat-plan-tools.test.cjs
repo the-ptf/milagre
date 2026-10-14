@@ -7,12 +7,20 @@ function harness() {
   const plans = new Map();
   const writes = [];
   let clock = 100;
+  // Like ChatHost.updatePlan: changes run one after another, and one that throws saves nothing.
+  let queue = Promise.resolve();
   const tools = createChatPlanTools({
     read: async (chatId) => plans.get(chatId),
-    write: async (chatId, plan) => {
-      await new Promise((resolve) => setImmediate(resolve));
-      plans.set(chatId, plan);
-      writes.push(plan);
+    update: (chatId, change) => {
+      const run = queue.then(async () => {
+        const plan = change(plans.get(chatId));
+        await new Promise((resolve) => setImmediate(resolve));
+        plans.set(chatId, plan);
+        writes.push(plan);
+        return plan;
+      });
+      queue = run.catch(() => {});
+      return run;
     },
     now: () => ++clock,
   });

@@ -6,6 +6,8 @@ const { ProjectStates } = require("../project-states.cjs");
 const { applyRunEvent } = require("@milagre/shared/agent-runs");
 const { lastTurnProvider } = require("@milagre/shared/handoff");
 const { waitUntil } = require("./test-helpers.cjs");
+const { createChatPlanTools } = require("../chat-plan-tools.cjs");
+const { runTool } = require("../linked-tools.cjs");
 
 class FakeSession {
   constructor(provider, options) {
@@ -1246,4 +1248,123 @@ test("saved input carries its client correlation id so previews reconcile before
   assert.equal(saved.get(ALPHA).messages[0].clientMessageId, "phone-first-message");
   assert.equal(published.find((item) => item.event.type === "message-sent").state.messages[0].clientMessageId, "phone-first-message");
   assert.equal(saved.get(ALPHA).messages[0].session_id, sent.sessionId);
+});
+
+// Milagre's task tools against the real host and project state, as runtime.cjs wires them.
+function planHarness() {
+  const h = harness();
+  const tools = createChatPlanTools({ read: (chatId) => h.host.plan(chatId), update: (chatId, change) => h.host.updatePlan(chatId, change) });
+  const call = (chatId, name, args) =>
+    runTool(
+      tools.definitions(chatId).find((tool) => tool.name === name),
+      args,
+    );
+  return { ...h, call };
+}
+const nativeList = (...contents) => ({ type: "tasks-updated", tasks: contents.map((content, index) => ({ id: String(index), content, status: "pending" })) });
+
+test("tasks_set saves the plan on the session and publishes it with the state", async (t) => {
+  const { host, manager, states, saved, published, call } = planHarness();
+  t.after(() => manager.closeAll());
+  const { sessionId } = await host.send(message(ALPHA, "plan it"));
+  const chatId = `${ALPHA}#${sessionId}`;
+  const result = await call(chatId, "tasks_set", { tasks: [{ title: "Persist", children: [{ title: "Save" }] }, { title: "Verify" }] });
+  assert.equal(result.isError, false);
+  assert.equal(result.text, "[ ] 1 Persist\n  [ ] 1.1 Save\n[ ] 2 Verify");
+  const plan = (await states.get(ALPHA)).sessions[sessionId].plan;
+  assert.equal(plan.source, "milagre");
+  const event = published.findLast((item) => item.event.type === "plan-updated");
+  assert.equal(event.chatId, chatId);
+  assert.deepEqual(event.event.plan, plan);
+  assert.deepEqual(event.state.sessions[sessionId].plan, plan);
+  await states.flush();
+  assert.deepEqual(saved.get(ALPHA).sessions[sessionId].plan, plan);
+});
+
+test("once Milagre owns the plan a native list is ignored, and the plan survives the turn and a reload", async (t) => {
+  const { host, manager, states, saved, published, call } = planHarness();
+  t.after(() => manager.closeAll());
+  const { sessionId } = await host.send(message(ALPHA, "plan it"));
+  const chatId = `${ALPHA}#${sessionId}`;
+  await host.receive(chatId, nativeList("native one"));
+  assert.equal((await states.get(ALPHA)).sessions[sessionId].plan.source, "native");
+  await call(chatId, "tasks_set", { tasks: [{ title: "Mine" }] });
+  const owned = (await states.get(ALPHA)).sessions[sessionId].plan;
+  const before = published.length;
+  await host.receive(chatId, nativeList("native two"));
+  assert.equal((await states.get(ALPHA)).sessions[sessionId].plan, owned);
+  assert.equal(
+    published.slice(before).some((item) => item.state),
+    false,
+    "an ignored native list publishes no state",
+  );
+  await host.receive(chatId, { type: "turn-completed" });
+  await states.flush();
+  assert.deepEqual(saved.get(ALPHA).sessions[sessionId].plan, owned);
+  const reloaded = new ProjectStates({ read: async () => saved.get(ALPHA), save: async () => {} });
+  t.after(() => reloaded.close());
+  assert.deepEqual((await reloaded.get(ALPHA)).sessions[sessionId].plan, owned);
+});
+
+test("concurrent plan changes and a native list each see the one before", async (t) => {
+  const { host, manager, states, call } = planHarness();
+  t.after(() => manager.closeAll());
+  const { sessionId } = await host.send(message(ALPHA, "plan it"));
+  const chatId = `${ALPHA}#${sessionId}`;
+  await call(chatId, "tasks_set", { tasks: [{ title: "A" }, { title: "B" }] });
+  await Promise.all([call(chatId, "task_update", { id: "1", status: "completed" }), call(chatId, "task_update", { id: "2", status: "completed" })]);
+  assert.deepEqual(
+    (await states.get(ALPHA)).sessions[sessionId].plan.tasks.map((task) => task.status),
+    ["completed", "completed"],
+  );
+});
+
+test("a native list that lands just before phase_set is kept, not overwritten", async (t) => {
+  const { host, manager, states, call } = planHarness();
+  t.after(() => manager.closeAll());
+  const { sessionId } = await host.send(message(ALPHA, "plan it"));
+  const chatId = `${ALPHA}#${sessionId}`;
+  await host.receive(chatId, nativeList("old"));
+  const [, phase] = await Promise.all([host.receive(chatId, nativeList("new one", "new two")), call(chatId, "phase_set", { phase: "build" })]);
+  assert.equal(phase.isError, false);
+  const plan = (await states.get(ALPHA)).sessions[sessionId].plan;
+  assert.deepEqual(
+    plan.tasks.map((task) => task.title),
+    ["new one", "new two"],
+  );
+  assert.equal(plan.phases.at(-1).phase, "build");
+});
+
+test("a task tool for a Chat that is gone returns an error and saves nothing", async (t) => {
+  const { host, manager, states, saved, published, call } = planHarness();
+  t.after(() => manager.closeAll());
+  await host.send(message(ALPHA, "plan it"));
+  await states.flush();
+  const before = { saved: saved.get(ALPHA), published: published.length };
+  const result = await call(`${ALPHA}#999`, "tasks_set", { tasks: [{ title: "Lost" }] });
+  assert.deepEqual(result, { text: "This Chat no longer exists.", isError: true });
+  await states.flush();
+  assert.equal(saved.get(ALPHA), before.saved);
+  assert.equal(published.length, before.published);
+});
+
+test("a change that throws, or a state update that fails, writes and publishes nothing", async (t) => {
+  const { host, manager, states, published, call } = planHarness();
+  t.after(() => manager.closeAll());
+  const { sessionId } = await host.send(message(ALPHA, "plan it"));
+  const chatId = `${ALPHA}#${sessionId}`;
+  const unknown = await call(chatId, "task_update", { id: "9", status: "completed" });
+  assert.equal(unknown.isError, true);
+  assert.match(unknown.text, /tasks_set/);
+  assert.equal((await states.get(ALPHA)).sessions[sessionId].plan, undefined);
+  assert.equal(
+    published.some((item) => item.event.type === "plan-updated"),
+    false,
+  );
+  const update = host.states.update;
+  host.states.update = () => Promise.reject(new Error("disk is full"));
+  const failed = await call(chatId, "tasks_set", { tasks: [{ title: "A" }] });
+  host.states.update = update;
+  assert.deepEqual(failed, { text: "disk is full", isError: true });
+  assert.equal((await states.get(ALPHA)).sessions[sessionId].plan, undefined);
 });

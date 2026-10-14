@@ -1,7 +1,7 @@
 const { z } = require("zod");
 const { PHASES, currentPhase, setPhase, setTasks, updateTask } = require("@milagre/shared/chat-plan");
 
-// Milagre's own task list and phase tools, the same for every provider. Each Chat's writes run one at a time, so a
+// Milagre's own task list and phase tools, the same for every provider. A Chat's changes run one at a time, so a
 // batch of task_update calls sees each other's results.
 // The tool names live here only. Permission code auto-approves them (they just write the Chat's own plan).
 const PLAN_TOOL_NAMES = Object.freeze(["tasks_set", "task_update", "tasks_read", "phase_set"]);
@@ -35,23 +35,10 @@ function formatPlan(plan) {
   return lines.join("\n");
 }
 
-function createChatPlanTools({ read, write, now = Date.now }) {
-  const queues = new Map();
-  // Runs `change` on the Chat's current plan after its earlier writes, then saves the result.
-  function change(chatId, apply) {
-    const previous = queues.get(chatId) ?? Promise.resolve();
-    const next = previous.then(async () => {
-      const plan = apply(await read(chatId), now());
-      await write(chatId, plan);
-      return plan;
-    });
-    const settled = next.catch(() => {});
-    queues.set(chatId, settled);
-    void settled.finally(() => {
-      if (queues.get(chatId) === settled) queues.delete(chatId);
-    });
-    return next;
-  }
+// `update(chatId, (plan) => newPlan)` runs the change on the Chat's current plan, in order with every other change to
+// it, and resolves with the saved plan; it rejects, saving nothing, when the change throws or can't be saved.
+function createChatPlanTools({ read, update, now = Date.now }) {
+  const change = (chatId, apply) => update(chatId, (plan) => apply(plan, now()));
   function definitions(chatId) {
     return [
       {

@@ -1326,7 +1326,7 @@ function createRuntime(options) {
   // Milagre's own task list and phase tools, the same for every provider (chat-plan-tools.cjs).
   const planTools = require("./chat-plan-tools.cjs").createChatPlanTools({
     read: (chatId) => chats.plan(chatId),
-    write: (chatId, plan) => chats.receive(chatId, { type: "plan-updated", plan }),
+    update: (chatId, change) => chats.updatePlan(chatId, change),
   });
   const linked = createLinkedWorktrees({
     dataDir,

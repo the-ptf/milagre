@@ -246,6 +246,31 @@ class ChatHost {
   receive(chatId, event) {
     // A turn the quit stops says so in its reply.
     if (this.quitting && event.type === "turn-cancelled") event = { ...event, quit: true };
+    return this.fold(chatId, event).then(
+      (folded) => this.settle(chatId, folded),
+      (error) => {
+        console.warn(`Milagre couldn't record an agent event for ${chatId}:`, error.message);
+        this.publish(chatId, event);
+      },
+    );
+  }
+
+  /**
+   * Replaces the Chat's plan with what `change(currentPlan)` returns, which runs in the same queue as every other change
+   * to its project, so nothing lands between the read and the write. Resolves with the saved plan. Rejects, and writes
+   * nothing, when the Chat is gone, `change` throws (its message is the caller's to show) or the state can't be updated.
+   */
+  async updatePlan(chatId, change) {
+    const folded = await this.fold(chatId, undefined, (session) => {
+      if (!session) throw new Error("This Chat no longer exists.");
+      return { type: "plan-updated", plan: change(session.plan) };
+    });
+    await this.settle(chatId, folded);
+    return folded.event.plan;
+  }
+
+  /** Folds an event into the project's state. `resolve(session)` makes the event inside the queue, from the session as it is then. */
+  fold(chatId, event, resolve) {
     const projectPath = projectOfKey(chatId);
     const sessionId = sessionIdFromKey(chatId);
     let seq;
@@ -254,6 +279,7 @@ class ChatHost {
       .update(
         projectPath,
         (state) => {
+          if (resolve) event = resolve(state.sessions[sessionId]);
           const result = applyAgentEvent(state, this.runs, projectPath, chatId, event);
           this.runs = result.runs;
           seq = ++this.seq;
@@ -267,25 +293,23 @@ class ChatHost {
           added = recorded.messages.filter((message) => !previousIds.has(message.id) && message.role === "assistant");
           return recorded;
         },
-        { persist: event.type !== "subagent-update", chats: [sessionId] },
+        { persist: event?.type !== "subagent-update", chats: [sessionId] },
       )
-      .then(
-        async ({ state, changed }) => {
-          this.publish(
-            chatId,
-            event.type === "subagent-update" && changed
-              ? { ...event, agent: state.sessions[sessionId].subagents.find((agent) => agent.id === event.agent.id) }
-              : event,
-            changed && event.type !== "subagent-update" ? state : undefined,
-            seq,
-          );
-          await this.captureImages(projectPath, state, added);
-        },
-        (error) => {
-          console.warn(`Milagre couldn't record an agent event for ${chatId}:`, error.message);
-          this.publish(chatId, event);
-        },
-      );
+      .then(({ state, changed }) => ({ state, changed, event, seq, added }));
+  }
+
+  /** Publishes a folded event, then captures the images of the replies it saved. */
+  async settle(chatId, { state, changed, event, seq, added }) {
+    const sessionId = sessionIdFromKey(chatId);
+    this.publish(
+      chatId,
+      event.type === "subagent-update" && changed
+        ? { ...event, agent: state.sessions[sessionId].subagents.find((agent) => agent.id === event.agent.id) }
+        : event,
+      changed && event.type !== "subagent-update" ? state : undefined,
+      seq,
+    );
+    await this.captureImages(projectOfKey(chatId), state, added);
   }
 
   /** Capture newly saved replies after publication, outside the state mutation queue. */
