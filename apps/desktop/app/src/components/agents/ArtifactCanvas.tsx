@@ -512,12 +512,112 @@ const DesignFrame = memo(function DesignFrame({
     return pin.design.version === shown.version ? [pin] : [];
   });
   const go = (next: number) => onVersion(design.id, next >= last ? null : next);
-  // Too narrow on screen for the title and its controls on one row, the controls go under the title.
-  const narrow = width * scale < 300;
+  // Too narrow on screen for the title and its controls on one row, the controls go under the title. Zoomed out
+  // further, the controls wouldn't fit under it either: the row keeps the number and title, and the controls float
+  // above the frame while the pointer or focus is on it.
+  const compact = width * scale < 260;
+  const narrow = !compact && width * scale < 300;
   const button = "grid size-6 place-items-center rounded-[6px] text-ink-2 hover:bg-hover disabled:opacity-40";
+  const controls = (
+    <>
+      {design.format !== "html" && (
+        <>
+          <Tooltip label="Previous version">
+            <button
+              type="button"
+              aria-label={`Previous version of ${shown.title}`}
+              disabled={shown.version <= 1}
+              onClick={() => go(shown.version - 1)}
+              className={button}
+            >
+              <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden />
+            </button>
+          </Tooltip>
+          <span className="text-ink-3 tabular-nums" data-slot="artifact-frame-version">
+            v{shown.version} of {last}
+          </span>
+          <Tooltip label="Next version">
+            <button
+              type="button"
+              aria-label={`Next version of ${shown.title}`}
+              disabled={shown.version >= last}
+              onClick={() => go(shown.version + 1)}
+              className={button}
+            >
+              <HugeiconsIcon icon={ArrowRight01Icon} size={14} aria-hidden />
+            </button>
+          </Tooltip>
+        </>
+      )}
+      {artifact?.format === "design" && (
+        <button
+          type="button"
+          data-slot="artifact-edit"
+          aria-label={`Edit ${shown.title}`}
+          disabled={openingEditor}
+          onClick={() => void edit()}
+          className="rounded-[6px] border border-line bg-surface px-2 py-0.5 text-ink hover:bg-hover disabled:opacity-40"
+        >
+          {openingEditor ? "Opening..." : "Edit"}
+        </button>
+      )}
+      {design.format === "design" &&
+        (deleting ? (
+          <span className="flex items-center gap-1">
+            <button
+              type="button"
+              data-slot="artifact-delete-confirm"
+              aria-label={`Delete ${shown.title} and every version`}
+              disabled={deleting === "busy"}
+              onClick={() => void remove()}
+              className="rounded-[6px] bg-red px-2 py-0.5 text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {deleting === "busy" ? "Deleting..." : "Delete"}
+            </button>
+            <button
+              type="button"
+              disabled={deleting === "busy"}
+              onClick={() => setDeleting(null)}
+              className="rounded-[6px] px-2 py-0.5 text-ink-2 hover:bg-hover disabled:opacity-40"
+            >
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <Tooltip label="Delete design">
+            <button type="button" data-slot="artifact-delete" aria-label={`Delete ${shown.title}`} onClick={() => setDeleting("confirm")} className={button}>
+              <HugeiconsIcon icon={Delete02Icon} size={14} aria-hidden />
+            </button>
+          </Tooltip>
+        ))}
+      {sentHere ? (
+        <span data-slot="artifact-chosen" className="flex items-center gap-1.5 rounded-[6px] bg-accent/10 px-2 py-0.5 text-accent">
+          <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} aria-hidden />
+          Chosen
+        </span>
+      ) : (
+        choice.onChoose && (
+          <button
+            type="button"
+            aria-label={pendingHere ? `Unchoose ${shown.title}` : `Choose ${shown.title}, version ${shown.version}`}
+            aria-pressed={pendingHere}
+            data-slot={pendingHere ? "artifact-choice-pending" : undefined}
+            onClick={() => choice.onChoose?.(shown)}
+            className={`flex items-center gap-1.5 rounded-[6px] border px-2 py-0.5 ${pendingHere ? "border-accent bg-accent/10 text-accent" : "border-line bg-surface text-ink hover:bg-hover"}`}
+          >
+            {pendingHere && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} aria-hidden />}
+            {pendingHere ? "Chosen" : "Choose"}
+          </button>
+        )
+      )}
+    </>
+  );
   return (
-    <div data-slot="artifact-frame" data-artifact={design.id} data-version={shown.version} className="flex shrink-0 flex-col" style={{ width }}>
-      <div className="relative shrink-0" style={{ height: (narrow ? HEADER * 2 : HEADER) / scale }}>
+    <div data-slot="artifact-frame" data-artifact={design.id} data-version={shown.version} className="group/frame flex shrink-0 flex-col" style={{ width }}>
+      <div
+        className={`relative shrink-0 ${compact ? "group-focus-within/frame:z-20 group-hover/frame:z-20" : ""}`}
+        style={{ height: (narrow ? HEADER * 2 : HEADER) / scale }}
+      >
         <div
           className={`absolute bottom-0 left-0 flex origin-bottom-left items-center gap-1 pb-1.5 text-[12px] text-ink ${narrow ? "flex-wrap content-end" : ""}`}
           style={{
@@ -527,102 +627,21 @@ const DesignFrame = memo(function DesignFrame({
           }}
         >
           <span className="text-ink-3">{number}</span>
-          <span className={`min-w-0 flex-1 truncate ${narrow ? "basis-[calc(100%-1.5rem)]" : ""}`}>{shown.title}</span>
-          {design.format !== "html" && (
+          <span className={`min-w-0 flex-1 truncate ${narrow ? "basis-[calc(100%-1.5rem)]" : ""}`} title={compact ? shown.title : undefined}>
+            {shown.title}
+          </span>
+          {compact ? (
             <>
-              <Tooltip label="Previous version">
-                <button
-                  type="button"
-                  aria-label={`Previous version of ${shown.title}`}
-                  disabled={shown.version <= 1}
-                  onClick={() => go(shown.version - 1)}
-                  className={button}
-                >
-                  <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden />
-                </button>
-              </Tooltip>
-              <span className="text-ink-3 tabular-nums" data-slot="artifact-frame-version">
-                v{shown.version} of {last}
-              </span>
-              <Tooltip label="Next version">
-                <button
-                  type="button"
-                  aria-label={`Next version of ${shown.title}`}
-                  disabled={shown.version >= last}
-                  onClick={() => go(shown.version + 1)}
-                  className={button}
-                >
-                  <HugeiconsIcon icon={ArrowRight01Icon} size={14} aria-hidden />
-                </button>
-              </Tooltip>
-            </>
-          )}
-          {artifact?.format === "design" && (
-            <button
-              type="button"
-              data-slot="artifact-edit"
-              aria-label={`Edit ${shown.title}`}
-              disabled={openingEditor}
-              onClick={() => void edit()}
-              className="rounded-[6px] border border-line bg-surface px-2 py-0.5 text-ink hover:bg-hover disabled:opacity-40"
-            >
-              {openingEditor ? "Opening..." : "Edit"}
-            </button>
-          )}
-          {design.format === "design" &&
-            (deleting ? (
-              <span className="flex items-center gap-1">
-                <button
-                  type="button"
-                  data-slot="artifact-delete-confirm"
-                  aria-label={`Delete ${shown.title} and every version`}
-                  disabled={deleting === "busy"}
-                  onClick={() => void remove()}
-                  className="rounded-[6px] bg-red px-2 py-0.5 text-white hover:opacity-90 disabled:opacity-50"
-                >
-                  {deleting === "busy" ? "Deleting..." : "Delete"}
-                </button>
-                <button
-                  type="button"
-                  disabled={deleting === "busy"}
-                  onClick={() => setDeleting(null)}
-                  className="rounded-[6px] px-2 py-0.5 text-ink-2 hover:bg-hover disabled:opacity-40"
-                >
-                  Cancel
-                </button>
-              </span>
-            ) : (
-              <Tooltip label="Delete design">
-                <button
-                  type="button"
-                  data-slot="artifact-delete"
-                  aria-label={`Delete ${shown.title}`}
-                  onClick={() => setDeleting("confirm")}
-                  className={button}
-                >
-                  <HugeiconsIcon icon={Delete02Icon} size={14} aria-hidden />
-                </button>
-              </Tooltip>
-            ))}
-          {sentHere ? (
-            <span data-slot="artifact-chosen" className="flex items-center gap-1.5 rounded-[6px] bg-accent/10 px-2 py-0.5 text-accent">
-              <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} aria-hidden />
-              Chosen
-            </span>
-          ) : (
-            choice.onChoose && (
-              <button
-                type="button"
-                aria-label={pendingHere ? `Unchoose ${shown.title}` : `Choose ${shown.title}, version ${shown.version}`}
-                aria-pressed={pendingHere}
-                data-slot={pendingHere ? "artifact-choice-pending" : undefined}
-                onClick={() => choice.onChoose?.(shown)}
-                className={`flex items-center gap-1.5 rounded-[6px] border px-2 py-0.5 ${pendingHere ? "border-accent bg-accent/10 text-accent" : "border-line bg-surface text-ink hover:bg-hover"}`}
+              {isChosen && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} aria-label="Chosen" className="shrink-0 text-accent" />}
+              <div
+                data-slot="artifact-frame-controls"
+                className={`absolute bottom-full left-0 flex items-center gap-1 whitespace-nowrap rounded-[8px] border border-line bg-surface p-1 shadow-raised ${deleting ? "" : "pointer-events-none opacity-0 group-focus-within/frame:pointer-events-auto group-focus-within/frame:opacity-100 group-hover/frame:pointer-events-auto group-hover/frame:opacity-100"}`}
               >
-                {pendingHere && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} aria-hidden />}
-                {pendingHere ? "Chosen" : "Choose"}
-              </button>
-            )
+                {controls}
+              </div>
+            </>
+          ) : (
+            controls
           )}
         </div>
       </div>

@@ -525,6 +525,21 @@ async function browserChecks() {
     await evaluate(`${dock}.querySelector("[aria-label='Fit every design']").click()`);
     await screenshot("canvas");
 
+    // Zoomed far out, a frame's row keeps its number and title; its controls float above it only while it has focus.
+    const homeControls = `${frame("home")}.querySelector("[data-slot=artifact-frame-controls]")`;
+    for (let step = 0; step < 6 && !(await evaluate(`!!${homeControls}`)); step++) {
+      await evaluate(`${dock}.querySelector("[aria-label='Zoom out']").click()`);
+      await delay(50);
+    }
+    await waitFor(`!!${homeControls}`);
+    assert.equal(await evaluate(`getComputedStyle(${homeControls}).opacity`), "0");
+    await evaluate(`${homeControls}.querySelector("[data-slot=artifact-edit]").focus()`);
+    await waitFor(`getComputedStyle(${homeControls}).opacity === "1"`);
+    await screenshot("canvas-zoomed-out");
+    await evaluate(`document.activeElement.blur()`);
+    await waitFor(`getComputedStyle(${homeControls}).opacity === "0"`);
+    await evaluate(`${dock}.querySelector("[aria-label='Fit every design']").click()`);
+
     // Wheel over a design pans the canvas until the design is clicked; then the design takes the mouse, and Escape hands
     // it back without closing the canvas.
     const board = `${dock}.querySelector("[data-slot=artifact-canvas] > div").style.transform`;
