@@ -2,6 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { createRequire } = require("node:module");
 
 // The packaged main process loads @milagre/shared from app.asar/node_modules, where Node refuses to strip TypeScript
 // types (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING). Source runs pass because the workspace link is not under
@@ -37,7 +38,9 @@ test("the design rasterizer's WebAssembly ships outside the asar", () => {
 
 test("core resolves the rasterizer's WebAssembly and worker thread", () => {
   const core = path.join(root, "packages/core/src");
-  assert.ok(fs.existsSync(require.resolve("@resvg/resvg-wasm/index_bg.wasm", { paths: [core] })));
+  // Resolve from core's own module scope: core, not the desktop app, depends on @resvg/resvg-wasm.
+  const coreRequire = createRequire(path.join(core, "design-raster-worker.cjs"));
+  assert.ok(fs.existsSync(coreRequire.resolve("@resvg/resvg-wasm/index_bg.wasm")));
   assert.match(fs.readFileSync(path.join(core, "design-raster.cjs"), "utf8"), /path\.join\(__dirname, "design-raster-worker\.cjs"\)/);
   assert.ok(fs.existsSync(path.join(core, "design-raster-worker.cjs")));
 });
