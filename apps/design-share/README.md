@@ -29,7 +29,7 @@ This first version permits anonymous creation protected by per-page capabilities
 
 ## Link previews
 
-Public GET responses include Open Graph and Twitter card metadata: the published title, a description of the page, the canonical snapshot URL without tracking parameters, and a branded 1200 × 630 PNG at `/og.png`. The image is bundled into the Worker and contains no snapshot or Chat content. Regenerate it with `node scripts/share-og.cjs`.
+Public GET responses include Open Graph and Twitter card metadata, read by preview bots that ignore robots.txt: the published title, a description of the page, the canonical snapshot URL without tracking parameters, and a branded 1200 × 630 PNG at `/og.png`. The image is bundled into the Worker and contains no snapshot or Chat content. Regenerate it with `node scripts/share-og.cjs`.
 
 The description is fixed at publication and stored in the page's own `<meta name="description">`, at most 200 characters. An Artifact uses its own meta description, or else its visible text with scripts, styles and a repeated title removed. A Designs page lists its design names, or for a single design the text of its visible layers. Pages published before descriptions existed, and pages with no text, keep a generic line.
 
@@ -37,7 +37,7 @@ Metadata is inserted into the first streamed HTML chunk at read time, so existin
 
 ## Viewer security
 
-The shared renderer generates HTML from validated structured documents. External image URLs are refused; the host embeds supported raster assets before upload. The page CSP permits embedded images, inline styles and the fixed pan/zoom controller, with no external network access, forms, framing or base URL changes. Responses disable caching and referrers and request search engines not index the page. `/robots.txt` disallows every path for all crawlers except link preview bots (Slack, Discord, Twitter/X, Facebook, LinkedIn, WhatsApp, Telegram), so shared links still unfurl. `noindex` is a crawler preference, not an access control. Anyone with a public URL can read or redistribute its content.
+The shared renderer generates HTML from validated structured documents. External image URLs are refused; the host embeds supported raster assets before upload. The page CSP permits embedded images, inline styles and the fixed pan/zoom controller, with no external network access, forms, framing or base URL changes. Responses disable caching and referrers and request search engines not index the page. `/robots.txt` disallows every path for every crawler. Link preview bots that honor it (Slack, Twitter/X, LinkedIn) unfurl a bare URL; Discord and Facebook ignore it and still show the preview. `noindex` is a crawler preference, not an access control. Anyone with a public URL can read or redistribute its content.
 
 Public HTML Artifacts run inside an opaque `srcdoc` iframe with only `allow-scripts`. The wrapper's HTTP CSP is inherited: inline interaction is allowed, remote resources and nested frames are blocked, and the sandbox denies access to the parent origin, cookies, storage, forms, popups, downloads and top navigation. `frame-src 'none'` blocks self navigation while permitting the initial inline document. Escaped titles and `srcdoc` attributes keep arbitrary Artifact source inside the frame. The host does not fetch or embed external resources for Artifacts, so shared pages must be self-contained. The full HTML source, including hidden content, is public.
 

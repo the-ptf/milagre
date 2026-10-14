@@ -272,22 +272,9 @@ export function createQuotaService({ storage, limits, now = Date.now }) {
   };
 }
 
-/** Search crawlers may not fetch shares at all. Link preview bots that honor robots.txt
- * (Slack, Twitter/X, LinkedIn) stay allowed, or shared links would unfurl without a preview.
- * A crawler that ignores this still gets the noindex header on every page. */
-export const ROBOTS_TXT = `User-agent: Slackbot-LinkExpanding
-User-agent: Slackbot
-User-agent: Discordbot
-User-agent: Twitterbot
-User-agent: facebookexternalhit
-User-agent: LinkedInBot
-User-agent: WhatsApp
-User-agent: TelegramBot
-Allow: /
-
-User-agent: *
-Disallow: /
-`;
+/** No crawler may fetch shares, link preview bots included: Slack, Twitter/X and LinkedIn
+ * honor this and unfurl a bare URL. A crawler that ignores it still gets noindex on every page. */
+export const ROBOTS_TXT = "User-agent: *\nDisallow: /\n";
 
 /** Public routing is separate from internal DO requests: clients cannot reach the quota object. */
 export async function routeRequest(request, env) {
