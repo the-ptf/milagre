@@ -135,3 +135,41 @@ test("a page that only fits without fonts falls back to system fonts instead of 
   assert.match(html, /<figure /);
   assert.ok(Buffer.byteLength(html) < MAX_DESIGN_PAGE_HTML_BYTES);
 });
+
+const describedAs = (html) => /<title>[^<]*<\/title><meta name="description" content="([^"]*)">/.exec(html)?.[1];
+const artifactPage = (html, title = "Pricing research") => ({
+  schemaVersion: 1,
+  kind: "artifacts",
+  title,
+  artifacts: [{ title, width: 390, height: 844, html }],
+});
+
+test("an Artifact's link preview description prefers its own meta description", () => {
+  const html = renderDesignPage(artifactPage(`<head><meta content='Three plans &amp; "one" winner' name="description"></head><body><p>Body text</p></body>`));
+  assert.equal(describedAs(html), "Three plans &amp; &quot;one&quot; winner");
+});
+
+test("an Artifact's link preview describes its visible text, not scripts, styles or a repeated title", () => {
+  const body = `<title>Ignored</title><style>p{color:red}</style><script>const secret = 1;</script><h1>Pricing research</h1><!-- note --><p>Compares &nbsp;Pro&#x2F;Team tiers</p>`;
+  assert.equal(describedAs(renderDesignPage(artifactPage(body))), "Compares Pro/Team tiers");
+  const long = renderDesignPage(artifactPage(`<p>${"word ".repeat(80)}</p>`));
+  const description = describedAs(long);
+  assert.ok(description.length <= 200 && description.endsWith("word…"), description);
+  assert.equal(describedAs(renderDesignPage(artifactPage("<script>only()</script>"))), undefined);
+});
+
+test("a Designs link preview names several designs and reads one design's visible text layers", () => {
+  assert.equal(describedAs(renderDesignPage(page())), "2 designs: First and Second.");
+  const nodes = [
+    { id: "card", type: "frame", width: 300, height: 200, hidden: true },
+    { id: "secret", type: "text", parentId: "card", width: 100, height: 20, text: "Draft copy" },
+    { id: "heading", type: "text", width: 300, height: 40, text: "Welcome back" },
+    { id: "cta", type: "text", width: 300, height: 40, text: "Start workout" },
+  ];
+  const single = { schemaVersion: 1, title: "Home", designs: [{ title: "Home", document: { schemaVersion: 1, width: 390, height: 844, nodes } }] };
+  assert.equal(describedAs(renderDesignPage(single)), "Welcome back · Start workout");
+  assert.equal(
+    describedAs(renderDesignPage({ ...single, designs: [{ title: "Home", document: { schemaVersion: 1, width: 390, height: 844, nodes: [] } }] })),
+    undefined,
+  );
+});

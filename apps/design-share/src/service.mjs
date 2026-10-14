@@ -78,19 +78,23 @@ function serial() {
   };
 }
 
+const decode = (value) => value.replace(/&(amp|lt|gt|quot|#39);/g, (_, entity) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" })[entity]);
+
 /** The generated wrapper keeps its escaped title at the start of the first chunk.
  * Decorate reads so existing snapshots gain previews without rewriting their content.
  * Splice bytes, not decoded chunks: UTF-8 characters can span storage boundaries. */
 function withSocialPreview(chunk, requestUrl) {
   const prefix = new TextDecoder().decode(chunk.subarray(0, 4096));
-  const title = /<title>([^<]{1,1024}) \| Milagre (Designs|Artifact)<\/title>/.exec(prefix);
+  const title = /<title>([^<]{1,1024}) \| Milagre (Designs|Artifact)<\/title>(?:<meta name="description" content="([^"<>]{1,2048})">)?/.exec(prefix);
   if (!title) return chunk;
   const url = new URL(requestUrl);
   url.search = "";
   url.hash = "";
   const escape = (value) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
-  const decoded = title[1].replace(/&(amp|lt|gt|quot|#39);/g, (_, entity) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" })[entity]);
-  const description = title[2] === "Designs" ? "View this Designs page shared with Milagre." : "Open this interactive Artifact shared with Milagre.";
+  const decoded = decode(title[1]);
+  // Pages published before descriptions existed keep the generic line.
+  const own = title[3] ? decode(title[3]) : "";
+  const description = own || (title[2] === "Designs" ? "View this Designs page shared with Milagre." : "Open this interactive Artifact shared with Milagre.");
   const image = `${url.origin}/og.png`;
   const properties = {
     "og:type": "website",
@@ -105,7 +109,7 @@ function withSocialPreview(chunk, requestUrl) {
     "og:image:alt": "Shared with Milagre. Designs and interactive Artifacts.",
   };
   const names = {
-    description,
+    ...(own ? {} : { description }),
     "twitter:card": "summary_large_image",
     "twitter:title": decoded,
     "twitter:description": description,

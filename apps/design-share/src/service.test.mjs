@@ -440,7 +440,12 @@ test("public Designs and Artifact pages include escaped social previews and cano
     assert.ok(html.includes(`<meta property="og:url" content="${url}">`));
     assert.ok(html.includes('<meta property="og:image" content="https://share.milagre.cloud/og.png">'));
     assert.ok(html.includes('<meta name="twitter:card" content="summary_large_image">'));
-    assert.ok(html.includes(kind === "designs" ? "View this Designs page shared with Milagre." : "Open this interactive Artifact shared with Milagre."));
+    // Descriptions come from the published content (the design's name, the Artifact's text), never the Artifact's own og:title.
+    const description = kind === "designs" ? "Screen" : "Private source title";
+    assert.ok(html.includes(`<meta property="og:description" content="${description}">`));
+    assert.ok(html.includes(`<meta name="twitter:description" content="${description}">`));
+    assert.equal(html.match(/<meta name="description"/g).length, 1);
+    assert.doesNotMatch(html, /content="Do not use this"/);
     assert.ok(html.indexOf('property="og:title"') < html.indexOf("</head>"));
     assert.deepEqual(f.storage.get("html:0"), original, "metadata must not mutate immutable stored content");
     assert.equal((await f.send("DELETE")).status, 204);

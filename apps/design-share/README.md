@@ -29,7 +29,9 @@ This first version permits anonymous creation protected by per-page capabilities
 
 ## Link previews
 
-Public GET responses include Open Graph and Twitter card metadata: the published title, a description for Designs or Artifacts, the canonical snapshot URL without tracking parameters, and a branded 1200 × 630 PNG at `/og.png`. The image is bundled into the Worker and contains no snapshot or Chat content. Regenerate it with `node scripts/share-og.cjs`.
+Public GET responses include Open Graph and Twitter card metadata: the published title, a description of the page, the canonical snapshot URL without tracking parameters, and a branded 1200 × 630 PNG at `/og.png`. The image is bundled into the Worker and contains no snapshot or Chat content. Regenerate it with `node scripts/share-og.cjs`.
+
+The description is fixed at publication and stored in the page's own `<meta name="description">`, at most 200 characters. An Artifact uses its own meta description, or else its visible text with scripts, styles and a repeated title removed. A Designs page lists its design names, or for a single design the text of its visible layers. Pages published before descriptions existed, and pages with no text, keep a generic line.
 
 Metadata is inserted into the first streamed HTML chunk at read time, so existing links receive it without changing their stored snapshot or capability. Original bytes are preserved across UTF-8 chunk boundaries. Revoked pages still return 404 without preview metadata. Sharing apps may retain an earlier preview in their own cache after a deployment or revocation.
 
