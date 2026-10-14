@@ -8581,6 +8581,7 @@ test("phone cards preserve unmarked structured designs while excluding unverifie
       calls++;
       return [
         { id: "structured", format: "design", version: 2 },
+        { id: "fresh", format: "design", version: 1 },
         { id: "retired", version: 1 },
       ];
     },
@@ -8605,7 +8606,7 @@ test("phone cards preserve unmarked structured designs while excluding unverifie
   assert.equal(calls, 1);
   assert.deepEqual(
     catalog.designCatalog(client, "/p#7").map((design) => design.id),
-    ["structured"],
+    ["structured", "fresh"],
   );
   steps[0].artifact.version = 2;
   h.render("ArtifactCards", { steps, chatId: "/p#7" });
@@ -8613,6 +8614,28 @@ test("phone cards preserve unmarked structured designs while excluding unverifie
   assert.equal(calls, 2, "a completed new version refreshes the catalog");
   h.cleanup();
   other.cleanup();
+});
+
+test("phone cards drop a design the host no longer lists, and one deleted on the phone", async () => {
+  const catalog = require("../apps/mobile/src/design-catalog.ts");
+  const client = {
+    url: "deleted-host",
+    call: async (method) => {
+      if (method !== "artifact:list") throw Error("Unknown artifact");
+      return [
+        { id: "kept", format: "design", version: 1 },
+        { id: "other", format: "design", version: 1 },
+      ];
+    },
+  };
+  const steps = ["kept", "other", "gone"].map((id) => ({ id, artifact: { id, format: "design", version: 1, title: id[0].toUpperCase() + id.slice(1) } }));
+  const h = artifactHost(client);
+  h.render("ArtifactCards", { steps, chatId: "/p#8" });
+  await settle();
+  assert.equal(h.render("ArtifactCards", { steps, chatId: "/p#8" }).props.accessibilityLabel, "2 designs: Kept, Other. Open full screen");
+  catalog.markDesignDeleted(client, "/p#8", "other");
+  assert.equal(h.render("ArtifactCards", { steps, chatId: "/p#8" }).props.step.artifact.id, "kept");
+  h.cleanup();
 });
 
 test("the phone refuses a retired HTML design response even while Designs is enabled", async () => {
