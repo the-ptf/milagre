@@ -25,17 +25,20 @@ const ICON_SIZE = 12;
 const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
 const PILL_LAYOUT = LinearTransition.duration(240).easing(EASE_OUT).reduceMotion(ReduceMotion.System);
 
-/** A pill grows in from a slightly smaller size while the pills beside it slide over; it shows once they have started to. */
+/**
+ * A pill grows in from a slightly smaller size while the pills beside it slide over. Only its contents fade: UIKit
+ * drops the Liquid Glass effect for good when an ancestor's alpha animates, so nothing above the glass may fade in.
+ */
 function pillIn() {
   "worklet";
   return {
-    initialValues: { opacity: 0, transform: [{ scale: 0.85 }] },
+    initialValues: { transform: [{ scale: 0.85 }] },
     animations: {
-      opacity: withDelay(90, withTiming(1, { duration: 160 })),
       transform: [{ scale: withDelay(90, withTiming(1, { duration: 260, easing: EASE_OUT })) }],
     },
   };
 }
+const CONTENT_IN = FadeIn.delay(90).duration(160).reduceMotion(ReduceMotion.System);
 function pillOut() {
   "worklet";
   return {
@@ -121,15 +124,17 @@ export function StatusPill({
           reducedTransparencyFallbackColor={(tint ?? colors.surface) as string}
           style={[StyleSheet.absoluteFill, { borderRadius: HEIGHT / 2, borderCurve: "continuous" }]}
         />
-        {leading}
-        {icon && <Icon icon={icon} tone={tone} size={ICON_SIZE} />}
-        <Animated.View layout={PILL_LAYOUT} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-          <Letters text={label} style={text} />
-          {count !== undefined && (
-            <Animated.View entering={COUNT_IN} exiting={COUNT_OUT}>
-              <RollingNumber value={count} style={text} />
-            </Animated.View>
-          )}
+        <Animated.View entering={CONTENT_IN} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          {leading}
+          {icon && <Icon icon={icon} tone={tone} size={ICON_SIZE} />}
+          <Animated.View layout={PILL_LAYOUT} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Letters text={label} style={text} />
+            {count !== undefined && (
+              <Animated.View entering={COUNT_IN} exiting={COUNT_OUT}>
+                <RollingNumber value={count} style={text} />
+              </Animated.View>
+            )}
+          </Animated.View>
         </Animated.View>
       </Pressable>
     </Animated.View>
