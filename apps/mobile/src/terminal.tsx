@@ -260,11 +260,10 @@ export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; cha
             sections={[
               {
                 items: [
-                  { id: "automatic", title: "Automatic", subtitle: profiles.defaultShell, checked: profiles.selectedShell === null, disabled: savingShell },
+                  { id: "automatic", title: `Automatic (${profiles.defaultShell})`, checked: profiles.selectedShell === null, disabled: savingShell },
                   ...profiles.shells.map((item) => ({
                     id: item.file,
-                    title: item.label,
-                    subtitle: item.file,
+                    title: `${item.label} (${item.file})`,
                     checked: profiles.selectedShell === item.file,
                     disabled: savingShell,
                   })),

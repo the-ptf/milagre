@@ -157,6 +157,7 @@ test("the phone selects the computer's shell for new Terminals and keeps selecti
     shells: [
       { file: "/bin/zsh", label: "zsh" },
       { file: "/bin/bash", label: "bash" },
+      { file: "/opt/homebrew/bin/bash", label: "bash" },
     ],
     defaultShell: "/bin/zsh",
     selectedShell: null,
@@ -216,13 +217,21 @@ test("the phone selects the computer's shell for new Terminals and keeps selecti
   assert.equal(picker.props.label, "Shell for new Terminals");
   assert.deepEqual(
     Array.from(picker.props.sections[0].items, (item) => item.title),
-    ["Automatic", "zsh", "bash"],
+    ["Automatic (/bin/zsh)", "zsh (/bin/zsh)", "bash (/bin/bash)", "bash (/opt/homebrew/bin/bash)"],
   );
   picker.props.onSelect("/bin/bash");
   await settle();
   tree = render();
   picker = find(tree, (node) => node.type === "PullDown");
   assert.equal(picker.props.nativeTrigger.title, "bash");
+  assert.equal(calls.at(-1).args[0].shell, "/bin/bash");
+  picker.props.onSelect("/opt/homebrew/bin/bash");
+  await settle();
+  tree = render();
+  picker = find(tree, (node) => node.type === "PullDown");
+  assert.equal(calls.at(-1).args[0].shell, "/opt/homebrew/bin/bash");
+  assert.equal(picker.props.sections[0].items.find((item) => item.id === "/bin/bash").checked, false);
+  assert.equal(picker.props.sections[0].items.find((item) => item.id === "/opt/homebrew/bin/bash").checked, true);
   assert.equal(calls.filter((call) => call.method === "terminal:open").length, 0, "changing the preference does not restart an existing Terminal");
   find(tree, (node) => node.type === "CircleButton" && node.props.label === "New Terminal").props.onPress();
   await settle();
@@ -232,6 +241,7 @@ test("the phone selects the computer's shell for new Terminals and keeps selecti
   picker.props.onSelect("/bin/zsh");
   await settle();
   assert.equal(find(render(), (node) => node.type === "PullDown").props.nativeTrigger.title, "bash");
+  assert.equal(find(render(), (node) => node.type === "PullDown").props.sections[0].items.find((item) => item.id === "/opt/homebrew/bin/bash").checked, true);
   assert.deepEqual(alerts[0], ["Couldn't select a shell", "Disk full"]);
   rejectSave = false;
   find(render(), (node) => node.type === "PullDown").props.onSelect("automatic");
