@@ -1,5 +1,5 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AccessibilityInfo, BackHandler, Dimensions, Keyboard, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type Ref } from "react";
+import { AccessibilityInfo, BackHandler, Dimensions, Keyboard, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureDetector, usePanGesture } from "react-native-gesture-handler";
 import Animated, {
@@ -85,18 +85,28 @@ export function usePlanPanel(plan: ChatPlan | undefined, chatId: string) {
     refocus.current = true;
     setState((current) => (current.phase === "closing" ? { ...current, phase: "closed" } : current));
   }, []);
-  // A rotation moves the pill; the open panel follows it once the screen has laid out again.
+  // The open panel follows the pill wherever the composer takes it: a rotation (once the screen has laid out again), the
+  // keyboard rising or falling (the composer rides it; these events come once it has landed), or the row relaying out.
   useEffect(() => {
     if (phase !== "open") return;
     let frame = 0;
-    const change = Dimensions.addEventListener("change", () => {
-      if (frame) cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => measure());
-    });
+    const follow = () => measure();
+    const subscriptions = [
+      Dimensions.addEventListener("change", () => {
+        if (frame) cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(follow);
+      }),
+      Keyboard.addListener("keyboardDidShow", follow),
+      Keyboard.addListener("keyboardDidHide", follow),
+      ...(Platform.OS === "ios" ? [Keyboard.addListener("keyboardDidChangeFrame", follow)] : []),
+    ];
     return () => {
       if (frame) cancelAnimationFrame(frame);
-      change.remove();
+      for (const subscription of subscriptions) subscription.remove();
     };
+  }, [phase, measure]);
+  const relayout = useCallback(() => {
+    if (phase === "open") measure();
   }, [phase, measure]);
   useEffect(() => {
     if (phase !== "open") return;
@@ -114,8 +124,8 @@ export function usePlanPanel(plan: ChatPlan | undefined, chatId: string) {
   }, [phase]);
   // The same object until something here changes, so the memoized pill and panel skip the Chat's other renders (typing).
   return useMemo(
-    () => ({ plan, label, phase, pill, origin, keyboard, opening, attachChip, attachOverlay, show, close, settle }),
-    [plan, label, phase, pill, origin, keyboard, opening, attachChip, attachOverlay, show, close, settle],
+    () => ({ plan, label, phase, pill, origin, keyboard, opening, attachChip, attachOverlay, show, close, settle, relayout }),
+    [plan, label, phase, pill, origin, keyboard, opening, attachChip, attachOverlay, show, close, settle, relayout],
   );
 }
 
@@ -133,7 +143,7 @@ function PillFace({ label }: { label: string }) {
 
 /** Desktop's Tasks pill: done/total (or the current phase) in the composer row; a tap grows it into the panel. Hidden without a plan. */
 export const PlanPill = memo(function PlanPill({ panel }: { panel: PlanPanelState }) {
-  const { label, plan, phase, show, attachChip } = panel;
+  const { label, plan, phase, show, attachChip, relayout } = panel;
   if (!label || !plan) return null;
   const { done, total } = taskCounts(plan.tasks);
   // While the surface is out, it is the pill: this one keeps its place in the row, invisible.
@@ -150,6 +160,8 @@ export const PlanPill = memo(function PlanPill({ panel }: { panel: PlanPanelStat
       importantForAccessibility={away ? "no-hide-descendants" : "auto"}
       disabled={away}
       onPress={show}
+      // A new label (1/2 to 2/2) resizes the pill; an open panel keeps growing from its new frame.
+      onLayout={relayout}
       style={({ pressed }) => ({ opacity: away ? 0 : pressed ? 0.6 : 1 })}
     >
       <PillFace label={label} />
@@ -157,14 +169,14 @@ export const PlanPill = memo(function PlanPill({ panel }: { panel: PlanPanelStat
   );
 });
 
-function SectionLabel({ title, count }: { title: string; count?: number }) {
+function SectionLabel({ title, count, textRef }: { title: string; count?: number; textRef?: Ref<Text> }) {
   const { colors } = useTheme();
   const text = { color: colors.ink3, fontSize: 11, fontWeight: "500", letterSpacing: 0.9, textTransform: "uppercase" } as const;
   return (
     <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <View style={{ width: 12, height: 1, backgroundColor: colors.accent }} />
-        <Text accessibilityRole="header" style={text}>
+        <Text ref={textRef} accessibilityRole="header" style={text}>
           {title}
         </Text>
       </View>
@@ -190,6 +202,7 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
   const drag = useSharedValue(0);
   const pillFace = useSharedValue(1);
   const panelFace = useSharedValue(0);
+  const heading = useRef<Text>(null);
   const { plan, label, phase, close, settle, opening, attachOverlay, keyboard, origin } = panel;
   // Before the first opening the pill is unmeasured; the panel still lays out at its real width so its height is known.
   const pill = panel.pill ?? { x: window.width - 80, y: window.height - insets.bottom - 64, width: 60, height: 34 };
@@ -226,6 +239,10 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
       panelFace.set(0);
     }
   }, [phase, reduced, settle, progress, drag, pillFace, panelFace]);
+  // Opening moves the screen reader into the panel, onto its heading, as desktop focuses the dialog.
+  useEffect(() => {
+    if (phase === "open" && heading.current) AccessibilityInfo.sendAccessibilityEvent(heading.current, "focus");
+  }, [phase]);
   const pan = usePanGesture({
     activeOffsetY: 8,
     failOffsetX: [-24, 24],
@@ -250,6 +267,9 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
       ref={attachOverlay}
       collapsable={false}
       pointerEvents={shown ? "box-none" : "none"}
+      // Open, VoiceOver stays inside: the backdrop's Close tasks and the card. The Chat behind hides itself on Android.
+      accessibilityViewIsModal={open}
+      onAccessibilityEscape={close}
       accessibilityElementsHidden={!shown}
       importantForAccessibility={shown ? "auto" : "no-hide-descendants"}
       style={[StyleSheet.absoluteFill, { opacity: shown ? 1 : 0 }]}
@@ -280,15 +300,12 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
           fillStyle,
         ]}
       />
-      <Animated.View
-        testID="plan-surface"
-        accessibilityViewIsModal={open}
-        onAccessibilityEscape={close}
-        style={[{ position: "absolute", overflow: "hidden", borderCurve: "continuous" }, surfaceStyle]}
-      >
+      <Animated.View testID="plan-surface" style={[{ position: "absolute", overflow: "hidden", borderCurve: "continuous" }, surfaceStyle]}>
         {/* Anchored to the surface's bottom-right at its final size, so the growing surface uncovers it. */}
         <Animated.View
           testID="plan-panel"
+          role="dialog"
+          accessibilityLabel="Tasks"
           {...(open ? {} : inert)}
           style={[{ position: "absolute", right: 0, bottom: 0, width: to.width, height: to.height }, panelStyle]}
         >
@@ -297,7 +314,7 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
               onLayout={({ nativeEvent }) => setHeader(Math.ceil(nativeEvent.layout.height))}
               style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 16, paddingRight: 6, paddingTop: 6 }}
             >
-              <SectionLabel title={tasks ? "Tasks" : "Phase graph"} count={tasks ? total : undefined} />
+              <SectionLabel title={tasks ? "Tasks" : "Phase graph"} count={tasks ? total : undefined} textRef={heading} />
               <IconButton label="Collapse tasks" icon={ArrowShrink02Icon} tone="ink3" size={36} onPress={close} />
             </View>
           </GestureDetector>
@@ -305,6 +322,8 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
           <PageScroll
             nestedScrollEnabled
             contentInsetAdjustmentBehavior="never"
+            // Scrolling here must not drop the keyboard: the composer would move the pill out from under the card.
+            keyboardDismissMode="none"
             onContentSizeChange={(_, height) => setBody(Math.ceil(height))}
             onScrollEndDrag={({ nativeEvent }) => {
               if (nativeEvent.contentOffset.y < -PULL_CLOSE) close();

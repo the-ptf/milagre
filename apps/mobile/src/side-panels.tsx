@@ -181,10 +181,20 @@ export function useSidePanels({ chatId, worktreeId }: { chatId?: number; worktre
 }
 
 /** The screen area a drag can start from; VoiceOver skips it while a panel covers it. */
-export function PanelSwipe({ panels, children }: { panels: ReturnType<typeof useSidePanels>; children: React.ReactNode }) {
+export function PanelSwipe({
+  panels,
+  covered = false,
+  children,
+}: {
+  panels: ReturnType<typeof useSidePanels>;
+  /** Something drawn over the screen (the Tasks panel) has the screen reader instead. */
+  covered?: boolean;
+  children: React.ReactNode;
+}) {
+  const hidden = !!panels.open || covered;
   return (
     <GestureDetector gesture={panels.gesture}>
-      <View style={{ flex: 1 }} accessibilityElementsHidden={!!panels.open} importantForAccessibility={panels.open ? "no-hide-descendants" : "auto"}>
+      <View style={{ flex: 1 }} accessibilityElementsHidden={hidden} importantForAccessibility={hidden ? "no-hide-descendants" : "auto"}>
         {children}
       </View>
     </GestureDetector>

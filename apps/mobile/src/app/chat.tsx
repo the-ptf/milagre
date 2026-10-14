@@ -1030,7 +1030,7 @@ export default function ChatScreen() {
         <Stack.Screen options={{ title, headerTitle: () => header, headerBackVisible: false, gestureEnabled: false }} />
         {sidebar}
         {more}
-        <PanelSwipe panels={panels}>
+        <PanelSwipe panels={panels} covered={planPanel.phase !== "closed"}>
           {/* The header clearance is in paddingTop; an automatic iOS inset would add it a second time. */}
           <KeyboardChatScrollView
             key={scrollKey}
