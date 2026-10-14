@@ -289,6 +289,59 @@ test("removing a Chat deletes its designs and comments, and only its own", async
   await api.removeChat(CHAT);
 });
 
+test("deleting a design removes every version and its comments, and its id is never reused", async (t) => {
+  const { api, tools, directory } = await fixture(t);
+  await api.showDesign({ chatId: CHAT, id: "a", title: "First", document: designDocument() });
+  await api.showDesign({ chatId: CHAT, id: "a", title: "First", document: designDocument(), expectedVersion: 1 });
+  await api.showDesign({ chatId: CHAT, id: "b", title: "Second", document: designDocument() });
+  await api.addComments({
+    chatId: CHAT,
+    comments: [
+      { design: { id: "a", version: 1 }, text: "gone" },
+      { design: { id: "b", version: 1 }, text: "kept" },
+    ],
+  });
+  assert.deepEqual(JSON.parse(await tools.design_delete.run({ id: "a" })), { id: "a" });
+  assert.deepEqual(
+    (await api.list({ chatId: CHAT })).map((design) => design.id),
+    ["b"],
+  );
+  assert.deepEqual(
+    (await api.comments({ chatId: CHAT })).map((comment) => comment.text),
+    ["kept"],
+  );
+  const folder = path.join(await chatFolder(directory), "a");
+  assert.deepEqual(await fs.readdir(folder), ["meta.json"]);
+  for (const read of [
+    api.get({ chatId: CHAT, id: "a" }),
+    api.get({ chatId: CHAT, id: "a", version: 1 }),
+    api.exportDesign({ chatId: CHAT, id: "a", format: "json" }),
+  ])
+    await assert.rejects(read, /no longer available/);
+  await assert.rejects(api.apply({ chatId: CHAT, id: "a", expectedVersion: 2, operations: [{ op: "delete", id: "heading" }] }), /no longer available/);
+  await assert.rejects(api.deleteDesign({ chatId: CHAT, id: "a" }), /no longer available/);
+  await assert.rejects(api.showDesign({ chatId: CHAT, id: "a", title: "Again", document: designDocument() }), /was deleted/);
+  // The live HTML page doesn't take the deleted id either.
+  assert.notEqual((await api.show({ chatId: CHAT, id: "a", title: "Page", html: "<p>hi</p>" })).id, "a");
+  const restarted = createChatArtifacts({ directory, validateChat: async () => {} });
+  assert.deepEqual(
+    (await restarted.list({ chatId: CHAT, format: "design" })).map((design) => design.id),
+    ["b"],
+  );
+});
+
+test("only a design is deleted, and only while Designs is on", async (t) => {
+  const { api } = await fixture(t);
+  const page = await api.show({ chatId: CHAT, title: "Page", html: "<p>hi</p>" });
+  await assert.rejects(api.deleteDesign({ chatId: CHAT, id: page.id }), /separate formats/);
+  await api.showDesign({ chatId: CHAT, id: "a", title: "First", document: designDocument() });
+  await api.setEnabled(false);
+  await assert.rejects(api.deleteDesign({ chatId: CHAT, id: "a" }), /Designs are off/);
+  await api.setEnabled(true);
+  await assert.rejects(api.deleteDesign({ chatId: "/repo#4", id: "a" }), /no longer available/);
+  assert.equal((await api.list({ chatId: CHAT, format: "design" })).length, 1);
+});
+
 test("editable designs persist their source and a preview, and survive a restarted store", async (t) => {
   const { api, tools, directory } = await fixture(t);
   const shown = firstLine(await tools.design_show.run({ id: "welcome", title: "Welcome screen", document: designDocument() }));
@@ -325,6 +378,7 @@ test("editable design tool schemas expose layer fields and version checks to MCP
   assert.equal(tools.design_apply.readOnly, false);
   assert.equal(tools.design_read.readOnly, true);
   assert.equal(tools.design_export.readOnly, true);
+  assert.equal(tools.design_delete.readOnly, false);
 });
 
 test("a batch creates one immutable version with an updated source and preview", async (t) => {

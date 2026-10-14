@@ -220,7 +220,11 @@ window.milagre = {
       { id: "login", version: window.latest, title: "Login screen, warmer", format: "design", versions: window.latest, width: 1280, height: 800 },
       { id: "home", version: 1, title: "Home", format: "design", versions: 1, width: 390, height: 844 },
       { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, width: 1280, height: 800 },
-    ].filter((ref) => window.designsEnabled !== false || ref.format === "html"),
+    ].filter((ref) => (window.designsEnabled !== false || ref.format === "html") && !(window.deletedIds ?? []).includes(ref.id)),
+    delete: async ({ id }) => {
+      window.deletedIds = [...(window.deletedIds ?? []), id];
+      return { id };
+    },
     addComments: async ({ comments }) => {
       const added = comments.map((comment) => ({ ...comment, createdAt: 1 }));
       window.kept = [...(window.kept ?? []), ...added];
@@ -857,6 +861,25 @@ async function browserChecks() {
     assert.match(await evaluate('document.querySelector("[data-slot=design-feedback-text]").textContent'), /Preserve this older feedback too/);
     await evaluate('document.querySelector("[data-slot=design-feedback-text]").scrollIntoView()');
     await screenshot("historical-feedback-text");
+    // A design is deleted from its frame on the canvas after a second press, and leaves the canvas and the Chat's cards.
+    await evaluate('document.querySelector("[data-panel-toggle=designs]").click()');
+    await waitFor(`${frames}?.length === 2`);
+    await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-delete]").click()`);
+    await waitFor(`!!${frame("home")}.querySelector("[data-slot=artifact-delete-confirm]")`);
+    await screenshot("delete-confirm");
+    await evaluate(`[...${frame("home")}.querySelectorAll("button")].find((button) => button.textContent === "Cancel").click()`);
+    await waitFor(`!!${frame("home")}.querySelector("[data-slot=artifact-delete]")`);
+    assert.equal(await evaluate("window.deletedIds"), undefined, "Cancel deletes nothing");
+    await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-delete]").click()`);
+    await waitFor(`!!${frame("home")}.querySelector("[data-slot=artifact-delete-confirm]")`);
+    await evaluate(`${frame("home")}.querySelector("[data-slot=artifact-delete-confirm]").click()`);
+    await waitFor(`${frames}.length === 1 && !${frame("home")}`);
+    assert.deepEqual(await evaluate("window.deletedIds"), ["home"]);
+    assert.match(await evaluate(`${dock}.textContent`), /1 design in this Chat/);
+    await waitFor('!document.querySelector("[data-slot=artifact-thumb][data-artifact=home]") && !document.querySelector("[data-slot=artifact-group]")');
+    await screenshot("deleted");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    await waitFor(`!${dock}`);
     // The one HTML page is independent of Designs, with no version/choice/editor controls.
     await evaluate("window.designsEnabled=false; window.designsChanged({enabled:false})");
     await waitFor('!document.querySelector("[data-panel-toggle=designs]") && !!document.querySelector("[data-panel-toggle=artifacts]")');

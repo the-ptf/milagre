@@ -1,12 +1,13 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import { ARTIFACT_CSP, ARTIFACT_ESCAPE, artifactDocument, type Artifact, type DesignArtifact } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import Tooltip from "../primitives/Tooltip";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { DesignPageEditor as DesignEditor } from "./DesignPageEditor";
+import { DESIGN_DELETED, type DesignDeleted } from "./DesignEditor";
 import { designLayout, designNodeAt } from "@milagre/shared/design";
 
 /** A comment the user pinned on a design and hasn't sent yet. */
@@ -462,6 +463,19 @@ const DesignFrame = memo(function DesignFrame({
       setOpeningEditor(false);
     }
   };
+  // Delete asks once more in place: the first press arms it, the second deletes every version.
+  const [deleting, setDeleting] = useState<"confirm" | "busy" | null>(null);
+  const remove = async () => {
+    setDeleting("busy");
+    setEditError("");
+    try {
+      await bridgeForKey(chatId).artifacts.delete({ chatId, id: design.id });
+      window.dispatchEvent(new CustomEvent<DesignDeleted>(DESIGN_DELETED, { detail: { chatId, id: design.id } }));
+    } catch (cause) {
+      setEditError(cause instanceof Error ? cause.message : String(cause));
+      setDeleting(null);
+    }
+  };
   const width = artifact?.width ?? 1280,
     height = artifact?.height ?? 800;
   useLayoutEffect(onSized, [width, height, onSized]);
@@ -555,6 +569,41 @@ const DesignFrame = memo(function DesignFrame({
               {openingEditor ? "Opening..." : "Edit"}
             </button>
           )}
+          {design.format === "design" &&
+            (deleting ? (
+              <span className="flex items-center gap-1">
+                <button
+                  type="button"
+                  data-slot="artifact-delete-confirm"
+                  aria-label={`Delete ${shown.title} and every version`}
+                  disabled={deleting === "busy"}
+                  onClick={() => void remove()}
+                  className="rounded-[6px] bg-red px-2 py-0.5 text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {deleting === "busy" ? "Deleting..." : "Delete"}
+                </button>
+                <button
+                  type="button"
+                  disabled={deleting === "busy"}
+                  onClick={() => setDeleting(null)}
+                  className="rounded-[6px] px-2 py-0.5 text-ink-2 hover:bg-hover disabled:opacity-40"
+                >
+                  Cancel
+                </button>
+              </span>
+            ) : (
+              <Tooltip label="Delete design">
+                <button
+                  type="button"
+                  data-slot="artifact-delete"
+                  aria-label={`Delete ${shown.title}`}
+                  onClick={() => setDeleting("confirm")}
+                  className={button}
+                >
+                  <HugeiconsIcon icon={Delete02Icon} size={14} aria-hidden />
+                </button>
+              </Tooltip>
+            ))}
           {sentHere ? (
             <span data-slot="artifact-chosen" className="flex items-center gap-1.5 rounded-[6px] bg-accent/10 px-2 py-0.5 text-accent">
               <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} aria-hidden />

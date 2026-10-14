@@ -26,6 +26,8 @@ import { Select } from "../primitives/Select";
 
 export const DESIGN_SAVED = "milagre:design-saved";
 export type DesignSaved = { chatId: string; artifact: Artifact };
+export const DESIGN_DELETED = "milagre:design-deleted";
+export type DesignDeleted = { chatId: string; id: string };
 
 const fieldClass =
   "min-w-0 w-full rounded-control border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none focus:border-accent disabled:opacity-50";

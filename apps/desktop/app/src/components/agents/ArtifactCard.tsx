@@ -33,7 +33,7 @@ import { ArtifactCanvas, ArtifactFrame, useArtifact, type CanvasHandle, type Can
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { useDesignSharingAvailable } from "../../lib/design-sharing-available";
 import { bridgeForKey } from "../../lib/computer-bridge";
-import { DESIGN_SAVED, type DesignSaved } from "./DesignEditor";
+import { DESIGN_DELETED, DESIGN_SAVED, type DesignDeleted, type DesignSaved } from "./DesignEditor";
 import { DesignPageShareDialog } from "./DesignPageShareDialog";
 
 // Docked width plus the 12px gap to the chat. The chat panes reserve it through --artifact-dock.
@@ -434,11 +434,17 @@ export function ArtifactsProvider({
 }) {
   const { enabled } = useDesignsEnabled(chatId);
   const fromSteps = useMemo(() => latestArtifacts(steps), [steps]);
-  const revisionKey = [...fromSteps.values()].map((design) => `${design.id}:${design.version}`).join("|");
+  // The catalog is read again when the replies show a new version, or the agent deleted a design.
+  const deletes = steps.filter((step) => step.status === "done" && /\bdesign_delete\b/.test(step.title)).length;
+  const revisionKey = `${[...fromSteps.values()].map((design) => `${design.id}:${design.version}`).join("|")}#${deletes}`;
   const [savedDesigns, setSavedDesigns] = useState<{
     chatId: string | null;
     refs: ArtifactRef[];
     htmlAliases?: string[];
+    /** The replies' designs when `refs` was read: a design they showed then and `refs` lacks was deleted. */
+    revisionKey?: string;
+    /** Designs deleted here, hidden before the catalog is read again. */
+    deleted?: string[];
   }>({ chatId: null, refs: [] });
   // Direct edits create versions without a new Chat reply. Read their metadata on open and when agent versions change.
   useEffect(() => {
@@ -463,11 +469,13 @@ export function ArtifactsProvider({
           }),
         );
         if (live)
-          setSavedDesigns({
+          setSavedDesigns((current) => ({
             chatId,
             refs,
             htmlAliases: aliases.filter((id): id is string => id !== null),
-          });
+            revisionKey,
+            deleted: current.chatId === chatId ? current.deleted : [],
+          }));
       })
       .catch(() => {});
     return () => {
@@ -484,18 +492,37 @@ export function ArtifactsProvider({
         version: detail.artifact.version,
         format: "design",
       };
-      setSavedDesigns((current) => ({
-        chatId,
-        refs: [...(current.chatId === chatId ? current.refs.filter((item) => item.id !== ref.id) : []), ref],
-        htmlAliases: current.chatId === chatId ? current.htmlAliases : [],
-      }));
+      setSavedDesigns((current) =>
+        current.chatId === chatId
+          ? { ...current, refs: [...current.refs.filter((item) => item.id !== ref.id), ref] }
+          : { chatId, refs: [ref], htmlAliases: [] },
+      );
+    };
+    const deleted = (event: Event) => {
+      const detail = (event as CustomEvent<DesignDeleted>).detail;
+      if (detail.chatId !== chatId) return;
+      setSavedDesigns((current) =>
+        current.chatId === chatId
+          ? { ...current, refs: current.refs.filter((item) => item.id !== detail.id), deleted: [...(current.deleted ?? []), detail.id] }
+          : { chatId, refs: [], htmlAliases: [], deleted: [detail.id] },
+      );
     };
     window.addEventListener(DESIGN_SAVED, changed);
-    return () => window.removeEventListener(DESIGN_SAVED, changed);
+    window.addEventListener(DESIGN_DELETED, deleted);
+    return () => {
+      window.removeEventListener(DESIGN_SAVED, changed);
+      window.removeEventListener(DESIGN_DELETED, deleted);
+    };
   }, [chatId, enabled]);
   const latest = useMemo(() => {
-    const refs = new Map([...fromSteps].filter(([, ref]) => ref.format === "html" || (ref.format === "design" && enabled)));
-    for (const ref of savedDesigns.chatId === chatId ? savedDesigns.refs : []) {
+    const saved = savedDesigns.chatId === chatId ? savedDesigns : null;
+    const deleted = new Set(saved?.deleted);
+    // Read for the replies as they are now, the catalog has every design they showed that wasn't deleted.
+    const current = saved?.revisionKey === revisionKey ? new Set(saved.refs.map((ref) => ref.id)) : null;
+    const refs = new Map(
+      [...fromSteps].filter(([id, ref]) => ref.format === "html" || (ref.format === "design" && enabled && !deleted.has(id) && (!current || current.has(id)))),
+    );
+    for (const ref of saved?.refs ?? []) {
       if ((ref.format !== "design" || enabled) && (refs.get(ref.id)?.version ?? 0) <= ref.version) refs.set(ref.id, ref);
     }
     // Unmarked historical refs are resolved only after the saved catalog has answered.
@@ -508,7 +535,7 @@ export function ArtifactsProvider({
         if (ref.format === "html" || aliases.has(id)) refs.set(id, { ...currentHtml, title: ref.title });
       }
     return refs;
-  }, [fromSteps, savedDesigns, chatId, enabled]);
+  }, [fromSteps, savedDesigns, chatId, enabled, revisionKey]);
   const chosen = useMemo(() => chosenDesign(userMessages.map((message) => message.body)), [userMessages]);
   const moved = useMemo(
     () =>
@@ -594,6 +621,10 @@ export function ArtifactsProvider({
   );
   const designRefs = [...latest.values()].filter((ref) => ref.format === "design");
   const artifactRefs = [...latest.values()].filter((ref) => ref.format === "html");
+  // Deleting the last design leaves nothing to show.
+  useEffect(() => {
+    if (opened?.kind === "designs" && !designRefs.length) setOpenedIn(null);
+  }, [opened?.kind, designRefs.length]);
   // The saved catalog owns the one current HTML page; older transcript refs still open it.
   const currentHtml = (savedDesigns.chatId === chatId ? savedDesigns.refs : []).find((ref) => ref.format === "html") ?? artifactRefs.at(-1);
   const togglePanel = (kind: "designs" | "artifacts") => {
@@ -698,6 +729,14 @@ function ArtifactDock({
   }, [openComment, focus.nonce]);
   const [choice, setChoice] = useState<ArtifactRef | null>(null);
   const [sending, setSending] = useState(false);
+  // Feedback on a design deleted meanwhile has nothing left to send to.
+  const designIds = designs.map((design) => design.id).join("|");
+  useEffect(() => {
+    if (kind !== "designs") return;
+    const ids = new Set(designIds.split("|"));
+    setPins((current) => (current.every((pin) => ids.has(pin.design.id)) ? current : current.filter((pin) => ids.has(pin.design.id))));
+    setChoice((current) => (current && !ids.has(current.id) ? null : current));
+  }, [kind, designIds]);
   const [error, setError] = useState("");
   // Escape leaves comment mode first, then closes the canvas.
   useEffect(() => {

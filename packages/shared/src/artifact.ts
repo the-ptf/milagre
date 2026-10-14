@@ -32,6 +32,8 @@ export interface ArtifactApi {
   list(request: { chatId: string; format?: "design" | "html" }): Promise<ArtifactSummary[]>;
   /** Saves an atomic batch against the version the editor loaded. A stale version leaves the design unchanged. */
   apply(request: { chatId: string; id: string; expectedVersion: number; operations: DesignOperation[] }): Promise<DesignArtifact>;
+  /** Deletes a design with every version and the comments on it. Its id is never reused. */
+  delete(request: { chatId: string; id: string }): Promise<{ id: string }>;
   /** Records comments the user is sending; returns them with their ids. */
   addComments(request: { chatId: string; comments: DesignComment[] }): Promise<ArtifactComment[]>;
   comments(request: { chatId: string }): Promise<ArtifactComment[]>;

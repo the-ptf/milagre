@@ -67,6 +67,7 @@ const PATHS = Object.freeze({
   // A design is read through its Chat, which must be in the folder.
   "artifact:get": ([value]) => [chatProject(value?.chatId)],
   "artifact:apply": denied,
+  "artifact:delete": denied,
   "artifact:list": ([value]) => [chatProject(value?.chatId)],
   "artifact:page-shares": ([value]) => [chatProject(value?.chatId)],
   "artifact:sharing-status": denied,

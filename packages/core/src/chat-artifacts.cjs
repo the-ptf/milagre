@@ -108,13 +108,17 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
     await fs.mkdir(designFolder(folder, meta.id), { recursive: true, mode: 0o700 });
     await atomicWrite(path.join(designFolder(folder, meta.id), "meta.json"), JSON.stringify(meta), assertActive);
   }
-  async function load(folder, id) {
+  // A deleted design keeps only its metadata, marked deleted: its id is never reused, so the cards still in the Chat
+  // never show another design under the versions they name.
+  async function load(folder, id, { deleted = false } = {}) {
     const file = path.join(designFolder(folder, id), "meta.json");
     try {
-      return JSON.parse(await fs.readFile(file, "utf8"));
+      const meta = JSON.parse(await fs.readFile(file, "utf8"));
+      return !meta.deletedAt === !deleted ? meta : null;
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
+    if (deleted) return null;
     // Migrate original single-file HTML only after all version files exist; metadata commits the migration.
     const legacyFile = path.join(folder, `${checkId(id)}.json`);
     let legacy;
@@ -230,7 +234,8 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
           editable(named, "html");
         }
         const current = (await activeArtifacts(folder, "html"))[0];
-        const id = current?.id ?? request.id ?? randomUUID().slice(0, 8);
+        const reusable = request.id && !(await load(folder, request.id, { deleted: true }));
+        const id = current?.id ?? (reusable ? request.id : randomUUID().slice(0, 8));
         const existing = current ?? null;
         editable(existing, "html");
         checkVersion(request, existing);
@@ -254,6 +259,7 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
         if (typeof request?.title !== "string" || !request.title.trim()) throw Error("A design needs a title.");
         const id = request.id ?? randomUUID().slice(0, 8);
         const existing = request.id ? await load(folder, id) : null;
+        if (!existing && request.id && (await load(folder, id, { deleted: true }))) throw Error(`The design ${id} was deleted. Use a new id.`);
         editable(existing);
         checkVersion(request, existing, true);
         const document = validateDesignDocument(request.document);
@@ -326,6 +332,25 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
         const folder = await chat(request?.chatId);
         checkFormat(request.format);
         return (await activeArtifacts(folder, request.format)).map((artifact) => summary(artifact, artifact.versions.at(-1)));
+      }),
+    /** Deletes every version of a design and the comments on it. */
+    deleteDesign: (request, { assertActive } = {}) =>
+      serial(async () => {
+        await assertActive?.();
+        const folder = await chat(request?.chatId);
+        const existing = await load(folder, request?.id);
+        if (!existing) throw Error("This design is no longer available.");
+        editable(existing);
+        // The marked metadata commits the delete; the version files are only removed after it.
+        await writeMeta(folder, { id: existing.id, versions: [], deletedAt: Date.now() }, assertActive);
+        const names = await fs.readdir(designFolder(folder, existing.id));
+        await Promise.all(
+          names.filter((name) => name !== "meta.json").map((name) => fs.rm(path.join(designFolder(folder, existing.id), name), { force: true })),
+        );
+        const comments = await readComments(folder);
+        const kept = comments.filter((comment) => comment.design?.id !== existing.id);
+        if (kept.length !== comments.length) await writeComments(folder, kept);
+        return { id: existing.id };
       }),
     /** Records the comments the user is sending, and returns them with their ids for the message to name. */
     addComments: (request) =>
@@ -568,6 +593,14 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
       input: { id: z.string().regex(ID), version: z.number().int().positive().optional(), format: z.enum(["json", "svg"]) },
       readOnly: true,
       run: async (args) => JSON.stringify(await api.exportDesign({ chatId, ...args })),
+    },
+    {
+      name: "design_delete",
+      description:
+        "Delete a design and every version of it from this Chat, with the comments on it. Only when the user asks to delete it, for example the variants they did not choose. Its cards in the Chat stay but no longer open it, and its id can't be used again.",
+      input: { id: z.string().regex(ID) },
+      readOnly: false,
+      run: async (args) => JSON.stringify(await api.deleteDesign({ chatId, ...args }, authorization)),
     },
     ...artifactCommentToolDefinitions(chatId, api, authorization),
   ];

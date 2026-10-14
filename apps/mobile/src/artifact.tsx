@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { AppState, Pressable, Text, TextInput, View } from "react-native";
+import { Alert, AppState, Pressable, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { DomWebView } from "@expo/dom-webview";
-import { ArrowLeft01Icon, ArrowRight01Icon, Cancel01Icon, CheckmarkCircle02Icon, PaintBoardIcon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowRight01Icon, Cancel01Icon, CheckmarkCircle02Icon, Delete02Icon, PaintBoardIcon } from "@hugeicons/core-free-icons";
 import {
   artifactShell,
   designFeedbackMessage,
@@ -22,6 +22,7 @@ import { postDesignMessage } from "./design-outbox";
 import { File, Paths } from "expo-file-system";
 import { useSession } from "./session";
 import { useArtifactCatalog } from "./use-design-catalog";
+import { markDesignDeleted } from "./design-catalog";
 import { Icon } from "./icons";
 import { CircleButton, PillButton, useStyles } from "./ui";
 import { useTheme } from "./theme";
@@ -498,6 +499,32 @@ export function ArtifactSheet({
     });
     router.back();
   };
+  const remove = (design: Artifact) =>
+    Alert.alert(`Delete ${design.title}?`, "Every version of this design and the comments on it are deleted.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          if (!source || !chatId) return;
+          source
+            .call("artifact:delete", [{ chatId, id: design.id }])
+            .then(() => {
+              markDesignDeleted(source, chatId, design.id);
+              setNotes((current) => Object.fromEntries(Object.entries(current).filter(([, note]) => note.design.id !== design.id)));
+              setChoice((current) => (current?.id === design.id ? null : current));
+              setEditing(null);
+              const rest = designs?.filter((item) => item.id !== design.id) ?? [];
+              // The next design takes its place, or the one before when it was the last.
+              const next = designs?.[index + 1] ?? designs?.[index - 1];
+              setDesigns(rest);
+              if (next && next.id !== design.id) setShown({ id: next.id, version: null });
+              else router.back();
+            })
+            .catch((error: unknown) => Alert.alert("Could not delete the design", error instanceof Error ? error.message : String(error)));
+        },
+      },
+    ]);
   const ref = (design: Artifact): ArtifactRef => ({
     id: design.id,
     version: design.version,
@@ -589,6 +616,9 @@ export function ArtifactSheet({
                 icon={ArrowRight01Icon}
                 onPress={designs && index >= 0 && index < designs.length - 1 ? () => step(1) : undefined}
               />
+            )}
+            {source && !isHtml && artifact?.format === "design" && (
+              <CircleButton label={`Delete ${artifact.title}`} icon={Delete02Icon} onPress={() => remove(artifact)} />
             )}
             <CircleButton label={isHtml ? "Close artifact" : "Close designs"} icon={Cancel01Icon} onPress={() => router.back()} />
           </View>

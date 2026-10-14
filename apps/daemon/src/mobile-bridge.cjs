@@ -79,6 +79,7 @@ const METHODS = new Set([
   "terminal:close",
   "artifact:get",
   "artifact:apply",
+  "artifact:delete",
   "artifact:list",
   "artifact:page-shares",
   "artifact:sharing-status",

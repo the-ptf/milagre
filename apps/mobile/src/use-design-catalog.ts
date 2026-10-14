@@ -1,7 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { ArtifactRef } from "@milagre/shared/model";
 import type { Client } from "./client";
-import { designCatalog, readDesignCatalog, subscribeDesignCatalog } from "./design-catalog";
+import { designCatalog, designDeleted, readDesignCatalog, subscribeDesignCatalog } from "./design-catalog";
 
 /** Historical refs lack a format. Resolve those against the host catalog. */
 export function useArtifactCatalog(client: Client | null, chatId: string | undefined, refs: ArtifactRef[], enabled: boolean) {
@@ -19,10 +19,11 @@ export function useArtifactCatalog(client: Client | null, chatId: string | undef
         revision,
         refs.filter((ref) => !ref.format).map((ref) => ref.id),
         enabled,
+        refs.filter((ref) => ref.format === "design").map((ref) => ref.id),
       );
   }, [client, chatId, revision]);
   return (ref: ArtifactRef): "design" | "html" | null => {
     const format = ref.format ?? catalog?.find((item) => item.id === ref.id)?.format ?? null;
-    return format === "html" ? "html" : enabled && format === "design" ? "design" : null;
+    return format === "html" ? "html" : enabled && format === "design" && !designDeleted(client, chatId, ref.id) ? "design" : null;
   };
 }

@@ -102,6 +102,7 @@ function makeBridge(invoke, listen, send) {
       get: (request) => invoke("artifact:get", request),
       list: (request) => invoke("artifact:list", request),
       apply: (request) => invoke("artifact:apply", request),
+      delete: (request) => invoke("artifact:delete", request),
       addComments: (request) => invoke("artifact:add-comments", request),
       comments: (request) => invoke("artifact:comments", request),
     },
