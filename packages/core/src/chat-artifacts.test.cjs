@@ -653,7 +653,10 @@ test("the agent is told which text layers its image leaves blank", async (t) => 
     { id: "hiddenStar", type: "text", x: 24, y: 380, width: 300, height: 30, text: "★", hidden: true },
   );
   const shown = await tools.design_show.run({ id: "glyphs", title: "Glyphs", document });
-  assert.match(shown.text, /\nYour image can't draw some characters in "polish"; they are blank there but the user sees them\.(\n|$)/);
+  assert.match(
+    shown.text,
+    /\nYour image can't draw some characters in "polish"; they are blank and the line may look cut there, but the user sees them\.(\n|$)/,
+  );
   assert.doesNotMatch((await tools.design_show.run({ id: "plain", title: "Plain", document: designDocument() })).text, /can't draw/);
 
   const many = designDocument();

@@ -501,7 +501,8 @@ async function designFeedback(saved, document, { renderPng, warnings: findWarnin
     const fonts = nonInterFamilies(document);
     if (fonts.length) notes.push(`Your image shows ${fonts.join(", ")} in Inter; the user sees the real font.`);
     const blank = undrawableTextLayers(document);
-    if (blank.length) notes.push(`Your image can't draw some characters in ${namedLayers(blank)}; they are blank there but the user sees them.`);
+    if (blank.length)
+      notes.push(`Your image can't draw some characters in ${namedLayers(blank)}; they are blank and the line may look cut there, but the user sees them.`);
   } catch (error) {
     notes.push(`The preview could not be rendered: ${error?.message ?? String(error)}. Check the warnings below.`);
   }
