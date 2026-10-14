@@ -258,3 +258,15 @@ test("a failed render ends its worker so the next render starts clean", async ()
   assert.equal((await renderDesignPng(phone([]))).mime, "image/png");
   assert.equal(designRasterTesting.workersStarted() - before, 2);
 });
+
+test("a worker that exits while idle is dropped, so the next render starts a fresh one at once", async () => {
+  const document = phone([{ id: "box", type: "rectangle", x: 0, y: 0, width: 10, height: 10, fill: "#000000" }]);
+  await renderDesignPng(document);
+  const idle = designRasterTesting.worker();
+  assert.ok(idle, "a worker is cached after a render");
+  await idle.terminate();
+  await new Promise((resolve) => setImmediate(resolve));
+  const started = Date.now();
+  assert.equal((await renderDesignPng(document)).mime, "image/png");
+  assert.ok(Date.now() - started < 3000, `the render took ${Date.now() - started} ms`);
+});

@@ -69,7 +69,19 @@ function retire() {
 
 function start() {
   workersStarted++;
-  return new Worker(path.join(__dirname, "design-raster-worker.cjs"));
+  const started = new Worker(path.join(__dirname, "design-raster-worker.cjs"));
+  // Listeners for the worker's whole life, not just one render: an unhandled error from an idle worker would crash the
+  // daemon, and a worker that exits while idle must not stay cached for the next render to wait out its time limit.
+  // A render in flight still rejects through its own listeners.
+  started.on("error", () => {});
+  started.on("exit", () => {
+    if (worker !== started) return;
+    clearTimeout(idleTimer);
+    idleTimer = undefined;
+    worker = undefined;
+    rendersOnWorker = 0;
+  });
+  return started;
 }
 
 function post(document) {
@@ -132,6 +144,8 @@ const designRasterTesting = {
     options = { ...defaults, ...next };
   },
   workersStarted: () => workersStarted,
+  /** The cached worker, so a test can end it behind the cache's back. */
+  worker: () => worker,
   retire,
 };
 
