@@ -230,11 +230,13 @@ function createRuntime(options) {
     options.terminals ??
     require("./terminals.cjs").createTerminals({
       resolveChat: chatWorktrees,
+      settingsFile: path.join(dataDir, "terminal-settings.json"),
       onChange: (chatId) => emit("terminal:changed", { chatId }),
+      onPreferencesChanged: () => emit("terminal:preferences-changed", {}),
       onShellsChanged: () => ports.wake(),
     });
   commands.handle("terminal:list", (_context, request) => terminals.list(request));
-  for (const method of ["open", "read", "input", "resize", "close"]) {
+  for (const method of ["profiles", "setShell", "open", "read", "input", "resize", "close"]) {
     commands.handle(`terminal:${method}`, (context, request) => {
       if (!context?.clientId) throw new Error("Terminal access requires an authenticated connection");
       return terminals[method](request);

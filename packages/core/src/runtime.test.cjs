@@ -117,6 +117,23 @@ test("Node runtime preserves stored Chats and provider IDs across a restart", as
   await assert.rejects(second.invoke("not:a-command"), /Unknown command/);
 });
 
+test("terminal shell preferences require authentication and persist across runtime restarts", async (t) => {
+  const { make, events } = await fixture(t);
+  const runtime = make();
+  const context = { clientId: "desktop" };
+  await assert.rejects(runtime.invoke("terminal:profiles"), /authenticated connection/);
+  await assert.rejects(runtime.invoke("terminal:setShell", [{ shell: null }]), /authenticated connection/);
+  const profiles = await runtime.invoke("terminal:profiles", [], context);
+  assert.ok(profiles.shells.length > 0);
+  const chosen = profiles.shells[0].file;
+  assert.equal((await runtime.invoke("terminal:setShell", [{ shell: chosen }], context)).selectedShell, chosen);
+  assert.ok(events.some((event) => event.channel === "terminal:preferences-changed"));
+  await runtime.close();
+  const restarted = make();
+  assert.equal((await restarted.invoke("terminal:profiles", [], { clientId: "phone" })).selectedShell, chosen);
+  assert.equal((await restarted.invoke("terminal:setShell", [{ shell: null }], context)).selectedShell, null);
+});
+
 test("the old handover commands are gone", async (t) => {
   const { make } = await fixture(t);
   const runtime = make();

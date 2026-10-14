@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { createTerminals, terminalEnvironment, terminalShell } = require("./terminals.cjs");
+const { createTerminals, terminalEnvironment, terminalShell, terminalShells } = require("./terminals.cjs");
 
 function fakePty(file, args, options) {
   const data = new Set(),
@@ -246,6 +246,136 @@ test("the shell is the user's own and the environment drops the host's Electron 
   assert.equal(env.ELECTRON_RUN_AS_NODE, undefined);
   assert.equal(env.MILAGRE_BUNDLED_BIN_DIR, undefined);
   assert.deepEqual([env.PATH, env.TERM, env.TERM_PROGRAM, env.LANG], ["/bin", "xterm-256color", "Milagre", "pt_BR.UTF-8"]);
+});
+
+test("shell discovery includes installed and registered shells without duplicate symlinks", () => {
+  const files = ["/bin/bash", "/usr/bin/bash", "/opt/bin/fish", "/usr/bin/zsh", "/opt/custom/shell"];
+  const shells = terminalShells({
+    platform: "linux",
+    env: { PATH: "/opt/bin:/usr/bin:.", SHELL: "/bin/bash" },
+    userShell: () => "/bin/bash",
+    exists: (file) => files.includes(file),
+    readShells: () => "# Login shells\n/bin/bash\n/usr/bin/bash\n/opt/custom/shell # installed\n/missing/sh\n",
+    realpath: (file) => (file === "/bin/bash" ? "/usr/bin/bash" : file),
+  });
+  assert.deepEqual(
+    shells.map((item) => item.file),
+    ["/usr/bin/zsh", "/bin/bash", "/opt/custom/shell", "/opt/bin/fish"],
+  );
+});
+
+test("shell discovery works without /etc/shells and lists Windows shells", () => {
+  assert.deepEqual(
+    terminalShells({
+      platform: "linux",
+      env: { PATH: "/opt/bin" },
+      userShell: () => null,
+      exists: (file) => file === "/opt/bin/fish",
+      readShells: () => {
+        throw new Error("Missing");
+      },
+      realpath: (file) => file,
+    }),
+    [{ file: "/opt/bin/fish", label: "fish" }],
+  );
+  const files = ["C:\\Tools\\pwsh.exe", "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "C:\\Windows\\System32\\cmd.exe"];
+  assert.deepEqual(
+    terminalShells({ platform: "win32", env: { Path: "C:\\Tools" }, exists: (file) => files.includes(file), realpath: (file) => file }).map(
+      (item) => item.file,
+    ),
+    files,
+  );
+});
+
+test("shell discovery ignores non-executable files and directories", (t) => {
+  if (process.platform === "win32") return t.skip("POSIX executable permissions");
+  const f = fixture(t);
+  fs.writeFileSync(path.join(f.folder, "bash"), "#!/bin/sh\n", { mode: 0o600 });
+  fs.mkdirSync(path.join(f.folder, "fish"));
+  fs.writeFileSync(path.join(f.folder, "zsh"), "#!/bin/sh\n", { mode: 0o700 });
+  const shells = terminalShells({ platform: "linux", env: { PATH: f.folder }, userShell: () => null, readShells: () => "" });
+  assert.ok(shells.some((item) => item.file === path.join(f.folder, "zsh")));
+  assert.ok(!shells.some((item) => item.file === path.join(f.folder, "bash") || item.file === path.join(f.folder, "fish")));
+});
+
+test("a shell choice persists across hosts and only applies to new Terminals", async (t) => {
+  const shells = [
+    { file: "/bin/bash", label: "bash" },
+    { file: "/bin/zsh", label: "zsh" },
+  ];
+  const f = fixture(t);
+  const settingsFile = path.join(f.folder, "settings.json");
+  let preferencesChanged = 0;
+  const first = fixture(t, { settingsFile, availableShells: () => shells, onPreferencesChanged: () => preferencesChanged++ });
+  await first.terminals.open({ chatId: "/p#1" });
+  assert.equal((await first.terminals.setShell({ shell: "/bin/bash" })).selectedShell, "/bin/bash");
+  await first.terminals.open({ chatId: "/p#1" });
+  assert.deepEqual(
+    first.ptys.map((pty) => pty.file),
+    ["/bin/zsh", "/bin/bash"],
+  );
+  assert.equal(first.ptys[1].options.env.SHELL, "/bin/bash");
+  assert.equal(preferencesChanged, 1);
+  const restarted = fixture(t, { settingsFile, availableShells: () => shells });
+  assert.equal((await restarted.terminals.profiles()).selectedShell, "/bin/bash");
+  await restarted.terminals.open({ chatId: "/p#1" });
+  assert.equal(restarted.ptys[0].file, "/bin/bash");
+  await restarted.terminals.setShell({ shell: null });
+  await restarted.terminals.open({ chatId: "/p#1" });
+  assert.equal(restarted.ptys[1].file, "/bin/zsh");
+  assert.equal(JSON.parse(fs.readFileSync(settingsFile, "utf8")).shell, null);
+});
+
+test("a removed shell falls back to automatic selection and arbitrary commands are refused", async (t) => {
+  let shells = [{ file: "/bin/bash", label: "bash" }];
+  const f = fixture(t, { availableShells: () => shells });
+  await assert.rejects(f.terminals.setShell({ shell: "/tmp/arbitrary-command" }), /installed shell/);
+  await assert.rejects(f.terminals.setShell({ shell: "bash" }), /installed shell/);
+  await f.terminals.setShell({ shell: "/bin/bash" });
+  shells = [];
+  assert.equal((await f.terminals.profiles()).selectedShell, null);
+  await f.terminals.open({ chatId: "/p#1" });
+  assert.equal(f.ptys[0].file, "/bin/zsh");
+});
+
+test("Linux prefers installed zsh even when the account and inherited shell are bash", () => {
+  for (const location of ["/usr/bin/zsh", "/bin/zsh", "/usr/local/bin/zsh", "/opt/shells/zsh"]) {
+    assert.deepEqual(
+      terminalShell({
+        platform: "linux",
+        env: { SHELL: "/bin/bash", PATH: "/opt/shells:/usr/bin:/bin" },
+        userShell: () => "/bin/bash",
+        exists: (file) => ["/bin/bash", location].includes(file),
+      }),
+      { file: location, args: ["-l"] },
+    );
+  }
+});
+
+test("Linux keeps the configured zsh path ahead of other installations", () => {
+  const exists = (file) => ["/opt/account/zsh", "/opt/environment/zsh", "/usr/bin/zsh", "/bin/bash"].includes(file);
+  assert.equal(
+    terminalShell({ platform: "linux", env: { SHELL: "/opt/environment/zsh" }, userShell: () => "/opt/account/zsh", exists }).file,
+    "/opt/account/zsh",
+  );
+  assert.equal(terminalShell({ platform: "linux", env: { SHELL: "/opt/environment/zsh" }, userShell: () => "/bin/bash", exists }).file, "/opt/environment/zsh");
+});
+
+test("Linux without zsh uses the account shell, inherited shell, then sh", () => {
+  const exists = (file) => ["/bin/bash", "/usr/bin/fish", "/bin/sh"].includes(file);
+  assert.equal(terminalShell({ platform: "linux", env: { SHELL: "/usr/bin/fish" }, userShell: () => "/bin/bash", exists }).file, "/bin/bash");
+  assert.equal(
+    terminalShell({
+      platform: "linux",
+      env: { SHELL: "/usr/bin/fish" },
+      userShell: () => {
+        throw new Error("No account");
+      },
+      exists,
+    }).file,
+    "/usr/bin/fish",
+  );
+  assert.equal(terminalShell({ platform: "linux", env: { SHELL: "/missing/zsh", PATH: ".:relative" }, userShell: () => null, exists }).file, "/bin/sh");
 });
 
 // node-pty's native part is missing where npm skipped its install script and no prebuilt binary fits (Linux).

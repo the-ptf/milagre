@@ -76,6 +76,8 @@ function makeBridge(invoke, listen, send) {
       close: (request) => invoke("browser:close", request),
     },
     terminals: {
+      profiles: () => invoke("terminal:profiles"),
+      setShell: (request) => invoke("terminal:setShell", request),
       list: (request) => invoke("terminal:list", request),
       open: (request) => invoke("terminal:open", request),
       read: (request) => invoke("terminal:read", request),

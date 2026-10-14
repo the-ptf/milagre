@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, ArrowDown01Icon, Cancel01Icon, ComputerTerminal01Icon } from "@hugeicons/core-free-icons";
-import type { TerminalInfo } from "@milagre/shared/terminal";
+import type { TerminalInfo, TerminalProfiles } from "@milagre/shared/terminal";
+import { bridgeForKey } from "../../lib/computer-bridge";
+import { Select } from "../primitives/Select";
 import Tooltip from "../primitives/Tooltip";
 import { PickerPanel, PickerRow } from "../primitives/Picker";
 import { useDismiss } from "../../lib/use-dismiss";
@@ -41,6 +43,44 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
   const shown = terminals.find((terminal) => terminal.id === active) ?? null;
   const shownId = shown?.id;
   const multiple = (places?.length ?? 0) > 1;
+  const [profiles, setProfiles] = useState<TerminalProfiles | null>(null);
+  const [savingShell, setSavingShell] = useState(false);
+  const profileRevision = useRef(0);
+  useEffect(() => {
+    profileRevision.current++;
+    setProfiles(null);
+    setSavingShell(false);
+    if (!chatId || !open) return;
+    let disposed = false;
+    const load = async () => {
+      const revision = profileRevision.current;
+      try {
+        const next = await bridgeForKey(chatId).terminals.profiles();
+        if (!disposed && revision === profileRevision.current) setProfiles(next);
+      } catch {
+        /* Older computers have no shell selector. */
+      }
+    };
+    void load();
+    const timer = setInterval(load, 5000);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+    };
+  }, [chatId, open]);
+  async function chooseShell(value: string) {
+    if (!chatId) return;
+    const revision = ++profileRevision.current;
+    setSavingShell(true);
+    try {
+      const next = await bridgeForKey(chatId).terminals.setShell({ shell: value || null });
+      if (revision === profileRevision.current) setProfiles(next);
+    } catch (error) {
+      notify(`Couldn't select a shell: ${ipcErrorMessage(error)}`);
+    } finally {
+      if (revision === profileRevision.current) setSavingShell(false);
+    }
+  }
   // The corner button (⌘J) is offered for every sent Chat, even one with no Terminal yet: it opens the first.
   useSidePanel("terminal", chatId ? { open, toggle: () => toggleTerminalPanel(chatId, places, notify) } : null);
 
@@ -224,6 +264,19 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                   )}
                 </div>
               </div>
+              {profiles && (
+                <Select
+                  label="Shell for new Terminals"
+                  value={profiles.selectedShell ?? ""}
+                  disabled={savingShell}
+                  width={320}
+                  options={[
+                    { value: "", label: "Automatic", description: `New Terminals use ${profiles.defaultShell}` },
+                    ...profiles.shells.map((item) => ({ value: item.file, label: item.label, description: item.file })),
+                  ]}
+                  onChange={(value) => void chooseShell(value)}
+                />
+              )}
               <Tooltip label="Hide Terminals" shortcut="⌘J" side="top" align="end">
                 <button
                   type="button"

@@ -68,7 +68,7 @@ const preload = `
 const { contextBridge, ipcRenderer } = require("electron");
 const call = (method) => (request) => ipcRenderer.invoke(method, request);
 contextBridge.exposeInMainWorld("milagre", {
-  terminals: { list: call("terminal:list"), open: call("terminal:open"), read: call("terminal:read"), input: call("terminal:input"), resize: call("terminal:resize"), close: call("terminal:close") },
+  terminals: { profiles: call("terminal:profiles"), setShell: call("terminal:setShell"), list: call("terminal:list"), open: call("terminal:open"), read: call("terminal:read"), input: call("terminal:input"), resize: call("terminal:resize"), close: call("terminal:close") },
   onTerminalsChanged: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("terminal:changed", listener);
@@ -85,7 +85,7 @@ contextBridge.exposeInMainWorld("milagre", {
 
 async function electronChecks() {
   const { app, BrowserWindow, ipcMain } = require("electron");
-  const { createTerminals, terminalEnvironment } = require("../packages/core/src/terminals.cjs");
+  const { createTerminals, terminalEnvironment, terminalShell } = require("../packages/core/src/terminals.cjs");
   const { forwardAppShortcuts } = require("../apps/desktop/electron/app-shortcuts.cjs");
   const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "milagre-terminal-ui-")));
   const worktree = path.join(scratch, "dev-server");
@@ -101,17 +101,21 @@ async function electronChecks() {
     show: false,
     webPreferences: { preload: preloadFile, backgroundThrottling: false, sandbox: false },
   });
+  const selectedShell = process.platform === "linux" ? terminalShell() : { file: "/bin/sh", args: [] };
+  // The disposable home has no profile yet; skip zsh's first-run configuration wizard.
+  fs.writeFileSync(path.join(scratch, ".zshrc"), "# Terminal fixture\n");
   const terminals = createTerminals({
     resolveChat: async (chatId) => {
       if (chatId !== CHAT) throw new Error("Unknown Chat");
       return [{ path: worktree, label: "dev-server" }];
     },
-    shell: () => ({ file: "/bin/sh", args: [] }),
+    shell: () => selectedShell,
+    settingsFile: path.join(scratch, "terminal-settings.json"),
     environment: () => terminalEnvironment({ PATH: "/usr/bin:/bin", HOME: scratch, PS1: "$ ", LANG: "en_US.UTF-8" }),
     onChange: (chatId) => !window.isDestroyed() && window.webContents.send("terminal:changed", { chatId }),
   });
   let resizes = [];
-  for (const method of ["list", "open", "read", "input", "resize", "close"])
+  for (const method of ["profiles", "setShell", "list", "open", "read", "input", "resize", "close"])
     ipcMain.handle(`terminal:${method}`, (_event, request) => {
       if (method === "resize") resizes.push(`${request.cols}x${request.rows}`);
       return terminals[method](request);
@@ -167,6 +171,7 @@ async function electronChecks() {
   }
   try {
     await window.loadURL(process.argv[2]);
+    if (screenshotDir) window.showInactive();
     await waitFor('!!document.querySelector("[data-panel-toggle=terminal]")', "the Terminals corner button");
     assert.equal(await evaluate('!!document.querySelector("[data-terminal-panel]")'), false, "The panel starts hidden");
     window.webContents.focus();
@@ -186,6 +191,10 @@ async function electronChecks() {
     assert.equal(await evaluate("window.terminalGpu()"), webgl2, webgl2 ? "The shown Terminal draws with WebGL" : "The Terminal fell back to the DOM renderer");
     await type("echo milagre-$((40+2)); pwd\r");
     await waitFor(`${shown}.includes("milagre-42") && ${shown}.includes(${JSON.stringify(worktree)})`, "the command's output and the Worktree folder");
+    if (path.basename(selectedShell.file) === "zsh") {
+      await type("echo shell-name:$0\r");
+      await waitFor(`/shell-name:[^\\s]*zsh/.test(${shown})`, "the selected shell is running zsh");
+    }
     assert.equal(await evaluate('document.querySelector("[data-panel-toggle=terminal]").getAttribute("aria-pressed")'), "true");
     await type("printf '\\033[32mgreen\\033[0m \\033[1;34mblue\\033[0m\\n'\r");
     await waitFor(`${shown}.includes("green blue")`);
@@ -247,10 +256,27 @@ async function electronChecks() {
     assert.deepEqual(resizes, [`${dropped.cols}x${dropped.rows}`], "The PTY was resized once, at the drop");
     assert.equal((await evaluate('localStorage.getItem("milagre.terminal.height")')) !== null, true, "The dropped height is kept");
 
+    // Choosing bash leaves the existing Terminal alone and applies to the next tab.
+    const bash = (await terminals.profiles()).shells.find((item) => item.label === "bash");
+    if (bash) {
+      await waitFor('!!document.querySelector("[aria-label=\\"Shell for new Terminals\\"]")', "the shell selector");
+      await evaluate('document.querySelector("[aria-label=\\"Shell for new Terminals\\"]").click()');
+      await waitFor('!!document.querySelector("[role=listbox]")', "available shells");
+      await screenshot("terminal-shell-options");
+      await evaluate('[...document.querySelectorAll("[role=option]")].find((row) => row.textContent.startsWith("bash")).click()');
+      await waitFor('document.querySelector("[aria-label=\\"Shell for new Terminals\\"]").textContent.includes("bash")', "saved bash selection");
+      assert.equal((await terminals.profiles()).selectedShell, bash.file);
+      assert.equal((await terminals.list({ chatId: CHAT })).terminals[0].title, path.basename(selectedShell.file));
+    }
     // + adds a second tab; a running command makes it busy, and ⌘W asks before ending it.
     await evaluate("document.querySelector(\"[aria-label='New Terminal']\").click()");
     await waitFor(`${tabs}.length === 2`, "a second tab");
     await waitFor('document.activeElement?.classList.contains("xterm-helper-textarea")');
+    if (bash) {
+      await type("echo shell-name:$0\r");
+      await waitFor(`/shell-name:[^\\s]*bash/.test(${shown})`, "the selected bash shell runs in the new Terminal");
+      await screenshot("terminal-selected-bash");
+    }
     await type("sleep 30\r");
     await waitFor(`${tabs}[1].includes("sleep")`, "the tab named after its command");
     press("W", [COMMAND]);

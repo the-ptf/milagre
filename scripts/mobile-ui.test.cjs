@@ -147,6 +147,98 @@ function load(file, modules, extra = "") {
 }
 const jsx = (type, props, key) => ({ type, props, key });
 
+test("the phone selects the computer's shell for new Terminals and keeps selection on save failure", async (t) => {
+  const react = hookHost();
+  t.after(() => react.cleanup());
+  const calls = [],
+    alerts = [];
+  let rejectSave = false;
+  let profiles = {
+    shells: [
+      { file: "/bin/zsh", label: "zsh" },
+      { file: "/bin/bash", label: "bash" },
+    ],
+    defaultShell: "/bin/zsh",
+    selectedShell: null,
+  };
+  const terminal = { id: "one", chatId: "/p#1", title: "zsh", cwd: "/p", busy: false };
+  const client = {
+    url: "computer",
+    call: async (method, args) => {
+      calls.push({ method, args });
+      if (method === "terminal:list") return { terminals: [terminal] };
+      if (method === "terminal:profiles") return profiles;
+      if (method === "terminal:setShell") {
+        if (rejectSave) throw new Error("Disk full");
+        profiles = { ...profiles, selectedShell: args[0].shell };
+        return profiles;
+      }
+      if (method === "terminal:open") return { ...terminal, id: "two", title: "bash" };
+      throw new Error(`Unexpected method: ${method}`);
+    },
+  };
+  const { TerminalSheet } = load("terminal.tsx", {
+    react: { ...react, useEffect: (fn, deps) => react.effect(fn, deps), useImperativeHandle() {} },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      Alert: { alert: (...args) => alerts.push(args) },
+      AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
+      Pressable: "Pressable",
+      ScrollView: "ScrollView",
+      Text: "Text",
+      View: "View",
+    },
+    "expo-router": { router: {}, useFocusEffect: (fn) => react.effect(fn, [fn]) },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
+    "react-native-keyboard-controller": { KeyboardAvoidingView: "KeyboardAvoidingView" },
+    "@expo/dom-webview": { DomWebView: "DomWebView" },
+    "expo-file-system": { File() {}, Paths: {} },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/terminal-client": { followTerminal() {} },
+    "./session": { useSession: () => ({ client }) },
+    "./icons": { Icon: "Icon" },
+    "./theme": themeHooks,
+    "./status-pill": { StatusPill: "StatusPill" },
+    "./ui": { CircleButton: "CircleButton", PillButton: "PillButton", PullDown: "PullDown" },
+    "./terminal-receiver": {},
+  });
+  const render = () => {
+    react.begin();
+    const tree = TerminalSheet({ hostId: "computer", chatId: "/p#1" });
+    react.flush();
+    return tree;
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  render();
+  await settle();
+  let tree = render();
+  let picker = find(tree, (node) => node.type === "PullDown");
+  assert.equal(picker.props.label, "Shell for new Terminals");
+  assert.deepEqual(
+    Array.from(picker.props.sections[0].items, (item) => item.title),
+    ["Automatic", "zsh", "bash"],
+  );
+  picker.props.onSelect("/bin/bash");
+  await settle();
+  tree = render();
+  picker = find(tree, (node) => node.type === "PullDown");
+  assert.equal(picker.props.nativeTrigger.title, "bash");
+  assert.equal(calls.filter((call) => call.method === "terminal:open").length, 0, "changing the preference does not restart an existing Terminal");
+  find(tree, (node) => node.type === "CircleButton" && node.props.label === "New Terminal").props.onPress();
+  await settle();
+  assert.equal(calls.at(-1).method, "terminal:open");
+  assert.equal(calls.at(-1).args[0].chatId, "/p#1");
+  rejectSave = true;
+  picker.props.onSelect("/bin/zsh");
+  await settle();
+  assert.equal(find(render(), (node) => node.type === "PullDown").props.nativeTrigger.title, "bash");
+  assert.deepEqual(alerts[0], ["Couldn't select a shell", "Disk full"]);
+  rejectSave = false;
+  find(render(), (node) => node.type === "PullDown").props.onSelect("automatic");
+  await settle();
+  assert.equal(find(render(), (node) => node.type === "PullDown").props.nativeTrigger.title, "Automatic");
+});
+
 test("the floating inbox defaults off and its switch updates and persists the phone preference", async () => {
   const hooks = hookHost();
   const saved = [];

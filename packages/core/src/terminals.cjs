@@ -23,11 +23,10 @@ const UNIX_SHELLS = new Set(["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh",
 const HOST_ONLY = new Set(["ELECTRON_RUN_AS_NODE", "ELECTRON_NO_ATTACH_CONSOLE", "MILAGRE_BUNDLED_BIN_DIR", "PWD", "OLDPWD", "SHLVL", "_"]);
 
 /**
- * The user's own shell: on macOS and Linux their account's login shell, the one Terminal.app or Ghostty opens, then
- * $SHELL (which the host may have inherited from whatever started it); PowerShell 7, then Windows PowerShell, then cmd
- * on Windows.
+ * On Linux, prefer installed zsh; otherwise use the account's login shell, then $SHELL (which the host may have
+ * inherited from whatever started it). On Windows, PowerShell 7, then Windows PowerShell, then cmd.
  */
-function terminalShell({ platform = process.platform, env = process.env, exists = fs.existsSync, userShell } = {}) {
+function terminalShell({ platform = process.platform, env = process.env, exists = executableFile, userShell } = {}) {
   if (platform === "win32") {
     const folders = (env.Path || env.PATH || "").split(";").filter(Boolean);
     const onPath = (name) => folders.map((folder) => path.win32.join(folder, name)).find((file) => exists(file));
@@ -47,7 +46,15 @@ function terminalShell({ platform = process.platform, env = process.env, exists 
     account = null;
   }
   const usable = (file) => typeof file === "string" && path.isAbsolute(file) && UNIX_SHELLS.has(path.basename(file)) && exists(file);
-  const file = [account, env.SHELL].find(usable) || (platform === "darwin" ? "/bin/zsh" : "/bin/sh");
+  let zsh = null;
+  if (platform === "linux") {
+    const onPath = (env.PATH || "")
+      .split(":")
+      .filter((folder) => path.isAbsolute(folder))
+      .map((folder) => path.join(folder, "zsh"));
+    zsh = [account, env.SHELL, ...onPath, "/usr/local/bin/zsh", "/usr/bin/zsh", "/bin/zsh"].find((file) => usable(file) && path.basename(file) === "zsh");
+  }
+  const file = zsh || [account, env.SHELL].find(usable) || (platform === "darwin" ? "/bin/zsh" : "/bin/sh");
   // A login shell reads the same profile files as a new window of the user's terminal app.
   return { file, args: ["-l"] };
 }
@@ -60,6 +67,69 @@ function terminalEnvironment(env = process.env) {
   result.TERM_PROGRAM = "Milagre";
   if (!result.LANG && process.platform !== "win32") result.LANG = "en_US.UTF-8";
   return result;
+}
+
+function executableFile(file) {
+  try {
+    fs.accessSync(file, fs.constants.X_OK);
+    return fs.statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** Discover installed shells without running them. Symlink aliases are listed once. */
+function terminalShells({
+  platform = process.platform,
+  env = process.env,
+  exists = executableFile,
+  userShell,
+  readShells = () => fs.readFileSync("/etc/shells", "utf8"),
+  realpath = fs.realpathSync,
+} = {}) {
+  const options = { platform, env, exists, userShell };
+  const preferred = terminalShell(options).file;
+  let candidates = [preferred];
+  if (platform === "win32") {
+    const folders = (env.Path || env.PATH || "").split(";").filter(Boolean);
+    const root = env.SystemRoot || "C:\\Windows";
+    candidates.push(
+      ...folders.flatMap((folder) => ["pwsh.exe", "powershell.exe", "cmd.exe"].map((name) => path.win32.join(folder, name))),
+      env.ProgramFiles && path.win32.join(env.ProgramFiles, "PowerShell", "7", "pwsh.exe"),
+      path.win32.join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+      env.ComSpec || path.win32.join(root, "System32", "cmd.exe"),
+    );
+  } else {
+    try {
+      candidates.push(
+        ...readShells()
+          .split(/\r?\n/)
+          .map((line) => line.split("#")[0].trim()),
+      );
+    } catch {
+      // Some installations have no /etc/shells. Known shells on PATH still work.
+    }
+    candidates.push(env.SHELL);
+    const folders = [...(env.PATH || "").split(":"), "/usr/local/bin", "/usr/bin", "/bin"];
+    candidates.push(...folders.filter((folder) => path.isAbsolute(folder)).flatMap((folder) => [...UNIX_SHELLS].map((name) => path.join(folder, name))));
+  }
+  const paths = platform === "win32" ? path.win32 : path;
+  const seen = new Set();
+  return candidates
+    .filter((file) => {
+      if (typeof file !== "string" || !paths.isAbsolute(file) || !exists(file)) return false;
+      let canonical = file;
+      try {
+        canonical = realpath(file);
+      } catch {
+        /* Tests or unavailable realpath. */
+      }
+      if (platform === "win32") canonical = canonical.toLowerCase();
+      if (seen.has(canonical)) return false;
+      seen.add(canonical);
+      return true;
+    })
+    .map((file) => ({ file, label: paths.basename(file).replace(/\.exe$/i, "") }));
 }
 
 // A cut never splits a surrogate pair: the head stops before a lone high half, the tail starts after a lone low half.
@@ -88,9 +158,12 @@ function createTerminals(options = {}) {
     resolveChat,
     spawn = (file, args, spawnOptions) => require("node-pty").spawn(file, args, spawnOptions),
     shell = () => terminalShell(),
+    availableShells = () => terminalShells(),
+    settingsFile,
     environment = () => terminalEnvironment(),
     onChange = () => {},
     onShellsChanged = () => {},
+    onPreferencesChanged = () => {},
     maxBufferChars = MAX_BUFFER_CHARS,
     maxBufferLines = MAX_BUFFER_LINES,
     readWaitMs = READ_WAIT_MS,
@@ -100,6 +173,15 @@ function createTerminals(options = {}) {
     now = Date.now,
   } = options;
   if (typeof resolveChat !== "function") throw new Error("Terminals need a way to resolve a Chat's Worktrees.");
+  let selectedShell = null;
+  if (settingsFile) {
+    try {
+      const saved = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+      if (typeof saved?.shell === "string") selectedShell = saved.shell;
+    } catch (error) {
+      if (error.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
+    }
+  }
   const terminals = new Map();
   let closed = false;
   let titleTimer = null;
@@ -228,7 +310,33 @@ function createTerminals(options = {}) {
     finish(terminal);
   }
 
+  function profiles() {
+    const shells = availableShells();
+    return { shells, defaultShell: shell().file, selectedShell: shells.some((item) => item.file === selectedShell) ? selectedShell : null };
+  }
+
   return {
+    async profiles() {
+      return profiles();
+    },
+    async setShell(request) {
+      if (closed) throw new Error("Terminals are closed.");
+      const file = request?.shell;
+      if (file !== null && (typeof file !== "string" || !availableShells().some((item) => item.file === file))) throw new Error("Choose an installed shell.");
+      if (settingsFile) {
+        fs.mkdirSync(path.dirname(settingsFile), { recursive: true, mode: 0o700 });
+        const temporary = `${settingsFile}.${randomUUID()}.tmp`;
+        try {
+          fs.writeFileSync(temporary, JSON.stringify({ shell: file }), { mode: 0o600 });
+          fs.renameSync(temporary, settingsFile);
+        } finally {
+          fs.rmSync(temporary, { force: true });
+        }
+      }
+      selectedShell = file;
+      onPreferencesChanged();
+      return profiles();
+    },
     async list(request) {
       const chatId = requireChatId(request);
       if (closed) throw new Error("Terminals are closed.");
@@ -248,8 +356,13 @@ function createTerminals(options = {}) {
       if (terminals.size >= maxTotal) throw new Error("Too many Terminals are open on this computer. Close one first.");
       const cols = Number.isSafeInteger(request.cols) && request.cols >= 2 && request.cols <= 1000 ? request.cols : 80;
       const rows = Number.isSafeInteger(request.rows) && request.rows >= 1 && request.rows <= 500 ? request.rows : 24;
-      const { file, args } = shell();
-      const pty = spawn(file, args, { name: "xterm-256color", cols, rows, cwd: chosen.path, env: environment() });
+      const chosenShell = selectedShell && availableShells().find((item) => item.file === selectedShell);
+      const { file, args } = chosenShell
+        ? { file: chosenShell.file, args: /\.exe$/i.test(chosenShell.file) || path.basename(chosenShell.file) === "elvish" ? [] : ["-l"] }
+        : shell();
+      const env = { ...environment() };
+      if (!/\.exe$/i.test(file)) env.SHELL = file;
+      const pty = spawn(file, args, { name: "xterm-256color", cols, rows, cwd: chosen.path, env });
       const terminal = {
         id: randomUUID(),
         chatId,
@@ -368,4 +481,4 @@ function createTerminals(options = {}) {
   };
 }
 
-module.exports = { createTerminals, terminalEnvironment, terminalShell };
+module.exports = { createTerminals, terminalEnvironment, terminalShell, terminalShells };

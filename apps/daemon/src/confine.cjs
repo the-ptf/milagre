@@ -59,6 +59,8 @@ const PATHS = Object.freeze({
   "browser:close": denied,
   // A Terminal runs any command as the owner of this computer. A demo Project never opens one.
   "terminal:list": denied,
+  "terminal:profiles": denied,
+  "terminal:setShell": denied,
   "terminal:open": denied,
   "terminal:read": denied,
   "terminal:input": denied,

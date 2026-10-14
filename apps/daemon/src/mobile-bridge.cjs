@@ -72,6 +72,8 @@ const METHODS = new Set([
   "browser:input",
   "browser:close",
   "terminal:list",
+  "terminal:profiles",
+  "terminal:setShell",
   "terminal:open",
   "terminal:read",
   "terminal:input",
