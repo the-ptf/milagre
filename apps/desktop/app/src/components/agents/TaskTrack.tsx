@@ -89,8 +89,8 @@ export function TaskTrack({ plan }: { plan?: ChatPlan }) {
   // Each opening draws a fresh phase graph, so its Now is the moment the panel opened.
   const [opening, setOpening] = useState(0);
   const [folded, setFolded] = useState<Set<string>>(() => new Set());
-  // The space left of and above the pill, which the panel may take.
-  const [room, setRoom] = useState({ width: PANEL_WIDTH, height: PANEL_HEIGHT });
+  // The panel's size, and how far its right edge moves past the pill's so a narrow window still fits it.
+  const [room, setRoom] = useState({ width: PANEL_WIDTH, height: PANEL_HEIGHT, shift: 0 });
   const [pillSize, measurePill] = useSize();
   const [panelSize, measurePanel] = useSize();
   // Closing from the keyboard or the collapse control hands focus back to the pill.
@@ -99,9 +99,11 @@ export function TaskTrack({ plan }: { plan?: ChatPlan }) {
   const fit = () => {
     const box = root.current?.getBoundingClientRect();
     if (!box) return;
-    const width = Math.round(Math.max(0, Math.min(PANEL_WIDTH, box.right - EDGE)));
+    const width = Math.round(Math.max(0, Math.min(PANEL_WIDTH, window.innerWidth - 2 * EDGE)));
     const height = Math.round(Math.max(0, Math.min(PANEL_HEIGHT, window.innerHeight * PANEL_VIEWPORT_SHARE, box.bottom - EDGE)));
-    setRoom((current) => (current.width === width && current.height === height ? current : { width, height }));
+    // Anchored to the pill's right edge when that fits; otherwise moved right just enough to clear the window's left padding.
+    const shift = Math.max(0, EDGE - (box.right - width));
+    setRoom((current) => (current.width === width && current.height === height && current.shift === shift ? current : { width, height, shift }));
   };
   const show = () => {
     fit();
@@ -129,7 +131,8 @@ export function TaskTrack({ plan }: { plan?: ChatPlan }) {
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
-      close(true);
+      refocus.current = true;
+      setOpened(false);
     };
     document.addEventListener("keydown", escape, true);
     return () => {
@@ -166,11 +169,11 @@ export function TaskTrack({ plan }: { plan?: ChatPlan }) {
   return (
     // Holds the pill's spot in the composer row; the surface hangs from its bottom-right corner.
     <div ref={root} data-slot="task-track" className="relative shrink-0" style={pillSize ? { width: pillSize.width, height: pillSize.height } : undefined}>
-      {/* One surface morphs between the pill and the panel; both faces stay mounted and crossfade inside it. */}
+      {/* One surface morphs between the pill and the panel; both faces stay mounted and crossfade over it. */}
       <div
         data-slot="task-surface"
-        style={size ? { width: size.width, height: size.height, borderRadius: opened ? 10 : size.height / 2 } : undefined}
-        className={`absolute right-0 bottom-0 z-10 overflow-hidden bg-surface text-ink ${MORPH_SURFACE} ${opened ? "shadow-raised" : "shadow-hairline"}`}
+        style={size ? { width: size.width, height: size.height, right: opened ? -room.shift : 0, borderRadius: opened ? 10 : size.height / 2 } : undefined}
+        className={`absolute bottom-0 z-10 overflow-hidden bg-surface text-ink ${MORPH_SURFACE} ${opened ? "shadow-raised" : "shadow-hairline"}`}
       >
         <motion.div
           ref={(node: HTMLDivElement | null) => {
@@ -186,50 +189,54 @@ export function TaskTrack({ plan }: { plan?: ChatPlan }) {
           data-state={opened ? "open" : "closed"}
           {...morphFace(opened, reduce)}
           style={{ width: room.width, maxHeight: room.height }}
-          className={`absolute right-0 bottom-0 flex flex-col gap-2 p-1 focus:outline-none ${opened ? "visible" : HIDDEN_FACE}`}
+          className={`absolute right-0 bottom-0 flex flex-col gap-1 p-1 focus:outline-none ${opened ? "visible" : HIDDEN_FACE}`}
         >
           {plan.tasks.length > 0 && (
-            <section aria-label="Tasks" className="flex min-h-0 flex-col gap-1">
-              <div className="flex items-center gap-2 px-2 pt-1">
-                <h3 className="flex flex-1 items-center justify-between text-[11px] font-medium tracking-[0.08em] text-ink-3 uppercase">
-                  <span className="flex items-center gap-2">
-                    <span aria-hidden className="h-px w-3 bg-accent" />
-                    Tasks
-                  </span>
-                  <span className="tabular-nums">{total}</span>
-                </h3>
-                {collapse}
-              </div>
-              <ScrollArea as="ul">
-                <TaskRows tasks={plan.tasks} depth={0} folded={folded} toggle={toggle} />
-              </ScrollArea>
-            </section>
+            <div className="flex shrink-0 items-center gap-2 px-2 pt-1">
+              <h3 id={`${panelId}-tasks`} className="flex flex-1 items-center justify-between text-[11px] font-medium tracking-[0.08em] text-ink-3 uppercase">
+                <span className="flex items-center gap-2">
+                  <span aria-hidden className="h-px w-3 bg-accent" />
+                  Tasks
+                </span>
+                <span className="tabular-nums">{total}</span>
+              </h3>
+              {collapse}
+            </div>
           )}
-          <PhaseGraph key={opening} plan={plan} action={plan.tasks.length ? undefined : collapse} />
-        </motion.div>
-        <motion.div
-          ref={measurePill}
-          data-face="pill"
-          {...morphFace(!opened, reduce)}
-          className={`absolute right-0 bottom-0 flex ${opened ? HIDDEN_FACE : "visible"}`}
-        >
-          <Tooltip label="Tasks" align="end">
-            <button
-              ref={trigger}
-              type="button"
-              aria-haspopup="dialog"
-              aria-expanded={opened}
-              aria-controls={panelId}
-              aria-label={total ? `Tasks, ${done} of ${total} done` : `Phase: ${label}`}
-              onClick={show}
-              className="flex h-6 items-center gap-1.5 rounded-full px-2 text-[11px] whitespace-nowrap text-ink-2 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2"
-            >
-              <HugeiconsIcon icon={ListTodoIcon} size={12} aria-hidden />
-              <span className="tabular-nums">{label}</span>
-            </button>
-          </Tooltip>
+          {/* The tree and the graph scroll as one body under the fixed header, so a short window never squeezes the tree. */}
+          <ScrollArea data-slot="task-body" className="flex flex-col gap-2">
+            {plan.tasks.length > 0 && (
+              <ul aria-labelledby={`${panelId}-tasks`} className="shrink-0">
+                <TaskRows tasks={plan.tasks} depth={0} folded={folded} toggle={toggle} />
+              </ul>
+            )}
+            <PhaseGraph key={opening} plan={plan} action={plan.tasks.length ? undefined : collapse} />
+          </ScrollArea>
         </motion.div>
       </div>
+      {/* The pill face sits over the surface at the pill's spot, so it never travels when the panel is moved right. */}
+      <motion.div
+        ref={measurePill}
+        data-face="pill"
+        {...morphFace(!opened, reduce)}
+        className={`absolute right-0 bottom-0 z-10 flex ${opened ? HIDDEN_FACE : "visible"}`}
+      >
+        <Tooltip label="Tasks" align="end">
+          <button
+            ref={trigger}
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded={opened}
+            aria-controls={panelId}
+            aria-label={total ? `Tasks, ${done} of ${total} done` : `Phase: ${label}`}
+            onClick={show}
+            className="flex h-6 items-center gap-1.5 rounded-full px-2 text-[11px] whitespace-nowrap text-ink-2 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2"
+          >
+            <HugeiconsIcon icon={ListTodoIcon} size={12} aria-hidden />
+            <span className="tabular-nums">{label}</span>
+          </button>
+        </Tooltip>
+      </motion.div>
     </div>
   );
 }

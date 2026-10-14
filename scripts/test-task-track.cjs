@@ -124,14 +124,17 @@ async function browserChecks() {
     evaluate(
       `(() => {const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}})()`,
     );
-  // The open surface grows up and to the left from the pill: its bottom-right corner stays on the pill's.
+  // The open surface grows up and to the left from the pill: its bottom-right corner stays on the pill's, unless the
+  // panel would cross the window's 12px left padding; then it moves right just enough, never past innerWidth - 12.
   const assertGrownFromPill = async (pillBox, when) => {
     const box = await rect(surface);
-    const content = await evaluate(`(() => {const c=document.querySelector("${panel}");return {width:c.offsetWidth,height:c.offsetHeight}})()`);
+    const content = await evaluate(`(() => {const c=document.querySelector("${panel}");return {width:c.offsetWidth,height:c.offsetHeight,w:innerWidth}})()`);
+    const right = Math.max(pillBox.right, 12 + box.width);
     assert.ok(
-      Math.abs(box.right - pillBox.right) <= 1 && Math.abs(box.bottom - pillBox.bottom) <= 1,
+      Math.abs(box.right - right) <= 1 && Math.abs(box.bottom - pillBox.bottom) <= 1,
       `Surface left the pill's corner (${when}): ${JSON.stringify({ box, pillBox })}`,
     );
+    assert.ok(box.left >= 11 && box.right <= content.w - 11, `Surface crosses the window's padding (${when}): ${JSON.stringify(box)}`);
     assert.ok(
       Math.abs(box.width - content.width) <= 1 && Math.abs(box.height - content.height) <= 1,
       `Surface does not fit its panel (${when}): ${JSON.stringify({ box, content })}`,
@@ -387,13 +390,32 @@ async function browserChecks() {
     window.setContentSize(390, 500);
     await delay(200);
     const narrowPill = await rect(pill);
-    await evaluate(`document.querySelector("${pill}").click()`);
-    await waitFor(isOpen);
-    await settle();
+    // Here the panel also moves right of the pill to keep the window's padding; the recording shows it.
+    await record("task-morph-narrow", async () => {
+      await delay(150);
+      await evaluate(`document.querySelector("${pill}").click()`);
+      await waitFor(isOpen);
+      await settle();
+      await delay(250);
+    });
     await assertGrownFromPill(narrowPill, "narrow");
     assert.ok(
-      await evaluate(`(() => {const r=document.querySelector("${panel}").getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && r.top>=0})()`),
+      await evaluate(`(() => {const r=document.querySelector("${panel}").getBoundingClientRect();return r.left>=12 && r.right<=innerWidth-12 && r.top>=0})()`),
       "Popover escapes the narrow viewport",
+    );
+    // A narrow window takes the full width less its padding, rather than squeezing left of the pill.
+    const narrowWidth = (await rect(panel)).width;
+    assert.ok(narrowWidth >= 360, `Narrow panel is ${narrowWidth}px wide`);
+    // The tree and the graph scroll as one body, so the tree keeps room: at least four rows show unscrolled.
+    const visibleRows = await evaluate(
+      `(() => {const b=document.querySelector("[data-slot=task-body]");b.scrollTop=0;const r=b.getBoundingClientRect();return [...b.querySelectorAll("[data-task-row]")].filter(e=>{const x=e.getBoundingClientRect();return x.top>=r.top-0.5 && x.bottom<=r.bottom+0.5}).length})()`,
+    );
+    assert.ok(visibleRows >= 4, `Only ${visibleRows} task rows show in the narrow window`);
+    assert.ok(
+      await evaluate(
+        `(() => {const b=document.querySelector("[data-slot=task-body]");return b.contains(document.querySelector("[data-slot=phase-graph]")) && !b.contains(document.querySelector("button[aria-label='Collapse tasks']"))})()`,
+      ),
+      "The graph scrolls with the tree under a fixed header",
     );
     await assertDotOnRow();
     await assertGraphInsideBox("narrow");

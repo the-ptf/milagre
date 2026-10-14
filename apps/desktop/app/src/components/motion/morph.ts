@@ -7,9 +7,9 @@ import { EASE_OUT } from "../../lib/ease";
  * the measured size of the face on show. UpdateNotice and TaskTrack use it.
  */
 
-/** The box's own transition: width, height and corners move together; reduced motion jumps. */
+/** The box's own transition: width, height, corners and a right-edge offset move together; reduced motion jumps. */
 export const MORPH_SURFACE =
-  "transition-[width,height,border-radius,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none motion-reduce:duration-0";
+  "transition-[width,height,right,border-radius,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none motion-reduce:duration-0";
 
 /** Classes for the face that is not on show. Only hiding transitions visibility, which stays visible through the fade. */
 export const HIDDEN_FACE = "invisible transition-[visibility] duration-100 motion-reduce:duration-0";
