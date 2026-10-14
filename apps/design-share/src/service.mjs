@@ -274,7 +274,7 @@ export function createQuotaService({ storage, limits, now = Date.now }) {
 
 /** No crawler may fetch shares, link preview bots included: Slack, Twitter/X and LinkedIn
  * honor this and unfurl a bare URL. A crawler that ignores it still gets noindex on every page. */
-export const ROBOTS_TXT = "User-agent: *\nDisallow: /\n";
+const ROBOTS_TXT = "User-agent: *\nDisallow: /\n";
 
 /** Public routing is separate from internal DO requests: clients cannot reach the quota object. */
 export async function routeRequest(request, env) {
