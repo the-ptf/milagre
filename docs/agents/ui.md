@@ -6,6 +6,7 @@ Every scrolling list or panel is a `ScrollArea` (`apps/desktop/app/src/component
 
 - Don't add `overflow-y-auto` plus `useScrollFade` by hand, and don't restyle the scrollbar in a component. The one scrollbar look is the `::-webkit-scrollbar` block in `apps/desktop/app/src/styles.css`. Hiding a scrollbar where a custom rail replaces it (the message scroller) is fine.
 - Give a scroll area a height limit. Popovers anchored above the composer get one from `useAnchoredPopover` (`height`, 360px by default); put the `ScrollArea` inside the popover's `flex flex-col overflow-hidden` panel so it takes the leftover space.
+- The Tasks pill is the exception: it morphs in place into its panel instead of opening a `useAnchoredPopover`, like the update pill (`UpdateNotice`). Both share `components/motion/morph.ts` (`useSize`, `morphFace`, `HIDDEN_FACE`, `MORPH_SURFACE`): one surface sized to the face on show, both faces mounted and crossfading, the hidden one inert. Its height cap is the room above the pill (at most 520px and 70vh), with the tree and phase graph in one `ScrollArea` under a fixed header.
 
 `apps/desktop/app/src/components/primitives/scroll-area-only.test.ts` fails when a component scrolls vertically without `ScrollArea`, wires fades or restyles the scrollbar itself. The only exceptions are `<pre>` code blocks, which scroll both ways, and the message scroller.
 

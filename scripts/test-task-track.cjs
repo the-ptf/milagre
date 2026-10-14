@@ -141,6 +141,27 @@ async function browserChecks() {
     );
     assert.ok(box.width <= 380 && box.height > pillBox.height, `Surface did not open (${when}): ${JSON.stringify(box)}`);
   };
+  // The surface overlays the transcript: opening it never moves the composer row's other controls.
+  const rowControls = () =>
+    evaluate(
+      `["[data-slot=subagent-track] > button","button[aria-label=Send]"].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return [r.left,r.top,r.width,r.height]})`,
+    );
+  const assertRowStill = (before, after, when) =>
+    assert.ok(
+      before.every((box, index) => box.every((value, axis) => Math.abs(value - after[index][axis]) <= 0.5)),
+      `The composer row moved when the panel opened (${when}): ${JSON.stringify({ before, after })}`,
+    );
+  // Clicks the pill and reads the surface's target once React has committed (a microtask), before any frame or
+  // ResizeObserver callback: it must already be the panel's box.
+  const openAndReadTarget = () =>
+    evaluate(
+      `(async () => {document.querySelector("${pill}").click();for (let i=0;i<3;i++) await Promise.resolve();const s=document.querySelector("${surface}").style, c=document.querySelector("${panel}");return {width:parseFloat(s.width),height:parseFloat(s.height),panelWidth:c.offsetWidth,panelHeight:c.offsetHeight}})()`,
+    );
+  const assertTargetsPanel = (target, when) =>
+    assert.ok(
+      Math.abs(target.width - target.panelWidth) <= 1 && Math.abs(target.height - target.panelHeight) <= 1,
+      `The first frame aims at a stale box (${when}): ${JSON.stringify(target)}`,
+    );
   // A short frame sequence of the morph, for the PR: Electron's frame subscription paints ~30fps even in a hidden window.
   async function record(name, run) {
     if (!screenshotDir) return run();
@@ -317,11 +338,13 @@ async function browserChecks() {
         });
         assert.equal(await evaluate(`document.activeElement === document.querySelector("${pill}")`), true, "The collapse control returns focus to the pill");
       }
+      const rowBefore = await rowControls();
       await evaluate(`document.querySelector("${pill}").click()`);
       await waitFor(isOpen);
       await assertFaces(true);
       await settle();
       await assertGrownFromPill(pillBox, theme);
+      if (theme === "dark") assertRowStill(rowBefore, await rowControls(), theme);
       assert.equal(await evaluate(`document.querySelector("${pill}").getAttribute("aria-expanded")`), "true");
       assert.equal(await evaluate('document.querySelectorAll("dialog[open], [aria-modal=true]").length'), 0);
       assert.equal(await evaluate('document.querySelectorAll("[data-task-row]").length'), 8);
@@ -390,15 +413,20 @@ async function browserChecks() {
     window.setContentSize(390, 500);
     await delay(200);
     const narrowPill = await rect(pill);
-    // Here the panel also moves right of the pill to keep the window's padding; the recording shows it.
+    const narrowRow = await rowControls();
+    // Here the panel also moves right of the pill to keep the window's padding; the recording shows it. The window
+    // shrank while the panel was closed, so its room changes at this click: the first frame must still aim right.
+    let narrowTarget;
     await record("task-morph-narrow", async () => {
       await delay(150);
-      await evaluate(`document.querySelector("${pill}").click()`);
+      narrowTarget = await openAndReadTarget();
       await waitFor(isOpen);
       await settle();
       await delay(250);
     });
+    assertTargetsPanel(narrowTarget, "narrow");
     await assertGrownFromPill(narrowPill, "narrow");
+    assertRowStill(narrowRow, await rowControls(), "narrow");
     assert.ok(
       await evaluate(`(() => {const r=document.querySelector("${panel}").getBoundingClientRect();return r.left>=12 && r.right<=innerWidth-12 && r.top>=0})()`),
       "Popover escapes the narrow viewport",

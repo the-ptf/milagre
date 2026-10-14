@@ -165,7 +165,9 @@ export function TaskTrack({ plan }: { plan?: ChatPlan }) {
       <HugeiconsIcon icon={ArrowShrink02Icon} size={14} aria-hidden />
     </button>
   );
-  const size = opened ? panelSize : pillSize;
+  // The open box comes from the room measured at the click, so the first frame aims at the right size even when the
+  // window changed while the panel was closed; the observed panel height (capped by the room) fills in the content fit.
+  const size = opened ? { width: room.width, height: Math.min(panelSize?.height ?? room.height, room.height) } : pillSize;
   return (
     // Holds the pill's spot in the composer row; the surface hangs from its bottom-right corner.
     <div ref={root} data-slot="task-track" className="relative shrink-0" style={pillSize ? { width: pillSize.width, height: pillSize.height } : undefined}>
