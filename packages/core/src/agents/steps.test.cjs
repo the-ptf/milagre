@@ -361,6 +361,19 @@ test("editable design creation and batches show cards for Claude and Codex", () 
   }
 });
 
+test("a completed design step carries the design's group", () => {
+  const call = { id: "design-1", name: "mcp__milagre__design_show", input: { title: "Welcome" } };
+  const result = (group) => ok(JSON.stringify({ id: "welcome", version: 1, title: "Welcome", format: "design", group }));
+  assert.deepEqual(claudeStepResult(call, result("Onboarding")).artifact, {
+    id: "welcome",
+    version: 1,
+    title: "Welcome",
+    format: "design",
+    group: "Onboarding",
+  });
+  assert.deepEqual(claudeStepResult(call, result(42)).artifact, { id: "welcome", version: 1, title: "Welcome", format: "design" });
+});
+
 test("completed design activity uses the saved title and leaves malformed results without a fabricated title", () => {
   const call = { id: "design-1", name: "mcp__milagre__design_show", input: { title: "Requested name" } };
   const content = JSON.stringify({ id: "welcome", version: 1, title: "Saved `screen`\nname", format: "design" });

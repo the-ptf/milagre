@@ -64,9 +64,9 @@ const isResolveTool = (server, tool) => server === "milagre" && tool === "artifa
 // The artifact a finished design tool made, from the first line of its result: the JSON summary. Attached images follow it.
 function artifactRef(text) {
   try {
-    const { id, version, title, format } = JSON.parse(String(text).split("\n", 1)[0]);
+    const { id, version, title, format, group } = JSON.parse(String(text).split("\n", 1)[0]);
     return typeof id === "string" && Number.isInteger(version) && typeof title === "string"
-      ? { id, version, title, ...(["design", "html"].includes(format) ? { format } : {}) }
+      ? { id, version, title, ...(["design", "html"].includes(format) ? { format } : {}), ...(typeof group === "string" && group ? { group } : {}) }
       : undefined;
   } catch {
     return undefined;

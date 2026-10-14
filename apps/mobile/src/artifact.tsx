@@ -9,6 +9,7 @@ import {
   artifactShell,
   designFeedbackMessage,
   designFeedbackText,
+  designGroups,
   newCommentId,
   type Artifact,
   type ArtifactComment,
@@ -438,7 +439,8 @@ export function ArtifactSheet({
     let live = true;
     source
       .call<ArtifactSummary[]>("artifact:list", [{ chatId }])
-      .then((list) => live && setDesigns(list.filter((design) => design.format === "design")))
+      // In the desktop canvas's order: group by group.
+      .then((list) => live && setDesigns(designGroups(list.filter((design) => design.format === "design")).flatMap((row) => row.designs)))
       .catch(() => live && setDesigns(null));
     return () => {
       live = false;
@@ -586,8 +588,8 @@ export function ArtifactSheet({
                 </Text>
               )}
               {source && !isHtml && designs && designs.length > 1 && index >= 0 && (
-                <Text style={{ color: colors.ink3, fontSize: 11 }}>
-                  Design {index + 1} of {designs.length}
+                <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 11 }}>
+                  {designs[index].group ? `${designs[index].group} · ` : ""}Design {index + 1} of {designs.length}
                 </Text>
               )}
               {source && sharingAvailable === sharingScope && (isHtml ? !!artifact : designs && designs.length > 0 && feature.enabled === true) && (

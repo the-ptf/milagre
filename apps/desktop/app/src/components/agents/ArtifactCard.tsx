@@ -491,6 +491,7 @@ export function ArtifactsProvider({
         title: detail.artifact.title,
         version: detail.artifact.version,
         format: "design",
+        ...(detail.artifact.group ? { group: detail.artifact.group } : {}),
       };
       setSavedDesigns((current) =>
         current.chatId === chatId

@@ -599,6 +599,39 @@ async function browserChecks() {
     await login.executeJavaScript('document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))');
     await waitFor(`!${frame("login")}.querySelector("[data-design-body]").dataset.active && !!${dock}`);
     assert.notEqual(await evaluate("document.activeElement?.tagName"), "IFRAME", "the focus comes back to the canvas");
+
+    // Designs grouped by the part of the app they belong to sit in one named block per group, numbered across blocks.
+    // (Last of the iframe checks: regrouping remounts the frames, which reorders mainFrame.frames.)
+    const regroup = (groups) =>
+      evaluate(`(() => {
+        const groups = ${JSON.stringify(groups)};
+        const refs = [
+          { id: "login", version: window.latest, title: "Login screen, warmer", width: 1280, height: 800 },
+          { id: "home", version: 1, title: "Home", width: 390, height: 844 },
+        ];
+        for (const ref of refs) {
+          const artifact = { ...ref, format: "design", versions: ref.version, ...(groups[ref.id] ? { group: groups[ref.id] } : {}) };
+          window.dispatchEvent(new CustomEvent("milagre:design-saved", { detail: { chatId: "milagre-link:fixture#1", artifact } }));
+        }
+      })()`);
+    const groups = `[...${dock}.querySelectorAll("[data-slot=artifact-canvas-group]")]`;
+    await regroup({ login: "Sign in", home: "Home tab" });
+    await waitFor(`${groups}.length === 2`);
+    assert.deepEqual(await evaluate(`${groups}.map((group) => group.getAttribute("aria-label"))`), ["Sign in", "Home tab"]);
+    assert.equal(await evaluate(`${groups}[1].textContent.startsWith("Home tab")`), true, "each block shows its group's name");
+    assert.equal(
+      await evaluate(`${frame("home")}.getBoundingClientRect().top > ${frame("login")}.getBoundingClientRect().bottom`),
+      true,
+      "a group's block sits below the one before it",
+    );
+    assert.equal(await evaluate(`${frame("home")}.textContent.trim().startsWith("2")`), true, "frames are numbered across blocks");
+    await evaluate(`${dock}.querySelector("[aria-label='Fit every design']").click()`);
+    await screenshot("canvas-groups");
+    await regroup({ login: "Sign in" });
+    await waitFor(`${groups}.map((group) => group.getAttribute("aria-label")).join() === "Sign in,Ungrouped"`);
+    await regroup({});
+    await waitFor(`${groups}.length === 0 && !!${frame("home")}`);
+    await evaluate(`${dock}.querySelector("[aria-label='Fit every design']").click()`);
     // A closing dock stays in the page while it slides out, so the room it keeps is what tells it is still open.
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(

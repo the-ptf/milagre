@@ -1,7 +1,7 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, Delete02Icon } from "@hugeicons/core-free-icons";
-import { ARTIFACT_CSP, ARTIFACT_ESCAPE, artifactDocument, type Artifact, type DesignArtifact } from "@milagre/shared/artifact";
+import { ARTIFACT_CSP, ARTIFACT_ESCAPE, artifactDocument, designGroups, type Artifact, type DesignArtifact } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import Tooltip from "../primitives/Tooltip";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
@@ -49,6 +49,9 @@ const GAP = 80;
 const SEND_KEYS = /Mac/.test(navigator.userAgent) ? "⌘Enter" : "Ctrl+Enter";
 // The title row above each frame, in screen pixels.
 const HEADER = 32;
+// A group's name above its block, in screen pixels, and the block's padding around its frames, in canvas pixels.
+const GROUP_LABEL = 30;
+const GROUP_PADDING = 48;
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 2;
 const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
@@ -193,6 +196,10 @@ export const ArtifactCanvas = forwardRef<
   const viewport = useRef<HTMLDivElement>(null);
   const board = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<CanvasView>({ x: 40, y: 40, scale: 0.4 });
+  // One block per group once any design has one; until then the frames stay in one row, numbered across the blocks.
+  const rows = useMemo(() => designGroups(designs), [designs]);
+  const grouped = rows.some((row) => row.group);
+  const starts = rows.map((_, index) => rows.slice(0, index).reduce((total, row) => total + row.designs.length, 0));
   // Until the user pans or zooms, the canvas keeps the asked-for design in view as frames load and change size.
   const moved = useRef(false);
   const viewRef = useRef(view);
@@ -204,7 +211,10 @@ export const ArtifactCanvas = forwardRef<
     const port = viewport.current,
       content = board.current;
     if (!port || !content) return;
-    const frames = [...content.querySelectorAll<HTMLElement>("[data-slot=artifact-frame]")].filter((frame) => !id || frame.dataset.artifact === id);
+    // Fitting everything keeps the groups' blocks and names in view too.
+    const frames = [
+      ...content.querySelectorAll<HTMLElement>(id ? "[data-slot=artifact-frame]" : "[data-slot=artifact-frame], [data-slot=artifact-canvas-group]"),
+    ].filter((frame) => !id || frame.dataset.artifact === id);
     if (!frames.length) return;
     const left = Math.min(...frames.map((f) => f.offsetLeft)),
       top = Math.min(...frames.map((f) => f.offsetTop)),
@@ -386,27 +396,53 @@ export const ArtifactCanvas = forwardRef<
     >
       <div
         ref={board}
-        className="absolute top-0 left-0 flex origin-top-left items-start"
+        className="absolute top-0 left-0 flex origin-top-left flex-col items-start"
         style={{
           gap: GAP,
           transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
         }}
       >
-        {designs.map((design, index) => (
-          <DesignFrame
-            key={design.id}
-            chatId={chatId}
-            design={design}
-            number={index + 1}
-            version={versions[design.id] ?? null}
-            onVersion={onVersion}
-            commenting={commenting}
-            comments={comments}
-            choice={choice}
-            onSized={settled}
-            active={active === design.id}
-            scale={view.scale}
-          />
+        {rows.map((row, index) => (
+          <section
+            key={row.group ?? ""}
+            data-slot={grouped ? "artifact-canvas-group" : undefined}
+            data-group={row.group ?? undefined}
+            aria-label={grouped ? (row.group ?? "Ungrouped") : undefined}
+            className={grouped ? "flex flex-col items-start" : "contents"}
+          >
+            {grouped && (
+              <div className="relative shrink-0" style={{ height: GROUP_LABEL / view.scale }}>
+                <div
+                  className="absolute bottom-0 left-0 flex origin-bottom-left items-baseline gap-2 pb-2 text-[13px] whitespace-nowrap"
+                  style={{ transform: `scale(${1 / view.scale})` }}
+                >
+                  <span className={`font-medium ${row.group ? "text-ink" : "text-ink-3"}`}>{row.group ?? "Ungrouped"}</span>
+                  <span className="text-ink-3 tabular-nums">{row.designs.length}</span>
+                </div>
+              </div>
+            )}
+            <div
+              className={`flex items-start ${grouped ? "rounded-[40px] bg-hover/60" : ""}`}
+              style={{ gap: GAP, padding: grouped ? GROUP_PADDING : undefined }}
+            >
+              {row.designs.map((design, offset) => (
+                <DesignFrame
+                  key={design.id}
+                  chatId={chatId}
+                  design={design}
+                  number={starts[index] + offset + 1}
+                  version={versions[design.id] ?? null}
+                  onVersion={onVersion}
+                  commenting={commenting}
+                  comments={comments}
+                  choice={choice}
+                  onSized={settled}
+                  active={active === design.id}
+                  scale={view.scale}
+                />
+              ))}
+            </div>
+          </section>
         ))}
       </div>
     </div>

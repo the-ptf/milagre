@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal, flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, Cancel01Icon, FitToScreenIcon, MinusSignIcon, RedoIcon, UndoIcon } from "@hugeicons/core-free-icons";
-import type { DesignArtifact as Artifact } from "@milagre/shared/artifact";
+import { designGroups, type DesignArtifact as Artifact } from "@milagre/shared/artifact";
 import type { DesignDocument } from "@milagre/shared/design";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { bridgeForKey } from "../../lib/computer-bridge";
@@ -17,6 +17,9 @@ import type { DesignEditorSession, DesignEditorWorkspace } from "./design-editor
 type View = { x: number; y: number; scale: number };
 type ExportDesign = { id: string; title: string; document: DesignDocument };
 const GAP = 80;
+// As on the canvas: a group's name above its block, in screen pixels, and the block's padding, in canvas pixels.
+const GROUP_LABEL = 30;
+const GROUP_PADDING = 48;
 const MIN_SCALE = 0.025;
 const MAX_SCALE = 3;
 const clamp = (value: number) => Math.max(MIN_SCALE, Math.min(MAX_SCALE, value));
@@ -47,6 +50,9 @@ export function DesignPageEditor({
   onClose: () => void;
 }) {
   const [artifacts, setArtifacts] = useState<Artifact[]>([artifact]);
+  // One block per group once any design has one, as on the canvas.
+  const rows = useMemo(() => designGroups(artifacts), [artifacts]);
+  const grouped = rows.some((row) => row.group);
   const [versions, setVersions] = useState<Record<string, number>>({
     [artifact.id]: latestVersion,
   });
@@ -543,7 +549,7 @@ export function DesignPageEditor({
           <div
             ref={board}
             data-slot="design-page-board"
-            className="absolute left-0 top-0 flex items-start"
+            className="absolute left-0 top-0 flex flex-col items-start"
             style={{
               width: "max-content",
               gap: GAP,
@@ -551,15 +557,43 @@ export function DesignPageEditor({
               transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
             }}
           >
-            {artifacts.map((item) => (
-              <DesignDocumentEditor
-                key={item.id}
-                chatId={chatId}
-                artifact={item}
-                latestVersion={versions[item.id] ?? item.latest}
-                onClose={close}
-                workspace={workspace}
-              />
+            {rows.map((row) => (
+              <section
+                key={row.group ?? ""}
+                data-pan-canvas
+                data-slot={grouped ? "design-page-group" : undefined}
+                aria-label={grouped ? (row.group ?? "Ungrouped") : undefined}
+                className={grouped ? "flex flex-col items-start" : "contents"}
+              >
+                {grouped && (
+                  <div data-pan-canvas className="relative shrink-0" style={{ height: GROUP_LABEL / view.scale }}>
+                    <div
+                      data-pan-canvas
+                      className="absolute bottom-0 left-0 flex origin-bottom-left items-baseline gap-2 pb-2 text-[13px] whitespace-nowrap"
+                      style={{ transform: `scale(${1 / view.scale})` }}
+                    >
+                      <span className={`font-medium ${row.group ? "text-ink" : "text-ink-3"}`}>{row.group ?? "Ungrouped"}</span>
+                      <span className="text-ink-3 tabular-nums">{row.designs.length}</span>
+                    </div>
+                  </div>
+                )}
+                <div
+                  data-pan-canvas
+                  className={`flex items-start ${grouped ? "rounded-[40px] bg-hover/60" : ""}`}
+                  style={{ gap: GAP, padding: grouped ? GROUP_PADDING : undefined }}
+                >
+                  {row.designs.map((item) => (
+                    <DesignDocumentEditor
+                      key={item.id}
+                      chatId={chatId}
+                      artifact={item}
+                      latestVersion={versions[item.id] ?? item.latest}
+                      onClose={close}
+                      workspace={workspace}
+                    />
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
           {spacePanning && <div data-pan-canvas aria-hidden className="absolute inset-0 z-10" />}

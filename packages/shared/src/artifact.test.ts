@@ -7,6 +7,7 @@ import {
   artifactShell,
   chosenDesign,
   designActivity,
+  designGroups,
   designFeedbackMessage,
   designFeedbackText,
   newCommentId,
@@ -220,4 +221,23 @@ test("HTML feedback requests in-place Artifact edits without design versions or 
   assert.equal(parsed.comments[0].text, comment.text);
   assert.equal(parsed.comments[0].id, comment.id);
   assert.equal(designFeedbackText(parsed), "How it works: Explain the final step");
+});
+
+test("designGroups lays designs out one row per group, in the order each group first appears", () => {
+  const rows = designGroups([
+    { id: "a", group: "Onboarding" },
+    { id: "b" },
+    { id: "c", group: "Settings" },
+    { id: "d", group: "Onboarding" },
+    { id: "e", group: " " },
+  ]);
+  assert.deepEqual(
+    rows.map((row) => [row.group, row.designs.map((design) => design.id)]),
+    [
+      ["Onboarding", ["a", "d"]],
+      [null, ["b", "e"]],
+      ["Settings", ["c"]],
+    ],
+  );
+  assert.deepEqual(designGroups([]), []);
 });

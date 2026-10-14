@@ -381,6 +381,27 @@ test("editable design tool schemas expose layer fields and version checks to MCP
   assert.equal(tools.design_delete.readOnly, false);
 });
 
+test("a design keeps its group through revisions and edits until a revision names another", async (t) => {
+  const { api, tools } = await fixture(t);
+  const shown = firstLine(await tools.design_show.run({ id: "welcome", title: "Welcome", group: " Onboarding ", document: designDocument() }));
+  assert.equal(shown.group, "Onboarding");
+  const revised = firstLine(await tools.design_show.run({ id: "welcome", title: "Welcome", expectedVersion: 1, document: designDocument() }));
+  assert.equal(revised.group, "Onboarding", "a revision without a group stays in its group");
+  const edited = firstLine(
+    await tools.design_apply.run({ id: "welcome", expectedVersion: 2, operations: [{ op: "update", id: "heading", patch: { text: "Hi" } }] }),
+  );
+  assert.equal(edited.group, "Onboarding");
+  assert.equal((await api.list({ chatId: CHAT, format: "design" }))[0].group, "Onboarding");
+  assert.equal((await api.get({ chatId: CHAT, id: "welcome", version: 1 })).group, "Onboarding");
+  const moved = firstLine(await tools.design_show.run({ id: "welcome", title: "Welcome", group: "Settings", expectedVersion: 3, document: designDocument() }));
+  assert.equal(moved.group, "Settings");
+  const ungrouped = firstLine(await tools.design_show.run({ id: "welcome", title: "Welcome", group: "", expectedVersion: 4, document: designDocument() }));
+  assert.equal(ungrouped.group, undefined, "an empty group takes the design out of its group");
+  const other = firstLine(await tools.design_show.run({ id: "other", title: "Other", document: designDocument() }));
+  assert.equal(other.group, undefined);
+  assert.equal(z.toJSONSchema(z.object(tools.design_show.input)).properties.group.maxLength, 60);
+});
+
 test("a batch creates one immutable version with an updated source and preview", async (t) => {
   const { api, tools } = await fixture(t);
   await tools.design_show.run({ id: "welcome", title: "Welcome", document: designDocument() });

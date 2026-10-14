@@ -39,6 +39,21 @@ export interface ArtifactApi {
   comments(request: { chatId: string }): Promise<ArtifactComment[]>;
 }
 
+/**
+ * Designs as the canvas lays them out: one row per group, the groups and the designs in each in the order they first
+ * appear. Designs without a group share a row of their own, where the first of them appears.
+ */
+export function designGroups<T extends { group?: string }>(designs: readonly T[]): { group: string | null; designs: T[] }[] {
+  const rows = new Map<string | null, T[]>();
+  for (const design of designs) {
+    const group = design.group?.trim() || null;
+    const row = rows.get(group);
+    if (row) row.push(design);
+    else rows.set(group, [design]);
+  }
+  return [...rows].map(([group, members]) => ({ group, designs: members }));
+}
+
 /** A comment on a design: where on it (fractions of its screen) when it was pinned, and what the user wrote. */
 export type DesignComment = { design: ArtifactRef; x?: number; y?: number; nodeId?: string; text: string; id?: string };
 

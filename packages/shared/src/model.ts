@@ -371,6 +371,8 @@ export interface ArtifactRef {
   title: string;
   /** Older transcript entries have no format; resolve them through the host's catalog. */
   format?: "design" | "html";
+  /** The part of the app a design belongs to; the canvas lays out one row per group. */
+  group?: string;
 }
 
 /** One tool call in an agent's reply (a `setup` step is the worktree's setup command, which Milagre ran, not the agent) (a command, an edit, a read, a search or another tool), or a stretch of its thinking. */

@@ -45,6 +45,7 @@ const summary = (artifact, entry) => ({
   width: entry.width ?? VIEWPORT.width,
   height: entry.height ?? VIEWPORT.height,
   format: formatOf(entry),
+  ...(entry.group ? { group: entry.group } : {}),
 });
 
 function checkVersion(request, existing, required = false) {
@@ -264,9 +265,12 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
         checkVersion(request, existing, true);
         const document = validateDesignDocument(request.document);
         const previous = existing?.versions ?? [];
+        // A revision stays in its group unless it names one; an empty group takes it out.
+        const group = typeof request.group === "string" ? request.group.trim().slice(0, 60) : previous.at(-1)?.group;
         const entry = {
           version: (previous.at(-1)?.version ?? 0) + 1,
           title: request.title.trim().slice(0, 120),
+          ...(group ? { group } : {}),
           width: document.width,
           height: document.height,
           format: "design",
@@ -288,6 +292,7 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
         const entry = {
           version: current.version + 1,
           title: current.title,
+          ...(current.group ? { group: current.group } : {}),
           width: document.width,
           height: document.height,
           format: "design",
@@ -547,9 +552,16 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
     {
       name: "design_show",
       description:
-        "Create an editable design in this Chat from a document of named layers, with frames, text, shapes, icons, images, layout and color tokens. The user can edit layers on desktop. On phone they review and choose designs, and request changes through Chat. The document sets the screen size (390 by 844 for a phone). Read the bundled design skill for the document format. A new id creates a design; revising an existing id requires expectedVersion from design_read, so the user's changes are preserved. Prefer design_apply for small revisions. Use a different id for each variant. When the user names another design tool, use that tool instead. The result includes the rendered design as an image and layout warnings; check both before replying.",
+        "Create an editable design in this Chat from a document of named layers, with frames, text, shapes, icons, images, layout and color tokens. The user can edit layers on desktop. On phone they review and choose designs, and request changes through Chat. The document sets the screen size (390 by 844 for a phone). Read the bundled design skill for the document format. A new id creates a design; revising an existing id requires expectedVersion from design_read, so the user's changes are preserved. Prefer design_apply for small revisions. Use a different id for each variant, in the same group. When the user names another design tool, use that tool instead. The result includes the rendered design as an image and layout warnings; check both before replying.",
       input: {
         title: z.string().min(1).max(120),
+        group: z
+          .string()
+          .max(60)
+          .optional()
+          .describe(
+            "The part of the app this screen belongs to, such as Onboarding or Settings. The canvas lays out one row per group. A revision keeps its group unless you pass one; an empty string removes it.",
+          ),
         document: designDocumentSchema,
         id: z.string().regex(ID).optional(),
         expectedVersion: z.number().int().nonnegative().optional(),
