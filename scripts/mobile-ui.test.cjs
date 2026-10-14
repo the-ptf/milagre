@@ -281,6 +281,157 @@ test("the mobile inbox button can move, flick to an edge, restore and open witho
   assert.equal(opened, 2);
 });
 
+function planPanelHost(initial) {
+  const react = hookHost({ effects: true });
+  const finishes = [];
+  const focused = [];
+  const backs = [];
+  const { usePlanPanel, PlanPill, PlanPanel } = load("plan-pill.tsx", {
+    react: { ...react, memo: (component) => component },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {
+      Pressable: "Pressable",
+      Text: "Text",
+      View: "View",
+      StyleSheet: { absoluteFill: { position: "absolute" } },
+      Keyboard: { isVisible: () => false, metrics: () => undefined },
+      Dimensions: { addEventListener: () => ({ remove() {} }) },
+      BackHandler: {
+        addEventListener: (_name, handler) => {
+          backs.push(handler);
+          return { remove: () => backs.splice(backs.indexOf(handler), 1) };
+        },
+      },
+      AccessibilityInfo: { sendAccessibilityEvent: (node, kind) => focused.push([node, kind]) },
+      useWindowDimensions: () => ({ width: 402, height: 874 }),
+    },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 62, bottom: 34, left: 0, right: 0 }) },
+    "react-native-gesture-handler": { GestureDetector: "GestureDetector", usePanGesture: (config) => config },
+    "react-native-reanimated": {
+      default: { View: "AnimatedView" },
+      Easing: { bezier: () => "ease" },
+      ReduceMotion: { System: "system" },
+      cancelAnimation() {},
+      useReducedMotion: () => false,
+      useAnimatedStyle: (fn) => fn(),
+      withDelay: (_delay, animation) => animation,
+      // Animations land at once; the closing callback waits for the test to finish it.
+      withTiming: (to, _config, done) => {
+        if (done) finishes.push(done);
+        return to;
+      },
+      useSharedValue(value) {
+        const ref = react.useRef(null);
+        ref.current ??= { get: () => value, set: (next) => (value = next) };
+        return ref.current;
+      },
+    },
+    "react-native-worklets": { scheduleOnRN: (fn, ...args) => fn(...args) },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
+    "@milagre/shared/chat-plan": require("@milagre/shared/chat-plan"),
+    "./icons": { Icon: "Icon" },
+    "./plan-label": require("../apps/mobile/src/plan-label.ts"),
+    "./plan-panel-frame": require("../apps/mobile/src/plan-panel-frame.ts"),
+    "./plan-view": { PlanTree: "PlanTree", PlanPhaseGraph: "PlanPhaseGraph" },
+    "./ui": { IconButton: "IconButton", PageScroll: "PageScroll" },
+  });
+  const host = { plan: initial, finishes, focused, backs };
+  host.render = () => {
+    react.begin();
+    const panel = usePlanPanel(host.plan, "c1");
+    const tree = { pill: PlanPill({ panel }), overlay: PlanPanel({ panel }) };
+    // The pill sits in the composer row at (250, 790); the overlay covers the window.
+    const chip = find(tree.pill, (node) => node.props?.accessibilityRole === "button");
+    if (chip) chip.props.ref({ measureInWindow: (done) => done(250, 790, 54, 34) });
+    const root = tree.overlay;
+    if (root) root.props.ref({ measureInWindow: (done) => done(0, 0, 402, 874) });
+    return { ...tree, chip, root, face: find(root, (node) => node.props?.testID === "plan-panel") };
+  };
+  return host;
+}
+
+test("the Tasks pill grows into its panel over the Chat and folds back into the pill", () => {
+  const plan = {
+    source: "milagre",
+    tasks: [
+      { id: "1", title: "Wire it", status: "completed" },
+      { id: "2", title: "Test it", status: "in_progress" },
+    ],
+    phases: [{ phase: "build", at: 1 }],
+    updatedAt: 0,
+  };
+  const host = planPanelHost(plan);
+  let screen = host.render();
+  assert.equal(screen.chip.props.accessibilityLabel, "Tasks, 1 of 2 done");
+  assert.equal(screen.chip.props.style({ pressed: false }).opacity, 1);
+  assert.equal(screen.root.props.pointerEvents, "none", "closed, the overlay lets every touch through");
+  assert.equal(screen.face.props.pointerEvents, "none");
+  assert.equal(screen.face.props.accessibilityElementsHidden, true, "the closed panel face is hidden from VoiceOver");
+
+  screen.chip.props.onPress();
+  host.render();
+  screen = host.render();
+  assert.equal(screen.chip.props.style({ pressed: false }).opacity, 0, "the composer's pill hands over to the surface");
+  assert.equal(screen.chip.props.accessibilityElementsHidden, true);
+  assert.equal(screen.root.props.pointerEvents, "box-none");
+  assert.notEqual(screen.face.props.pointerEvents, "none");
+  assert.ok(!screen.face.props.accessibilityElementsHidden);
+  assert.ok(
+    find(screen.face, (node) => node.type === "PlanTree"),
+    "the panel shows the task tree",
+  );
+  assert.ok(
+    find(screen.face, (node) => node.type === "PlanPhaseGraph"),
+    "and the phase graph below it",
+  );
+  const heading = find(screen.face, (node) => node.type?.name === "SectionLabel");
+  assert.deepEqual([heading.props.title, heading.props.count], ["Tasks", 2], "under desktop's header: Tasks and the leaf total");
+  const surface = find(screen.root, (node) => node.props?.testID === "plan-surface");
+  const box = Object.assign({}, ...[surface.props.style].flat(Infinity).filter(Boolean));
+  assert.equal(box.left + box.width, 402 - 12, "the panel spans the Chat to its right padding");
+  assert.equal(box.top + box.height, 790 + 34, "and keeps the pill's bottom edge");
+  assert.equal(host.backs.length, 1, "Android back closes the panel while it is open");
+
+  find(screen.root, (node) => node.props?.testID === "plan-backdrop").props.onPress();
+  screen = host.render();
+  assert.equal(screen.face.props.pointerEvents, "none", "a closing panel is inert at once");
+  assert.equal(screen.chip.props.style({ pressed: false }).opacity, 0, "the pill comes back when the surface lands");
+  host.finishes.pop()(true);
+  screen = host.render();
+  assert.equal(screen.chip.props.style({ pressed: false }).opacity, 1);
+  assert.equal(screen.root.props.pointerEvents, "none");
+  assert.deepEqual(host.focused.at(-1)?.[1], "focus", "focus returns to the pill");
+  assert.equal(host.backs.length, 0);
+
+  // The collapse control in the header and a downward swipe on it close the panel too.
+  screen.chip.props.onPress();
+  host.render();
+  screen = host.render();
+  find(screen.face, (node) => node.type === "IconButton" && node.props.label === "Collapse tasks").props.onPress();
+  host.render();
+  host.finishes.pop()(true);
+  screen = host.render();
+  assert.equal(screen.root.props.pointerEvents, "none");
+  screen.chip.props.onPress();
+  host.render();
+  screen = host.render();
+  const { gesture } = find(screen.face, (node) => node.type === "GestureDetector").props;
+  gesture.onUpdate({ translationY: 30 });
+  gesture.onDeactivate({ translationY: 30, velocityY: 100, canceled: false });
+  screen = host.render();
+  assert.notEqual(screen.face.props.pointerEvents, "none", "a short drag springs back");
+  gesture.onDeactivate({ translationY: 120, velocityY: 100, canceled: false });
+  screen = host.render();
+  assert.equal(screen.face.props.pointerEvents, "none", "a long drag down closes it");
+
+  // The plan going away mid-way leaves nothing behind.
+  host.plan = undefined;
+  host.render();
+  screen = host.render();
+  assert.equal(screen.pill, null);
+  assert.equal(screen.overlay, null);
+});
+
 test("inbox single-choice questions require Send and typed answers replace the choice", () => {
   const react = hookHost();
   const sent = [];
@@ -1396,7 +1547,7 @@ function chatHost({
     "expo-crypto": { randomUUID: require("node:crypto").randomUUID },
     "../archive-progress": archiveProgress,
     "../attention": { AttentionPill: () => null },
-    "../plan-pill": { PlanPill: () => null },
+    "../plan-pill": { PlanPill: () => null, PlanPanel: () => null, usePlanPanel: () => ({}) },
     "../chat-actions": load("chat-actions.ts", {
       "react-native": { Alert: { alert } },
       "expo-clipboard": { setStringAsync: async () => {} },

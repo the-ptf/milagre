@@ -33,7 +33,6 @@ export const SHEETS_OVER_CHAT = new Set([
   "link-chat",
   "choose-projects",
   "context-sheet",
-  "plan-sheet",
   "permission-sheet",
   "model-sheet",
   "agents",
