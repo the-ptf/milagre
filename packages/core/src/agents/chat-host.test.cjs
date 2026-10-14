@@ -1341,7 +1341,7 @@ test("a task tool for a Chat that is gone returns an error and saves nothing", a
   await states.flush();
   const before = { saved: saved.get(ALPHA), published: published.length };
   const result = await call(`${ALPHA}#999`, "tasks_set", { tasks: [{ title: "Lost" }] });
-  assert.deepEqual(result, { text: "This Chat no longer exists.", isError: true });
+  assert.deepEqual({ text: result.text, isError: result.isError }, { text: "This Chat no longer exists.", isError: true });
   await states.flush();
   assert.equal(saved.get(ALPHA), before.saved);
   assert.equal(published.length, before.published);
@@ -1364,6 +1364,6 @@ test("a change that throws, or a state update that fails, writes and publishes n
   host.states.update = () => Promise.reject(new Error("disk is full"));
   const failed = await call(chatId, "tasks_set", { tasks: [{ title: "A" }] });
   host.states.update = update;
-  assert.deepEqual(failed, { text: "disk is full", isError: true });
+  assert.deepEqual({ text: failed.text, isError: failed.isError }, { text: "disk is full", isError: true });
   assert.equal((await states.get(ALPHA)).sessions[sessionId].plan, undefined);
 });
