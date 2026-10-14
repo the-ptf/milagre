@@ -121,8 +121,7 @@ function post(document) {
 
 /** Draws a validated design as a PNG, at most 1568 px on the long edge. Renders run one at a time. */
 function renderDesignPng(document) {
-  const prepared = rasterDocument(document);
-  const result = queue.then(() => post(prepared));
+  const result = queue.then(() => post(rasterDocument(document)));
   queue = result.catch(() => {});
   return result;
 }
