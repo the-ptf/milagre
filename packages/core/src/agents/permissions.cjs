@@ -177,7 +177,7 @@ const PLAN_TOOLS = new Set(PLAN_TOOL_NAMES);
 
 function isCodexPlanToolApproval(params = {}) {
   if (params.serverName !== "milagre" || !isCodexMcpApproval(params)) return false;
-  const tool = /run tool "([^"]+)"/.exec(String(params.message ?? ""))?.[1];
+  const tool = /^Allow the milagre MCP server to run tool "([^"]+)"\?$/.exec(String(params.message ?? ""))?.[1];
   return PLAN_TOOLS.has(tool);
 }
 

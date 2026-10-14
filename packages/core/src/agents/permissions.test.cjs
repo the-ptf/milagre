@@ -63,6 +63,21 @@ test("Codex: only Milagre's own plan tools are auto-approved", () => {
   assert.equal(isCodexPlanToolApproval(params("tasks_set", { requestedSchema: { type: "object", properties: { name: { type: "string" } } } })), false);
   assert.equal(isCodexPlanToolApproval(params("tasks_set", { message: "Allow the milagre MCP server to run a tool?" })), false);
   assert.equal(isCodexPlanToolApproval({}), false);
+  // The whole template must match: a name that only starts with a plan tool, two quoted names, or the name
+  // appearing anywhere but the message does not count.
+  assert.equal(isCodexPlanToolApproval(params("tasks_set_extra")), false);
+  assert.equal(isCodexPlanToolApproval(params("design_show", { message: 'Allow the milagre MCP server to run tool "design_show" and "tasks_set"?' })), false);
+  assert.equal(
+    isCodexPlanToolApproval(params("design_show", { message: 'Allow the milagre MCP server to run tool "design_show"? run tool "tasks_set"' })),
+    false,
+  );
+  assert.equal(isCodexPlanToolApproval(params("x", { message: 'Run "design_show" then run tool "tasks_set"?' })), false);
+  assert.equal(
+    isCodexPlanToolApproval(
+      params("design_show", { _meta: { codex_approval_kind: "mcp_tool_call", tool_params: { tool: "tasks_set" }, tool_description: 'run tool "tasks_set"' } }),
+    ),
+    false,
+  );
 });
 
 test("ACP: only Milagre's own plan tools are auto-approved", () => {
