@@ -527,15 +527,17 @@ async function browserChecks() {
 
     // Zoomed far out, a frame's row keeps its number and title; its controls float above it only while it has focus.
     const homeControls = `${frame("home")}.querySelector("[data-slot=artifact-frame-controls]")`;
-    for (let step = 0; step < 6 && !(await evaluate(`!!${homeControls}`)); step++) {
+    const loginControls = `${frame("login")}.querySelector("[data-slot=artifact-frame-controls]")`;
+    for (let step = 0; step < 12 && !(await evaluate(`!!${homeControls} && !!${loginControls}`)); step++) {
       await evaluate(`${dock}.querySelector("[aria-label='Zoom out']").click()`);
       await delay(50);
     }
-    await waitFor(`!!${homeControls}`);
+    await waitFor(`!!${homeControls} && !!${loginControls}`);
     assert.equal(await evaluate(`getComputedStyle(${homeControls}).opacity`), "0");
+    await screenshot("canvas-zoomed-out");
     await evaluate(`${homeControls}.querySelector("[data-slot=artifact-edit]").focus()`);
     await waitFor(`getComputedStyle(${homeControls}).opacity === "1"`);
-    await screenshot("canvas-zoomed-out");
+    await screenshot("canvas-zoomed-out-focus");
     await evaluate(`document.activeElement.blur()`);
     await waitFor(`getComputedStyle(${homeControls}).opacity === "0"`);
     await evaluate(`${dock}.querySelector("[aria-label='Fit every design']").click()`);
