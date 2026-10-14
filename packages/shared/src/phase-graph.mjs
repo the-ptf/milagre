@@ -104,6 +104,7 @@ export function phaseGraphLayout(graph, width, { height, insetLeft = 6, insetRig
     points,
     gaps,
     ticks,
-    now: { x: width, anchor: "end", lineX: plotRight },
+    // An end-anchored label can still overhang its anchor by a pixel (glyph side bearings), so it ends 2 px in.
+    now: { x: width - 2, anchor: "end", lineX: plotRight },
   };
 }

@@ -100,7 +100,7 @@ test("layout keeps the first tick, the dots and Now inside the box", () => {
     const layout = phaseGraphLayout(sample(), width, { height: 168 });
     assert.equal(layout.ticks[0].anchor, "start");
     assert.equal(layout.ticks[0].x, 6);
-    assert.deepEqual(layout.now, { x: width, anchor: "end", lineX: width - 6 });
+    assert.deepEqual(layout.now, { x: width - 2, anchor: "end", lineX: width - 6 });
     for (const point of layout.points) assert.ok(point.x >= 6 && point.x <= width - 6, `${point.x} outside at ${width}`);
     assert.equal(layout.points[0].x, 6);
     assert.equal(layout.points.filter((point) => point.current).length, 1);
