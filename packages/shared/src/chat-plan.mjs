@@ -108,12 +108,19 @@ export function nativePlan(plan, tasks, now) {
   if (plan?.source === "milagre") return plan;
   const phases = plan?.phases ?? [];
   if (!tasks.length && !phases.length) return undefined;
-  return {
-    source: "native",
-    tasks: tasks.map((task) => ({ id: task.id, title: task.content, ...(task.activeForm ? { activeForm: task.activeForm } : {}), status: task.status })),
-    phases,
-    updatedAt: now,
-  };
+  const mapped = tasks.map((task) => ({ id: task.id, title: task.content, ...(task.activeForm ? { activeForm: task.activeForm } : {}), status: task.status }));
+  // The same list again is not a change, so it isn't saved or published.
+  if (plan?.source === "native" && sameTasks(plan.tasks, mapped)) return plan;
+  return { source: "native", tasks: mapped, phases, updatedAt: now };
+}
+
+function sameTasks(a, b) {
+  return (
+    a.length === b.length &&
+    a.every(
+      (task, index) => task.id === b[index].id && task.title === b[index].title && task.activeForm === b[index].activeForm && task.status === b[index].status,
+    )
+  );
 }
 
 /** Done and total over leaves, for the pill. */

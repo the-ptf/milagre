@@ -771,6 +771,22 @@ test("plan-updated stores the plan and native lists stop once Milagre owns it", 
   assert.equal(cleared.state.sessions["1"].plan, undefined);
 });
 
+test("an identical native list changes nothing, a different one does", () => {
+  const runs = startRun({}, key(1), "gpt-5.5");
+  const list = [
+    { id: "0", content: "Read", activeForm: "Reading", status: "in_progress" as const },
+    { id: "1", content: "Write", status: "pending" as const },
+  ];
+  const first = applyAgentEvent(base(), runs, PROJECT, key(1), { type: "tasks-updated", tasks: list });
+  assert.equal(first.changed, true);
+  const again = applyAgentEvent(first.state, first.runs, PROJECT, key(1), { type: "tasks-updated", tasks: list.map((task) => ({ ...task })) });
+  assert.equal(again.changed, false);
+  assert.equal(again.state, first.state);
+  const moved = applyAgentEvent(first.state, first.runs, PROJECT, key(1), { type: "tasks-updated", tasks: [{ ...list[0], status: "completed" }, list[1]] });
+  assert.equal(moved.changed, true);
+  assert.equal(moved.state.sessions["1"].plan?.tasks[0].status, "completed");
+});
+
 test("the plan outlives the turn", () => {
   const plan = { source: "milagre" as const, tasks: [{ id: "1", title: "Mine", status: "pending" as const }], phases: [], updatedAt: 1 };
   const runs = startRun({}, key(1), "gpt-5.5");
