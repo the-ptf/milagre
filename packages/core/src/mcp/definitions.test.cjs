@@ -79,3 +79,14 @@ test("unmasking restores only keys the previous definition owns", () => {
   const masked = { ...previous, headers: { constructor: "••••••", toString: "••••••" } };
   assert.deepEqual(d.unmaskDefinition(masked, previous).headers, {}, "inherited prototype keys are not restored");
 });
+
+test("safeDetail drops URL secrets and masks secret flag values", () => {
+  assert.equal(d.safeDetail({ url: "https://u:p@x.dev/mcp?key=1#f" }), "https://x.dev/mcp");
+  assert.equal(d.safeDetail({ type: "http", url: "https://x.dev/mcp" }), "https://x.dev/mcp");
+  assert.equal(d.safeDetail({ url: "not a url?token=1" }), "not a url");
+  assert.equal(d.safeDetail({ command: "npx", args: ["srv", "--api-key", "abc", "--port", "3"] }), "npx srv --api-key •••••• --port 3");
+  assert.equal(d.safeDetail({ command: "npx", args: ["srv", "--token=abc", "--port=3"] }), "npx srv --token=•••••• --port=3");
+  assert.equal(d.safeDetail({ command: "p" }), "p");
+  assert.equal(d.safeDetail(undefined), null);
+  assert.equal(d.detailOf({ type: "stdio", command: "p", args: ["--password", "x"], env: {} }), "p --password ••••••");
+});

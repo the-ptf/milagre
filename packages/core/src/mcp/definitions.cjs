@@ -75,7 +75,42 @@ function codexConfigNames(file) {
   }
 }
 
-const detailOf = (def) => (def.type === "stdio" ? [def.command, ...def.args].join(" ") : def.url);
+const SECRET_FLAG = /token|key|secret|password|auth/i;
+
+// The one-line description of a server that travels to phones and paired Macs. Takes a definition or a raw
+// { url } / { command, args } config. Raw URLs and args can carry secrets, so userinfo, query and fragment are
+// dropped from a URL, and the value of a secret-looking flag is masked in a command line.
+function safeDetail(config) {
+  if (!isObject(config)) return null;
+  if (typeof config.url === "string") {
+    try {
+      const url = new URL(config.url);
+      return url.pathname === "/" && !config.url.endsWith("/") ? url.origin : url.origin + url.pathname;
+    } catch {
+      return config.url.split("?")[0];
+    }
+  }
+  if (typeof config.command !== "string") return null;
+  const args = Array.isArray(config.args) ? config.args.map(String) : [];
+  const shown = [];
+  let maskNext = false;
+  for (const arg of args) {
+    if (maskNext) {
+      shown.push(MASK);
+      maskNext = false;
+      continue;
+    }
+    const equals = arg.startsWith("-") ? arg.indexOf("=") : -1;
+    if (equals > 0) shown.push(SECRET_FLAG.test(arg.slice(0, equals)) ? `${arg.slice(0, equals)}=${MASK}` : arg);
+    else {
+      shown.push(arg);
+      maskNext = arg.startsWith("-") && SECRET_FLAG.test(arg);
+    }
+  }
+  return [config.command, ...shown].join(" ");
+}
+
+const detailOf = safeDetail;
 
 module.exports = {
   MASK,
@@ -89,4 +124,5 @@ module.exports = {
   claudeConfigNames,
   codexConfigNames,
   detailOf,
+  safeDetail,
 };

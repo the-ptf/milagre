@@ -361,3 +361,41 @@ test("codex reports carry detail", () => {
   assert.equal(codexServer({ name: "p", tools: {} }, { command: "npx", args: ["y"] }).detail, "npx y");
   assert.equal(codexServer({ name: "q", tools: {} }, undefined).detail, null);
 });
+
+test("checkCodex keeps config servers and marks Everywhere servers failed when the thread fails", async () => {
+  const createRpc = () => ({
+    start() {},
+    notify() {},
+    close() {},
+    on() {},
+    off() {},
+    async request(method) {
+      if (method === "config/read") return { config: { mcp_servers: { argent: { command: "argent" } } } };
+      if (method === "thread/start") throw new Error("thread refused");
+      if (method === "mcpServerStatus/list") return { data: [{ name: "argent", tools: { a: {} }, authStatus: "unsupported" }] };
+      return {};
+    },
+  });
+  const servers = await checkCodex({
+    command: "/x",
+    cwd: "/w",
+    createRpc,
+    everywhere: [
+      { name: "argent", type: "stdio", command: "argent", args: [], env: {} },
+      { name: "linear", type: "http", url: "https://x/mcp?key=1", headers: {} },
+    ],
+  });
+  assert.deepEqual(
+    servers.map((s) => `${s.name}:${s.scope}:${s.state}`),
+    ["argent:user:connected", "linear:everywhere:failed"],
+  );
+  assert.deepEqual(servers[1], {
+    name: "linear",
+    transport: "url",
+    scope: "everywhere",
+    state: "failed",
+    tools: 0,
+    error: "thread refused",
+    detail: "https://x/mcp",
+  });
+});

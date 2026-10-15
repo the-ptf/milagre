@@ -319,3 +319,14 @@ test("checkClaude passes Everywhere servers to the idle session", async () => {
   await checkClaude({ command: "/c", cwd: "/", loadSdk, everywhere: [{ name: "pencil", type: "stdio", command: "p", args: [], env: {} }] });
   assert.deepEqual(options.mcpServers, { pencil: { type: "stdio", command: "p", args: [] } });
 });
+
+test("claude detail hides secrets", () => {
+  assert.equal(
+    claudeServer({ name: "l", status: "connected", scope: "user", config: { type: "http", url: "https://u:p@x.dev/mcp?key=1" } }).detail,
+    "https://x.dev/mcp",
+  );
+  assert.equal(
+    claudeServer({ name: "p", status: "connected", scope: "user", config: { type: "stdio", command: "npx", args: ["--token", "t"] } }).detail,
+    "npx --token ••••••",
+  );
+});

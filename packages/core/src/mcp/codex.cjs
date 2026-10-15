@@ -1,6 +1,6 @@
 const { CodexRpc } = require("../agents/codex-rpc.cjs");
 const { runCli } = require("./claude.cjs");
-const { toCodexConfig, fromCodexConfig } = require("./definitions.cjs");
+const { toCodexConfig, fromCodexConfig, safeDetail } = require("./definitions.cjs");
 
 // One Codex account's MCP servers: config/read says how each is configured, mcpServerStatus/list connects them
 // without a thread and says whether that worked (the listCodexModels pattern in agents/models.cjs).
@@ -16,7 +16,7 @@ function codexServer(status, configured) {
     state,
     tools,
     error: status.toolsError ?? null,
-    detail: configured?.url ?? (configured?.command ? [configured.command, ...(configured.args ?? [])].join(" ") : null),
+    detail: safeDetail(configured),
   };
 }
 
@@ -48,17 +48,33 @@ function checkCodex({ command, env, cwd, clientVersion, signal, createRpc, every
       cursor = page.nextCursor ?? null;
     } while (cursor);
     // Everywhere servers aren't in Codex's config; an ephemeral thread that carries them reports their status (probed 2026-10-15).
+    // A failure here must not lose the user's own servers, so each unreported Everywhere server reads as failed.
     if (everywhere.length) {
       const byName = new Map(everywhere.map((def) => [def.name, toCodexConfig(def)]));
-      const { thread } = await rpc.request("thread/start", { cwd, config: { mcp_servers: Object.fromEntries(byName) }, ephemeral: true });
-      let next = null;
-      do {
-        const page = await rpc.request("mcpServerStatus/list", { threadId: thread?.id, detail: "toolsAndAuthOnly", ...(next ? { cursor: next } : {}) });
-        for (const status of page.data ?? [])
-          if (byName.has(status.name) && !servers.some((server) => server.name === status.name))
-            servers.push({ ...codexServer(status, byName.get(status.name)), scope: "everywhere" });
-        next = page.nextCursor ?? null;
-      } while (next);
+      try {
+        const { thread } = await rpc.request("thread/start", { cwd, config: { mcp_servers: Object.fromEntries(byName) }, ephemeral: true });
+        let next = null;
+        do {
+          const page = await rpc.request("mcpServerStatus/list", { threadId: thread?.id, detail: "toolsAndAuthOnly", ...(next ? { cursor: next } : {}) });
+          for (const status of page.data ?? [])
+            if (byName.has(status.name) && !servers.some((server) => server.name === status.name))
+              servers.push({ ...codexServer(status, byName.get(status.name)), scope: "everywhere" });
+          next = page.nextCursor ?? null;
+        } while (next);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        for (const def of everywhere)
+          if (!servers.some((server) => server.name === def.name))
+            servers.push({
+              name: def.name,
+              transport: def.type === "stdio" ? "command" : "url",
+              scope: "everywhere",
+              state: "failed",
+              tools: 0,
+              error: message,
+              detail: safeDetail(def),
+            });
+      }
     }
     return servers;
   });
