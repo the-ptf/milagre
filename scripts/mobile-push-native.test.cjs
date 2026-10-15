@@ -15,7 +15,7 @@ function adapter({ expoGo = false, device = true, os = "ios", initial = null, pe
       calls.push("permission");
       return request;
     },
-    setNotificationChannelAsync: async () => calls.push("channel"),
+    setNotificationChannelAsync: async (id, options) => calls.push(`channel ${id} ${options.sound}`),
     getExpoPushTokenAsync: async (options) => {
       calls.push(options);
       return { data: "ExpoPushToken[test]" };
@@ -46,6 +46,7 @@ function adapter({ expoGo = false, device = true, os = "ios", initial = null, pe
     "react-native": { Platform: { OS: os } },
     "./push-store": require("../apps/mobile/src/push-store.ts"),
     "./push-controller": require("../apps/mobile/src/push-controller.ts"),
+    "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
     "expo-notifications": api,
   };
   const source = fs.readFileSync(require.resolve("../apps/mobile/src/push-native.ts"), "utf8");
@@ -81,10 +82,21 @@ test("native adapter consumes a cold-start response, running taps and token rota
   assert.ok(calls.includes("remove-taps") && calls.includes("remove-tokens"));
 });
 
-test("Android prepares the notification channel before permission and uses the existing EAS project", async () => {
+test("Android prepares the notification channels before permission and uses the existing EAS project", async () => {
   const { native, calls } = adapter({ os: "android", permissions: { granted: false } });
   assert.equal(await native.requestPermission(), true);
-  assert.deepEqual(calls.slice(0, 2), ["channel", "permission"]);
+  // One channel per chime: a channel's sound can't change once created.
+  assert.deepEqual(calls.slice(0, 9), [
+    "channel chats default",
+    "channel chats-miracle chime_miracle.wav",
+    "channel chats-faaah chime_faaah.wav",
+    "channel chats-bombastic_side_eye chime_bombastic_side_eye.wav",
+    "channel chats-vine_boom chime_vine_boom.wav",
+    "channel chats-metal_pipe chime_metal_pipe.wav",
+    "channel chats-bruh chime_bruh.wav",
+    "channel chats-emotional_damage chime_emotional_damage.wav",
+    "permission",
+  ]);
   assert.equal(await native.token(), "ExpoPushToken[test]");
   assert.equal(calls.at(-1).projectId, "project-id");
 });

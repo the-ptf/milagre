@@ -7362,6 +7362,10 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
       useUltracodeFatality: () => [false, () => {}],
     },
     "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./push": { usePush: () => ({ state: null }) },
+    "./icons": { Icon: "Icon" },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
     "./session": { useSession: () => ({ designs: designsOn, ...session }) },
     "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
   });
@@ -7446,6 +7450,10 @@ test("mobile Experimental page shows the Mac's usage-limit auto-switch, saved on
     "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
     "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
     "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./push": { usePush: () => ({ state: null }) },
+    "./icons": { Icon: "Icon" },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
     "./session": { useSession: () => ({ designs: { ...designsOn }, ...session }) },
     "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PillButton: "PillButton", Toggle: "Toggle", styles: {} },
   });
@@ -7684,6 +7692,10 @@ test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue of
       useUltracodeFatality: () => [false, () => {}],
     },
     "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./push": { usePush: () => ({ state: null }) },
+    "./icons": { Icon: "Icon" },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
     "./session": { useSession: () => ({ client: null }) },
     "./theme": {
       useTheme: () => ({
@@ -9019,6 +9031,10 @@ test("mobile Published pages entry requires owner access and remains available w
       },
       "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
       "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
+      "./push": { usePush: () => ({ state: null }) },
+      "./icons": { Icon: "Icon" },
+      "@hugeicons/core-free-icons": {},
+      "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
       "./floating-inbox-setting": {
         useFloatingInbox: () => [false, () => {}],
         useFloatingInboxActivity: () => [true, () => {}],
@@ -9484,4 +9500,51 @@ test("the phone canvas filter keeps the cards that need you, and counts each cho
     ["main", "sidebar-filters"],
   );
   assert.deepEqual(allNodes(tree, (node) => node.props?.accessibilityRole === "header").map(textOf), ["Frontend"]);
+});
+
+test("mobile notification chime sheet: a tap plays the chime and saves it with the push registration; the row shows it", () => {
+  const played = [];
+  const saved = [];
+  const push = { state: { enabled: true, chime: undefined }, preferences: async (value) => saved.push(value) };
+  const sheet = () =>
+    load("app/chime-sheet.tsx", {
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "react-native": { View: "View", Text: "Text", Pressable: "Pressable", StyleSheet: { hairlineWidth: 1 } },
+      "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 0 }) },
+      "@hugeicons/core-free-icons": {},
+      "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
+      "../icons": { Icon: "Icon" },
+      "../notification-chime-audio": { playNotificationChime: (chime) => played.push(chime) },
+      "../push": { usePush: () => push },
+    }).default;
+  const ChimeSheet = sheet();
+  const radio = (tree, label) => find(tree, (n) => n.type === "Pressable" && n.props.accessibilityLabel === label);
+  let tree = ChimeSheet();
+  assert.equal(radio(tree, "System default").props.accessibilityState.checked, true, "an older saved state has no chime: the system sound");
+  assert.equal(radio(tree, "Miracle").props.accessibilityState.checked, false);
+  radio(tree, "Miracle").props.onPress();
+  assert.deepEqual(played, ["miracle"]);
+  assert.equal(JSON.stringify(saved), '[{"chime":"miracle"}]');
+  push.state = { enabled: true, chime: "miracle" };
+  tree = ChimeSheet();
+  assert.equal(radio(tree, "Miracle").props.accessibilityState.checked, true);
+  // Tapping the chosen one again only plays it.
+  radio(tree, "Miracle").props.onPress();
+  assert.deepEqual(played, ["miracle", "miracle"]);
+  assert.equal(saved.length, 1);
+  assert.ok(find(tree, (n) => n.type === "Text" && String(n.props.children).includes("Tap one to hear it")));
+  push.state = { enabled: false, chime: "miracle" };
+  assert.ok(
+    find(ChimeSheet(), (n) => n.type === "Text" && String(n.props.children).includes("Turn on notifications")),
+    "says why nothing will ring",
+  );
+  const labels = [];
+  const all = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "Pressable") labels.push(node.props.accessibilityLabel);
+    const children = node.props?.children;
+    for (const child of Array.isArray(children) ? children.flat(Infinity) : [children]) all(child);
+  };
+  all(ChimeSheet());
+  assert.deepEqual(labels, ["System default", "Miracle", "FAAAH", "Bombastic side eye", "Vine boom", "Metal pipe", "Bruh", "Emotional damage"]);
 });

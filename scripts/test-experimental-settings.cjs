@@ -1,5 +1,6 @@
 // Settings > Experimental in Electron: the section is listed, its switch turns the every-Project sidebar on and off,
 // and Murilo mode shows a reply's tool calls in the chat, one row each, instead of folding them into one line.
+// Picking a notification chime saves it and plays it; the replay button plays it again.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -14,6 +15,9 @@ import { useApplyOtherComputers } from '/src/lib/computers';
 import { ActivityBlock } from '/src/components/agents/ActivityBlock';
 import '/src/styles.css';
 window.enabledCalls = [];
+// Chimes record what would play instead of making noise.
+window.played = [];
+HTMLMediaElement.prototype.play = function () { window.played.push(this.src.split('/').pop().split('?')[0]); return Promise.resolve(); };
 window.savedShare = { id: "orphan", url: "https://share.milagre.cloud/s/orphan", title: "Deleted Chat page", createdAt: 1780000000000, designCount: 2 };
 window.shareCalls = [];
 window.milagre = {
@@ -141,9 +145,31 @@ async function browserChecks() {
     await screenshot("other-computers-on");
     await evaluate(`${other}.click()`);
     await waitFor(`JSON.stringify(window.enabledCalls) === '[false,true,false]'`);
+    const chimeTrigger = `document.querySelector('button[aria-label="Notification chime"]')`;
+    assert.equal(await evaluate(`${chimeTrigger}.textContent.trim()`), "System default", "the system sound by default");
+    assert.equal(await evaluate(`!!document.querySelector("[data-chime-play]")`), false, "nothing to replay for the system sound");
+    await evaluate(`${chimeTrigger}.scrollIntoView({ block: "center" })`);
+    await evaluate(`${chimeTrigger}.click()`);
+    const chimeOption = (label) =>
+      `[...document.querySelectorAll('[role="listbox"][aria-label="Notification chime"] [role="option"]')].find((o) => o.textContent.trim() === ${JSON.stringify(label)})`;
+    await waitFor(`!!${chimeOption("Miracle")}`);
+    await screenshot("chime-menu");
+    await evaluate(`${chimeOption("Miracle")}.click()`);
+    await waitFor(`${chimeTrigger}.textContent.trim() === "Miracle"`);
+    assert.equal(await evaluate("window.played.length"), 1, "picking a chime plays it");
+    assert.match(await evaluate("window.played[0]"), /^chime_miracle/);
+    assert.equal(await evaluate(`JSON.parse(localStorage.getItem("milagre-settings")).notificationChime`), "miracle", "and saves it");
+    await screenshot("chime-miracle");
+    await evaluate(`document.querySelector("[data-chime-play]").click()`);
+    await evaluate(`${chimeTrigger}.click()`);
+    await waitFor(`!!${chimeOption("Bombastic side eye")}`);
+    await evaluate(`${chimeOption("Bombastic side eye")}.click()`);
+    await waitFor(`${chimeTrigger}.textContent.trim() === "Bombastic side eye"`);
+    assert.equal(await evaluate("window.played.length"), 3, "the replay button plays it again, and each pick plays");
+    assert.match(await evaluate("window.played[2]"), /^chime_bombastic_side_eye/);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Settings lists an Experimental section whose switches turn the every-Project sidebar and Murilo mode on and off, both off by default; Murilo mode shows each tool call and the notes between them in order, with no fold; Other computers is off by default and tells main each time it flips",
+      "PASS: Settings lists an Experimental section whose switches turn the every-Project sidebar and Murilo mode on and off, both off by default; Murilo mode shows each tool call and the notes between them in order, with no fold; Other computers is off by default and tells main each time it flips; the notification chime starts on the system sound, and picking one saves and plays it",
     );
     app.exit(0);
   } catch (error) {

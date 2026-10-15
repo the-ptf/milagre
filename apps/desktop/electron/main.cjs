@@ -219,8 +219,11 @@ async function startDesktop() {
   const openChatFromNotification = (chatId) => openFromNotification("notification:open-chat", chatId);
 
   const notifier = new AttentionNotifier({
-    createNotification: ({ title, subtitle, body }) => new Notification({ title, body, ...(subtitle ? { subtitle } : {}) }),
+    createNotification: ({ title, subtitle, body, silent }) =>
+      new Notification({ title, body, ...(subtitle ? { subtitle } : {}), ...(silent ? { silent } : {}) }),
     isAppFocused: () => Boolean(mainWindow?.isFocused()),
+    canPlayChime: () => Boolean(mainWindow && !mainWindow.isDestroyed()),
+    playChime: (chime) => mainWindow?.webContents.send("notification:play-chime", chime),
     openChat: openChatFromNotification,
     openPhoneSettings: () => openFromNotification("notification:open-phone-settings"),
     setBadge: (value) => app.dock?.setBadge(value),
@@ -231,6 +234,9 @@ async function startDesktop() {
   ipcMain.handle("settings:notify-when-waiting", (_event, on) => {
     notifyWhenWaiting = on === true;
   });
+
+  // The window reports the Experimental notification chime too, and plays it when a chat's notification asks.
+  ipcMain.handle("settings:notification-chime", (_event, chime) => notifier.setChime(chime));
 
   ipcMain.handle("notification:state", (_event, state) => notifier.sync(state));
   ipcMain.handle("notification:completed", (_event, notice) => (Notification.isSupported() ? notifier.notifyCompletion(notice) : false));

@@ -39,10 +39,12 @@ test("opt-in obtains permission/token and registers the remembered computers wit
   assert.deepEqual(calls[0], {
     host,
     method: "push:register",
-    args: [{ deviceId, token: "ExpoPushToken[one]", hostId: host.id, notifyWhenWaiting: true, notifyOnCompletion: true }],
+    args: [{ deviceId, token: "ExpoPushToken[one]", hostId: host.id, notifyWhenWaiting: true, notifyOnCompletion: true, chime: "system" }],
   });
   await controller.preferences({ notifyOnCompletion: false });
   assert.equal((calls.at(-1)!.args[0] as { notifyOnCompletion: boolean }).notifyOnCompletion, false);
+  await controller.preferences({ chime: "miracle" });
+  assert.equal((calls.at(-1)!.args[0] as { chime: string }).chime, "miracle");
 });
 
 test("denied permission never registers or enables notifications", async () => {

@@ -1,6 +1,8 @@
 import type { SavedHost } from "./hosts-store.ts";
+import type { NotificationChime } from "@milagre/shared/notification-chimes";
 
-export type PushPreferences = { notifyWhenWaiting: boolean; notifyOnCompletion: boolean };
+/** `chime` is the Experimental notification chime; state saved before it existed has none, read as the system sound. */
+export type PushPreferences = { notifyWhenWaiting: boolean; notifyOnCompletion: boolean; chime?: NotificationChime };
 export type PushState = PushPreferences & {
   deviceId: string;
   enabled: boolean;
@@ -52,7 +54,7 @@ export function createPushStore(storage: Storage, newId: () => string) {
   }
   return {
     read: () => ordered(read),
-    update: (value: Partial<Pick<PushState, "enabled" | "token" | "notifyWhenWaiting" | "notifyOnCompletion">>) =>
+    update: (value: Partial<Pick<PushState, "enabled" | "token" | "notifyWhenWaiting" | "notifyOnCompletion" | "chime">>) =>
       ordered(async () => write({ ...(await read()), ...value })),
     registered: (host: SavedHost) =>
       ordered(async () => {

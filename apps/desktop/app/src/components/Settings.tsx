@@ -41,6 +41,7 @@ import {
   SmartphoneIcon,
   TestTube01Icon,
   UserMultipleIcon,
+  VolumeHighIcon,
 } from "@hugeicons/core-free-icons";
 import { DOT_COLOR, computerTone, routeLine, seenAgo, useComputers } from "../lib/computers";
 import type { FilesToCopy as FilesToCopyResult, PairedDevice, PhoneStatus, ReleaseChannel, UpdateState, WorktreeSetupSettings } from "../electron";
@@ -60,6 +61,8 @@ import { Select } from "./primitives/Select";
 import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
+import { NOTIFICATION_CHIMES, type NotificationChime } from "@milagre/shared/notification-chimes";
+import { playNotificationChime } from "../lib/notification-chime";
 import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { WorkspaceIcon } from "./WorkspaceIcon";
@@ -414,6 +417,38 @@ function Switch({ label, checked, onChange, disabled = false }: { label: string;
   );
 }
 
+function NotificationChimeSetting() {
+  const { notificationChime } = useSettings();
+  return (
+    <Row label="Notification chime" description="Plays when a Chat finishes or needs you. Picking one plays it.">
+      <div className="flex items-center gap-1.5">
+        {notificationChime !== "system" && (
+          <button
+            type="button"
+            aria-label="Play notification chime"
+            title="Play"
+            data-chime-play
+            className="flex size-7 items-center justify-center rounded-[7px] border border-line text-ink-2 hover:bg-hover"
+            onClick={() => playNotificationChime(notificationChime)}
+          >
+            <Icon icon={VolumeHighIcon} size={14} />
+          </button>
+        )}
+        <Select<NotificationChime>
+          label="Notification chime"
+          width={200}
+          value={notificationChime}
+          onChange={(chime) => {
+            updateSettings({ notificationChime: chime });
+            playNotificationChime(chime);
+          }}
+          options={NOTIFICATION_CHIMES.map((chime) => ({ value: chime.id, label: chime.label }))}
+        />
+      </div>
+    </Row>
+  );
+}
+
 export function DesignsSettings() {
   const designs = useDesignsEnabled();
   const [publishedPages, setPublishedPages] = useState(false);
@@ -487,6 +522,7 @@ function ExperimentalSettings() {
         >
           <Switch label="Ultracode Fatality" checked={settings.ultracodeFatality} onChange={(ultracodeFatality) => updateSettings({ ultracodeFatality })} />
         </Row>
+        <NotificationChimeSetting />
         <Row label="Custom theme" description={'Build a theme from a few colors. It shows up as "Custom" in Appearance.'}>
           <Switch
             label="Custom theme"

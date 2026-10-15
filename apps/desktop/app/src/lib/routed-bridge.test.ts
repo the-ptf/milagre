@@ -25,6 +25,8 @@ const ALLOWED: Record<string, string[]> = {
     "setKeepAwake",
     "syncNotifications",
     "setNotifyWhenWaiting",
+    "setNotificationChime",
+    "onPlayChime",
     "setFloatingInbox",
     "onOpenExperimental",
     "notifyCompletion",

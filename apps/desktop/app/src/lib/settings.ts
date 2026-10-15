@@ -5,6 +5,7 @@ import { DEFAULT_THEME_ID, parseCustomTheme, resolvePalette, resolveThemeSetting
 import type { CustomTheme, ThemeChoice } from "@milagre/shared/themes";
 import type { ChatOrder } from "./chat-list";
 import { DESKTOP_CHAT_ROW_SHOW, parseChatRowShow, type ChatRowShow } from "@milagre/shared/chat-row";
+import { DEFAULT_NOTIFICATION_CHIME, parseNotificationChime, type NotificationChime } from "@milagre/shared/notification-chimes";
 import { applyPalette } from "./theme-sheet.ts";
 
 export type ThemePreference = "system" | "light" | "dark";
@@ -55,6 +56,8 @@ export interface AppSettings {
   otherComputers: boolean;
   /** Experimental: turning Ultracode on plays the Mortal Kombat Fatality overlay and the announcer's voice. */
   ultracodeFatality: boolean;
+  /** Experimental: the sound a chat's notification plays, instead of the system's. */
+  notificationChime: NotificationChime;
 }
 
 const STORAGE_KEY = "milagre-settings";
@@ -88,6 +91,7 @@ const DEFAULTS: AppSettings = {
   muriloMode: false,
   otherComputers: false,
   ultracodeFatality: false,
+  notificationChime: DEFAULT_NOTIFICATION_CHIME,
 };
 
 function load(): AppSettings {
@@ -125,6 +129,7 @@ function load(): AppSettings {
       muriloMode: typeof saved.muriloMode === "boolean" ? saved.muriloMode : DEFAULTS.muriloMode,
       otherComputers: typeof saved.otherComputers === "boolean" ? saved.otherComputers : DEFAULTS.otherComputers,
       ultracodeFatality: typeof saved.ultracodeFatality === "boolean" ? saved.ultracodeFatality : DEFAULTS.ultracodeFatality,
+      notificationChime: parseNotificationChime(saved.notificationChime),
     };
   } catch {
     return DEFAULTS;

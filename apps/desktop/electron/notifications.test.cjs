@@ -348,3 +348,41 @@ test("desktop approval notifications preserve the command's shell syntax", () =>
   });
   assert.equal(shown[0].options.body, "Codex needs approval: Run: find . -name *test* && printf '%s' 'two   spaces' && rm -rf __pycache__");
 });
+
+test("a chosen chime silences a chat's notification and plays in the window; with no window the system sound stays", () => {
+  const played = [];
+  let window = true;
+  const shown = [];
+  const notifier = new AttentionNotifier({
+    createNotification: (options) => {
+      const notification = Object.assign(new EventEmitter(), { options, show() {}, close() {} });
+      shown.push(notification);
+      return notification;
+    },
+    isAppFocused: () => false,
+    openChat: () => {},
+    canPlayChime: () => window,
+    playChime: (chime) => played.push(chime),
+  });
+  notifier.observe("/shop#2", question);
+  notifier.notify(notice);
+  assert.equal(shown[0].options.silent, undefined);
+  assert.deepEqual(played, []);
+
+  notifier.setChime("faaah");
+  notifier.observe("/shop#2", { type: "turn-started" });
+  notifier.observe("/shop#2", { type: "turn-completed" });
+  notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" });
+  assert.equal(shown[1].options.silent, true);
+  assert.deepEqual(played, ["faaah"]);
+
+  window = false;
+  notifier.observe("/shop#2", { type: "turn-started" });
+  notifier.observe("/shop#2", { type: "turn-completed" });
+  notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" });
+  assert.equal(shown[2].options.silent, undefined);
+  assert.deepEqual(played, ["faaah"]);
+
+  notifier.setChime("air-horn");
+  assert.equal(notifier.chime, "system");
+});

@@ -54,7 +54,16 @@
       [
         "expo-notifications",
         {
-          "defaultChannel": "chats"
+          "defaultChannel": "chats",
+          "sounds": [
+            "./assets/sounds/chime_miracle.wav",
+            "./assets/sounds/chime_faaah.wav",
+            "./assets/sounds/chime_bombastic_side_eye.wav",
+            "./assets/sounds/chime_vine_boom.wav",
+            "./assets/sounds/chime_metal_pipe.wav",
+            "./assets/sounds/chime_bruh.wav",
+            "./assets/sounds/chime_emotional_damage.wav"
+          ]
         }
       ],
       [

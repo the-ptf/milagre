@@ -209,6 +209,34 @@ test("preferences, token rotation and unregister are private and survive restart
   await second.close();
 });
 
+test("a phone's chime picks its push sound and Android channel, and survives a restart", async (t) => {
+  const { push, dataDir, messages } = await fixture(t);
+  await push.register(registration());
+  push.observe(chatId, { type: "turn-started" });
+  push.observe(chatId, approval);
+  await push.settled();
+  assert.equal(messages[0].sound, "default");
+  assert.equal(messages[0].channelId, "chats");
+  await push.register(registration({ chime: "bombastic-side-eye" }));
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages[1].sound, "chime_bombastic_side_eye.wav");
+  assert.equal(messages[1].channelId, "chats-bombastic_side_eye");
+  const second = createMobilePush({ dataDir, send: async (message) => messages.push(message), context: async () => ({ projectName: "Project" }) });
+  await second.load();
+  second.observe(chatId, { type: "turn-started" });
+  second.observe(chatId, { type: "turn-completed" });
+  await second.settled();
+  assert.equal(messages.at(-1).sound, "chime_bombastic_side_eye.wav");
+  // A chime a newer phone added, unknown here, plays the system sound.
+  await second.register(registration({ chime: "air-horn" }));
+  second.observe(chatId, { type: "turn-started" });
+  second.observe(chatId, { type: "turn-completed" });
+  await second.settled();
+  assert.equal(messages.at(-1).sound, "default");
+  await second.close();
+});
+
 test("clear and token rotation invalidate deliveries already queued in a sender", async (t) => {
   const queued = [];
   const { push } = await fixture(t, { send: async (message, current) => queued.push({ message, current }) });

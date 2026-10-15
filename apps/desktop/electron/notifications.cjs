@@ -1,6 +1,7 @@
 const { isTurnEnd: isTerminal, subagentActive } = require("@milagre/shared/agent-runs");
 const { computerOfKey } = require("@milagre/shared/chat-scopes");
 const { completionNotice, notificationPreview, notificationText } = require("@milagre/shared/attention");
+const { parseNotificationChime } = require("@milagre/shared/notification-chimes");
 
 const MAX_TITLE = 120;
 
@@ -17,10 +18,23 @@ const keyOf = (chatId, requestId) => `${chatId}\n${requestId}`;
 // A turn's end is announced too (notifyCompletion), unless a subagent the chat runs in the background is still at work:
 // its result wakes the chat with a turn of its own, whose end is the one announced. A completion held that way shows
 // once the last of them ends with no turn to take its result.
+// A chat's notification plays the chime picked in Settings > Experimental: the system notice goes silent and playChime
+// plays the clip in the window. With no window to play it (playChime returns false), the system sound stays.
 class AttentionNotifier {
-  /** @param {{ createNotification: (notice: {title: string; subtitle: string; body: string}) => Electron.Notification; isAppFocused: () => boolean; openChat: (chatId: string) => void; openPhoneSettings?: () => void; setBadge?: (badge: string) => void }} options */
-  constructor({ createNotification, isAppFocused, openChat, openPhoneSettings = () => {}, setBadge = () => {} }) {
+  /** @param {{ createNotification: (notice: {title: string; subtitle: string; body: string; silent?: boolean}) => Electron.Notification; isAppFocused: () => boolean; openChat: (chatId: string) => void; openPhoneSettings?: () => void; setBadge?: (badge: string) => void; canPlayChime?: () => boolean; playChime?: (chime: string) => void }} options */
+  constructor({
+    createNotification,
+    isAppFocused,
+    openChat,
+    openPhoneSettings = () => {},
+    setBadge = () => {},
+    canPlayChime = () => false,
+    playChime = () => {},
+  }) {
     this.createNotification = createNotification;
+    this.canPlayChime = canPlayChime;
+    this.playChime = playChime;
+    this.chime = "system";
     this.isAppFocused = isAppFocused;
     this.openChat = openChat;
     this.openPhoneSettings = openPhoneSettings;
@@ -65,6 +79,18 @@ class AttentionNotifier {
       }
     }
     this.updateBadge();
+  }
+
+  /** @param {unknown} chime */
+  setChime(chime) {
+    this.chime = parseNotificationChime(chime);
+  }
+
+  /** A chat's notification, silent when the window plays the chime instead; show() it, then call the returned `played`. */
+  chatNotification(notice) {
+    const chime = this.chime !== "system" && this.canPlayChime() ? this.chime : null;
+    const notification = this.createNotification(chime ? { ...notice, silent: true } : notice);
+    return { notification, played: () => chime && this.playChime(chime) };
   }
 
   updateBadge() {
@@ -121,7 +147,7 @@ class AttentionNotifier {
   notify({ chatId, requestId, title, body } = {}) {
     const key = keyOf(String(chatId), String(requestId));
     if (!this.open.has(key) || this.open.get(key) || this.isAppFocused()) return false;
-    const notification = this.createNotification({
+    const { notification, played } = this.chatNotification({
       title: capped(title, MAX_TITLE) || "Milagre",
       subtitle: "",
       body: notificationText(body, { markdown: false }),
@@ -129,6 +155,7 @@ class AttentionNotifier {
     notification.on("click", () => this.openChat(String(chatId)));
     this.open.set(key, notification);
     notification.show();
+    played();
     return true;
   }
 
@@ -157,7 +184,7 @@ class AttentionNotifier {
   showCompletion(chatId, title, result) {
     if (this.isAppFocused() && this.activeChatId === chatId) return false;
     const notice = completionNotice(title, result);
-    const notification = this.createNotification({
+    const { notification, played } = this.chatNotification({
       title: capped(notice.title, MAX_TITLE),
       subtitle: "",
       body: notice.body,
@@ -166,6 +193,7 @@ class AttentionNotifier {
     this.completionNotifications.set(chatId, notification);
     notification.on("click", () => this.openChat(chatId));
     notification.show();
+    played();
     return true;
   }
 

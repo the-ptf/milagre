@@ -479,6 +479,9 @@ export type MilagreBridge = {
   getCachedUsage: (scopeKey?: string) => Promise<UsageSnapshot>;
   /** Whether a chat that waits on the user while Milagre is in the background gets a system notification. */
   setNotifyWhenWaiting: (on: boolean) => Promise<void>;
+  /** The Experimental notification chime: a chat's notification goes silent and the window plays it (onPlayChime). */
+  setNotificationChime: (chime: import("@milagre/shared/notification-chimes").NotificationChime) => Promise<void>;
+  onPlayChime: (callback: (chime: string) => void) => () => void;
   /** Whether the window lets the blurred desktop show through (macOS). `theme` picks the blur material. */
   setWindowBackground: (background: string) => Promise<void>;
   /** The open project's unread chats and the notification settings, for completion alerts and the Dock badge. */

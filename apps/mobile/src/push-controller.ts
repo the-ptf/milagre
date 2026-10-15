@@ -1,6 +1,7 @@
 import type { SavedHost } from "./hosts-store.ts";
 import type { PushPreferences, PushStore } from "./push-store.ts";
 import { isChatScope } from "./chat-scope.ts";
+import { parseNotificationChime } from "@milagre/shared/notification-chimes";
 
 export type PushView = { hostId: string; chatId: string } | null;
 export type NotificationTarget = { host: SavedHost; projectPath: string; sessionId: number; eventId: string };
@@ -28,6 +29,7 @@ export const SHEETS_OVER_CHAT = new Set([
   "update-sheet",
   "confirm-sheet",
   "choice-sheet",
+  "chime-sheet",
   "add-computer",
   "link-projects",
   "link-chat",
@@ -107,6 +109,7 @@ export function createPushController({ store, hosts, forgetHost = async () => {}
             hostId: host.id,
             notifyWhenWaiting: state.notifyWhenWaiting,
             notifyOnCompletion: state.notifyOnCompletion,
+            chime: parseNotificationChime(state.chime),
           },
         ]);
       } catch {

@@ -18,6 +18,10 @@ import { useMuriloMode } from "./murilo-mode";
 import { useFloatingInbox, useFloatingInboxActivity } from "./floating-inbox-setting";
 import { useUltracodeFatality } from "./ultracode-fatality-setting";
 import { useSession } from "./session";
+import { usePush } from "./push";
+import { Icon } from "./icons";
+import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
+import { notificationChimeLabel } from "@milagre/shared/notification-chimes";
 import { useTheme } from "./theme";
 import { ErrorNotice, ListRow, PillButton, Toggle, useStyles } from "./ui";
 
@@ -29,7 +33,8 @@ export function ExperimentalSection() {
   const [floatingInbox, setFloatingInbox] = useFloatingInbox();
   const [inboxActivity, setInboxActivity] = useFloatingInboxActivity();
   const [fatality, setFatality] = useUltracodeFatality();
-  const { settings, set } = useTheme();
+  const { settings, set, colors } = useTheme();
+  const push = usePush();
   // On: start from the current theme's colors and select Custom. Off while Custom is selected: back to Milagre Blue, seeds kept.
   function changeCustomTheme(enabled: boolean) {
     if (!enabled) {
@@ -180,6 +185,19 @@ export function ExperimentalSection() {
         <Text style={styles.caption}>
           Turning Ultracode on darkens the screen, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud.
         </Text>
+      </View>
+      <View style={[styles.card, { gap: 4 }]}>
+        <ListRow
+          title="Notification chime"
+          onPress={() => router.push("/chime-sheet")}
+          trailing={
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Text style={{ color: colors.ink3, fontSize: 17 }}>{notificationChimeLabel(push.state?.chime)}</Text>
+              <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
+            </View>
+          }
+        />
+        <Text style={styles.caption}>Plays when a Chat finishes or needs you, on this phone. Picking one plays it.</Text>
       </View>
       <View style={[styles.card, { gap: 4 }]}>
         <Toggle title="Custom theme" selected={settings.customThemeEnabled} onPress={() => changeCustomTheme(!settings.customThemeEnabled)} />

@@ -5,6 +5,7 @@ const { randomUUID } = require("node:crypto");
 const { attentionNotice, completionNotice, notificationPreview } = require("@milagre/shared/attention");
 const { isTurnEnd, projectOfKey, sessionIdFromKey, subagentActive } = require("@milagre/shared/agent-runs");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
+const { notificationChimeChannel, notificationChimeSound, parseNotificationChime } = require("@milagre/shared/notification-chimes");
 const validOwner = (owner) => path.isAbsolute(owner) || isLinkScopeKey(owner);
 
 const FOCUS_MS = 15000;
@@ -48,6 +49,8 @@ function registration(value) {
     hostId: value.hostId,
     notifyWhenWaiting: value.notifyWhenWaiting,
     notifyOnCompletion: value.notifyOnCompletion,
+    // The phone's Experimental chime, bundled in its build. Older phones send none: the system sound.
+    chime: parseNotificationChime(value.chime),
   };
 }
 
@@ -116,8 +119,8 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
               to: device.token,
               title: capped(notice.title, 120),
               body: capped(notice.body, 240),
-              sound: "default",
-              channelId: "chats",
+              sound: notificationChimeSound(device.chime),
+              channelId: notificationChimeChannel(device.chime),
               ttl: 300,
               data: { kind: "milagre-chat", hostId: device.hostId, projectPath: projectOfKey(chatId), sessionId: sessionIdFromKey(chatId), eventId },
             },

@@ -241,6 +241,10 @@
     "./ai-consent": {
       "types": "./src/ai-consent.d.mts",
       "default": "./src/ai-consent.mjs"
+    },
+    "./notification-chimes": {
+      "types": "./src/notification-chimes.d.mts",
+      "default": "./src/notification-chimes.mjs"
     }
   },
   "scripts": {
