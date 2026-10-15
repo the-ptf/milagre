@@ -219,7 +219,15 @@ export const ArtifactCanvas = forwardRef<
   // Names and title rows keep their screen size, so they take more of the canvas at a smaller zoom: a fit that zooms
   // out measures the designs a little short, and fits again once they are laid out at the new zoom.
   const refits = useRef(0);
+  const refit = useRef(0);
+  // The user zooming or panning cancels a fit still settling: it would take the view back from them.
+  const stopRefit = useCallback(() => {
+    cancelAnimationFrame(refit.current);
+    refits.current = 0;
+  }, []);
+  useEffect(() => stopRefit, [stopRefit]);
   const fit = useCallback(function fitDesigns(id?: string) {
+    cancelAnimationFrame(refit.current);
     const port = viewport.current,
       content = board.current;
     if (!port || !content) return;
@@ -245,21 +253,25 @@ export const ArtifactCanvas = forwardRef<
     });
     if (Math.abs(scale - viewRef.current.scale) > 0.005 && refits.current < 3) {
       refits.current++;
-      requestAnimationFrame(() => fitDesigns(id));
+      refit.current = requestAnimationFrame(() => fitDesigns(id));
     } else refits.current = 0;
   }, []);
 
-  const zoomAt = useCallback((factor: number, px: number, py: number) => {
-    moved.current = true;
-    setView((current) => {
-      const scale = clamp(current.scale * factor);
-      return {
-        scale,
-        x: px - (px - current.x) * (scale / current.scale),
-        y: py - (py - current.y) * (scale / current.scale),
-      };
-    });
-  }, []);
+  const zoomAt = useCallback(
+    (factor: number, px: number, py: number) => {
+      moved.current = true;
+      stopRefit();
+      setView((current) => {
+        const scale = clamp(current.scale * factor);
+        return {
+          scale,
+          x: px - (px - current.x) * (scale / current.scale),
+          y: py - (py - current.y) * (scale / current.scale),
+        };
+      });
+    },
+    [stopRefit],
+  );
   useImperativeHandle(
     handle,
     () => ({
@@ -322,6 +334,7 @@ export const ArtifactCanvas = forwardRef<
       if (event.ctrlKey || event.metaKey) zoomAt(Math.exp(-event.deltaY * 0.01), event.clientX - rect.left, event.clientY - rect.top);
       else {
         moved.current = true;
+        stopRefit();
         setView((current) => ({
           ...current,
           x: current.x - event.deltaX,
@@ -331,7 +344,7 @@ export const ArtifactCanvas = forwardRef<
     };
     port.addEventListener("wheel", onWheel, { passive: false });
     return () => port.removeEventListener("wheel", onWheel);
-  }, [zoomAt]);
+  }, [zoomAt, stopRefit]);
 
   // The design taking the mouse, Figma-like: designs let wheel and drag pan the canvas until one is clicked, and a
   // click elsewhere or Escape hands the mouse back to the canvas.
@@ -406,6 +419,7 @@ export const ArtifactCanvas = forwardRef<
     if (!dragged.current && Math.hypot(event.clientX - start.startX, event.clientY - start.startY) < 4) return;
     dragged.current = true;
     moved.current = true;
+    stopRefit();
     setView((current) => ({
       ...current,
       x: event.clientX - start.x,
