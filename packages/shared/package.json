@@ -23,6 +23,7 @@
     "src/use-local-mcp.ts",
     "src/linear.ts",
     "src/chat-row.ts",
+    "src/canvas.ts",
     "src/simulator.ts",
     "src/browser.ts",
     "src/terminal.ts",
@@ -235,6 +236,7 @@
     "./advisor-result": "./src/advisor-result.ts",
     "./themes": "./src/themes/index.ts",
     "./chat-row": "./src/chat-row.ts",
+    "./canvas": "./src/canvas.ts",
     "./genui-renderer": "./src/genui-renderer.tsx",
     "./ai-consent": {
       "types": "./src/ai-consent.d.mts",

@@ -2298,6 +2298,10 @@ function App() {
                   runs={agentRuns.runs}
                   linkedWork={linkedWork}
                   onOpenChat={(path, id) => void openCanvasChat(path, id)}
+                  onNewChat={(path) => {
+                    setView("chat");
+                    newChatInScope(path);
+                  }}
                   onBack={() => setView("chat")}
                 />
               )}

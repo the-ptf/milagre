@@ -80,6 +80,7 @@ export default function Layout() {
                       <Stack.Screen name="add-computer" options={{ ...sheet, sheetAllowedDetents: [1] }} />
                       <Stack.Screen name="pair" options={{ title: "Pairing" }} />
                       <Stack.Screen name="projects" options={{ title: "Projects" }} />
+                      <Stack.Screen name="canvas" options={{ title: "Canvas" }} />
                       <Stack.Screen name="project-settings" options={{ title: "Project" }} />
                       <Stack.Screen name="link-projects" options={{ ...sheet, sheetAllowedDetents: [1] }} />
                       <Stack.Screen name="link-chat" options={{ ...sheet, sheetAllowedDetents: [1] }} />

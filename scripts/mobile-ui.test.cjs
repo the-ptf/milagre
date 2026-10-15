@@ -9234,3 +9234,152 @@ test("unmarked design cards reload their catalog after Designs is turned on", as
   assert.equal(h.render("ArtifactCards", props).props.step.artifact.id, "structured", "seen revisions are invalidated on a second enable");
   h.cleanup();
 });
+
+function canvasHost() {
+  const react = hookHost();
+  const routes = [];
+  const now = Date.now();
+  const chat = (id, worktree_id, title, extra = {}) => ({
+    id,
+    worktree_id,
+    agent_name: "Claude",
+    status: "Stopped",
+    title,
+    provider: "claude",
+    summary: { count: 2, lastAt: now - 25 * 60000 },
+    ...extra,
+  });
+  const tree = (id, path, name, diff) => ({ id, project_id: 1, path, name, diff });
+  const copy = (path, worktrees, sessions, runs = {}) => ({
+    project: {
+      path,
+      state: {
+        next_id: 50,
+        projects: {},
+        worktrees: Object.fromEntries(worktrees.map((item) => [item.id, item])),
+        sessions: Object.fromEntries(sessions.map((item) => [item.id, item])),
+        messages: [],
+        tasks: {},
+      },
+    },
+    runs: { runs },
+  });
+  const copies = {
+    "/a": copy(
+      "/a",
+      [tree(1, "/a", "main", { added: 212, removed: 148 }), tree(4, "/a-done", "finished-work"), tree(8, "/a-filters", "sidebar-filters")],
+      [chat(2, 1, "Build UI"), chat(5, 4, "Archived", { archived: true }), chat(9, 8, "Sidebar filters"), chat(10, 8, "Review filters", { provider: "codex" })],
+      { "/a#2": { approvals: [{ id: "x" }], questions: [] }, "/a#10": { approvals: [], questions: [{ id: "q" }] } },
+    ),
+    "/b": copy("/b", [tree(1, "/b", "main")], [chat(2, 1, "Add API", { provider: "codex" })], { "/b#2": { approvals: [], questions: [] } }),
+    "/old": copy("/old", [tree(1, "/old", "main")], [chat(2, 1, "Old work", { archived: true })]),
+  };
+  const session = {
+    client: { url: "ws://mac" },
+    snapshot: null,
+    recent: [
+      { path: "/a", name: "Frontend" },
+      { path: "/b", name: "Backend" },
+      { path: "/old", name: "Old" },
+      { path: "/hidden", name: "Hidden", hidden: true },
+    ],
+    cachedProject: (path) => copies[path],
+    previewProject: async () => {},
+    reloadProjects: async () => {},
+  };
+  const projects = [
+    { id: "pa", path: "/a", name: "Frontend" },
+    { id: "pb", path: "/b", name: "Backend" },
+  ];
+  const links = {
+    available: true,
+    links: [
+      { id: "l1", a: { project_id: "pa", worktree_path: "/a" }, b: { project_id: "pb", worktree_path: "/b" }, created_at: "" },
+      { id: "l2", a: { project_id: "pa" }, b: { project_id: "pb" }, created_at: "" },
+    ],
+    projects,
+    projectIdOf: (path) => projects.find((project) => project.path === path)?.id,
+    refresh: async () => {},
+  };
+  const { default: CanvasScreen } = load("app/canvas.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": Object.fromEntries(["Pressable", "RefreshControl", "Text", "View"].map((name) => [name, name])),
+    "expo-router": {
+      Redirect: "Redirect",
+      Stack: { Screen: "StackScreen" },
+      router: { canDismiss: () => false, dismissAll() {}, replace: (href) => routes.push(href) },
+    },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/chat-links": require("@milagre/shared/chat-links"),
+    "@milagre/shared/canvas": require("../packages/shared/src/canvas.ts"),
+    "../session": { useSession: () => session },
+    "../use-links": { useLinks: () => links },
+    "../attention": { useAttention: () => [] },
+    "../chat-links": chatLinks(),
+    "../status-indicators": { ChatMarkIcon: "ChatMarkIcon" },
+    "../icons": { Icon: "Icon", ProviderLogo: "ProviderLogo" },
+    "../project-icon": { ProjectIcon: "ProjectIcon" },
+    "../ui": { ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+  });
+  const render = () => {
+    react.begin();
+    return CanvasScreen();
+  };
+  return { render, routes };
+}
+const allNodes = (node, keep, found = []) => {
+  if (!node || typeof node !== "object") return found;
+  if (keep(node)) found.push(node);
+  for (const child of [node.props?.children].flat(Infinity)) allNodes(child, keep, found);
+  return found;
+};
+const textOf = (node) =>
+  [node?.props?.children]
+    .flat(Infinity)
+    .map((child) => (child && typeof child === "object" ? textOf(child) : (child ?? "")))
+    .join("");
+
+test("the phone canvas lists the sidebar's chats by Project and Worktree, with live states and Links", () => {
+  const host = canvasHost();
+  const tree = host.render();
+  const headers = allNodes(tree, (node) => node.props?.accessibilityRole === "header").map(textOf);
+  assert.deepEqual(headers, ["Frontend", "Backend"], "a Project with only archived chats and a hidden Project stay off");
+  const cards = allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "Card");
+  assert.deepEqual(
+    cards.map((card) => card.props.worktree.branch),
+    ["main", "sidebar-filters", "main"],
+  );
+  const rendered = cards.map((card) => card.type(card.props));
+  const labels = (card) => allNodes(card, (node) => node.props?.accessibilityRole === "button").map((node) => node.props.accessibilityLabel);
+  assert.deepEqual(labels(rendered[0]), ["Build UI, Waiting for you, main"]);
+  assert.deepEqual(labels(rendered[1]), ["Sidebar filters, Idle · 25m ago", "Review filters, Asking you"]);
+  assert.deepEqual(labels(rendered[2]), ["Add API, Running, main"]);
+  assert.equal(rendered[0].props.style.borderColor, "orange", "a chat waiting for you outlines its card");
+  assert.equal(rendered[1].props.style.borderColor, "accent");
+  // The Worktree Link reads on both cards; the Project Link on the section headers.
+  assert.deepEqual(cards[0].props.worktree.linked, ["Backend / main"]);
+  assert.deepEqual(cards[2].props.worktree.linked, ["Frontend / main"]);
+  const chips = allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "LinkChip").map((chip) => chip.props.label);
+  assert.deepEqual(chips, ["All of Backend", "All of Frontend"]);
+  // A chat opens like the sidebar opens one.
+  allNodes(rendered[2], (node) => node.props?.accessibilityRole === "button")[0].props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes)), [{ pathname: "/chat", params: { projectPath: "/b", hostId: "ws://mac", id: "2" } }]);
+});
+
+test("the phone canvas filter keeps the cards that need you, and counts each choice", () => {
+  const host = canvasHost();
+  const radios = allNodes(host.render(), (node) => node.props?.accessibilityRole === "radio");
+  assert.deepEqual(
+    radios.map((radio) => radio.props.accessibilityLabel),
+    ["All, 4", "Needs you, 2", "Running, 1"],
+  );
+  radios[1].props.onPress();
+  const tree = host.render();
+  const cards = allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "Card");
+  assert.deepEqual(
+    cards.map((card) => card.props.worktree.branch),
+    ["main", "sidebar-filters"],
+  );
+  assert.deepEqual(allNodes(tree, (node) => node.props?.accessibilityRole === "header").map(textOf), ["Frontend"]);
+});

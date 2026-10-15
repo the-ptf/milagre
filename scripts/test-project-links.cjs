@@ -263,14 +263,14 @@ async function main() {
       "Membership lines do not become removable Delegation edges",
     );
     await shot("link-canvas");
-    await click("Back to chat");
+    await click("Back");
     assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "Keep my draft while viewing the linked Projects");
     await click("Canvas");
     await waitFor(
-      () => evaluate(`!![...document.querySelectorAll('[data-canvas] button')].find(button => button.textContent.trim() === 'Open shared Link Chat')`),
+      () => evaluate(`!![...document.querySelectorAll('[data-canvas-chat]')].find(button => button.textContent.includes('Shared Link Chat'))`),
       "canonical shared Chat in Canvas",
     );
-    await click("Open shared Link Chat");
+    await evaluate(`[...document.querySelectorAll('[data-canvas-chat]')].find(button => button.textContent.includes('Shared Link Chat')).click()`);
     assert.equal(
       await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`),
       "Keep my draft while viewing the linked Projects",

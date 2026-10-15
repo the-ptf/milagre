@@ -1717,27 +1717,69 @@ code.step-shimmer {
     display: none;
   }
 }
-.milagre-canvas-flow .react-flow__controls {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: var(--shadow-card);
+/* The Projects canvas sits on the window's own dotted page, like the subagent canvas: no panel, edges fade out. */
+[data-workspace-main]:has(> .milagre-canvas) {
+  margin-left: -12px;
+  padding-right: 0;
+  padding-bottom: 0;
 }
 
-.milagre-canvas-flow .react-flow__controls-button {
+.milagre-canvas-surface {
+  --canvas-edge: 16px;
+  mask-image:
+    linear-gradient(to right, transparent, #000 var(--canvas-edge), #000 calc(100% - var(--canvas-edge)), transparent),
+    linear-gradient(to bottom, transparent, #000 var(--canvas-edge), #000 calc(100% - var(--canvas-edge)), transparent);
+  mask-composite: intersect;
+}
+
+.milagre-canvas-flow {
+  --xy-background-color: transparent;
+}
+
+/* A Project: its hue at a whisper, so the cards stay the brightest thing in it. */
+.milagre-canvas-section {
+  background: color-mix(in srgb, var(--section) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--section) 20%, transparent);
+}
+
+.milagre-canvas-flow .react-flow__node-project,
+.milagre-canvas-flow .react-flow__node-worktree {
+  border-radius: var(--radius-card);
+}
+
+/* Link dots wait for the pointer: on the card or section under it, and on every one while a Link is being drawn. */
+.milagre-canvas-flow .milagre-canvas-handle {
+  opacity: 0;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--line-strong);
   background: var(--surface);
-  color: var(--ink-2);
-  fill: currentColor;
-  border-color: var(--line);
+  transition:
+    opacity 120ms ease-out,
+    border-color 120ms ease-out,
+    transform 120ms ease-out;
 }
 
-.milagre-canvas-flow .react-flow__controls-button:hover {
-  background: var(--hover-2);
+.milagre-canvas-flow .react-flow__node:hover > div > .milagre-canvas-handle,
+.milagre-canvas-flow .react-flow__node:focus-within > div > .milagre-canvas-handle,
+.milagre-canvas-flow[data-connecting] .milagre-canvas-handle,
+.milagre-canvas-flow .milagre-canvas-handle:hover {
+  opacity: 1;
 }
 
-.milagre-canvas-flow .react-flow__attribution {
-  background: transparent;
-  color: var(--ink-3);
+.milagre-canvas-flow .milagre-canvas-handle:hover,
+.milagre-canvas-flow .react-flow__handle.connectingfrom,
+.milagre-canvas-flow .react-flow__handle.valid {
+  border-color: var(--accent);
+  transform: translate(var(--handle-shift, 0), -50%) scale(1.2);
+}
+
+.milagre-canvas-flow .react-flow__handle-left {
+  --handle-shift: -50%;
+}
+
+.milagre-canvas-flow .react-flow__handle-right {
+  --handle-shift: 50%;
 }
 
 /* A Link something travels along: its line moves toward the receiving side. Still under reduced motion. */

@@ -12,6 +12,7 @@ import {
   FilterHorizontalIcon,
   FolderAddIcon,
   GitBranchIcon,
+  GitMergeIcon,
   LaptopIcon,
   Link04Icon,
   MoreHorizontalIcon,
@@ -622,6 +623,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
         <Text style={s.secondary}>Add project</Text>
       </Pressable>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <IconButton label="Canvas" icon={GitMergeIcon} size={44} disabled={busy} onPress={() => onNavigate("/canvas", true)} />
         <IconButton label="Link projects" icon={Link04Icon} size={44} disabled={busy} onPress={() => onNavigate("/link-projects", true)} />
         <IconButton label="Settings" icon={Settings01Icon} size={44} onPress={() => onNavigate("/settings", true)} />
       </View>
