@@ -49,6 +49,8 @@ import { ThinkingIndicator } from "./ThinkingIndicator";
 import { HandoffDivider } from "./Handover";
 import { WorktreeLinkDivider } from "./WorktreeLinkDivider";
 import { AccountSwitchDivider } from "./AccountSwitchDivider";
+import { ChatReloadDivider } from "./ChatReloadDivider";
+import { isChatReload } from "@milagre/shared/chat-reload";
 import { CompactionDivider } from "./CompactionDivider";
 import { advisorResultLabel, messageSender } from "@milagre/shared/advisor-result";
 import { LinkedMessageHeader, linkedContext } from "./LinkedMessage";
@@ -173,6 +175,7 @@ const MessageSection = memo(function MessageSection({
   if (isWorktreeLinked(message)) return <WorktreeLinkDivider context={message.context} />;
   if (isCompaction(message)) return <CompactionDivider context={message.context} />;
   if (isAccountSwitch(message)) return <AccountSwitchDivider context={message.context} />;
+  if (isChatReload(message)) return <ChatReloadDivider />;
   const linked = linkedContext(message);
   const advisor = typeof message.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
   // A PR-blocker pill's message shows as a card, not as the skill prompt the agent read.

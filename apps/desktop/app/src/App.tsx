@@ -97,6 +97,7 @@ import { getSettings, toggleTheme, updateSettings, useApplyTheme, useSettings } 
 import { EditorLinks, Notice } from "./components/editor-links";
 // Notice above is editor-links' toast; this is the dismissable notice card.
 import { showNotice } from "./lib/notice";
+import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { Notice as NoticeCard } from "./components/Notice";
 import { openInEditor } from "./lib/editors";
 import type { RuntimeConnection } from "./electron";
@@ -875,8 +876,8 @@ function App() {
     project,
     archivingChats,
   ]);
-  const latest = useRef({ patchChat, revealChat, openChatInEditor, openGitDialog, checkArchive, archiveChat, linkChatIssue, unlinkChatIssue });
-  latest.current = { patchChat, revealChat, openChatInEditor, openGitDialog, checkArchive, archiveChat, linkChatIssue, unlinkChatIssue };
+  const latest = useRef({ patchChat, revealChat, openChatInEditor, openGitDialog, checkArchive, archiveChat, linkChatIssue, unlinkChatIssue, reloadChat });
+  latest.current = { patchChat, revealChat, openChatInEditor, openGitDialog, checkArchive, archiveChat, linkChatIssue, unlinkChatIssue, reloadChat };
   // The main process applies chat row actions to the latest state, so a turn that finished since the last render isn't lost.
   function patchChat(sessionId: number, patch: SessionPatch) {
     const current = projectRef.current;
@@ -1549,6 +1550,18 @@ function App() {
     await reportChatAction(linked(), "Could not link issue", setNotice);
   }
 
+  // Reload chat: a running turn stops and the agent's process ends; the next message resumes the session in a new
+  // one, which reads MCP servers, skills and the sign-in again.
+  async function reloadChat(sessionId: number) {
+    const path = project?.path;
+    if (!path) return;
+    const reloaded = async () => {
+      await bridgeForKey(path).reloadChat(chatKey(path, sessionId));
+      showNotice("Chat reloaded. Your next message starts a fresh agent.");
+    };
+    await reportChatAction(reloaded(), "Could not reload chat", setNotice);
+  }
+
   async function unlinkChatIssue(sessionId: number) {
     const path = project?.path;
     const worktreeId = openState()?.sessions[sessionId]?.worktree_id;
@@ -1752,6 +1765,7 @@ function App() {
     () => ({
       onRename: (id, title) => latest.current.patchChat(Number(id), { title }),
       onMarkUnread: (id, unread) => latest.current.patchChat(Number(id), { unread }),
+      onReload: (id) => void latest.current.reloadChat(Number(id)),
       onPin: (id, order) => latest.current.patchChat(Number(id), order == null ? { pinned: false, pin_order: undefined } : { pinned: true, pin_order: order }),
       ...(remoteProject
         ? { remote: true }
@@ -2164,6 +2178,15 @@ function App() {
           group: "Current chat",
           icon: "unread",
           run: () => patchChat(sessionId, { unread: !selectedSession.unread }),
+        },
+        {
+          id: "reload",
+          label: "Reload chat",
+          group: "Current chat",
+          icon: "reload",
+          detail: RELOAD_HINT,
+          keywords: "restart agent mcp skills login refresh",
+          run: () => void reloadChat(sessionId),
         },
       );
       if (selectedWorktree)

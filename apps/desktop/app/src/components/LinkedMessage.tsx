@@ -14,7 +14,8 @@ export function linkedContext({ context }: Pick<ChatMessage, "context">): Linked
     context.kind !== "linear-issue" &&
     context.kind !== "compaction" &&
     context.kind !== "limit" &&
-    context.kind !== "account-switch"
+    context.kind !== "account-switch" &&
+    context.kind !== "reload"
     ? context
     : null;
 }

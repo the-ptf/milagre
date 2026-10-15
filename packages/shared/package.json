@@ -113,6 +113,10 @@
       "types": "./src/chats.d.mts",
       "default": "./src/chats.mjs"
     },
+    "./chat-reload": {
+      "types": "./src/chat-reload.d.mts",
+      "default": "./src/chat-reload.mjs"
+    },
     "./worktree-link": {
       "types": "./src/worktree-link.d.mts",
       "default": "./src/worktree-link.mjs"

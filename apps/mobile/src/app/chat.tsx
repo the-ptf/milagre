@@ -48,6 +48,8 @@ import { HandoffDivider } from "../handoff-divider";
 import { showBrief } from "../handoff-brief-store";
 import { WorktreeLinkDivider } from "../worktree-link-divider";
 import { AccountSwitchDivider } from "../account-switch-divider";
+import { ChatReloadDivider } from "../chat-reload-divider";
+import { isChatReload, RELOAD_HINT, RELOAD_TEXT } from "@milagre/shared/chat-reload";
 import { CompactionDivider } from "../compaction-divider";
 import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
@@ -345,7 +347,9 @@ export default function ChatScreen() {
               ? `Go to ${compactionText(messages[index].context)}, ${index + 1} of ${messages.length}.`
               : isAccountSwitch(messages[index])
                 ? `Go to ${accountSwitchText(messages[index].context)}, ${index + 1} of ${messages.length}.`
-                : `Go to ${messageSender(messages[index])} message ${index + 1} of ${messages.length}. ${messages[index].body.slice(0, 88)}`,
+                : isChatReload(messages[index])
+                  ? `Go to ${RELOAD_TEXT}, ${index + 1} of ${messages.length}.`
+                  : `Go to ${messageSender(messages[index])} message ${index + 1} of ${messages.length}. ${messages[index].body.slice(0, 88)}`,
       })),
     [messages, handoffModels],
   );
@@ -830,6 +834,8 @@ export default function ChatScreen() {
         "plain-text",
         title,
       );
+    else if (id === "reload" && chat)
+      void action(() => client.call("chat:reload", [chatId]), true).then((done) => done && showToast("Chat reloaded. Your next message starts a fresh agent."));
     else if (id === "archive" && chat?.archived) void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]));
     else if (id === "archive" && chat) void archive(chat);
   }
@@ -997,6 +1003,9 @@ export default function ChatScreen() {
             <Stack.Toolbar.MenuAction icon="pencil" onPress={() => headerAction("rename")}>
               Rename
             </Stack.Toolbar.MenuAction>
+            <Stack.Toolbar.MenuAction icon="arrow.clockwise" subtitle={RELOAD_HINT} disabled={busy} onPress={() => headerAction("reload")}>
+              Reload chat
+            </Stack.Toolbar.MenuAction>
             {canLink &&
               (storedIssue ? (
                 <Stack.Toolbar.MenuAction icon={LINEAR_MARK} iconRenderingMode="template" disabled={busy} onPress={() => void unlinkWorktreeIssue()}>
@@ -1156,6 +1165,8 @@ export default function ChatScreen() {
                   <CompactionDivider context={message.context} />
                 ) : isAccountSwitch(message) ? (
                   <AccountSwitchDivider context={message.context} />
+                ) : isChatReload(message) ? (
+                  <ChatReloadDivider />
                 ) : (
                   <ChatReply
                     message={message}

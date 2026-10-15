@@ -5,8 +5,8 @@ import { pullRequestRefs } from "./chat-pull-requests.mjs";
 /** A line the commit dialog saved in the chat, as opposed to an agent's reply. */
 export const isGitNote = (message) => typeof message?.context === "object" && message.context?.kind === "git-action";
 
-/** A line Milagre saved in the chat that isn't a reply: a commit dialog note, or a Link reaching the Chat. */
-export const isNote = (message) => isGitNote(message) || message?.context?.kind === "worktree-linked";
+/** A line Milagre saved in the chat that isn't a reply: a commit dialog note, a Link reaching the Chat, or a reload. */
+export const isNote = (message) => isGitNote(message) || message?.context?.kind === "worktree-linked" || message?.context?.kind === "reload";
 
 /** The summary of a Chat whose messages, in the Project's order, are `messages`. */
 export function summarizeChat(messages) {

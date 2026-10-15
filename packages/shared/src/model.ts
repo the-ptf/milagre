@@ -302,6 +302,9 @@ export type WorktreeLinkedContext = {
   summary?: string;
 };
 
+/** Where the user reloaded the Chat's agent: its process ended, and the next turn resumes the session in a new one. */
+export type ChatReloadContext = { kind: "reload" };
+
 export type ChatContext =
   | AdvisorResultContext
   | WorktreeLinkedContext
@@ -313,6 +316,7 @@ export type ChatContext =
   | LinearIssueContext
   | UsageLimitContext
   | AccountSwitchContext
+  | ChatReloadContext
   | "handover"
   | null;
 

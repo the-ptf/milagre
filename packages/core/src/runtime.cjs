@@ -10,6 +10,7 @@ const { isLinkScopeKey, scopeFromKey, scopeKey } = require("@milagre/shared/chat
 const { PROVIDERS } = require("@milagre/shared/providers");
 const { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } = require("@milagre/shared/pr-action");
 const { compactionMessage } = require("@milagre/shared/compaction");
+const { RELOAD_TEXT } = require("@milagre/shared/chat-reload");
 const { issueFirstMessage, linearIssueContext, linearIssuePrompt, linearIssueRequest } = require("@milagre/shared/linear-issue");
 const { ChatTitles, createChatTitleModels, generateChatTitle } = require("./chat-title.cjs");
 const { createGit } = require("./git/client.cjs");
@@ -1235,6 +1236,24 @@ function createRuntime(options) {
 
   commands.handle("agent:interrupt", async (_event, chatId) => {
     await existingChat("stopping advisors")(chatId);
+    await stopChat(chatId);
+  });
+
+  // Reload: a running turn stops, as Stop does, and the agent's process ends. The Chat's next message starts a new one
+  // on the same session, which reads its MCP servers, skills and sign-in again.
+  commands.handle("chat:reload", async (_event, chatId) => {
+    await existingChat("reloading it")(chatId);
+    if (chats.runs[chatId]) await stopChat(chatId);
+    const state = await scopeStates.get(projectOfKey(chatId));
+    const sessionId = sessionIdFromKey(chatId);
+    // An empty Chat gets no line: it stays the one its Worktree reuses for the next send. An unloaded Chat's messages
+    // aren't in the state: its summary counts them.
+    if ((state.sessions[sessionId]?.summary?.count ?? 0) > 0 || state.messages.some((message) => message.session_id === sessionId))
+      await chats.addNote(chatId, { body: RELOAD_TEXT, context: { kind: "reload" } });
+    await agents.closeChat(chatId);
+  });
+
+  async function stopChat(chatId) {
     await advisorDelivery.stop(chatId);
     await advisors.stopChat(chatId);
     // A handoff still writing its brief has no agent to stop: cancelling it is the whole interrupt.
@@ -1242,7 +1261,7 @@ function createRuntime(options) {
     await worktreeSetups.cancel(chatId);
     await linked.stop({ chatKey: chatId });
     await agents.interrupt(chatId);
-  });
+  }
 
   commands.handle("agent:respond-permission", (_event, { chatId, requestId, decision }) => agents.respondToPermission(chatId, requestId, decision));
 
