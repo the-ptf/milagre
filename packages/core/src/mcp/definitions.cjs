@@ -75,7 +75,10 @@ function codexConfigNames(file) {
   }
 }
 
-const SECRET_FLAG = /token|key|secret|password|auth/i;
+const SECRET_WORD = /(^|[-_])(token|key|secret|password|auth)([-_]|$)/i;
+const secretFlag = (flag) => SECRET_WORD.test(flag.replace(/^-+/, ""));
+const WEB_PROTOCOLS = new Set(["http:", "https:", "ws:", "wss:"]);
+const SCHEME_AND_USERINFO = /^([a-z][a-z0-9+.-]*:)?(\/\/)?[^/@]*@/i;
 
 // The one-line description of a server that travels to phones and paired Macs. Takes a definition or a raw
 // { url } / { command, args } config. Raw URLs and args can carry secrets, so userinfo, query and fragment are
@@ -85,10 +88,12 @@ function safeDetail(config) {
   if (typeof config.url === "string") {
     try {
       const url = new URL(config.url);
-      return url.pathname === "/" && !config.url.endsWith("/") ? url.origin : url.origin + url.pathname;
+      if (WEB_PROTOCOLS.has(url.protocol)) return url.pathname === "/" && !config.url.endsWith("/") ? url.origin : url.origin + url.pathname;
     } catch {
-      return config.url.split("?")[0];
+      // not an absolute URL: fall through
     }
+    // No scheme, or an unknown one (where URL parses "user:pass@host" as an opaque scheme): cut by hand.
+    return config.url.split(/[?#]/)[0].replace(SCHEME_AND_USERINFO, "");
   }
   if (typeof config.command !== "string") return null;
   const args = Array.isArray(config.args) ? config.args.map(String) : [];
@@ -101,10 +106,10 @@ function safeDetail(config) {
       continue;
     }
     const equals = arg.startsWith("-") ? arg.indexOf("=") : -1;
-    if (equals > 0) shown.push(SECRET_FLAG.test(arg.slice(0, equals)) ? `${arg.slice(0, equals)}=${MASK}` : arg);
+    if (equals > 0) shown.push(secretFlag(arg.slice(0, equals)) ? `${arg.slice(0, equals)}=${MASK}` : arg);
     else {
       shown.push(arg);
-      maskNext = arg.startsWith("-") && SECRET_FLAG.test(arg);
+      maskNext = arg.startsWith("-") && secretFlag(arg);
     }
   }
   return [config.command, ...shown].join(" ");

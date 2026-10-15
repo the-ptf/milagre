@@ -90,3 +90,14 @@ test("safeDetail drops URL secrets and masks secret flag values", () => {
   assert.equal(d.safeDetail(undefined), null);
   assert.equal(d.detailOf({ type: "stdio", command: "p", args: ["--password", "x"], env: {} }), "p --password ••••••");
 });
+
+test("safeDetail hides userinfo in scheme-less URLs and matches secret flags as whole words", () => {
+  assert.equal(d.safeDetail({ url: "user:pass@host/mcp" }), "host/mcp");
+  assert.equal(d.safeDetail({ url: "//u:p@host/x#f" }), "host/x");
+  assert.equal(d.safeDetail({ url: "u@host" }), "host");
+  assert.equal(d.safeDetail({ url: "foo://h/x?s=1" }), "foo://h/x");
+  assert.equal(d.safeDetail({ url: "foo://u:p@h/x?s=1#f" }), "h/x");
+  assert.equal(d.safeDetail({ url: "wss://u:p@h/x?s=1" }), "wss://h/x");
+  assert.equal(d.safeDetail({ command: "p", args: ["--keyboard", "us", "--author", "me"] }), "p --keyboard us --author me");
+  assert.equal(d.safeDetail({ command: "p", args: ["--auth-header", "x", "--api_key=y"] }), "p --auth-header •••••• --api_key=••••••");
+});
