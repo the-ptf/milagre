@@ -12,6 +12,9 @@ const PROVIDERS = new Set(["claude", "codex", "antigravity"]);
 // The caller waits longer than this cap (45 s): SLOW_METHODS in apps/daemon/src/client.cjs and MCP_CALLS in apps/mobile/src/client.ts.
 const TIMEOUT_PROBLEM = "Timed out after 30 s. Check the servers in a terminal.";
 const NAME = /^[A-Za-z0-9_-]{1,64}$/;
+const TARGETS = new Set(["everywhere", "claude", "codex"]);
+// Server names as providers report them: plugin and connector names can hold ":", "." and spaces ("claude.ai Gmail").
+const SERVER_NAME = /^[A-Za-z0-9_.:@ -]{1,128}$/;
 const URL_PATTERN = /^https?:\/\/\S+$/;
 
 // The same rules as validateMcpServer in @milagre/shared/mcp; the runtime checks again because phones call it too.
@@ -141,7 +144,12 @@ function createMcp({
     return write.codex.read({ command: cli.command, env: cli.env, cwd, name, clientVersion });
   }
 
+  function assertTarget(target) {
+    if (!TARGETS.has(target)) throw new Error("Pick where to load it.");
+  }
+
   async function definition(name, target) {
+    assertTarget(target);
     const def = await storedDefinition(name, target);
     return def ? maskDefinition(def) : null;
   }
@@ -152,16 +160,33 @@ function createMcp({
     await write[target].remove({ command: cli.command, env: cli.env, name });
   }
 
+  async function addTo(full, target) {
+    if (target === "everywhere") return store.setEverywhere([...store.read().everywhere.filter((item) => item.name !== full.name), full]);
+    const cli = await routing.forAccount(target, "default");
+    await write[target].add({ command: cli.command, env: cli.env, cwd, clientVersion, def: full });
+  }
+
   async function save(def, target, previous) {
+    assertTarget(target);
+    if (previous) assertTarget(previous.target);
     const problem = invalid(def);
     if (problem) throw new Error(problem);
     const stored = previous ? await storedDefinition(previous.name, previous.target) : null;
     const full = unmaskDefinition(def, stored);
-    if (previous) await removeFrom(previous.name, previous.target);
-    if (target === "everywhere") store.setEverywhere([...store.read().everywhere.filter((item) => item.name !== full.name), full]);
-    else {
-      const cli = await routing.forAccount(target, "default");
-      await write[target].add({ command: cli.command, env: cli.env, cwd, clientVersion, def: full });
+    if (!previous) await addTo(full, target);
+    else if (previous.name !== full.name || previous.target !== target) {
+      // Moved or renamed: the new server lands first, so a failed add leaves the old one (and its secrets) in place.
+      await addTo(full, target);
+      await removeFrom(previous.name, previous.target);
+    } else {
+      // Same place: the CLIs refuse a duplicate name, so remove first and put the old definition back if the add fails.
+      await removeFrom(previous.name, previous.target);
+      try {
+        await addTo(full, target);
+      } catch (error) {
+        if (stored) await addTo(stored, previous.target).catch(() => {});
+        throw error;
+      }
     }
     emit("mcp:changed", { name: full.name });
   }
@@ -172,60 +197,81 @@ function createMcp({
   }
 
   async function remove(name, target) {
+    assertTarget(target);
     await removeFrom(name, target);
     emit("mcp:changed", { name });
   }
 
   async function toggle(provider, accountId, name, on) {
+    if (!PROVIDERS.has(provider)) throw new Error("Unknown provider.");
+    if (typeof accountId !== "string" || !accountId) throw new Error("Unknown account.");
+    if (typeof name !== "string" || !SERVER_NAME.test(name)) throw new Error("Unknown server name.");
     store.setOff(provider, accountId, name, !on);
     emit("mcp:changed", { name, provider, accountId });
   }
 
   // One account at a time, so each browser tab belongs to one sign-in. Resolves once the first account has
-  // opened its URL (or finished); the rest runs on and reports through mcp:changed.
+  // opened its URL (or finished); the rest runs on and reports through mcp:changed. Every account ends with an
+  // event, even when its CLI lookup or runner fails, so no row stays on "signing in".
   async function signIn(name, targets) {
     signIns.get(name)?.abort();
     const controller = new AbortController();
     signIns.set(name, controller);
+    const list = (Array.isArray(targets) ? targets : []).filter(
+      (target) => target && typeof target === "object" && typeof target.accountId === "string" && sign[target.provider],
+    );
     let firstOpened;
     const opened = new Promise((resolve) => (firstOpened = resolve));
     const all = (async () => {
-      for (const [index, { provider, accountId }] of targets.entries()) {
-        if (controller.signal.aborted) break;
-        if (!sign[provider]) continue;
-        const cli = await routing.forAccount(provider, accountId);
-        // Each runner gets its own signal, so a cancel that lands while the CLI lookup was still pending reaches it too.
-        const own = new AbortController();
-        controller.signal.addEventListener("abort", () => own.abort(), { once: true });
-        const running = sign[provider]({
-          command: cli.command,
-          env: cli.env,
-          cwd,
-          clientVersion,
-          name,
-          everywhere: forSessionWith(provider, accountId, cli.env).servers,
-          signal: own.signal,
-          openUrl: (url) => {
-            openUrl(url);
-            firstOpened();
-          },
-        });
-        if (controller.signal.aborted) own.abort();
-        const result = await running.catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+      try {
+        for (const [index, { provider, accountId }] of list.entries()) {
+          const last = index === list.length - 1;
+          const finish = (signInState, error = null, isLast = last) => {
+            // A run that was replaced stays silent; the newer one owns the row.
+            if (signIns.get(name) === controller) emit("mcp:changed", { name, provider, accountId, signIn: signInState, error, last: isLast });
+          };
+          if (controller.signal.aborted) {
+            finish("cancelled", null, true);
+            break;
+          }
+          let cancelled = false;
+          try {
+            const cli = await routing.forAccount(provider, accountId);
+            if (controller.signal.aborted) {
+              finish("cancelled", null, true);
+              break;
+            }
+            if (cli.problem || !cli.command) {
+              finish("failed", cli.problem || "Install the provider CLI first.");
+              continue;
+            }
+            const result = await sign[provider]({
+              command: cli.command,
+              env: cli.env,
+              cwd,
+              clientVersion,
+              name,
+              everywhere: forSessionWith(provider, accountId, cli.env).servers,
+              signal: controller.signal,
+              openUrl: (url) => {
+                openUrl(url);
+                firstOpened();
+              },
+            });
+            cancelled = Boolean(result?.cancelled);
+            if (cancelled) finish("cancelled", null, true);
+            else if (result?.ok || result?.opened) finish("done");
+            else finish("failed", result?.error ?? null);
+          } catch (error) {
+            finish("failed", error instanceof Error ? error.message : String(error));
+          }
+          firstOpened();
+          if (cancelled) break;
+        }
+      } finally {
+        if (signIns.get(name) === controller) signIns.delete(name);
         firstOpened();
-        const signInState = result.cancelled ? "cancelled" : result.ok || result.opened ? "done" : "failed";
-        emit("mcp:changed", {
-          name,
-          provider,
-          accountId,
-          signIn: signInState,
-          error: result.error ?? null,
-          last: result.cancelled || index === targets.length - 1,
-        });
-        if (result.cancelled) break;
       }
-      if (signIns.get(name) === controller) signIns.delete(name);
-      firstOpened();
     })();
     await Promise.race([opened, all]);
     return { started: true };

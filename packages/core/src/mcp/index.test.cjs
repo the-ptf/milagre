@@ -307,17 +307,185 @@ test("cancelSignIn aborts the running account and skips the rest", async (t) => 
   let started = 0;
   const { mcp, events } = harness(t, {
     signers: {
-      claude: ({ signal }) => (started++, new Promise((resolve) => signal.addEventListener("abort", () => resolve({ cancelled: true })))),
+      claude: ({ signal, openUrl }) => (
+        started++,
+        openUrl("https://a"),
+        new Promise((resolve) => signal.addEventListener("abort", () => resolve({ cancelled: true })))
+      ),
       codex: async () => (started++, { ok: true }),
     },
   });
-  const running = mcp.signIn("linear", [
+  await mcp.signIn("linear", [
     { provider: "claude", accountId: "default" },
     { provider: "codex", accountId: "default" },
   ]);
   mcp.cancelSignIn("linear");
-  await running;
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(started, 1);
-  assert.equal(events.at(-1)[1].signIn, "cancelled");
+  assert.equal(events.length, 1);
+  assert.equal(events[0][1].signIn, "cancelled");
+  assert.equal(events[0][1].last, true);
+});
+
+test("a cancel before the CLI lookup finishes never starts the runner and ends the row", async (t) => {
+  let started = 0;
+  const { mcp, events } = harness(t, { signers: { claude: async () => (started++, { ok: true }) } });
+  const running = mcp.signIn("linear", [{ provider: "claude", accountId: "default" }]);
+  mcp.cancelSignIn("linear");
+  await running;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(started, 0);
+  assert.deepEqual(
+    events.map(([, payload]) => [payload.signIn, payload.last]),
+    [["cancelled", true]],
+  );
+});
+
+test("signIn resolves once the first URL opens, while its runner is still pending", async (t) => {
+  let finish;
+  const { mcp, events } = harness(t, {
+    signers: { claude: ({ openUrl }) => (openUrl("https://a"), new Promise((resolve) => (finish = resolve))) },
+  });
+  assert.deepEqual(await mcp.signIn("linear", [{ provider: "claude", accountId: "default" }]), { started: true });
+  assert.equal(events.length, 0);
+  finish({ ok: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(events[0][1].signIn, "done");
+});
+
+test("a failed CLI lookup, a missing CLI or a throwing runner still finishes each row and moves on", async (t) => {
+  const forAccount = async (provider, accountId) => {
+    if (accountId === "reject") throw new Error("lookup failed");
+    if (accountId === "missing") return { command: null, problem: "Install Claude first." };
+    return { command: `/bin/${provider}`, env: {}, accountId };
+  };
+  const { mcp, events } = harness(t, {
+    routing: { forAccount },
+    signers: {
+      claude: async () => {
+        throw new Error("boom");
+      },
+      codex: async () => ({ ok: true }),
+    },
+  });
+  await mcp.signIn("linear", [
+    { provider: "claude", accountId: "reject" },
+    { provider: "claude", accountId: "missing" },
+    { provider: "claude", accountId: "default" },
+    { provider: "codex", accountId: "default" },
+    { provider: "antigravity", accountId: "default" },
+    null,
+    { provider: "nope", accountId: "x" },
+  ]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    events.map(([, payload]) => [payload.provider, payload.accountId, payload.signIn, payload.error, payload.last]),
+    [
+      ["claude", "reject", "failed", "lookup failed", false],
+      ["claude", "missing", "failed", "Install Claude first.", false],
+      ["claude", "default", "failed", "boom", false],
+      ["codex", "default", "done", null, true],
+    ],
+  );
+});
+
+test("signIn with nothing to run resolves at once", async (t) => {
+  const { mcp, events } = harness(t);
+  assert.deepEqual(await mcp.signIn("linear", [{ provider: "antigravity", accountId: "default" }]), { started: true });
+  assert.equal(events.length, 0);
+});
+
+test("a replaced sign-in stays silent", async (t) => {
+  const finishers = [];
+  const { mcp, events } = harness(t, {
+    signers: { claude: ({ openUrl }) => (openUrl("https://a"), new Promise((resolve) => finishers.push(resolve))) },
+  });
+  await mcp.signIn("linear", [{ provider: "claude", accountId: "default" }]);
+  await mcp.signIn("linear", [{ provider: "claude", accountId: "default" }]);
+  finishers[0]({ cancelled: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(events.length, 0);
+  finishers[1]({ ok: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    events.map(([, payload]) => payload.signIn),
+    ["done"],
+  );
+});
+
+test("a failed add during a same-name edit restores the previous server and rethrows", async (t) => {
+  const calls = [];
+  const { mcp } = harness(t, {
+    writers: {
+      claude: {
+        add: async (o) => {
+          calls.push(["add", o.def.url]);
+          if (o.def.url === "https://new") throw new Error("add failed");
+        },
+        remove: async (o) => calls.push(["remove", o.name]),
+      },
+      codex: {},
+    },
+  });
+  const masked = await mcp.definition("figma", "claude");
+  await assert.rejects(mcp.save({ ...masked, url: "https://new" }, "claude", { name: "figma", target: "claude" }), /add failed/);
+  assert.deepEqual(calls, [
+    ["remove", "figma"],
+    ["add", "https://new"],
+    ["add", "https://figma"],
+  ]);
+});
+
+test("a rename adds the new server before removing the old one", async (t) => {
+  const calls = [];
+  const { mcp } = harness(t, {
+    writers: {
+      claude: { add: async (o) => calls.push(["add", o.def.name]), remove: async (o) => calls.push(["remove", o.name]) },
+      codex: {},
+    },
+  });
+  const masked = await mcp.definition("figma", "claude");
+  await mcp.save({ ...masked, name: "figma2" }, "claude", { name: "figma", target: "claude" });
+  assert.deepEqual(calls, [
+    ["add", "figma2"],
+    ["remove", "figma"],
+  ]);
+});
+
+test("a failed add during a rename leaves the old server alone", async (t) => {
+  const calls = [];
+  const { mcp } = harness(t, {
+    writers: {
+      claude: {
+        add: async () => {
+          throw new Error("add failed");
+        },
+        remove: async (o) => calls.push(["remove", o.name]),
+      },
+      codex: {},
+    },
+  });
+  const masked = await mcp.definition("figma", "claude");
+  await assert.rejects(mcp.save({ ...masked, name: "figma2" }, "claude", { name: "figma", target: "claude" }), /add failed/);
+  assert.deepEqual(calls, []);
+});
+
+test("an unknown target is refused before anything is removed", async (t) => {
+  const { mcp, calls } = harness(t);
+  await assert.rejects(mcp.saveUrl(linear, "bogus", { name: "figma", target: "claude" }), /Pick where to load it/);
+  await assert.rejects(mcp.saveUrl(linear, "claude", { name: "figma", target: "bogus" }), /Pick where to load it/);
+  await assert.rejects(mcp.remove("figma", "bogus"), /Pick where to load it/);
+  assert.equal(calls.length, 0);
+});
+
+test("toggle refuses an unknown provider or an odd server name and stores nothing", async (t) => {
+  const { mcp, store, events } = harness(t);
+  await assert.rejects(mcp.toggle("bogus", "default", "pencil", false));
+  await assert.rejects(mcp.toggle("claude", "default", "bad/name", false));
+  await assert.rejects(mcp.toggle("claude", "default", "x".repeat(129), false));
+  assert.deepEqual(store.offFor("claude", "default"), []);
+  assert.equal(events.length, 0);
+  await mcp.toggle("claude", "default", "claude.ai Gmail", false);
+  await mcp.toggle("claude", "default", "plugin:engineering:notion", false);
+  assert.deepEqual(store.offFor("claude", "default"), ["claude.ai Gmail", "plugin:engineering:notion"]);
 });
