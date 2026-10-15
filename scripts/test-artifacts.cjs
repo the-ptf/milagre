@@ -579,6 +579,10 @@ async function browserChecks() {
     await delay(150);
     assert.equal(await evaluate(boardAt), still, "the zoom bar doesn't pan or zoom the canvas");
     await evaluate(`${zoomBar}.querySelector("[aria-label='Fit every design']").click()`);
+    // Fit keeps every design clear of the bar.
+    await waitFor(
+      `(() => { const bar = ${zoomBar}.getBoundingClientRect().top; return [...${dock}.querySelectorAll("[data-slot=artifact-frame], [data-slot=artifact-canvas-group]")].every((f) => f.getBoundingClientRect().bottom <= bar); })()`,
+    );
     await screenshot("canvas");
     if (process.env.MILAGRE_SCREENSHOT_DIR) {
       await delay(900);

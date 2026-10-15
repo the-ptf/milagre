@@ -58,6 +58,10 @@ const HEADER = 32;
 const GROUP_LABEL = 30;
 const GROUP_PADDING = 48;
 const MIN_SCALE = 0.05;
+// Fit leaves this much room around the designs, in screen pixels; at the bottom, room for the zoom bar floating there
+// (ArtifactDock: 16px from the edge, 32px tall), so neither a frame nor the agent's cursor on it goes under the bar.
+const FIT_MARGIN = 24;
+const FIT_BOTTOM = 56;
 const MAX_SCALE = 2;
 const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
 
@@ -229,11 +233,12 @@ export const ArtifactCanvas = forwardRef<
       bottom = Math.max(...frames.map((f) => f.offsetTop + f.offsetHeight));
     const width = port.clientWidth,
       height = port.clientHeight;
-    const scale = clamp(Math.min((width - 48) / (right - left), (height - 48) / (bottom - top), 1));
+    const room = height - FIT_MARGIN - FIT_BOTTOM;
+    const scale = clamp(Math.min((width - FIT_MARGIN * 2) / (right - left), room / (bottom - top), 1));
     setView({
       scale,
       x: (width - (right - left) * scale) / 2 - left * scale,
-      y: (height - (bottom - top) * scale) / 2 - top * scale,
+      y: FIT_MARGIN + (room - (bottom - top) * scale) / 2 - top * scale,
     });
   }, []);
 
