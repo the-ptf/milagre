@@ -24,19 +24,21 @@ const accounts = {
   },
 };
 const routing = { forAccount: async (provider, accountId) => ({ command: `/bin/${provider}`, env: { ACCOUNT: accountId }, accountId }) };
+const noStore = { offFor: () => [], read: () => ({ everywhere: [] }) };
 const report = { name: "pencil", transport: "command", scope: "user", state: "connected", tools: 5, error: null };
 
-test("accounts lists Claude and Codex accounts, not Antigravity", async () => {
-  const mcp = createMcp({ accounts, routing, cwd: "/home" });
+test("accounts lists Claude, Codex and Antigravity accounts", async () => {
+  const mcp = createMcp({ store: noStore, accounts, routing, cwd: "/home" });
   assert.deepEqual(await mcp.accounts(), [
     { provider: "claude", accountId: "default", label: "me@example.test" },
     { provider: "claude", accountId: "work", label: "Work" },
     { provider: "codex", accountId: "default", label: "Connected CLI account" },
+    { provider: "antigravity", accountId: "default", label: "Default account" },
   ]);
 });
 
 test("accounts and check never inspect identities", async () => {
-  const mcp = createMcp({ accounts, routing, cwd: "/", checkers: { claude: async () => [] } });
+  const mcp = createMcp({ store: noStore, accounts, routing, cwd: "/", checkers: { claude: async () => [] } });
   await mcp.accounts();
   await mcp.check("claude", "default");
   assert.equal(listCalls, 0);
@@ -45,7 +47,7 @@ test("accounts and check never inspect identities", async () => {
 test("an unknown state still reaches the CLI check", async () => {
   const unknown = { snapshot: () => ({ providers: [{ provider: "codex", accounts: [{ id: "default", label: "CLI", state: "unknown" }] }] }) };
   let called = false;
-  const mcp = createMcp({ accounts: unknown, routing, cwd: "/", checkers: { codex: async () => ((called = true), []) } });
+  const mcp = createMcp({ store: noStore, accounts: unknown, routing, cwd: "/", checkers: { codex: async () => ((called = true), []) } });
   assert.equal((await mcp.check("codex", "default")).problem, null);
   assert.equal(called, true);
 });
@@ -53,8 +55,8 @@ test("an unknown state still reaches the CLI check", async () => {
 test("a hanging account or CLI lookup still ends at the cap", async () => {
   const hang = () => new Promise(() => {});
   for (const mcp of [
-    createMcp({ accounts: { snapshot: hang }, routing, cwd: "/", timeoutMs: 20 }),
-    createMcp({ accounts, routing: { forAccount: hang }, cwd: "/", timeoutMs: 20 }),
+    createMcp({ store: noStore, accounts: { snapshot: hang }, routing, cwd: "/", timeoutMs: 20 }),
+    createMcp({ store: noStore, accounts, routing: { forAccount: hang }, cwd: "/", timeoutMs: 20 }),
   ]) {
     const result = await mcp.check("claude", "default");
     assert.equal(result.problem, "Timed out after 30 s. Check the servers in a terminal.");
@@ -65,6 +67,7 @@ test("a hanging account or CLI lookup still ends at the cap", async () => {
 test("check runs the provider's checker with the account's command and environment", async () => {
   let seen = null;
   const mcp = createMcp({
+    store: noStore,
     accounts,
     routing,
     cwd: "/home",
@@ -90,7 +93,7 @@ test("check runs the provider's checker with the account's command and environme
 
 test("a signed-out account is not checked", async () => {
   let called = false;
-  const mcp = createMcp({ accounts, routing, cwd: "/", checkers: { claude: async () => ((called = true), []) } });
+  const mcp = createMcp({ store: noStore, accounts, routing, cwd: "/", checkers: { claude: async () => ((called = true), []) } });
   const result = await mcp.check("claude", "work");
   assert.equal(result.problem, "Not signed in. Sign in from Accounts.");
   assert.deepEqual(result.servers, []);
@@ -98,13 +101,14 @@ test("a signed-out account is not checked", async () => {
 });
 
 test("a missing CLI reports the CLI's problem", async () => {
-  const mcp = createMcp({ accounts, routing: { forAccount: async () => ({ command: null, problem: "Install Codex first." }) }, cwd: "/" });
+  const mcp = createMcp({ store: noStore, accounts, routing: { forAccount: async () => ({ command: null, problem: "Install Codex first." }) }, cwd: "/" });
   assert.equal((await mcp.check("codex", "default")).problem, "Install Codex first.");
 });
 
 test("a checker that never answers is cut off at the cap and told to stop", async () => {
   let signal = null;
   const mcp = createMcp({
+    store: noStore,
     accounts,
     routing,
     cwd: "/",
@@ -123,6 +127,7 @@ test("a checker that never answers is cut off at the cap and told to stop", asyn
 
 test("a checker that throws reports its message", async () => {
   const mcp = createMcp({
+    store: noStore,
     accounts,
     routing,
     cwd: "/",
@@ -136,14 +141,15 @@ test("a checker that throws reports its message", async () => {
 });
 
 test("an unknown account or provider is a problem, not a throw", async () => {
-  const mcp = createMcp({ accounts, routing, cwd: "/" });
+  const mcp = createMcp({ store: noStore, accounts, routing, cwd: "/" });
   assert.equal((await mcp.check("codex", "nope")).problem, "Account not found. Refresh and try again.");
-  assert.equal((await mcp.check("antigravity", "default")).problem, "Account not found. Refresh and try again.");
+  assert.equal((await mcp.check("antigravity", "nope")).problem, "Account not found. Refresh and try again.");
 });
 
 test("the checker gets a deadline 5 s inside the cap", async () => {
   let seen = null;
   const mcp = createMcp({
+    store: noStore,
     accounts,
     routing,
     cwd: "/",
@@ -160,6 +166,7 @@ test("the checker gets a deadline 5 s inside the cap", async () => {
 
 test("a checker that answers just under the cap keeps its server list", async () => {
   const mcp = createMcp({
+    store: noStore,
     accounts,
     routing,
     cwd: "/",
@@ -169,4 +176,148 @@ test("a checker that answers just under the cap keeps its server list", async ()
   const result = await mcp.check("claude", "default");
   assert.equal(result.problem, null);
   assert.deepEqual(result.servers, [report]);
+});
+
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { createMcpStore } = require("./store.cjs");
+
+function harness(t, overrides = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-mcp-index-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(
+    path.join(dir, ".claude.json"),
+    JSON.stringify({ mcpServers: { figma: { type: "http", url: "https://figma", headers: { Authorization: "Bearer s" } } } }),
+  );
+  const events = [];
+  const calls = [];
+  const store = createMcpStore(path.join(dir, "mcp.json"));
+  const mcp = createMcp({
+    accounts,
+    routing: { forAccount: async (provider, accountId) => ({ command: `/bin/${provider}`, env: {}, accountId }) },
+    cwd: "/",
+    home: dir,
+    store,
+    emit: (channel, payload) => events.push([channel, payload]),
+    openUrl: (url) => calls.push(["open", url]),
+    writers: {
+      claude: { add: async (o) => calls.push(["claude.add", o.def.name]), remove: async (o) => calls.push(["claude.remove", o.name]) },
+      codex: { add: async (o) => calls.push(["codex.add", o.def.name]), remove: async (o) => calls.push(["codex.remove", o.name]), read: async () => null },
+    },
+    ...overrides,
+  });
+  return { mcp, store, events, calls, dir };
+}
+const linear = { name: "linear", type: "http", url: "https://mcp.linear.app/mcp", headers: {} };
+
+test("saving Everywhere writes the store and announces it", async (t) => {
+  const { mcp, store, events } = harness(t);
+  await mcp.save(linear, "everywhere");
+  assert.deepEqual(store.read().everywhere, [linear]);
+  assert.deepEqual(events, [["mcp:changed", { name: "linear" }]]);
+});
+
+test("saving to Claude or Codex calls the default account's writer", async (t) => {
+  const { mcp, calls } = harness(t);
+  await mcp.save(linear, "claude");
+  await mcp.save(linear, "codex");
+  assert.deepEqual(calls, [
+    ["claude.add", "linear"],
+    ["codex.add", "linear"],
+  ]);
+});
+
+test("an edit removes the previous server first, and a masked header keeps its value", async (t) => {
+  const { mcp, calls } = harness(t);
+  const masked = await mcp.definition("figma", "claude");
+  assert.deepEqual(masked.headers, { Authorization: "••••••" });
+  let saved;
+  const { mcp: editing } = harness(t, {
+    writers: { claude: { add: async (o) => (saved = o.def), remove: async (o) => calls.push(["claude.remove", o.name]) }, codex: {} },
+  });
+  await editing.save({ ...masked, name: "figma2" }, "claude", { name: "figma", target: "claude" });
+  assert.deepEqual(saved.headers, { Authorization: "Bearer s" });
+  assert.deepEqual(calls.at(-1), ["claude.remove", "figma"]);
+});
+
+test("invalid servers and stdio over saveUrl are refused before any write", async (t) => {
+  const { mcp, calls } = harness(t);
+  await assert.rejects(mcp.save({ ...linear, name: "a b" }, "everywhere"), /letters, numbers/);
+  await assert.rejects(mcp.saveUrl({ name: "p", type: "stdio", command: "p", args: [], env: {} }, "everywhere"), /Add command servers on the Mac/);
+  assert.equal(calls.length, 0);
+});
+
+test("toggle writes the off list and check reports it", async (t) => {
+  const { mcp } = harness(t, { checkers: { claude: async () => [report] } });
+  await mcp.toggle("claude", "default", "pencil", false);
+  assert.equal((await mcp.check("claude", "default")).servers[0].state, "disabled");
+});
+
+test("forSession skips Everywhere names the provider already has and returns the off list", async (t) => {
+  const { mcp, store } = harness(t);
+  store.setEverywhere([linear, { ...linear, name: "figma" }]);
+  store.setOff("claude", "default", "pencil", true);
+  assert.deepEqual(await mcp.forSession("claude", "default"), { servers: [linear], off: ["pencil"] });
+});
+
+test("check marks a provider's own server that shadows an Everywhere one", async (t) => {
+  const { mcp, store } = harness(t, { checkers: { claude: async () => [{ ...report, name: "figma", transport: "url" }] } });
+  store.setEverywhere([{ ...linear, name: "figma" }]);
+  assert.equal((await mcp.check("claude", "default")).servers[0].shadowedBy, "claude");
+});
+
+test("antigravity lists Everywhere servers as unchecked or off", async (t) => {
+  const { mcp, store } = harness(t);
+  store.setEverywhere([linear]);
+  assert.ok((await mcp.accounts()).some((account) => account.provider === "antigravity"));
+  assert.deepEqual((await mcp.check("antigravity", "default")).servers, [
+    { name: "linear", transport: "url", scope: "everywhere", state: "unchecked", tools: 0, error: null, detail: "https://mcp.linear.app/mcp" },
+  ]);
+  await mcp.toggle("antigravity", "default", "linear", false);
+  assert.equal((await mcp.check("antigravity", "default")).servers[0].state, "disabled");
+});
+
+test("signIn runs each account in turn and announces each result", async (t) => {
+  const order = [];
+  const { mcp, events } = harness(t, {
+    signers: {
+      claude: async ({ name, openUrl }) => (order.push(`claude:${name}`), openUrl("https://a"), { ok: true }),
+      codex: async () => (order.push("codex"), { ok: false, error: "denied" }),
+    },
+  });
+  await mcp.signIn("linear", [
+    { provider: "claude", accountId: "default" },
+    { provider: "codex", accountId: "default" },
+  ]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(order, ["claude:linear", "codex"]);
+  assert.deepEqual(
+    events.map(([, payload]) => payload.signIn),
+    ["done", "failed"],
+  );
+  assert.deepEqual(
+    events.map(([, payload]) => payload.last),
+    [false, true],
+  );
+  assert.equal(events[1][1].error, "denied");
+});
+
+test("cancelSignIn aborts the running account and skips the rest", async (t) => {
+  let started = 0;
+  const { mcp, events } = harness(t, {
+    signers: {
+      claude: ({ signal }) => (started++, new Promise((resolve) => signal.addEventListener("abort", () => resolve({ cancelled: true })))),
+      codex: async () => (started++, { ok: true }),
+    },
+  });
+  const running = mcp.signIn("linear", [
+    { provider: "claude", accountId: "default" },
+    { provider: "codex", accountId: "default" },
+  ]);
+  mcp.cancelSignIn("linear");
+  await running;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(started, 1);
+  assert.equal(events.at(-1)[1].signIn, "cancelled");
 });
