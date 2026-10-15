@@ -207,6 +207,10 @@ async function browserChecks() {
     // Paused halfway through, once the heading's operation is whole: two operations applied, the cursor on the heading.
     const applyText = JSON.stringify(applyInput);
     const half = applyText.indexOf('{"op":"insert"');
+    // A design_apply changes a design the canvas has: no placeholder frame for a new one shows, even before its id.
+    await evaluate(
+      `window.sawDraft = false; window.draftWatch = new MutationObserver(() => { window.sawDraft ||= !!${draft}; }); window.draftWatch.observe(document.body, { childList: true, subtree: true }); true`,
+    );
     await evaluate(
       `window.paused = false; window.resumed = false; window.applied = window.stream("toolu_apply", "design_apply", ${JSON.stringify(applyText)}, { size: 40, every: 60, pauseAt: ${half} }); true`,
     );
@@ -228,6 +232,7 @@ async function browserChecks() {
     await waitFor(`${frame("login")}.dataset.version === "2" && !${live("login")}`);
     await delay(500);
     assert.equal(await evaluate(`!!${live("login")}`), false, "a version a draft showed being written doesn't replay");
+    assert.equal(await evaluate("window.draftWatch.disconnect(), window.sawDraft"), false, "a design_apply draft never shows a new design's frame");
     await screenshot("2-apply-settled");
 
     // 2. Claude shows a new design: a placeholder frame builds it, then hands over to the new frame.

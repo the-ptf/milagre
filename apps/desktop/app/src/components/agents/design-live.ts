@@ -20,6 +20,8 @@ import { DESIGN_SAVED, type DesignSaved } from "./DesignEditor";
 export type LiveDesign = {
   key: string;
   kind: "draft" | "replay";
+  /** A draft's tool: a design_apply draft changes a design the canvas has, never a new one. */
+  tool?: "design_show" | "design_apply";
   /** The design worked on, once known: a new design_show names its id only at the end, or not at all. */
   designId: string | null;
   title: string | null;
@@ -151,7 +153,7 @@ function receive(chatId: string, event: AgentEventUpdate["event"]) {
     let draft = chat.drafts.get(event.id);
     if (!draft && event.offset === 0) {
       draft = {
-        live: { key: event.id, kind: "draft", designId: null, title: null, group: null, document: null, changed: [], status: "writing" },
+        live: { key: event.id, kind: "draft", tool: event.tool, designId: null, title: null, group: null, document: null, changed: [], status: "writing" },
         tool: event.tool,
         input: "",
         reader: createDesignDraft(event.tool),

@@ -253,8 +253,10 @@ export function LiveDraftFrames({
   const { designs: lives, agent } = useLiveDesigns(chatId);
   const known = new Set(designs.map((design) => design.id));
   const drafts = lives.filter((live) => {
-    if (live.kind !== "draft") return false;
-    const shown = live.status === "writing" ? !live.designId || !known.has(live.designId) : live.version === 1;
+    if (live.kind !== "draft" || live.tool === "design_apply") return false;
+    // A design_show draft gets its frame once its document starts, after the id, title and group the agent writes
+    // first: before, it would show up outside its group's row and jump into it.
+    const shown = live.status === "writing" ? !!live.document && (!live.designId || !known.has(live.designId)) : live.version === 1;
     if (!shown) return false;
     const row = live.group?.trim() || null;
     return orphans ? !orphans.includes(row) : row === (group ?? null);
