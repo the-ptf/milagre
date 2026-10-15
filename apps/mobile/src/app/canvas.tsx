@@ -266,6 +266,8 @@ function Card({ worktree, now, onOpen }: { worktree: CanvasWorktree & { rows: Ro
   const { colors } = useTheme();
   const attention = canvasAttention(worktree.rows);
   const single = worktree.rows.length === 1;
+  // Second lines start under the titles, past the status mark and, when a chat has one, its provider logo.
+  const indent = worktree.rows.some((row) => row.provider) ? 51 : 26;
   return (
     <View
       style={{
@@ -294,12 +296,13 @@ function Card({ worktree, now, onOpen }: { worktree: CanvasWorktree & { rows: Ro
                 <View style={{ width: 16, alignItems: "center" }}>
                   <ChatMarkIcon mark={mark} />
                 </View>
+                {row.provider && <ProviderLogo provider={row.provider} size={15} />}
                 <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 16, fontWeight: "600" }}>
                   {row.title}
                 </Text>
                 <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
               </View>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 26 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: row.provider ? 51 : 26 }}>
                 <Text numberOfLines={1} style={{ color: toneColor(colors, status.tone), fontSize: 13, fontWeight: "500", flexShrink: 0 }}>
                   {status.label}
                 </Text>
@@ -310,14 +313,13 @@ function Card({ worktree, now, onOpen }: { worktree: CanvasWorktree & { rows: Ro
                 )}
                 <View style={{ flex: 1 }} />
                 {single && <Diff diff={worktree.diff} />}
-                {row.provider && <ProviderLogo provider={row.provider} size={13} />}
               </View>
             </Pressable>
           </View>
         );
       })}
       {!single && (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 26, paddingBottom: 10 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: indent, paddingBottom: 10 }}>
           <Icon icon={GitBranchIcon} tone="ink3" size={13} />
           <Text numberOfLines={1} style={{ flex: 1, color: colors.ink2, fontSize: 12 }}>
             {worktree.branch}
@@ -326,7 +328,7 @@ function Card({ worktree, now, onOpen }: { worktree: CanvasWorktree & { rows: Ro
         </View>
       )}
       {worktree.linked.length > 0 && (
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, paddingLeft: 26, paddingBottom: 10 }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, paddingLeft: indent, paddingBottom: 10 }}>
           {worktree.linked.map((label) => (
             <LinkChip key={label} label={label} wide />
           ))}
