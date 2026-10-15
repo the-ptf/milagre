@@ -31,6 +31,7 @@ export const SHEETS_OVER_CHAT = new Set([
   "choice-sheet",
   "chime-sheet",
   "add-computer",
+  "mcp-add",
   "link-projects",
   "link-chat",
   "choose-projects",

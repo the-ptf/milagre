@@ -1,157 +1,189 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
-import { RefreshIcon } from "@hugeicons/core-free-icons";
-import { groupMcpRows, mcpStateCopy, mcpSummary, type McpAccount, type McpAccountCheck, type McpChip, type McpRow } from "@milagre/shared/mcp";
+import { Children, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { router } from "expo-router";
+import { Alert02Icon, ArrowDown01Icon, ArrowRight01Icon, Key01Icon } from "@hugeicons/core-free-icons";
+import { mcpSourceRank, mcpSummary, mcpTransportLine, type McpRow } from "@milagre/shared/mcp";
 import { providerName } from "@milagre/shared/providers";
 import { useSession } from "./session";
-import { Icon, ProviderLogo } from "./icons";
+import { Icon } from "./icons";
+import { useMcp } from "./use-mcp";
 import { useStyles } from "./ui";
 import { useTheme } from "./theme";
 
-const keyOf = (account: McpAccount) => `${account.provider}:${account.accountId}`;
-type Entry = { account: McpAccount; check: McpAccountCheck | null };
+const openServer = (row: McpRow) => router.push({ pathname: "/mcp-server", params: { name: row.name } });
 
 /** Settings › MCP for the connected Mac: every account's servers, checked now. */
 export function McpSection() {
-  const session = useSession();
-  return <McpForComputer key={session.client?.url || "disconnected"} />;
-}
-
-function McpForComputer() {
   const styles = useStyles();
   const { colors } = useTheme();
-  const client = useSession().client;
-  const [entries, setEntries] = useState<Entry[] | null>(null);
-  const [error, setError] = useState("");
-  const run = useRef(0);
-  const refresh = useCallback(async () => {
-    if (!client) return;
-    const id = ++run.current;
-    let accounts: McpAccount[];
-    try {
-      accounts = await client.call<McpAccount[]>("mcp:accounts", []);
-    } catch (cause) {
-      // The demo computer (or an older Mac) refuses the method with a 403; anything else is a lost connection.
-      if (id === run.current)
-        setError(
-          (cause as { status?: number }).status === 403
-            ? "Not available on this computer. Update Milagre on the Mac, then refresh."
-            : "Could not reach the computer. Check the connection, then refresh.",
-        );
-      return;
-    }
-    if (id !== run.current) return;
-    setError("");
-    setEntries(accounts.map((account) => ({ account, check: null })));
-    // Every account at once; each fills in as it answers.
-    await Promise.all(
-      accounts.map(async (account) => {
-        const check = await client
-          .call<McpAccountCheck>("mcp:check", [account.provider, account.accountId])
-          .catch((): McpAccountCheck => ({ ...account, problem: "Could not check. Check the computer connection, then refresh.", servers: [] }));
-        if (id !== run.current) return;
-        setEntries((current) => current?.map((entry) => (keyOf(entry.account) === keyOf(account) ? { ...entry, check } : entry)) ?? null);
-      }),
-    );
-  }, [client]);
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  const checks = (entries ?? []).flatMap((entry) => (entry.check ? [entry.check] : []));
-  const { user, other } = groupMcpRows(checks);
-  const pending = (entries ?? []).filter((entry) => !entry.check).map((entry) => entry.account);
-  const problems = checks.filter((check) => check.problem);
-  const listing = entries === null && !error;
-  const checking = listing || pending.length > 0;
+  const { client, hostName } = useSession();
+  const mcp = useMcp();
+  const [open, setOpen] = useState(false);
+  const { attention, user, other } = mcp.groups;
+  // Sign-in rows from a project or plugin sit with their source; the top list is for the servers you add yourself.
+  const signIn = attention.filter((row) => !row.source);
+  const groups = new Map<string, McpRow[]>();
+  for (const group of other) groups.set(group.source, [...group.rows]);
+  for (const row of attention) if (row.source) groups.set(row.source, [...(groups.get(row.source) ?? []), row]);
+  const sources = [...groups]
+    .map(([source, rows]) => ({ source, rows: rows.toSorted((a, b) => a.name.localeCompare(b.name)) }))
+    .toSorted((a, b) => mcpSourceRank(a.source) - mcpSourceRank(b.source) || a.source.localeCompare(b.source));
+  const outside = sources.reduce((total, group) => total + group.rows.length, 0);
+  const empty = !!mcp.entries && !mcp.checking && !signIn.length && !user.length && !outside && !mcp.problems.length;
 
   return (
     <View style={{ gap: 16 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingHorizontal: 4 }}>
-        <Text style={[styles.muted, { flexShrink: 1 }]}>{listing ? "Checking accounts…" : "The MCP servers each account loads in its Chats."}</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel="Refresh" disabled={checking} onPress={() => void refresh()} hitSlop={10}>
-          <Icon icon={RefreshIcon} tone={checking ? "ink3" : "ink"} size={20} />
-        </Pressable>
+      <View style={{ gap: 6, paddingHorizontal: 4 }}>
+        <Text accessibilityRole="header" style={styles.title}>
+          MCP
+        </Text>
+        <Text style={styles.muted}>
+          {client
+            ? `Servers Chats load on ${hostName || "this computer"}. ${mcp.checking ? "Checking…" : "Checked just now."}`
+            : "Connect to a computer to see its MCP servers."}
+        </Text>
       </View>
-      {error ? (
+      {mcp.error ? (
         <Text accessibilityRole="alert" selectable style={[styles.text, { color: colors.error }]}>
-          {error}
+          {mcp.error}
         </Text>
       ) : null}
-      {problems.map((check) => (
-        <Text key={keyOf(check)} style={styles.muted}>
+      {mcp.problems.map((check) => (
+        <Text key={`${check.provider}:${check.accountId}`} style={styles.muted}>
           {providerName(check.provider)} · {check.label}: {check.problem}
         </Text>
       ))}
-      <Rows rows={user} pending={pending} />
-      {other.length ? (
-        <View style={{ gap: 8 }}>
-          <Text accessibilityRole="header" style={[styles.text, { fontWeight: "600", paddingHorizontal: 4 }]}>
-            From projects and plugins ({other.length})
-          </Text>
-          <Text style={[styles.muted, { paddingHorizontal: 4 }]}>Set up in a project, a plugin or claude.ai. Change them there.</Text>
-          <Rows rows={other} pending={[]} />
+      {signIn.length ? (
+        <Group title="Needs sign-in">
+          {signIn.map((row) => (
+            <View key={row.name} style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 60, paddingVertical: 10 }}>
+              <View
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 9,
+                  borderCurve: "continuous",
+                  backgroundColor: colors.orangeTint,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Icon icon={Key01Icon} tone="orange" size={18} />
+              </View>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text numberOfLines={1} style={[styles.text, { fontWeight: "500" }]}>
+                  {row.name}
+                </Text>
+                <Text numberOfLines={1} style={styles.caption}>
+                  {mcpTransportLine(row)}
+                </Text>
+              </View>
+              <Text style={[styles.caption, { fontSize: 13 }]}>On the Mac</Text>
+            </View>
+          ))}
+        </Group>
+      ) : null}
+      {user.length ? (
+        <Group title="Your servers">
+          {user.map((row) => (
+            <ServerRow key={row.name} row={row} />
+          ))}
+        </Group>
+      ) : null}
+      {outside ? (
+        <View style={{ gap: 10 }}>
+          <View style={cardStyle(colors)}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Projects and plugins, ${outside}`}
+              accessibilityState={{ expanded: open }}
+              onPress={() => setOpen(!open)}
+              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 56, opacity: pressed ? 0.5 : 1 })}
+            >
+              <Text style={[styles.text, { flex: 1, fontWeight: "500" }]}>Projects and plugins</Text>
+              <Text style={[styles.muted, { fontSize: 17 }]}>{outside}</Text>
+              <Icon icon={open ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={16} />
+            </Pressable>
+          </View>
+          {open ? (
+            <>
+              <Text style={[styles.caption, { paddingHorizontal: 4 }]}>Set up in a project, a plugin or claude.ai. Change them there.</Text>
+              {sources.map((group) => (
+                <Group key={group.source} title={group.source}>
+                  {group.rows.map((row) => (
+                    <ServerRow key={row.name} row={row} compact />
+                  ))}
+                </Group>
+              ))}
+            </>
+          ) : null}
         </View>
       ) : null}
-      {entries && !checking && !user.length && !other.length && !problems.length ? (
-        <Text style={styles.muted}>No MCP servers yet. Add one with the Claude or Codex CLI on the Mac.</Text>
-      ) : null}
+      {empty ? <Text style={styles.muted}>No MCP servers yet. Tap + to add one, or use the Claude or Codex CLI on the Mac.</Text> : null}
     </View>
   );
 }
 
-function Rows({ rows, pending }: { rows: McpRow[]; pending: McpAccount[] }) {
-  const { colors } = useTheme();
-  if (!rows.length && !pending.length) return null;
-  const pendingChips = pending.map((account) => (
-    <ChipView key={keyOf(account)} chip={{ ...account, scope: "user", state: "pending", tools: 0, error: null }} />
-  ));
-  return (
-    <View
-      style={{ backgroundColor: colors.surface, borderRadius: 14, borderCurve: "continuous", overflow: "hidden", borderWidth: 1, borderColor: colors.line }}
-    >
-      {rows.map((row, index) => (
-        <RowView key={row.name} row={row} first={index === 0} pending={pendingChips} />
-      ))}
-      {!rows.length ? <View style={{ padding: 14, gap: 8 }}>{pendingChips}</View> : null}
-    </View>
-  );
-}
+const cardStyle = (colors: ReturnType<typeof useTheme>["colors"]) =>
+  ({
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    borderCurve: "continuous",
+    overflow: "hidden",
+    paddingHorizontal: 16,
+  }) as const;
 
-function RowView({ row, first, pending }: { row: McpRow; first: boolean; pending: React.ReactNode }) {
+/** A small caps header over a grouped card; rows are separated by hairlines. */
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const transport = row.transport === "command" ? "Command" : row.transport === "url" ? "URL" : "claude.ai";
   return (
-    <View style={{ borderTopWidth: first ? 0 : 1, borderColor: colors.line, padding: 14, gap: 8 }}>
-      <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
-        <Text style={[styles.text, { fontWeight: "600", flexShrink: 1 }]} numberOfLines={1}>
+    <View style={{ gap: 8 }}>
+      <Text accessibilityRole="header" style={[styles.section, { paddingHorizontal: 4 }]}>
+        {title}
+      </Text>
+      <View style={cardStyle(colors)}>
+        {Children.toArray(children).map((child, index) => (
+          <View key={(child as { key?: string }).key ?? String(index)}>
+            {index > 0 ? <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.line }} /> : null}
+            {child}
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function ServerRow({ row, compact = false }: { row: McpRow; compact?: boolean }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const failed = row.chips.find((chip) => chip.state === "failed");
+  const kind = row.everywhere ? "Everywhere" : row.transport === "command" ? "Command" : row.transport === "url" ? "URL" : "claude.ai";
+  const line = failed ? `${providerName(failed.provider)} failed · ${mcpSummary(row)}` : `${kind} · ${mcpSummary(row)}`;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${row.name}. ${line}`}
+      onPress={() => openServer(row)}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        minHeight: compact ? 52 : 60,
+        paddingVertical: 10,
+        opacity: pressed ? 0.5 : 1,
+      })}
+    >
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text numberOfLines={1} style={[styles.text, { fontWeight: "500" }]}>
           {row.name}
         </Text>
-        <Text style={[styles.muted, { flexShrink: 1, fontSize: 13 }]} numberOfLines={1}>
-          {transport} · {mcpSummary(row)}
+        <Text numberOfLines={1} style={[styles.caption, { fontSize: 13 }, failed ? { color: colors.red } : null]}>
+          {line}
         </Text>
       </View>
-      {row.chips.map((chip) => (
-        <ChipView key={keyOf(chip)} chip={chip} />
-      ))}
-      {first ? pending : null}
-    </View>
-  );
-}
-
-function ChipView({ chip }: { chip: McpChip }) {
-  const styles = useStyles();
-  const { colors } = useTheme();
-  const dot = chip.state === "connected" ? colors.green : chip.state === "failed" ? colors.red : chip.state === "needs-sign-in" ? colors.orange : colors.ink3;
-  const detail = chip.error ?? (chip.state === "connected" ? `${chip.tools} tools` : mcpStateCopy(chip.state));
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-      <ProviderLogo provider={chip.provider} size={14} />
-      <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: dot }} />
-      <Text style={[styles.muted, { flexShrink: 1, fontSize: 13 }]} numberOfLines={2} selectable>
-        {chip.label} · {detail}
-      </Text>
-    </View>
+      {failed ? <Icon icon={Alert02Icon} tone="red" size={20} /> : null}
+      <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
+    </Pressable>
   );
 }

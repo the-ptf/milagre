@@ -210,10 +210,23 @@ export function PillButton({
     </Pressable>
   );
 }
-export function Toggle({ title, selected, onPress, disabled = false }: { title: string; selected: boolean; onPress: () => void; disabled?: boolean }) {
+export function Toggle({
+  title,
+  selected,
+  onPress,
+  disabled = false,
+  tint: seed,
+}: {
+  title: string;
+  selected: boolean;
+  onPress: () => void;
+  disabled?: boolean;
+  /** The switch's on color; green unless a screen asks for another (the MCP screens use ink). */
+  tint?: ColorValue;
+}) {
   const { colors } = useTheme();
   return (
-    <Host ignoreSafeArea="all" matchContents={{ vertical: true }} style={{ minHeight: 44 }} seedColor={colors.green as string}>
+    <Host ignoreSafeArea="all" matchContents={{ vertical: true }} style={{ minHeight: 44 }} seedColor={(seed ?? colors.green) as string}>
       <Switch label={title} value={selected} disabled={disabled} onValueChange={onPress} />
     </Host>
   );

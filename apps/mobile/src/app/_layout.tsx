@@ -74,6 +74,8 @@ export default function Layout() {
                       <Stack.Screen name="usage" options={{ title: "Plan usage" }} />
                       <Stack.Screen name="skills" options={{ title: "Skills" }} />
                       <Stack.Screen name="mcp" options={{ title: "MCP" }} />
+                      <Stack.Screen name="mcp-server" />
+                      <Stack.Screen name="mcp-add" options={{ ...sheet, title: "Add MCP server", sheetAllowedDetents: [1] }} />
                       <Stack.Screen name="local-mcp" options={{ title: "Milagre MCP" }} />
                       <Stack.Screen name="experimental" options={{ title: "Experimental" }} />
                       <Stack.Screen name="chime-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
