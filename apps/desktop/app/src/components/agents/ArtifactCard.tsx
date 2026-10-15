@@ -36,7 +36,7 @@ import { DESIGN_DELETED, DESIGN_SAVED, type DesignDeleted, type DesignSaved } fr
 import { DesignPageShareDialog } from "./DesignPageShareDialog";
 import { ZoomBar } from "../primitives/ZoomBar";
 import { COMMENT_KEY, useCommentKey } from "./comment-key";
-import { useLiveDesignFeed } from "./design-live";
+import { useDesignWorkActive, useDesignWorkStarted, useLiveDesignFeed } from "./design-live";
 
 /** Whether the element is laid out: false while an ancestor hides it (the diff, settings or canvas in place of the chat). */
 function useShown() {
@@ -58,8 +58,8 @@ type ArtifactsValue = {
   /** The newest version of each design the Chat's replies showed, by id, in the order they were first shown. */
   latest: Map<string, ArtifactRef>;
   open: (ref: ArtifactRef) => void;
-  /** Opens the canvas framing these designs together. */
-  openAll: (refs: ArtifactRef[]) => void;
+  /** Opens the canvas framing these designs together; `kind` when there may be none yet. */
+  openAll: (refs: ArtifactRef[], kind?: "designs" | "artifacts") => void;
   /** Opens the canvas on a sent comment, its bubble open: `key` is "<message id>:<comment index>". */
   openComment: (key: string) => void;
   /** The agent's notes on the comments it resolved, by comment id. */
@@ -423,6 +423,7 @@ export function ArtifactsProvider({
   userMessages,
   onSend,
   agent = "Agent",
+  followAgent = false,
   children,
 }: {
   chatId: string | null;
@@ -431,11 +432,15 @@ export function ArtifactsProvider({
   onSend?: (text: string) => Promise<boolean>;
   /** The Chat's agent, by name, for its cursor on the canvas. */
   agent?: string;
+  /** The Chat this window shows (not a grid tile): its Designs open each time the agent starts designing. */
+  followAgent?: boolean;
   children: React.ReactNode;
 }) {
   const { enabled } = useDesignsEnabled(chatId);
   // The agent's design drafts, while its replies are on screen: the canvas shows them being written.
   useLiveDesignFeed(enabled ? chatId : null, agent);
+  // Before the Chat has a design, the canvas opens for the one the agent is writing.
+  const designing = useDesignWorkActive(enabled ? chatId : null);
   const fromSteps = useMemo(() => latestArtifacts(steps), [steps]);
   // The catalog is read again when the replies show a new version, or the agent deleted a design.
   const deletes = steps.filter((step) => step.status === "done" && /\bdesign_delete\b/.test(step.title)).length;
@@ -610,10 +615,10 @@ export function ArtifactsProvider({
         }));
       },
       resolutions,
-      openAll: (refs) =>
+      openAll: (refs, kind) =>
         setOpenedIn((current) => ({
           chatId,
-          kind: refs[0]?.format === "design" ? "designs" : "artifacts",
+          kind: kind ?? (refs[0]?.format === "design" ? "designs" : "artifacts"),
           focus: { id: null, nonce: (current?.focus.nonce ?? 0) + 1 },
           versions: {
             ...(current?.chatId === chatId ? current.versions : {}),
@@ -625,18 +630,21 @@ export function ArtifactsProvider({
   );
   const designRefs = [...latest.values()].filter((ref) => ref.format === "design");
   const artifactRefs = [...latest.values()].filter((ref) => ref.format === "html");
-  // Deleting the last design leaves nothing to show.
+  // Deleting the last design leaves nothing to show, unless the agent is writing one.
   useEffect(() => {
-    if (opened?.kind === "designs" && !designRefs.length) setOpenedIn(null);
-  }, [opened?.kind, designRefs.length]);
+    if (opened?.kind === "designs" && !designRefs.length && !designing) setOpenedIn(null);
+  }, [opened?.kind, designRefs.length, designing]);
   // The saved catalog owns the one current HTML page; older transcript refs still open it.
   const currentHtml = (savedDesigns.chatId === chatId ? savedDesigns.refs : []).find((ref) => ref.format === "html") ?? artifactRefs.at(-1);
   const togglePanel = (kind: "designs" | "artifacts") => {
     if (document.querySelector("[data-slot=design-editor]")) return;
     if (opened?.kind === kind) setOpenedIn(null);
-    else value.openAll(kind === "designs" ? designRefs : currentHtml ? [currentHtml] : []);
+    else value.openAll(kind === "designs" ? designRefs : currentHtml ? [currentHtml] : [], kind);
   };
-  useSidePanel("designs", enabled && chatId && designRefs.length ? { open: opened?.kind === "designs", toggle: () => togglePanel("designs") } : null);
+  useSidePanel(
+    "designs",
+    enabled && chatId && (designRefs.length || designing) ? { open: opened?.kind === "designs", toggle: () => togglePanel("designs") } : null,
+  );
   useSidePanel("artifacts", chatId && artifactRefs.length ? { open: opened?.kind === "artifacts", toggle: () => togglePanel("artifacts") } : null);
   const onVersion = useCallback(
     (id: string, version: number | null) =>
@@ -651,6 +659,23 @@ export function ArtifactsProvider({
   );
   // The canvas belongs to the chat: while something else takes the chat's place, it steps aside and comes back with it.
   const [anchor, chatShown] = useShown();
+  // Each time the agent starts designing, the Designs open beside the Chat this window shows, even after the user
+  // closed them, so they watch it build. Not over the design editor, and the composer keeps the focus.
+  const shownRef = useRef(chatShown);
+  shownRef.current = chatShown;
+  useDesignWorkStarted(followAgent && enabled ? chatId : null, () => {
+    if (!shownRef.current || document.querySelector("[data-slot=design-editor]")) return;
+    setOpenedIn((current) =>
+      current?.chatId === chatId && current.kind === "designs"
+        ? current
+        : {
+            chatId,
+            kind: "designs",
+            focus: { id: null, nonce: (current?.focus.nonce ?? 0) + 1 },
+            versions: current?.chatId === chatId ? current.versions : {},
+          },
+    );
+  });
   const closeDesigns = useCallback(() => {
     if (!document.querySelector("[data-slot=design-editor]")) setOpenedIn(null);
   }, []);

@@ -3,7 +3,9 @@
 // it touched last, then hands over to the saved version without a replay; a design_show of a new design builds on a
 // placeholder frame that hands over to the new frame; and a new version from an agent that doesn't stream its input
 // (Codex) plays back layer by layer over the frame, which holds the old version until it settles on the new one.
-// Set MILAGRE_SCREENSHOT_DIR to keep screenshots.
+// In a Chat with no design yet, the Designs open by themselves when the agent starts designing, without taking the
+// composer's focus, and open again for each later design call after the user closed them; a dock opened mid-call
+// still shows the whole draft. Set MILAGRE_SCREENSHOT_DIR to keep screenshots.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
@@ -98,6 +100,8 @@ const v3 = applyDesignOperations(v2, [
 const logins = { 1: v1, 2: v2, 3: v3 };
 const home = ${JSON.stringify(home)};
 const chatId = "milagre-link:fixture#1";
+// ?fresh: a Chat with no design yet.
+const fresh = new URLSearchParams(location.search).has("fresh");
 window.latest = 1;
 window.homeShown = false;
 window.listeners = [];
@@ -109,7 +113,7 @@ window.milagre = {
   artifacts: {
     sharingStatus: async () => ({ available: false }),
     list: async () => [
-      { id: "login", version: window.latest, title: "Login", format: "design", versions: window.latest, width: 1280, height: 800 },
+      ...(fresh ? [] : [{ id: "login", version: window.latest, title: "Login", format: "design", versions: window.latest, width: 1280, height: 800 }]),
       ...(window.homeShown ? [{ id: "home", version: 1, title: "Home", format: "design", versions: 1, width: 390, height: 844 }] : []),
     ],
     comments: async () => [],
@@ -146,7 +150,7 @@ function Fixture() {
   window.setProvider = setProvider;
   const messages = [
     { id: 1, session_id: 1, context: null, role: "user", body: "design a login screen" },
-    { id: 2, session_id: 1, context: null, role: "assistant", body: "Here is a first pass.", steps: [step("s1", { id: "login", version: 1, title: "Login" })] },
+    ...(fresh ? [] : [{ id: 2, session_id: 1, context: null, role: "assistant", body: "Here is a first pass.", steps: [step("s1", { id: "login", version: 1, title: "Login" })] }]),
     ...replies,
   ];
   return <div style={{ display: "flex", height: "100%" }}><main data-workspace-main style={{ display: "flex", flex: 1, minWidth: 0, height: "100%" }}><div data-chat-pane style={{ flex: 1, minWidth: 0, height: "100%", padding: 12 }}>
@@ -268,8 +272,66 @@ async function browserChecks() {
     await screenshot("5-replay-mid", 250);
     await waitFor(`${frame("login")}.dataset.version === "3" && !${live("login")}`, 400);
     await screenshot("6-replay-settled");
+
+    // 4. A Chat with no design yet: the first design_show opens the Designs by itself, and the composer keeps the focus.
+    await window.loadURL(`${process.argv[2]}?fresh`);
+    const prompt = 'document.querySelector("textarea[aria-label=Prompt]")';
+    await waitFor(`!!${prompt}`);
+    await evaluate(`${prompt}.focus(); true`);
+    assert.equal(await evaluate(`!!${dock}`), false, "a Chat with no design has no Designs open");
+    await evaluate(
+      `window.paused = false; window.resumed = false; window.shown = window.stream("toolu_first", "design_show", ${JSON.stringify(showText)}, { size: 60, every: 50, pauseAt: ${showText.indexOf('"id":"habit-2"')} }); true`,
+    );
+    await waitFor(`!!${dock}`);
+    // Before the document starts, the empty canvas says the agent is at work.
+    await waitFor(`!!${draft} || /Claude is designing/.test(${dock}.querySelector("[data-slot=artifact-canvas-waiting]")?.textContent ?? "")`);
+    await waitFor(`window.paused && +(${draft}?.querySelector("[data-slot=live-design-frame]")?.dataset.layers ?? 0) >= 4`);
+    assert.equal(await evaluate(`document.activeElement === ${prompt}`), true, "opening the Designs leaves the focus in the composer");
+    assert.equal(await evaluate(`!!${dock}.querySelector("[data-slot=artifact-canvas-waiting]")`), false, "the placeholder frame replaces the waiting note");
+    await screenshot("7-fresh-opened-mid-build");
+    await evaluate("window.resumed = true; window.paused = false");
+    await evaluate("window.shown");
+    await evaluate(
+      `window.homeShown = true; window.emit({ type: "step-completed", id: "toolu_first", status: "done", artifact: { id: "home", version: 1, title: "Home", format: "design" } }); window.reply("A home screen.", [window.step("toolu_first", { id: "home", version: 1, title: "Home" })]); window.emit({ type: "turn-completed" })`,
+    );
+    await waitFor(`!!${frame("home")}?.querySelector("[data-design-body] iframe") && !${draft}`);
+    await screenshot("8-fresh-settled");
+
+    // 5. Closed by the user, the Designs open again for the next design call. Closed and opened again mid-call, the
+    // canvas still shows everything written so far.
+    const close = () => evaluate(`${dock}.querySelector("[aria-label='Close designs']").click()`);
+    await close();
+    await waitFor(`!${dock}`);
+    const profileText = JSON.stringify({ ...showInput, title: "Profile", id: "profile" });
+    await evaluate(
+      `window.paused = false; window.resumed = false; window.profile = window.stream("toolu_second", "design_show", ${JSON.stringify(profileText)}, { size: 60, every: 50, pauseAt: ${profileText.indexOf('"id":"habit-2"')} }); true`,
+    );
+    await waitFor(`!!${dock} && window.paused && +(${draft}?.querySelector("[data-slot=live-design-frame]")?.dataset.layers ?? 0) >= 4`);
+    const layers = await evaluate(`${draft}.querySelector("[data-slot=live-design-frame]").dataset.layers`);
+    await close();
+    await waitFor(`!${dock}`);
+    await evaluate('[...document.querySelectorAll("[data-slot=artifact-card] button")].find((b) => b.textContent === "Open").click()');
+    await waitFor(`+(${draft}?.querySelector("[data-slot=live-design-frame]")?.dataset.layers ?? 0) >= ${layers}`);
+    await screenshot("9-reopened-mid-call");
+    await evaluate("window.resumed = true; window.paused = false");
+    await evaluate("window.profile");
+    await evaluate('window.emit({ type: "turn-cancelled" })');
+    await waitFor(`!${draft}`);
+
+    // 6. An agent that doesn't stream its input (Codex): its design call opens the Designs as it starts; an artifact
+    // page's call doesn't.
+    await evaluate('window.setProvider("codex")');
+    await close();
+    await waitFor(`!${dock}`);
+    await evaluate('window.emit({ type: "step-started", step: { id: "c-page", kind: "artifact", title: "Showed `Notes`", tool: "artifact_show" } })');
+    await delay(400);
+    assert.equal(await evaluate(`!!${dock}`), false, "an artifact page's call doesn't open the Designs");
+    await evaluate('window.emit({ type: "step-started", step: { id: "c-design", kind: "artifact", title: "Edited `a design`", tool: "design_apply" } })');
+    await waitFor(`!!${dock}`);
+    assert.equal(await evaluate(`document.activeElement === ${prompt}`), true, "the composer keeps the focus");
+    await evaluate('window.emit({ type: "step-completed", id: "c-design", status: "failed" }); window.emit({ type: "turn-completed" })');
     console.log(
-      "PASS: Claude's streamed design_apply builds over the frame with its cursor and hands over without a replay; a streamed design_show builds on a placeholder that hands over to the new frame; a Codex version plays back over the held frame and settles on the new one",
+      "PASS: Claude's streamed design_apply builds over the frame with its cursor and hands over without a replay; a streamed design_show builds on a placeholder that hands over to the new frame; a Codex version plays back over the held frame and settles on the new one; the Designs open by themselves for each design call, in a Chat with no design too, keep the composer's focus and show a draft begun before they opened",
     );
     app.exit(0);
   } catch (error) {
@@ -296,7 +358,7 @@ async function main() {
         },
         configureServer(server) {
           server.middlewares.use(async (request, response, next) => {
-            if (request.url !== "/__design_live__") return next();
+            if (request.url.split("?")[0] !== "/__design_live__") return next();
             const html = await server.transformIndexHtml(
               request.url,
               '<html><body><div id="root"></div><script type="module" src="/__design_live_fixture.tsx"></script></body></html>',

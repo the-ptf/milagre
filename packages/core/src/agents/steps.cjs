@@ -57,7 +57,8 @@ function blocksText(content) {
 const isArtifactTool = (server, tool) => server === "milagre" && ["design_show", "design_apply", "artifact_show"].includes(tool);
 const artifactTitle = (title, tool) =>
   `${tool === "design_apply" ? "Edited" : "Showed"} ${code(title || (tool === "artifact_show" ? "an artifact" : "a design"))}`;
-const artifactStep = (step, title, tool) => step("artifact", artifactTitle(title, tool));
+// The step names its tool: the Designs canvas opens when a design tool starts, not for an artifact page.
+const artifactStep = (step, title, tool) => ({ ...step("artifact", artifactTitle(title, tool)), tool });
 // Resolving a comment the user left on a design reads as that, not as a tool call.
 const isResolveTool = (server, tool) => server === "milagre" && tool === "artifact_resolve_comment";
 

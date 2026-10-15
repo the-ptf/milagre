@@ -4,7 +4,7 @@ import { ARTIFACT_CSP, artifactDocument } from "@milagre/shared/artifact";
 import { designLiveParts, type DesignDocument } from "@milagre/shared/design";
 import type { ArtifactRef } from "../../model";
 import { AgentCursor } from "./AgentCursor";
-import { finishLiveDesign, useLiveDesigns, type LiveDesign } from "./design-live";
+import { finishLiveDesign, useDraftFrameShown, useLiveDesigns, type LiveDesign } from "./design-live";
 
 // The live frame's page: an empty design root and a receiver that swaps the design in place from the canvas's
 // messages, fading in the layers that just appeared. It never reloads, so a design being written doesn't flash.
@@ -335,6 +335,23 @@ function DraftFrame({
         {!painted && <div className="absolute inset-0 rounded-[12px] border-2 border-dashed border-line bg-surface" />}
         <LiveWork live={live} agent={agent} width={width} height={height} scale={scale} painted={painted} onPainted={() => setPainted(true)} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * A canvas the agent opened before the Chat had a design: it says the agent is at work until the new design's frame
+ * shows (a Claude draft once its document starts; a Codex design once it is saved).
+ */
+export function LiveDesignWaiting({ chatId }: { chatId: string }) {
+  const { agent } = useLiveDesigns(chatId);
+  if (useDraftFrameShown(chatId)) return null;
+  return (
+    <div data-slot="artifact-canvas-waiting" role="status" className="pointer-events-none absolute inset-0 grid place-items-center">
+      <span className="flex items-center gap-2 text-[13px] text-ink-3">
+        <span className="size-1.5 animate-pulse rounded-full" style={{ background: agentColor(agent) }} aria-hidden />
+        {agent} is designing…
+      </span>
     </div>
   );
 }

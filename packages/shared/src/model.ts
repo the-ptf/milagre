@@ -402,6 +402,8 @@ export interface ChatStep {
   offset?: number;
   /** For an artifact step, the design it showed. */
   artifact?: ArtifactRef;
+  /** For an artifact step, the Milagre tool it called: the Designs canvas opens when a design tool starts. */
+  tool?: "design_show" | "design_apply" | "artifact_show";
 }
 
 export interface ImageAttachment {
@@ -590,7 +592,7 @@ export type AgentEvent =
   | { type: "turn-started"; turnId: string | null; continues?: string }
   /** `startsMessage`: a provider message boundary, distinct from a streamed paragraph break. */
   | { type: "text-delta"; messageId: string | null; text: string; startsMessage?: boolean }
-  | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file"> }
+  | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file" | "tool"> }
   | { type: "step-output"; id: string; text: string }
   /**
    * Claude's input to a Milagre design tool while the model writes it (design-drafts.cjs), for the Designs canvas to

@@ -46,7 +46,18 @@ type Draft = {
   timer: ReturnType<typeof setTimeout> | null;
 };
 
-type ChatLive = { agent: string; designs: LiveDesign[]; drafts: Map<string, Draft>; replays: Map<string, ReturnType<typeof setTimeout>> };
+type ChatLive = {
+  agent: string;
+  designs: LiveDesign[];
+  drafts: Map<string, Draft>;
+  replays: Map<string, ReturnType<typeof setTimeout>>;
+  /** How many views follow the Chat (useLiveDesignFeed): a draft nobody follows keeps its text but isn't read. */
+  watched: number;
+  /** Design tool calls running that no draft shows (Codex, Antigravity), by step id. */
+  running: Set<string>;
+  /** The design tool calls already announced to useDesignWorkStarted, by id, for the turn. */
+  announced: Set<string>;
+};
 
 const chats = new Map<string, ChatLive>();
 const listeners = new Set<() => void>();
@@ -66,7 +77,7 @@ const SETTLE_TIMEOUT_MS = 4000;
 function chatLive(chatId: string): ChatLive {
   let chat = chats.get(chatId);
   if (!chat) {
-    chat = { agent: "Agent", designs: EMPTY, drafts: new Map(), replays: new Map() };
+    chat = { agent: "Agent", designs: EMPTY, drafts: new Map(), replays: new Map(), watched: 0, running: new Set(), announced: new Set() };
     chats.set(chatId, chat);
   }
   return chat;
@@ -106,7 +117,8 @@ const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(pre
 function render(chatId: string, draft: Draft) {
   draft.timer = null;
   const chat = chats.get(chatId);
-  if (chat?.drafts.get(draft.live.key) !== draft) return;
+  // Read once a view follows the Chat: until then the text only gathers (useLiveDesignFeed reads it on mount).
+  if (chat?.drafts.get(draft.live.key) !== draft || !chat.watched) return;
   // design_apply builds on the version it names; it's read once its id and version have streamed in.
   if (draft.tool === "design_apply" && !draft.base) {
     const value = parsePartialJson(draft.input) as { id?: unknown; expectedVersion?: unknown } | undefined;
@@ -146,9 +158,38 @@ function schedule(chatId: string, draft: Draft, now = false) {
   } else if (!draft.timer) draft.timer = setTimeout(() => render(chatId, draft), DRAFT_RENDER_MS);
 }
 
+// --- The agent starting to design ---
+
+const starters = new Set<(chatId: string) => void>();
+
+/** Tells useDesignWorkStarted once per tool call that the agent started designing in the Chat. */
+function announce(chat: ChatLive, chatId: string, id: string) {
+  if (chat.announced.has(id)) return;
+  chat.announced.add(id);
+  for (const starter of starters) starter(chatId);
+}
+
+/**
+ * The design tool a step that just started runs, for an agent whose input doesn't stream: Codex's artifact steps name
+ * it, Antigravity's steps say it in their title. An artifact page (artifact_show) isn't a design.
+ */
+function designToolOf(step: { kind: string; title: string; tool?: string }) {
+  if (step.kind === "artifact") return step.tool === "design_show" || step.tool === "design_apply" ? step.tool : null;
+  return step.kind === "other" && /^Used\b/.test(step.title) ? (/design_(show|apply)\b/.exec(step.title)?.[0] ?? null) : null;
+}
+
 function receive(chatId: string, event: AgentEventUpdate["event"]) {
+  if (event.type === "step-draft" && event.offset === 0 && !chats.get(chatId)?.drafts.has(event.id)) chatLive(chatId);
+  if (event.type === "step-started" && designToolOf(event.step)) chatLive(chatId);
   const chat = chats.get(chatId);
   if (!chat) return;
+  if (event.type === "step-started") {
+    if (!designToolOf(event.step) || chat.drafts.has(event.step.id)) return;
+    chat.running.add(event.step.id);
+    emit();
+    announce(chat, chatId, event.step.id);
+    return;
+  }
   if (event.type === "step-draft") {
     let draft = chat.drafts.get(event.id);
     if (!draft && event.offset === 0) {
@@ -162,6 +203,7 @@ function receive(chatId: string, event: AgentEventUpdate["event"]) {
       };
       chat.drafts.set(event.id, draft);
       put(chatId, draft.live);
+      announce(chat, chatId, event.id);
     }
     if (!draft) return;
     // A piece missed (a window opened mid-call) leaves nothing to build on.
@@ -171,11 +213,14 @@ function receive(chatId: string, event: AgentEventUpdate["event"]) {
     return;
   }
   if (event.type === "step-completed") {
+    if (chat.running.delete(event.id)) emit();
     const draft = chat.drafts.get(event.id);
     if (!draft) return;
     const artifact = (event as { artifact?: ArtifactRef }).artifact;
     if (event.status !== "done" || !artifact) return drop(chatId, event.id);
     covered.add(versionKey(chatId, artifact.id, artifact.version));
+    // Nobody watched it being written: the saved version just shows when the Chat does.
+    if (!chat.watched) return drop(chatId, event.id);
     schedule(chatId, draft, true);
     draft.live = {
       ...draft.live,
@@ -189,8 +234,14 @@ function receive(chatId: string, event: AgentEventUpdate["event"]) {
     setTimeout(() => drop(chatId, event.id), SETTLE_TIMEOUT_MS);
     return;
   }
-  if (event.type === "turn-completed" || event.type === "turn-failed" || event.type === "turn-cancelled")
+  if (event.type === "turn-completed" || event.type === "turn-failed" || event.type === "turn-cancelled") {
     for (const draft of chat.drafts.values()) if (draft.live.status === "writing") drop(chatId, draft.live.key);
+    chat.announced.clear();
+    if (chat.running.size) {
+      chat.running.clear();
+      emit();
+    }
+  }
 }
 
 // --- Replays ---
@@ -253,25 +304,79 @@ function subscribe(listener: () => void) {
   };
 }
 
-/** Follows the Chat's agent events for drafts while its replies are on screen. `agent` names the agent for its cursor. */
+let following = false;
+
+/**
+ * Gathers every Chat's design drafts from the first piece, once any Chat's replies are on screen: a Chat opened or a
+ * canvas docked mid-call still has the whole draft to build from.
+ */
+function follow() {
+  if (following) return;
+  following = true;
+  stateEvents.onAgentEvent((update) => {
+    // A draft that can't be followed only loses its animation: the other listeners still get the event.
+    try {
+      receive(update.chatId, update.event);
+    } catch (error) {
+      console.warn("Milagre couldn't follow a design draft:", error);
+    }
+  });
+}
+
+/** Follows the Chat's design drafts while its replies are on screen. `agent` names the agent for its cursor. */
 export function useLiveDesignFeed(chatId: string | null, agent: string) {
   useEffect(() => {
     if (!chatId) return;
     chatLive(chatId).agent = agent;
   }, [chatId, agent]);
   useEffect(() => {
+    follow();
     if (!chatId) return;
-    chatLive(chatId);
-    return stateEvents.onAgentEvent((update) => {
-      if (update.chatId !== chatId) return;
-      // A draft that can't be followed only loses its animation: the other listeners still get the event.
-      try {
-        receive(chatId, update.event);
-      } catch (error) {
-        console.warn("Milagre couldn't follow a design draft:", error);
-      }
-    });
+    const chat = chatLive(chatId);
+    chat.watched++;
+    // The drafts gathered before the Chat was on screen build now.
+    for (const draft of chat.drafts.values()) if (draft.live.status === "writing") schedule(chatId, draft, true);
+    return () => {
+      chat.watched--;
+    };
   }, [chatId]);
+}
+
+/**
+ * Calls `onStart` each time the agent starts designing in the Chat (a draft begins, or a design tool starts for an agent
+ * that doesn't stream its input), once per tool call, and on mount while it is designing.
+ */
+export function useDesignWorkStarted(chatId: string | null, onStart: () => void) {
+  const latest = useRef(onStart);
+  latest.current = onStart;
+  useEffect(() => {
+    if (!chatId) return;
+    follow();
+    const starter = (id: string) => id === chatId && latest.current();
+    starters.add(starter);
+    const chat = chats.get(chatId);
+    if (chat && (chat.running.size || [...chat.drafts.values()].some((draft) => draft.live.status === "writing"))) latest.current();
+    return () => {
+      starters.delete(starter);
+    };
+  }, [chatId]);
+}
+
+const designing = (chatId: string | null) => {
+  const chat = chatId ? chats.get(chatId) : undefined;
+  return !!chat && (chat.designs.length > 0 || chat.drafts.size > 0 || chat.running.size > 0);
+};
+
+/** Whether the agent is at work on the Chat's designs: the canvas stays open for it before the Chat has any design. */
+export function useDesignWorkActive(chatId: string | null) {
+  return useSyncExternalStore(subscribe, () => designing(chatId));
+}
+
+/** Whether a new design's placeholder frame is on the canvas: until one is, an empty canvas says the agent is at work. */
+export function useDraftFrameShown(chatId: string) {
+  return useSyncExternalStore(subscribe, () =>
+    (chats.get(chatId)?.designs ?? EMPTY).some((live) => live.kind === "draft" && live.tool !== "design_apply" && !!live.document),
+  );
 }
 
 /** Every piece of work going on in the Chat's designs, and the agent's name. */

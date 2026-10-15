@@ -11,7 +11,7 @@ import { DesignPageEditor as DesignEditor } from "./DesignPageEditor";
 import { DESIGN_DELETED, type DesignDeleted } from "./DesignEditor";
 import { designLayout, designNodeAt } from "@milagre/shared/design";
 import { CommentLayer, CommentPin } from "./CommentPin";
-import { LiveDesignLayer, LiveDraftFrames } from "./LiveDesignFrame";
+import { LiveDesignLayer, LiveDesignWaiting, LiveDraftFrames } from "./LiveDesignFrame";
 import { useLiveDesign } from "./design-live";
 
 /** A comment the user pinned on a design and hasn't sent yet. */
@@ -495,6 +495,7 @@ export const ArtifactCanvas = forwardRef<
           onSized={showDraft}
         />
       </div>
+      {!designs.length && <LiveDesignWaiting chatId={chatId} />}
     </div>
   );
 });
