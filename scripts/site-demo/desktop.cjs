@@ -41,7 +41,7 @@ async function main() {
     "editor:list": [],
     "notification:state": null,
     "settings:notify-when-waiting": null,
-    "settings:window-translucent": null,
+    "settings:window-background": null,
   };
   for (const [channel, value] of Object.entries(local)) if (!runtime.methods.includes(channel)) ipcMain.handle(channel, () => value);
 

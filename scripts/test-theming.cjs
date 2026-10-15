@@ -1,6 +1,6 @@
 // Settings > Appearance in Electron: the theme picker and mode control recolor the page, striped body and code.
 // The terminal is exercised for real: a session from lib/terminal-sessions.ts follows a fake daemon that never answers,
-// and its xterm options.theme must change with the theme and with the translucency setting.
+// and its xterm options.theme must change with the theme. The window behind the page takes the theme's page color.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -13,7 +13,7 @@ import { SettingsNav, SettingsPanel } from '/src/components/Settings';
 import { useApplyTheme, updateSettings } from '/src/lib/settings';
 import { attachTerminal } from '/src/lib/terminal-sessions';
 import '/src/styles.css';
-window.milagre = { listEditors: async () => [], listRecentProjects: async () => [], listProjects: async () => [], setWindowTranslucent: async () => {}, setTerminalFocused: () => {},
+window.milagre = { listEditors: async () => [], listRecentProjects: async () => [], listProjects: async () => [], setWindowBackground: async (color) => { window.__windowBackground = color; }, setTerminalFocused: () => {},
   terminals: { read: () => new Promise(() => {}), input: async () => {}, resize: async () => {} } };
 window.__updateSettings = updateSettings;
 window.__mountTerminal = () => {
@@ -106,18 +106,8 @@ async function browserChecks() {
     await evaluate(`${mode("Light")}.click()`);
     await waitFor(pageIs("#eff1f5"));
     await waitFor(`window.__term.options.theme.red === '#d20f39'`);
-    const before = await termTheme();
-    await evaluate(`window.__updateSettings({ windowTranslucent: true })`);
-    await waitFor(`document.documentElement.classList.contains('translucent')`);
-    await waitFor(`window.__term.options.theme.cursorAccent !== ${JSON.stringify(before.cursorAccent)}`);
-    assert.notEqual((await termTheme()).cursorAccent, before.cursorAccent, "toggling translucency repaints the live xterm");
-    await evaluate(`window.__updateSettings({ windowTranslucent: false })`);
-    await waitFor(`window.__term.options.theme.cursorAccent === ${JSON.stringify(before.cursorAccent)}`);
+    await waitFor(`window.__windowBackground === '#eff1f5'`);
     await screenshot("catppuccin-latte");
-    await evaluate(`document.documentElement.classList.add('translucent')`);
-    await waitFor(`/#eff1f5/.test(getComputedStyle(document.documentElement).getPropertyValue('--page'))`);
-    assert.match(await page(), /#eff1f5/, "translucent page is the theme's color at an alpha");
-    await evaluate(`document.documentElement.classList.remove('translucent')`);
     await evaluate(`${tile("Gray")}.click()`);
     await waitFor(pageIs("#fafafb"));
     assert.equal(await evaluate(`JSON.parse(localStorage.getItem('milagre-settings')).colorTheme`), "gray", "the choice is saved");
@@ -173,7 +163,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`JSON.parse(localStorage.getItem('milagre-settings')).customTheme.light.accent`), "#778899");
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Appearance defaults to Milagre Blue; picking a theme and a mode recolors the page, body and code, translucency keeps the theme, one stylesheet is reused, and the choice is saved",
+      "PASS: Appearance defaults to Milagre Blue; picking a theme and a mode recolors the page, body, code and window background, one stylesheet is reused, and the choice is saved",
     );
     app.exit(0);
   } catch (error) {

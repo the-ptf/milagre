@@ -107,7 +107,7 @@ function FloatingInboxContent({ view }: { view: "dock" | "inbox" | "preview" }) 
   const scheme = useResolvedScheme();
   useEffect(() => {
     document.documentElement.classList.toggle("dark", scheme === "dark");
-    applyPalette(resolvePalette(colorTheme, scheme, customTheme), scheme);
+    applyPalette(resolvePalette(colorTheme, scheme, customTheme));
   }, [scheme, colorTheme, customTheme]);
   useEffect(() => {
     if (view === "dock") void window.milagre.resizeFloatingBar(snapshot.agents.length);

@@ -119,7 +119,7 @@ const ALLOWED: Record<string, string[]> = {
   "lib/computer-bridge.ts": ["on", "onAgentEvent", "onComputerEvent"],
   "lib/computers.ts": ["computers", "onComputersChanged"],
   "lib/ports.ts": ["onAgentPorts", "onRuntimeSnapshot", "getAgentPorts", "onComputerEvent"],
-  "lib/settings.ts": ["setWindowTranslucent"],
+  "lib/settings.ts": ["setWindowBackground"],
   "lib/editors.ts": ["listEditors", "openInEditor"],
   "lib/linked-work.ts": ["getLinkedWork", "onLinkedWork"],
   "lib/terminal-sessions.ts": ["setTerminalFocused"],

@@ -478,15 +478,6 @@ html[data-floating-inbox] #root {
   --ease-link: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* "Translucent window": the window is see-through and macOS blurs what's behind it. The two
- * sliders set how much shows through, 0 to 1: `--window-translucency` thins the page's own tint,
- * and `--panel-translucency` thins the sidebar, panels and fields (at 0.4 a light surface keeps
- * 72% of its opacity and a dark one 62%, so text stays readable). */
-.translucent,
-.translucent body {
-  background: transparent;
-}
-
 /* ── base ─────────────────────────────────────────────── */
 
 /* The title bar moves the window, except while a popover is open: a press on a drag region never reaches

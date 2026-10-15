@@ -480,7 +480,7 @@ export type MilagreBridge = {
   /** Whether a chat that waits on the user while Milagre is in the background gets a system notification. */
   setNotifyWhenWaiting: (on: boolean) => Promise<void>;
   /** Whether the window lets the blurred desktop show through (macOS). `theme` picks the blur material. */
-  setWindowTranslucent: (on: boolean, theme: "light" | "dark", background: string) => Promise<void>;
+  setWindowBackground: (background: string) => Promise<void>;
   /** The open project's unread chats and the notification settings, for completion alerts and the Dock badge. */
   syncNotifications: (state: {
     projectPath: string;

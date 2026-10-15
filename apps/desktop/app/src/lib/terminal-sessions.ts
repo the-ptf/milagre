@@ -63,7 +63,7 @@ function reapplyTheme() {
   for (const session of sessions.values()) session.term.options.theme = theme;
 }
 
-// THEME_EVENT fires after applyPalette and after the translucency class and sliders change (all move --surface).
+// THEME_EVENT fires after applyPalette changes the theme's colors.
 let themeWatched = false;
 function watchTheme() {
   if (themeWatched) return;
