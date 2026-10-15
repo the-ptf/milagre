@@ -1,46 +1,12 @@
-import { useCallback, useState } from "react";
-import { useFocusEffect } from "expo-router";
-import { AppState, View } from "react-native";
+import { View } from "react-native";
 import { BubbleChatIcon, GitPullRequestIcon, ShieldAlertIcon, Alert02Icon } from "@hugeicons/core-free-icons";
-import type { PullRequest, Subagent, Worktree } from "@milagre/shared/model";
+import type { PullRequest, Subagent } from "@milagre/shared/model";
 import { BLOCKERS, pullRequestBlockers } from "@milagre/shared/pr-blockers";
 import { chatMarkTone } from "@milagre/shared/chats";
 import { agentCounts, MARK_LABEL, type ChatMark } from "./indicators";
-import { useSession } from "./session";
-import { readPullRequest } from "./pr-status";
 import { Icon, SpinnerRing } from "./icons";
 import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
-
-/** The open PR for a Worktree. Slow GitHub lookups are pooled and cached, and stop while the screen is hidden. */
-export function usePullRequest(worktree?: Worktree) {
-  const session = useSession();
-  const [pr, setPr] = useState<PullRequest | null>(null);
-  useFocusEffect(
-    useCallback(() => {
-      if (!worktree || !session.client) return;
-      const client = session.client;
-      let focused = true;
-      const active = () => focused && AppState.currentState === "active";
-      const refresh = () =>
-        void readPullRequest(client, worktree.path, active)
-          .then((value) => {
-            if (active() && value !== undefined) setPr(value);
-          })
-          .catch(() => {});
-      refresh();
-      const timer = setInterval(refresh, 30000);
-      const subscription = AppState.addEventListener("change", refresh);
-      return () => {
-        focused = false;
-        clearInterval(timer);
-        subscription.remove();
-      };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [session.client, worktree?.path]),
-  );
-  return pr;
-}
 
 /** Desktop's chat mark slot: a question bubble, an approval shield, a spinning ring, an unread dot, or a faint idle dot. */
 export function ChatMarkIcon({ mark }: { mark: ChatMark }) {
