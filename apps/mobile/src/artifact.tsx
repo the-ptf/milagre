@@ -823,7 +823,8 @@ function ArtifactWebView({ html, canvas }: { html: string; canvas?: { width: num
   return (
     <DomWebView
       source={{ uri }}
-      style={{ flex: 1, backgroundColor: "#ffffff" }}
+      // A design sits on the canvas color, so the view shows it, not white, until the page paints.
+      style={{ flex: 1, backgroundColor: canvas ? colors.canvas : "#ffffff" }}
       containerStyle={{ flex: 1 }}
       useExpoModulesBridge={false}
       allowsInlineMediaPlayback
