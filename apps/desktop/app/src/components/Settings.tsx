@@ -2,6 +2,7 @@ import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
 import { useDesignsEnabled } from "../lib/designs-enabled";
 import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/ai-consent";
 import { PrivacySettings } from "./AiConsent";
+import { showUpdateNotice } from "./UpdateNotice";
 import { ProjectAccountsGroup, ProjectAccountsSettings } from "./ProjectAccountsSettings";
 import { AccountsSettings } from "./AccountsSettings";
 import { SkillsSettings } from "./SkillsSettings";
@@ -1125,9 +1126,7 @@ function updateDescription(update: UpdateState | null): string {
     case "downloading":
       return `Downloading ${update.version ? `Milagre ${update.version}` : "update"}… ${Math.round(update.progress)}%`;
     case "downloaded":
-      // A failed restart lands back here with its error.
-      if (update.error) return update.error;
-      return `${update.version ? `Milagre ${update.version}` : "The update"} is ready to install. Restarting Milagre will stop running agents.`;
+      return `${update.version ? `Milagre ${update.version}` : "The update"} is ready to install.`;
     case "installing":
       return "Saving your work and restarting Milagre.";
     case "error":
@@ -1141,8 +1140,6 @@ function updateDescription(update: UpdateState | null): string {
 
 export function AboutSettings({ update }: { update: UpdateState | null }) {
   const [version, setVersion] = useState<string | null>(null);
-  const [restarting, setRestarting] = useState(false);
-  const [installError, setInstallError] = useState("");
   const [channel, setChannel] = useState<ReleaseChannel | null>(null);
   useEffect(() => {
     void window.milagre.getAppVersion().then(setVersion);
@@ -1176,32 +1173,14 @@ export function AboutSettings({ update }: { update: UpdateState | null }) {
           ]}
         />
       </Row>
-      <Row label="Updates" description={installError || updateDescription(update)}>
+      <Row label="Updates" description={updateDescription(update)}>
         <button
           type="button"
-          disabled={
-            restarting ||
-            update?.status === "checking" ||
-            update?.status === "downloading" ||
-            update?.status === "unavailable" ||
-            update?.status === "installing"
-          }
-          onClick={async () => {
-            if (update?.status !== "downloaded") return void window.milagre.checkForUpdates();
-            // Settings covers the update pill, so the install starts here instead of in its card.
-            setRestarting(true);
-            setInstallError("");
-            try {
-              await window.milagre.installUpdate();
-            } catch {
-              setInstallError("Could not restart Milagre. Try again.");
-            } finally {
-              setRestarting(false);
-            }
-          }}
+          disabled={update?.status === "checking" || update?.status === "downloading" || update?.status === "unavailable" || update?.status === "installing"}
+          onClick={() => void (update?.status === "downloaded" ? showUpdateNotice() : window.milagre.checkForUpdates())}
           className="rounded-control border border-line bg-surface px-3 py-1.5 text-[12px] font-medium text-ink transition-colors hover:border-line-strong hover:bg-hover disabled:cursor-default disabled:opacity-50"
         >
-          {restarting || update?.status === "installing" ? "Restarting…" : update?.status === "downloaded" ? "Install & restart" : "Check for updates"}
+          {update?.status === "installing" ? "Restarting…" : update?.status === "downloaded" ? "Install & restart" : "Check for updates"}
         </button>
       </Row>
       {electron && (
