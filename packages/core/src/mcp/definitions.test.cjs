@@ -50,3 +50,32 @@ test("detail is the URL or the command line", () => {
   assert.equal(d.detailOf(url), url.url);
   assert.equal(d.detailOf(cmd), "pencil mcp --stdio");
 });
+
+test("reads every Codex server header, including quoted names, comments and sub-table-only servers", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-mcp-codex-headers-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "config.toml");
+  fs.writeFileSync(
+    file,
+    [
+      "[mcp_servers.pencil] # the design server",
+      'command = "p"',
+      "",
+      "[mcp_servers.'single-q']",
+      'url = "u"',
+      "",
+      "[mcp_servers.solo.env]",
+      'A = "1"',
+      "",
+      '[mcp_servers."my-x".env]',
+      'B = "2"',
+    ].join("\n"),
+  );
+  assert.deepEqual([...d.codexConfigNames(file)].sort(), ["my-x", "pencil", "single-q", "solo"]);
+});
+
+test("unmasking restores only keys the previous definition owns", () => {
+  const previous = { name: "linear", type: "http", url: "https://mcp.linear.app/mcp", headers: { Authorization: "Bearer abc" } };
+  const masked = { ...previous, headers: { constructor: "••••••", toString: "••••••" } };
+  assert.deepEqual(d.unmaskDefinition(masked, previous).headers, {}, "inherited prototype keys are not restored");
+});

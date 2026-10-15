@@ -46,7 +46,9 @@ function maskDefinition(def) {
 }
 
 const unmaskRecord = (record, stored = {}) =>
-  Object.fromEntries(Object.entries(record).flatMap(([key, value]) => (value !== MASK ? [[key, value]] : key in stored ? [[key, stored[key]]] : [])));
+  Object.fromEntries(
+    Object.entries(record).flatMap(([key, value]) => (value !== MASK ? [[key, value]] : Object.hasOwn(stored, key) ? [[key, stored[key]]] : [])),
+  );
 function unmaskDefinition(def, previous) {
   if (def.type === "stdio") return { ...def, env: unmaskRecord(def.env, previous?.type === "stdio" ? previous.env : {}) };
   return { ...def, headers: unmaskRecord(def.headers, previous && previous.type !== "stdio" ? previous.headers : {}) };
@@ -61,11 +63,13 @@ function claudeConfigNames(file) {
   }
 }
 
-// Section headers only: [mcp_servers.name] or [mcp_servers."name"], not their sub-tables.
+// Collects the server name from every [mcp_servers.<name>] or [mcp_servers.<name>.<sub>] header, bare or quoted,
+// with an optional trailing comment. Dotted keys (mcp_servers.x.command = ...) and inline tables are not supported.
+const CODEX_SERVER_HEADER = /^\s*\[mcp_servers\.(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))(?:\.[^\]]*)?\][ \t]*(?:#.*)?$/gm;
 function codexConfigNames(file) {
   try {
     const text = fs.readFileSync(file, "utf8");
-    return new Set([...text.matchAll(/^\s*\[mcp_servers\.(?:"([^"]+)"|([A-Za-z0-9_-]+))\]\s*$/gm)].map((match) => match[1] ?? match[2]));
+    return new Set([...text.matchAll(CODEX_SERVER_HEADER)].map((match) => match[1] ?? match[2] ?? match[3]));
   } catch {
     return new Set();
   }
