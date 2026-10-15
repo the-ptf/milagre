@@ -800,6 +800,34 @@ async function browserChecks() {
       box.dispatchEvent(new Event("input", { bubbles: true }));
     })()`);
     await screenshot("comment");
+    // The box grows with the comment, the bubble and its surface with it, up to eight lines; then it scrolls.
+    const commentBox = `${frame("login")}.querySelector("[data-slot=artifact-comment-bubble] textarea")`;
+    const typeComment = (value) =>
+      evaluate(`(() => {
+        const box = ${commentBox};
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(box, ${JSON.stringify(value)});
+        box.dispatchEvent(new Event("input", { bubbles: true }));
+      })()`);
+    const boxSize = () =>
+      evaluate(
+        `(() => { const b = ${commentBox}; const line = parseFloat(getComputedStyle(b).lineHeight); return { height: b.clientHeight, scroll: b.scrollHeight, line }; })()`,
+      );
+    const oneLine = await boxSize();
+    await typeComment("Make the button bigger\nand warmer\nwith a softer shadow\nand round corners");
+    const fourLines = await boxSize();
+    assert.ok(fourLines.height > oneLine.height + fourLines.line * 1.5, `the box grows with the comment: ${JSON.stringify({ oneLine, fourLines })}`);
+    assert.equal(fourLines.scroll, fourLines.height, "four lines show whole");
+    await typeComment(Array.from({ length: 14 }, (_, index) => `Line ${index + 1} of a long comment`).join("\n"));
+    const long = await boxSize();
+    assert.ok(Math.abs(long.height - long.line * 8) <= 2, `eight lines at most: ${JSON.stringify(long)}`);
+    assert.ok(long.scroll > long.height + long.line * 4, "the rest scrolls");
+    // The surface the pin morphed into follows the bubble's new size.
+    await waitFor(
+      `(() => { const s = ${frame("login")}.querySelector("[data-slot=artifact-comment-surface]").getBoundingClientRect(); const b = ${frame("login")}.querySelector("[data-slot=artifact-comment-bubble]").getBoundingClientRect(); return Math.abs(s.height - b.height) < 1 && b.height > ${long.line * 8}; })()`,
+    );
+    await screenshot("comment-long");
+    await typeComment("Make the button bigger");
+    await waitFor(`${commentBox}.clientHeight === ${oneLine.height}`);
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
     await waitFor(`!${frame("login")}.querySelector("[data-slot=artifact-comment-bubble]") && !!${dock}`);
     assert.match(await evaluate(`${frame("login")}.querySelector("[data-slot=artifact-pin]").getAttribute("aria-label")`), /Comment 1: Make the button bigger/);

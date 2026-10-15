@@ -205,7 +205,6 @@ export function CommentPin({
                   // oxlint-disable-next-line jsx-a11y/no-autofocus -- the bubble opens to be written in, like Figma's
                   autoFocus
                   aria-label={`Comment ${number} on ${pin.design.title}`}
-                  rows={2}
                   value={pin.text}
                   placeholder="Add a comment"
                   onChange={(event) => comments.onText(pin.key, event.target.value)}
@@ -223,7 +222,8 @@ export function CommentPin({
                       close();
                     }
                   }}
-                  className="w-full resize-none rounded-[6px] bg-transparent px-1 text-[13px] focus:outline-none"
+                  // Grows with the comment up to eight lines, then scrolls; the surface follows the bubble's size.
+                  className="field-sizing-content max-h-[8lh] min-h-[2lh] w-full resize-none rounded-[6px] bg-transparent px-1 text-[13px] leading-[1.4] focus:outline-none"
                 />
                 <div className="flex items-center justify-between text-[11px] text-ink-3">
                   <button type="button" onClick={() => comments.onRemove(pin.key)} className="rounded px-1 py-0.5 hover:bg-hover hover:text-ink">
