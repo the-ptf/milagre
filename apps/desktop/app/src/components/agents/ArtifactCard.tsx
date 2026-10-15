@@ -404,6 +404,12 @@ function GroupThumb({ design }: { design: ArtifactRef }) {
   );
 }
 
+/**
+ * Feedback on a Chat's designs not sent yet: closing the Designs keeps it, as the comments pinned and the design
+ * chosen, until it is sent or deleted. In memory, for the window's life.
+ */
+const unsent = new Map<string, { pins: DesignPin[]; choice: ArtifactRef | null }>();
+
 type Opened = {
   kind: "designs" | "artifacts";
   chatId: string | null;
@@ -757,15 +763,31 @@ function ArtifactDock({
   const [view, setView] = useState<CanvasView | null>(null);
   const [commenting, setCommenting] = useState(false);
   const [pageComment, setPageComment] = useState("");
-  // Feedback waits here until Send: comments pinned on designs, and the design the user chose.
-  const [pins, setPins] = useState<DesignPin[]>([]);
+  // Feedback waits here until Send: comments pinned on designs, and the design the user chose. Closed meanwhile, the
+  // Designs open again with it (an empty comment was never written).
+  const [kept] = useState(() => (kind === "designs" ? unsent.get(chatId) : undefined));
+  const [pins, setPins] = useState<DesignPin[]>(() => kept?.pins.filter((pin) => pin.text.trim()) ?? []);
   const [openPin, setOpenPin] = useState<string | null>(openComment ?? null);
   // A sent comment opened from the chat opens its bubble, also when the canvas is open already.
   useEffect(() => {
     if (openComment) setOpenPin(openComment);
   }, [openComment, focus.nonce]);
-  const [choice, setChoice] = useState<ArtifactRef | null>(null);
+  const [choice, setChoice] = useState<ArtifactRef | null>(kept?.choice ?? null);
   const [sending, setSending] = useState(false);
+  useEffect(() => {
+    if (kind !== "designs") return;
+    if (pins.length || choice) unsent.set(chatId, { pins, choice });
+    else unsent.delete(chatId);
+  }, [kind, chatId, pins, choice]);
+  // Kept feedback on an earlier version opens that version, where its pins and choice show, unless a version was asked for.
+  useEffect(() => {
+    if (!kept) return;
+    for (const item of [...(kept.choice ? [kept.choice] : []), ...kept.pins.filter((pin) => pin.text.trim()).map((pin) => pin.design)]) {
+      const newest = designs.find((design) => design.id === item.id)?.version;
+      if (newest !== undefined && item.version < newest && versions[item.id] == null) onVersion(item.id, item.version);
+    }
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- once, as the Designs open with the kept feedback.
+  }, []);
   // Feedback on a design deleted meanwhile has nothing left to send to.
   const designIds = designs.map((design) => design.id).join("|");
   useEffect(() => {

@@ -834,6 +834,17 @@ async function browserChecks() {
     assert.match(await evaluate(`${dock}.querySelector("[data-slot=artifact-send]").textContent`), /Send\s*2/);
     await screenshot("pending-feedback");
 
+    // Closing the Designs keeps what waits for Send: they open again with the pin, on the version it was left on, and
+    // the choice.
+    await evaluate(`${dock}.querySelector("[aria-label='Close designs']").click()`);
+    await waitFor(`!${dock}`);
+    await evaluate(`${thumb("home")}.click()`);
+    await waitFor(`!!${frame("login")}?.querySelector("[data-slot=artifact-pin]") && !!${frame("home")}?.querySelector("[data-slot=artifact-choice-pending]")`);
+    assert.match(await evaluate(`${frame("login")}.querySelector("[data-slot=artifact-pin]").getAttribute("aria-label")`), /Comment 1: Make the button bigger/);
+    assert.match(await evaluate(`${frame("login")}.textContent`), /v2 of 3/, "the pin's version shows again");
+    assert.match(await evaluate(`${dock}.querySelector("[data-slot=artifact-send]").textContent`), /Send\s*2/);
+    await screenshot("pending-kept-after-close");
+
     // Send carries the choice and the comments in one message.
     assert.equal(await evaluate("(window.kept ?? []).length"), 0, "nothing is recorded before it is sent");
     await evaluate(`${dock}.querySelector("[data-slot=artifact-send]").click()`);
