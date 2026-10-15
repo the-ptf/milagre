@@ -647,7 +647,7 @@ test("a design_show that fails validation or conflicts still throws before anyth
 });
 
 test("the agent is told which fonts its image draws in Inter", async (t) => {
-  const { tools } = await fixture(t);
+  const { tools, api } = await fixture(t);
   const stock = await tools.design_show.run({ id: "stock", title: "Stock", document: createExampleDesign() });
   assert.match(stock.text, /\nYour image shows .*Georgia.* in Inter; the user sees the real font\.(\n|$)/);
   const inter = await tools.design_show.run({ id: "inter", title: "Inter", document: designDocument() });
@@ -655,6 +655,11 @@ test("the agent is told which fonts its image draws in Inter", async (t) => {
   const hidden = designDocument();
   hidden.nodes.push({ id: "serif", type: "text", hidden: true, width: 100, height: 20, text: "x", fontFamily: "Georgia, serif" });
   assert.doesNotMatch((await tools.design_show.run({ id: "hidden", title: "Hidden", document: hidden })).text, /Your image shows/);
+  // A catalog family is drawn in the agent's image too, and embedded in the saved HTML.
+  const catalog = designDocument();
+  catalog.nodes.push({ id: "display", type: "text", width: 200, height: 40, text: "Nove", fontFamily: "Bebas Neue, Arial, sans-serif" });
+  assert.doesNotMatch((await tools.design_show.run({ id: "catalog", title: "Catalog", document: catalog })).text, /Your image shows/);
+  assert.match((await api.get({ chatId: CHAT, id: "catalog" })).html, /@font-face\{font-family:"Bebas Neue"/);
   const failing = Object.fromEntries(
     artifactToolDefinitions(CHAT, (await fixture(t)).api, undefined, {
       renderPng: async () => {

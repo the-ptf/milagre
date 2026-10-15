@@ -12,8 +12,10 @@ const {
   designWarnings,
   designWarningText,
   designUsesInter,
+  designCatalogFont,
   designInterHasGlyph,
   designInstanceRoot,
+  loadDesignFonts,
 } = require("@milagre/shared/design");
 const { renderDesignPng } = require("./design-raster.cjs");
 
@@ -276,6 +278,8 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
           format: "design",
           createdAt: Date.now(),
         };
+        // The saved HTML embeds the catalog families the design names, so the desktop and the phone draw them.
+        await loadDesignFonts(document);
         const artifact = await writeVersion(folder, id, previous, entry, designHtml(document), document, assertActive);
         return summary(artifact, entry);
       }),
@@ -298,6 +302,7 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
           format: "design",
           createdAt: Date.now(),
         };
+        await loadDesignFonts(document);
         const html = designHtml(document);
         const artifact = await writeVersion(folder, existing.id, existing.versions, entry, html, document, assertActive);
         return { ...summary(artifact, entry), latest: entry.version, html, document };
@@ -470,11 +475,12 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
 
 // The most warnings the summary JSON on line 1 carries; the text block below it lists them the same way.
 const MAX_SUMMARY_WARNINGS = 20;
-// The renderer only has Inter, so text in any other family is drawn in Inter in the agent's image. Names the families.
-const nonInterFamilies = (document) => {
+// The renderer has Inter and the catalog families, so text in any other family is drawn in Inter in the agent's image.
+// Names those families.
+const unbundledFamilies = (document) => {
   const families = new Set();
   for (const node of document.nodes) {
-    if (node.type !== "text" || node.hidden || !node.fontFamily || designUsesInter(node.fontFamily)) continue;
+    if (node.type !== "text" || node.hidden || !node.fontFamily || designUsesInter(node.fontFamily) || designCatalogFont(node.fontFamily)) continue;
     const family = node.fontFamily
       .split(",")[0]
       .trim()
@@ -528,7 +534,7 @@ async function designFeedback(saved, document, { renderPng, warnings: findWarnin
     notes.push(
       "Look at the image: check icons, spacing, alignment and density against the brief, fix what looks wrong and every item under Warnings with design_apply, then reply.",
     );
-    const fonts = nonInterFamilies(document);
+    const fonts = unbundledFamilies(document);
     if (fonts.length) notes.push(`Your image shows ${fonts.join(", ")} in Inter; the user sees the real font.`);
     const blank = undrawableTextLayers(document);
     if (blank.length)

@@ -1,5 +1,5 @@
 import { designRenderBudget, visibleDesignTextLines } from "./design-render-limits.mjs";
-import { designFontFamily, designInterWeight, designUsesInter } from "./design-fonts.mjs";
+import { designDrawnWeight, designFontFamily } from "./design-fonts.mjs";
 import { designIcons } from "./design-icons.mjs";
 import { designDefaultFill } from "./design-paint.mjs";
 
@@ -104,9 +104,9 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
     const anchor = node.textAlign === "center" ? "middle" : node.textAlign === "right" ? "end" : "start";
     const x = box.x + border + (anchor === "middle" ? contentWidth / 2 : anchor === "end" ? contentWidth : 0);
     const baseline = box.y + border + (lineHeight - fontSize) / 2 + fontSize * 0.8;
-    // Inter text names the measured face it draws with. Browsers already pick that face through the @font-face weight ranges;
-    // renderers that match by weight alone (resvg) would otherwise round 650 up to Bold, wider than the layout measured.
-    const fontWeight = designUsesInter(node.fontFamily) ? designInterWeight(node.fontWeight) : (node.fontWeight ?? 400);
+    // Inter and catalog text names the measured face it draws with. Browsers already pick that face through the @font-face weight
+    // ranges; renderers that match by weight alone (resvg) would otherwise round 650 up to Bold, wider than the layout measured.
+    const fontWeight = designDrawnWeight(node.fontFamily, node.fontWeight);
     const spans = visibleDesignTextLines(node, box, layout)
       .map((line, index) => take(`<tspan x="${number(x)}" y="${number(baseline + index * lineHeight)}">${xml(line)}</tspan>`, node))
       .join("");

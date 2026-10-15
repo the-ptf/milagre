@@ -4,6 +4,7 @@
   "private": true,
   "files": [
     "src/*.mjs",
+    "src/design-catalog-fonts/*",
     "src/*.d.mts",
     "src/model.ts",
     "src/git-diff.ts",

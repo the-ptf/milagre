@@ -1,6 +1,18 @@
 import { z } from "zod";
 import { designFontFamily, designFontFaces, validDesignFontFamily } from "./design-fonts.mjs";
-export { designFontFamily, designFontFaces, designInterHasGlyph, designInterWeight, designUsesInter } from "./design-fonts.mjs";
+export {
+  DESIGN_CATALOG_FAMILIES,
+  designCatalogFont,
+  designDrawnWeight,
+  designFontBuffers,
+  designFontFamily,
+  designFontFaces,
+  designFontsLoaded,
+  designInterHasGlyph,
+  designInterWeight,
+  designUsesInter,
+  loadDesignFonts,
+} from "./design-fonts.mjs";
 import { designRenderBudget, visibleDesignTextLines } from "./design-render-limits.mjs";
 import { designLayout, designTextLayout } from "./design-layout.mjs";
 import { designIcons, designIconSuggestions } from "./design-icons.mjs";

@@ -2,8 +2,8 @@ const path = require("node:path");
 const { Worker } = require("node:worker_threads");
 
 // The agent's view of a design: the shared SVG, drawn by resvg in WebAssembly so it works on any daemon, headless too.
-// resvg reads fonts from buffers, not @font-face, so the SVG is built without embedded fonts and Inter is passed in
-// directly. Drawing runs on a worker thread (design-raster-worker.cjs) so a large design never blocks the daemon, and
+// resvg reads fonts from buffers, not @font-face, so the SVG is built without embedded fonts and Inter, plus the catalog
+// families the design names, is passed in directly. Drawing runs on a worker thread (design-raster-worker.cjs) so a large design never blocks the daemon, and
 // the worker is ended now and then so the WebAssembly memory goes back to the operating system.
 // Images resvg would not draw, or should not decode, keep their placeholder: remote https images (never fetched) and
 // inline images larger than MAX_IMAGE_EDGE on either side.

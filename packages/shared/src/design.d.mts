@@ -99,8 +99,20 @@ export function designWarningText(warnings: DesignWarning[]): string;
 export function designColor(document: DesignDocument, value?: string, fallback?: string): string;
 /** Serialize plain family names as CSS, preserving generic fallback families. */
 export function designFontFamily(value?: string): string;
-/** CSS @font-face rules (data URIs) for the Inter weights a document's visible text uses, or "". */
+/** CSS @font-face rules (data URIs) for the Inter and loaded catalog weights a document's visible text uses, or "". */
 export function designFontFaces(document: DesignDocument): string;
+/** The catalog families a design can name besides Inter, measured and bundled like Inter. */
+export const DESIGN_CATALOG_FAMILIES: string[];
+/** The catalog entry for the first family of a font-family list, if it is in the catalog. */
+export function designCatalogFont(fontFamily?: string): { family: string; weights: number[]; advances: Record<string, number[]> } | undefined;
+/** The weight a text layer draws with: the nearest measured face in Inter or a catalog family, as requested otherwise. */
+export function designDrawnWeight(fontFamily?: string, fontWeight?: number): number;
+/** Loads the catalog families a document names, so designHtml, designSvg and designFontBuffers can embed them. */
+export function loadDesignFonts(document: DesignDocument): Promise<void>;
+/** Whether every catalog family a document names is loaded. */
+export function designFontsLoaded(document: DesignDocument): boolean;
+/** TrueType data (base64) for a rasterizer: every Inter weight plus the loaded catalog faces the document uses. */
+export function designFontBuffers(document: DesignDocument): string[];
 /** The measured Inter weight a requested weight renders with. */
 export function designInterWeight(fontWeight?: number): 400 | 500 | 600 | 700;
 /** Whether Inter is the first family in a font-family list, so the document renders in the embedded Inter. */
@@ -110,6 +122,6 @@ export function designDefaultFill(node: Pick<DesignNode, "type" | "src">): strin
 /** Whether the bundled Inter subset has a glyph for this character; whitespace always counts as drawable. */
 export function designInterHasGlyph(character: string): boolean;
 export function designHtml(document: DesignDocument, options?: { interactive?: boolean; selectedId?: string | null }): string;
-/** A portable SVG with native shapes, text and image elements. Inter is embedded unless `embedFonts` is false. JSON is the lossless design export. */
+/** A portable SVG with native shapes, text and image elements. Inter and loaded catalog faces are embedded unless `embedFonts` is false. JSON is the lossless design export. */
 export function designSvg(document: DesignDocument, options?: { embedFonts?: boolean; onCanvasOnly?: boolean }): string;
 export function createExampleDesign(): DesignDocument;
