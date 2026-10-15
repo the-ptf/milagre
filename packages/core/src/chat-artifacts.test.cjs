@@ -753,3 +753,14 @@ test("the agent is told which text layers its image leaves blank", async (t) => 
   );
   assert.doesNotMatch((await failing.design_show.run({ id: "glyphs2", title: "Glyphs", document })).text, /can't draw/);
 });
+
+test("the design tools tell any agent, a subagent too, to design on the Chat's canvas and keep ids for revisions", async (t) => {
+  const { tools } = await fixture(t);
+  assert.match(
+    tools.design_show.description,
+    /^For any UI, screen, mockup or visual design in this Chat, subagents included: use this, not HTML or image files/,
+  );
+  assert.match(tools.design_show.description, /bundled design skill \(.+SKILL\.md\)/);
+  assert.match(tools.design_show.description, /to revise a design, keep its id/);
+  assert.match(tools.design_apply.description, /^Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent/);
+});

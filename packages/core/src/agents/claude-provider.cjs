@@ -3,7 +3,16 @@ const { settleSubagents } = require("./subagents.cjs");
 const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const { killTree } = require("./process-tree.cjs");
-const { milagreInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, isTerminal, mapClaudeMessage, missingCliMessage } = require("./events.cjs");
+const {
+  milagreInstructions,
+  SUBAGENT_DESIGN_INSTRUCTIONS,
+  RESUME_FAILED_MESSAGE,
+  crashMessage,
+  failedWith,
+  isTerminal,
+  mapClaudeMessage,
+  missingCliMessage,
+} = require("./events.cjs");
 const { PendingPermissions, claudeRequest, claudeResult, insideRoot, insideWorkspace } = require("./permissions.cjs");
 const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = require("./questions.cjs");
 const { mcpContent, runTool } = require("../linked-tools.cjs");
@@ -302,6 +311,16 @@ class ClaudeSession {
             .join("\n\n"),
         },
         ...(this.linked?.tools.length ? linkedOptions(this.linked.tools, sdk) : {}),
+        // Subagents design on the Chat's canvas too: they get Milagre's tools, but not the system prompt above.
+        ...(this.designsEnabled && !this.analysisOnly && this.linked?.tools.some((tool) => tool.name === "design_show")
+          ? {
+              hooks: {
+                SubagentStart: [
+                  { hooks: [async () => ({ hookSpecificOutput: { hookEventName: "SubagentStart", additionalContext: SUBAGENT_DESIGN_INSTRUCTIONS } })] },
+                ],
+              },
+            }
+          : {}),
         canUseTool: (toolName, input, options) =>
           toolName === "AskUserQuestion" ? this.askQuestion(input, options) : this.askPermission(toolName, input, options),
         ...(this.analysisOnly ? advisorPolicy("claude", this.linked?.tools ?? []) : {}),

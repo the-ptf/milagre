@@ -18,6 +18,10 @@ const {
   loadDesignFonts,
 } = require("@milagre/shared/design");
 const { renderDesignPng } = require("./design-raster.cjs");
+const { BUNDLED_SKILLS_DIRECTORY } = require("./bundled-skills.cjs");
+// The tool descriptions carry what an agent needs to design here, for subagents too: they don't see the parent
+// agent's system prompt (events.cjs milagreInstructions), only the tools.
+const DESIGN_SKILL = path.join(BUNDLED_SKILLS_DIRECTORY, "design", "SKILL.md");
 
 // Each artifact keeps immutable versions, so a reply's card shows the design as it was then while the docked
 // viewer follows the latest. Structured designs and HTML explanatory artifacts keep separate formats.
@@ -557,8 +561,7 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
   return [
     {
       name: "design_show",
-      description:
-        "Create an editable design in this Chat from a document of named layers, with frames, text, shapes, icons, images, layout and color tokens. The user can edit layers on desktop. On phone they review and choose designs, and request changes through Chat. The document sets the screen size (390 by 844 for a phone). Read the bundled design skill for the document format. A new id creates a design; revising an existing id requires expectedVersion from design_read, so the user's changes are preserved. Prefer design_apply for small revisions. Use a different id for each variant, in the same group. When the user names another design tool, use that tool instead. The result includes the rendered design as an image and layout warnings; check both before replying.",
+      description: `For any UI, screen, mockup or visual design in this Chat, subagents included: use this, not HTML or image files, so it lands on the Chat's Designs canvas, where the user watches, reviews and chooses. Create an editable design from a document of named layers, with frames, text, shapes, icons, images, layout and color tokens. The user can edit layers on desktop. On phone they review and choose designs, and request changes through Chat. The document sets the screen size (390 by 844 for a phone). Read the bundled design skill (${DESIGN_SKILL}) for the document format. A new id creates a design; revising an existing id requires expectedVersion from design_read, so the user's changes are preserved. Prefer design_apply for small revisions. Use a different id for each variant, in the same group; to revise a design, keep its id. When the user names another design tool, use that tool instead. The result includes the rendered design as an image and layout warnings; check both before replying.`,
       input: {
         title: z.string().min(1).max(120),
         group: z
@@ -592,7 +595,7 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
     {
       name: "design_apply",
       description:
-        "Edit an existing design with one atomic batch of layer operations: update properties, insert a layer, delete a layer and its descendants, or replace the document. Use stable layer ids. expectedVersion must match the latest version read; a conflict changes nothing, so read again and reapply the intended edits. One successful batch creates one immutable version and shows its design card.",
+        "Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent changing a design uses this (or design_show with expectedVersion), never a separate file. Edit it with one atomic batch of layer operations: update properties, insert a layer, delete a layer and its descendants, or replace the document. Use stable layer ids. expectedVersion must match the latest version read; a conflict changes nothing, so read again and reapply the intended edits. One successful batch creates one immutable version and shows its design card.",
       input: {
         id: z.string().regex(ID),
         expectedVersion: z.number().int().positive(),

@@ -412,3 +412,30 @@ test("Claude marks an Agent the chat runs in the background, whose result wakes 
   assert.equal(child(mapClaudeMessage(spawn("fg", null, { description: "Review", prompt: "Check" }), state)).background, undefined);
   assert.equal(child(mapClaudeMessage(spawn("nested", "bg", { description: "Sub", prompt: "Check", run_in_background: true }), state)).background, undefined);
 });
+test("a Codex subagent's design call is an artifact step of the reply, named for the subagent", () => {
+  const state = { threadId: "root" };
+  mapCodexNotification(
+    "item/completed",
+    { threadId: "root", item: { type: "subAgentActivity", id: "spawn", kind: "started", agentThreadId: "child", agentPath: "/root/designer" } },
+    state,
+  );
+  const call = { type: "mcpToolCall", id: "d1", server: "milagre", tool: "design_show", status: "inProgress", arguments: { title: "Card" } };
+  const started = mapCodexNotification("item/started", { threadId: "child", item: call }, state);
+  assert.deepEqual(
+    started.find((event) => event.type === "step-started"),
+    { type: "step-started", step: { id: "d1", kind: "artifact", title: "Showed `Card`", tool: "design_show", agent: "child" } },
+  );
+  const text = JSON.stringify({ id: "card", version: 1, title: "Card", format: "design" });
+  const completed = mapCodexNotification(
+    "item/completed",
+    { threadId: "child", item: { ...call, status: "completed", result: { content: [{ type: "text", text }] } } },
+    state,
+  );
+  assert.deepEqual(completed.find((event) => event.type === "step-completed")?.artifact, { id: "card", version: 1, title: "Card", format: "design" });
+  // Its other tools stay in its own transcript.
+  const read = { type: "mcpToolCall", id: "r1", server: "milagre", tool: "design_read", status: "inProgress", arguments: {} };
+  assert.equal(
+    mapCodexNotification("item/started", { threadId: "child", item: read }, state).some((event) => event.type === "step-started"),
+    false,
+  );
+});

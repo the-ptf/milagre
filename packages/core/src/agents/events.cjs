@@ -20,6 +20,10 @@ const LINKS_INSTRUCTIONS = [
   "When both sides must agree on something first (an API shape, a contract), open a Negotiation with delegate(negotiation: true). Each report then starts the other side's next turn, for up to 10 rounds; call conclude_negotiation(summary) once you agree. A turn handling a Delegation can't delegate, except inside a Negotiation.",
 ].join(" ");
 
+// What a Claude subagent is told as it starts (claude-provider.cjs, SubagentStart): it doesn't see the parent's system
+// prompt, and a custom agent with its own tool list may not have Milagre's tools at all.
+const SUBAGENT_DESIGN_INSTRUCTIONS = `Milagre Designs: this Chat has a Designs canvas. For any UI, screen, mockup or visual design, use the milagre design_show tool (design_apply to revise, keeping the design's id), so the design lands on the Chat's canvas, where the user watches and reviews it. Never write HTML or image files for it. Before your first design, read ${path.join(BUNDLED_SKILLS_DIRECTORY, "design", "SKILL.md")}. Without those tools, don't build the UI another way: describe it in your reply so the agent that started you shows it with design_show.`;
+
 function milagreInstructions(tldrEnabled = true, workspaceInstructions = "", designsEnabled = true) {
   return [
     "You are an agent inside Milagre, an agent development environment. Answer the user concisely and humanly. Do not claim to have changed files unless you actually did.",
@@ -306,14 +310,31 @@ function claudeContextUsage(state, used) {
 // codex app-server notification -> events. Everything not listed is ignored on purpose:
 // the server also reports MCP startup, hooks and the turn's running diff. Rate limits are only kept for the reset
 // time of a turn the plan's usage limit stops.
+function codexSubagentArtifact(method, params, state) {
+  const item = params.item;
+  const tool = item?.type === "mcpToolCall" && item.server === "milagre" ? item.tool : null;
+  if (!["item/started", "item/completed"].includes(method) || !state.subagents?.has(params.threadId) || !SUBAGENT_ARTIFACT_TOOLS.test(`mcp__milagre__${tool}`))
+    return [];
+  const step = { ...codexStep(item), agent: params.threadId };
+  state.steps ??= new Set();
+  if (method === "item/started") {
+    if (state.steps.has(step.id)) return [];
+    state.steps.add(step.id);
+    return [{ type: "step-started", step }];
+  }
+  const started = state.steps.delete(step.id) ? [] : [{ type: "step-started", step }];
+  return [...started, { type: "step-completed", ...codexStepResult(item) }];
+}
+
 function mapCodexNotification(method, params, state) {
   if (method === "account/rateLimits/updated") {
     state.rateLimits = params.rateLimits;
     return [];
   }
   const children = codexSubagents(method, params, state);
+  // A subagent's design calls are the Chat's designs too, as for Claude: artifact steps named for the subagent.
+  if (params.threadId && state.threadId && params.threadId !== state.threadId) return [...children, ...codexSubagentArtifact(method, params, state)];
   if (children.length) return children;
-  if (params.threadId && state.threadId && params.threadId !== state.threadId) return [];
   if (method === "turn/started") return [{ type: "turn-started", turnId: params.turn?.id ?? null }];
   // The last request's tokens are what the context window holds now.
   if (method === "thread/tokenUsage/updated") {
@@ -410,6 +431,7 @@ function codexReasoning(method, item, state) {
 
 module.exports = {
   MILAGRE_INSTRUCTIONS,
+  SUBAGENT_DESIGN_INSTRUCTIONS,
   milagreInstructions,
   RESUME_FAILED_MESSAGE,
   cliBrokenMessage,
