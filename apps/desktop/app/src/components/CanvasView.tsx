@@ -285,11 +285,10 @@ function ChatRow({ row, data, single }: { row: CardRow; data: CardData; single: 
     >
       <span className="flex h-[18px] w-full min-w-0 items-center gap-2">
         <Mark mark={row.mark} failed={row.failed} />
-        {row.provider && <ProviderLogo provider={row.provider} size={13} />}
         <span className="min-w-0 flex-1 truncate text-[13px] leading-[18px] font-semibold text-ink group-hover/chat:underline">{row.title}</span>
         {single && <Diff diff={data.worktree.diff} />}
       </span>
-      <span className={`flex h-4 w-full min-w-0 items-center gap-1.5 text-[12px] leading-4 ${row.provider ? "pl-[43px]" : "pl-[22px]"}`}>
+      <span className="flex h-4 w-full min-w-0 items-center gap-1.5 pl-[22px] text-[12px] leading-4">
         <span className={`shrink-0 font-medium ${toneClass[status.tone]}`}>{status.label}</span>
         {single && <span className="min-w-0 truncate text-ink-3">· {data.worktree.branch}</span>}
         {data.receiveOnly.has(row.id) && (
@@ -300,6 +299,8 @@ function ChatRow({ row, data, single }: { row: CardRow; data: CardData; single: 
             receive-only
           </span>
         )}
+        <span className="flex-1" />
+        {row.provider && <ProviderLogo provider={row.provider} size={12} />}
       </span>
     </button>
   );
@@ -324,7 +325,7 @@ function WorktreeCard({ data }: NodeProps<CardNode>) {
         </div>
       ))}
       {!single && (
-        <div className={`mt-2.5 flex h-4 items-center gap-1.5 text-[11px] text-ink-2 ${data.rows.some((row) => row.provider) ? "pl-[43px]" : "pl-[22px]"}`}>
+        <div className="mt-2.5 flex h-4 items-center gap-1.5 pl-[22px] text-[11px] text-ink-2">
           <HugeiconsIcon icon={GitBranchIcon} size={12} strokeWidth={1.8} color="var(--ink-3)" />
           <span className="min-w-0 flex-1 truncate">{data.worktree.branch}</span>
           <Diff diff={data.worktree.diff} />
