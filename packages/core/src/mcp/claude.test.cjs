@@ -194,6 +194,7 @@ test("signInClaude reports a failed server, a cap and a cancel", async () => {
     ok: false,
     error: "invalid_client",
   });
+  assert.equal(failed.seen.closed, true);
 
   let clock = 0;
   const slow = fakeSignInSdk({ auth: { authUrl: "u", callbackExpected: true }, statuses: [[{ name: "x", status: "needs-auth" }]] });
@@ -240,4 +241,55 @@ test("signInClaude returns opened for a claude.ai connector and errors for stdio
     ok: false,
     error: 'Server type "stdio" does not support OAuth authentication',
   });
+});
+
+test("signInClaude never rejects: a throwing openUrl or status poll is an error and the session closes", async () => {
+  const throwing = fakeSignInSdk({ auth: { authUrl: "u", callbackExpected: true }, statuses: [[]] });
+  assert.deepEqual(
+    await signInClaude({
+      command: "/c",
+      cwd: "/",
+      name: "x",
+      openUrl() {
+        throw new Error("no browser");
+      },
+      loadSdk: throwing.loadSdk,
+      sleep: signInSleep,
+    }),
+    { ok: false, error: "no browser" },
+  );
+  assert.equal(throwing.seen.closed, true);
+
+  const seen = { closed: false };
+  const loadSdk = async () => ({
+    query: () => ({
+      mcpAuthenticate: async () => ({ authUrl: "u", callbackExpected: true }),
+      mcpServerStatus: async () => {
+        throw new Error("status down");
+      },
+      close: () => (seen.closed = true),
+    }),
+  });
+  assert.deepEqual(await signInClaude({ command: "/c", cwd: "/", name: "x", openUrl() {}, loadSdk, sleep: signInSleep }), {
+    ok: false,
+    error: "status down",
+  });
+  assert.equal(seen.closed, true);
+
+  const controller = new AbortController();
+  const aborted = { closed: false };
+  const abortSdk = async () => ({
+    query: () => ({
+      mcpAuthenticate: async () => ({ authUrl: "u", callbackExpected: true }),
+      mcpServerStatus: async () => {
+        controller.abort();
+        throw new Error("torn down");
+      },
+      close: () => (aborted.closed = true),
+    }),
+  });
+  assert.deepEqual(await signInClaude({ command: "/c", cwd: "/", name: "x", openUrl() {}, loadSdk: abortSdk, sleep: signInSleep, signal: controller.signal }), {
+    cancelled: true,
+  });
+  assert.equal(aborted.closed, true);
 });

@@ -69,6 +69,7 @@ const SIGN_IN_TIMEOUT = "Sign-in timed out after 5 minutes. Try again.";
 // One account's OAuth sign-in through the app-server: it returns the URL, runs the callback and token
 // exchange, and announces the end with mcpServer/oauthLogin/completed.
 async function signInCodex({ name, openUrl, signal, timeoutMs = 300_000, everywhere = [], ...options }) {
+  // Never rejects: an abort before or during initialize rejects out of withAppServer, and that is a cancel.
   return withAppServer({ ...options, signal }, async (rpc) => {
     // An Everywhere server isn't in Codex's config; login finds it only inside a thread that carries it (probed 2026-10-15).
     const def = everywhere.find((item) => item.name === name);
@@ -100,7 +101,7 @@ async function signInCodex({ name, openUrl, signal, timeoutMs = 300_000, everywh
       signal?.removeEventListener("abort", onAbort);
       rpc.off?.("notification", onNotification);
     }
-  });
+  }).catch((error) => (signal?.aborted ? { cancelled: true } : { ok: false, error: error instanceof Error ? error.message : String(error) }));
 }
 
 module.exports = { checkCodex, codexServer, addCodex, removeCodex, readCodexDefinition, withAppServer, signInCodex };

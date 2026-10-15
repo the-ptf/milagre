@@ -248,3 +248,88 @@ test("signInCodex reports a failed completion", async () => {
   });
   assert.deepEqual(await result, { ok: false, error: "denied" });
 });
+
+// A fake app-server whose requests reject once it is closed, like the real CodexRpc.
+function signInRpc({ login = { authorizationUrl: "u" }, hangOn } = {}) {
+  const emitter = new EventEmitter();
+  const state = { closes: 0 };
+  let rejectPending = [];
+  const rpc = Object.assign(emitter, {
+    start() {},
+    notify() {},
+    close() {
+      state.closes += 1;
+      state.closed = true;
+      for (const reject of rejectPending) reject(new Error("app-server closed"));
+      rejectPending = [];
+    },
+    request(method) {
+      if (state.closed) return Promise.reject(new Error("app-server closed"));
+      if (method === hangOn) return new Promise((resolve, reject) => rejectPending.push(reject));
+      return Promise.resolve(method === "mcpServer/oauth/login" ? login : {});
+    },
+  });
+  return { rpc, state, createRpc: () => rpc };
+}
+const completed = (name, extra = { success: true }) => ({ method: "mcpServer/oauthLogin/completed", params: { name, ...extra } });
+
+test("signInCodex cancel closes the app-server and leaves no listener", async () => {
+  const { rpc, state, createRpc } = signInRpc();
+  const controller = new AbortController();
+  const result = await signInCodex({ command: "/x", cwd: "/", name: "expo", createRpc, signal: controller.signal, openUrl: () => controller.abort() });
+  assert.deepEqual(result, { cancelled: true });
+  assert.ok(state.closes >= 1);
+  assert.equal(rpc.listenerCount("notification"), 0);
+});
+
+test("signInCodex gives up at the cap and leaves no listener", async () => {
+  const { rpc, state, createRpc } = signInRpc();
+  const result = await signInCodex({ command: "/x", cwd: "/", name: "expo", createRpc, timeoutMs: 20, openUrl() {} });
+  assert.deepEqual(result, { ok: false, error: "Sign-in timed out after 5 minutes. Try again." });
+  assert.ok(state.closes >= 1);
+  assert.equal(rpc.listenerCount("notification"), 0);
+});
+
+test("signInCodex ignores a completion for a different server", async () => {
+  const { rpc, createRpc } = signInRpc();
+  const result = signInCodex({
+    command: "/x",
+    cwd: "/",
+    name: "expo",
+    createRpc,
+    openUrl: () =>
+      setImmediate(() => {
+        rpc.emit("notification", completed("other", { success: false, error: "nope" }));
+        rpc.emit("notification", completed("expo"));
+      }),
+  });
+  assert.deepEqual(await result, { ok: true });
+});
+
+test("signInCodex returns cancelled instead of throwing when aborted before start or during initialize", async () => {
+  const before = signInRpc();
+  const aborted = new AbortController();
+  aborted.abort();
+  assert.deepEqual(await signInCodex({ command: "/x", cwd: "/", name: "expo", createRpc: before.createRpc, signal: aborted.signal, openUrl() {} }), {
+    cancelled: true,
+  });
+  assert.ok(before.state.closes >= 1);
+
+  const during = signInRpc({ hangOn: "initialize" });
+  const controller = new AbortController();
+  const pending = signInCodex({ command: "/x", cwd: "/", name: "expo", createRpc: during.createRpc, signal: controller.signal, openUrl() {} });
+  setImmediate(() => controller.abort());
+  assert.deepEqual(await pending, { cancelled: true });
+});
+
+test("signInCodex returns an error instead of throwing when the app-server fails to start", async () => {
+  const createRpc = () => ({
+    on() {},
+    off() {},
+    start() {},
+    notify() {},
+    close() {},
+    request: () => Promise.reject(new Error("spawn failed")),
+  });
+  assert.deepEqual(await signInCodex({ command: "/x", cwd: "/", name: "expo", createRpc, openUrl() {} }), { ok: false, error: "spawn failed" });
+});

@@ -122,12 +122,7 @@ async function signInClaude({
     options: { pathToClaudeCodeExecutable: command, cwd, ...(env ? { env } : {}), ...(everywhere.length ? { mcpServers } : {}) },
   });
   try {
-    let auth;
-    try {
-      auth = await session.mcpAuthenticate(name);
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
-    }
+    const auth = await session.mcpAuthenticate(name);
     if (auth?.authUrl) openUrl(auth.authUrl);
     if (auth?.callbackExpected === false) return { opened: true };
     const deadline = now() + timeoutMs;
@@ -139,6 +134,9 @@ async function signInClaude({
       await sleep(pollMs);
     }
     return signal?.aborted ? { cancelled: true } : { ok: false, error: SIGN_IN_TIMEOUT };
+  } catch (error) {
+    // Never rejects: a failed authenticate, a throwing openUrl or a dead status poll is an outcome, not a crash.
+    return signal?.aborted ? { cancelled: true } : { ok: false, error: error instanceof Error ? error.message : String(error) };
   } finally {
     session.close?.();
   }
