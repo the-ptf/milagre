@@ -8,10 +8,28 @@ const fixture = `
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { ChatGrid } from "/src/components/ChatGrid";
+import { useScopeStates } from "/src/lib/sidebar-scopes";
+import { ScopeContext } from "/src/lib/computer-bridge";
 import { ChatComposer } from "/src/components/ChatComposer";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
-window.milagre = Object.freeze({ listEditors: async () => [] });
+const unsubscribe = () => () => {};
+// The sidebar's first read of another Project answers a little later, as the main process does.
+const beta = { worktrees: {}, sessions: { 7: { id: 7, title: "Unread in beta", unread: true } }, messages: [] };
+window.milagre = Object.freeze({
+  listEditors: async () => [],
+  on: unsubscribe,
+  onAgentEvent: unsubscribe,
+  onComputerEvent: unsubscribe,
+  readProject: (path) => new Promise((resolve) => setTimeout(() => resolve({ path, name: "beta", state: beta }), 100)),
+});
+// The sidebar reads "/beta"; the grid reads nothing itself and must still hear that read.
+function ScopeProbe() {
+  useScopeStates(true, ["/beta"]);
+  const { states } = useScopeStates(true, []);
+  window.gridScopes = Object.keys(states);
+  return null;
+}
 const noop = () => {};
 const message = (id, session_id, role, body) => ({ id, session_id, role, body, context: null });
 const titles = { 1: "Focused chat", 2: "Refactor the sidebar", 3: "Ship the release notes", 4: "Fix flaky test" };
@@ -23,6 +41,8 @@ const state = {
     message(id * 10 + 2, id, "assistant", "Done with the first pass on " + titles[id].toLowerCase() + ". The change touches two files."),
   ]),
 };
+// A local tile's image, while the window's open Project is another Computer's.
+state.messages.find((item) => item.id === 41).images = [{ id: "shot", name: "shot.png", path: "/fixture/shot.png" }];
 const run = (extra) => ({ text: "Reading the files…", model: "x", steps: [], approvals: [], questions: [], answered: {}, startedAt: Date.now(), ...extra });
 const runs = {
   "/fixture#2": run(),
@@ -44,9 +64,12 @@ window.dismissed = null;
 document.documentElement.classList.add("dark");
 createRoot(document.getElementById("root")).render(
   <div style={{ height: "100vh", padding: 12 }}>
+    <ScopeProbe />
+    <ScopeContext.Provider value="mac-b|/remote">
     <ChatGrid keys={["/fixture#1", "/fixture#2", "/fixture#3", "/fixture#4"]} focused="/fixture#1"
       states={{ "/fixture": state }} runs={runs} delegated={new Set()} models={MODEL_CATALOG}
       onFocus={(key) => (window.focusedTo = key)} onDismiss={(key) => (window.dismissed = key)}>{focusedChat}</ChatGrid>
+    </ScopeContext.Provider>
   </div>,
 );
 `;
@@ -82,6 +105,12 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor('document.querySelectorAll("[data-chat-tile]").length === 4');
+    await waitFor('window.gridScopes?.includes("/beta")');
+    assert.equal(
+      await evaluate(`document.querySelector('[data-chat-tile="/fixture#4"] img')?.getAttribute("src")`),
+      "milagre-media://file/?path=%2Ffixture%2Fshot.png",
+      "A tile's images load from its own Computer, not the open Project's",
+    );
     await screenshot("chat-grid.png");
 
     const tiles = await evaluate(`[...document.querySelectorAll("[data-chat-tile]")].map((tile) => {
@@ -129,6 +158,7 @@ async function browserChecks() {
     await screenshot("chat-grid-narrow.png");
 
     console.log("PASS: tiles keep their order, fill the width at 440px or more, and scroll once rows would drop under 320px");
+    console.log("PASS: the grid hears the sidebar's first read of another Project, so its unread Chats get tiles");
     console.log("PASS: only the focused tile has a composer; a waiting tile says Needs you; Mark read and clicking a tile call back");
     app.exit(0);
   } catch (error) {

@@ -7,6 +7,8 @@ import type { ChatMessage, CoordinatorState, LinkState, ModelOption } from "../m
 import { chatMark, chatTitle, type ChatMark } from "../lib/chat-list";
 import { useChatMessages } from "../lib/chat-messages";
 import { isLean } from "../lib/state-events";
+import { BridgeContext, ScopeContext, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
+import { EditorLinks } from "./editor-links";
 import { ScrollArea } from "./primitives/ScrollArea";
 import Tooltip from "./primitives/Tooltip";
 import { ChatMarkDot } from "./sidebar/ChatRow";
@@ -95,7 +97,9 @@ function ChatTile({
     unread: Boolean(session?.unread),
   });
   const needsYou = mark === "question" || mark === "waiting";
-  const branch = session && "worktree_id" in session && "worktrees" in state! ? state.worktrees[session.worktree_id]?.name : undefined;
+  const worktree = session && "worktree_id" in session && "worktrees" in state! ? state.worktrees[session.worktree_id] : undefined;
+  const branch = worktree?.name;
+  const remote = isRemoteKey(scope);
   const title = session ? chatTitle(session, messages) : "Chat";
   const earlier = useMemo(
     () =>
@@ -146,18 +150,25 @@ function ChatTile({
       {focused ? (
         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
       ) : (
-        <ChatTranscript
-          chatKey={chatKey}
-          messages={messages}
-          messageScope={scope}
-          earlier={earlier}
-          isSending={Boolean(run)}
-          streamingText={run?.text}
-          streamingSteps={run?.steps}
-          asking={Boolean(run?.questions.length)}
-          runStartedAt={run?.startedAt}
-          models={models}
-        />
+        // A tile's images, attachments and file links belong to its own Project (and Computer), not the focused one's.
+        <BridgeContext.Provider value={bridgeForKey(scope)}>
+          <ScopeContext.Provider value={scope}>
+            <EditorLinks root={remote ? "" : (worktree?.path ?? scope)} files={remote ? "" : (worktree?.path ?? scope)}>
+              <ChatTranscript
+                chatKey={chatKey}
+                messages={messages}
+                messageScope={scope}
+                earlier={earlier}
+                isSending={Boolean(run)}
+                streamingText={run?.text}
+                streamingSteps={run?.steps}
+                asking={Boolean(run?.questions.length)}
+                runStartedAt={run?.startedAt}
+                models={models}
+              />
+            </EditorLinks>
+          </ScopeContext.Provider>
+        </BridgeContext.Provider>
       )}
     </section>
   );
