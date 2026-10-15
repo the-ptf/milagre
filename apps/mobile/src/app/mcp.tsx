@@ -13,21 +13,21 @@ export default function McpScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "" }} />
+      {/* Stack.Toolbar takes its buttons as direct children (a Fragment is refused), so each slot picks its own element. */}
       <Stack.Toolbar placement="right">
         {Platform.OS === "ios" ? (
-          <>
-            <Stack.Toolbar.Button icon="arrow.clockwise" accessibilityLabel="Refresh" disabled={mcp.checking} onPress={() => void mcp.refresh()} />
-            <Stack.Toolbar.Button icon="plus" accessibilityLabel="Add MCP server" onPress={add} />
-          </>
+          <Stack.Toolbar.Button icon="arrow.clockwise" accessibilityLabel="Refresh" disabled={mcp.checking} onPress={() => void mcp.refresh()} />
         ) : (
-          <>
-            <Stack.Toolbar.View>
-              <HeaderButton label="Refresh" icon={RefreshIcon} onPress={mcp.checking ? undefined : () => void mcp.refresh()} />
-            </Stack.Toolbar.View>
-            <Stack.Toolbar.View>
-              <HeaderButton label="Add MCP server" icon={Add01Icon} onPress={add} />
-            </Stack.Toolbar.View>
-          </>
+          <Stack.Toolbar.View>
+            <HeaderButton label="Refresh" icon={RefreshIcon} onPress={mcp.checking ? undefined : () => void mcp.refresh()} />
+          </Stack.Toolbar.View>
+        )}
+        {Platform.OS === "ios" ? (
+          <Stack.Toolbar.Button icon="plus" accessibilityLabel="Add MCP server" onPress={add} />
+        ) : (
+          <Stack.Toolbar.View>
+            <HeaderButton label="Add MCP server" icon={Add01Icon} onPress={add} />
+          </Stack.Toolbar.View>
         )}
       </Stack.Toolbar>
       <PageScroll>
