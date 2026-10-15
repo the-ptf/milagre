@@ -5,6 +5,7 @@ import { DEFAULT_THEME_ID, parseCustomTheme, resolvePalette, resolveThemeSetting
 import type { CustomTheme, ThemeChoice } from "@milagre/shared/themes";
 import type { ChatOrder } from "./chat-list";
 import { DESKTOP_CHAT_ROW_SHOW, parseChatRowShow, type ChatRowShow } from "@milagre/shared/chat-row";
+import { parseToolCallDisplay, type ToolCallDisplay } from "@milagre/shared/chat-display";
 import { DEFAULT_NOTIFICATION_CHIME, parseNotificationChime, type NotificationChime } from "@milagre/shared/notification-chimes";
 import { applyPalette } from "./theme-sheet.ts";
 
@@ -50,8 +51,10 @@ export interface AppSettings {
   /** Experimental: the old sidebar, with the project menu on top and only the open Project's chats, instead of every
    * Project and Link with its chats. A new key, so the old opt-in (sidebarAllProjects, saved false for everyone) is dropped. */
   legacySidebar: boolean;
-  /** Experimental: a reply's tool calls and the text between them show in the chat, one row each, instead of folding into one line. */
-  muriloMode: boolean;
+  /** Settings › Chat: a reply's tool calls fold into one line, or show one row each with the text between them. */
+  toolCallDisplay: ToolCallDisplay;
+  /** Settings › Chat: thinking rows start open. */
+  expandReasoning: boolean;
   /** Experimental: drive the chats of other Macs running Milagre from this window (Add computer, the computers popover). */
   otherComputers: boolean;
   /** Experimental: turning Ultracode on plays the Mortal Kombat Fatality overlay and the announcer's voice. */
@@ -88,7 +91,8 @@ const DEFAULTS: AppSettings = {
   chatOrder: "created",
   chatRowShow: DESKTOP_CHAT_ROW_SHOW,
   legacySidebar: false,
-  muriloMode: false,
+  toolCallDisplay: "compact",
+  expandReasoning: false,
   otherComputers: false,
   ultracodeFatality: false,
   notificationChime: DEFAULT_NOTIFICATION_CHIME,
@@ -96,7 +100,7 @@ const DEFAULTS: AppSettings = {
 
 function load(): AppSettings {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}") as Partial<AppSettings>;
+    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}") as Partial<AppSettings> & { muriloMode?: unknown };
     const legacyTheme = window.localStorage.getItem(LEGACY_THEME_KEY);
     const theme = saved.theme ?? legacyTheme;
     const customTheme = parseCustomTheme(saved.customTheme);
@@ -126,7 +130,8 @@ function load(): AppSettings {
       chatOrder: CHAT_ORDERS.includes(saved.chatOrder as ChatOrder) ? saved.chatOrder! : DEFAULTS.chatOrder,
       chatRowShow: parseChatRowShow(saved.chatRowShow, DEFAULTS.chatRowShow),
       legacySidebar: typeof saved.legacySidebar === "boolean" ? saved.legacySidebar : DEFAULTS.legacySidebar,
-      muriloMode: typeof saved.muriloMode === "boolean" ? saved.muriloMode : DEFAULTS.muriloMode,
+      toolCallDisplay: parseToolCallDisplay(saved.toolCallDisplay, saved.muriloMode),
+      expandReasoning: typeof saved.expandReasoning === "boolean" ? saved.expandReasoning : DEFAULTS.expandReasoning,
       otherComputers: typeof saved.otherComputers === "boolean" ? saved.otherComputers : DEFAULTS.otherComputers,
       ultracodeFatality: typeof saved.ultracodeFatality === "boolean" ? saved.ultracodeFatality : DEFAULTS.ultracodeFatality,
       notificationChime: parseNotificationChime(saved.notificationChime),

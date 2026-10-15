@@ -14,7 +14,6 @@ import { Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { CustomThemeSection } from "./custom-theme-section";
-import { useMuriloMode } from "./murilo-mode";
 import { useFloatingInbox, useFloatingInboxActivity } from "./floating-inbox-setting";
 import { useUltracodeFatality } from "./ultracode-fatality-setting";
 import { useSession } from "./session";
@@ -29,7 +28,6 @@ import { ErrorNotice, ListRow, PillButton, Toggle, useStyles } from "./ui";
 export function ExperimentalSection() {
   const styles = useStyles();
   const session = useSession();
-  const [muriloMode, setMuriloMode] = useMuriloMode();
   const [floatingInbox, setFloatingInbox] = useFloatingInbox();
   const [inboxActivity, setInboxActivity] = useFloatingInboxActivity();
   const [fatality, setFatality] = useUltracodeFatality();
@@ -173,12 +171,6 @@ export function ExperimentalSection() {
             <Text style={styles.caption}>Include working chats with a progress summary and finished updates. Off: only questions and permission requests.</Text>
           </View>
         )}
-      </View>
-      <View style={[styles.card, { gap: 4 }]}>
-        <Toggle title="Murilo mode" selected={muriloMode} onPress={() => setMuriloMode(!muriloMode)} />
-        <Text style={styles.caption}>
-          Shows every tool call in the Chat, one row each, with the agent&apos;s notes between them. Replies no longer fold their activity into one line.
-        </Text>
       </View>
       <View style={[styles.card, { gap: 4 }]}>
         <Toggle title="Ultracode Fatality" selected={fatality} onPress={() => setFatality(!fatality)} />

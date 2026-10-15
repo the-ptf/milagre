@@ -1,4 +1,5 @@
 import * as SecureStore from "expo-secure-store";
+import { parseToolCallDisplay, type ToolCallDisplay } from "@milagre/shared/chat-display";
 import { createChatDefaultsStore } from "./chat-defaults-store";
 import { createHostsStore } from "./hosts-store";
 import { createNavigationStore } from "./navigation-store";
@@ -60,6 +61,7 @@ export async function saveAttentionButton(on: boolean) {
   }
 }
 const muriloModeKey = "milagre.murilo-mode.v1";
+const toolCallDisplayKey = "milagre.tool-call-display.v1";
 const floatingInboxKey = "milagre.floating-inbox.v1";
 export async function readFloatingInbox(): Promise<boolean> {
   try {
@@ -90,17 +92,34 @@ export async function saveFloatingInboxActivity(on: boolean) {
     /* best effort */
   }
 }
-/** Experimental: whether a reply's tool calls show in the Chat one row each instead of folding into one line; off unless turned on. */
-export async function readMuriloMode(): Promise<boolean> {
+/** Settings › Chat › Tool call display; a phone that had Murilo mode on (the Experimental switch it replaces) reads as Full detail. */
+export async function readToolCallDisplay(): Promise<ToolCallDisplay> {
   try {
-    return (await SecureStore.getItemAsync(muriloModeKey)) === "on";
+    const saved = await SecureStore.getItemAsync(toolCallDisplayKey);
+    return parseToolCallDisplay(saved, (await SecureStore.getItemAsync(muriloModeKey)) === "on");
+  } catch {
+    return "compact";
+  }
+}
+export async function saveToolCallDisplay(display: ToolCallDisplay) {
+  try {
+    await SecureStore.setItemAsync(toolCallDisplayKey, display);
+  } catch {
+    /* best effort */
+  }
+}
+const expandReasoningKey = "milagre.expand-reasoning.v1";
+/** Settings › Chat › Always expand reasoning; off unless turned on. */
+export async function readExpandReasoning(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(expandReasoningKey)) === "on";
   } catch {
     return false;
   }
 }
-export async function saveMuriloMode(on: boolean) {
+export async function saveExpandReasoning(on: boolean) {
   try {
-    await SecureStore.setItemAsync(muriloModeKey, on ? "on" : "off");
+    await SecureStore.setItemAsync(expandReasoningKey, on ? "on" : "off");
   } catch {
     /* best effort */
   }

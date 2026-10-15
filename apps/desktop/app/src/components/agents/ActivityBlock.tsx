@@ -36,8 +36,8 @@ function Title({ title, shimmer }: { title: string; shimmer: boolean }) {
 /**
  * A reply's thinking, tool steps and the text between them, folded into one line. While the agent
  * works the line shows what it is doing now; once done it sums up the activity. It opens to show
- * every entry in order. A single step needs no fold and shows as its own row. Murilo mode (Settings >
- * Experimental) skips the fold: every step is its own row in the chat, with the text between them.
+ * every entry in order. A single step needs no fold and shows as its own row. Full detail (Settings › Chat ›
+ * Tool call display) skips the fold: every step is its own row in the chat, with the text between them.
  */
 export function ActivityBlock({
   entries,
@@ -49,9 +49,9 @@ export function ActivityBlock({
   waitingStepIds?: string[];
 }) {
   const [open, setOpen] = useState(false);
-  const { muriloMode } = useSettings();
+  const { toolCallDisplay } = useSettings();
   if (!entries.length) return null;
-  if (muriloMode)
+  if (toolCallDisplay === "full")
     return (
       <div data-slot="activity-inline" className="-mx-1.5 my-1 flex min-w-0 flex-col">
         {entries.map((entry, index) =>

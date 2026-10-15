@@ -3,6 +3,7 @@ import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { Text, View } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
 import {
+  BubbleChatIcon,
   ChartBarLineIcon,
   Download04Icon,
   MagicWand01Icon,
@@ -21,7 +22,18 @@ import { ProjectIcon } from "../project-icon";
 import { ErrorNotice, ListRow, PageScroll, Toggle, useStyles } from "../ui";
 import { useAttentionButton } from "../attention";
 
-type SettingsPage = "privacy" | "notifications" | "usage" | "accounts" | "project-accounts" | "skills" | "mcp" | "local-mcp" | "appearance" | "experimental";
+type SettingsPage =
+  | "privacy"
+  | "notifications"
+  | "usage"
+  | "accounts"
+  | "project-accounts"
+  | "skills"
+  | "mcp"
+  | "local-mcp"
+  | "appearance"
+  | "chat-display"
+  | "experimental";
 
 export default function SettingsScreen() {
   return (
@@ -117,6 +129,8 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
         <ListRow compact title="MCP" leading={<Icon icon={PlugSocketIcon} tone="ink" size={20} />} onPress={() => onOpen("mcp")} />
         <View style={styles.separator} />
         <ListRow compact title="Appearance" leading={<Icon icon={PaintBoardIcon} tone="ink" size={20} />} onPress={() => onOpen("appearance")} />
+        <View style={styles.separator} />
+        <ListRow compact title="Chat" leading={<Icon icon={BubbleChatIcon} tone="ink" size={20} />} onPress={() => onOpen("chat-display")} />
         <View style={styles.separator} />
         <ListRow compact title="Experimental" leading={<Icon icon={TestTube01Icon} tone="ink" size={20} />} onPress={() => onOpen("experimental")} />
         <View style={styles.separator} />

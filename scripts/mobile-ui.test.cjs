@@ -4067,7 +4067,7 @@ test("a notification target clears an older Project loading state", async () => 
 });
 
 // Render the real activity adapters, disclosure and shimmer against native leaves.
-function activityItemHost() {
+function activityItemHost({ expandReasoning = false } = {}) {
   const hosts = new Map();
   let current;
   const react = Object.fromEntries(["useState", "useRef", "useMemo", "useEffect"].map((name) => [name, (...args) => current[name](...args)]));
@@ -4134,6 +4134,7 @@ function activityItemHost() {
   const ToolRow = load("tool-row.tsx", {
     ...common,
     "./activity-item": shared,
+    "./chat-display-setting": { useExpandReasoning: () => [expandReasoning, () => {}] },
     "./markdown": { Markdown: ({ text }) => jsx("Text", { children: text }) },
   }).ToolRow;
   function visit(node, key) {
@@ -4199,6 +4200,23 @@ test("subagent details stay expanded across live updates and collapse through th
     find(item.subagent(sampleSubagent), (node) => node.type === "Text" && node.props.children === "Connection verified."),
     undefined,
   );
+});
+
+test("Always expand reasoning opens thinking rows in Activity until tapped, and leaves other tools folded", () => {
+  const thinking = {
+    step: { id: "t", kind: "thinking", title: "Thought for 4s", status: "done", detail: "Weighing the two fixes." },
+    live: false,
+    waiting: false,
+  };
+  const shell = { step: { id: "s", kind: "shell", title: "Ran `npm test`", status: "done", detail: "51 tests passed" }, live: false, waiting: false };
+  const shows = (tree, text) => !!find(tree, (node) => node.type === "Text" && node.props.children === text);
+  assert.equal(shows(activityItemHost().tool(thinking), "Weighing the two fixes."), false, "off: thinking starts folded");
+  const item = activityItemHost({ expandReasoning: true });
+  let tree = item.tool(thinking);
+  assert.ok(shows(tree, "Weighing the two fixes."), "on: thinking starts open");
+  find(tree, (node) => node.props?.accessibilityRole === "button").props.onPress();
+  assert.equal(shows(item.tool(thinking), "Weighing the two fixes."), false, "a tap still folds it");
+  assert.equal(shows(activityItemHost({ expandReasoning: true }).tool(shell), "51 tests passed"), false, "other tools stay folded");
 });
 
 test("tool disclosure reveals late output, while its chat action opens Activity without expanding", () => {
@@ -6505,7 +6523,6 @@ test("mobile Project Accounts opens from Settings as a native stack screen", () 
     "../icons": { Icon: "Icon" },
     "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", Toggle: "Toggle", styles: {} },
     "../attention": { useAttentionButton: () => [true, () => {}] },
-    "../murilo-mode": { useMuriloMode: () => [false, () => {}] },
   });
   find(SettingsView({ onOpen: (page) => opened.push(page) }), (n) => n.props.title === "Project Accounts").props.onPress();
   assert.deepEqual(opened, ["project-accounts"]);
@@ -7056,7 +7073,7 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
     "./tool-row": { ToolRow: "ToolRow" },
     "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
     "./answer-card": { AnswerCard: "AnswerCard" },
-    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
+    "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
@@ -7143,9 +7160,9 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
   );
 });
 
-test("mobile Murilo mode shows each tool call and the notes between them in the Chat, with no activity fold", () => {
+test("mobile Full detail shows each tool call and the notes between them in the Chat, with no activity fold", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
-  const reply = (murilo) =>
+  const reply = (display) =>
     load("chat-reply.tsx", {
       "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
       react,
@@ -7162,7 +7179,7 @@ test("mobile Murilo mode shows each tool call and the notes between them in the 
       "./tool-row": { ToolRow: "ToolRow" },
       "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
       "./answer-card": { AnswerCard: "AnswerCard" },
-      "./murilo-mode": { useMuriloMode: () => [murilo, () => {}] },
+      "./chat-display-setting": { useToolCallDisplay: () => [display, () => {}] },
       "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
       "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
       "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
@@ -7194,11 +7211,11 @@ test("mobile Murilo mode shows each tool call and the notes between them in the 
     walk(tree);
     return rows;
   };
-  assert.deepEqual(shown(reply(false)(props)), ["fold", "Done."], "off: the activity folds into one row");
+  assert.deepEqual(shown(reply("compact")(props)), ["fold", "Done."], "Compact: the activity folds into one row");
   assert.deepEqual(
-    shown(reply(true)(props)),
+    shown(reply("full")(props)),
     ["Running the tests.", "a", "Tests pass, reading the config.", "b", "c", "Done."],
-    "on: every step and note, in order",
+    "Full detail: every step and note, in order",
   );
 });
 
@@ -7278,7 +7295,6 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
     "../icons": { Icon: "Icon" },
     "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", Toggle: "Toggle", styles: {} },
     "../attention": { useAttentionButton: () => [true, () => {}] },
-    "../murilo-mode": { useMuriloMode: () => [false, () => {}] },
   });
   const render = () => {
     react.begin();
@@ -7375,7 +7391,6 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
       seedsFrom: (id) => ({ from: id }),
     },
     "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
     "./ultracode-fatality-setting": {
       useUltracodeFatality: () => [false, () => {}],
     },
@@ -7432,8 +7447,8 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
   const empty = offline();
   assert.ok(text(empty, "Connect to a Mac to change its experimental features."));
   assert.ok(
-    find(empty, (n) => n.props?.title === "Murilo mode"),
-    "Murilo mode is this phone's own switch and shows without a Mac",
+    find(empty, (n) => n.props?.title === "Ultracode Fatality"),
+    "Ultracode Fatality is this phone's own switch and shows without a Mac",
   );
   assert.equal(
     find(empty, (n) => n.props?.title === "Linear"),
@@ -7465,7 +7480,6 @@ test("mobile Experimental page shows the Mac's usage-limit auto-switch, saved on
     "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
     "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue", seedsFrom: (id) => ({ from: id }) },
     "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
     "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
     "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
     "./push": { usePush: () => ({ state: null }) },
@@ -7534,7 +7548,7 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
     "./tool-row": { ToolRow: "ToolRow" },
     "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
     "./answer-card": { AnswerCard: "AnswerCard" },
-    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
+    "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
@@ -7705,7 +7719,6 @@ test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue of
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { useFocusEffect() {} },
     "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
     "./ultracode-fatality-setting": {
       useUltracodeFatality: () => [false, () => {}],
     },
@@ -9048,7 +9061,7 @@ test("mobile Published pages entry requires owner access and remains available w
         router: { push: (path) => pushed.push(path) },
       },
       "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-      "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
+      "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
       "./push": { usePush: () => ({ state: null }) },
       "./icons": { Icon: "Icon" },
       "@hugeicons/core-free-icons": {},

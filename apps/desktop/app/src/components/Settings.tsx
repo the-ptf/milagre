@@ -31,6 +31,7 @@ import type { ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowLeft02Icon,
+  BubbleChatIcon,
   InformationCircleIcon,
   LaptopIcon,
   MagicWand01Icon,
@@ -62,6 +63,15 @@ import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { NOTIFICATION_CHIMES, type NotificationChime } from "@milagre/shared/notification-chimes";
+import {
+  DETAIL_LEVEL_TITLE,
+  EXPAND_REASONING_HINT,
+  EXPAND_REASONING_TITLE,
+  TOOL_CALL_DISPLAYS,
+  TOOL_CALL_DISPLAY_HINT,
+  TOOL_CALL_DISPLAY_TITLE,
+  type ToolCallDisplay,
+} from "@milagre/shared/chat-display";
 import { playNotificationChime } from "../lib/notification-chime";
 import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
@@ -83,6 +93,7 @@ export type SettingsSection =
   | "project-accounts"
   | "accounts"
   | "appearance"
+  | "chat"
   | "skills"
   | "mcp"
   | "local-mcp"
@@ -98,6 +109,7 @@ const SECTIONS: Array<{ key: SettingsSection; label: string; icon: IconData }> =
   { key: "accounts", label: "Accounts", icon: UserMultipleIcon },
   { key: "project-accounts", label: "Project Accounts", icon: UserMultipleIcon },
   { key: "appearance", label: "Appearance", icon: PaintBoardIcon },
+  { key: "chat", label: "Chat", icon: BubbleChatIcon },
   { key: "skills", label: "Skills", icon: MagicWand01Icon },
   { key: "mcp", label: "MCP", icon: PlugSocketIcon },
   { key: "local-mcp", label: "Milagre MCP", icon: PlugSocketIcon },
@@ -472,6 +484,26 @@ export function DesignsSettings() {
   );
 }
 
+function ChatSettings() {
+  const settings = useSettings();
+  return (
+    <Group title={DETAIL_LEVEL_TITLE}>
+      <Row label={EXPAND_REASONING_TITLE} description={EXPAND_REASONING_HINT}>
+        <Switch label={EXPAND_REASONING_TITLE} checked={settings.expandReasoning} onChange={(expandReasoning) => updateSettings({ expandReasoning })} />
+      </Row>
+      <Row label={TOOL_CALL_DISPLAY_TITLE} description={TOOL_CALL_DISPLAY_HINT}>
+        <Select<ToolCallDisplay>
+          label={TOOL_CALL_DISPLAY_TITLE}
+          width={300}
+          value={settings.toolCallDisplay}
+          onChange={(toolCallDisplay) => updateSettings({ toolCallDisplay })}
+          options={TOOL_CALL_DISPLAYS.map((display) => ({ value: display.id, label: display.label, description: display.description }))}
+        />
+      </Row>
+    </Group>
+  );
+}
+
 function ExperimentalSettings() {
   const settings = useSettings();
   return (
@@ -503,12 +535,6 @@ function ExperimentalSettings() {
           description="Brings back the project menu at the top of the sidebar, listing only the open project's chats. Off, the sidebar lists each project and Link with its chats, and Filters chooses which projects show. With other computers paired, every project shows either way."
         >
           <Switch label="Use legacy sidebar" checked={settings.legacySidebar} onChange={(legacySidebar) => updateSettings({ legacySidebar })} />
-        </Row>
-        <Row
-          label="Murilo mode"
-          description="Shows every tool call in the chat, one row each, with the agent's notes between them. Replies no longer fold their activity into one line."
-        >
-          <Switch label="Murilo mode" checked={settings.muriloMode} onChange={(muriloMode) => updateSettings({ muriloMode })} />
         </Row>
         <Row
           label="Other computers"
@@ -1865,6 +1891,7 @@ export function SettingsPanel({
           <ProjectAccountsSettings projectPath={accountScope ?? project?.path} onManageAccounts={() => onSectionChange?.("accounts")} />
         )}
         {section === "appearance" && <AppearanceSettings />}
+        {section === "chat" && <ChatSettings />}
         {section === "skills" &&
           (project ? (
             <SkillsSettings key={project.path} projectPath={project.path} />

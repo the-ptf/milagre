@@ -63,6 +63,7 @@ export default function Layout() {
                       <Stack.Screen name="accounts" options={{ title: "Accounts" }} />
                       <Stack.Screen name="settings" options={{ title: "Settings" }} />
                       <Stack.Screen name="appearance" options={{ title: "Appearance" }} />
+                      <Stack.Screen name="chat-display" options={{ title: "Chat" }} />
                       <Stack.Screen name="update-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                       <Stack.Screen name="confirm-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                       {/* Native search needs the header visible at presentation: enabling it later remounts the sheet. */}

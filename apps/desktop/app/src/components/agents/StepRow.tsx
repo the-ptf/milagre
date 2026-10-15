@@ -16,6 +16,7 @@ import {
 import type { ChatStep, StepKind } from "../../model";
 import { fileSpanIndex } from "../../lib/file-links";
 import { titleSpans } from "../../lib/reply-parts";
+import { useSettings } from "../../lib/settings";
 import { useFileOpener } from "../editor-links";
 import { CodeBlock } from "../markdown/CodeBlock";
 import { Markdown } from "../markdown/Markdown";
@@ -68,7 +69,11 @@ function FileLink({ text, title, shimmer, onOpen }: { text: string; title: strin
 
 /** One tool call in a reply: what it did and how it went. A row with output, a diff or thinking opens to show it. */
 export const StepRow = memo(function StepRow({ step, waiting = false }: { step: ChatStep; waiting?: boolean }) {
-  const [open, setOpen] = useState(false);
+  // Thinking follows Settings › Chat › Always expand reasoning until the row is toggled.
+  const { expandReasoning } = useSettings();
+  const [toggled, setToggled] = useState<boolean | null>(null);
+  const open = toggled ?? (expandReasoning && step.kind === "thinking");
+  const toggle = () => setToggled(!open);
   const detailId = useId();
   const opener = useFileOpener();
   // A read or edit's file opens in the editor from its name; the click doesn't toggle the row.
@@ -129,7 +134,7 @@ export const StepRow = memo(function StepRow({ step, waiting = false }: { step: 
             aria-expanded={open}
             aria-controls={detailId}
             aria-label={`${step.title.replace(/`/g, "")}${state ? `, ${state}` : ""}`}
-            onClick={() => setOpen((value) => !value)}
+            onClick={toggle}
             className="absolute inset-0 rounded-[8px] transition-colors hover:bg-hover"
           />
           <div className={`${rowClass} pointer-events-none relative`}>{content}</div>
@@ -139,7 +144,7 @@ export const StepRow = memo(function StepRow({ step, waiting = false }: { step: 
           type="button"
           aria-expanded={open}
           aria-controls={detailId}
-          onClick={() => setOpen((value) => !value)}
+          onClick={toggle}
           className={`${rowClass} transition-colors hover:bg-hover hover:text-ink`}
         >
           {content}
