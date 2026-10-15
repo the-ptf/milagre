@@ -11,7 +11,7 @@
 **Spec:** `docs/superpowers/specs/2026-10-15-mcp-connect-design.md` (issue #376). Designs in Chat #5019: "Desktop A, grouped cards" v8, "Desktop A, add server sheet" v4, "Phone, MCP list" v6.
 
 **Narrowings against the spec, decided while planning (say so in the PR):**
-- Codex and Antigravity can't report the status of an Everywhere server outside their own config without starting a thread or session, so those chips read **"Loads in Chats"** (new state `unchecked`). Sign-in for an Everywhere server runs on Claude accounts only, plus Codex accounts whose own config has the server. Task 1 checks whether Codex `mcpServer/oauth/login` sees thread-config servers; if it does, a follow-up issue adds Codex Everywhere sign-in.
+- Antigravity can't report the status of an Everywhere server, so its chips read **"Loads in Chats"** (new state `unchecked`). Codex checks and signs in to Everywhere servers through an ephemeral thread that carries them (Task 1 confirmed `mcpServer/oauth/login` works with that thread's id and needs no login).
 - Claude's status API reports project servers without their path, so "From projects, plugins and claude.ai" groups by **source label**: "Project", "Plugin · <plugin>", "claude.ai connectors".
 
 ## Global Constraints
@@ -818,7 +818,7 @@ git commit -m "feat(core): add and remove MCP servers through the Claude and Cod
 - Consumes: `toClaudeConfig` (Task 4), `withAppServer` (Task 5).
 - Produces:
   - `signInClaude({ command, env, cwd, name, everywhere, openUrl, signal, timeoutMs = 300_000, pollMs = 1000, loadSdk, now, sleep })` resolves `{ ok: true } | { ok: false, error: string } | { cancelled: true } | { opened: true }`. `opened` is a claude.ai connector that finishes on claude.ai.
-  - `signInCodex({ command, env, cwd, name, openUrl, signal, timeoutMs = 300_000, clientVersion, createRpc })` resolves the same shape, without `opened`.
+  - `signInCodex({ command, env, cwd, name, everywhere = [], openUrl, signal, timeoutMs = 300_000, clientVersion, createRpc })` resolves the same shape, without `opened`. For a name in `everywhere`, it first starts `thread/start { cwd, config: { mcp_servers: { <name>: toCodexConfig(def) } }, ephemeral: true }` and passes that thread's `thread.id` as `threadId` to the login.
   - The timeout error copy is `"Sign-in timed out after 5 minutes. Try again."`.
 
 - [ ] **Step 1: Failing tests**
@@ -914,6 +914,28 @@ test("signInCodex opens the authorization URL and waits for completion", async (
   assert.equal(emitter.closed, true);
 });
 
+test("signInCodex signs in to an Everywhere server through an ephemeral thread", async () => {
+  const emitter = new EventEmitter();
+  const requests = [];
+  const createRpc = () => Object.assign(emitter, {
+    start() {}, notify() {}, close() {},
+    async request(method, params) {
+      requests.push({ method, params });
+      if (method === "thread/start") return { thread: { id: "t1", ephemeral: true } };
+      if (method === "mcpServer/oauth/login") return { authorizationUrl: "u" };
+      return {};
+    },
+  });
+  const result = signInCodex({
+    command: "/x", cwd: "/w", name: "linear", createRpc,
+    everywhere: [{ name: "linear", type: "http", url: "https://x", headers: {} }],
+    openUrl: () => setImmediate(() => emitter.emit("notification", { method: "mcpServer/oauthLogin/completed", params: { name: "linear", success: true } })),
+  });
+  assert.deepEqual(await result, { ok: true });
+  assert.deepEqual(requests.find((r) => r.method === "thread/start").params, { cwd: "/w", config: { mcp_servers: { linear: { url: "https://x" } } }, ephemeral: true });
+  assert.equal(requests.find((r) => r.method === "mcpServer/oauth/login").params.threadId, "t1");
+});
+
 test("signInCodex reports a failed completion", async () => {
   const emitter = new EventEmitter();
   const createRpc = () => Object.assign(emitter, {
@@ -997,8 +1019,10 @@ const SIGN_IN_TIMEOUT = "Sign-in timed out after 5 minutes. Try again.";
 
 // One account's OAuth sign-in through the app-server: it returns the URL, runs the callback and token
 // exchange, and announces the end with mcpServer/oauthLogin/completed.
-async function signInCodex({ name, openUrl, signal, timeoutMs = 300_000, ...options }) {
+async function signInCodex({ name, openUrl, signal, timeoutMs = 300_000, everywhere = [], ...options }) {
   return withAppServer({ ...options, signal }, async (rpc) => {
+    // An Everywhere server isn't in Codex's config; login finds it only inside a thread that carries it (probed 2026-10-15).
+    const def = everywhere.find((item) => item.name === name);
     let finish;
     const done = new Promise((resolve) => (finish = resolve));
     const onNotification = ({ method, params }) => {
@@ -1010,7 +1034,8 @@ async function signInCodex({ name, openUrl, signal, timeoutMs = 300_000, ...opti
     const onAbort = () => finish({ cancelled: true });
     signal?.addEventListener("abort", onAbort, { once: true });
     try {
-      const { authorizationUrl } = await rpc.request("mcpServer/oauth/login", { name, timeoutSecs: Math.round(timeoutMs / 1000) });
+      const threadId = def ? (await rpc.request("thread/start", { cwd: options.cwd, config: { mcp_servers: { [name]: toCodexConfig(def) } }, ephemeral: true })).thread?.id : undefined;
+      const { authorizationUrl } = await rpc.request("mcpServer/oauth/login", { name, ...(threadId ? { threadId } : {}), timeoutSecs: Math.round(timeoutMs / 1000) });
       if (authorizationUrl) openUrl(authorizationUrl);
       return await done;
     } catch (error) {
@@ -1050,6 +1075,7 @@ git commit -m "feat(core): sign in to MCP servers through the Claude SDK and Cod
   - Every report from both checkers has `detail`.
   - `claudeServer(status, { timedOut, everywhereNames })`.
   - `codexServer(status, configured)`: `detail` comes from `configured.url` or from `configured.command` plus its args.
+  - `checkCodex({ …existing, everywhere = [] })`: when `everywhere` is non-empty, after the config servers it starts `thread/start { cwd, config: { mcp_servers: { <name>: toCodexConfig(def), … } }, ephemeral: true }` and pages `mcpServerStatus/list { threadId, detail: "toolsAndAuthOnly" }`. Each listed name that is in `everywhere` and not already reported is added with `scope: "everywhere"`.
 
 - [ ] **Step 1: Failing tests** (append; and add `detail` to the expected objects in the two existing `claudeServer` deepEqual tests: `detail: null` for both since their configs have no url/command)
 
@@ -1071,6 +1097,23 @@ test("checkClaude passes Everywhere servers to the idle session", async () => {
 In `codex.test.cjs`:
 
 ```js
+test("checkCodex reports Everywhere servers through an ephemeral thread", async () => {
+  const requests = [];
+  const createRpc = () => ({
+    start() {}, notify() {}, close() {}, on() {}, off() {},
+    async request(method, params) {
+      requests.push({ method, params });
+      if (method === "config/read") return { config: { mcp_servers: {} } };
+      if (method === "thread/start") return { thread: { id: "t1" } };
+      if (method === "mcpServerStatus/list") return params.threadId ? { data: [{ name: "linear", tools: { a: {} }, authStatus: "oAuth" }] } : { data: [] };
+      return {};
+    },
+  });
+  const servers = await checkCodex({ command: "/x", cwd: "/w", createRpc, everywhere: [{ name: "linear", type: "http", url: "https://x", headers: {} }] });
+  assert.deepEqual(servers, [{ name: "linear", transport: "url", scope: "everywhere", state: "connected", tools: 1, error: null, detail: "https://x" }]);
+  assert.equal(requests.find((r) => r.method === "thread/start").params.ephemeral, true);
+});
+
 test("codex reports carry detail", () => {
   assert.equal(codexServer({ name: "l", tools: {} }, { url: "https://x" }).detail, "https://x");
   assert.equal(codexServer({ name: "p", tools: {} }, { command: "npx", args: ["y"] }).detail, "npx y");
@@ -1111,6 +1154,25 @@ function claudeServer(status, { timedOut = false, everywhereNames = new Set() } 
 In `checkClaude`, add `everywhere = []` to the parameters, build `mcpServers` the same way as `signInClaude`, pass `...(everywhere.length ? { mcpServers } : {})` in `options`, and map with `claudeServer(status, { timedOut, everywhereNames: new Set(everywhere.map((def) => def.name)) })`.
 
 In `codex.cjs` `codexServer`, add `detail: configured?.url ?? (configured?.command ? [configured.command, ...(configured.args ?? [])].join(" ") : null)` to the returned object.
+
+In `checkCodex`, add `everywhere = []` to the parameters and, inside the `withAppServer` callback after the existing list loop and before `return servers`:
+
+```js
+    // Everywhere servers aren't in Codex's config; an ephemeral thread that carries them reports their status (probed 2026-10-15).
+    if (everywhere.length) {
+      const byName = new Map(everywhere.map((def) => [def.name, toCodexConfig(def)]));
+      const { thread } = await rpc.request("thread/start", { cwd, config: { mcp_servers: Object.fromEntries(byName) }, ephemeral: true });
+      let next = null;
+      do {
+        const page = await rpc.request("mcpServerStatus/list", { threadId: thread?.id, detail: "toolsAndAuthOnly", ...(next ? { cursor: next } : {}) });
+        for (const status of page.data ?? [])
+          if (byName.has(status.name) && !servers.some((server) => server.name === status.name)) servers.push({ ...codexServer(status, byName.get(status.name)), scope: "everywhere" });
+        next = page.nextCursor ?? null;
+      } while (next);
+    }
+```
+
+Existing `codexServer` / `checkCodex` deepEqual expectations in `codex.test.cjs` gain `detail` too.
 
 - [ ] **Step 4: Run, expect PASS.**
 
@@ -1381,18 +1443,13 @@ function createMcp({
         clientVersion,
         signal: controller.signal,
         timeoutMs: Math.max(0, timeoutMs - 5000),
-        everywhere: provider === "claude" ? session.servers : [],
+        everywhere: session.servers,
       });
       const reports = servers.map((server) => ({
         ...server,
         ...(off.has(server.name) ? { state: "disabled" } : {}),
         ...(shadowed.has(server.name) && server.scope === "user" ? { shadowedBy: provider } : {}),
       }));
-      // Codex can't see Everywhere servers outside its config without a thread; they load at Chat start.
-      if (provider === "codex")
-        for (const def of session.servers)
-          if (!reports.some((server) => server.name === def.name))
-            reports.push({ name: def.name, transport: def.type === "stdio" ? "command" : "url", scope: "everywhere", state: off.has(def.name) ? "disabled" : "unchecked", tools: 0, error: null, detail: detailOf(def) });
       return answer(null, reports);
     };
     try {
@@ -1478,7 +1535,7 @@ function createMcp({
           cwd,
           clientVersion,
           name,
-          everywhere: provider === "claude" ? forSessionWith(provider, accountId, cli.env).servers : [],
+          everywhere: forSessionWith(provider, accountId, cli.env).servers,
           signal: controller.signal,
           openUrl: (url) => {
             openUrl(url);
