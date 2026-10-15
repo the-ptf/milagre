@@ -229,3 +229,29 @@ They go through the computer bridge, so they act on the selected Mac.
 - Editing project, plugin or claude.ai servers (only on/off and Sign in).
 - Per-account settings beyond on/off.
 - Copying servers between computers.
+
+## Probe results (2026-10-15, Task 1)
+
+- Claude token reuse: verified up to `authUrl` (no sign-in completed). In a fresh `CLAUDE_CONFIG_DIR`, an idle query
+  with `mcpServers: { probe: { type: "http", url: "https://mcp.expo.dev/mcp" } }` reads `needs-auth` (scope
+  `dynamic`), and `mcpAuthenticate("probe")` returns `authUrl`, `requiresUserAction: true`, `callbackExpected: true`,
+  `redirectScheme: "localhost"`, `state` and `callbackPort`. A second idle query with the identical `mcpServers`
+  still reads `needs-auth`, as expected with no sign-in. The completed token-reuse loop was not run, so the token key
+  including the config stays from the earlier probe: the sign-in session must pass exactly the Chat's config.
+- toggleMcpServer on a user server: works. On `argent` (user scope, connected): `toggleMcpServer(name, false)`
+  returns `undefined`, `mcpServerStatus()` then reads `disabled` (config still present); `toggleMcpServer(name, true)`
+  returns it to `connected`. A fresh idle query afterwards shows `argent` connected, so the toggle is per session and
+  does not persist.
+- Codex config/value/write add + `codex mcp remove`: works, no login needed. `config/value/write { keyPath:
+  "mcp_servers.probe", value: { url, http_headers: { "X-Test": "1" } }, mergeStrategy: "replace" }` returns
+  `status: "ok"` and writes `[mcp_servers.probe]` plus `[mcp_servers.probe.http_headers]` to `config.toml`.
+  `config/read` round-trips it (`url`, `http_headers`, `enabled: true`). `codex mcp remove probe` prints
+  "Removed global MCP server 'probe'." and `config/read` then returns an empty `mcp_servers`.
+- Codex oauth/login on a thread-config server: returns `{ authorizationUrl }` when `threadId` is passed (thread
+  started with `config.mcp_servers.probe2`); without `threadId` it errors "No MCP server named 'probe2' found."
+  This ran in a credential-less `CODEX_HOME`, so no OpenAI login is needed for it. Ephemeral accepted: yes
+  (`thread/start { ephemeral: true }` returns `thread.ephemeral: true`).
+- Codex thread config `enabled: false`: merges. With `probe` in `config.toml`, a thread started with `config.mcp_servers.probe
+  = { enabled: false }` (no url) starts fine and `mcpServerStatus/list { threadId }` reports `probe` with
+  `runtimeStatus: "disabled"` and `httpOrigin: "https://mcp.expo.dev"`, so the definition from `config.toml` is kept.
+  The thread-config server `probe2` appears in the same list as `authenticationRequired`.
