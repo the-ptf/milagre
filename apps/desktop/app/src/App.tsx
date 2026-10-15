@@ -70,7 +70,7 @@ import { ChangesPanel } from "./components/changes/ChangesPanel";
 import { isMac } from "./lib/shortcut-hints";
 import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./components/agents/PanelToggles";
 import { ChangesPanelSlot } from "./components/changes/ChangesPanelSlot";
-import { AttentionButton, ChangesToggle, DiffBar } from "./components/changes/ChangesChrome";
+import { AttentionButton, ChangesToggle, DiffBar, LayoutToggle } from "./components/changes/ChangesChrome";
 import { AnimatePresence } from "motion/react";
 import { useDiffComments } from "./components/changes/useDiffComments";
 import { formatCommentsMessage } from "./lib/diff-comments";
@@ -87,7 +87,9 @@ import { REMOTE_FILES_NOTICE, usePastedImages } from "./components/usePastedImag
 import { DotBackground } from "./components/DotBackground";
 import { StartupSplash } from "./components/StartupSplash";
 import SidebarNav from "./components/SidebarNav";
-import { cachedProjectCopy, rememberProjectCopy, runKeys } from "./lib/sidebar-scopes";
+import { cachedProjectCopy, rememberProjectCopy, runKeys, useScopeStates } from "./lib/sidebar-scopes";
+import { activeChatKeys, gridChats, readChatLayout, saveChatLayout, type ChatLayout } from "./lib/chat-grid";
+import { ChatGrid } from "./components/ChatGrid";
 import { chatRevealPath } from "./lib/reveal";
 import type { SettingsSection } from "./components/Settings";
 import { createPendingChat, isListedChat, pendingChatSessionId, withPendingChat, type PendingChat } from "@milagre/shared/chats";
@@ -154,6 +156,7 @@ function latestSessionId(state: CoordinatorState) {
 
 const NO_MESSAGES: ChatMessage[] = [];
 const NO_REFS: string[] = [];
+const NO_KEYS: string[] = [];
 // `sent`: the main process saved the message; the preview stays until the saved message reaches the window's state.
 type PendingSend = PendingChat & { view: number; projectPath: string; originSessionId: number | null; originWorktreeId: number; sent?: boolean };
 const NO_WORKTREE = -1;
@@ -311,6 +314,13 @@ function App() {
   };
   const selectedCapability = capabilityFor(selectedModel, capabilities);
   const [view, setView] = useState<"chat" | "canvas" | "settings">("chat");
+  const [layout, setLayout] = useState<ChatLayout>(() => readChatLayout(localStorage));
+  const toggleLayout = () =>
+    setLayout((current) => {
+      const next = current === "grid" ? "single" : "grid";
+      saveChatLayout(localStorage, next);
+      return next;
+    });
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   useEffect(() => {
@@ -752,6 +762,24 @@ function App() {
     [attentionChats, states, projectName],
   );
   const delegated = useStableSet(useMemo(() => delegatedChats(linkedWork, project?.path ?? ""), [linkedWork, project?.path]));
+  // The grid: every active Chat across Projects (the sidebar's reads of the ones not open, then this window's), the focused one too.
+  const gridOn = layout === "grid" && view === "chat";
+  const { states: scopeStates } = useScopeStates(gridOn, NO_KEYS);
+  const gridStates = useMemo(() => ({ ...scopeStates, ...states }), [scopeStates, states]);
+  const focusedChatKey = project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null;
+  const activeKeys = useMemo(
+    () => (gridOn ? activeChatKeys(agentRuns.runs, linkedWork, gridStates) : NO_KEYS),
+    [gridOn, agentRuns.runs, linkedWork, gridStates],
+  );
+  const [gridTiles, setGridTiles] = useState<readonly string[]>(NO_KEYS);
+  const nextGridTiles = gridChats(gridTiles, activeKeys, gridOn ? focusedChatKey : null);
+  if (nextGridTiles !== gridTiles) setGridTiles(nextGridTiles);
+  const shownTiles = gridOn && focusedChatKey ? gridTiles : NO_KEYS;
+  const shownTilesRef = useRef(shownTiles);
+  shownTilesRef.current = shownTiles;
+  const focusedChatKeyRef = useRef(focusedChatKey);
+  focusedChatKeyRef.current = focusedChatKey;
+  const delegatedKeys = useMemo(() => new Set(linkedWork.delegations.flatMap((item) => (item.to_chat ? [item.to_chat] : []))), [linkedWork]);
   // Chats carry a summary of their messages; only an older host's state, without one, is grouped message by message.
   const messagesBySession = useMemo(() => {
     const grouped = new Map<number, ChatMessage[]>();
@@ -1602,7 +1630,17 @@ function App() {
     function handleShortcut(event: KeyboardEvent) {
       if (selectedLinkRef.current) return;
       if (event.defaultPrevented || event.isComposing || isModalOpen()) return;
-      if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+      if (!(event.metaKey || event.ctrlKey)) return;
+      // ⌘⌥← and ⌘⌥→ move focus to the grid's previous and next tile.
+      if (event.altKey) {
+        const tiles = shownTilesRef.current;
+        const step = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
+        if (!step || tiles.length < 2 || event.shiftKey) return;
+        event.preventDefault();
+        const at = tiles.indexOf(focusedChatKeyRef.current ?? "");
+        openLinkedChat(tiles[(at + step + tiles.length) % tiles.length]);
+        return;
+      }
       if (event.shiftKey) {
         if (event.key.toLowerCase() === "t") {
           event.preventDefault();
@@ -1614,6 +1652,9 @@ function App() {
           event.preventDefault();
           changes.closeDiff();
           setView("canvas");
+        } else if (event.key.toLowerCase() === "m") {
+          event.preventDefault();
+          toggleLayout();
         }
         return;
       }
@@ -2045,6 +2086,18 @@ function App() {
       },
     ];
     if (view === "settings") commands.push({ id: "back-to-chat", label: "Back to chat", group: "Actions", icon: "chat", run: () => setView("chat") });
+    commands.push({
+      id: "chat-layout",
+      label: layout === "grid" ? "Show one Chat" : "Show active Chats as a grid",
+      group: "Actions",
+      icon: "chat",
+      shortcut: `${modifier}⇧M`,
+      keywords: "grid layout split multiple chats tiles",
+      run: () => {
+        setView("chat");
+        toggleLayout();
+      },
+    });
     commands.push(...settingsCommands(getSettings(), updateSettings));
     if (selectedSession && view === "chat") {
       const sessionId = selectedSession.id;
@@ -2187,6 +2240,9 @@ function App() {
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
           {changesAvailable && <ChangesToggle open={changes.open} onToggle={changes.toggle} />}
           <PanelToggles right={changesAvailable ? 12 + CORNER_PITCH : 12} />
+          {view === "chat" && (
+            <LayoutToggle grid={layout === "grid"} offset={(changesAvailable ? 1 : 0) + sidePanelCount(sidePanels)} onToggle={toggleLayout} />
+          )}
           {showAttentionButton && !floatingInbox && attentionChats[0] && (
             <AttentionButton
               label={attentionLabel(attentionPaths.map(projectName))}
@@ -2195,7 +2251,7 @@ function App() {
                 asking: !agentRuns.runs[item.key]?.approvals.length,
                 waitingFor: waitingFor(agentRuns.runs[item.key]),
               }))}
-              offset={(changesAvailable ? 1 : 0) + sidePanelCount(sidePanels)}
+              offset={(changesAvailable ? 1 : 0) + sidePanelCount(sidePanels) + (view === "chat" ? 1 : 0)}
               onOpen={openChatByKey}
             />
           )}
@@ -2310,139 +2366,158 @@ function App() {
                 {awayBanner && (
                   <OfflineBanner text={awayBanner} empty={Boolean(lean && selectedSession && !chatWindow.loading && chatWindow.messages.length === 0)} />
                 )}
-                <EditorLinks
-                  root={isRemoteKey(project.path) ? "" : (selectedWorktree?.path ?? project.path)}
-                  files={selectedWorktree?.path ?? (isRemoteKey(project.path) ? "" : project.path)}
+                <ChatGrid
+                  keys={shownTiles}
+                  focused={focusedChatKey}
+                  states={gridStates}
+                  runs={agentRuns.runs}
+                  delegated={delegatedKeys}
+                  models={models}
+                  onFocus={openLinkedChat}
+                  onDismiss={(key) =>
+                    void reportChatAction(
+                      bridgeForKey(projectOfKey(key)).patchChat(projectOfKey(key), sessionIdFromKey(key), { unread: false }),
+                      "Could not mark Chat read",
+                      setNotice,
+                    )
+                  }
                 >
-                  <DraftChatComposer
-                    key={project.path}
-                    store={draftStore}
-                    messages={displayedMessages}
-                    scrollKey={chatView.current}
-                    pendingMessageId={pendingHere && pendingCanonicalId === null ? pendingSend?.message.id : undefined}
-                    imageDraft={imageDraft}
-                    projectPath={selectedWorktree?.path ?? project.path}
-                    messageScope={project.path}
-                    earlier={earlierMessages}
-                    onSend={() => void sendMessage()}
-                    onCompact={selectedSession && (selectedSession.provider ?? "claude") === "claude" && !readOnly ? () => void compactContext() : undefined}
-                    onSendDesignMessage={(text) => executeSend(text, permissionMode, [], [], true)}
-                    linearActive={linear.active}
-                    onStartFromIssue={startFromIssue}
-                    onStop={run && selectedSession ? () => void agentRuns.interrupt(chatKey(project.path, selectedSession.id)) : undefined}
-                    pullRequestAction={
-                      selectedSession && selectedPullRequest && pullRequestBlocker && pullRequestActionRequest
-                        ? {
-                            label: BLOCKERS[pullRequestBlocker].action,
-                            tone: BLOCKERS[pullRequestBlocker].tone,
-                            onRun: () => {
-                              dismissBlockerAction(selectedPullRequest, pullRequestBlocker);
-                              void executeSend(pullRequestActionBody(pullRequestActionRequest), permissionMode, [], [], true, pullRequestActionRequest);
-                            },
-                          }
-                        : undefined
-                    }
-                    isSending={isSending}
-                    sendBlocked={preparing || readOnly}
-                    offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
-                    runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend?.startedAt : undefined)}
-                    streamingText={run?.text}
-                    streamingSteps={run?.steps}
-                    subagents={subagents}
-                    onArchiveFinishedSubagents={archiveFinishedChildren}
-                    onArchiveSubagent={archiveChild}
-                    onStopAdvisor={(id) => controlAdvisor("stop", id)}
-                    onRetryAdvisor={(id) => controlAdvisor("retry", id)}
-                    waitingForSubagents={run?.waitingForSubagents}
-                    plan={selectedSession?.plan}
-                    contextUsage={run?.contextUsage ?? selectedSession?.contextUsage}
-                    ports={project && selectedSession ? agentPorts[chatKey(project.path, selectedSession.id)] : undefined}
-                    agentChatId={project && selectedSession ? chatKey(project.path, selectedSession.id) : undefined}
-                    onStopPort={
-                      project && selectedSession ? (pid) => bridgeForKey(project.path).stopAgentPort(chatKey(project.path, selectedSession.id), pid) : undefined
-                    }
-                    waitingStepIds={waitingStepIds}
-                    asking={Boolean(run?.questions.length)}
-                    sessionProvider={selectedSession?.provider}
-                    runModelName={run ? (models.find((model) => model.id === run.model)?.name ?? run.model) : undefined}
-                    resume={
-                      project && selectedSession?.resumeTurn
-                        ? {
-                            onContinue: () =>
-                              void bridgeForKey(project.path)
-                                .resumeChat(project.path, selectedSession.id)
-                                .catch((error) => setNotice(`Couldn't continue the chat: ${error instanceof Error ? error.message : String(error)}`)),
-                          }
-                        : undefined
-                    }
-                    onOpenLinkedChat={openLinkedChat}
-                    onOpenAccounts={openAccounts}
-                    models={models}
-                    cliStatus={cliStatus}
-                    onModelPickerOpen={refreshCliStatus}
-                    onUpdateCli={handleUpdateCli}
-                    updatingCli={updatingCli}
-                    selectedModel={selectedModel}
-                    onModelChange={chooseModel}
-                    capability={selectedCapability}
-                    effort={effortFor(selectedCapability, effort)}
-                    onEffortChange={setEffort}
-                    ultracode={selectedCapability.ultracode && ultracode}
-                    onUltracodeChange={setUltracode}
-                    fastMode={fastMode}
-                    onFastModeChange={setFastMode}
-                    permissionMode={permissionMode}
-                    onPermissionModeChange={changePermissionMode}
-                    onRecommendationSelect={sendRecommendation}
-                    worktrees={composerWorktrees}
-                    selectedWorktreeId={selectedWorktree?.id}
-                    onWorktreeChange={(id) => {
-                      advanceChatView();
-                      setSelectedWorktreeId(id);
-                      saveChatPreferences(localStorage, project.path, { worktreePath: state.worktrees[id]?.path });
-                    }}
-                    isolation={isolation}
-                    onIsolationChange={(next) => {
-                      preparedTarget.current = null;
-                      setIsolation(next);
-                      saveChatPreferences(localStorage, project.path, { isolation: next });
-                      setNewChatError(null);
-                    }}
-                    branches={branches}
-                    baseBranch={effectiveBaseBranch}
-                    onBaseBranchChange={(branch) => {
-                      preparedTarget.current = null;
-                      setBaseBranch(branch);
-                      saveChatPreferences(localStorage, project.path, { baseBranch: branch });
-                    }}
-                    newChatError={newChatError}
-                    findOpen={findOpen}
-                    findSignal={findSignal}
-                    findSeed={findSeed}
-                    onFindClose={() => setFindOpen(false)}
-                    notice={notice}
-                    onDismissNotice={() => setNotice(null)}
-                    approval={
-                      pendingApproval ? (
-                        <PermissionCard
-                          key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingApproval.requestId}`}
-                          request={pendingApproval}
-                          waiting={(run?.approvals.length ?? 1) - 1}
-                          answering={sentDecision(run, pendingApproval.requestId)}
-                          onAnswer={answerApproval}
-                        />
-                      ) : pendingQuestion ? (
-                        <QuestionCard
-                          key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingQuestion.requestId}`}
-                          request={pendingQuestion}
-                          waiting={(run?.questions.length ?? 1) - 1}
-                          answering={sentReply(run, pendingQuestion.requestId)}
-                          onAnswer={answerQuestion}
-                        />
-                      ) : undefined
-                    }
-                  />
-                </EditorLinks>
+                  <EditorLinks
+                    root={isRemoteKey(project.path) ? "" : (selectedWorktree?.path ?? project.path)}
+                    files={selectedWorktree?.path ?? (isRemoteKey(project.path) ? "" : project.path)}
+                  >
+                    <DraftChatComposer
+                      key={project.path}
+                      store={draftStore}
+                      messages={displayedMessages}
+                      scrollKey={chatView.current}
+                      pendingMessageId={pendingHere && pendingCanonicalId === null ? pendingSend?.message.id : undefined}
+                      imageDraft={imageDraft}
+                      projectPath={selectedWorktree?.path ?? project.path}
+                      messageScope={project.path}
+                      earlier={earlierMessages}
+                      onSend={() => void sendMessage()}
+                      onCompact={selectedSession && (selectedSession.provider ?? "claude") === "claude" && !readOnly ? () => void compactContext() : undefined}
+                      onSendDesignMessage={(text) => executeSend(text, permissionMode, [], [], true)}
+                      linearActive={linear.active}
+                      onStartFromIssue={startFromIssue}
+                      onStop={run && selectedSession ? () => void agentRuns.interrupt(chatKey(project.path, selectedSession.id)) : undefined}
+                      pullRequestAction={
+                        selectedSession && selectedPullRequest && pullRequestBlocker && pullRequestActionRequest
+                          ? {
+                              label: BLOCKERS[pullRequestBlocker].action,
+                              tone: BLOCKERS[pullRequestBlocker].tone,
+                              onRun: () => {
+                                dismissBlockerAction(selectedPullRequest, pullRequestBlocker);
+                                void executeSend(pullRequestActionBody(pullRequestActionRequest), permissionMode, [], [], true, pullRequestActionRequest);
+                              },
+                            }
+                          : undefined
+                      }
+                      isSending={isSending}
+                      sendBlocked={preparing || readOnly}
+                      offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
+                      runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend?.startedAt : undefined)}
+                      streamingText={run?.text}
+                      streamingSteps={run?.steps}
+                      subagents={subagents}
+                      onArchiveFinishedSubagents={archiveFinishedChildren}
+                      onArchiveSubagent={archiveChild}
+                      onStopAdvisor={(id) => controlAdvisor("stop", id)}
+                      onRetryAdvisor={(id) => controlAdvisor("retry", id)}
+                      waitingForSubagents={run?.waitingForSubagents}
+                      plan={selectedSession?.plan}
+                      contextUsage={run?.contextUsage ?? selectedSession?.contextUsage}
+                      ports={project && selectedSession ? agentPorts[chatKey(project.path, selectedSession.id)] : undefined}
+                      agentChatId={project && selectedSession ? chatKey(project.path, selectedSession.id) : undefined}
+                      onStopPort={
+                        project && selectedSession
+                          ? (pid) => bridgeForKey(project.path).stopAgentPort(chatKey(project.path, selectedSession.id), pid)
+                          : undefined
+                      }
+                      waitingStepIds={waitingStepIds}
+                      asking={Boolean(run?.questions.length)}
+                      sessionProvider={selectedSession?.provider}
+                      runModelName={run ? (models.find((model) => model.id === run.model)?.name ?? run.model) : undefined}
+                      resume={
+                        project && selectedSession?.resumeTurn
+                          ? {
+                              onContinue: () =>
+                                void bridgeForKey(project.path)
+                                  .resumeChat(project.path, selectedSession.id)
+                                  .catch((error) => setNotice(`Couldn't continue the chat: ${error instanceof Error ? error.message : String(error)}`)),
+                            }
+                          : undefined
+                      }
+                      onOpenLinkedChat={openLinkedChat}
+                      onOpenAccounts={openAccounts}
+                      models={models}
+                      cliStatus={cliStatus}
+                      onModelPickerOpen={refreshCliStatus}
+                      onUpdateCli={handleUpdateCli}
+                      updatingCli={updatingCli}
+                      selectedModel={selectedModel}
+                      onModelChange={chooseModel}
+                      capability={selectedCapability}
+                      effort={effortFor(selectedCapability, effort)}
+                      onEffortChange={setEffort}
+                      ultracode={selectedCapability.ultracode && ultracode}
+                      onUltracodeChange={setUltracode}
+                      fastMode={fastMode}
+                      onFastModeChange={setFastMode}
+                      permissionMode={permissionMode}
+                      onPermissionModeChange={changePermissionMode}
+                      onRecommendationSelect={sendRecommendation}
+                      worktrees={composerWorktrees}
+                      selectedWorktreeId={selectedWorktree?.id}
+                      onWorktreeChange={(id) => {
+                        advanceChatView();
+                        setSelectedWorktreeId(id);
+                        saveChatPreferences(localStorage, project.path, { worktreePath: state.worktrees[id]?.path });
+                      }}
+                      isolation={isolation}
+                      onIsolationChange={(next) => {
+                        preparedTarget.current = null;
+                        setIsolation(next);
+                        saveChatPreferences(localStorage, project.path, { isolation: next });
+                        setNewChatError(null);
+                      }}
+                      branches={branches}
+                      baseBranch={effectiveBaseBranch}
+                      onBaseBranchChange={(branch) => {
+                        preparedTarget.current = null;
+                        setBaseBranch(branch);
+                        saveChatPreferences(localStorage, project.path, { baseBranch: branch });
+                      }}
+                      newChatError={newChatError}
+                      findOpen={findOpen}
+                      findSignal={findSignal}
+                      findSeed={findSeed}
+                      onFindClose={() => setFindOpen(false)}
+                      notice={notice}
+                      onDismissNotice={() => setNotice(null)}
+                      approval={
+                        pendingApproval ? (
+                          <PermissionCard
+                            key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingApproval.requestId}`}
+                            request={pendingApproval}
+                            waiting={(run?.approvals.length ?? 1) - 1}
+                            answering={sentDecision(run, pendingApproval.requestId)}
+                            onAnswer={answerApproval}
+                          />
+                        ) : pendingQuestion ? (
+                          <QuestionCard
+                            key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingQuestion.requestId}`}
+                            request={pendingQuestion}
+                            waiting={(run?.questions.length ?? 1) - 1}
+                            answering={sentReply(run, pendingQuestion.requestId)}
+                            onAnswer={answerQuestion}
+                          />
+                        ) : undefined
+                      }
+                    />
+                  </EditorLinks>
+                </ChatGrid>
                 <TerminalPanel chatId={terminalChatId} notify={setNotice} />
               </div>
             </main>

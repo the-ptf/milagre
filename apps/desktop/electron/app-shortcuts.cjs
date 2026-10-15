@@ -2,7 +2,7 @@
 // The app's ⌘⇧ shortcuts, caught before any frame gets the key. With focus inside an embedded frame (a design on the
 // canvas, the simulator viewer) the key goes to that frame and the window's own listeners never see it, so these are
 // sent on to the renderer, which handles them as if pressed there. Every other key reaches the focused frame as usual.
-const APP_SHORTCUT_KEYS = new Set(["d", "e", "l", "s", "t"]);
+const APP_SHORTCUT_KEYS = new Set(["d", "e", "l", "m", "s", "t"]);
 
 /**
  * Whether this key is one of the app's ⌘⇧ shortcuts (Ctrl+Shift off macOS).
