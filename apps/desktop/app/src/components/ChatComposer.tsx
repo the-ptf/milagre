@@ -886,6 +886,7 @@ export function ChatComposer({
       onSend={onSendDesignMessage}
       agent={providerName(sessionProvider ?? selectedModel.provider)}
       followAgent
+      subagents={subagents}
     >
       <div
         ref={root}
@@ -1157,6 +1158,7 @@ function ReplyProviders({
   onSend,
   agent,
   followAgent,
+  subagents,
   children,
 }: {
   chatId: string | null;
@@ -1166,10 +1168,11 @@ function ReplyProviders({
   agent?: string;
   /** The Chat this window shows, whose Designs open as the agent starts designing (not a grid tile). */
   followAgent?: boolean;
+  subagents?: readonly Subagent[];
   children: ReactNode;
 }) {
   return (
-    <ArtifactsProvider chatId={chatId} steps={steps} userMessages={userMessages} onSend={onSend} agent={agent} followAgent={followAgent}>
+    <ArtifactsProvider chatId={chatId} steps={steps} userMessages={userMessages} onSend={onSend} agent={agent} followAgent={followAgent} subagents={subagents}>
       <GenerativeUIProvider onSend={onSend}>{children}</GenerativeUIProvider>
     </ArtifactsProvider>
   );

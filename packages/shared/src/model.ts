@@ -404,6 +404,8 @@ export interface ChatStep {
   artifact?: ArtifactRef;
   /** For an artifact step, the Milagre tool it called: the Designs canvas opens when a design tool starts. */
   tool?: "design_show" | "design_apply" | "artifact_show";
+  /** For an artifact step a subagent made, the subagent: the id of the Agent call that started it (Subagent.id). */
+  agent?: string;
 }
 
 export interface ImageAttachment {
@@ -592,13 +594,14 @@ export type AgentEvent =
   | { type: "turn-started"; turnId: string | null; continues?: string }
   /** `startsMessage`: a provider message boundary, distinct from a streamed paragraph break. */
   | { type: "text-delta"; messageId: string | null; text: string; startsMessage?: boolean }
-  | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file" | "tool"> }
+  | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file" | "tool" | "agent"> }
   | { type: "step-output"; id: string; text: string }
   /**
    * Claude's input to a Milagre design tool while the model writes it (design-drafts.cjs), for the Designs canvas to
-   * build the design live: `text` continues the input at `offset`, `done` once it is whole. `id` is the step's. Not saved.
+   * build the design live: `text` continues the input at `offset`, `done` once it is whole. `id` is the step's; `agent`
+   * the subagent writing it, if one is. Not saved.
    */
-  | { type: "step-draft"; id: string; tool: "design_show" | "design_apply"; offset: number; text: string; done?: boolean }
+  | { type: "step-draft"; id: string; tool: "design_show" | "design_apply"; offset: number; text: string; done?: boolean; agent?: string }
   | { type: "step-completed"; id: string; status: "done" | "failed"; title?: string; note?: string; detail?: string; durationMs?: number; file?: string }
   | ({ type: "permission-request" } & PermissionRequest)
   | { type: "permission-resolved"; requestId: string; decision: PermissionDecision | "cancelled" }

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { createDesignDraft, designReplay, parsePartialJson, type DesignDraft } from "@milagre/shared/design-draft";
 import type { DesignDocument } from "@milagre/shared/design";
-import type { ArtifactRef } from "../../model";
+import type { ArtifactRef, Subagent } from "../../model";
 import { stateEvents, type AgentEventUpdate } from "../../lib/state-events";
 import { readArtifact } from "./ArtifactCanvas";
 import { DESIGN_SAVED, type DesignSaved } from "./DesignEditor";
@@ -35,6 +35,8 @@ export type LiveDesign = {
   version?: number;
   /** The version the frame keeps showing while a replay runs. */
   hold?: number;
+  /** The subagent at work (Subagent.id), or none for the Chat's own agent: each agent has its own cursor. */
+  by?: string;
 };
 
 type Draft = {
@@ -57,14 +59,21 @@ type ChatLive = {
   running: Set<string>;
   /** The design tool calls already announced to useDesignWorkStarted, by id, for the turn. */
   announced: Set<string>;
+  /** The subagent making each running design call, by step id. */
+  callers: Map<string, string>;
+  /** The Chat's subagents, in the Subagents view's order, which names and colours their cursors. */
+  crew: readonly Subagent[];
 };
 
 const chats = new Map<string, ChatLive>();
 const listeners = new Set<() => void>();
 const EMPTY: LiveDesign[] = [];
+const NO_CREW: readonly Subagent[] = [];
 // Versions that need no replay: a draft showed them being written, or the user saved them in the editor.
 const covered = new Set<string>();
 const versionKey = (chatId: string, id: string, version: number) => `${chatId}\n${id}\n${version}`;
+// The subagent that saved a version, by versionKey, for its replay's cursor.
+const savedBy = new Map<string, string>();
 // At most every this often a draft renders again.
 const DRAFT_RENDER_MS = 100;
 // A replay's whole length, and each step's bounds.
@@ -77,7 +86,17 @@ const SETTLE_TIMEOUT_MS = 4000;
 function chatLive(chatId: string): ChatLive {
   let chat = chats.get(chatId);
   if (!chat) {
-    chat = { agent: "Agent", designs: EMPTY, drafts: new Map(), replays: new Map(), watched: 0, running: new Set(), announced: new Set() };
+    chat = {
+      agent: "Agent",
+      designs: EMPTY,
+      drafts: new Map(),
+      replays: new Map(),
+      watched: 0,
+      running: new Set(),
+      announced: new Set(),
+      callers: new Map(),
+      crew: NO_CREW,
+    };
     chats.set(chatId, chat);
   }
   return chat;
@@ -184,7 +203,9 @@ function receive(chatId: string, event: AgentEventUpdate["event"]) {
   const chat = chats.get(chatId);
   if (!chat) return;
   if (event.type === "step-started") {
-    if (!designToolOf(event.step) || chat.drafts.has(event.step.id)) return;
+    if (!designToolOf(event.step)) return;
+    if (event.step.agent) chat.callers.set(event.step.id, event.step.agent);
+    if (chat.drafts.has(event.step.id)) return;
     chat.running.add(event.step.id);
     emit();
     announce(chat, chatId, event.step.id);
@@ -194,7 +215,18 @@ function receive(chatId: string, event: AgentEventUpdate["event"]) {
     let draft = chat.drafts.get(event.id);
     if (!draft && event.offset === 0) {
       draft = {
-        live: { key: event.id, kind: "draft", tool: event.tool, designId: null, title: null, group: null, document: null, changed: [], status: "writing" },
+        live: {
+          key: event.id,
+          kind: "draft",
+          tool: event.tool,
+          designId: null,
+          title: null,
+          group: null,
+          document: null,
+          changed: [],
+          status: "writing",
+          ...(event.agent ? { by: event.agent } : {}),
+        },
         tool: event.tool,
         input: "",
         reader: createDesignDraft(event.tool),
@@ -214,9 +246,12 @@ function receive(chatId: string, event: AgentEventUpdate["event"]) {
   }
   if (event.type === "step-completed") {
     if (chat.running.delete(event.id)) emit();
+    const artifact = (event as { artifact?: ArtifactRef }).artifact;
+    const caller = chat.callers.get(event.id);
+    chat.callers.delete(event.id);
+    if (caller && artifact && event.status === "done") savedBy.set(versionKey(chatId, artifact.id, artifact.version), caller);
     const draft = chat.drafts.get(event.id);
     if (!draft) return;
-    const artifact = (event as { artifact?: ArtifactRef }).artifact;
     if (event.status !== "done" || !artifact) return drop(chatId, event.id);
     covered.add(versionKey(chatId, artifact.id, artifact.version));
     // Nobody watched it being written: the saved version just shows when the Chat does.
@@ -249,7 +284,9 @@ function receive(chatId: string, event: AgentEventUpdate["event"]) {
 function replay(chatId: string, id: string, from: number, to: number) {
   const key = `replay:${id}:${to}`;
   const chat = chatLive(chatId);
-  put(chatId, { key, kind: "replay", designId: id, title: null, group: null, document: null, changed: [], status: "writing", hold: from });
+  const by = savedBy.get(versionKey(chatId, id, to));
+  const who = by ? { by } : {};
+  put(chatId, { key, kind: "replay", designId: id, title: null, group: null, document: null, changed: [], status: "writing", hold: from, ...who });
   const stop = () => drop(chatId, key);
   void Promise.all([readArtifact(chatId, id, from), readArtifact(chatId, id, to)])
     .then(([before, after]) => {
@@ -267,6 +304,7 @@ function replay(chatId: string, id: string, from: number, to: number) {
         changed: [],
         status: "writing",
         hold: from,
+        ...who,
       };
       put(chatId, base);
       let index = 0;
@@ -304,15 +342,15 @@ function subscribe(listener: () => void) {
   };
 }
 
-let following = false;
+let gathering = false;
 
 /**
  * Gathers every Chat's design drafts from the first piece, once any Chat's replies are on screen: a Chat opened or a
  * canvas docked mid-call still has the whole draft to build from.
  */
 function follow() {
-  if (following) return;
-  following = true;
+  if (gathering) return;
+  gathering = true;
   stateEvents.onAgentEvent((update) => {
     // A draft that can't be followed only loses its animation: the other listeners still get the event.
     try {
@@ -323,12 +361,19 @@ function follow() {
   });
 }
 
-/** Follows the Chat's design drafts while its replies are on screen. `agent` names the agent for its cursor. */
-export function useLiveDesignFeed(chatId: string | null, agent: string) {
+/**
+ * Follows the Chat's design drafts while its replies are on screen. `agent` names the Chat's agent for its cursor;
+ * `crew`, its subagents in the Subagents view's order, names theirs.
+ */
+export function useLiveDesignFeed(chatId: string | null, agent: string, crew: readonly Subagent[] = NO_CREW) {
   useEffect(() => {
     if (!chatId) return;
-    chatLive(chatId).agent = agent;
-  }, [chatId, agent]);
+    const chat = chatLive(chatId);
+    if (chat.agent === agent && chat.crew === crew) return;
+    chat.agent = agent;
+    chat.crew = crew;
+    emit();
+  }, [chatId, agent, crew]);
   useEffect(() => {
     follow();
     if (!chatId) return;
@@ -383,6 +428,13 @@ export function useDraftFrameShown(chatId: string) {
 export function useLiveDesigns(chatId: string | null): { designs: LiveDesign[]; agent: string } {
   const designs = useSyncExternalStore(subscribe, () => (chatId ? (chats.get(chatId)?.designs ?? EMPTY) : EMPTY));
   return { designs, agent: (chatId && chats.get(chatId)?.agent) || "Agent" };
+}
+
+/** The Chat's agent, by name, and its subagents, for the cursors. */
+export function useLiveCrew(chatId: string): { agent: string; crew: readonly Subagent[] } {
+  const agent = useSyncExternalStore(subscribe, () => chats.get(chatId)?.agent || "Agent");
+  const crew = useSyncExternalStore(subscribe, () => chats.get(chatId)?.crew ?? NO_CREW);
+  return { agent, crew };
 }
 
 /**

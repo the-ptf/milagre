@@ -97,7 +97,14 @@ const v3 = applyDesignOperations(v2, [
   { op: "delete", id: "footnote" },
   { op: "update", id: "card", patch: { height: 400 } },
 ]);
-const logins = { 1: v1, 2: v2, 3: v3 };
+// A subagent's edit after that, saved without streaming.
+const v4 = applyDesignOperations(v3, [
+  { op: "update", id: "heading", patch: { text: "Hello again" } },
+  { op: "insert", node: { id: "ribbon", parentId: "card", type: "rectangle", x: 0, y: 0, width: 404, height: 8, fill: "#2563eb" } },
+]);
+const logins = { 1: v1, 2: v2, 3: v3, 4: v4 };
+// Designs saved later in the check, by id: { title, document }.
+window.saved = {};
 const home = ${JSON.stringify(home)};
 const chatId = "milagre-link:fixture#1";
 // ?fresh: a Chat with no design yet.
@@ -115,9 +122,14 @@ window.milagre = {
     list: async () => [
       ...(fresh ? [] : [{ id: "login", version: window.latest, title: "Login", format: "design", versions: window.latest, width: 1280, height: 800 }]),
       ...(window.homeShown ? [{ id: "home", version: 1, title: "Home", format: "design", versions: 1, width: 390, height: 844 }] : []),
+      ...Object.entries(window.saved).map(([id, saved]) => ({ id, version: 1, title: saved.title, format: "design", versions: 1, width: 390, height: 844 })),
     ],
     comments: async () => [],
     get: async ({ id, version }) => {
+      if (window.saved[id]) {
+        const { title, document } = window.saved[id];
+        return { id, version: 1, title, versions: 1, latest: 1, width: 390, height: 844, format: "design", document, html: designHtml(document) };
+      }
       if (id === "home") return { id, version: 1, title: "Home", versions: 1, latest: 1, width: 390, height: 844, format: "design", document: home, html: designHtml(home) };
       const shown = version ?? window.latest;
       return { id, version: shown, title: "Login", versions: window.latest, latest: window.latest, width: 1280, height: 800, format: "design", document: logins[shown], html: designHtml(logins[shown]) };
@@ -126,6 +138,26 @@ window.milagre = {
 };
 window.emit = (event) => { for (const listener of window.listeners) listener({ chatId, event }); };
 // Streams a tool call's input as Claude does, in pieces; resolves once whole. pause() holds it at the next piece.
+// Streams one call of several at once: \`agent\` names the subagent writing it; it holds at \`pauseAt\` until
+// window.release[id], then window.held[id] is false.
+window.held = {};
+window.release = {};
+window.streamAs = (id, tool, input, { agent, size = 60, every = 45, pauseAt = Infinity } = {}) => new Promise((resolve) => {
+  const by = agent ? { agent } : {};
+  window.emit({ type: "step-draft", id, tool, offset: 0, text: "", ...by });
+  let sent = 0;
+  const next = () => {
+    window.held[id] = sent >= pauseAt && !window.release[id];
+    if (window.held[id]) return setTimeout(next, every);
+    const piece = input.slice(sent, sent + size);
+    const done = sent + piece.length >= input.length;
+    window.emit({ type: "step-draft", id, tool, offset: sent, text: piece, ...(done ? { done: true } : {}), ...by });
+    sent += piece.length;
+    if (done) resolve();
+    else setTimeout(next, every);
+  };
+  setTimeout(next, every);
+});
 window.stream = (id, tool, input, { size = 48, every = 40, pauseAt = Infinity } = {}) => new Promise((resolve) => {
   window.emit({ type: "step-draft", id, tool, offset: 0, text: "" });
   let sent = 0;
@@ -141,10 +173,12 @@ window.stream = (id, tool, input, { size = 48, every = 40, pauseAt = Infinity } 
   };
   setTimeout(next, every);
 });
-const step = (id, artifact) => ({ id, kind: "artifact", title: "Showed \`" + artifact.title + "\`", status: "done", offset: 0, artifact: { format: "design", ...artifact } });
+const step = (id, artifact, agent) => ({ id, kind: "artifact", title: "Showed \`" + artifact.title + "\`", status: "done", offset: 0, artifact: { format: "design", ...artifact }, ...(agent ? { agent } : {}) });
 function Fixture() {
   const [replies, setReplies] = useState([]);
   const [provider, setProvider] = useState("claude");
+  const [crew, setCrew] = useState([]);
+  window.setCrew = setCrew;
   window.reply = (body, steps) => setReplies((current) => [...current, { id: 10 + current.length, session_id: 1, context: null, role: "assistant", body, steps }]);
   window.step = step;
   window.setProvider = setProvider;
@@ -154,7 +188,7 @@ function Fixture() {
     ...replies,
   ];
   return <div style={{ display: "flex", height: "100%" }}><main data-workspace-main style={{ display: "flex", flex: 1, minWidth: 0, height: "100%" }}><div data-chat-pane style={{ flex: 1, minWidth: 0, height: "100%", padding: 12 }}>
-    <ChatComposer messages={messages} onSendDesignMessage={async () => true} sessionProvider={provider}
+    <ChatComposer messages={messages} onSendDesignMessage={async () => true} sessionProvider={provider} subagents={crew}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
       scopeKind="link" projectPath="/fixture" messageScope="milagre-link:fixture" agentChatId={chatId} draft="" onDraftChange={noop} onSend={noop} isSending={false} sendBlocked={false}
       streamingText="" asking={false}
@@ -273,6 +307,89 @@ async function browserChecks() {
     await waitFor(`${frame("login")}.dataset.version === "3" && !${live("login")}`, 400);
     await screenshot("6-replay-settled");
 
+    // 3b. Two agents designing at once: Claude and its subagent each write a new design, each with its own cursor
+    // named as the Subagents view names it (the second subagent is Noah), its task in the label's tooltip, in its own
+    // colour; the placeholders sit apart, and both hand over to their new frames.
+    const crew = [
+      { id: "toolu_sub0", title: "Research the app", status: "completed", startedAt: 1, updatedAt: 1, transcript: [] },
+      { id: "toolu_sub1", title: "Design the profile screen", status: "running", startedAt: 2, updatedAt: 2, transcript: [] },
+    ];
+    await evaluate(`window.setProvider("claude"); window.setCrew(${JSON.stringify(crew)}); true`);
+    const settingsText = JSON.stringify({ ...showInput, title: "Settings", id: "settings" });
+    const subProfileText = JSON.stringify({ ...showInput, title: "Profile", id: "profile", document: { ...home, background: "#2a1f33" } });
+    const holdAt = (input) => input.indexOf('"id":"habit-2"');
+    await evaluate(
+      `window.both = Promise.all([window.streamAs("toolu_settings", "design_show", ${JSON.stringify(settingsText)}, { pauseAt: ${holdAt(settingsText)} }), window.streamAs("toolu_profile", "design_show", ${JSON.stringify(subProfileText)}, { agent: "toolu_sub1", pauseAt: ${holdAt(subProfileText)} })]); true`,
+    );
+    const drafts = `[...${dock}.querySelectorAll("[data-slot=artifact-draft-frame]")]`;
+    await waitFor(
+      `window.held.toolu_settings && window.held.toolu_profile && ${drafts}.length === 2 && ${drafts}.every((d) => +(d.querySelector("[data-slot=live-design-frame]")?.dataset.layers ?? 0) >= 4 && d.querySelector("[data-slot=live-design-frame][data-painted]"))`,
+    );
+    const cursors = await evaluate(
+      `${drafts}.map((d) => { const c = d.querySelector("[data-slot=agent-cursor]"); const l = c.querySelector("[data-slot=agent-cursor-label]"); return { draft: d.dataset.draft, name: c.dataset.agent, task: l.title, color: getComputedStyle(l).backgroundColor }; })`,
+    );
+    assert.deepEqual(
+      cursors.map(({ draft, name, task }) => ({ draft, name, task })),
+      [
+        { draft: "toolu_settings", name: "Claude", task: "" },
+        { draft: "toolu_profile", name: "Noah", task: "Design the profile screen" },
+      ],
+      "each agent has its own cursor, a subagent named as in the Subagents view with its task as the tooltip",
+    );
+    assert.equal(cursors[1].color, "rgb(184, 213, 251)", "Noah's cursor is his bot's colour");
+    assert.notEqual(cursors[0].color, cursors[1].color);
+    assert.match(await evaluate(`${drafts}[1].querySelector("[role=status]").textContent`), /^Noah is designing Profile$/);
+    assert.equal(
+      await evaluate(
+        `(() => { const [a, b] = ${drafts}.map((d) => d.getBoundingClientRect()); return a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top; })()`,
+      ),
+      true,
+      "the two placeholders don't overlap",
+    );
+    await screenshot("6b-two-agents");
+    await evaluate("window.release.toolu_settings = true; window.release.toolu_profile = true; window.both");
+    await waitFor(`${drafts}.every((d) => d.querySelector("[data-slot=live-design-frame]").dataset.layers === "9")`);
+    await evaluate(`
+      window.saved.settings = { title: "Settings", document: ${JSON.stringify(home)} };
+      window.saved.profile = { title: "Profile", document: { ...${JSON.stringify(home)}, background: "#2a1f33" } };
+      window.emit({ type: "step-completed", id: "toolu_settings", status: "done", artifact: { id: "settings", version: 1, title: "Settings", format: "design" } });
+      window.emit({ type: "step-completed", id: "toolu_profile", status: "done", artifact: { id: "profile", version: 1, title: "Profile", format: "design" } });
+      window.reply("Two more.", [window.step("toolu_settings", { id: "settings", version: 1, title: "Settings" }), window.step("toolu_profile", { id: "profile", version: 1, title: "Profile" }, "toolu_sub1")]);
+      true`);
+    // Saved together, each placeholder sits over its own new frame until it has loaded, then goes.
+    await waitFor(
+      `${drafts}.every((d) => { const f = ${dock}.querySelector('[data-slot=artifact-frame][data-artifact="' + (d.dataset.draft === "toolu_settings" ? "settings" : "profile") + '"]'); if (!f) return true; const a = d.querySelector("[data-draft-body]").getBoundingClientRect(), b = f.querySelector("[data-design-body]").getBoundingClientRect(); return Math.abs(a.left - b.left) < 2 && Math.abs(a.top - b.top) < 2; })`,
+    );
+    await waitFor(
+      `!!${frame("settings")}?.querySelector("[data-design-body] iframe") && !!${frame("profile")}?.querySelector("[data-design-body] iframe") && ${drafts}.length === 0`,
+    );
+    await screenshot("6c-two-agents-settled");
+
+    // 3c. A subagent saves an edit without streaming it: it plays back over the frame under the subagent's cursor.
+    await evaluate(`
+      window.emit({ type: "step-started", step: { id: "toolu_sub_edit", kind: "artifact", title: "Edited \`a design\`", tool: "design_apply", agent: "toolu_sub1" } });
+      window.latest = 4;
+      window.emit({ type: "step-completed", id: "toolu_sub_edit", status: "done", artifact: { id: "login", version: 4, title: "Login", format: "design" } });
+      window.reply("Noah edited the login.", [window.step("toolu_sub_edit", { id: "login", version: 4, title: "Login" }, "toolu_sub1")]);
+      true`);
+    await waitFor(`${live("login")}?.dataset.live === "replay"`);
+    assert.equal(await evaluate(`${cursor(live("login"))}.dataset.agent`), "Noah", "the replay plays under the subagent's cursor");
+    await screenshot("6d-subagent-replay", 250);
+    await waitFor(`${frame("login")}.dataset.version === "4" && !${live("login")}`, 400);
+
+    // 3d. Two agents edit one design: the second save fails on its version and its draft goes; the retry builds again.
+    const conflict = JSON.stringify({ id: "home", expectedVersion: 1, operations: [{ op: "update", id: "greeting", patch: { text: "Good evening" } }] });
+    await evaluate(`window.conflict = window.streamAs("toolu_conflict", "design_apply", ${JSON.stringify(conflict)}, { size: 30 }); true`);
+    await evaluate("window.conflict");
+    await waitFor(`${live("home")}?.dataset.live === "draft"`);
+    await evaluate('window.emit({ type: "step-completed", id: "toolu_conflict", status: "failed" }); true');
+    await waitFor(`!${live("home")}`);
+    await evaluate(`window.retry = window.streamAs("toolu_retry", "design_apply", ${JSON.stringify(conflict)}, { size: 30 }); true`);
+    await evaluate("window.retry");
+    await waitFor(`${live("home")}?.dataset.live === "draft" && !!${live("home")}.querySelector("[data-slot=live-design-frame][data-painted]")`);
+    await evaluate('window.emit({ type: "turn-cancelled" }); true');
+    await waitFor(`!${live("home")}`);
+
     // 4. A Chat with no design yet: the first design_show opens the Designs by itself, and the composer keeps the focus.
     await window.loadURL(`${process.argv[2]}?fresh`);
     const prompt = 'document.querySelector("textarea[aria-label=Prompt]")';
@@ -331,7 +448,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.activeElement === ${prompt}`), true, "the composer keeps the focus");
     await evaluate('window.emit({ type: "step-completed", id: "c-design", status: "failed" }); window.emit({ type: "turn-completed" })');
     console.log(
-      "PASS: Claude's streamed design_apply builds over the frame with its cursor and hands over without a replay; a streamed design_show builds on a placeholder that hands over to the new frame; a Codex version plays back over the held frame and settles on the new one; the Designs open by themselves for each design call, in a Chat with no design too, keep the composer's focus and show a draft begun before they opened",
+      "PASS: Claude's streamed design_apply builds over the frame with its cursor and hands over without a replay; a streamed design_show builds on a placeholder that hands over to the new frame; a Codex version plays back over the held frame and settles on the new one; the Designs open by themselves for each design call, in a Chat with no design too, keep the composer's focus and show a draft begun before they opened; two agents at once each get their own named cursor and placeholder, a subagent's saved edit plays back under its cursor, and a draft whose save failed goes while the retry builds again",
     );
     app.exit(0);
   } catch (error) {

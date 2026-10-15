@@ -131,6 +131,22 @@ export function canvasAgentName(index: number): string {
   return `${names[index % names.length]}${index >= names.length ? ` ${Math.floor(index / names.length) + 1}` : ""}`;
 }
 
+/** The bots' colours, given out in turn; each one's fill is its --bot-tint in subagent-canvas.css. */
+export const SUBAGENT_COLORS = ["mint", "blue", "peach", "lilac"] as const;
+export type SubagentColor = (typeof SUBAGENT_COLORS)[number];
+export const SUBAGENT_TINTS: Record<SubagentColor, string> = { mint: "#b4dccb", blue: "#b8d5fb", peach: "#eec9a6", lilac: "#d1c3ef" };
+export const subagentColor = (index: number): SubagentColor => SUBAGENT_COLORS[index % SUBAGENT_COLORS.length]!;
+
+/**
+ * A subagent as the Subagents view shows it, by its place among the Chat's subagents: its name, its bot's colour and
+ * the task it was given. Null for one the Chat doesn't list.
+ */
+export function subagentPersona(agents: readonly Subagent[], id: string): { name: string; color: SubagentColor; task: string } | null {
+  const index = agents.findIndex((agent) => agent.id === id);
+  if (index === -1) return null;
+  return { name: canvasAgentName(index), color: subagentColor(index), task: agents[index]!.title };
+}
+
 export function fitAgents(points: Point[], width: number, height: number): Viewport {
   const left = Math.min(...points.map((point) => point.x)) - 120;
   const right = Math.max(...points.map((point) => point.x)) + 120;

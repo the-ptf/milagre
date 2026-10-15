@@ -41,20 +41,13 @@ test("Claude: a design tool's input streams as step-draft pieces with the call's
   assert.equal(step.step.id, "toolu_1");
 });
 
-test("Claude: design_apply drafts too; other tools, other servers and subagents' calls never send their input", () => {
+test("Claude: design_apply drafts too; other tools and other servers never send their input", () => {
   const state = clock();
   assert.deepEqual(mapClaudeMessage(start(0, "toolu_bash", "Bash"), state), []);
   assert.deepEqual(mapClaudeMessage(piece(0, '{"command":"ls"}'), state), []);
   assert.deepEqual(mapClaudeMessage(stop(0), state), []);
   assert.deepEqual(mapClaudeMessage(start(1, "toolu_other", "mcp__pencil__design_show"), state), []);
   assert.deepEqual(mapClaudeMessage(start(2, "toolu_read", "mcp__milagre__design_read"), state), []);
-  assert.deepEqual(
-    mapClaudeMessage(
-      stream({ type: "content_block_start", index: 3, content_block: { type: "tool_use", id: "toolu_sub", name: "mcp__milagre__design_show" } }, "toolu_agent"),
-      state,
-    ),
-    [],
-  );
   assert.deepEqual(mapClaudeMessage(start(4, "toolu_apply", "mcp__milagre__design_apply"), state), [
     { type: "step-draft", id: "toolu_apply", tool: "design_apply", offset: 0, text: "" },
   ]);
@@ -73,4 +66,54 @@ test("Claude: a new message drops a draft whose block never stopped", () => {
   assert.deepEqual(mapClaudeMessage(stream({ type: "message_start", message: {} }), state), []);
   assert.deepEqual(mapClaudeMessage(piece(1, "{}"), state), []);
   assert.deepEqual(mapClaudeMessage(stop(1), state), []);
+});
+
+test("Claude: a subagent's design call drafts with the subagent's id, its blocks apart from the parent's", () => {
+  const state = clock();
+  assert.deepEqual(mapClaudeMessage(start(1, "toolu_main", "mcp__milagre__design_show"), state), [
+    { type: "step-draft", id: "toolu_main", tool: "design_show", offset: 0, text: "" },
+  ]);
+  assert.deepEqual(
+    mapClaudeMessage(
+      stream({ type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "toolu_sub", name: "mcp__milagre__design_show" } }, "toolu_agent"),
+      state,
+    ),
+    [{ type: "step-draft", id: "toolu_sub", tool: "design_show", offset: 0, text: "", agent: "toolu_agent" }],
+  );
+  state.time += DRAFT_MS;
+  assert.deepEqual(mapClaudeMessage(piece(1, '{"title":"A"'), state), [
+    { type: "step-draft", id: "toolu_main", tool: "design_show", offset: 0, text: '{"title":"A"' },
+  ]);
+  // The subagent's new message drops only its own unfinished block.
+  assert.deepEqual(mapClaudeMessage(stream({ type: "message_start", message: {} }, "toolu_agent"), state), []);
+  assert.deepEqual(mapClaudeMessage(stream({ type: "content_block_stop", index: 1 }, "toolu_agent"), state), []);
+  assert.deepEqual(mapClaudeMessage(stop(1), state), [{ type: "step-draft", id: "toolu_main", tool: "design_show", offset: 12, text: "", done: true }]);
+});
+
+test("Claude: a subagent's design call is an artifact step of the reply, named for the subagent", () => {
+  const state = clock();
+  const call = { type: "tool_use", id: "toolu_sub", name: "mcp__milagre__design_show", input: { title: "Card" } };
+  assert.deepEqual(mapClaudeMessage({ type: "assistant", parent_tool_use_id: "toolu_agent", message: { content: [call] } }, state), [
+    { type: "step-started", step: { id: "toolu_sub", kind: "artifact", title: "Showed `Card`", tool: "design_show", agent: "toolu_agent" } },
+  ]);
+  const result = JSON.stringify({ id: "card", version: 1, title: "Card", format: "design" });
+  const events = mapClaudeMessage(
+    {
+      type: "user",
+      parent_tool_use_id: "toolu_agent",
+      message: { content: [{ type: "tool_result", tool_use_id: "toolu_sub", content: [{ type: "text", text: result }] }] },
+    },
+    state,
+  );
+  assert.deepEqual(events, [
+    { type: "step-completed", id: "toolu_sub", status: "done", artifact: { id: "card", version: 1, title: "Card", format: "design" }, title: "Showed `Card`" },
+  ]);
+  // Its other tools stay in its own transcript.
+  assert.deepEqual(
+    mapClaudeMessage(
+      { type: "assistant", parent_tool_use_id: "toolu_agent", message: { content: [{ type: "tool_use", id: "t2", name: "Read", input: {} }] } },
+      state,
+    ),
+    [],
+  );
 });

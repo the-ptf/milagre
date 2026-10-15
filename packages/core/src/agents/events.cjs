@@ -8,6 +8,8 @@ const { isTurnEnd: isTerminal } = require("@milagre/shared/agent-runs");
 const { applyToolResult, applyToolUse, codexPlanTasks } = require("./tasks.cjs");
 const { claudeStep, claudeStepResult, codexStep, codexStepResult, thinkingEnd, thinkingStep } = require("./steps.cjs");
 const { claudeDesignDrafts } = require("./design-drafts.cjs");
+// The Milagre tools whose results are the Chat's designs and artifact page, whichever agent calls them.
+const SUBAGENT_ARTIFACT_TOOLS = /^mcp__milagre__(design_show|design_apply|artifact_show)$/;
 
 const { BUNDLED_SKILLS_DIRECTORY, bundledWritingInstructions } = require("../bundled-skills.cjs");
 const TLDR_INSTRUCTIONS = bundledWritingInstructions();
@@ -209,6 +211,26 @@ function mapClaudeMessage(message, state) {
     if (thinking && event.index === thinking.index && event.type === "content_block_stop") {
       state.thinking = null;
       events.push({ type: "step-completed", ...thinkingEnd(thinking.id, now(state) - thinking.startedAt, thinking.text) });
+    }
+  }
+  // A subagent's design calls (it can't stream them yet, see design-drafts.cjs) are the Chat's designs too: they show
+  // as artifact steps of the reply, named for the subagent, so the canvas opens and plays each saved version back.
+  if (message.type === "stream_event" && message.parent_tool_use_id != null)
+    events.push(...claudeDesignDrafts(message.event ?? {}, state, message.parent_tool_use_id));
+  if (message.type === "assistant" && message.parent_tool_use_id != null) {
+    for (const block of message.message?.content ?? []) {
+      if (block?.type !== "tool_use" || !SUBAGENT_ARTIFACT_TOOLS.test(String(block.name))) continue;
+      state.subagentArtifacts ??= new Map();
+      state.subagentArtifacts.set(block.id, block);
+      events.push({ type: "step-started", step: { ...claudeStep(block.id, block.name, block.input), agent: message.parent_tool_use_id } });
+    }
+  }
+  if (message.type === "user" && message.parent_tool_use_id != null && Array.isArray(message.message?.content)) {
+    for (const block of message.message.content) {
+      const call = block?.type === "tool_result" ? state.subagentArtifacts?.get(block.tool_use_id) : undefined;
+      if (!call) continue;
+      state.subagentArtifacts.delete(block.tool_use_id);
+      events.push({ type: "step-completed", ...claudeStepResult(call, block) });
     }
   }
   if (message.type === "assistant" && message.parent_tool_use_id == null) {

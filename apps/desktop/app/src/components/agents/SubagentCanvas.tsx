@@ -12,6 +12,7 @@ import {
   MAIN_AGENT,
   agentNodeId,
   canvasAgentName,
+  subagentColor,
   fitAgents,
   initialAgentPosition,
   moveAgentWithCollisions,
@@ -22,7 +23,6 @@ import {
 } from "./subagent-canvas-layout";
 import "./subagent-canvas.css";
 
-const colors = ["mint", "blue", "peach", "lilac"];
 type Gesture = { pointerId: number; start: Point; origin: Point; nodeId?: string; moved: boolean };
 
 /** Keep the arrangement while switching between the chat and its canvas. */
@@ -288,7 +288,7 @@ export const SubagentCanvas = memo(function SubagentCanvas({
       active: subagentActive(agent),
       sleeping: false,
       dead: subagentFinished(agent),
-      color: colors[indices.get(agent.id)! % colors.length],
+      color: subagentColor(indices.get(agent.id)!),
       agent,
     })),
   ];

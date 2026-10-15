@@ -4,7 +4,8 @@ import { ARTIFACT_CSP, artifactDocument } from "@milagre/shared/artifact";
 import { designLiveParts, type DesignDocument } from "@milagre/shared/design";
 import type { ArtifactRef } from "../../model";
 import { AgentCursor } from "./AgentCursor";
-import { finishLiveDesign, useDraftFrameShown, useLiveDesigns, type LiveDesign } from "./design-live";
+import { finishLiveDesign, useDraftFrameShown, useLiveCrew, useLiveDesigns, type LiveDesign } from "./design-live";
+import { SUBAGENT_TINTS, subagentPersona } from "./subagent-canvas-layout";
 
 // The live frame's page: an empty design root and a receiver that swaps the design in place from the canvas's
 // messages, fading in the layers that just appeared. It never reloads, so a design being written doesn't flash.
@@ -90,6 +91,24 @@ function LiveFrame({ parts, appeared, title, onPainted }: { parts: Parts | null;
 const AGENT_COLORS: Record<string, string> = { Claude: "#D97757", Codex: "#3941FF", Antigravity: "#3186FF" };
 export const agentColor = (agent: string) => AGENT_COLORS[agent] ?? "var(--color-accent)";
 
+/** Who a cursor stands for: its name and colour, the colour of its label's text, and a subagent's task. */
+type Persona = { name: string; color: string; ink: string; task?: string };
+
+/**
+ * The agent at work on a piece of design work: the Chat's agent in its provider's colour, or a subagent with the name
+ * and bot colour the Subagents view gives it (subagentPersona), its task in the cursor's tooltip.
+ */
+function usePersona(chatId: string, by: string | undefined): Persona {
+  const { agent, crew } = useLiveCrew(chatId);
+  return useMemo(() => {
+    if (!by) return { name: agent, color: agentColor(agent), ink: "#fff" };
+    const persona = subagentPersona(crew, by);
+    return persona
+      ? { name: persona.name, color: SUBAGENT_TINTS[persona.color], ink: "#1d1d1f", task: persona.task }
+      : { name: "Subagent", color: SUBAGENT_TINTS.mint, ink: "#1d1d1f" };
+  }, [agent, crew, by]);
+}
+
 /** Where the cursor points: the middle of the layer that changed last, or near the frame's top left before any did. */
 function cursorAt(parts: Parts | null, changed: string[], fallback: { x: number; y: number }) {
   let box: Parts["bounds"] extends Map<string, infer B> ? B | undefined : never;
@@ -107,7 +126,7 @@ function cursorAt(parts: Parts | null, changed: string[], fallback: { x: number;
  */
 function LiveWork({
   live,
-  agent,
+  persona,
   width,
   height,
   scale,
@@ -115,7 +134,7 @@ function LiveWork({
   painted,
 }: {
   live: LiveDesign;
-  agent: string;
+  persona: Persona;
   width: number;
   height: number;
   scale: number;
@@ -123,7 +142,7 @@ function LiveWork({
   painted: boolean;
 }) {
   const parts = useParts(live.document);
-  const color = agentColor(agent);
+  const { color, name } = persona;
   const reduced = useReducedMotion();
   const { point, box } = cursorAt(parts, live.changed, { x: Math.min(width - 40, 56), y: Math.min(height - 40, 48) });
   const waiting = !parts?.markup;
@@ -153,9 +172,18 @@ function LiveWork({
           }}
         />
       )}
-      <AgentCursor x={point.x} y={point.y} scale={scale} color={color} label={agent} note={waiting ? "Designing…" : undefined} />
+      <AgentCursor
+        x={point.x}
+        y={point.y}
+        scale={scale}
+        color={color}
+        ink={persona.ink}
+        label={name}
+        task={persona.task}
+        note={waiting ? "Designing…" : undefined}
+      />
       <span role="status" className="sr-only">
-        {agent} is {live.kind === "replay" ? "changing" : "designing"} {live.title ?? "a design"}
+        {name} is {live.kind === "replay" ? "changing" : "designing"} {live.title ?? "a design"}
       </span>
     </>
   );
@@ -181,7 +209,7 @@ export function LiveDesignLayer({
   height: number;
   scale: number;
 }) {
-  const { agent } = useLiveDesigns(chatId);
+  const persona = usePersona(chatId, live?.by);
   const layer = useRef<HTMLDivElement>(null);
   const [painted, setPainted] = useState<string | null>(null);
   const [leaving, setLeaving] = useState<string | null>(null);
@@ -221,7 +249,15 @@ export function LiveDesignLayer({
       className="pointer-events-none absolute inset-0 z-10 transition-opacity duration-200"
       style={{ opacity: leaving === live.key ? 0 : 1 }}
     >
-      <LiveWork live={live} agent={agent} width={width} height={height} scale={scale} painted={painted === live.key} onPainted={() => setPainted(live.key)} />
+      <LiveWork
+        live={live}
+        persona={persona}
+        width={width}
+        height={height}
+        scale={scale}
+        painted={painted === live.key}
+        onPainted={() => setPainted(live.key)}
+      />
     </div>
   );
 }
@@ -250,7 +286,7 @@ export function LiveDraftFrames({
   header: number;
   onSized: () => void;
 }) {
-  const { designs: lives, agent } = useLiveDesigns(chatId);
+  const { designs: lives } = useLiveDesigns(chatId);
   const known = new Set(designs.map((design) => design.id));
   const drafts = lives.filter((live) => {
     if (live.kind !== "draft" || live.tool === "design_apply") return false;
@@ -267,9 +303,7 @@ export function LiveDraftFrames({
       key={live.key}
       chatId={chatId}
       live={live}
-      agent={agent}
       scale={scale}
-      gap={gap}
       header={header}
       overlap={live.status === "settling" && !orphans && known.has(live.designId ?? "")}
       onSized={onSized}
@@ -287,22 +321,19 @@ export function LiveDraftFrames({
 function DraftFrame({
   chatId,
   live,
-  agent,
   scale,
-  gap,
   header,
   overlap,
   onSized,
 }: {
   chatId: string;
   live: LiveDesign;
-  agent: string;
   scale: number;
-  gap: number;
   header: number;
   overlap: boolean;
   onSized: () => void;
 }) {
+  const persona = usePersona(chatId, live.by);
   const width = live.document?.width ?? 390;
   const height = live.document?.height ?? 844;
   const [painted, setPainted] = useState(false);
@@ -313,27 +344,48 @@ function DraftFrame({
     const timer = setTimeout(() => finishLiveDesign(chatId, live.key), 600);
     return () => clearTimeout(timer);
   }, [live.status, live.key, overlap, chatId]);
+  // Saved, it sits over its own new frame, body on body, until that frame has loaded: with several designs saved at
+  // once, each over its own.
+  const self = useRef<HTMLDivElement>(null);
+  const [over, setOver] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const element = self.current;
+    const frame =
+      overlap && live.designId
+        ? element?.parentElement?.querySelector<HTMLElement>(`:scope > [data-slot=artifact-frame][data-artifact="${CSS.escape(live.designId)}"]`)
+        : null;
+    const body = frame?.querySelector<HTMLElement>("[data-design-body]");
+    const mine = element?.querySelector<HTMLElement>("[data-draft-body]");
+    if (!element || !frame || !body || !mine) {
+      if (over) setOver(null);
+      return;
+    }
+    const top = frame.offsetTop + (body.getBoundingClientRect().top - frame.getBoundingClientRect().top) / scale;
+    const next = { left: frame.offsetLeft, top: top - (mine.getBoundingClientRect().top - element.getBoundingClientRect().top) / scale };
+    if (!over || Math.abs(over.left - next.left) > 0.5 || Math.abs(over.top - next.top) > 0.5) setOver(next);
+  });
   return (
     <div
+      ref={self}
       data-slot="artifact-draft-frame"
       data-draft={live.key}
-      className="relative flex shrink-0 flex-col"
-      // Over the new frame just before it, which takes this place once the design is saved.
-      style={{ width, marginLeft: overlap ? -(width + gap) : undefined, zIndex: overlap ? 1 : undefined }}
+      className={`flex shrink-0 flex-col ${over ? "absolute" : "relative"}`}
+      style={{ width, ...(over ? { left: over.left, top: over.top, zIndex: 1 } : {}) }}
     >
       <div className="relative shrink-0" style={{ height: header / scale }}>
         <div
-          className="absolute bottom-0 left-0 flex origin-bottom-left items-center gap-1 pb-1.5 text-[12px] text-ink"
+          className="absolute bottom-0 left-0 flex origin-bottom-left items-center gap-1 overflow-hidden pb-1.5 text-[12px] text-ink"
           style={{ width: width * scale, height: header, transform: `scale(${1 / scale})` }}
         >
-          <span className="size-1.5 shrink-0 animate-pulse rounded-full" style={{ background: agentColor(agent) }} aria-hidden />
+          <span className="size-1.5 shrink-0 animate-pulse rounded-full" style={{ background: persona.color }} aria-hidden />
           <span className="min-w-0 flex-1 truncate">{live.title ?? "New design"}</span>
-          <span className="shrink-0 text-ink-3">{live.status === "writing" ? `${agent} is designing…` : ""}</span>
+          {/* Too narrow on screen for both, the title stays and the cursor says who is at work. */}
+          {live.status === "writing" && width * scale >= 200 && <span className="shrink-0 text-ink-3">{persona.name} is designing…</span>}
         </div>
       </div>
-      <div className="relative bg-white" style={{ width, height, borderRadius: 12 }}>
+      <div data-draft-body className="relative bg-white" style={{ width, height, borderRadius: 12 }}>
         {!painted && <div className="absolute inset-0 rounded-[12px] border-2 border-dashed border-line bg-surface" />}
-        <LiveWork live={live} agent={agent} width={width} height={height} scale={scale} painted={painted} onPainted={() => setPainted(true)} />
+        <LiveWork live={live} persona={persona} width={width} height={height} scale={scale} painted={painted} onPainted={() => setPainted(true)} />
       </div>
     </div>
   );

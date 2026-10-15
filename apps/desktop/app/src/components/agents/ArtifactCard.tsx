@@ -22,7 +22,7 @@ import {
   resolutionNotes,
   type DesignComment,
 } from "@milagre/shared/artifact";
-import type { ArtifactRef, ChatStep } from "../../model";
+import type { ArtifactRef, ChatStep, Subagent } from "../../model";
 import Tooltip from "../primitives/Tooltip";
 import { DESIGNS_EXPANDED, dockLayer, useDockArea, useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
@@ -430,6 +430,7 @@ export function ArtifactsProvider({
   onSend,
   agent = "Agent",
   followAgent = false,
+  subagents,
   children,
 }: {
   chatId: string | null;
@@ -440,11 +441,13 @@ export function ArtifactsProvider({
   agent?: string;
   /** The Chat this window shows (not a grid tile): its Designs open each time the agent starts designing. */
   followAgent?: boolean;
+  /** The Chat's subagents, in the Subagents view's order: their cursors carry the names and colours it gives them. */
+  subagents?: readonly Subagent[];
   children: React.ReactNode;
 }) {
   const { enabled } = useDesignsEnabled(chatId);
   // The agent's design drafts, while its replies are on screen: the canvas shows them being written.
-  useLiveDesignFeed(enabled ? chatId : null, agent);
+  useLiveDesignFeed(enabled ? chatId : null, agent, subagents);
   // Before the Chat has a design, the canvas opens for the one the agent is writing.
   const designing = useDesignWorkActive(enabled ? chatId : null);
   const fromSteps = useMemo(() => latestArtifacts(steps), [steps]);
