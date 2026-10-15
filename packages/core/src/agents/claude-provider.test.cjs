@@ -172,7 +172,7 @@ const scripts = {
 // Scripts get the query options (for canUseTool), an abort signal that interrupt() trips, a gate
 // the test opens with calls.release(), and next() to read a message sent while they run.
 function fakeSdk(script) {
-  const calls = { options: null, queries: 0, prompts: [], models: [], modes: [], thinking: [], flags: [], interrupts: 0, release: () => {} };
+  const calls = { order: [], options: null, queries: 0, prompts: [], models: [], modes: [], thinking: [], flags: [], interrupts: 0, release: () => {} };
   const query = ({ prompt, options }) => {
     calls.queries += 1;
     calls.options = options;
@@ -187,7 +187,10 @@ function fakeSdk(script) {
     const messages = prompt[Symbol.asyncIterator]();
     const next = async () => {
       const { value } = await messages.next();
-      if (value) calls.prompts.push(value);
+      if (value) {
+        calls.prompts.push(value);
+        calls.order.push("message");
+      }
       return value;
     };
     async function* run() {
@@ -213,6 +216,7 @@ function fakeSdk(script) {
       },
       toggleMcpServer: async (name, enabled) => {
         (calls.toggles ??= []).push([name, enabled]);
+        calls.order.push(`toggle:${name}`);
       },
     });
   };
@@ -1133,7 +1137,12 @@ test("Everywhere servers join mcpServers and off servers are toggled after init"
   await session.startTurn(TURN);
   await ended(events);
   assert.deepEqual(sdk.calls.options.mcpServers.linear, { type: "http", url: "https://x" });
-  assert.deepEqual(sdk.calls.toggles, [["figma", false]]);
+  // Switched off before the first message reaches Claude Code, and once more on init as a second try.
+  assert.deepEqual(sdk.calls.toggles, [
+    ["figma", false],
+    ["figma", false],
+  ]);
+  assert.ok(sdk.calls.order.indexOf("toggle:figma") < sdk.calls.order.indexOf("message"));
 });
 
 test("analysis-only Claude gets no Everywhere servers, and a failing mcpExtras still starts the Chat", async (t) => {

@@ -261,6 +261,25 @@ test("forSession skips Everywhere names the provider already has and returns the
   assert.deepEqual(await mcp.forSession("claude", "default"), { servers: [linear], off: ["pencil"] });
 });
 
+test("forSession leaves Everywhere servers that are off out of servers", async (t) => {
+  const { mcp, store } = harness(t);
+  store.setEverywhere([linear, { ...linear, name: "notion" }]);
+  store.setOff("claude", "default", "notion", true);
+  assert.deepEqual(await mcp.forSession("claude", "default"), { servers: [linear], off: ["notion"] });
+});
+
+test("forSession gives Codex only off names that are in its config.toml", async (t) => {
+  const { mcp, store, dir } = harness(t);
+  fs.mkdirSync(path.join(dir, ".codex"));
+  fs.writeFileSync(path.join(dir, ".codex", "config.toml"), '[mcp_servers.pencil]\ncommand = "pencil"\n');
+  store.setEverywhere([linear]);
+  store.setOff("codex", "default", "pencil", true);
+  store.setOff("codex", "default", "gone", true);
+  assert.deepEqual(await mcp.forSession("codex", "default"), { servers: [linear], off: ["pencil"] });
+  store.setOff("claude", "default", "gone", true);
+  assert.deepEqual((await mcp.forSession("claude", "default")).off, ["gone"]);
+});
+
 test("check marks a provider's own server that shadows an Everywhere one", async (t) => {
   const { mcp, store } = harness(t, { checkers: { claude: async () => [{ ...report, name: "figma", transport: "url" }] } });
   store.setEverywhere([{ ...linear, name: "figma" }]);

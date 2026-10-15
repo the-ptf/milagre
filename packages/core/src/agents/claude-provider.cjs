@@ -329,6 +329,9 @@ class ClaudeSession {
       },
     });
     void this.readMessages(this.query);
+    // Switch the off servers off before the first message, so the first turn never offers them. The init pass in
+    // readMessages tries once more.
+    for (const name of this.mcpOff) await this.query.toggleMcpServer?.(name, false)?.catch(() => {});
     // Thinking arrives as readable summaries rather than empty blocks, for the reply's thinking steps.
     // Only the display changes (null keeps the model's own thinking budget), so it suits every model.
     await this.query.setMaxThinkingTokens?.(null, "summarized").catch(() => {});

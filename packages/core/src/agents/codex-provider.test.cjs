@@ -1435,3 +1435,20 @@ test("a failing mcpExtras still starts the Codex thread", async (t) => {
   await ended(events);
   assert.deepEqual(requests.find((r) => r.method === "thread/start").params.config, { features: { default_mode_request_user_input: true } });
 });
+
+test("a Codex that refuses Everywhere servers keeps the off entries and milagre on the retry", async (t) => {
+  const reported = [];
+  const linked = { tools: [], url: async () => "http://127.0.0.1:1234/mcp/abc", toolsAvailable: (available) => reported.push(available) };
+  const { session, events, requests } = codex(t, {
+    scenario: "reject-extra-mcp",
+    linked,
+    mcpExtras: async () => ({ servers: [{ name: "linear", type: "http", url: "https://x", headers: {} }], off: ["figma"] }),
+  });
+  await session.startTurn(TURN);
+  await ended(events);
+  const attempts = requests.filter((r) => r.method === "thread/start").map((r) => r.params.config.mcp_servers);
+  assert.deepEqual(Object.keys(attempts[0]).sort(), ["figma", "linear", "milagre"]);
+  assert.deepEqual(attempts.at(-1), { figma: { enabled: false }, milagre: { url: "http://127.0.0.1:1234/mcp/abc", tool_timeout_sec: 86400 } });
+  assert.deepEqual(reported, [true]);
+  assert.deepEqual(events.at(-1), { type: "turn-completed" });
+});

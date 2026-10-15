@@ -323,13 +323,9 @@ class AcpSession {
     this.agentCapabilities = init?.agentCapabilities ?? {};
     // The Chat's linked tools reach the agent as an MCP server (see linked-mcp-server.cjs).
     const url = this.linked ? await this.linked.url().catch(() => null) : null;
-    // Settings › MCP: Everywhere servers for this account, except the ones switched off.
+    // Settings › MCP: this account's Everywhere servers (the ones switched off are already left out).
     const extras = this.mcpExtras ? await this.mcpExtras().catch(() => null) : null;
-    const off = new Set(extras?.off ?? []);
-    const mcpServers = [
-      ...(url ? [{ type: "http", name: "milagre", url, headers: [] }] : []),
-      ...(extras?.servers ?? []).filter((def) => !off.has(def.name)).map(toAcpServer),
-    ];
+    const mcpServers = [...(url ? [{ type: "http", name: "milagre", url, headers: [] }] : []), ...(extras?.servers ?? []).map(toAcpServer)];
     const result = this.state.sessionId ? await this.resume(mcpServers) : await this.requestSession("session/new", { cwd: this.cwd, mcpServers });
     if (typeof result?.modes?.currentModeId === "string") this.state.mode = result.modes.currentModeId;
     readConfigOptions(result?.configOptions, this.state);
@@ -345,11 +341,17 @@ class AcpSession {
   // An agent that refuses the linked tools' MCP server gets the session without it; the Chat then only
   // receives Delegations. Sign-in errors aren't retried.
   async requestSession(method, params) {
-    const attempts = [params, ...(params.mcpServers?.length ? [{ ...params, mcpServers: [] }] : [])];
+    const own = params.mcpServers?.filter((server) => server.name === "milagre") ?? [];
+    // Without the Everywhere servers first (the linked tools stay), then without any MCP server.
+    const attempts = [
+      params,
+      ...(own.length && own.length < params.mcpServers.length ? [{ ...params, mcpServers: own }] : []),
+      ...(params.mcpServers?.length ? [{ ...params, mcpServers: [] }] : []),
+    ];
     for (const [index, attempt] of attempts.entries()) {
       try {
         const result = await this.rpc.request(method, attempt, { timeoutMs: SESSION_TIMEOUT_MS });
-        if (params.mcpServers?.length) this.linked?.toolsAvailable(index === 0);
+        if (own.length) this.linked?.toolsAvailable(attempt.mcpServers.some((server) => server.name === "milagre"));
         return result;
       } catch (error) {
         if (!error.rpcError || this.config.isLoginError(error) || this.config.isSubscriptionError?.(error) || index === attempts.length - 1) throw error;

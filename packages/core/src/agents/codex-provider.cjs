@@ -329,6 +329,9 @@ class CodexSession {
       // Merged into the user's own definition by Codex (Task 1, probe step 4).
       ...Object.fromEntries((extras?.off ?? []).map((name) => [name, { enabled: false }])),
     };
+    // The names a retry may drop: off servers are not in this list (they are only kept off), so Everywhere servers
+    // never share a name with an off entry.
+    this.everywhereNames = new Set((extras?.servers ?? []).map((def) => def.name));
     const servers = { ...extraServers, ...(url ? { milagre: { url, tool_timeout_sec: 86400 } } : {}) };
     const config = this.analysisOnly
       ? advisorCodexConfig(inherited, url)
@@ -368,17 +371,26 @@ class CodexSession {
   }
 
   // Codex ignores a feature it doesn't know, but a Codex that rejects `config` outright would leave the
-  // chat unusable. On an RPC error the call is tried again with less: first without the linked tools' MCP
-  // server (the Chat then only receives Delegations), then without any config (no question tool either).
+  // chat unusable. On an RPC error the call is tried again with less: without the Everywhere servers (the
+  // switched-off entries and the linked tools stay), then with only the linked tools' MCP server, then without
+  // any MCP server (the Chat then only receives Delegations), then without any config (no question tool either).
   async requestThread(method, params) {
     if (this.analysisOnly) return this.rpc.request(method, params, { timeoutMs: 60_000 });
-    const { mcp_servers: linkedServer, ...rest } = params.config ?? {};
+    const { mcp_servers: servers, ...rest } = params.config ?? {};
     const { config: _config, ...bare } = params;
-    const attempts = [params, ...(linkedServer ? [{ ...params, config: rest }] : []), ...(params.config ? [bare] : [])];
+    const withServers = (map) => ({ ...params, config: map && Object.keys(map).length ? { ...rest, mcp_servers: map } : rest });
+    const everywhere = this.everywhereNames ?? new Set();
+    const withoutEverywhere = Object.fromEntries(Object.entries(servers ?? {}).filter(([name]) => !everywhere.has(name)));
+    const stages = [
+      params,
+      ...(servers ? [withServers(withoutEverywhere), withServers(servers.milagre ? { milagre: servers.milagre } : null), withServers(null)] : []),
+      ...(params.config ? [bare] : []),
+    ];
+    const attempts = stages.filter((attempt, index) => stages.findIndex((other) => isDeepStrictEqual(other, attempt)) === index);
     for (const [index, attempt] of attempts.entries()) {
       try {
         const result = await this.rpc.request(method, attempt, { timeoutMs: 60_000 });
-        if (linkedServer) this.linked?.toolsAvailable(index === 0);
+        if (servers?.milagre) this.linked?.toolsAvailable(Boolean(attempt.config?.mcp_servers?.milagre));
         return result;
       } catch (error) {
         if (!error.rpcError || index === attempts.length - 1) throw error;

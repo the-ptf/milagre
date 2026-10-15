@@ -533,13 +533,10 @@ test("temp directories carry their owner's pid, and a sweep removes only those w
   assert.deepEqual(fs.readdirSync(root).sort(), [path.basename(legacy), path.basename(mine)].sort());
 });
 
-test("Everywhere servers that aren't off reach session/new", async (t) => {
+test("Everywhere servers reach session/new", async (t) => {
   const { session, events } = antigravity(t, {
     mcpExtras: async () => ({
-      servers: [
-        { name: "linear", type: "http", url: "https://x", headers: {} },
-        { name: "figma", type: "http", url: "https://f", headers: {} },
-      ],
+      servers: [{ name: "linear", type: "http", url: "https://x", headers: {} }],
       off: ["figma"],
     }),
   });
@@ -549,4 +546,21 @@ test("Everywhere servers that aren't off reach session/new", async (t) => {
     (await sent(session, "session/new"))[0].mcpServers.map((server) => server.name),
     ["linear"],
   );
+});
+
+test("an agent that refuses Everywhere servers still gets milagre, and the linked tools count as available", async (t) => {
+  const available = [];
+  const linked = { url: async () => "http://127.0.0.1:9/mcp/abc", toolsAvailable: (value) => available.push(value) };
+  const { session, events } = antigravity(t, {
+    scenario: "reject-extra-mcp",
+    linked,
+    mcpExtras: async () => ({ servers: [{ name: "linear", type: "http", url: "https://x", headers: {} }], off: [] }),
+  });
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.deepEqual(
+    (await sent(session, "session/new")).map((params) => params.mcpServers.map((server) => server.name)),
+    [["milagre", "linear"], ["milagre"]],
+  );
+  assert.deepEqual(available, [true]);
 });

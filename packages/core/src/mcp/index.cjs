@@ -64,9 +64,18 @@ function createMcp({
     return new Set();
   }
 
+  // Everywhere servers the provider's own config doesn't already define (check and sign-in probe all of these).
   function forSessionWith(provider, accountId, env) {
     const own = configNames(provider, env);
-    return { servers: store.read().everywhere.filter((def) => !own.has(def.name)), off: store.offFor(provider, accountId) };
+    return { servers: store.read().everywhere.filter((def) => !own.has(def.name)), off: store.offFor(provider, accountId), own };
+  }
+
+  // What a Chat start needs: Everywhere servers to add (never the ones switched off) and the names to switch off.
+  // Codex merges `enabled: false` into the user's own definition, so a name it doesn't have in config.toml is dropped.
+  function sessionPlan(provider, accountId, env) {
+    const { servers, off, own } = forSessionWith(provider, accountId, env);
+    const stopped = new Set(off);
+    return { servers: servers.filter((def) => !stopped.has(def.name)), off: provider === "codex" ? off.filter((name) => own.has(name)) : off };
   }
 
   async function check(provider, accountId) {
@@ -283,7 +292,7 @@ function createMcp({
 
   async function forSession(provider, accountId) {
     const cli = provider === "antigravity" ? { env: {} } : await routing.forAccount(provider, accountId);
-    return forSessionWith(provider, accountId, cli.env);
+    return sessionPlan(provider, accountId, cli.env);
   }
 
   return { accounts: list, check, definition, save, saveUrl, remove, toggle, signIn, cancelSignIn, forSession };

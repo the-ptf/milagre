@@ -20,6 +20,7 @@
 //   prompt-login     session/prompt fails with -32000
 //   subscription     session/new fails with SUBSCRIPTION_REQUIRED
 //   reject-mcp       session/new and session/resume refuse a non-empty mcpServers
+//   reject-extra-mcp session/new and session/resume refuse an mcpServers list with a server other than milagre
 //   no-resume        no session/resume capability: session/load replays history first
 //   sign-in-line     prints the sign-in URL on stdout and stderr at startup
 // A session id "missing" can't be resumed or loaded. fake/received returns every message received.
@@ -242,7 +243,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     }
     return;
   }
-  const mcpRefused = scenario === "reject-mcp" && params.mcpServers?.length;
+  const mcpRefused =
+    (scenario === "reject-mcp" && params.mcpServers?.length) ||
+    (scenario === "reject-extra-mcp" && params.mcpServers?.some((server) => server.name !== "milagre"));
   switch (method) {
     case "initialize":
       return send({
