@@ -37,7 +37,7 @@ import {
   PencilEdit02Icon,
   PinIcon,
   PinOffIcon,
-  RefreshIcon,
+  Refresh01Icon,
   ShieldAlertIcon,
   SourceCodeIcon,
   Tick02Icon,
@@ -1028,7 +1028,7 @@ function ChatMenu({
     {
       key: "reload",
       label: "Reload chat",
-      icon: RefreshIcon,
+      icon: Refresh01Icon,
       hint: RELOAD_HINT,
       onSelect: run(() => actions.onReload?.(item.id)),
       disabled: !actions.onReload,

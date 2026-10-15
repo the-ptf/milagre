@@ -9,7 +9,7 @@ import {
   Copy01Icon,
   FolderOpenIcon,
   GitBranchIcon,
-  RefreshIcon,
+  Refresh01Icon,
   Search01Icon,
   Settings01Icon,
 } from "@hugeicons/core-free-icons";
@@ -29,7 +29,7 @@ const icons = {
   unread: BubbleChatIcon,
   search: Search01Icon,
   message: BubbleChatSearchIcon,
-  reload: RefreshIcon,
+  reload: Refresh01Icon,
 };
 
 function Label({ command }: { command: Command }) {
