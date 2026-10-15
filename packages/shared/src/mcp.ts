@@ -119,6 +119,21 @@ export function groupMcpRows(checks: McpAccountCheck[]): { attention: McpRow[]; 
   };
 }
 
+const isConfigProvider = (provider: McpProvider): provider is "claude" | "codex" => provider === "claude" || provider === "codex";
+
+/** Every config a remove must reach: Everywhere if the row is there, and each Claude or Codex user config holding it. */
+export function mcpRemoveTargets(row: McpRow): McpTarget[] {
+  const providers = row.chips.filter((chip) => chip.scope === "user" && isConfigProvider(chip.provider)).map((chip) => chip.provider as McpTarget);
+  return [...new Set<McpTarget>([...(row.everywhere ? (["everywhere"] as const) : []), ...providers])];
+}
+
+/** The config Edit reads and writes: Everywhere, else the default account's user config, else the first user config. */
+export function mcpEditTarget(row: McpRow): McpTarget {
+  if (row.everywhere) return "everywhere";
+  const user = row.chips.filter((chip) => chip.scope === "user" && isConfigProvider(chip.provider));
+  return ((user.find((chip) => chip.accountId === "default") ?? user[0])?.provider as McpTarget | undefined) ?? "everywhere";
+}
+
 const STATE_COPY: Record<McpChipState, string> = {
   connected: "Connected",
   failed: "Failed",

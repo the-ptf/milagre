@@ -39,28 +39,34 @@ const answers = {
   'antigravity:default': [s('pencil', 'command', 'everywhere', 'connected', 14, 'pencil mcp --stdio')],
 };
 window.checks = 0;
+window.accountsCalls = 0;
+window.removedAll = [];
+// The real bridge announces every write on mcp:changed; toggles name the account.
+const announce = (event) => setTimeout(() => window.mcpChanged && window.mcpChanged(event), 10);
 window.milagre = {
   listAccounts: async () => ({ providers: [] }),
   listRecentProjects: async () => [],
   onAccountsChanged: () => () => {},
   mcp: {
     accounts: async () => {
+      window.accountsCalls++;
       if (!window.accountsOpened) await new Promise((resolve) => { window.releaseAccounts = () => { window.accountsOpened = true; resolve(); }; });
       return accounts;
     },
     check: async (provider, accountId) => {
       window.checks++;
+      if (window.checkDelay) await new Promise((resolve) => setTimeout(resolve, window.checkDelay));
       const key = provider + ':' + accountId;
       const servers = [...answers[key]];
       // After "Add and sign in" saves docs, the next check says it needs a sign-in.
       if (key === 'claude:default' && window.saved && window.saved[0].name === 'docs') servers.push(s('docs', 'url', 'everywhere', 'needs-sign-in', 0, 'https://docs.example/mcp'));
       return { provider, accountId, label: accounts.find(a => a.provider === provider && a.accountId === accountId).label, problem: null, servers };
     },
-    definition: async (name) => ({ name, type: 'http', url: 'https://mcp.linear.app/mcp', headers: { Authorization: '••••••' } }),
-    save: async (...args) => { window.saved = args; },
-    saveUrl: async (...args) => { window.saved = args; },
-    remove: async (...args) => { window.removed = args; },
-    toggle: async (...args) => { window.toggled = args; },
+    definition: async (name) => (window.noDefinition ? null : { name, type: 'http', url: 'https://mcp.linear.app/mcp', headers: { Authorization: '••••••' } }),
+    save: async (...args) => { window.saved = args; announce({ name: args[0].name }); },
+    saveUrl: async (...args) => { window.saved = args; announce({ name: args[0].name }); },
+    remove: async (...args) => { window.removedAll.push(args); announce({ name: args[0] }); },
+    toggle: async (...args) => { window.toggled = args; announce({ name: args[2], provider: args[0], accountId: args[1] }); },
     signIn: async (...args) => { window.signedIn = args; return { started: true }; },
     cancelSignIn: async (name) => { window.cancelled = name; },
     onChanged: (callback) => { window.mcpChanged = callback; return () => {}; },
@@ -121,8 +127,55 @@ async function browserChecks() {
       `(() => { const el = document.querySelector('[data-mcp-switch="claude:default:pencil"]'); return !!el && el.getBoundingClientRect().height > 0; })()`,
     );
     await shot("mcp-open-row");
-    await click('[data-mcp-switch="claude:default:pencil"] [role="switch"]');
+    // A toggle re-checks only its account, and the rows stay on screen while it does.
+    const accountsBefore = await evaluate("window.accountsCalls");
+    await evaluate("window.checkDelay = 300");
+    assert.equal(
+      await evaluate(
+        `(() => { document.querySelector('[data-mcp-switch="claude:default:pencil"] [role="switch"]').click(); return !!document.querySelector('[data-mcp-row="pencil"]'); })()`,
+      ),
+      true,
+    );
     await waitFor(`JSON.stringify(window.toggled) === JSON.stringify(['claude','default','pencil',false])`);
+    for (let i = 0; i < 20; i++) {
+      assert.equal(await evaluate(`!!document.querySelector('[data-mcp-row="pencil"]')`), true, "pencil row vanished while re-checking");
+      await delay(25);
+    }
+    await waitFor(`!document.body.textContent.includes('Checking')`);
+    assert.equal(await evaluate("window.accountsCalls"), accountsBefore);
+    // Refresh keeps the old rows until the new answers replace them.
+    assert.equal(
+      await evaluate(`(() => { document.querySelector('[aria-label="Refresh"]').click(); return !!document.querySelector('[data-mcp-row="pencil"]'); })()`),
+      true,
+    );
+    await delay(100);
+    assert.equal(await evaluate(`!!document.querySelector('[data-mcp-row="pencil"]')`), true);
+    await waitFor(`!document.querySelector('[aria-label="Refresh"]').disabled`);
+    await evaluate("window.checkDelay = 0");
+
+    // Edit with a masked header: focusing and leaving the value keeps the stored secret.
+    await click('[data-mcp-row="pencil"] [data-mcp-edit]');
+    await waitFor(`!!document.querySelector('[data-mcp-sheet]')`);
+    const value = `document.querySelector('[data-mcp-sheet] input[aria-label="Value"]')`;
+    assert.equal(await evaluate(`${value}.value`), "••••••");
+    await evaluate(`${value}.focus(); ${value}.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))`);
+    await waitFor(`${value}.value === ''`);
+    await evaluate(`${value}.blur(); ${value}.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))`);
+    await waitFor(`${value}.value === '••••••'`);
+    await evaluate("window.signedIn = null");
+    await click('[data-mcp-sheet] button[type="submit"]');
+    await waitFor(`!!window.saved`);
+    assert.equal(await evaluate("window.saved[0].headers.Authorization"), "••••••");
+    assert.equal(await evaluate("JSON.stringify(window.saved[2])"), JSON.stringify({ name: "pencil", target: "everywhere" }));
+    await waitFor(`!document.querySelector('[data-mcp-sheet]')`);
+    await delay(200);
+    assert.equal(await evaluate("window.signedIn"), null, "an edit never starts a sign-in");
+    await evaluate("window.saved = undefined");
+    // A server whose settings can't be read says so instead of doing nothing.
+    await evaluate("window.noDefinition = true");
+    await click('[data-mcp-row="pencil"] [data-mcp-edit]');
+    await waitFor(`document.body.textContent.includes("Couldn’t read this server’s settings. Edit it in its CLI config.")`);
+    await evaluate("window.noDefinition = false");
 
     // A failed account: the summary counts it and a red alert sits next to it.
     assert.ok(
@@ -152,6 +205,13 @@ async function browserChecks() {
     await click("[data-mcp-add]");
     await waitFor(`!!document.querySelector('[data-mcp-sheet]')`);
     assert.match(await evaluate(`document.querySelector('[data-mcp-sheet] input[type="radio"]:checked').closest('label').textContent`), /Everywhere/);
+    await waitFor(`document.activeElement && document.activeElement.getAttribute('aria-label') === 'Name'`);
+    // Switching URL and Command drops the headers typed for the other kind.
+    await type('[data-mcp-sheet] input[aria-label="Header"]', "X-Team");
+    await click('[data-mcp-sheet] [data-mcp-kind="command"]');
+    await waitFor(`document.querySelector('[data-mcp-sheet] input[aria-label="Variable"]').value === ''`);
+    await click('[data-mcp-sheet] [data-mcp-kind="url"]');
+    await waitFor(`document.querySelector('[data-mcp-sheet] input[aria-label="Header"]').value === ''`);
     await type('[data-mcp-sheet] input[aria-label="Name"]', "a b");
     await type('[data-mcp-sheet] input[aria-label="URL"]', "https://docs.example/mcp");
     await click('[data-mcp-sheet] button[type="submit"]');
@@ -171,6 +231,17 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('[data-mcp-sheet]')`);
     // "Add and sign in": the new server needs a sign-in, so it starts one.
     await waitFor(`window.signedIn && window.signedIn[0] === 'docs'`);
+    // Remove reaches Everywhere and every provider config that holds the server.
+    await click('[data-mcp-row="pencil"] [data-mcp-remove]');
+    await waitFor(`window.removedAll.length === 3`);
+    assert.equal(
+      await evaluate("JSON.stringify(window.removedAll)"),
+      JSON.stringify([
+        ["pencil", "everywhere"],
+        ["pencil", "claude"],
+        ["pencil", "codex"],
+      ]),
+    );
     console.log("PASS: MCP page groups sign-in, servers and outside sources; rows open in place; add, switch and sign-in call the bridge.");
     app.exit(0);
   } catch (error) {

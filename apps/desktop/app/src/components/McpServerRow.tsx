@@ -119,12 +119,12 @@ export function McpServerRow({
             <div className="mt-1 flex min-h-11 items-center gap-2">
               <span className="min-w-0 flex-1 text-[12px] text-ink-3">{row.everywhere ? "Everywhere adds it to providers whose config lacks it." : ""}</span>
               {onEdit && (
-                <button type="button" className={outlineButton} onClick={onEdit}>
+                <button type="button" data-mcp-edit className={outlineButton} onClick={onEdit}>
                   Edit
                 </button>
               )}
               {onRemove && (
-                <button type="button" className={removeButton} onClick={onRemove}>
+                <button type="button" data-mcp-remove className={removeButton} onClick={onRemove}>
                   Remove
                 </button>
               )}

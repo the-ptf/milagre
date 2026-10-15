@@ -4,10 +4,13 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon, CommandLineIcon, Globe02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { MCP_SECRET_MASK, validateMcpServer, type McpServerDefinition, type McpTarget } from "@milagre/shared/mcp";
 
-type Pair = { key: string; value: string };
+// `stored` is the value the server came with (the mask, for secrets); `edited` is set once the user types a new value.
+type Pair = { key: string; value: string; stored?: string; edited?: boolean };
 const EMPTY: Pair = { key: "", value: "" };
-const toPairs = (record: Record<string, string>): Pair[] => Object.entries(record).map(([key, value]) => ({ key, value }));
-const toRecord = (pairs: Pair[]) => Object.fromEntries(pairs.filter((pair) => pair.key || pair.value).map((pair) => [pair.key, pair.value]));
+const toPairs = (record: Record<string, string>): Pair[] => Object.entries(record).map(([key, value]) => ({ key, value, stored: value }));
+// An untouched value goes back as it came, so a masked secret is kept by the runtime rather than saved as "".
+const sent = (pair: Pair) => (pair.edited || pair.stored === undefined ? pair.value : pair.stored);
+const toRecord = (pairs: Pair[]) => Object.fromEntries(pairs.filter((pair) => pair.key || sent(pair)).map((pair) => [pair.key, sent(pair)]));
 // The app's global rule drops the outline on inputs, so focus shows as an ink border.
 const field = "w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-ink focus:ring-1 focus:ring-ink";
 const pairField =
@@ -35,6 +38,7 @@ export function McpServerSheet({
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const nameInput = useRef<HTMLInputElement>(null);
   const [kind, setKind] = useState<"url" | "command">(initial?.type === "stdio" ? "command" : "url");
   const [name, setName] = useState(initial?.name ?? "");
   const [url, setUrl] = useState(initial && initial.type !== "stdio" ? initial.url : "");
@@ -45,6 +49,8 @@ export function McpServerSheet({
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     dialog.current?.showModal();
+    // autoFocus fires before the dialog opens, so focus Name once it is modal.
+    nameInput.current?.focus();
   }, []);
   const [first = "", ...rest] = command.trim().split(/\s+/);
   const def: McpServerDefinition =
@@ -105,7 +111,12 @@ export function McpServerSheet({
               type="button"
               aria-pressed={kind === value}
               disabled={value === "command" && remote}
-              onClick={() => setKind(value)}
+              data-mcp-kind={value}
+              onClick={() => {
+                // Headers and environment variables don't carry over between a URL and a command.
+                if (value !== kind) setPairs([]);
+                setKind(value);
+              }}
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-[8px] py-1.5 text-[13px] disabled:opacity-40 ${kind === value ? "bg-surface font-medium text-ink shadow-card" : "text-ink-2"}`}
             >
               <HugeiconsIcon icon={value === "url" ? Globe02Icon : CommandLineIcon} size={14} strokeWidth={1.75} color="currentColor" />
@@ -115,7 +126,7 @@ export function McpServerSheet({
         </div>
         <label className={label}>
           Name
-          <input aria-label="Name" autoFocus className={field} value={name} onChange={(event) => edit(setName, event.target.value)} />
+          <input ref={nameInput} aria-label="Name" className={field} value={name} onChange={(event) => edit(setName, event.target.value)} />
         </label>
         {kind === "url" ? (
           <label className={label}>
@@ -151,9 +162,10 @@ export function McpServerSheet({
                 className={`${pairField} flex-1`}
                 placeholder="Value"
                 value={pair.value}
-                // A focused masked value clears so a new one can be typed; an untouched mask keeps the stored value.
-                onFocus={() => pair.value === MCP_SECRET_MASK && setPair(index, { ...pair, value: "" })}
-                onChange={(event) => setPair(index, { ...pair, value: event.target.value })}
+                // A focused masked value clears so a new one can be typed; left untouched, the mask comes back.
+                onFocus={() => pair.value === MCP_SECRET_MASK && !pair.edited && setPair(index, { ...pair, value: "" })}
+                onBlur={() => !pair.edited && pair.stored === MCP_SECRET_MASK && setPair(index, { ...pair, value: MCP_SECRET_MASK })}
+                onChange={(event) => setPair(index, { ...pair, value: event.target.value, edited: true })}
               />
               <button
                 type="button"
