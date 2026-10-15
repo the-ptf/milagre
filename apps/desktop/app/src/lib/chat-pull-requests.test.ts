@@ -89,6 +89,12 @@ test("the chat's PRs keep creation order and include the branch PR once", () => 
   assert.deepEqual(chatPullRequests([], {}, undefined), []);
 });
 
+test("a PR the chat named that is also the branch PR uses the branch's fresher copy", () => {
+  const found = { "88": pr(88) };
+  const [only] = chatPullRequests(["88"], found, pr(88, { changesRequested: true }));
+  assert.equal(only.changesRequested, true);
+});
+
 test("the row shows PRs that need attention first, then the rest in order", () => {
   const prs = [
     pr(84, { state: "MERGED" }),

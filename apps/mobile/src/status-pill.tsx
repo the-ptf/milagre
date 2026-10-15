@@ -112,30 +112,36 @@ export function StatusPill({
           borderWidth: 1,
           borderColor: colors.line,
           overflow: "hidden",
-          opacity: disabled ? 0.5 : pressed ? 0.7 : 1,
           transform: [{ scale: pressed ? 0.96 : 1 }],
         })}
       >
-        <LiquidGlassView
-          pointerEvents="none"
-          glassType="regular"
-          glassTintColor={tint}
-          isInteractive={false}
-          reducedTransparencyFallbackColor={(tint ?? colors.surface) as string}
-          style={[StyleSheet.absoluteFill, { borderRadius: HEIGHT / 2, borderCurve: "continuous" }]}
-        />
-        <Animated.View entering={CONTENT_IN} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-          {leading}
-          {icon && <Icon icon={icon} tone={tone} size={ICON_SIZE} />}
-          <Animated.View layout={PILL_LAYOUT} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <Letters text={label} style={text} />
-            {count !== undefined && (
-              <Animated.View entering={COUNT_IN} exiting={COUNT_OUT}>
-                <RollingNumber value={count} style={text} />
+        {({ pressed }) => (
+          <>
+            <LiquidGlassView
+              pointerEvents="none"
+              glassType="regular"
+              glassTintColor={tint}
+              isInteractive={false}
+              reducedTransparencyFallbackColor={(tint ?? colors.surface) as string}
+              style={[StyleSheet.absoluteFill, { borderRadius: HEIGHT / 2, borderCurve: "continuous" }]}
+            />
+            {/* Pressed and disabled dim the contents only: an alpha change on the Pressable would drop the glass for good. */}
+            <View style={{ opacity: disabled ? 0.5 : pressed ? 0.7 : 1 }}>
+              <Animated.View entering={CONTENT_IN} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                {leading}
+                {icon && <Icon icon={icon} tone={tone} size={ICON_SIZE} />}
+                <Animated.View layout={PILL_LAYOUT} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Letters text={label} style={text} />
+                  {count !== undefined && (
+                    <Animated.View entering={COUNT_IN} exiting={COUNT_OUT}>
+                      <RollingNumber value={count} style={text} />
+                    </Animated.View>
+                  )}
+                </Animated.View>
               </Animated.View>
-            )}
-          </Animated.View>
-        </Animated.View>
+            </View>
+          </>
+        )}
       </Pressable>
     </Animated.View>
   );

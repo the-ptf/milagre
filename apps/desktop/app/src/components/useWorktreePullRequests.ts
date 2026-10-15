@@ -169,17 +169,20 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
     let disposed = false;
     let lastRefresh = 0;
     // A merged PR can't change again, so it's read once; new and open ones follow the branch PR's refreshes.
-    const refresh = async () => {
+    const refresh = async (only?: string) => {
       lastRefresh = Date.now();
       const known = chatSnapshotRef.current.projectPath === projectPath ? chatSnapshotRef.current.prs : (lastChatPullRequests.get(projectPath) ?? {});
       await Promise.all(
         entries.map(async ([path, refs]) => {
+          if (only && path !== only) return;
           const selected = refs.filter((ref) => known[path]?.[ref]?.state !== "MERGED");
           if (!selected.length) return;
           const prs = await bridgeForKey(projectPath)
             .readPullRequests(path, selected)
             .catch(() => selected.map(() => null));
           if (disposed) return;
+          // The composer can offer these PRs' actions too, so their reads clear a fixed blocker's dismissal.
+          setDismissedBlockers((current) => prs.reduce((next, pr) => updateBlockerDismissals(next, pr), current));
           setChatSnapshot((current) => {
             const previous = current.projectPath === projectPath ? current.prs : (lastChatPullRequests.get(projectPath) ?? {});
             const read = Object.fromEntries(selected.map((ref, index) => [ref, prs[index] ?? null]));
@@ -195,9 +198,18 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
       () => void refresh(),
       () => lastRefresh,
     );
+    // At a turn end, like the branch PR, so a Chat's PR doesn't show an older status than its branch PR's.
+    const unsubscribe = onAnyAgentEvent(({ chatId, event }) => {
+      if (!chatInProject(projectPath, chatId) || !isTurnEnd(event)) return;
+      const current = stateRef.current;
+      const session = current?.sessions[sessionIdFromKey(chatId)];
+      const path = session && current?.worktrees[session.worktree_id]?.path;
+      if (path) void refresh(path);
+    });
     return () => {
       disposed = true;
       stopPolling();
+      unsubscribe();
     };
   }, [projectPath, chatRefsKey]);
 

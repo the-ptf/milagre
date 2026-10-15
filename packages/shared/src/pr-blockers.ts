@@ -67,6 +67,18 @@ export function rowPullRequests(prs: PullRequest[]): PullRequest[] {
     .map(({ pr }) => pr);
 }
 
+/**
+ * The composer's PR action: the first blocker among the PRs the Chat's row shows, in the row's order, that the agent
+ * isn't already fixing. Reading the row's list keeps the action and the row's status about the same PRs.
+ */
+export function pullRequestAction(prs: PullRequest[], dismissed: string[] = []): { pr: PullRequest; blocker: PullRequestBlocker } | null {
+  for (const pr of rowPullRequests(prs)) {
+    const blocker = pullRequestBlockers(pr).find((candidate) => !isBlockerDismissed(dismissed, candidate, pr));
+    if (blocker) return { pr, blocker };
+  }
+  return null;
+}
+
 const key = (blocker: PullRequestBlocker, url: string) => (blocker === "conflicts" ? url : `${blocker}:${url}`);
 
 export function isBlockerDismissed(dismissed: string[], blocker: PullRequestBlocker, pr: BlockerStatus) {

@@ -1773,8 +1773,12 @@ function chatHost({
     "../session": { useSession: () => session, useComposer: () => session, usePendingChats: () => session },
     "../attachment-picker": { pickAttachments, preparePastedImage, discardPastedImage() {} },
     "../attachments": require("../apps/mobile/src/attachments.ts"),
-    // A test can show the Chat's open PR with globalThis.chatPullRequest.
-    "../status-indicators": { PullRequestAction: "PullRequestAction", SubagentChip: "SubagentChip", usePullRequest: () => globalThis.chatPullRequest ?? null },
+    // A test can show the Worktree branch's PR with globalThis.chatPullRequest, and PRs the Chat named with globalThis.chatNamedPullRequests.
+    "../status-indicators": { PullRequestAction: "PullRequestAction", SubagentChip: "SubagentChip" },
+    "../use-chat-pull-requests": {
+      useChatPullRequests: (_client, targets) =>
+        Object.fromEntries(targets.map(({ path }) => [path, { branch: globalThis.chatPullRequest, found: globalThis.chatNamedPullRequests ?? {} }])),
+    },
     "../questions": { Approval: "Approval", Questions: "Questions" },
     "../chat-reply": { ChatReply: "ChatReply" },
     "../design-outbox": require("../apps/mobile/src/design-outbox.ts"),
@@ -3376,6 +3380,20 @@ test("Compact now from the context sheet sends /compact to the open Chat with th
   screen.render();
   await settle();
   assert.equal(screen.calls.filter((call) => call.method === "chat:send").length, 1);
+});
+
+test("a PR the Chat opened from another branch gets the PR pill, as its row shows it", () => {
+  const url = "https://github.com/o/r/pull/81";
+  globalThis.chatNamedPullRequests = { [url]: { number: 81, url, state: "OPEN", changesRequested: true } };
+  try {
+    const screen = chatHost();
+    screen.params.id = "42";
+    screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1, summary: { count: 2, pullRequests: [url] } };
+    const pill = find(screen.render(), (node) => node.type === "PullRequestAction");
+    assert.equal(pill?.props.pr.number, 81);
+  } finally {
+    delete globalThis.chatNamedPullRequests;
+  }
 });
 
 test("a PR without a number yet shows no PR pill", () => {

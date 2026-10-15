@@ -60,7 +60,9 @@ function mergedRef(args) {
 /** The chat's PRs that could be read, in the order it made them, with the worktree branch's PR included once. */
 export function chatPullRequests(refs, found, branch) {
   const prs = [];
-  for (const pr of [...refs.map((ref) => found[ref]), branch]) {
+  for (const read of [...refs.map((ref) => found[ref]), branch]) {
+    // The branch PR is also read at every turn end, so it is the fresher copy of a PR the chat named too.
+    const pr = read && branch && read.url === branch.url ? branch : read;
     if (pr && !prs.some((other) => other.url === pr.url)) prs.push(pr);
   }
   return prs;

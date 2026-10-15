@@ -57,7 +57,7 @@ import {
   sessionIdFromKey,
 } from "./lib/agent-runs";
 import { attachmentPrompt } from "./lib/media";
-import { BLOCKERS, isBlockerDismissed, pullRequestBlockers } from "./lib/pr-blockers";
+import { BLOCKERS, pullRequestAction } from "./lib/pr-blockers";
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
 import { COMPACT_COMMAND } from "@milagre/shared/compaction";
 import { capabilitiesFrom, keepIfSame, mergeModels, nextSelection, providerForId, resolveModel } from "./lib/models";
@@ -593,15 +593,6 @@ function App() {
   const terminalChatRef = useRef(terminalChatId);
   terminalChatRef.current = terminalChatId;
   useTerminalSync(terminalChatId);
-  const selectedPullRequest = selectedWorktree && pullRequests[selectedWorktree.path];
-  const pullRequestBlocker = selectedPullRequest
-    ? pullRequestBlockers(selectedPullRequest).find((blocker) => !isBlockerDismissed(dismissedBlockers, blocker, selectedPullRequest))
-    : undefined;
-  // The pill's action, checked here too: a PR without a number yet shows no pill instead of sending a broken one.
-  const pullRequestActionRequest =
-    selectedPullRequest && pullRequestBlocker
-      ? pullRequestActionContext({ action: pullRequestBlocker, pr: selectedPullRequest.number, url: selectedPullRequest.url })
-      : null;
   const run = project && selectedSession ? agentRuns.runs[chatKey(project.path, selectedSession.id)] : undefined;
   // A Chat another Chat started (MCP, Delegation) has no pick of its own: show the mode its turn runs in, not the default.
   const permissionMode = composerPrefs.pickedPermissionMode ?? run?.permissionMode ?? composerPrefs.permissionMode;
@@ -765,6 +756,22 @@ function App() {
   }, [sidebarState?.messages, sidebarState?.sessions]);
   // oxlint-disable-next-line react/use-memo -- useMemo is given a factory function reference so the instance is created once
   const readPullRequestRefs = useMemo(pullRequestRefsCache, []);
+  // The open Chat's PRs, the same list its sidebar row shows, so the composer's action and the row agree.
+  const selectedPullRequests =
+    project && selectedSession && selectedWorktree
+      ? chatPullRequests(
+          selectedSession.summary
+            ? (selectedSession.summary.pullRequests ?? NO_REFS)
+            : readPullRequestRefs(chatKey(project.path, selectedSession.id), messagesBySession.get(selectedSession.id) ?? NO_MESSAGES),
+          chatPrs[selectedWorktree.path] ?? {},
+          pullRequests[selectedWorktree.path] ?? undefined,
+        )
+      : [];
+  const pullRequestBlockerAction = pullRequestAction(selectedPullRequests, dismissedBlockers);
+  // The pill's action, checked here too: a PR without a number yet shows no pill instead of sending a broken one.
+  const pullRequestActionRequest = pullRequestBlockerAction
+    ? pullRequestActionContext({ action: pullRequestBlockerAction.blocker, pr: pullRequestBlockerAction.pr.number, url: pullRequestBlockerAction.pr.url })
+    : null;
   const previousChats = useRef<SidebarRecent[]>([]);
   // Chats with an archive under way, by chat key: each keeps its row, under the progress, until the archive ends.
   const [archivingChats, setArchivingChats] = useState<ReadonlySet<string>>(() => new Set());
@@ -2335,12 +2342,12 @@ function App() {
                     onStartFromIssue={startFromIssue}
                     onStop={run && selectedSession ? () => void agentRuns.interrupt(chatKey(project.path, selectedSession.id)) : undefined}
                     pullRequestAction={
-                      selectedSession && selectedPullRequest && pullRequestBlocker && pullRequestActionRequest
+                      selectedSession && pullRequestBlockerAction && pullRequestActionRequest
                         ? {
-                            label: BLOCKERS[pullRequestBlocker].action,
-                            tone: BLOCKERS[pullRequestBlocker].tone,
+                            label: BLOCKERS[pullRequestBlockerAction.blocker].action,
+                            tone: BLOCKERS[pullRequestBlockerAction.blocker].tone,
                             onRun: () => {
-                              dismissBlockerAction(selectedPullRequest, pullRequestBlocker);
+                              dismissBlockerAction(pullRequestBlockerAction.pr, pullRequestBlockerAction.blocker);
                               void executeSend(pullRequestActionBody(pullRequestActionRequest), permissionMode, [], [], true, pullRequestActionRequest);
                             },
                           }

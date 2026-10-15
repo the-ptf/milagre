@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isBlockerDismissed, pullRequestBlockers, updateBlockerDismissals } from "./pr-blockers.ts";
+import { isBlockerDismissed, pullRequestAction, pullRequestBlockers, updateBlockerDismissals } from "./pr-blockers.ts";
 
 const pr = { number: 77, url: "https://github.com/example/repo/pull/77", state: "OPEN", hasConflicts: true };
 
@@ -70,4 +70,15 @@ test("a failed CI action clears as soon as the checks are no longer failing", ()
   assert.deepEqual(updateBlockerDismissals(dismissed, failing), dismissed);
   // A push reruns CI: the checks are running, so the fix is being verified and a later failure can offer the action again.
   assert.deepEqual(updateBlockerDismissals(dismissed, { ...failing, checks: "running" }), []);
+});
+
+test("the composer's action comes from any of the chat's PRs, skipping blockers already being fixed", () => {
+  const other = { number: 80, url: "https://github.com/example/repo/pull/80", title: "", state: "OPEN" as const, readyToMerge: false, hasConflicts: false };
+  const reviewed = { ...other, number: 81, url: "https://github.com/example/repo/pull/81", changesRequested: true };
+  assert.deepEqual(pullRequestAction([other, reviewed]), { pr: reviewed, blocker: "changes-requested" });
+  const dismissed = updateBlockerDismissals([], reviewed, "changes-requested");
+  assert.equal(pullRequestAction([other, reviewed], dismissed), null);
+  const failing = { ...reviewed, checks: "failed" as const };
+  assert.deepEqual(pullRequestAction([other, failing], dismissed), { pr: failing, blocker: "checks-failed" });
+  assert.equal(pullRequestAction([]), null);
 });

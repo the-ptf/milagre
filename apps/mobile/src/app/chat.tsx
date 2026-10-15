@@ -1,7 +1,7 @@
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Reanimated from "react-native-reanimated";
-import { Alert, Image, Keyboard, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Keyboard, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { UltracodeGlow } from "../ultracode-glow";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
@@ -20,20 +20,21 @@ import {
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
 import type { ChatMessage, LinkIssueResult, PullRequestActionContext } from "@milagre/shared/model";
-import { chatTitle, createPendingChat, pendingChatSessionId } from "@milagre/shared/chats";
+import { chatPullRequests, chatTitle, createPendingChat, pendingChatSessionId, pullRequestRefs } from "@milagre/shared/chats";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import { LINK_PR_HINT, issueChipLabel, issueFirstMessage, type LinearIssue, type LinearIssuesResult } from "@milagre/shared/linear";
 import { worktreeShared } from "@milagre/shared/archive";
 import type { Client, OpenProject } from "../client";
 import { answeredQuestions, lastUserModel, projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
-import { pullRequestBlockers } from "@milagre/shared/pr-blockers";
+import { pullRequestAction, pullRequestBlockers, rowPullRequests } from "@milagre/shared/pr-blockers";
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
 import { useComposer, usePendingChats, useSession } from "../session";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
 import { appendAttachments, attachmentPrompt, prepareAttachments } from "../attachments";
-import { PullRequestAction, SubagentChip, usePullRequest } from "../status-indicators";
+import { PullRequestAction, SubagentChip } from "../status-indicators";
+import { useChatPullRequests } from "../use-chat-pull-requests";
 import { SimulatorChip } from "../simulator";
 import { BrowserChip } from "../browser";
 import { PortsChip } from "../ports";
@@ -211,7 +212,6 @@ export default function ChatScreen() {
     session.snapshot?.project.state.worktrees[
       (params.id ? session.snapshot.project.state.sessions[Number(params.id)]?.worktree_id : Number(params.worktreeId)) ?? -1
     ];
-  const pr = usePullRequest(session.snapshot?.project.link ? undefined : worktreeOf);
   // Stable props keep each memoized ChatReply from re-rendering on every keystroke and poll tick.
   const connected = session.client;
   const projectPath = session.snapshot?.project.path;
@@ -293,6 +293,16 @@ export default function ChatScreen() {
   const [transcript, setTranscript] = useState({ key: scrollKey, messages: loadedMessages });
   const messages = lean && historyPage.loading && !loadedMessages.length && transcript.key === scrollKey ? transcript.messages : loadedMessages;
   if (transcript.key !== scrollKey || transcript.messages !== messages) setTranscript({ key: scrollKey, messages });
+  // The open Chat's PRs, read as its row in the Chat list reads them (same refs, same pooled lookups), so the PR action
+  // above the composer and the row's status are about the same PRs.
+  const prPath = session.snapshot?.project.link ? undefined : worktreeOf?.path;
+  const openChat = params.id ? session.snapshot?.project.state.sessions[Number(params.id)] : undefined;
+  const savedPrRefs = openChat ? (openChat.summary?.pullRequests ?? session.snapshot?.project.pullRequestRefs?.[openChat.id]) : undefined;
+  const prRefs = useMemo(() => (openChat ? (savedPrRefs ?? pullRequestRefs(messages)) : []), [openChat, savedPrRefs, messages]);
+  const prStatus = useChatPullRequests(session.client, prPath ? [{ path: prPath, refs: prRefs }] : []);
+  const chatPrs = prPath ? chatPullRequests(prRefs, prStatus[prPath]?.found ?? {}, prStatus[prPath]?.branch) : [];
+  // The header menu's PR is the one the row shows first.
+  const pr = rowPullRequests(chatPrs)[0] ?? null;
   const remote = lean && (!pending || pendingCanonicalId !== null) ? Math.max(0, historyPage.total - historyPage.messages.length) : 0;
   // The design the user last chose on the design sheet, which its cards mark.
   const chosen = useMemo(() => chosenDesign(messages.filter((message) => message.role === "user").map((message) => message.body)), [messages]);
@@ -875,8 +885,9 @@ export default function ChatScreen() {
     }
   }
   const blockers = pullRequestBlockers(pr);
+  const prAction = pullRequestAction(chatPrs);
   // The pill's action, checked here too: a PR without a number yet shows no pill instead of sending a broken one.
-  const prActionRequest = pr && blockers[0] ? pullRequestActionContext({ action: blockers[0], pr: pr.number, url: pr.url }) : null;
+  const prActionRequest = prAction ? pullRequestActionContext({ action: prAction.blocker, pr: prAction.pr.number, url: prAction.pr.url }) : null;
   const agents = (chat?.subagents || []).filter((agent) => !agent.archived);
   const diff = worktree?.diff;
   const linearIssue: LinearIssue | undefined = worktree ? linearIssues[worktree.path] : undefined;
@@ -1204,10 +1215,17 @@ export default function ChatScreen() {
               style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }}
             >
               {(!question || answering) && (
-                <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 4, gap: 8 }}>
-                  {pr && prActionRequest && chat && (
+                // More pills than fit scroll sideways; the spacer still right-aligns them when they fit.
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  style={{ marginHorizontal: -12, flexGrow: 0 }}
+                  contentContainerStyle={{ flexGrow: 1, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 8 }}
+                >
+                  {prAction && prActionRequest && chat && (
                     <PullRequestAction
-                      pr={pr}
+                      pr={prAction.pr}
                       disabled={busy || !!run}
                       onRun={() => void send(pullRequestActionBody(prActionRequest), false, prActionRequest)}
                     />
@@ -1220,7 +1238,7 @@ export default function ChatScreen() {
                   {params.id && Number(params.id) > 0 && <PortsChip key={`ports-${chatId}`} chatId={chatId} />}
                   {params.id && Number(params.id) > 0 && <SimulatorChip key={chatId} chatId={chatId} />}
                   {agents.length > 0 && <SubagentChip agents={agents} onPress={() => headerAction("agents")} />}
-                </View>
+                </ScrollView>
               )}
               {run?.approvals.map((approval) => (
                 <Approval
