@@ -617,7 +617,7 @@ const DesignFrame = memo(function DesignFrame({
   const go = (next: number) => onVersion(design.id, next >= last ? null : next);
   // Too narrow on screen for the title and its controls on one row, the controls go under the title. Zoomed out
   // further, the controls wouldn't fit under it either: the row keeps the number and title, and the controls float
-  // above the frame while the pointer or focus is on it.
+  // over the frame's top edge while the pointer or focus is on it, clear of the group's name above the row.
   const compact = width * scale < 260;
   const narrow = !compact && width * scale < 300;
   const button = "grid size-6 place-items-center rounded-[6px] text-ink-2 hover:bg-hover disabled:opacity-40";
@@ -738,7 +738,7 @@ const DesignFrame = memo(function DesignFrame({
               {isChosen && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} aria-label="Chosen" className="shrink-0 text-accent" />}
               <div
                 data-slot="artifact-frame-controls"
-                className={`absolute bottom-full left-0 flex items-center gap-1 whitespace-nowrap rounded-[8px] border border-line bg-surface p-1 shadow-raised ${deleting ? "" : "pointer-events-none opacity-0 group-focus-within/frame:pointer-events-auto group-focus-within/frame:opacity-100 group-hover/frame:pointer-events-auto group-hover/frame:opacity-100"}`}
+                className={`absolute top-full left-1.5 mt-1.5 flex items-center gap-1 whitespace-nowrap rounded-[8px] border border-line bg-surface p-1 shadow-raised ${deleting ? "" : "pointer-events-none opacity-0 group-focus-within/frame:pointer-events-auto group-focus-within/frame:opacity-100 group-hover/frame:pointer-events-auto group-hover/frame:opacity-100"}`}
               >
                 {controls}
               </div>

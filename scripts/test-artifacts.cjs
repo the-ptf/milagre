@@ -704,6 +704,26 @@ async function browserChecks() {
     assert.equal(await evaluate(`${frame("home")}.textContent.trim().startsWith("2")`), true, "frames are numbered across blocks");
     await evaluate(`${dock}.querySelector("[aria-label='Fit every design']").click()`);
     await screenshot("canvas-groups");
+    // Zoomed out, a frame's floating controls sit over its top edge, clear of its group's name above the row.
+    for (let step = 0; step < 12 && !(await evaluate(`!!${homeControls}`)); step++) {
+      await evaluate(`${dock}.querySelector("[aria-label='Zoom out']").click()`);
+      await delay(50);
+    }
+    await evaluate(`${homeControls}.querySelector("[data-slot=artifact-edit]").focus()`);
+    await waitFor(`getComputedStyle(${homeControls}).opacity === "1"`);
+    const clear = await evaluate(`(() => {
+      const box = (element) => element.getBoundingClientRect();
+      const controls = box(${homeControls});
+      const label = box(${groups}[1].querySelector("span"));
+      const body = box(${frame("home")}.querySelector("[data-design-body]"));
+      const overlaps = controls.left < label.right && controls.right > label.left && controls.top < label.bottom && controls.bottom > label.top;
+      return { overlaps, inside: controls.top >= body.top && controls.left >= body.left, controls: [controls.left, controls.top], body: [body.left, body.top] };
+    })()`);
+    assert.equal(clear.overlaps, false, `the controls leave the group's name in view: ${JSON.stringify(clear)}`);
+    assert.equal(clear.inside, true, `the controls float over the frame's top edge: ${JSON.stringify(clear)}`);
+    await screenshot("canvas-groups-controls");
+    await evaluate(`document.activeElement.blur()`);
+    await waitFor(`getComputedStyle(${homeControls}).opacity === "0"`);
     await regroup({ login: "Sign in" });
     await waitFor(`${groups}.map((group) => group.getAttribute("aria-label")).join() === "Sign in,Ungrouped"`);
     await regroup({});
