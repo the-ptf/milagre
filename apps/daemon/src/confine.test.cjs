@@ -728,3 +728,19 @@ test("the demo computer's phone cannot list or check MCP servers", async () => {
     await assert.rejects(confine.checkCall(method, args), (error) => error.status === 403 && error.message === MCP_REFUSED);
   }
 });
+
+for (const method of ["mcp:definition", "mcp:saveUrl", "mcp:remove", "mcp:toggle"]) {
+  test(`${method} is refused on the demo computer`, async () => {
+    const confine = createConfinement({ allowedRoot: os.tmpdir() });
+    assert.ok(METHODS.has(method), method);
+    await assert.rejects(confine.checkCall(method, []), (error) => error.status === 403 && error.message === MCP_REFUSED);
+  });
+}
+
+test("the Mac-only MCP commands are not phone methods at all", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  for (const method of ["mcp:save", "mcp:signIn", "mcp:cancelSignIn"]) {
+    assert.equal(METHODS.has(method), false, method);
+    await assert.rejects(confine.checkCall(method, []), { status: 403, message: REFUSED });
+  }
+});

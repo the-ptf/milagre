@@ -24,6 +24,11 @@ const SLOW_METHODS = Object.freeze({
   // Settings › MCP: the server caps one check at 30 s (packages/core/src/mcp/index.cjs); wait a little longer for its answer.
   "mcp:accounts": 45000,
   "mcp:check": 45000,
+  "mcp:save": 45000,
+  "mcp:saveUrl": 45000,
+  "mcp:remove": 45000,
+  "mcp:signIn": 45000,
+  "mcp:definition": 45000,
 });
 const deadlineFor = (method, fallback) => Math.max(fallback, SLOW_METHODS[method] ?? 0);
 

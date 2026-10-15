@@ -23,6 +23,9 @@ const LOCAL_ONLY = [
   "linear:connect",
   "linear:cancel",
   "linear:disconnect",
+  "mcp:save",
+  "mcp:signIn",
+  "mcp:cancelSignIn",
 ];
 const LOCAL_ONLY_PREFIXES = [
   "app:",
@@ -151,6 +154,14 @@ function makeBridge(invoke, listen, send) {
     mcp: {
       accounts: () => invoke("mcp:accounts"),
       check: (provider, accountId) => invoke("mcp:check", provider, accountId),
+      definition: (name, target) => invoke("mcp:definition", name, target),
+      save: (def, target, previous) => invoke("mcp:save", def, target, previous ?? null),
+      saveUrl: (def, target, previous) => invoke("mcp:saveUrl", def, target, previous ?? null),
+      remove: (name, target) => invoke("mcp:remove", name, target),
+      toggle: (provider, accountId, name, on) => invoke("mcp:toggle", provider, accountId, name, on),
+      signIn: (name, accounts) => invoke("mcp:signIn", name, accounts),
+      cancelSignIn: (name) => invoke("mcp:cancelSignIn", name),
+      onChanged: (callback) => listen("mcp:changed", callback),
     },
     localMcp: {
       status: () => invoke("local-mcp:status"),

@@ -115,6 +115,10 @@ const METHODS = new Set([
   "accounts:list",
   "mcp:accounts",
   "mcp:check",
+  "mcp:definition",
+  "mcp:saveUrl",
+  "mcp:remove",
+  "mcp:toggle",
   "local-mcp:status",
   "local-mcp:create",
   "local-mcp:update",
@@ -510,6 +514,7 @@ async function startMobileBridge({
       // A snapshot carries the runs too, so "project" covers "runs".
       const types = [];
       if (entry.kinds.has("accounts")) types.push("accounts");
+      if (entry.kinds.has("mcp")) types.push("mcp");
       if (entry.kinds.has("designs")) types.push("designs");
       if (entry.kinds.has("links")) types.push("links");
       if (entry.kinds.has("project")) types.push("project");
@@ -558,6 +563,7 @@ async function startMobileBridge({
     followState(channel, payload);
     for (const entry of live) {
       if (channel === "accounts:changed" && !confine) signal(entry, "accounts", 0);
+      if (channel === "mcp:changed" && !confine) signal(entry, "mcp", 0);
       if (channel === "designs:enabled-changed") signal(entry, "designs", 0);
       // A Link made or removed anywhere (canvas, sidebar, another phone): the phone reads canvas:links again. A confined
       // phone is refused canvas:links, so it isn't told.

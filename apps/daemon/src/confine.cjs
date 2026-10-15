@@ -154,6 +154,10 @@ const PATHS = Object.freeze({
   "accounts:remove": none,
   "mcp:accounts": none,
   "mcp:check": none,
+  "mcp:definition": none,
+  "mcp:saveUrl": none,
+  "mcp:remove": none,
+  "mcp:toggle": none,
   // Local connection grants are computer-wide and must never be issued by a confined demo.
   "local-mcp:status": denied,
   "local-mcp:create": denied,

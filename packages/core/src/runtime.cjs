@@ -1,6 +1,8 @@
 const { createAccountRouting } = require("./account-routing.cjs");
 const { createLimitSwitch } = require("./limit-switch.cjs");
 const { createMcp } = require("./mcp/index.cjs");
+const { createMcpStore } = require("./mcp/store.cjs");
+const { openInBrowser } = require("./antigravity-account.cjs");
 const { createAccounts } = require("./accounts.cjs");
 const { createLinkStore } = require("./link-store.cjs");
 const { createLinkWorkspaces } = require("./link-workspaces.cjs");
@@ -1056,10 +1058,25 @@ function createRuntime(options) {
       return pending;
     });
   // Settings › MCP (docs/superpowers/specs/2026-10-09-mcp-settings-design.md): each account's servers and their status.
-  // Read only; the tab checks every account in parallel.
-  const mcp = createMcp({ accounts, routing, cwd: require("node:os").homedir(), clientVersion: version });
+  // The tab checks every account in parallel; saves, switches and sign-ins go through the same module.
+  const mcp = createMcp({
+    accounts,
+    routing,
+    cwd: require("node:os").homedir(),
+    clientVersion: version,
+    store: createMcpStore(path.join(dataDir, "mcp.json")),
+    openUrl: (url) => openInBrowser(url),
+    emit,
+  });
   commands.handle("mcp:accounts", () => mcp.accounts());
   commands.handle("mcp:check", (_event, provider, accountId) => mcp.check(String(provider), String(accountId)));
+  commands.handle("mcp:definition", (_event, name, target) => mcp.definition(String(name), String(target)));
+  commands.handle("mcp:save", (_event, def, target, previous) => mcp.save(def, String(target), previous ?? undefined));
+  commands.handle("mcp:saveUrl", (_event, def, target, previous) => mcp.saveUrl(def, String(target), previous ?? undefined));
+  commands.handle("mcp:remove", (_event, name, target) => mcp.remove(String(name), String(target)));
+  commands.handle("mcp:toggle", (_event, provider, accountId, name, on) => mcp.toggle(String(provider), String(accountId), String(name), on === true));
+  commands.handle("mcp:signIn", (_event, name, targets) => mcp.signIn(String(name), Array.isArray(targets) ? targets : []));
+  commands.handle("mcp:cancelSignIn", (_event, name) => mcp.cancelSignIn(String(name)));
 
   // The Mac's Linear connections, one per workspace. Phones read them and the Experimental switch; only the Mac connects (mobile-bridge.cjs).
   const linear = createLinear({

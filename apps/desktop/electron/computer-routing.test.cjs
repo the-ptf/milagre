@@ -137,3 +137,8 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
   assert.deepEqual(list("LOCAL_ONLY"), [...LOCAL_ONLY]);
   assert.deepEqual(list("LOCAL_ONLY_PREFIXES"), [...LOCAL_ONLY_PREFIXES]);
 });
+
+test("command servers and MCP sign-in stay on this Mac", () => {
+  for (const name of ["mcp:save", "mcp:signIn", "mcp:cancelSignIn"]) assert.equal(isLocalOnly(name), true, name);
+  for (const name of ["mcp:saveUrl", "mcp:toggle", "mcp:remove", "mcp:definition"]) assert.equal(isLocalOnly(name), false, name);
+});

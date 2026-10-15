@@ -69,7 +69,7 @@ const MEDIA_AT_ONCE = 4;
 // Creating a worktree can fetch and copy files; removing one with big ignored folders can take minutes.
 const LONG_CALLS = new Set(["worktree:create", "worktree:remove", "link:send", "link:open"]);
 // Settings › MCP: the Mac caps one check at 30 s (packages/core/src/mcp/index.cjs); wait a little longer for its answer.
-const MCP_CALLS = new Set(["mcp:accounts", "mcp:check"]);
+const MCP_CALLS = new Set(["mcp:accounts", "mcp:check", "mcp:definition", "mcp:saveUrl", "mcp:remove", "mcp:toggle"]);
 // The Mac embeds images before uploading a public snapshot; match its desktop RPC deadline.
 const DESIGN_SHARE_CALLS = new Set(["artifact:share-page", "artifact:revoke-page-share", "artifact:revoke-saved-page-share"]);
 

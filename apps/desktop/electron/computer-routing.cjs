@@ -20,6 +20,9 @@ const LOCAL_ONLY = Object.freeze([
   "linear:connect",
   "linear:cancel",
   "linear:disconnect",
+  "mcp:save",
+  "mcp:signIn",
+  "mcp:cancelSignIn",
 ]);
 const LOCAL_ONLY_PREFIXES = Object.freeze([
   "app:",

@@ -1,5 +1,5 @@
 import type { MainSyncSettings, MainSyncStatus } from "@milagre/shared/main-sync";
-import type { McpAccount, McpAccountCheck } from "@milagre/shared/mcp";
+import type { McpAccount, McpAccountCheck, McpChangedEvent, McpProvider, McpServerDefinition, McpTarget } from "@milagre/shared/mcp";
 import type { LocalMcpApi } from "@milagre/shared/local-mcp";
 import type { LinearIssue, LinearIssuesResult, LinearStatus } from "@milagre/shared/linear";
 import type {
@@ -275,7 +275,15 @@ export type MilagreBridge = {
   onLinearStatusChanged: (callback: (status: LinearStatus) => void) => () => void;
   mcp: {
     accounts: () => Promise<McpAccount[]>;
-    check: (provider: McpAccount["provider"], accountId: string) => Promise<McpAccountCheck>;
+    check: (provider: McpProvider, accountId: string) => Promise<McpAccountCheck>;
+    definition: (name: string, target: McpTarget) => Promise<McpServerDefinition | null>;
+    save: (def: McpServerDefinition, target: McpTarget, previous?: { name: string; target: McpTarget }) => Promise<void>;
+    saveUrl: (def: McpServerDefinition, target: McpTarget, previous?: { name: string; target: McpTarget }) => Promise<void>;
+    remove: (name: string, target: McpTarget) => Promise<void>;
+    toggle: (provider: McpProvider, accountId: string, name: string, on: boolean) => Promise<void>;
+    signIn: (name: string, accounts: { provider: McpProvider; accountId: string }[]) => Promise<{ started: true }>;
+    cancelSignIn: (name: string) => Promise<void>;
+    onChanged: (callback: (event: McpChangedEvent) => void) => () => void;
   };
   localMcp: LocalMcpApi;
   /** The Experimental Linear switch changed, on this Mac or from a phone. */

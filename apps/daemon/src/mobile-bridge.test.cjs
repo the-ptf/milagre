@@ -9,7 +9,7 @@ const http = require("node:http");
 const { setTimeout: delay } = require("node:timers/promises");
 const { WebSocket } = require("ws");
 const { startDaemon } = require("./server.cjs");
-const { forPhone, runsForPhone, startMobileBridge } = require("./mobile-bridge.cjs");
+const { forPhone, runsForPhone, startMobileBridge, METHODS } = require("./mobile-bridge.cjs");
 const { connect } = require("./client.cjs");
 const { demoRuntimeOptions } = require("./demo-agent.cjs");
 
@@ -1605,4 +1605,9 @@ test("a phone snapshot's Chats and messages come from one state, even when a Cha
   removed = false;
   consistent((await json(`/snapshot?projectPath=${at}&view=chats`)).project.state);
   assert.equal(removed, true, "the Worktree went during the chat list's read");
+});
+
+test("a phone may edit URL servers and switch them, but not add command servers or start a sign-in", () => {
+  for (const method of ["mcp:definition", "mcp:saveUrl", "mcp:remove", "mcp:toggle"]) assert.ok(METHODS.has(method), method);
+  for (const method of ["mcp:save", "mcp:signIn", "mcp:cancelSignIn"]) assert.ok(!METHODS.has(method), method);
 });
