@@ -131,3 +131,21 @@ test("add and remove call the Claude CLI at user scope", async () => {
 test("runCli rejects with stderr", async () => {
   await assert.rejects(runCli(process.execPath, ["-e", "process.stderr.write('bad name'); process.exit(1)"], {}), /bad name/);
 });
+
+const SECRET = "Bearer sk-live-0123456789abcdef0123456789abcdef0123456789";
+
+test("runCli keeps a long argument out of the message when stderr is empty", async () => {
+  await assert.rejects(runCli(process.execPath, ["-e", "process.exit(1)", SECRET], {}), (error) => {
+    assert.match(error.message, /failed \(exit 1\)/);
+    assert.equal(error.message.includes(SECRET), false);
+    return true;
+  });
+});
+
+test("runCli redacts a long argument that the CLI echoes to stderr", async () => {
+  await assert.rejects(runCli(process.execPath, ["-e", "process.stderr.write('bad ' + process.argv.at(-1)); process.exit(1)", SECRET], {}), (error) => {
+    assert.match(error.message, /\[config\]/);
+    assert.equal(error.message.includes(SECRET), false);
+    return true;
+  });
+});

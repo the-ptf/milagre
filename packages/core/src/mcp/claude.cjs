@@ -1,3 +1,4 @@
+const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { toClaudeConfig } = require("./definitions.cjs");
 
@@ -65,16 +66,21 @@ async function checkClaude({
   }
 }
 
-// A CLI call with no shell; a failure carries the CLI's own message, which the sheet shows.
+// A CLI call with no shell; a failure carries the CLI's own stderr, which the sheet shows. Node's error.message
+// repeats the whole command line (config JSON with tokens), so it is never used, and long arguments are redacted.
 function runCli(command, args, { env } = {}) {
   return new Promise((resolve, reject) => {
     execFile(command, args, { env: env ?? process.env, timeout: 30_000, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) reject(new Error(String(stderr || error.message).trim()));
-      else resolve({ stdout: String(stdout), stderr: String(stderr) });
+      if (!error) return resolve({ stdout: String(stdout), stderr: String(stderr) });
+      let text = String(stderr ?? "");
+      for (const arg of args) if (arg.length > 40) text = text.split(arg).join("[config]");
+      text = text.trim();
+      reject(new Error(text || `${path.basename(command)} ${args.slice(0, 2).join(" ")} failed (${error.killed ? "timed out" : `exit ${error.code}`}).`));
     });
   });
 }
 
+// The config travels as argv because `claude mcp add-json` has no stdin form, so it is briefly visible in `ps`.
 async function addClaude({ command, env, def, run = runCli }) {
   await run(command, ["mcp", "add-json", def.name, JSON.stringify(toClaudeConfig(def)), "--scope", "user"], { env });
 }
