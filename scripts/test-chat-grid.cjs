@@ -78,9 +78,10 @@ async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   app.setPath("userData", require("node:fs").mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-chat-grid-")));
   await app.whenReady();
+  // Inside CI's 1600x1200 virtual display (.github/workflows/ci.yml), which clamps any larger window.
   const window = new BrowserWindow({
-    width: 1920,
-    height: 1080,
+    width: 1500,
+    height: 1000,
     useContentSize: true,
     show: false,
     webPreferences: { backgroundThrottling: false },
@@ -127,7 +128,7 @@ async function browserChecks() {
       tiles.every((tile) => tile.width >= 440 && tile.height >= 320),
       `Every tile is at least 440x320: ${JSON.stringify(tiles.map(({ width, height }) => [width, height]))}`,
     );
-    assert.equal(new Set(tiles.map((tile) => tile.top)).size, 1, "Four tiles fit one row on a 1920px window");
+    assert.equal(new Set(tiles.map((tile) => tile.left)).size, 3, "Three 440px tiles fit across a 1500px window, the fourth wraps");
     assert.deepEqual(
       tiles.map((tile) => tile.prompt),
       [true, false, false, false],
