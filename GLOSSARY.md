@@ -15,6 +15,9 @@ The provider plan's cap (Claude's session or weekly limit, Codex's usage limit) 
 **MCP server**:
 A tool server a provider loads into a Chat. A command server is a process on the Mac; a URL server is remote. Settings › MCP lists each account's servers and their status. Not to be confused with Milagre's own `milagre` server, which every Chat gets and which Settings › MCP does not list.
 
+**Everywhere server**:
+An **MCP server** saved in Milagre's own list instead of a provider's config. Milagre adds it at Chat start to every provider and account whose config has no server of that name, so it works in Milagre Chats on Claude, Codex and Antigravity but not in terminal CLI sessions. New servers added in Settings › MCP default to Everywhere.
+
 **Project**:
 A git repository that has been opened in Milagre at least once. Every **Worktree** of the repository belongs to the same **Project**, whichever of its folders was opened.
 _Avoid_: folder, workspace, repo

@@ -1,6 +1,7 @@
 # Settings › MCP: see and manage the MCP servers every Chat loads
 
-Date: 2026-10-09. Status: approved design, awaiting spec review. Issue: #376.
+Date: 2026-10-09. Status: PR 1 shipped (#384). PR 2 and PR 3 are replaced by
+[2026-10-15-mcp-connect-design.md](2026-10-15-mcp-connect-design.md). Issue: #376.
 
 ## Goal
 
