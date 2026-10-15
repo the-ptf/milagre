@@ -306,7 +306,11 @@ async function browserChecks() {
     await waitFor(footerMatches);
     await click('[aria-label="Close simulator"]');
     await waitFor('!document.querySelector("[data-slot=simulator-popover]") && window.simulatorClosed.length>0');
-    assert.equal(await evaluate('document.documentElement.style.getPropertyValue("--simulator-dock")'), "", "closing returns the space");
+    assert.equal(
+      await evaluate('(document.querySelector("[data-dock-layer]") ?? document.body).style.getPropertyValue("--simulator-dock")'),
+      "",
+      "closing returns the space",
+    );
     window.setContentSize(1000, 800);
     await evaluate("window.setDark(false)");
     await screenshot("composer-light");

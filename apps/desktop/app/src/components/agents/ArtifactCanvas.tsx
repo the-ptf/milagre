@@ -4,6 +4,7 @@ import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, Delete02Icon 
 import { ARTIFACT_CSP, ARTIFACT_ESCAPE, artifactDocument, designGroups, type Artifact, type DesignArtifact } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import Tooltip from "../primitives/Tooltip";
+import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { DesignPageEditor as DesignEditor } from "./DesignPageEditor";
@@ -261,15 +262,27 @@ export const ArtifactCanvas = forwardRef<
     moved.current = false;
     fit(focus?.id ?? undefined);
   }, [focus?.id, focus?.nonce, fit]);
+  // A panel edge being dragged resizes the canvas on every frame: it fits once, when the drag ends.
+  const fitAfterDrag = useRef(false);
   const settled = useCallback(() => {
-    if (!moved.current) fit(focus?.id ?? undefined);
+    if (moved.current) return;
+    if (panelResizing()) fitAfterDrag.current = true;
+    else fit(focus?.id ?? undefined);
   }, [fit, focus?.id]);
   useEffect(() => {
     const port = viewport.current;
     if (!port) return;
     const observer = new ResizeObserver(settled);
     observer.observe(port);
-    return () => observer.disconnect();
+    const offDragEnd = onPanelResizeEnd(() => {
+      if (!fitAfterDrag.current) return;
+      fitAfterDrag.current = false;
+      settled();
+    });
+    return () => {
+      observer.disconnect();
+      offDragEnd();
+    };
   }, [settled]);
 
   // Wheel events need a listener that can cancel them: React's is passive.

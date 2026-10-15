@@ -19,11 +19,9 @@ import { useAnchoredPopover } from "./useAnchoredPopover";
 import { viewerTheme } from "./viewerTheme";
 import { dockLayer, useCloseWhenDesignsExpand, useDockArea, useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
-import { DockSlide } from "./DockSlide";
+import { ResizableDockSlide } from "./DockSlide";
+import { usePanelWidth } from "./panel-width";
 import { useBridge } from "../../lib/computer-bridge";
-
-// Docked width plus the 12px gap to the chat. The chat panes reserve it through --simulator-dock.
-const DOCK_WIDTH = 400;
 
 /** The host owns persistent associations; discovery never attaches a device. */
 export function SimulatorTrack({ chatId }: { chatId: string }) {
@@ -53,7 +51,9 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
   const dock = useDockArea();
   const reduced = useReducedMotion();
   useCloseWhenDesignsExpand(close);
-  useSidePanelRoom("simulator", opened && docked, DOCK_WIDTH + 12, close);
+  // Docked, its width plus the 12px gap to the chat. The chat panes reserve it through --simulator-dock.
+  const resize = usePanelWidth("simulator");
+  useSidePanelRoom("simulator", opened && docked, resize.width + 12, close);
   const bounds = useAnchoredPopover({
     opened: opened && !docked,
     setOpened: (value) => {
@@ -265,11 +265,14 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
           <AnimatePresence>
             {opened &&
               (docked ? (
-                <DockSlide
+                <ResizableDockSlide
                   key="simulator-dock"
                   // Docked, it opens like the git changes panel, lines up with the sidebar's card, and sits left of the
-                  // changes panel; the chat makes room through --simulator-dock.
-                  width={DOCK_WIDTH}
+                  // changes panel; the chat makes room through --simulator-dock. A drag on its edge doesn't render the
+                  // viewer again.
+                  panel="simulator"
+                  label="Resize simulator"
+                  width={resize.width}
                   reserve="--simulator-dock"
                   ref={panel}
                   id={panelId}
@@ -284,7 +287,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   panelClassName="overflow-hidden rounded-[10px] border border-line bg-surface text-ink shadow-raised"
                 >
                   {panelContent}
-                </DockSlide>
+                </ResizableDockSlide>
               ) : (
                 <motion.div
                   key="simulator"

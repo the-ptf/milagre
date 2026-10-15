@@ -401,7 +401,7 @@ async function browserChecks() {
     assert.match(await evaluate(`${frame("login")}.textContent`), /Login screen, warmer.*v2 of 2/);
     assert.equal(await evaluate(`${dock}.querySelector("[data-slot=designs-experimental]").textContent`), "Experimental");
     // The chat's room springs open with the panel, to the panel's width and its gap.
-    await waitFor('getComputedStyle(document.documentElement).getPropertyValue("--artifact-dock").trim() === "572px"');
+    await waitFor('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock").trim() === "572px"');
     const inView = (id) =>
       `(() => { const c = ${dock}.querySelector("[data-slot=artifact-canvas]").getBoundingClientRect(); const f = ${frame(id)}.getBoundingClientRect(); return f.left >= c.left - 1 && f.right <= c.right + 1 && f.top >= c.top - 1 && f.bottom <= c.bottom + 1; })()`;
     await waitFor(inView("login"));
@@ -635,7 +635,7 @@ async function browserChecks() {
     // A closing dock stays in the page while it slides out, so the room it keeps is what tells it is still open.
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(
-      await evaluate('getComputedStyle(document.documentElement).getPropertyValue("--artifact-dock")'),
+      await evaluate('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock")'),
       "572px",
       "leaving the design doesn't close the canvas",
     );
@@ -821,7 +821,7 @@ async function browserChecks() {
     await delay(80);
     await evaluate(`${toggle}.click()`);
     await waitFor(`!!${dock} && Math.round(${dock}.getBoundingClientRect().width) === 560`);
-    await waitFor('getComputedStyle(document.documentElement).getPropertyValue("--artifact-dock").trim() === "572px"');
+    await waitFor('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock").trim() === "572px"');
     await evaluate(`${toggle}.click()`);
     await waitFor(`!${dock}`);
 
@@ -848,7 +848,11 @@ async function browserChecks() {
     // With the diff in the chat's place, the design steps aside, and comes back with the chat.
     await evaluate("window.setDiff(true)");
     await waitFor(`!${dock}`);
-    assert.equal(await evaluate('getComputedStyle(document.documentElement).getPropertyValue("--artifact-dock")'), "", "a hidden design reserves nothing");
+    assert.equal(
+      await evaluate('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock")'),
+      "",
+      "a hidden design reserves nothing",
+    );
     await evaluate("window.setDiff(false)");
     await waitFor(`!!${dock}`);
     await evaluate("window.setChanges(false)");
@@ -875,13 +879,17 @@ async function browserChecks() {
     await evaluate('window.expandedEvents = 0; window.addEventListener("milagre:designs-expanded", () => window.expandedEvents++)');
     await evaluate(`${dock}.querySelector("[aria-label='Fill the window with the designs']").click()`);
     await waitFor(`${dock}.dataset.full === "true" && Math.round(${dock}.getBoundingClientRect().left) === 260`);
-    assert.equal(await evaluate('getComputedStyle(document.documentElement).getPropertyValue("--artifact-dock")'), "", "a full design reserves nothing");
+    assert.equal(
+      await evaluate('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock")'),
+      "",
+      "a full design reserves nothing",
+    );
     assert.equal(await evaluate("window.expandedEvents"), 1, "expanding asks the other side panels to close");
     await screenshot("expanded");
     await evaluate(`${dock}.querySelector("[aria-label='Show the chat beside the designs']").click()`);
     await waitFor(`!${dock}.dataset.full`);
     // Back beside the chat, the chat makes room for the panel again.
-    await waitFor('getComputedStyle(document.documentElement).getPropertyValue("--artifact-dock").trim() === "572px"');
+    await waitFor('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock").trim() === "572px"');
     // Too narrow for a useful chat beside it, the design fills the workspace on its own.
     window.setContentSize(1100, 820);
     await waitFor(`${dock}.dataset.full === "true" && !${dock}.querySelector("[aria-label='Fill the window with the designs']")`);
@@ -891,7 +899,11 @@ async function browserChecks() {
 
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     await waitFor(`!${dock}`);
-    assert.equal(await evaluate('getComputedStyle(document.documentElement).getPropertyValue("--artifact-dock")'), "", "closing gives the chat its width back");
+    assert.equal(
+      await evaluate('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock")'),
+      "",
+      "closing gives the chat its width back",
+    );
     // Restored HTML feedback keeps the person's words without exposing revision controls.
     await evaluate(
       'window.appendFeedback({ choice: { id: "legacy", version: 1, title: "Explanation" }, comments: [{ design: { id: "legacy", version: 1, title: "Explanation" }, text: "Keep the original wording" }] })',

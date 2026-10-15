@@ -1,12 +1,42 @@
-import { forwardRef, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { forwardRef, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { motion, useMotionValue, useMotionValueEvent, usePresence, useReducedMotion, animate } from "motion/react";
 import { EASE_OUT, SPRING_LAYOUT } from "../../lib/ease";
+import { ResizeHandle } from "../primitives/ResizeHandle";
+import { dockLayer } from "./dock-area";
+import { roomToWiden, usePanelWidth, type ResizablePanel } from "./panel-width";
+
+// Slides can share one reserve: the designs closing while the artifacts open in their place, each sliding at its own
+// width. The chat keeps room for the widest one still there, and the last one to go gives it back; otherwise the one
+// that finished sliding last would set the room alone, and a closing panel would take it from the opening one.
+// The room is set on the dock layer, which holds the chat panes and the docks, not on <html>: the viewers watch <html>'s
+// style for theme changes and would re-read the theme on every frame a panel slides or is dragged.
+const rooms = new Map<string, Map<symbol, number>>();
+// What was last written, per layer: a remounted layer starts without the room and must get it again.
+const written = new WeakMap<HTMLElement, Map<string, string>>();
+function setRoom(reserve: string, slide: symbol, room: number | null) {
+  const slides = rooms.get(reserve) ?? new Map<symbol, number>();
+  if (room === null) slides.delete(slide);
+  else slides.set(slide, room);
+  if (slides.size) rooms.set(reserve, slides);
+  else rooms.delete(reserve);
+  const widest = Math.max(0, ...slides.values());
+  const value = widest > 0 ? `${widest}px` : "";
+  const layer = dockLayer();
+  const values = written.get(layer) ?? new Map<string, string>();
+  written.set(layer, values);
+  if ((values.get(reserve) ?? "") === value) return;
+  values.set(reserve, value);
+  if (value) layer.style.setProperty(reserve, value);
+  else layer.style.removeProperty(reserve);
+}
 
 /**
  * A panel docked at the window's right, entering the way the git changes panel does: its width springs open from
  * zero, the chat making room as it grows (through `reserve`, the CSS variable the chat panes read), and its content
  * slides in from the right as it fades in. Closing (under AnimatePresence) runs it backwards, from wherever it is. `width` null lays it out
- * by its own `style` instead (a panel filling the workspace), which only fades.
+ * by its own `style` instead (a panel filling the workspace), which only fades. While `resizing`, its width follows the
+ * drag without the spring; `handle`, the ResizeHandle on its left edge, sits outside the card so the card's clip keeps
+ * it whole.
  */
 export const DockSlide = forwardRef<
   HTMLDivElement,
@@ -20,14 +50,19 @@ export const DockSlide = forwardRef<
     panelClassName: string;
     children: ReactNode;
     onEntered?: () => void;
+    resizing?: boolean;
+    handle?: ReactNode;
   } & Omit<React.HTMLAttributes<HTMLDivElement>, "style" | "className" | "children">
->(function DockSlide({ width, reserve, style, className, panelClassName, children, onEntered, ...rest }, ref) {
+>(function DockSlide({ width, reserve, style, className, panelClassName, children, onEntered, resizing = false, handle, ...rest }, ref) {
   const reduced = useReducedMotion();
   const shown = useMotionValue(reduced || width === null ? (width ?? 0) : 0);
   const [sliding, setSliding] = useState(!reduced && width !== null);
+  const [slide] = useState(() => Symbol(reserve));
+  // Whether the open or close spring is running; read in the effect, which a state value would re-run.
+  const springing = useRef(!reduced && width !== null);
   // The chat's room follows the panel's width as it springs, as it follows the changes panel's.
   useMotionValueEvent(shown, "change", (value) => {
-    if (width !== null) document.documentElement.style.setProperty(reserve, `${value > 0.5 ? value + 12 : 0}px`);
+    if (width !== null) setRoom(reserve, slide, value > 0.5 ? value + 12 : 0);
   });
   // Opening and closing are one spring of the width, to the panel's width or to zero: closed again while it opens, or
   // opened again while it closes, it turns around from where it is. Closing ends by letting AnimatePresence remove it.
@@ -35,40 +70,47 @@ export const DockSlide = forwardRef<
   useEffect(() => {
     const done = () => {
       if (isPresent) return;
-      document.documentElement.style.removeProperty(reserve);
+      setRoom(reserve, slide, null);
       safeToRemove?.();
     };
     if (width === null) {
-      document.documentElement.style.removeProperty(reserve);
+      setRoom(reserve, slide, null);
       if (isPresent) return;
       // Filling the workspace, it only fades (the content's exit), then goes.
       const timer = window.setTimeout(done, reduced ? 0 : 180);
       return () => window.clearTimeout(timer);
     }
-    if (reduced) {
+    // Only opening and closing spring (and a panel coming back from filling the workspace with no width yet). Any
+    // other change lands at once: a drag, its end, a key, the window narrowing. A spring there would trail the pointer
+    // and start from the drag's velocity; on a busy renderer a short drag's move and release even arrive in one render,
+    // so the drag's end can't be told from any other width change.
+    if (reduced || (isPresent && (resizing || (!springing.current && shown.get() > 0.5)))) {
+      springing.current = false;
       shown.set(isPresent ? width : 0);
-      if (isPresent) document.documentElement.style.setProperty(reserve, `${width + 12}px`);
+      if (isPresent) setRoom(reserve, slide, width + 12);
+      setSliding(false);
       done();
       return;
     }
-    // The room is set from where the width is now: springing to the width it already has (back from filling the
-    // workspace) changes nothing, and so would never set it.
-    if (shown.get() > 0.5) document.documentElement.style.setProperty(reserve, `${shown.get() + 12}px`);
+    // Turning around mid-spring, the room starts from where the width is now, not from the next frame.
+    if (shown.get() > 0.5) setRoom(reserve, slide, shown.get() + 12);
+    springing.current = true;
     setSliding(true);
     const controls = animate(shown, isPresent ? width : 0, {
       ...SPRING_LAYOUT,
       onComplete: () => {
+        springing.current = false;
         setSliding(false);
         done();
       },
     });
     return () => controls.stop();
-  }, [width, reduced, reserve, shown, isPresent, safeToRemove]);
+  }, [width, reduced, resizing, reserve, slide, shown, isPresent, safeToRemove]);
   useEffect(
     () => () => {
-      document.documentElement.style.removeProperty(reserve);
+      setRoom(reserve, slide, null);
     },
-    [reserve],
+    [reserve, slide],
   );
   return (
     <motion.div
@@ -92,6 +134,42 @@ export const DockSlide = forwardRef<
       >
         {children}
       </motion.div>
+      {width !== null && handle}
     </motion.div>
+  );
+});
+
+/**
+ * A DockSlide whose left edge drags its width (`panel`'s saved width, see panel-width.ts). The width a drag is at lives
+ * in here: the panel's content, made by the caller, doesn't render again on every frame of the drag, only once the
+ * width is saved on release. `width` is the width the caller lays it out at (null to fill the workspace).
+ */
+export const ResizableDockSlide = forwardRef<
+  HTMLDivElement,
+  Omit<React.ComponentProps<typeof DockSlide>, "resizing" | "handle" | "ref"> & { panel: ResizablePanel; label: string }
+>(function ResizableDockSlide({ panel, label, width, ...rest }, ref) {
+  const resize = usePanelWidth(panel);
+  const live = width === null ? null : resize.resizing ? resize.width : width;
+  return (
+    <DockSlide
+      ref={ref}
+      width={live}
+      resizing={resize.resizing}
+      handle={
+        live !== null && (
+          <ResizeHandle
+            label={label}
+            side="left"
+            width={live}
+            min={resize.min}
+            max={() => roomToWiden(panel, live)}
+            reset={resize.reset}
+            onResize={resize.onResize}
+            onCommit={resize.onCommit}
+          />
+        )
+      }
+      {...rest}
+    />
   );
 });

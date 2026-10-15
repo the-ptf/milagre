@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, ArrowLeft02Icon, ArrowRight02Icon, GitBranchIcon } from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, ArrowLeft02Icon, ArrowRight02Icon, GitBranchIcon, GridViewIcon } from "@hugeicons/core-free-icons";
 import { useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Tooltip from "../primitives/Tooltip";
@@ -114,6 +114,27 @@ export function ChangesToggle({ open, onToggle }: { open: boolean; onToggle: () 
           className={`flex size-8 items-center justify-center rounded-control transition-colors hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "text-ink-3"}`}
         >
           <HugeiconsIcon icon={GitBranchIcon} size={18} strokeWidth={1.8} color="currentColor" />
+        </button>
+      </Tooltip>
+    </div>
+  );
+}
+
+/** Top right, left of the panel buttons: shows every active Chat as a grid, or the open one alone. `offset` as AttentionButton's. */
+export function LayoutToggle({ grid, offset, onToggle }: { grid: boolean; offset: number; onToggle: () => void }) {
+  const chrome = useWindowChrome();
+  return (
+    <div className="fixed top-[var(--window-chrome-top)] z-[60] [-webkit-app-region:no-drag]" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
+      <Tooltip label={grid ? "Show one Chat" : "Show active Chats as a grid"} shortcut="⌘⇧M" compactHint side="bottom" align="end">
+        <button
+          type="button"
+          aria-label="Show active Chats as a grid"
+          aria-pressed={grid}
+          data-layout-toggle
+          onClick={onToggle}
+          className={`flex size-8 items-center justify-center rounded-control transition-colors hover:bg-hover hover:text-ink ${grid ? "bg-hover text-ink" : "text-ink-3"}`}
+        >
+          <HugeiconsIcon icon={GridViewIcon} size={18} strokeWidth={1.8} color="currentColor" />
         </button>
       </Tooltip>
     </div>

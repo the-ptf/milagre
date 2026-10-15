@@ -1088,6 +1088,60 @@ export function ChatComposer({
   );
 }
 
+const NO_OP = () => {};
+
+/** A Chat's transcript alone, following its stream: an unfocused tile of the Chat grid. Replying means focusing the tile. */
+export function ChatTranscript({
+  chatKey,
+  messages,
+  messageScope,
+  earlier,
+  isSending,
+  streamingText,
+  streamingSteps,
+  asking,
+  waitingStepIds,
+  runStartedAt,
+  models,
+}: { chatKey: string } & Pick<
+  ChatComposerProps,
+  "messages" | "messageScope" | "earlier" | "isSending" | "streamingText" | "streamingSteps" | "asking" | "waitingStepIds" | "runStartedAt" | "models"
+>) {
+  const steps = useMemo(() => [...messages.flatMap((message) => message.steps ?? []), ...(streamingSteps ?? [])], [messages, streamingSteps]);
+  const userMessages = useMemo(() => messages.filter((message) => message.role === "user").map(({ id, body }) => ({ id, body })), [messages]);
+  return (
+    <ReplyProviders chatId={chatKey} steps={steps} userMessages={userMessages}>
+      <MessageScroller
+        navigation="none"
+        followOutput
+        busy={isSending}
+        className="min-h-0 flex-1"
+        viewportClassName="pt-2 pb-3"
+        contentClassName="min-h-full"
+        autoScrollKey={`${messages.length}-${isSending}-${streamingSteps?.length ?? 0}`}
+      >
+        <div className="flex min-h-full w-full flex-col gap-3 px-3">
+          <StepDetailsScope scope={messageScope}>
+            <MessageTranscript
+              earlier={earlier}
+              messages={messages}
+              isSending={isSending}
+              streamingText={streamingText}
+              streamingSteps={streamingSteps}
+              asking={asking}
+              waitingStepIds={waitingStepIds}
+              onRecommendationSelect={NO_OP}
+              cliStatus={null}
+              models={models}
+            />
+          </StepDetailsScope>
+          {isSending && <ThinkingIndicator startedAt={runStartedAt} label="Working" />}
+        </div>
+      </MessageScroller>
+    </ReplyProviders>
+  );
+}
+
 /** The contexts a Chat's replies read: its designs and the send function a generative UI button posts through. */
 function ReplyProviders({
   chatId,

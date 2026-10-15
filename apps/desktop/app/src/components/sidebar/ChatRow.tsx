@@ -219,7 +219,7 @@ function MarkIcon({ mark }: { mark: keyof typeof MARK_ICON }) {
   );
 }
 
-function ChatMarkDot({ mark, topAligned = false }: { mark: ChatMark; topAligned?: boolean }) {
+export function ChatMarkDot({ mark, topAligned = false }: { mark: ChatMark; topAligned?: boolean }) {
   const dot = mark === "unread" ? "size-2 bg-accent" : "size-1.5 bg-ink-3 opacity-40";
   return (
     <span className={`sidebar-copy mr-2 flex size-3 shrink-0 items-center justify-center ${topAligned ? "mt-1" : ""}`}>

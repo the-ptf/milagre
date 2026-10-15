@@ -122,6 +122,8 @@ const scopeStateCache: Record<string, CoordinatorState | LinkState> = {};
 // Keys read once already (or being read). Live events keep them current after that, so a switch re-reads nothing.
 const requestedKeys = new Set<string>();
 let listening = 0;
+// Every mounted hook hears a first read, not only the one that asked: the Chat grid reads none itself.
+const readListeners = new Set<(key: string, state: CoordinatorState | LinkState) => void>();
 
 export function useScopeStates(enabled: boolean, keys: string[]) {
   const [states, setStates] = useState<Record<string, CoordinatorState | LinkState>>(() => ({ ...scopeStateCache }));
@@ -152,9 +154,11 @@ export function useScopeStates(enabled: boolean, keys: string[]) {
       keep(path, state);
     });
     const offLink = stateEvents.onLinkState(({ linkId, state }) => keep(`milagre-link:${linkId}`, state));
+    readListeners.add(keep);
     return () => {
       offProject();
       offLink();
+      readListeners.delete(keep);
       listening--;
       // With no sidebar listening, the copies can go stale: read them again next time. A switch unmounts one
       // sidebar and mounts the other in the same commit, so wait a turn before deciding nobody listens.
@@ -176,7 +180,7 @@ export function useScopeStates(enabled: boolean, keys: string[]) {
           if (!opened.state?.sessions) return;
           if (!isLinkScopeKey(key)) projectCopies.set(key, opened as OpenProject);
           scopeStateCache[key] = opened.state;
-          setStates((previous) => ({ ...previous, [key]: opened.state }));
+          for (const listener of readListeners) listener(key, opened.state);
         },
         () => {
           requestedKeys.delete(key);
