@@ -183,7 +183,15 @@ export function chosenDesign(bodies: string[]): { id: string; version: number } 
   return null;
 }
 
-export { ARTIFACT_CSP, ARTIFACT_ESCAPE, ARTIFACT_ESCAPE_SCRIPT, artifactDocument, artifactShell } from "./artifact-document.mjs";
+export {
+  ARTIFACT_CSP,
+  ARTIFACT_ESCAPE,
+  ARTIFACT_ESCAPE_SCRIPT,
+  DESIGN_CANVAS_SCRIPT,
+  artifactDocument,
+  artifactShell,
+  designCanvasShell,
+} from "./artifact-document.mjs";
 
 /** The step the transcript shows for the agent resolving a design comment (core's agents/steps.cjs names it). */
 export const RESOLVED_STEP = "Resolved a design comment";

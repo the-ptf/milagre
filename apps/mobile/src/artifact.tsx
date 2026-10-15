@@ -7,6 +7,7 @@ import { DomWebView } from "@expo/dom-webview";
 import { ArrowLeft01Icon, ArrowRight01Icon, Cancel01Icon, CheckmarkCircle02Icon, Delete02Icon, PaintBoardIcon } from "@hugeicons/core-free-icons";
 import {
   artifactShell,
+  designCanvasShell,
   designFeedbackMessage,
   designFeedbackText,
   designGroups,
@@ -643,7 +644,11 @@ export function ArtifactSheet({
                 <PillButton title="Retry" onPress={() => setRevision((value) => value + 1)} />
               </View>
             ) : artifact ? (
-              <ArtifactWebView key={`${artifact.id}:${artifact.version}`} html={artifact.html} />
+              <ArtifactWebView
+                key={`${artifact.id}:${artifact.version}`}
+                html={artifact.html}
+                canvas={artifact.format === "design" ? artifact.document : undefined}
+              />
             ) : (
               <Text style={[styles.muted, { padding: 20 }]}>Loading page...</Text>
             )}
@@ -771,29 +776,35 @@ export function ArtifactSheet({
 }
 
 /**
- * The design inside artifactShell, from a cache file of its own. The page has no script; the design runs in its
+ * The page inside artifactShell, from a cache file of its own. The page has no script; the page's own runs in its
  * sandboxed frame with an opaque origin, so it can't read the phone's files (this web view grants a file: page read
- * access to all of them), make requests, or navigate the page or its own frame away. The Expo modules bridge stays
- * off, and nothing the page posts is read.
+ * access to all of them), make requests, or navigate the page or its own frame away. A design (`canvas`, its size)
+ * goes on designCanvasShell's canvas instead, to pan and zoom: the page runs only that fixed script, and the design's
+ * frame runs none. The Expo modules bridge stays off, and nothing the page posts is read.
  */
-function ArtifactWebView({ html }: { html: string }) {
+function ArtifactWebView({ html, canvas }: { html: string; canvas?: { width: number; height: number } }) {
   const { colors } = useTheme();
   const [crashed, setCrashed] = useState(false);
   // Written while rendering, so the page is there on the first frame; each design gets a file of its own, removed
   // when the design changes or goes.
   // Named for this view and the design's content: two views never share a file, and a changed design gets a new one.
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
+  // The size, not the document: a fresh read of the same version is a new object, and preparing again would write the
+  // same file name and then delete it with the previous preparation's cleanup.
+  const width = canvas?.width;
+  const height = canvas?.height;
   const prepared = useMemo(() => {
+    const page = width && height ? designCanvasShell(html, { width, height }, colors.canvas) : artifactShell(html);
     let hash = 5381;
-    for (let index = 0; index < html.length; index++) hash = (hash * 33) ^ html.charCodeAt(index);
+    for (let index = 0; index < page.length; index++) hash = (hash * 33) ^ page.charCodeAt(index);
     const file = new File(Paths.cache, `artifact-${id}-${(hash >>> 0).toString(36)}.html`);
     try {
-      file.write(artifactShell(html));
+      file.write(page);
       return { file, uri: file.uri };
     } catch {
       return null;
     }
-  }, [html, id]);
+  }, [html, id, width, height, colors.canvas]);
   useEffect(
     () => () => {
       try {
@@ -816,7 +827,8 @@ function ArtifactWebView({ html }: { html: string }) {
   return (
     <DomWebView
       source={{ uri }}
-      style={{ flex: 1, backgroundColor: "#ffffff" }}
+      // A design sits on the canvas color, so the view shows it, not white, until the page paints.
+      style={{ flex: 1, backgroundColor: canvas ? colors.canvas : "#ffffff" }}
       containerStyle={{ flex: 1 }}
       useExpoModulesBridge={false}
       allowsInlineMediaPlayback
