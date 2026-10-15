@@ -717,7 +717,7 @@ export function PromptComposer({
               <Icon icon={SecurityCheckIcon} size={14} />
               <span className="hidden min-[900px]:inline">{permissionMode === "ask" ? "Ask" : permissionMode === "auto" ? "Auto" : "Full"}</span>
             </button>
-            <div className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"}`}>
+            <div className={`flex shrink-0 items-center gap-1.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"}`}>
               {contextUsage && contextUsage.size > 0 && (
                 <ContextRing
                   {...contextUsage}

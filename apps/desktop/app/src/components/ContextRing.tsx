@@ -99,7 +99,7 @@ export function ContextRing({ onCompact, compactBlocked = null, ...usage }: Cont
           if (!(event.relatedTarget instanceof Element && event.relatedTarget.closest("[data-context-card]"))) hide();
         }}
         onClick={() => (position ? hide() : show())}
-        className={`relative flex size-7 shrink-0 items-center justify-center rounded-control transition-[background-color] duration-150 hover:bg-hover-2 ${position ? "bg-hover-2" : ""}`}
+        className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-[background-color] duration-150 hover:bg-hover-2 ${position ? "bg-hover-2" : ""}`}
       >
         <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" className="-rotate-90">
           <circle cx="8" cy="8" r={radius} fill="none" stroke="var(--line-strong)" strokeWidth="2" />
