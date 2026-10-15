@@ -441,6 +441,24 @@ export function designHtml(value, options = {}) {
   );
 }
 
+/**
+ * A design as the parts designHtml puts in its page, for a page that swaps them in place as the design changes (the
+ * canvas's live frame): the root's markup, the page's background, the font faces it uses and each layer's bounds.
+ */
+export function designLiveParts(value) {
+  const document = validateDesignDocument(value);
+  const textLayout = cachedTextLayout();
+  const bounds = designLayout(document, textLayout);
+  return {
+    width: document.width,
+    height: document.height,
+    background: designColor(document, document.background, "#ffffff"),
+    fontFaces: designFontFaces(document),
+    markup: designMarkup(document, bounds, textLayout, designRenderBudget("HTML")),
+    bounds,
+  };
+}
+
 /** Build-time only. The checked-in literal keeps the controller's CSP hash stable through bundling. */
 export function buildDesignControllerScript() {
   return `(${previewController.toString()})(...JSON.parse(document.getElementById("design-config").textContent));`;

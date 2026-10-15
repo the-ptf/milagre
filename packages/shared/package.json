@@ -209,6 +209,10 @@
       "types": "./src/design.d.mts",
       "default": "./src/design.mjs"
     },
+    "./design-draft": {
+      "types": "./src/design-draft.d.mts",
+      "default": "./src/design-draft.mjs"
+    },
     "./genui": "./src/genui.ts",
     "./file-link": "./src/file-link.ts",
     "./simulator-receiver": {

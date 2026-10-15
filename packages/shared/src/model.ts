@@ -592,6 +592,11 @@ export type AgentEvent =
   | { type: "text-delta"; messageId: string | null; text: string; startsMessage?: boolean }
   | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file"> }
   | { type: "step-output"; id: string; text: string }
+  /**
+   * Claude's input to a Milagre design tool while the model writes it (design-drafts.cjs), for the Designs canvas to
+   * build the design live: `text` continues the input at `offset`, `done` once it is whole. `id` is the step's. Not saved.
+   */
+  | { type: "step-draft"; id: string; tool: "design_show" | "design_apply"; offset: number; text: string; done?: boolean }
   | { type: "step-completed"; id: string; status: "done" | "failed"; title?: string; note?: string; detail?: string; durationMs?: number; file?: string }
   | ({ type: "permission-request" } & PermissionRequest)
   | { type: "permission-resolved"; requestId: string; decision: PermissionDecision | "cancelled" }

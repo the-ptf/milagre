@@ -7,6 +7,7 @@ const { isTurnEnd: isTerminal } = require("@milagre/shared/agent-runs");
 
 const { applyToolResult, applyToolUse, codexPlanTasks } = require("./tasks.cjs");
 const { claudeStep, claudeStepResult, codexStep, codexStepResult, thinkingEnd, thinkingStep } = require("./steps.cjs");
+const { claudeDesignDrafts } = require("./design-drafts.cjs");
 
 const { BUNDLED_SKILLS_DIRECTORY, bundledWritingInstructions } = require("../bundled-skills.cjs");
 const TLDR_INSTRUCTIONS = bundledWritingInstructions();
@@ -199,6 +200,7 @@ function mapClaudeMessage(message, state) {
       state.thinking = { id: `thinking-${state.thinkingCount}`, index: event.index, text: "", startedAt: now(state) };
       events.push({ type: "step-started", step: thinkingStep(state.thinking.id) });
     }
+    events.push(...claudeDesignDrafts(event, state));
     const thinking = state.thinking;
     if (thinking && event.index === thinking.index && event.type === "content_block_delta" && event.delta?.type === "thinking_delta" && event.delta.thinking) {
       thinking.text += event.delta.thinking;

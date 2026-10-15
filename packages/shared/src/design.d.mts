@@ -122,6 +122,15 @@ export function designDefaultFill(node: Pick<DesignNode, "type" | "src">): strin
 /** Whether the bundled Inter subset has a glyph for this character; whitespace always counts as drawable. */
 export function designInterHasGlyph(character: string): boolean;
 export function designHtml(document: DesignDocument, options?: { interactive?: boolean; selectedId?: string | null }): string;
+/** The parts of designHtml's page, for a page that swaps them in place: root markup, background, font faces and layer bounds. */
+export function designLiveParts(document: DesignDocument): {
+  width: number;
+  height: number;
+  background: string;
+  fontFaces: string;
+  markup: string;
+  bounds: Map<string, DesignBounds>;
+};
 /** A portable SVG with native shapes, text and image elements. Inter and loaded catalog faces are embedded unless `embedFonts` is false. JSON is the lossless design export. */
 export function designSvg(document: DesignDocument, options?: { embedFonts?: boolean; onCanvasOnly?: boolean }): string;
 export function createExampleDesign(): DesignDocument;

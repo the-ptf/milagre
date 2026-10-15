@@ -879,7 +879,13 @@ export function ChatComposer({
   }
 
   return (
-    <ReplyProviders chatId={artifactChat} steps={artifactSteps} userMessages={userMessages} onSend={onSendDesignMessage}>
+    <ReplyProviders
+      chatId={artifactChat}
+      steps={artifactSteps}
+      userMessages={userMessages}
+      onSend={onSendDesignMessage}
+      agent={providerName(sessionProvider ?? selectedModel.provider)}
+    >
       <div
         ref={root}
         className={`relative flex h-full min-h-0 w-full flex-col overflow-visible bg-transparent ${isNewChat ? "justify-center" : ""}`}
@@ -1148,16 +1154,18 @@ function ReplyProviders({
   steps,
   userMessages,
   onSend,
+  agent,
   children,
 }: {
   chatId: string | null;
   steps: ChatStep[];
   userMessages: { id: number | string; body: string }[];
   onSend?: (text: string) => Promise<boolean>;
+  agent?: string;
   children: ReactNode;
 }) {
   return (
-    <ArtifactsProvider chatId={chatId} steps={steps} userMessages={userMessages} onSend={onSend}>
+    <ArtifactsProvider chatId={chatId} steps={steps} userMessages={userMessages} onSend={onSend} agent={agent}>
       <GenerativeUIProvider onSend={onSend}>{children}</GenerativeUIProvider>
     </ArtifactsProvider>
   );

@@ -36,6 +36,7 @@ import { DESIGN_DELETED, DESIGN_SAVED, type DesignDeleted, type DesignSaved } fr
 import { DesignPageShareDialog } from "./DesignPageShareDialog";
 import { ZoomBar } from "../primitives/ZoomBar";
 import { COMMENT_KEY, useCommentKey } from "./comment-key";
+import { useLiveDesignFeed } from "./design-live";
 
 /** Whether the element is laid out: false while an ancestor hides it (the diff, settings or canvas in place of the chat). */
 function useShown() {
@@ -421,15 +422,20 @@ export function ArtifactsProvider({
   steps,
   userMessages,
   onSend,
+  agent = "Agent",
   children,
 }: {
   chatId: string | null;
   steps: ChatStep[];
   userMessages: { id: number | string; body: string }[];
   onSend?: (text: string) => Promise<boolean>;
+  /** The Chat's agent, by name, for its cursor on the canvas. */
+  agent?: string;
   children: React.ReactNode;
 }) {
   const { enabled } = useDesignsEnabled(chatId);
+  // The agent's design drafts, while its replies are on screen: the canvas shows them being written.
+  useLiveDesignFeed(enabled ? chatId : null, agent);
   const fromSteps = useMemo(() => latestArtifacts(steps), [steps]);
   // The catalog is read again when the replies show a new version, or the agent deleted a design.
   const deletes = steps.filter((step) => step.status === "done" && /\bdesign_delete\b/.test(step.title)).length;

@@ -11,6 +11,8 @@ import { DesignPageEditor as DesignEditor } from "./DesignPageEditor";
 import { DESIGN_DELETED, type DesignDeleted } from "./DesignEditor";
 import { designLayout, designNodeAt } from "@milagre/shared/design";
 import { CommentLayer, CommentPin } from "./CommentPin";
+import { LiveDesignLayer, LiveDraftFrames } from "./LiveDesignFrame";
+import { useLiveDesign } from "./design-live";
 
 /** A comment the user pinned on a design and hasn't sent yet. */
 export type DesignPin = {
@@ -64,7 +66,7 @@ const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value))
 const versionsRead = new Map<string, Promise<Artifact>>();
 const versionsKept = new Map<string, Artifact>();
 const KEEP = 48;
-function readArtifact(chatId: string, id: string, version: number | null): Promise<Artifact> {
+export function readArtifact(chatId: string, id: string, version: number | null): Promise<Artifact> {
   if (version === null) return bridgeForKey(chatId).artifacts.get({ chatId, id });
   const key = `${chatId}\n${id}\n${version}`;
   let read = versionsRead.get(key);
@@ -216,7 +218,9 @@ export const ArtifactCanvas = forwardRef<
     if (!port || !content) return;
     // Fitting everything keeps the groups' blocks and names in view too.
     const frames = [
-      ...content.querySelectorAll<HTMLElement>(id ? "[data-slot=artifact-frame]" : "[data-slot=artifact-frame], [data-slot=artifact-canvas-group]"),
+      ...content.querySelectorAll<HTMLElement>(
+        id ? "[data-slot=artifact-frame]" : "[data-slot=artifact-frame], [data-slot=artifact-canvas-group], [data-slot=artifact-draft-frame]",
+      ),
     ].filter((frame) => !id || frame.dataset.artifact === id);
     if (!frames.length) return;
     const left = Math.min(...frames.map((f) => f.offsetLeft)),
@@ -290,6 +294,11 @@ export const ArtifactCanvas = forwardRef<
       offDragEnd();
     };
   }, [settled]);
+
+  // A design an agent starts writing joins the view, until the user pans or zooms.
+  const showDraft = useCallback(() => {
+    if (!moved.current && !panelResizing()) fit();
+  }, [fit]);
 
   // Wheel events need a listener that can cancel them: React's is passive.
   useEffect(() => {
@@ -460,9 +469,19 @@ export const ArtifactCanvas = forwardRef<
                   scale={view.scale}
                 />
               ))}
+              <LiveDraftFrames chatId={chatId} designs={designs} group={row.group} scale={view.scale} gap={GAP} header={HEADER} onSized={showDraft} />
             </div>
           </section>
         ))}
+        <LiveDraftFrames
+          chatId={chatId}
+          designs={designs}
+          orphans={rows.map((row) => row.group)}
+          scale={view.scale}
+          gap={GAP}
+          header={HEADER}
+          onSized={showDraft}
+        />
       </div>
     </div>
   );
@@ -496,8 +515,10 @@ const DesignFrame = memo(function DesignFrame({
   /** The canvas zoom: a frame's title row stays this size on screen however far the canvas zooms. */
   scale: number;
 }) {
-  // Following the newest unless the user stepped back; a revision the agent shows replaces what is in the frame.
-  const { artifact, error } = useArtifact(chatId, design.id, design.format === "html" ? null : (version ?? design.version));
+  // Following the newest unless the user stepped back; a revision the agent shows replaces what is in the frame, after
+  // the change plays back over it (`hold`, design-live.ts).
+  const { live, hold } = useLiveDesign(chatId, design, version === null);
+  const { artifact, error } = useArtifact(chatId, design.id, design.format === "html" ? null : (hold ?? version ?? design.version));
   const [editing, setEditing] = useState<DesignArtifact | null>(null);
   const [openingEditor, setOpeningEditor] = useState(false);
   const [editError, setEditError] = useState("");
@@ -714,6 +735,7 @@ const DesignFrame = memo(function DesignFrame({
             </div>
           )}
         </div>
+        <LiveDesignLayer chatId={chatId} live={live} shown={artifact?.version ?? null} width={width} height={height} scale={scale} />
         {!active && !commenting && (
           // Over a design that doesn't have the mouse: wheel and drag reach the canvas, and a click (see endDrag) hands it the mouse.
           <div data-slot="artifact-shield" aria-label={`Interact with ${shown.title}`} className="absolute inset-0 cursor-grab" />
