@@ -815,6 +815,12 @@ a {
   outline: none;
 }
 
+/* Settings › MCP keeps every accent in ink, focus rings included. */
+[data-mcp-page] :focus-visible,
+[data-mcp-sheet] :focus-visible {
+  outline-color: var(--ink);
+}
+
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible,

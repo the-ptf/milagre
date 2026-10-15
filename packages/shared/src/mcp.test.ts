@@ -61,6 +61,22 @@ test("other rows group by source label", () => {
   );
 });
 
+test("an outside row that needs sign-in keeps its source, so it lists under its group", () => {
+  const { attention } = groupMcpRows([
+    check("claude", "default", [
+      server({ name: "plugin:engineering:notion", transport: "url", scope: "plugin", state: "needs-sign-in", detail: "https://mcp.notion.com/mcp" }),
+      server({ name: "linear", transport: "url", state: "needs-sign-in", detail: "https://mcp.linear.app/mcp" }),
+    ]),
+  ]);
+  assert.deepEqual(
+    attention.map((row) => [row.name, row.source]),
+    [
+      ["linear", null],
+      ["plugin:engineering:notion", "Plugin · engineering"],
+    ],
+  );
+});
+
 test("summary counts connected, or on when something is off", () => {
   const rows = groupMcpRows([check("claude", "a", [server({})]), check("claude", "b", [server({ state: "disabled" })])]).user;
   assert.equal(mcpSummary(rows[0]), "1 of 2 on");

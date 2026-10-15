@@ -59,7 +59,7 @@ function sourceOf(name: string, scope: McpScope): string {
 }
 
 /** Order of the `other` groups: projects, local, plugins, claude.ai connectors, built in. */
-function groupRank(source: string): number {
+export function mcpSourceRank(source: string): number {
   if (source === "Project") return 0;
   if (source === "Local") return 1;
   if (source.startsWith("Plugin")) return 2;
@@ -99,21 +99,23 @@ export function groupMcpRows(checks: McpAccountCheck[]): { attention: McpRow[]; 
     }
   }
   const sorted = [...rows.values()].sort((a, b) => a.name.localeCompare(b.name));
+  // Outside rows carry their source even in attention, so a page can list them under their group.
+  for (const row of sorted) if (!row.editable) row.source = sourceOf(row.name, row.chips[0]?.scope ?? "built-in");
   const needsSignIn = (row: McpRow) => row.transport !== "command" && row.chips.some((chip) => chip.state === "needs-sign-in");
   const attention = sorted.filter(needsSignIn);
   const rest = sorted.filter((row) => !needsSignIn(row));
   const groups = new Map<string, McpRow[]>();
   const others = rest.filter((item) => !item.editable);
   for (const row of others) {
-    row.source = sourceOf(row.name, row.chips[0]?.scope ?? "built-in");
-    groups.set(row.source, [...(groups.get(row.source) ?? []), row]);
+    const source = row.source ?? "Built in";
+    groups.set(source, [...(groups.get(source) ?? []), row]);
   }
   return {
     attention,
     user: rest.filter((item) => item.editable),
     other: [...groups]
       .map(([source, groupRows]) => ({ source, rows: groupRows }))
-      .sort((a, b) => groupRank(a.source) - groupRank(b.source) || a.source.localeCompare(b.source)),
+      .sort((a, b) => mcpSourceRank(a.source) - mcpSourceRank(b.source) || a.source.localeCompare(b.source)),
   };
 }
 

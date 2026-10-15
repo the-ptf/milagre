@@ -7,6 +7,7 @@ import { ProjectAccountsGroup, ProjectAccountsSettings } from "./ProjectAccounts
 import { AccountsSettings } from "./AccountsSettings";
 import { SkillsSettings } from "./SkillsSettings";
 import { McpSettings } from "./McpSettings";
+import { Switch } from "./primitives/Switch";
 import { LocalMcpSettings } from "./LocalMcpSettings";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import {
@@ -344,7 +345,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
       {computer.state === "online" && (
         <section data-computer-mcp className="mt-6">
           <h2 className="px-1 text-[12px] font-medium text-ink-3">MCP servers</h2>
-          <McpSettings key={id} bridge={bridgeFor(id)} />
+          <McpSettings key={id} bridge={bridgeFor(id)} remote />
           <LocalMcpSettings key={`local-${id}`} bridge={bridgeFor(id)} />
         </section>
       )}
@@ -396,24 +397,6 @@ function Row({ label, description, children }: { label: string; description?: st
       </div>
       <div className="shrink-0 text-[13px] text-ink-2">{children}</div>
     </div>
-  );
-}
-
-function Switch({ label, checked, onChange, disabled = false }: { label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-label={label}
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`relative flex h-5 w-8 items-center rounded-full transition-colors duration-150 disabled:opacity-40 ${checked ? "bg-ink" : "bg-line-strong"}`}
-    >
-      <span
-        className={`absolute left-0.5 size-4 rounded-full bg-surface shadow-card transition-transform duration-150 ${checked ? "translate-x-3" : "translate-x-0"}`}
-      />
-    </button>
   );
 }
 
@@ -1858,7 +1841,8 @@ export function SettingsPanel({
   return (
     <ScrollArea className="h-full">
       <div className="mx-auto w-full max-w-[640px] px-6 pt-14 pb-10">
-        <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{title}</h1>
+        {/* MCP draws its own title row, with Refresh and Add server beside it. */}
+        {section !== "mcp" && <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{title}</h1>}
         {section === "general" && <GeneralSettings models={models} />}
         {section === "accounts" && <AccountsSettings />}
         {section === "project-accounts" && (
@@ -1871,7 +1855,7 @@ export function SettingsPanel({
           ) : (
             <p className="mt-6 text-[13px] text-ink-3">Open a project to see its skills.</p>
           ))}
-        {section === "mcp" && <McpSettings />}
+        {section === "mcp" && <McpSettings title={title} />}
         {section === "local-mcp" && <LocalMcpSettings bridge={window.milagre} />}
         {section === "devices" && <DevicesSettings />}
         {section === "experimental" && <ExperimentalSettings />}
