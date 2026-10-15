@@ -629,7 +629,7 @@ export function PromptComposer({
                 setPlusOpen((current) => !current);
                 inputRef.current?.focus();
               }}
-              className={`flex size-7 shrink-0 items-center justify-center text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
+              className={`flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
             >
               <Icon icon={Add01Icon} size={16} />
             </button>
