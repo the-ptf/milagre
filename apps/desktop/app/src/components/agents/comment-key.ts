@@ -5,7 +5,7 @@ import { isModalOpen } from "../../lib/modal";
 export const COMMENT_KEY = "C";
 
 /** Whether a key press is the comment key, pressed where it means nothing else: not while typing, nor over a dialog or menu. */
-export function isCommentKey(event: KeyboardEvent) {
+function isCommentKey(event: KeyboardEvent) {
   if (event.key.toLowerCase() !== COMMENT_KEY.toLowerCase() || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
   if (event.repeat || event.isComposing || event.defaultPrevented) return false;
   const target = event.target instanceof Element ? event.target : null;

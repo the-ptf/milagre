@@ -24,7 +24,7 @@ const PIN_SHADOW = "0 0 0 1.5px #fff, 0 1px 3px rgb(0 0 0 / 0.3)";
  * The comment cursor: the pin's own shape, its point (top-left) on the spot a click pins, in the accent with a white
  * ring. The 2x image keeps it sharp on a Retina screen.
  */
-export function commentCursor(fill: string) {
+function commentCursor(fill: string) {
   const svg = (size: number) =>
     `url("data:image/svg+xml,${encodeURIComponent(
       `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 22 22"><path d="M2 2H11A9 9 0 0 1 20 11A9 9 0 0 1 11 20A9 9 0 0 1 2 11Z" fill="${fill}" stroke="#fff" stroke-width="1.5" stroke-linejoin="miter"/></svg>`,

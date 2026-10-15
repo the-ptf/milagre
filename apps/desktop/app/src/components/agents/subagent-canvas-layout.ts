@@ -132,7 +132,7 @@ export function canvasAgentName(index: number): string {
 }
 
 /** The bots' colours, given out in turn; each one's fill is its --bot-tint in subagent-canvas.css. */
-export const SUBAGENT_COLORS = ["mint", "blue", "peach", "lilac"] as const;
+const SUBAGENT_COLORS = ["mint", "blue", "peach", "lilac"] as const;
 export type SubagentColor = (typeof SUBAGENT_COLORS)[number];
 export const SUBAGENT_TINTS: Record<SubagentColor, string> = { mint: "#b4dccb", blue: "#b8d5fb", peach: "#eec9a6", lilac: "#d1c3ef" };
 export const subagentColor = (index: number): SubagentColor => SUBAGENT_COLORS[index % SUBAGENT_COLORS.length]!;

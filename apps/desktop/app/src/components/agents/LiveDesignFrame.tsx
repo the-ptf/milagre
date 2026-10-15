@@ -89,7 +89,7 @@ function LiveFrame({ parts, appeared, title, onPainted }: { parts: Parts | null;
 }
 
 const AGENT_COLORS: Record<string, string> = { Claude: "#D97757", Codex: "#3941FF", Antigravity: "#3186FF" };
-export const agentColor = (agent: string) => AGENT_COLORS[agent] ?? "var(--color-accent)";
+const agentColor = (agent: string) => AGENT_COLORS[agent] ?? "var(--color-accent)";
 
 /** Who a cursor stands for: its name and colour, the colour of its label's text, and a subagent's task. */
 type Persona = { name: string; color: string; ink: string; task?: string };
