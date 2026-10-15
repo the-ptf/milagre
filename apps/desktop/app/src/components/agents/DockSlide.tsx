@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { forwardRef, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { motion, useMotionValue, useMotionValueEvent, usePresence, useReducedMotion, animate } from "motion/react";
 import { EASE_OUT, SPRING_LAYOUT } from "../../lib/ease";
 
@@ -45,6 +45,8 @@ export const DockSlide = forwardRef<
   const shown = useMotionValue(reduced || width === null ? (width ?? 0) : 0);
   const [sliding, setSliding] = useState(!reduced && width !== null);
   const [slide] = useState(() => Symbol(reserve));
+  // Whether the open or close spring is running; read in the effect, which a state value would re-run.
+  const springing = useRef(!reduced && width !== null);
   // The chat's room follows the panel's width as it springs, as it follows the changes panel's.
   useMotionValueEvent(shown, "change", (value) => {
     if (width !== null) setRoom(reserve, slide, value > 0.5 ? value + 12 : 0);
@@ -65,21 +67,26 @@ export const DockSlide = forwardRef<
       const timer = window.setTimeout(done, reduced ? 0 : 180);
       return () => window.clearTimeout(timer);
     }
-    // Dragged, the width follows the pointer. A drag ending where the width already is springs nowhere: the spring
-    // would start from the drag's velocity and wobble past it.
-    if (reduced || (isPresent && (resizing || Math.abs(shown.get() - width) < 0.5))) {
+    // Only opening and closing spring (and a panel coming back from filling the workspace with no width yet). Any
+    // other change lands at once: a drag, its end, a key, the window narrowing. A spring there would trail the pointer
+    // and start from the drag's velocity; on a busy renderer a short drag's move and release even arrive in one render,
+    // so the drag's end can't be told from any other width change.
+    if (reduced || (isPresent && (resizing || (!springing.current && shown.get() > 0.5)))) {
+      springing.current = false;
       shown.set(isPresent ? width : 0);
       if (isPresent) setRoom(reserve, slide, width + 12);
+      setSliding(false);
       done();
       return;
     }
-    // The room is set from where the width is now: springing to the width it already has (back from filling the
-    // workspace) changes nothing, and so would never set it.
+    // Turning around mid-spring, the room starts from where the width is now, not from the next frame.
     if (shown.get() > 0.5) setRoom(reserve, slide, shown.get() + 12);
+    springing.current = true;
     setSliding(true);
     const controls = animate(shown, isPresent ? width : 0, {
       ...SPRING_LAYOUT,
       onComplete: () => {
+        springing.current = false;
         setSliding(false);
         done();
       },

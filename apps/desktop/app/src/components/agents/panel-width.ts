@@ -5,7 +5,7 @@ import { useCallback, useState, useSyncExternalStore } from "react";
  * and is the same in every Chat; `default` is what a panel opens at until it is dragged, and what a double-click on
  * its edge goes back to.
  */
-export const PANEL_WIDTHS = {
+const PANEL_WIDTHS = {
   changes: { min: 280, default: 320, max: 640 },
   simulator: { min: 320, default: 400, max: 800 },
   designs: { min: 440, default: 560, max: 1400 },
@@ -19,7 +19,7 @@ export const MIN_CHAT_WIDTH = 420;
 
 const key = (panel: ResizablePanel) => `milagre.panelWidth.${panel}`;
 
-export const clampPanelWidth = (panel: ResizablePanel, width: number) => {
+const clampPanelWidth = (panel: ResizablePanel, width: number) => {
   const { min, max } = PANEL_WIDTHS[panel];
   return Math.round(Math.min(max, Math.max(min, width)));
 };

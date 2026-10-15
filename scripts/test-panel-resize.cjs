@@ -77,8 +77,12 @@ async function browserChecks() {
     evaluate(
       `(() => { const r = document.querySelector('[aria-label="${label}"]').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`,
     );
-  const drag = async (label, dx) => {
+  // A drag past a clamp stays inside the window: Linux drops pointer events outside it, so the drag would stop wherever
+  // the last delivered move happened to land.
+  const drag = async (label, wanted) => {
     const { x, y } = await handle(label);
+    const inner = await evaluate("innerWidth");
+    const dx = Math.min(inner - 4, Math.max(4, x + wanted)) - x;
     mouse("mouseMove", x, y);
     mouse("mouseDown", x, y);
     for (let i = 1; i <= 10; i++) {
@@ -93,6 +97,21 @@ async function browserChecks() {
     require("node:fs").writeFileSync(path.join(require("node:os").tmpdir(), `milagre-panel-resize-${name}.png`), image.toPNG());
   };
   const chat = () => width("[data-workspace-main]");
+  // A panel clips its overflow while it springs open, which cuts off the outer half of its edge handle: drags wait for it
+  // to settle. Slower machines (CI) are still sliding after a fixed delay.
+  const settled = async (selector) => {
+    const read = () =>
+      evaluate(
+        `(() => { const e = document.querySelector(${JSON.stringify(selector)}); return e && !e.classList.contains("overflow-hidden") ? e.getBoundingClientRect().width : null; })()`,
+      );
+    for (let i = 0; i < 200; i++) {
+      const before = await read();
+      await delay(150);
+      const after = await read();
+      if (before !== null && after !== null && before > 0 && Math.abs(after - before) < 0.01) return;
+    }
+    throw new Error(`Timed out: ${selector} never settled`);
+  };
   const changes = "Resize changes panel";
   const simulator = "Resize simulator";
   try {
@@ -100,7 +119,7 @@ async function browserChecks() {
     await evaluate("localStorage.clear()");
     await window.loadURL(process.argv[2]);
     await waitFor('!!document.querySelector("[data-changes-panel]")');
-    await delay(800);
+    await settled("[data-changes-slot]");
     assert.equal(await width("[data-changes-panel]"), 320, "the changes panel starts at its default width");
 
     await drag(changes, -100);
@@ -125,7 +144,7 @@ async function browserChecks() {
 
     await evaluate("window.openDock()");
     await waitFor('!!document.querySelector("[data-dock-card]")');
-    await delay(800);
+    await settled("[data-slot=dock]");
     assert.equal(await width("[data-slot=dock]"), 400, "the dock opens at its default width");
     assert.equal(await evaluate('document.documentElement.style.getPropertyValue("--simulator-dock")'), "412px");
     await drag(simulator, -80);
@@ -142,7 +161,7 @@ async function browserChecks() {
 
     await window.loadURL(process.argv[2]);
     await waitFor('!!document.querySelector("[data-changes-panel]")');
-    await delay(800);
+    await settled("[data-changes-slot]");
     assert.equal(await width("[data-changes-panel]"), 336, "the changes panel's width survives a reload");
     console.log("Screenshots: changes-wide, dock-wide, dock-max in the temp directory");
     console.log("PASS: changes panel and docked panel drag from their left edge, clamp, keep the chat's room, persist, reset, keyboard");

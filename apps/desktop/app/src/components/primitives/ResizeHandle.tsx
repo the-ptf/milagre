@@ -51,7 +51,9 @@ export function ResizeHandle({
       latest = clamp(startWidth + direction * (moveEvent.clientX - startX), upper);
       onResize(latest);
     };
-    const end = () => {
+    // The release lands where the pointer is: a busy renderer can still be holding the last coalesced move when it comes.
+    const end = (endEvent: PointerEvent) => {
+      if (endEvent.type === "pointerup") latest = clamp(startWidth + direction * (endEvent.clientX - startX), upper);
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", end);
       handle.removeEventListener("pointercancel", end);
