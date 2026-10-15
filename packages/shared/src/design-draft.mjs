@@ -192,7 +192,12 @@ export function createDesignDraft(tool) {
       if (!isObject(value)) return snapshot(fields, last?.document ?? null);
       if (tool === "design_apply") {
         if (!base) return snapshot(fields, null);
-        if (applied.base !== base) applied = { base, count: 0, document: base };
+        // The base is what the frame shows already: only what the operations change counts as changed, so the
+        // design doesn't build again from nothing when the base arrives.
+        if (applied.base !== base) {
+          applied = { base, count: 0, document: base };
+          last = { ...fields, document: base, changed: [] };
+        }
         const operations = Array.isArray(value.operations) ? value.operations : [];
         let touched = [];
         if (operations.length > applied.count) {

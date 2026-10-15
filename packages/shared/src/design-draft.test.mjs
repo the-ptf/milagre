@@ -100,7 +100,11 @@ test("a design_apply draft applies the whole operations so far to its base, skip
   });
   const draft = createDesignDraft("design_apply");
   assert.equal(draft.read(input, null).document, null, "no base yet");
-  assert.equal(draft.read(input.slice(0, 40), base).designId, "login");
+  const start = draft.read(input.slice(0, 40), base);
+  assert.equal(start.designId, "login");
+  // The base alone changes nothing: the frame already shows it.
+  assert.equal(start.document, base);
+  assert.deepEqual(start.changed, []);
   const first = draft.read(input.slice(0, input.indexOf('{"op":"update","id":"missing"')), base);
   assert.equal(first.document.nodes[0].fill, "#ff0000");
   assert.deepEqual(first.changed, ["a"]);
