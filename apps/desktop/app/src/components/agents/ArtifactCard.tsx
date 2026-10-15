@@ -955,7 +955,7 @@ function ArtifactDock({
           />
           <ZoomBar
             data-slot="artifact-zoom-bar"
-            className="absolute right-4 bottom-4"
+            className="absolute bottom-4 left-4"
             zoom={view?.scale ?? null}
             onZoomOut={() => canvas.current?.zoomBy(1 / 1.25)}
             onReset={() => canvas.current?.zoomTo(1)}

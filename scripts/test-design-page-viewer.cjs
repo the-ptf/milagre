@@ -253,7 +253,7 @@ async function check() {
     assert.equal(await evaluate("fetch('https://example.com/blocked').then(() => false, () => true)"), true, "CSP blocks external network requests");
     assert.equal(await evaluate("!!window.milagre || !!window.require"), false, "public pages cannot reach the host bridge or Node");
     await screenshot("viewer-desktop");
-    // No header or footer: the canvas fills the window; the zoom bar and the Milagre logo float bottom-right.
+    // No header or footer: the canvas fills the window; the zoom bar floats bottom-left and the Milagre logo bottom-right.
     assert.equal(await evaluate("document.querySelectorAll('header, footer').length"), 0, "the public page has no header or footer");
     assert.deepEqual(
       await evaluate("(r => [innerHeight - r.bottom, r.top])(document.getElementById('viewport').getBoundingClientRect())"),
@@ -266,13 +266,13 @@ async function check() {
     assert.deepEqual(logo, { href: "https://milagre.cloud/", target: "_blank", rel: "noopener noreferrer", label: "Made with Milagre" });
     const dock = () =>
       evaluate(
-        "(() => {const box=e=>e.getBoundingClientRect(),bar=box(document.querySelector('.bar')),logo=box(document.querySelector('a.logo'));return {barRight:bar.right,barBottom:bar.bottom,barHeight:bar.height,logoLeft:logo.left,logoRight:logo.right,logoBottom:logo.bottom,logoSize:[logo.width,logo.height],width:innerWidth,height:innerHeight}})()",
+        "(() => {const box=e=>e.getBoundingClientRect(),bar=box(document.querySelector('.bar')),logo=box(document.querySelector('a.logo'));return {barLeft:bar.left,barRight:bar.right,barBottom:bar.bottom,barHeight:bar.height,logoLeft:logo.left,logoRight:logo.right,logoBottom:logo.bottom,logoSize:[logo.width,logo.height],width:innerWidth,height:innerHeight}})()",
       );
     const placed = await dock();
     assert.equal(placed.width - placed.logoRight, 16, "the logo sits 16px from the right edge");
     assert.equal(placed.height - placed.logoBottom, 16, "the logo sits 16px from the bottom edge");
     assert.deepEqual(placed.logoSize, [32, 32]);
-    assert.equal(placed.logoLeft - placed.barRight, 8, "the zoom bar sits 8px left of the logo");
+    assert.equal(placed.barLeft, 16, "the zoom bar sits 16px from the left edge");
     assert.equal(placed.barBottom, placed.logoBottom, "zoom bar and logo share a baseline");
     assert.equal(placed.barHeight, 32);
     const before = await evaluate("document.getElementById('canvas').style.transform");

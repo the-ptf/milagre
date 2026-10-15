@@ -549,14 +549,14 @@ async function browserChecks() {
     await evaluate(`${dock}.querySelector("[aria-label='Fit every design']").click()`);
     await waitFor(`${inView("login")} && ${inView("home")}`);
     assert.equal(await evaluate(`${frame("home")}.querySelector("[data-design-body]").parentElement.style.width`), "390px");
-    // The zoom floats at the canvas's bottom-right, as on the main Canvas; the header keeps Share as an icon.
+    // The zoom floats at the canvas's bottom-left, as on the main Canvas; the header keeps Share as an icon.
     const zoomBar = `${dock}.querySelector("[data-slot=artifact-zoom-bar]")`;
     const barPlace = await evaluate(
-      `(() => { const c = ${dock}.querySelector("[data-slot=artifact-canvas]").getBoundingClientRect(); const b = ${zoomBar}.getBoundingClientRect(); return { right: c.right - b.right, bottom: c.bottom - b.bottom, left: b.left - c.left }; })()`,
+      `(() => { const c = ${dock}.querySelector("[data-slot=artifact-canvas]").getBoundingClientRect(); const b = ${zoomBar}.getBoundingClientRect(); return { left: b.left - c.left, bottom: c.bottom - b.bottom, right: c.right - b.right }; })()`,
     );
     assert.ok(
-      barPlace.right > 0 && barPlace.right <= 24 && barPlace.bottom > 0 && barPlace.bottom <= 24 && barPlace.left > 100,
-      "the zoom bar sits at the bottom-right",
+      barPlace.left > 0 && barPlace.left <= 24 && barPlace.bottom > 0 && barPlace.bottom <= 24 && barPlace.right > 100,
+      "the zoom bar sits at the bottom-left",
     );
     assert.equal(await evaluate(`!!${dock}.querySelector("header [aria-label='Zoom in']")`), false, "the zoom left the header");
     assert.equal(await evaluate(`${dock}.querySelector("header [aria-label='Share page']").textContent.trim()`), "", "Share is an icon button");

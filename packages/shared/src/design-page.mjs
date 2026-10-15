@@ -117,8 +117,8 @@ function designsDescription(page) {
 
 const descriptionMeta = (description) => (description ? `<meta name="description" content="${escape(description)}">` : "");
 
-// Public pages carry no header or footer: the content fills the window and the chrome floats bottom-right, as on the
-// desktop Canvas. Colors are desktop's dark theme tokens (surface, ink, ink-2, line, shadow-card). CSP forbids external
+// Public pages carry no header or footer: the content fills the window, the zoom bar floats bottom-left as on the
+// desktop Canvas and the Milagre logo bottom-right. Colors are desktop's dark theme tokens (surface, ink, ink-2, line, shadow-card). CSP forbids external
 // resources, so the icons (Hugeicons minus, plus, fit-to-screen) and the Milagre mark are inline SVG.
 const icon = (size, paths) =>
   `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths.map((d) => `<path d="${d}"/>`).join("")}</svg>`;
@@ -126,11 +126,11 @@ const MILAGRE_MARK =
   '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 146 145" fill="currentColor"><path d="M69.528 1.96636C71.0759 -0.655453 74.869 -0.655453 76.4169 1.96636L91.0103 26.6837C91.3538 27.2656 91.8392 27.751 92.4211 28.0945L117.138 42.6879C119.76 44.2358 119.76 48.0289 117.138 49.5768L92.4211 64.1702C91.8392 64.5137 91.3538 64.9991 91.0103 65.581L76.4169 90.2983C74.869 92.9201 71.0759 92.9201 69.528 90.2983L54.9347 65.581C54.5911 64.9991 54.1057 64.5137 53.5238 64.1702L28.8065 49.5768C26.1847 48.0289 26.1847 44.2358 28.8065 42.6879L53.5238 28.0945C54.1057 27.751 54.5911 27.2656 54.9347 26.6837L69.528 1.96636Z"/><path d="M49.6983 66.5562L21.6836 116.174C19.802 119.507 22.2098 123.632 26.0372 123.632H39.9727L54.9727 100.132L66.9727 119.632L51.9727 144.132H26.0372C6.24066 144.132 -6.29344 122.89 3.27837 105.561L30.9405 55.4819L49.6983 66.5562Z"/><path d="M142.666 105.561C152.238 122.89 139.704 144.132 119.907 144.132H93.9728L78.9728 119.632L90.9728 100.132L105.973 123.632H119.907C123.735 123.632 126.143 119.507 124.261 116.174L96.2462 66.5562L115.004 55.4819L142.666 105.561Z"/></svg>';
 const CHROME_STYLE =
   ".sr{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}" +
-  ".dock{position:fixed;right:16px;bottom:16px;z-index:1;display:flex;align-items:center;gap:8px}" +
+  ".dock{position:fixed;left:16px;right:16px;bottom:16px;z-index:1;display:flex;align-items:center;gap:8px;pointer-events:none}.dock>*{pointer-events:auto}" +
   ".bar,.logo{height:32px;border-radius:8px;background:#172232;box-shadow:0 0 0 1px rgb(255 255 255/.11),0 1px 2px rgb(0 0 0/.2),0 2px 6px rgb(0 0 0/.2)}" +
   ".bar{display:flex;align-items:center}.bar button{height:32px;display:flex;align-items:center;justify-content:center;border:0;padding:0;background:none;color:#e9eff7;font:500 12px/1 system-ui,sans-serif;cursor:pointer;transition:color .15s}" +
   ".bar .step{width:32px;color:#9199a4}.bar .step:hover{color:#e9eff7}#zoom{width:44px;font-variant-numeric:tabular-nums}.bar i{width:1px;height:16px;background:#273242}#fit{gap:6px;padding:0 10px}#fit:hover{color:#9199a4}" +
-  ".logo{width:32px;display:flex;align-items:center;justify-content:center;color:#9199a4;transition:color .15s,background-color .15s}.logo:hover{color:#e9eff7;background:#202b3b}" +
+  ".logo{width:32px;margin-left:auto;display:flex;align-items:center;justify-content:center;color:#9199a4;transition:color .15s,background-color .15s}.logo:hover{color:#e9eff7;background:#202b3b}" +
   ".dock svg{display:block}.dock :focus-visible{outline:2px solid #91bdff;outline-offset:2px}";
 const LOGO_LINK = `<a class="logo" href="https://milagre.cloud" target="_blank" rel="noopener noreferrer" aria-label="Made with Milagre">${MILAGRE_MARK}</a>`;
 const ZOOM_BAR = `<nav class="bar" aria-label="Canvas zoom"><button id="out" class="step" aria-label="Zoom out">${icon(14, ["M20 12L4 12"])}</button><button id="zoom" aria-label="Zoom to 100%"></button><button id="in" class="step" aria-label="Zoom in">${icon(14, ["M12 4V20M20 12H4"])}</button><i aria-hidden="true"></i><button id="fit" aria-label="Fit everything">${icon(13, ["M3 4V20", "M21 4V20", "M15.6216 9L16.5002 9.87868C17.5002 10.8787 18.0002 11.3787 18.0002 12C18.0002 12.6213 17.5002 13.1213 16.5002 14.1213L15.6216 15M8.37892 9L7.50024 9.87868C6.50024 10.8787 6.00024 11.3787 6.00024 12C6.00024 12.6213 6.50024 13.1213 7.50024 14.1213L8.37892 15M6.37892 12H17.6216"])}Fit</button></nav>`;
