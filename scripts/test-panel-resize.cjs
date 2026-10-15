@@ -9,37 +9,31 @@ const fixture = `
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { ChangesPanelSlot } from "/src/components/changes/ChangesPanelSlot";
-import { DockSlide } from "/src/components/agents/DockSlide";
-import { roomToWiden, usePanelWidth } from "/src/components/agents/panel-width";
-import { ResizeHandle } from "/src/components/primitives/ResizeHandle";
+import { ResizableDockSlide } from "/src/components/agents/DockSlide";
+import { usePanelWidth } from "/src/components/agents/panel-width";
 import "/src/styles.css";
 document.documentElement.classList.add("dark");
+window.contentRenders = 0;
+// Stands in for the dock's content (the design canvas, the simulator viewer): a drag must not render it again.
+function Content() {
+  window.contentRenders++;
+  return <div data-dock-card className="h-full" />;
+}
 function Dock() {
-  const resize = usePanelWidth("simulator");
+  const width = usePanelWidth("simulator").width;
   return (
-    <DockSlide
-      width={resize.width}
+    <ResizableDockSlide
+      panel="simulator"
+      label="Resize simulator"
+      width={width}
       reserve="--simulator-dock"
-      resizing={resize.resizing}
-      handle={
-        <ResizeHandle
-          label="Resize simulator"
-          side="left"
-          width={resize.width}
-          min={resize.min}
-          max={() => roomToWiden("simulator", resize.width)}
-          reset={resize.reset}
-          onResize={resize.onResize}
-          onCommit={resize.onCommit}
-        />
-      }
       data-slot="dock"
       style={{ top: 60, right: 344, bottom: 12 }}
       className="fixed z-[42]"
       panelClassName="rounded-[10px] border border-line bg-surface"
     >
-      <div data-dock-card className="h-full" />
-    </DockSlide>
+      <Content />
+    </ResizableDockSlide>
   );
 }
 function App() {
@@ -146,10 +140,19 @@ async function browserChecks() {
     await waitFor('!!document.querySelector("[data-dock-card]")');
     await settled("[data-slot=dock]");
     assert.equal(await width("[data-slot=dock]"), 400, "the dock opens at its default width");
-    assert.equal(await evaluate('document.documentElement.style.getPropertyValue("--simulator-dock")'), "412px");
+    assert.equal(await evaluate('(document.querySelector("[data-dock-layer]") ?? document.body).style.getPropertyValue("--simulator-dock")'), "412px");
+    // Not on <html>: the simulator and browser viewers watch its style for theme changes.
+    assert.equal(await evaluate('document.documentElement.style.getPropertyValue("--simulator-dock")'), "", "the room stays off <html>");
+    const rendersBefore = await evaluate("window.contentRenders");
     await drag(simulator, -80);
+    // Once for the saved width on release, never per move.
+    assert.ok((await evaluate("window.contentRenders")) - rendersBefore <= 1, "dragging doesn't render the dock's content again");
     assert.equal(await width("[data-slot=dock]"), 480, "dragging the dock's left edge widens it");
-    assert.equal(await evaluate('document.documentElement.style.getPropertyValue("--simulator-dock")'), "492px", "the chat makes room as it widens");
+    assert.equal(
+      await evaluate('(document.querySelector("[data-dock-layer]") ?? document.body).style.getPropertyValue("--simulator-dock")'),
+      "492px",
+      "the chat makes room as it widens",
+    );
     assert.equal(await evaluate('localStorage.getItem("milagre.panelWidth.simulator")'), "480");
     await screenshot("dock-wide");
     // Dragged far left, it stops where the chat would get narrower than 420px.

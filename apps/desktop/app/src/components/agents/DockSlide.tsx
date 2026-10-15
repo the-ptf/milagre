@@ -1,11 +1,18 @@
 import { forwardRef, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { motion, useMotionValue, useMotionValueEvent, usePresence, useReducedMotion, animate } from "motion/react";
 import { EASE_OUT, SPRING_LAYOUT } from "../../lib/ease";
+import { ResizeHandle } from "../primitives/ResizeHandle";
+import { dockLayer } from "./dock-area";
+import { roomToWiden, usePanelWidth, type ResizablePanel } from "./panel-width";
 
 // Slides can share one reserve: the designs closing while the artifacts open in their place, each sliding at its own
 // width. The chat keeps room for the widest one still there, and the last one to go gives it back; otherwise the one
 // that finished sliding last would set the room alone, and a closing panel would take it from the opening one.
+// The room is set on the dock layer, which holds the chat panes and the docks, not on <html>: the viewers watch <html>'s
+// style for theme changes and would re-read the theme on every frame a panel slides or is dragged.
 const rooms = new Map<string, Map<symbol, number>>();
+// What was last written, per layer: a remounted layer starts without the room and must get it again.
+const written = new WeakMap<HTMLElement, Map<string, string>>();
 function setRoom(reserve: string, slide: symbol, room: number | null) {
   const slides = rooms.get(reserve) ?? new Map<symbol, number>();
   if (room === null) slides.delete(slide);
@@ -13,8 +20,14 @@ function setRoom(reserve: string, slide: symbol, room: number | null) {
   if (slides.size) rooms.set(reserve, slides);
   else rooms.delete(reserve);
   const widest = Math.max(0, ...slides.values());
-  if (widest > 0) document.documentElement.style.setProperty(reserve, `${widest}px`);
-  else document.documentElement.style.removeProperty(reserve);
+  const value = widest > 0 ? `${widest}px` : "";
+  const layer = dockLayer();
+  const values = written.get(layer) ?? new Map<string, string>();
+  written.set(layer, values);
+  if ((values.get(reserve) ?? "") === value) return;
+  values.set(reserve, value);
+  if (value) layer.style.setProperty(reserve, value);
+  else layer.style.removeProperty(reserve);
 }
 
 /**
@@ -123,5 +136,40 @@ export const DockSlide = forwardRef<
       </motion.div>
       {width !== null && handle}
     </motion.div>
+  );
+});
+
+/**
+ * A DockSlide whose left edge drags its width (`panel`'s saved width, see panel-width.ts). The width a drag is at lives
+ * in here: the panel's content, made by the caller, doesn't render again on every frame of the drag, only once the
+ * width is saved on release. `width` is the width the caller lays it out at (null to fill the workspace).
+ */
+export const ResizableDockSlide = forwardRef<
+  HTMLDivElement,
+  Omit<React.ComponentProps<typeof DockSlide>, "resizing" | "handle" | "ref"> & { panel: ResizablePanel; label: string }
+>(function ResizableDockSlide({ panel, label, width, ...rest }, ref) {
+  const resize = usePanelWidth(panel);
+  const live = width === null ? null : resize.resizing ? resize.width : width;
+  return (
+    <DockSlide
+      ref={ref}
+      width={live}
+      resizing={resize.resizing}
+      handle={
+        live !== null && (
+          <ResizeHandle
+            label={label}
+            side="left"
+            width={live}
+            min={resize.min}
+            max={() => roomToWiden(panel, live)}
+            reset={resize.reset}
+            onResize={resize.onResize}
+            onCommit={resize.onCommit}
+          />
+        )
+      }
+      {...rest}
+    />
   );
 });

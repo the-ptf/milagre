@@ -4,6 +4,7 @@ import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { type ComponentPropsWithRef, type Ref, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { PreviewRail, type PreviewRailItem } from "../motion/PreviewRail";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
+import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
 
 const PREVIEW_TITLE_LENGTH = 56;
 const PREVIEW_DESCRIPTION_LENGTH = 88;
@@ -375,19 +376,30 @@ export function MessageScroller({
     });
     mutationObserver.observe(content, { childList: true });
     if (list !== content) mutationObserver.observe(list, { childList: true });
+    // While a panel edge is dragged the viewport resizes on every frame: the list is rebuilt once, when the drag ends.
+    let rebuildAfterDrag = false;
     const resizeObserver = new ResizeObserver((entries) => {
       // A resized viewport can change what fits, so it rebuilds the list; content growth only checks overflow and the active item.
-      if (entries.some((entry) => entry.target === viewport)) scheduleRailSync();
+      if (panelResizing()) rebuildAfterDrag = true;
+      else {
+        if (entries.some((entry) => entry.target === viewport)) scheduleRailSync();
+        scheduleRailRefresh();
+      }
       setRailOverflowing(viewport.scrollHeight > viewport.clientHeight + 1 && railMessageCountRef.current > 1);
-      scheduleRailRefresh();
       scheduleActiveRailItem();
     });
     resizeObserver.observe(content);
     resizeObserver.observe(viewport);
+    const offDragEnd = onPanelResizeEnd(() => {
+      if (!rebuildAfterDrag) return;
+      rebuildAfterDrag = false;
+      scheduleRailSync();
+    });
 
     return () => {
       mutationObserver.disconnect();
       resizeObserver.disconnect();
+      offDragEnd();
     };
   }, [navigation, scheduleActiveRailItem, scheduleRailRefresh, scheduleRailSync]);
 

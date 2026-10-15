@@ -28,9 +28,8 @@ import type { ArtifactRef, ChatStep } from "../../model";
 import Tooltip from "../primitives/Tooltip";
 import { DESIGNS_EXPANDED, dockLayer, useDockArea, useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
-import { DockSlide } from "./DockSlide";
-import { MIN_CHAT_WIDTH, roomToWiden, usePanelWidth } from "./panel-width";
-import { ResizeHandle } from "../primitives/ResizeHandle";
+import { ResizableDockSlide } from "./DockSlide";
+import { MIN_CHAT_WIDTH, usePanelWidth } from "./panel-width";
 import { ArtifactCanvas, ArtifactFrame, useArtifact, type CanvasHandle, type CanvasView, type DesignPin, type PinControls } from "./ArtifactCanvas";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { useDesignSharingAvailable } from "../../lib/design-sharing-available";
@@ -815,24 +814,13 @@ function ArtifactDock({
   };
   const icon = "rounded p-1 text-ink-2 hover:bg-hover disabled:opacity-40";
   return createPortal(
-    <DockSlide
+    <ResizableDockSlide
       // Opens like the git changes panel. Beside the chat, the chat makes room (--artifact-dock); filling the
-      // workspace, the canvas covers it and reserves nothing.
+      // workspace, the canvas covers it and reserves nothing. A drag on its edge doesn't render the canvas again.
+      panel={kind}
+      label={`Resize ${label}`}
       width={full ? null : dockWidth}
       reserve="--artifact-dock"
-      resizing={resize.resizing}
-      handle={
-        <ResizeHandle
-          label={`Resize ${label}`}
-          side="left"
-          width={dockWidth}
-          min={resize.min}
-          max={() => roomToWiden(kind, dockWidth)}
-          reset={resize.reset}
-          onResize={resize.onResize}
-          onCommit={resize.onCommit}
-        />
-      }
       onEntered={() => setEntered(true)}
       role="dialog"
       aria-label={label}
@@ -1012,7 +1000,7 @@ function ArtifactDock({
         </div>
       )}
       {sharingChat === chatId && <DesignPageShareDialog key={`${chatId}:${kind}`} chatId={chatId} kind={kind} onClose={() => setSharingChat(null)} />}
-    </DockSlide>,
+    </ResizableDockSlide>,
     dockLayer(),
   );
 }

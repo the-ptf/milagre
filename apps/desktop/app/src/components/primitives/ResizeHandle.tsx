@@ -1,4 +1,5 @@
 import { useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { setPanelResizing } from "../../lib/panel-resizing";
 
 /**
  * The thin bar on a panel's edge that drags its width: the sidebar's right edge, a side panel's left one. `side` is the
@@ -46,14 +47,22 @@ export function ResizeHandle({
     const startWidth = latest;
     setResizing(true);
     onResizingChange?.(true);
+    setPanelResizing(true);
     document.body.style.cursor = "col-resize";
+    // Pointer moves can come faster than frames: the width follows the latest one, once a frame, since each new width
+    // reflows the chat beside the panel.
+    let frame = 0;
     const move = (moveEvent: PointerEvent) => {
       latest = clamp(startWidth + direction * (moveEvent.clientX - startX), upper);
-      onResize(latest);
+      frame ||= requestAnimationFrame(() => {
+        frame = 0;
+        onResize(latest);
+      });
     };
     // The release lands where the pointer is: a busy renderer can still be holding the last coalesced move when it comes.
     const end = (endEvent: PointerEvent) => {
       if (endEvent.type === "pointerup") latest = clamp(startWidth + direction * (endEvent.clientX - startX), upper);
+      cancelAnimationFrame(frame);
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", end);
       handle.removeEventListener("pointercancel", end);
@@ -61,6 +70,7 @@ export function ResizeHandle({
       setResizing(false);
       onResizingChange?.(false);
       onCommit(latest);
+      setPanelResizing(false);
     };
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", end);
