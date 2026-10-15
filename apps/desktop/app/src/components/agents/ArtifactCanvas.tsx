@@ -216,7 +216,10 @@ export const ArtifactCanvas = forwardRef<
   // The dock shows only the zoom: panning doesn't re-render it.
   useEffect(() => onView({ x: viewRef.current.x, y: viewRef.current.y, scale: view.scale }), [view.scale, onView]);
 
-  const fit = useCallback((id?: string) => {
+  // Names and title rows keep their screen size, so they take more of the canvas at a smaller zoom: a fit that zooms
+  // out measures the designs a little short, and fits again once they are laid out at the new zoom.
+  const refits = useRef(0);
+  const fit = useCallback(function fitDesigns(id?: string) {
     const port = viewport.current,
       content = board.current;
     if (!port || !content) return;
@@ -240,6 +243,10 @@ export const ArtifactCanvas = forwardRef<
       x: (width - (right - left) * scale) / 2 - left * scale,
       y: FIT_MARGIN + (room - (bottom - top) * scale) / 2 - top * scale,
     });
+    if (Math.abs(scale - viewRef.current.scale) > 0.005 && refits.current < 3) {
+      refits.current++;
+      requestAnimationFrame(() => fitDesigns(id));
+    } else refits.current = 0;
   }, []);
 
   const zoomAt = useCallback((factor: number, px: number, py: number) => {
