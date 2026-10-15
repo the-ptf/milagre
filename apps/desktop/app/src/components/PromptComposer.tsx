@@ -730,7 +730,7 @@ export function PromptComposer({
                 aria-label={canStop ? "Stop agent" : "Send"}
                 disabled={!canStop && (!canSend || sendBlocked || imageDraft.loading)}
                 onClick={canStop ? onStop : send}
-                className={`flex size-7 shrink-0 items-center justify-center rounded-[8px] text-surface transition-[background-color,color,transform] duration-200 enabled:active:scale-[0.94] disabled:cursor-not-allowed disabled:bg-line-strong disabled:text-ink-2`}
+                className={`flex size-7 shrink-0 items-center justify-center rounded-full text-surface transition-[background-color,color,transform] duration-200 enabled:active:scale-[0.94] disabled:cursor-not-allowed disabled:bg-line-strong disabled:text-ink-2`}
                 style={{ background: canStop || (canSend && !sendBlocked) ? (ultracodeOn ? "var(--purple)" : "var(--ink)") : "var(--line-strong)" }}
               >
                 {canStop ? <span aria-hidden="true" className="size-2.5 rounded-[2px] bg-current" /> : <Icon icon={ArrowUp01Icon} size={16} />}
