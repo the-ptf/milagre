@@ -14,7 +14,7 @@ const FAKE = path.join(__dirname, "fixtures", "fake-acp-agent.cjs");
 const AGENT = "/opt/antigravity/agy_acp_server.par";
 const TURN = { prompt: "Hi", images: [], model: "gemini-3.8-flash-high", permissionMode: "ask" };
 
-function antigravity(t, { scenario = "reply", resumeId, linked, command = AGENT, interruptGraceMs, workspaceRoots, designsEnabled, env } = {}) {
+function antigravity(t, { scenario = "reply", resumeId, linked, mcpExtras, command = AGENT, interruptGraceMs, workspaceRoots, designsEnabled, env } = {}) {
   const events = [];
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-acp-test-"));
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-acp-cwd-"));
@@ -23,6 +23,7 @@ function antigravity(t, { scenario = "reply", resumeId, linked, command = AGENT,
     cwd,
     resumeId,
     linked,
+    mcpExtras,
     command,
     env,
     workspaceRoots,
@@ -530,4 +531,22 @@ test("temp directories carry their owner's pid, and a sweep removes only those w
   fs.mkdirSync(legacy);
   await sweepTempDirs(root);
   assert.deepEqual(fs.readdirSync(root).sort(), [path.basename(legacy), path.basename(mine)].sort());
+});
+
+test("Everywhere servers that aren't off reach session/new", async (t) => {
+  const { session, events } = antigravity(t, {
+    mcpExtras: async () => ({
+      servers: [
+        { name: "linear", type: "http", url: "https://x", headers: {} },
+        { name: "figma", type: "http", url: "https://f", headers: {} },
+      ],
+      off: ["figma"],
+    }),
+  });
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.deepEqual(
+    (await sent(session, "session/new"))[0].mcpServers.map((server) => server.name),
+    ["linear"],
+  );
 });

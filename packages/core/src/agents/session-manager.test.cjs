@@ -73,6 +73,13 @@ const request = (chatId, extra = {}) => ({
   ...extra,
 });
 
+test("createSession receives the turn's accountId", async (t) => {
+  const { manager, created } = harness();
+  t.after(() => manager.closeAll());
+  await manager.startTurn(request("1", { accountId: "work" }));
+  assert.equal(created[0].options.accountId, "work");
+});
+
 test("account switches keep active replies, then resume their history with the new account", async (t) => {
   const { manager, created } = harness();
   t.after(() => manager.closeAll());

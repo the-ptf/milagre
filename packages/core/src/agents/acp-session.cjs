@@ -3,6 +3,7 @@ const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { cliName } = require("@milagre/shared/providers");
 const { AcpRpc } = require("./acp-rpc.cjs");
+const { toAcpServer } = require("../mcp/definitions.cjs");
 const {
   acpDiffText,
   closeThinking,
@@ -114,6 +115,7 @@ class AcpSession {
     tldrEnabled = true,
     designsEnabled = true,
     linked = null,
+    mcpExtras = null,
     clientVersion = "0.0.0",
     interruptGraceMs = 3000,
     config = antigravityAcp,
@@ -132,6 +134,7 @@ class AcpSession {
       tldrEnabled,
       designsEnabled,
       linked,
+      mcpExtras,
       clientVersion,
       interruptGraceMs,
       config,
@@ -320,7 +323,13 @@ class AcpSession {
     this.agentCapabilities = init?.agentCapabilities ?? {};
     // The Chat's linked tools reach the agent as an MCP server (see linked-mcp-server.cjs).
     const url = this.linked ? await this.linked.url().catch(() => null) : null;
-    const mcpServers = url ? [{ type: "http", name: "milagre", url, headers: [] }] : [];
+    // Settings › MCP: Everywhere servers for this account, except the ones switched off.
+    const extras = this.mcpExtras ? await this.mcpExtras().catch(() => null) : null;
+    const off = new Set(extras?.off ?? []);
+    const mcpServers = [
+      ...(url ? [{ type: "http", name: "milagre", url, headers: [] }] : []),
+      ...(extras?.servers ?? []).filter((def) => !off.has(def.name)).map(toAcpServer),
+    ];
     const result = this.state.sessionId ? await this.resume(mcpServers) : await this.requestSession("session/new", { cwd: this.cwd, mcpServers });
     if (typeof result?.modes?.currentModeId === "string") this.state.mode = result.modes.currentModeId;
     readConfigOptions(result?.configOptions, this.state);

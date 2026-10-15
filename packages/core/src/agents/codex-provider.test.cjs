@@ -12,7 +12,10 @@ const { waitUntil } = require("./test-helpers.cjs");
 const FAKE = path.join(__dirname, "fixtures", "fake-app-server.cjs");
 const TURN = { prompt: "Hi", images: [], model: "gpt-6-sol", permissionMode: "auto" };
 
-function codex(t, { scenario = "reply", resumeId, tldrEnabled, designsEnabled, analysisOnly, linked, command = process.execPath, interruptGraceMs } = {}) {
+function codex(
+  t,
+  { scenario = "reply", resumeId, tldrEnabled, designsEnabled, analysisOnly, linked, mcpExtras, command = process.execPath, interruptGraceMs } = {},
+) {
   const events = [];
   const requests = [];
   const session = new CodexSession({
@@ -22,6 +25,7 @@ function codex(t, { scenario = "reply", resumeId, tldrEnabled, designsEnabled, a
     designsEnabled,
     analysisOnly,
     linked,
+    mcpExtras,
     command,
     clientVersion: "test",
     interruptGraceMs,
@@ -1408,4 +1412,26 @@ test("a design tool's rendered PNG is not repeated as an image step, but another
   complete("other", "browser", "design_show");
   complete("shot", "milagre", "screenshot");
   assert.equal(events.filter((event) => event.step?.kind === "image").length, 2);
+});
+
+test("Everywhere servers and the off list reach thread config", async (t) => {
+  const { session, events, requests } = codex(t, {
+    mcpExtras: async () => ({ servers: [{ name: "linear", type: "http", url: "https://x", headers: {} }], off: ["figma"] }),
+  });
+  await session.startTurn(TURN);
+  await ended(events);
+  const config = requests.find((r) => r.method === "thread/start").params.config;
+  assert.deepEqual(config.mcp_servers.linear, { url: "https://x" });
+  assert.deepEqual(config.mcp_servers.figma, { enabled: false });
+});
+
+test("a failing mcpExtras still starts the Codex thread", async (t) => {
+  const { session, events, requests } = codex(t, {
+    mcpExtras: async () => {
+      throw new Error("boom");
+    },
+  });
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.deepEqual(requests.find((r) => r.method === "thread/start").params.config, { features: { default_mode_request_user_input: true } });
 });

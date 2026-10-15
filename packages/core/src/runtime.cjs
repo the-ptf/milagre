@@ -887,12 +887,15 @@ function createRuntime(options) {
   const agents = new SessionManager({
     createSession:
       options.createSession ??
-      ((provider, options) =>
-        provider === "codex"
-          ? new CodexSession({ ...options, clientVersion: version })
+      ((provider, options) => {
+        // Settings › MCP: Everywhere servers and the off list for this provider account (mcp is created further down).
+        const withMcp = { ...options, mcpExtras: () => mcp.forSession(provider, options.accountId ?? "default") };
+        return provider === "codex"
+          ? new CodexSession({ ...withMcp, clientVersion: version })
           : provider === "antigravity"
-            ? new AcpSession({ ...options, clientVersion: version, config: antigravityAcp })
-            : new ClaudeSession(options)),
+            ? new AcpSession({ ...withMcp, clientVersion: version, config: antigravityAcp })
+            : new ClaudeSession(withMcp);
+      }),
     linkedFor: (chatId) => linked.forChat(chatId),
     onSessionClosed: (chatId) => keepAwake.chatClosed(chatId),
     onTurnStarted: () => ports.wake(),

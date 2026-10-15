@@ -7,6 +7,7 @@ const { mkdirSync, writeFileSync } = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { CodexRpc } = require("./codex-rpc.cjs");
+const { toCodexConfig } = require("../mcp/definitions.cjs");
 const { CODEX_FAST_TIER } = require("./models.cjs");
 const { advisorPolicy, advisorCodexConfig, ANALYSIS_INSTRUCTIONS } = require("./advisor-policy.cjs");
 const {
@@ -142,6 +143,7 @@ class CodexSession {
     designsEnabled = true,
     analysisOnly = false,
     linked = null,
+    mcpExtras = null,
     clientVersion = "0.0.0",
     interruptGraceMs = 3000,
     createRpc = (options) => new CodexRpc(options),
@@ -158,6 +160,7 @@ class CodexSession {
       designsEnabled,
       analysisOnly,
       linked,
+      mcpExtras,
       clientVersion,
       interruptGraceMs,
       createRpc,
@@ -319,10 +322,18 @@ class CodexSession {
     // A constrained session must discover and disable every inherited server. Failure cannot fall back
     // to the ordinary Chat policy because that would expose the user's external tools to an advisor.
     const inherited = this.analysisOnly ? (await rpc.request("config/read", { cwd: this.cwd })).config : null;
+    // Settings › MCP: Everywhere servers join the thread, and servers switched off for this account are disabled.
+    const extras = !this.analysisOnly && this.mcpExtras ? await this.mcpExtras().catch(() => null) : null;
+    const extraServers = {
+      ...Object.fromEntries((extras?.servers ?? []).map((def) => [def.name, toCodexConfig(def)])),
+      // Merged into the user's own definition by Codex (Task 1, probe step 4).
+      ...Object.fromEntries((extras?.off ?? []).map((name) => [name, { enabled: false }])),
+    };
+    const servers = { ...extraServers, ...(url ? { milagre: { url, tool_timeout_sec: 86400 } } : {}) };
     const config = this.analysisOnly
       ? advisorCodexConfig(inherited, url)
-      : url
-        ? { ...THREAD_CONFIG, mcp_servers: { milagre: { url, tool_timeout_sec: 86400 } } }
+      : Object.keys(servers).length
+        ? { ...THREAD_CONFIG, mcp_servers: servers }
         : THREAD_CONFIG;
     const threadParams = {
       cwd: this.cwd,

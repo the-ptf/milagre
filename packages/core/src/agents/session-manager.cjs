@@ -108,6 +108,7 @@ class SessionManager {
       resumeId,
       tldrEnabled,
       designsEnabled,
+      accountId,
       command: request.command,
       ...(request.env ? { env: request.env } : {}),
       // An ACP agent's companion binary and launch arguments, from its resolved install (Antigravity only).

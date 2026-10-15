@@ -8,6 +8,7 @@ const { PendingPermissions, claudeRequest, claudeResult, insideRoot, insideWorks
 const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = require("./questions.cjs");
 const { mcpContent, runTool } = require("../linked-tools.cjs");
 const { advisorPolicy, ANALYSIS_INSTRUCTIONS } = require("./advisor-policy.cjs");
+const { toClaudeConfig } = require("../mcp/definitions.cjs");
 
 // Milagre permission mode -> Claude Code permission mode. In Ask (`default`) Claude Code checks with
 // the user, through canUseTool, before edits and commands its rules don't already allow.
@@ -97,6 +98,7 @@ class ClaudeSession {
     designsEnabled = true,
     analysisOnly = false,
     linked = null,
+    mcpExtras = null,
     loadSdk = () => import("@anthropic-ai/claude-agent-sdk"),
     spawnImpl = spawn,
     interruptGraceMs = 3000,
@@ -113,6 +115,7 @@ class ClaudeSession {
       designsEnabled,
       analysisOnly,
       linked,
+      mcpExtras,
       loadSdk,
       spawnImpl,
       interruptGraceMs,
@@ -278,6 +281,13 @@ class ClaudeSession {
     this.ultracode = ultracode;
     this.fastMode = fastMode;
     this.outputStyle = null;
+    // Settings › MCP: Everywhere servers join the Chat's servers; off servers are switched off once Claude Code has started.
+    // An advisor never gets them, and a failing read never stops the Chat from starting.
+    const extras = this.mcpExtras && !this.analysisOnly ? await this.mcpExtras().catch(() => null) : null;
+    if (this.closed) return;
+    this.mcpOff = extras?.off ?? [];
+    const linked = this.linked?.tools.length ? linkedOptions(this.linked.tools, sdk) : {};
+    const extraServers = Object.fromEntries((extras?.servers ?? []).map((def) => [def.name, toClaudeConfig(def)]));
     this.query = sdk.query({
       prompt: this.inbox,
       options: {
@@ -301,7 +311,8 @@ class ClaudeSession {
             .filter(Boolean)
             .join("\n\n"),
         },
-        ...(this.linked?.tools.length ? linkedOptions(this.linked.tools, sdk) : {}),
+        ...linked,
+        ...(Object.keys(extraServers).length ? { mcpServers: { ...extraServers, ...linked.mcpServers } } : {}),
         canUseTool: (toolName, input, options) =>
           toolName === "AskUserQuestion" ? this.askQuestion(input, options) : this.askPermission(toolName, input, options),
         ...(this.analysisOnly ? advisorPolicy("claude", this.linked?.tools ?? []) : {}),
@@ -397,6 +408,11 @@ class ClaudeSession {
         // started by itself, for a steering message that came in just as the last turn ended. It starts
         // with its first event, so a turn that only records a task notification never shows.
         if (message.type === "system" && message.subtype === "init" && !this.turnActive && !this.closed) this.implicitTurn = true;
+        if (message.type === "system" && message.subtype === "init" && this.mcpOff?.length) {
+          const off = this.mcpOff;
+          this.mcpOff = [];
+          for (const name of off) this.query?.toggleMcpServer?.(name, false)?.catch(() => {});
+        }
         for (const event of mapClaudeMessage(message, this.state)) {
           if (this.implicitTurn && !this.turnActive && !this.closed) this.beginImplicitTurn();
           this.implicitTurn = false;

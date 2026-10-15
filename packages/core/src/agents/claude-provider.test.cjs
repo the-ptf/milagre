@@ -211,6 +211,9 @@ function fakeSdk(script) {
       setMaxThinkingTokens: async (...args) => {
         calls.thinking.push(args);
       },
+      toggleMcpServer: async (name, enabled) => {
+        (calls.toggles ??= []).push([name, enabled]);
+      },
     });
   };
   return { calls, loadSdk: async () => ({ query }) };
@@ -1114,4 +1117,55 @@ test("a Chat's linked tools are served in-process and allowed without Claude's o
   assert.deepEqual(sdk.calls.options.allowedTools, ["mcp__milagre__linked_overview"]);
   assert.equal(made[0].tools[0].extras.annotations.readOnlyHint, true);
   assert.deepEqual(await made[0].tools[0].handler({}), { content: [{ type: "text", text: "summary of web" }], isError: false });
+});
+
+test("Everywhere servers join mcpServers and off servers are toggled after init", async (t) => {
+  const sdk = fakeSdk(scripts.reply);
+  const events = [];
+  const session = new ClaudeSession({
+    cwd: "/repo",
+    command: "/usr/local/bin/claude",
+    emit: (event) => events.push(event),
+    mcpExtras: async () => ({ servers: [{ name: "linear", type: "http", url: "https://x", headers: {} }], off: ["figma"] }),
+    loadSdk: sdk.loadSdk,
+  });
+  t.after(() => session.close());
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.deepEqual(sdk.calls.options.mcpServers.linear, { type: "http", url: "https://x" });
+  assert.deepEqual(sdk.calls.toggles, [["figma", false]]);
+});
+
+test("analysis-only Claude gets no Everywhere servers, and a failing mcpExtras still starts the Chat", async (t) => {
+  const sdk = fakeSdk(scripts.reply);
+  const events = [];
+  const session = new ClaudeSession({
+    cwd: "/repo",
+    command: "/usr/local/bin/claude",
+    analysisOnly: true,
+    emit: (event) => events.push(event),
+    mcpExtras: async () => ({ servers: [{ name: "linear", type: "http", url: "https://x", headers: {} }], off: ["figma"] }),
+    loadSdk: sdk.loadSdk,
+  });
+  t.after(() => session.close());
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.equal(sdk.calls.options.mcpServers?.linear, undefined);
+  assert.equal(sdk.calls.toggles, undefined);
+
+  const failing = fakeSdk(scripts.reply);
+  const failEvents = [];
+  const second = new ClaudeSession({
+    cwd: "/repo",
+    command: "/usr/local/bin/claude",
+    emit: (event) => failEvents.push(event),
+    mcpExtras: async () => {
+      throw new Error("boom");
+    },
+    loadSdk: failing.loadSdk,
+  });
+  t.after(() => second.close());
+  await second.startTurn(TURN);
+  await ended(failEvents);
+  assert.equal(failing.calls.queries, 1);
 });
