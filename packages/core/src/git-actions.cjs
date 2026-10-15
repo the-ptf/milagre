@@ -108,7 +108,7 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
   }
 
   const client = createGit({ execFile, env });
-  const { run: git, out: gitOut, refExists, resolveBase } = client.read;
+  const { run: git, out: gitOut, refExists, chatBase } = client.read;
   const write = client.write.run;
   const gitList = async (cwd, args) => {
     const result = await git(cwd, args);
@@ -238,7 +238,7 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
       changedFiles(cwd),
       remotes(cwd),
       unpushedCount(cwd),
-      resolveBase(cwd, base),
+      chatBase(cwd, base),
       operationInProgress(cwd),
     ]);
     const origin = remoteNames.includes("origin");
@@ -350,7 +350,7 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
     if (!(await hasOrigin(cwd))) return { ok: false, kind: "no-origin", message: NO_ORIGIN, code: GIT_CODES.NO_ORIGIN };
     const branch = await currentBranch(cwd);
     if (!branch) return { ok: false, kind: "error", message: DETACHED, code: GIT_CODES.DETACHED };
-    const resolved = await resolveBase(cwd, base);
+    const resolved = await chatBase(cwd, base);
     if (branch === resolved.name) return { ok: false, kind: "on-base", message: `You're on ${resolved.name}. Open a PR from a worktree branch.` };
     const prTitle = String(title ?? "").trim();
     if (!prTitle) return { ok: false, kind: "error", message: "Add a PR title first." };
@@ -399,7 +399,7 @@ function createGitActions({ execFile = childProcess.execFile, env = process.env,
   async function readTextContext({ cwd, base }) {
     const top = await checkTop(cwd);
     if (!top.ok) throw new Error(top.message);
-    const [branch, resolved, files] = await Promise.all([currentBranch(cwd), resolveBase(cwd, base), changedFiles(cwd)]);
+    const [branch, resolved, files] = await Promise.all([currentBranch(cwd), chatBase(cwd, base), changedFiles(cwd)]);
     const hasChanges = files.length > 0;
     const hasHead = await refExists(cwd, "HEAD");
     const range = hasChanges ? [hasHead ? "HEAD" : EMPTY_TREE] : resolved.ref ? [`${resolved.ref}...HEAD`] : null;

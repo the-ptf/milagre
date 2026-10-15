@@ -159,6 +159,23 @@ function createGit({ execFile = execute, env = process.env, platform = process.p
     return { name, ref: null };
   }
 
+  // The branch the checked-out branch was made from, by its reflog's first entry ("branch: Created from feature"), or
+  // null when it was made from HEAD or a bare commit, or the reflog is gone. Worktrees Milagre didn't make (an agent's,
+  // one made by hand) record no base, and a branch cut from a feature branch shouldn't be measured against main.
+  async function createdFrom(cwd) {
+    const branch = await out(cwd, ["symbolic-ref", "--quiet", "HEAD"]);
+    if (!branch?.startsWith("refs/heads/")) return null;
+    const entries = await out(cwd, ["log", "--walk-reflogs", "--format=%gs", "--end-of-options", branch]);
+    const from = /^branch: Created from (.+)$/.exec(entries?.split("\n").at(-1) ?? "")?.[1];
+    if (!from || from === "HEAD" || /^[0-9a-f]{7,64}$/i.test(from)) return null;
+    return from === branch.slice("refs/heads/".length) ? null : from;
+  }
+
+  /** The base a chat's changes are measured against: the one Milagre recorded, else the branch it was made from, else the default. */
+  async function chatBase(cwd, recorded) {
+    return resolveBase(cwd, typeof recorded === "string" && recorded ? recorded : await createdFrom(cwd));
+  }
+
   // `worktree list -z` needs Git 2.36. Older Git rejects the switch, so fall back to newline records and remember which form works.
   let nulSeparated = true;
   async function worktreeBlocks(cwd) {
@@ -207,7 +224,7 @@ function createGit({ execFile = execute, env = process.env, platform = process.p
     return listed.filter(Boolean);
   }
   const commonDir = async (cwd) => fs.realpath(path.resolve(cwd, (await text(cwd, ["rev-parse", "--git-common-dir"])).trim()));
-  const read = Object.freeze({ run, checked, text, out, commitOf, refExists, resolveBase, worktreeList, commonDir });
+  const read = Object.freeze({ run, checked, text, out, commitOf, refExists, resolveBase, chatBase, worktreeList, commonDir });
   const writeRun = (cwd, args, options) => {
     if (analysisOnly) throw new Error("Analysis Git is read-only.");
     return executeGit(cwd, args, { profile: "WRITE", ...options });
