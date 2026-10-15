@@ -29,17 +29,14 @@ import Tooltip from "../primitives/Tooltip";
 import { DESIGNS_EXPANDED, dockLayer, useDockArea, useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
 import { DockSlide } from "./DockSlide";
+import { MIN_CHAT_WIDTH, roomToWiden, usePanelWidth } from "./panel-width";
+import { ResizeHandle } from "../primitives/ResizeHandle";
 import { ArtifactCanvas, ArtifactFrame, useArtifact, type CanvasHandle, type CanvasView, type DesignPin, type PinControls } from "./ArtifactCanvas";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { useDesignSharingAvailable } from "../../lib/design-sharing-available";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { DESIGN_DELETED, DESIGN_SAVED, type DesignDeleted, type DesignSaved } from "./DesignEditor";
 import { DesignPageShareDialog } from "./DesignPageShareDialog";
-
-// Docked width plus the 12px gap to the chat. The chat panes reserve it through --artifact-dock.
-const DOCK_WIDTH = 560;
-// Narrower than this beside the dock, the chat is no use: the canvas takes the whole workspace instead.
-const MIN_CHAT_WIDTH = 420;
 
 /** Whether the element is laid out: false while an ancestor hides it (the diff, settings or canvas in place of the chat). */
 function useShown() {
@@ -651,7 +648,9 @@ export function ArtifactsProvider({
   const closeDesigns = useCallback(() => {
     if (!document.querySelector("[data-slot=design-editor]")) setOpenedIn(null);
   }, []);
-  useSidePanelRoom(opened?.kind ?? "designs", !!opened && !!chatId && chatShown, DOCK_WIDTH + 12, closeDesigns);
+  // Its width plus the 12px gap to the chat. The chat panes reserve it through --artifact-dock.
+  const dockWidth = usePanelWidth(opened?.kind ?? "designs").width;
+  useSidePanelRoom(opened?.kind ?? "designs", !!opened && !!chatId && chatShown, dockWidth + 12, closeDesigns);
   return (
     <Artifacts.Provider value={value}>
       <span ref={anchor} aria-hidden className="pointer-events-none absolute top-0 left-0 h-px w-px" />
@@ -715,7 +714,13 @@ function ArtifactDock({
   const reduced = useReducedMotion();
   // The designs' frames mount once the panel has slid in: building them while it moves is what makes it stutter.
   const [entered, setEntered] = useState(!!reduced);
-  const cramped = !!area && area.width - DOCK_WIDTH - 12 < MIN_CHAT_WIDTH;
+  // Dragged wider than the window now leaves room for, it narrows to keep the chat usable, down to its default width;
+  // with no room for that (or for the narrower width it was dragged to) beside the chat and a docked simulator, it
+  // fills the workspace instead.
+  const resize = usePanelWidth(kind);
+  const fits = area ? Math.min(resize.width, area.width - area.simulator - 12 - MIN_CHAT_WIDTH) : resize.width;
+  const cramped = !!area && fits < Math.min(resize.width, resize.reset);
+  const dockWidth = Math.max(resize.min, fits);
   const full = expanded || cramped;
   const canvas = useRef<CanvasHandle>(null);
   const [view, setView] = useState<CanvasView | null>(null);
@@ -813,8 +818,21 @@ function ArtifactDock({
     <DockSlide
       // Opens like the git changes panel. Beside the chat, the chat makes room (--artifact-dock); filling the
       // workspace, the canvas covers it and reserves nothing.
-      width={full ? null : DOCK_WIDTH}
+      width={full ? null : dockWidth}
       reserve="--artifact-dock"
+      resizing={resize.resizing}
+      handle={
+        <ResizeHandle
+          label={`Resize ${label}`}
+          side="left"
+          width={dockWidth}
+          min={resize.min}
+          max={() => roomToWiden(kind, dockWidth)}
+          reset={resize.reset}
+          onResize={resize.onResize}
+          onCommit={resize.onCommit}
+        />
+      }
       onEntered={() => setEntered(true)}
       role="dialog"
       aria-label={label}

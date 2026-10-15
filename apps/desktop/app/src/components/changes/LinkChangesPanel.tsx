@@ -63,7 +63,11 @@ export function LinkChangesPanel({
     { added: 0, removed: 0 },
   );
   return (
-    <aside data-changes-panel aria-label="Changes" className="flex min-h-0 w-[320px] shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card">
+    <aside
+      data-changes-panel
+      aria-label="Changes"
+      className="flex min-h-0 w-[var(--changes-panel-width,320px)] shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card"
+    >
       <ChangesHeader mode={mode} onModeChange={onModeChange} onRefresh={onRefresh} loading={loading} totals={totals} />
       <ScrollArea className="flex-1 py-1.5">
         {members.map((member) => (

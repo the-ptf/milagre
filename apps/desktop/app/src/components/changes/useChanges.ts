@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { DiffMode } from "../../electron";
 import { useDiffFiles } from "./useDiffFiles";
 import { useCloseWhenDesignsExpand, useSidePanelRoom } from "../agents/dock-area";
+import { usePanelWidth } from "../agents/panel-width";
 import { bridgeForKey, onAnyAgentEvent } from "../../lib/computer-bridge";
 
 export type Changes = ReturnType<typeof useChanges>;
@@ -40,8 +41,8 @@ export function useChanges({ cwd, base, chatId, available }: { cwd: string | und
   const toggle = useCallback(() => setOpen((value) => !value), []);
   const hide = useCallback(() => setOpen(false), []);
   useCloseWhenDesignsExpand(hide);
-  // The panel is 320px wide, plus the 12px gap beside it.
-  useSidePanelRoom("changes", shown, 332, hide);
+  // The panel's dragged width, plus the 12px gap beside it.
+  useSidePanelRoom("changes", shown, usePanelWidth("changes").width + 12, hide);
   const closeDiff = useCallback(() => setDiffChatId(null), []);
   const selectFile = useCallback(
     (path: string) => {

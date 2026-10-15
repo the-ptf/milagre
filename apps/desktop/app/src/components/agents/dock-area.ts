@@ -3,13 +3,14 @@ import { useEffect, useRef, useState } from "react";
 /**
  * Where the panels docked beside the chat go: the workspace between the sidebar and the git changes panel, which an
  * expanded design fills; `right`, how much of the window's right edge the changes panel takes, so the docks sit to its
- * left and it stays the rightmost; and `top` and `bottom`, the sidebar card's, so every panel lines up with it.
+ * left and it stays the rightmost; `simulator`, what a docked simulator takes of the workspace, gap included; and `top`
+ * and `bottom`, the sidebar card's, so every panel lines up with it.
  * From the right: the changes panel, a docked simulator, then the designs. Each sits under the panels right of it, so
  * one sliding in or out passes under its neighbours: designs z-[41], simulator z-[42], changes panel z-[43], all under
  * the window's top strip (z-50).
  */
 export function useDockArea() {
-  const [area, setArea] = useState<{ left: number; right: number; width: number; top: number; bottom: number } | null>(null);
+  const [area, setArea] = useState<{ left: number; right: number; width: number; simulator: number; top: number; bottom: number } | null>(null);
   useEffect(() => {
     const main = document.querySelector<HTMLElement>("[data-workspace-main]") ?? document.querySelector<HTMLElement>("[data-chat-pane]");
     if (!main) return;
@@ -17,12 +18,15 @@ export function useDockArea() {
     const measure = () => {
       const rect = main.getBoundingClientRect();
       const right = document.querySelector("[data-changes-slot]")?.getBoundingClientRect().width ?? 0;
+      // It springs open and closed beside the chat, which narrows with it, so <main>'s resizes follow it.
+      const simulator = document.querySelector("[data-slot=simulator-popover][data-docked]")?.getBoundingClientRect().width ?? 0;
       // Lined up with the sidebar's card, top and bottom.
       const sidebar = document.querySelector("aside[aria-label='Workspace navigation']")?.getBoundingClientRect();
       setArea({
         left: rect.left,
         right,
         width: window.innerWidth - rect.left - right,
+        simulator: simulator > 0.5 ? simulator + 12 : 0,
         top: sidebar?.top ?? 40,
         bottom: sidebar ? window.innerHeight - sidebar.bottom : 12,
       });

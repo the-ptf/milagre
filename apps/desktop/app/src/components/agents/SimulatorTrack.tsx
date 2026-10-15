@@ -20,10 +20,9 @@ import { viewerTheme } from "./viewerTheme";
 import { dockLayer, useCloseWhenDesignsExpand, useDockArea, useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
 import { DockSlide } from "./DockSlide";
+import { roomToWiden, usePanelWidth } from "./panel-width";
+import { ResizeHandle } from "../primitives/ResizeHandle";
 import { useBridge } from "../../lib/computer-bridge";
-
-// Docked width plus the 12px gap to the chat. The chat panes reserve it through --simulator-dock.
-const DOCK_WIDTH = 400;
 
 /** The host owns persistent associations; discovery never attaches a device. */
 export function SimulatorTrack({ chatId }: { chatId: string }) {
@@ -53,7 +52,9 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
   const dock = useDockArea();
   const reduced = useReducedMotion();
   useCloseWhenDesignsExpand(close);
-  useSidePanelRoom("simulator", opened && docked, DOCK_WIDTH + 12, close);
+  // Docked, its width plus the 12px gap to the chat. The chat panes reserve it through --simulator-dock.
+  const resize = usePanelWidth("simulator");
+  useSidePanelRoom("simulator", opened && docked, resize.width + 12, close);
   const bounds = useAnchoredPopover({
     opened: opened && !docked,
     setOpened: (value) => {
@@ -269,8 +270,21 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   key="simulator-dock"
                   // Docked, it opens like the git changes panel, lines up with the sidebar's card, and sits left of the
                   // changes panel; the chat makes room through --simulator-dock.
-                  width={DOCK_WIDTH}
+                  width={resize.width}
                   reserve="--simulator-dock"
+                  resizing={resize.resizing}
+                  handle={
+                    <ResizeHandle
+                      label="Resize simulator"
+                      side="left"
+                      width={resize.width}
+                      min={resize.min}
+                      max={() => roomToWiden("simulator", resize.width)}
+                      reset={resize.reset}
+                      onResize={resize.onResize}
+                      onCommit={resize.onCommit}
+                    />
+                  }
                   ref={panel}
                   id={panelId}
                   role="dialog"

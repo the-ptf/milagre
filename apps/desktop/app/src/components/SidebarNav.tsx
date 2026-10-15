@@ -1,6 +1,7 @@
 import type { NamedProjectLink } from "@milagre/shared/model";
 import { ProjectAvatarStack } from "./ProjectAvatarStack";
 import { useWindowChrome } from "../lib/window-chrome";
+import { ResizeHandle } from "./primitives/ResizeHandle";
 import { useProjectImages } from "../lib/project-images";
 
 import {
@@ -1212,43 +1213,6 @@ export default memo(function SidebarNav({
     window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
   };
 
-  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    const handle = event.currentTarget;
-    handle.setPointerCapture(event.pointerId);
-    const startX = event.clientX;
-    const startWidth = expandedWidth;
-    let latest = startWidth;
-    setResizing(true);
-    document.body.style.cursor = "col-resize";
-    const move = (moveEvent: PointerEvent) => {
-      latest = clampSidebarWidth(startWidth + moveEvent.clientX - startX);
-      setExpandedWidth(latest);
-    };
-    const end = () => {
-      handle.removeEventListener("pointermove", move);
-      handle.removeEventListener("pointerup", end);
-      handle.removeEventListener("pointercancel", end);
-      document.body.style.cursor = "";
-      setResizing(false);
-      saveWidth(latest);
-    };
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", end);
-    handle.addEventListener("pointercancel", end);
-  };
-
-  const resizeWithKeys = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const step = event.shiftKey ? 48 : 16;
-    if (event.key === "ArrowLeft") saveWidth(expandedWidth - step);
-    else if (event.key === "ArrowRight") saveWidth(expandedWidth + step);
-    else if (event.key === "Home") saveWidth(SIDEBAR_MIN_WIDTH);
-    else if (event.key === "End") saveWidth(SIDEBAR_MAX_WIDTH);
-    else return;
-    event.preventDefault();
-  };
-
   const chrome = useWindowChrome();
   return (
     <div className={`relative flex min-h-0 shrink-0 flex-col ${fill ? "h-full" : "h-[600px]"} ${className}`}>
@@ -1566,24 +1530,17 @@ export default memo(function SidebarNav({
         </div>
       </aside>
       {!collapsed && (
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize sidebar"
-          aria-valuemin={SIDEBAR_MIN_WIDTH}
-          aria-valuemax={SIDEBAR_MAX_WIDTH}
-          aria-valuenow={expandedWidth}
-          tabIndex={0}
-          title="Drag to resize, double-click to reset"
-          onPointerDown={startResize}
-          onDoubleClick={() => saveWidth(SIDEBAR_MIN_WIDTH)}
-          onKeyDown={resizeWithKeys}
-          className="group absolute bottom-0 right-[-6px] top-0 z-10 flex w-3 cursor-col-resize justify-center outline-none [-webkit-app-region:no-drag]"
-        >
-          <span
-            className={`my-3 w-0.5 rounded-full transition-colors duration-150 group-hover:bg-line-strong group-focus-visible:bg-accent ${resizing ? "bg-line-strong" : "bg-transparent"}`}
-          />
-        </div>
+        <ResizeHandle
+          label="Resize sidebar"
+          side="right"
+          width={expandedWidth}
+          min={SIDEBAR_MIN_WIDTH}
+          max={SIDEBAR_MAX_WIDTH}
+          reset={SIDEBAR_MIN_WIDTH}
+          onResize={setExpandedWidth}
+          onCommit={saveWidth}
+          onResizingChange={setResizing}
+        />
       )}
     </div>
   );
