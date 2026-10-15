@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { checkClaude, claudeServer } = require("./claude.cjs");
+const { checkClaude, claudeServer, addClaude, removeClaude, runCli } = require("./claude.cjs");
 
 test("an SDK status maps to a report", () => {
   assert.deepEqual(claudeServer({ name: "pencil", status: "connected", scope: "user", tools: [{ name: "a" }, { name: "b" }], config: { type: "stdio" } }), {
@@ -115,4 +115,19 @@ test("a signal that is already aborted closes the session right away", async () 
   }).catch(() => {});
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(closed, true);
+});
+
+test("add and remove call the Claude CLI at user scope", async () => {
+  const calls = [];
+  const run = async (command, args, options) => (calls.push({ command, args, env: options.env }), { stdout: "", stderr: "" });
+  await addClaude({ command: "/bin/claude", env: { A: "1" }, def: { name: "linear", type: "http", url: "https://x", headers: {} }, run });
+  await removeClaude({ command: "/bin/claude", env: { A: "1" }, name: "linear", run });
+  assert.deepEqual(calls, [
+    { command: "/bin/claude", args: ["mcp", "add-json", "linear", '{"type":"http","url":"https://x"}', "--scope", "user"], env: { A: "1" } },
+    { command: "/bin/claude", args: ["mcp", "remove", "linear", "--scope", "user"], env: { A: "1" } },
+  ]);
+});
+
+test("runCli rejects with stderr", async () => {
+  await assert.rejects(runCli(process.execPath, ["-e", "process.stderr.write('bad name'); process.exit(1)"], {}), /bad name/);
 });

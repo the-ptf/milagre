@@ -1,3 +1,6 @@
+const { execFile } = require("node:child_process");
+const { toClaudeConfig } = require("./definitions.cjs");
+
 // One Claude account's MCP servers, from an idle SDK session's mcpServerStatus() (the listClaudeModels pattern in
 // agents/models.cjs). The session sends no prompt, so it costs no tokens; it only starts the servers.
 
@@ -62,4 +65,22 @@ async function checkClaude({
   }
 }
 
-module.exports = { checkClaude, claudeServer };
+// A CLI call with no shell; a failure carries the CLI's own message, which the sheet shows.
+function runCli(command, args, { env } = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { env: env ?? process.env, timeout: 30_000, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) reject(new Error(String(stderr || error.message).trim()));
+      else resolve({ stdout: String(stdout), stderr: String(stderr) });
+    });
+  });
+}
+
+async function addClaude({ command, env, def, run = runCli }) {
+  await run(command, ["mcp", "add-json", def.name, JSON.stringify(toClaudeConfig(def)), "--scope", "user"], { env });
+}
+
+async function removeClaude({ command, env, name, run = runCli }) {
+  await run(command, ["mcp", "remove", name, "--scope", "user"], { env });
+}
+
+module.exports = { checkClaude, claudeServer, addClaude, removeClaude, runCli };

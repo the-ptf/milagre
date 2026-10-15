@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { checkCodex, codexServer } = require("./codex.cjs");
+const { checkCodex, codexServer, addCodex, removeCodex, readCodexDefinition } = require("./codex.cjs");
 
 test("a Codex status maps to a report", () => {
   assert.deepEqual(
@@ -110,4 +110,53 @@ test("a signal that is already aborted closes the app-server right away", async 
   controller.abort();
   void checkCodex({ command: "codex", cwd: "/", signal: controller.signal, createRpc: () => rpc }).catch(() => {});
   assert.equal(rpc.closed, true);
+});
+
+function answerRpc(answers) {
+  const requests = [];
+  return {
+    requests,
+    create: () => ({
+      start() {},
+      notify() {},
+      close() {},
+      on() {},
+      off() {},
+      async request(method, params) {
+        requests.push({ method, params });
+        return answers[method] ?? {};
+      },
+    }),
+  };
+}
+
+test("addCodex writes mcp_servers.<name> through the app-server", async () => {
+  const rpc = answerRpc({});
+  await addCodex({ command: "/bin/codex", cwd: "/", def: { name: "linear", type: "http", url: "https://x", headers: { A: "b" } }, createRpc: rpc.create });
+  assert.deepEqual(rpc.requests.at(-1), {
+    method: "config/value/write",
+    params: { keyPath: "mcp_servers.linear", value: { url: "https://x", http_headers: { A: "b" } }, mergeStrategy: "replace" },
+  });
+});
+
+test("removeCodex calls codex mcp remove", async () => {
+  const calls = [];
+  await removeCodex({
+    command: "/bin/codex",
+    env: {},
+    name: "linear",
+    run: async (command, args) => (calls.push([command, ...args]), { stdout: "", stderr: "" }),
+  });
+  assert.deepEqual(calls, [["/bin/codex", "mcp", "remove", "linear"]]);
+});
+
+test("readCodexDefinition reads config/read", async () => {
+  const rpc = answerRpc({ "config/read": { config: { mcp_servers: { linear: { url: "https://x" } } } } });
+  assert.deepEqual(await readCodexDefinition({ command: "/bin/codex", cwd: "/", name: "linear", createRpc: rpc.create }), {
+    name: "linear",
+    type: "http",
+    url: "https://x",
+    headers: {},
+  });
+  assert.equal(await readCodexDefinition({ command: "/bin/codex", cwd: "/", name: "nope", createRpc: rpc.create }), null);
 });
