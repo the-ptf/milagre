@@ -1792,6 +1792,8 @@ function chatHost({
     "../worktree-link-divider": { WorktreeLinkDivider: "WorktreeLinkDivider" },
     "../compaction-divider": { CompactionDivider: "CompactionDivider" },
     "../account-switch-divider": { AccountSwitchDivider: "AccountSwitchDivider" },
+    "../chat-reload-divider": { ChatReloadDivider: "ChatReloadDivider" },
+    "@milagre/shared/chat-reload": require("@milagre/shared/chat-reload"),
     "../handoff-brief-store": { showBrief() {} },
     "@milagre/shared/handoff": require("@milagre/shared/handoff"),
     "@milagre/shared/worktree-link": require("@milagre/shared/worktree-link"),
