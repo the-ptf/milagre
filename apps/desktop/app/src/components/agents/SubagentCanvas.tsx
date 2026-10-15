@@ -53,7 +53,6 @@ export const SubagentCanvas = memo(function SubagentCanvas({
   /** Each subagent's design work (subagentDesigns), shown on its bot; it opens the Designs on that design. */
   designs?: ReadonlyMap<string, SubagentDesign>;
 }) {
-  const openDesigns = useDesignsOpener();
   const panel = useRef<HTMLElement>(null);
   const surface = useRef<HTMLDivElement>(null);
   const transcriptClose = useRef<HTMLButtonElement>(null);
@@ -464,25 +463,7 @@ export const SubagentCanvas = memo(function SubagentCanvas({
                     {node.status}
                   </span>
                 )}
-                {(() => {
-                  const design = node.agent ? designs?.get(node.agent.id) : undefined;
-                  if (!design || !openDesigns) return null;
-                  const label = design.designing ? `Designing${design.title ? ` ${design.title}` : "…"}` : design.title;
-                  return (
-                    <button
-                      type="button"
-                      data-slot="subagent-design"
-                      data-designing={design.designing || undefined}
-                      className="subagent-bot-design"
-                      title={design.designing ? `Open the Designs to watch ${node.title} design` : `Open ${design.title} in the Designs`}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={() => openDesigns(design.id)}
-                    >
-                      <HugeiconsIcon icon={PaintBoardIcon} size={11} strokeWidth={1.8} aria-hidden="true" />
-                      <span>{label}</span>
-                    </button>
-                  );
-                })()}
+                {node.agent && designs?.get(node.agent.id) && <SubagentDesignChip design={designs.get(node.agent.id)!} name={node.title} />}
               </div>
             );
           })}
@@ -516,3 +497,27 @@ export const SubagentCanvas = memo(function SubagentCanvas({
     </section>
   );
 });
+
+/**
+ * A subagent's design work on its bot; it opens the Designs on that design. Its own component, so only the chip reads
+ * the Designs, which change with every step: the canvas itself doesn't re-render for them.
+ */
+function SubagentDesignChip({ design, name }: { design: SubagentDesign; name: string }) {
+  const openDesigns = useDesignsOpener();
+  if (!openDesigns) return null;
+  const label = design.designing ? `Designing${design.title ? ` ${design.title}` : "…"}` : design.title;
+  return (
+    <button
+      type="button"
+      data-slot="subagent-design"
+      data-designing={design.designing || undefined}
+      className="subagent-bot-design"
+      title={design.designing ? `Open the Designs to watch ${name} design` : `Open ${design.title} in the Designs`}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={() => openDesigns(design.id)}
+    >
+      <HugeiconsIcon icon={PaintBoardIcon} size={11} strokeWidth={1.8} aria-hidden="true" />
+      <span>{label}</span>
+    </button>
+  );
+}

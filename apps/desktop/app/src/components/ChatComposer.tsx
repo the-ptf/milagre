@@ -14,7 +14,7 @@ import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import { SubagentCanvas } from "./agents/SubagentCanvas";
-import { subagentDesigns } from "./agents/subagent-designs";
+import { useSubagentDesigns } from "./agents/subagent-designs";
 import { useEvent } from "../lib/stable";
 import type { AgentPort, ChatPlan, ContextUsage, Subagent } from "../model";
 import { PortTrack } from "./agents/PortTrack";
@@ -860,7 +860,7 @@ export function ChatComposer({
   // Designs are read through the Chat's key; a shared Link Chat uses its Link-scoped key too.
   const artifactChat = runtimeChat;
   const artifactSteps = useMemo(() => [...messages.flatMap((message) => message.steps ?? []), ...(streamingSteps ?? [])], [messages, streamingSteps]);
-  const subagentDesignWork = useMemo(() => subagentDesigns(artifactSteps), [artifactSteps]);
+  const subagentDesignWork = useSubagentDesigns(artifactSteps);
   const userMessages = useMemo(() => messages.filter((message) => message.role === "user").map(({ id, body }) => ({ id, body })), [messages]);
   // What the user typed in this chat, oldest first, for Up/Down in the prompt. Host-sent context (delegations, reports) is left out.
   const promptHistory = useMemo(
