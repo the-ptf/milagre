@@ -8,12 +8,19 @@ import { ScrollArea } from "../primitives/ScrollArea";
 
 const button = "rounded-[8px] border border-line px-3 py-1.5 text-[12px] hover:bg-hover disabled:opacity-40";
 
-/** A public snapshot always contains the entire saved Designs page, regardless of the viewed version or selection. */
+const when = (share: DesignPageShare) =>
+  `${share.updatedAt ? "Updated" : "Published"} ${new Date(share.updatedAt ?? share.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`;
+const olderLinksNotice = (count = 0) =>
+  count ? `${count === 1 ? "An older link" : `${count} older links`} could not be revoked yet. Revoke in Settings > Published pages.` : "";
+
+/** A Chat page has one public link. Sharing again replaces the snapshot behind it; without a chatId this lists every
+ * published page on this computer. A snapshot always holds the entire saved page, whatever version or selection is viewed. */
 export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { chatId?: string | null; kind?: "designs" | "artifacts"; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const alive = useRef(false);
   const working = useRef(false);
   const reads = useRef(0);
+  const titleEdited = useRef(false);
   const [title, setTitle] = useState(kind === "artifacts" ? "Artifact" : "Designs");
   const [shares, setShares] = useState<DesignPageShare[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,11 +31,7 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
   const [availability, setAvailability] = useState<{ available: boolean; reason?: string } | null>(null);
   const [checking, setChecking] = useState(true);
   const [revoke, setRevoke] = useState<string | null>(null);
-  const [publishedId, setPublishedId] = useState<string | null>(null);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const featured = shares.find((share) => share.id === publishedId);
-  const history = shares.filter((share) => share.id !== publishedId);
-  const showHistory = !chatId || historyOpen || !!error || history.some((share) => share.pending && !share.revoked);
+  const current = chatId ? shares.find((share) => !share.revoked) : undefined;
   const api = bridgeForKey(chatId).artifacts;
 
   const load = useCallback(
@@ -38,7 +41,8 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
         const rows = await (chatId ? api.pageShares({ chatId, kind }) : api.allPageShares());
         if (alive.current && read === reads.current) {
           setShares(rows);
-          if (rows.some((share) => share.pending && !share.revoked)) setHistoryOpen(true);
+          const live = chatId && rows.find((share) => !share.revoked);
+          if (live && !titleEdited.current) setTitle(live.title);
         }
       } catch (cause) {
         if (alive.current && read === reads.current) {
@@ -83,10 +87,12 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
 
   async function publish() {
     if (!chatId || checking || !availability?.available || working.current || loading || loadFailed || !title.trim()) return;
+    const updating = !!current;
     working.current = true;
     setBusy("publish");
     setError("");
     setNotice("");
+    setRevoke(null);
     try {
       const share = await api.sharePage({
         chatId,
@@ -95,19 +101,15 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
         kind,
       });
       if (alive.current) {
-        setShares((rows) => [share, ...rows.filter((row) => row.id !== share.id)]);
-        if (!share.pending) {
-          setPublishedId(share.id);
-          setHistoryOpen(false);
-        } else setHistoryOpen(true);
-        setNotice(share.pending ? "Publication not confirmed. Check the link before publishing again." : "");
+        reads.current++;
+        setShares([share]);
+        setNotice([updating ? "Snapshot updated." : "", olderLinksNotice(share.olderLinks)].filter(Boolean).join(" "));
       }
     } catch (cause) {
       if (alive.current) {
         setError(ipcErrorMessage(cause));
         // The upload may have reached the service even if its acknowledgement was lost.
         await load(true);
-        setHistoryOpen(true);
       }
     } finally {
       working.current = false;
@@ -124,9 +126,11 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
       if (chatId) await api.revokePageShare({ chatId, id, kind });
       else await api.revokeSavedPageShare({ id });
       if (alive.current) {
-        setShares((rows) => rows.map((row) => (row.id === id ? { ...row, revoked: true } : row)));
+        reads.current++;
+        // A Chat page drops its revoked link; the next Publish creates a new one. The global list keeps the row.
+        setShares((rows) => (chatId ? rows.filter((row) => row.id !== id) : rows.map((row) => (row.id === id ? { ...row, revoked: true } : row))));
         setRevoke(null);
-        setNotice("Hosted page removed. Copies may remain online.");
+        setNotice("Link revoked. Copies may remain online.");
       }
     } catch (cause) {
       if (alive.current) setError(ipcErrorMessage(cause));
@@ -140,11 +144,51 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
       await navigator.clipboard.writeText(url);
       if (alive.current) setNotice("Link copied.");
     } catch {
-      if (alive.current) setError("Could not copy the link. Select the link below and copy it.");
+      if (alive.current) setError("Could not copy the link. Select it and copy it.");
     }
   }
-  const shareDetails = (share: DesignPageShare, prominent = false) => (
-    <div data-share-id={share.id} className={prominent ? "space-y-3" : "space-y-2 py-3"}>
+  const linkRow = (share: DesignPageShare) => (
+    <div className="flex items-center gap-2 rounded-control bg-field p-1.5 pl-2 ring-1 ring-line">
+      <a
+        href={share.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`Open link for ${share.title}`}
+        className="min-w-0 flex-1 select-text truncate px-1 text-[12px] text-ink-2 hover:underline"
+      >
+        {share.url}
+      </a>
+      <button type="button" className={`${button} shrink-0 bg-surface`} onClick={() => void copy(share.url)}>
+        Copy link
+      </button>
+    </div>
+  );
+  const revokeControl = (share: DesignPageShare) =>
+    revoke === share.id ? (
+      <div className="w-full space-y-2">
+        <p className="text-[12px] text-ink-2">Remove this page? Copies may remain online.</p>
+        <div className="flex justify-end gap-2">
+          <button type="button" className={button} disabled={!!busy} onClick={() => setRevoke(null)}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            data-slot="design-page-revoke-confirm"
+            className={`${button} text-red`}
+            disabled={!!busy}
+            onClick={() => void revokeLink(share.id)}
+          >
+            {busy === share.id ? "Revoking..." : "Revoke link"}
+          </button>
+        </div>
+      </div>
+    ) : (
+      <button type="button" className="text-[12px] text-ink-3 hover:text-red disabled:opacity-40" disabled={!!busy} onClick={() => setRevoke(share.id)}>
+        Revoke link
+      </button>
+    );
+  const savedPage = (share: DesignPageShare) => (
+    <div data-share-id={share.id} className="space-y-2 py-3">
       <div className="flex items-baseline justify-between gap-3">
         <span className="truncate text-[13px] font-medium">{share.title}</span>
         <span className="shrink-0 text-[11px] text-ink-3">
@@ -153,56 +197,45 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
           {share.revoked ? " · Revoked" : ""}
         </span>
       </div>
-      {!prominent && <p className="text-[11px] text-ink-3">{new Date(share.createdAt).toLocaleString()}</p>}
-      {share.pending && !share.revoked && <p className="text-[12px] text-ink-2">Publication not confirmed. Check this link before publishing again.</p>}
+      <p className="text-[11px] text-ink-3">{when(share)}</p>
+      {share.pending && !share.revoked && <p className="text-[12px] text-ink-2">Not confirmed. The link may not work yet.</p>}
       {share.revoked ? (
-        <p className="text-[12px] text-ink-3">Hosted page removed. Copies may remain online.</p>
+        <p className="text-[12px] text-ink-3">Removed. Copies may remain online.</p>
       ) : (
         <>
-          <div className="flex items-center gap-2 rounded-control bg-field p-2 ring-1 ring-line">
-            <a
-              href={share.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`Open link for ${share.title}`}
-              className="min-w-0 flex-1 select-text truncate px-1 text-[12px] text-ink-2 hover:underline"
-            >
-              {share.url}
-            </a>
-            <button
-              type="button"
-              className="shrink-0 rounded-control bg-ink px-3 py-2 text-[12px] font-medium text-surface"
-              onClick={() => void copy(share.url)}
-            >
-              Copy link
-            </button>
-          </div>
-          {revoke === share.id ? (
-            <div className="space-y-2">
-              <p className="text-[12px] text-ink-2">Remove this hosted page? Copies may remain online.</p>
-              <div className="flex justify-end gap-2">
-                <button type="button" className={button} disabled={!!busy} onClick={() => setRevoke(null)}>
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  data-slot="design-page-revoke-confirm"
-                  className={`${button} text-red`}
-                  disabled={!!busy}
-                  onClick={() => void revokeLink(share.id)}
-                >
-                  {busy === share.id ? "Revoking..." : "Revoke link"}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button type="button" className="text-[12px] text-ink-3 hover:text-red disabled:opacity-40" disabled={!!busy} onClick={() => setRevoke(share.id)}>
-              Revoke link
-            </button>
-          )}
+          {linkRow(share)}
+          {revokeControl(share)}
         </>
       )}
     </div>
+  );
+  const retryLoad = (
+    <button
+      type="button"
+      onClick={() => {
+        setLoading(true);
+        setLoadFailed(false);
+        setError("");
+        void load();
+      }}
+      className={`${button} mt-3`}
+    >
+      Retry
+    </button>
+  );
+  const messages = (
+    <>
+      {!!error && (
+        <p role="alert" className="mt-3 text-[12px] text-red">
+          {error}
+        </p>
+      )}
+      {!!notice && (
+        <p role="status" className="mt-3 text-[12px] text-ink-2">
+          {notice}
+        </p>
+      )}
+    </>
   );
   return createPortal(
     <dialog
@@ -221,42 +254,27 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
       onClick={(event) => {
         if (event.target === dialog.current && !working.current) onClose();
       }}
-      className="m-auto w-[440px] max-w-[calc(100vw-32px)] overflow-hidden rounded-[14px] bg-surface p-0 text-ink shadow-overlay backdrop:bg-black/20 backdrop:backdrop-blur-overlay"
+      className="m-auto w-[420px] max-w-[calc(100vw-32px)] overflow-hidden rounded-[14px] bg-surface p-0 text-ink shadow-overlay backdrop:bg-black/20 backdrop:backdrop-blur-overlay"
     >
       <div className="flex max-h-[calc(100vh-64px)] flex-col">
         <header className="flex shrink-0 items-center justify-between gap-3 px-5 pb-2 pt-5">
           <h2 id="design-page-share-title" className="text-[17px] font-semibold">
-            {!chatId ? "Published pages" : featured ? (featured.revoked ? "Snapshot removed" : "Snapshot shared") : "Share a snapshot"}
+            {chatId ? "Share" : "Published pages"}
           </h2>
           <button type="button" className="text-[12px] text-ink-3 hover:text-ink disabled:opacity-40" disabled={!!busy} onClick={onClose}>
             Close
           </button>
         </header>
         <ScrollArea className="px-5 pb-5 pt-1">
-          {chatId && (
-            <p className="mb-4 text-[13px] leading-5 text-ink-2">
-              {featured
-                ? "This snapshot stays frozen. Later edits stay private."
-                : kind === "artifacts"
-                  ? "A frozen copy of this Chat's saved artifact page. Later edits stay private."
-                  : "A frozen copy of every saved design on this page. Later edits stay private."}
-            </p>
-          )}
-          {featured && shareDetails(featured, true)}
-          <div id="design-page-share-warning" className={`${featured ? "mt-4" : ""} space-y-1 text-[12px] leading-5`}>
-            <p className="font-medium text-ink">Public access</p>
-            <p className="text-ink-2">Anyone with the link can view, copy or redistribute it. Copies may remain online permanently.</p>
-            {chatId && (
-              <p className="text-ink-3">
-                {kind === "artifacts"
-                  ? "Comments and Chat messages stay private. The full saved HTML, including hidden content, is shared. External resources are blocked."
-                  : "Unsaved edits, comments and Chat messages stay private. Shared files can include content clipped by frames."}
-              </p>
-            )}
-          </div>
-          {chatId && !featured && (
+          {chatId ? (
             <>
-              <label htmlFor="design-page-share-name" className="mb-2 mt-4 block text-[12px] text-ink-2">
+              {current && (
+                <div data-share-id={current.id} className="mb-4 space-y-2">
+                  {linkRow(current)}
+                  {current.pending && <p className="text-[12px] text-ink-2">Not confirmed yet. Update to retry.</p>}
+                </div>
+              )}
+              <label htmlFor="design-page-share-name" className="mb-1.5 block text-[12px] text-ink-2">
                 Page title
               </label>
               <input
@@ -265,18 +283,23 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
                 value={title}
                 maxLength={120}
                 disabled={!!busy}
-                onChange={(event) => setTitle(event.target.value)}
+                onChange={(event) => {
+                  titleEdited.current = true;
+                  setTitle(event.target.value);
+                }}
                 className="h-9 w-full rounded-control bg-field px-2.5 text-[13px] outline-none ring-1 ring-line-strong focus-visible:ring-accent"
               />
+              <p id="design-page-share-warning" className="mt-2 text-[12px] text-ink-3">
+                {kind === "artifacts" ? "Anyone with the link can view it, hidden HTML included." : "Anyone with the link can view it."}
+              </p>
               {checking ? (
                 <p role="status" className="mt-3 text-[12px] text-ink-3">
-                  Checking publishing availability...
+                  Checking the sharing service...
                 </p>
               ) : !availability?.available ? (
                 <div className="mt-3 text-[12px]" data-slot="design-page-unavailable">
-                  <p className="text-ink-2">Publishing is unavailable</p>
-                  {availability?.reason && <p className="mt-1 text-ink-3">{availability.reason}</p>}
-                  <button type="button" className="mt-2 text-accent disabled:opacity-40" disabled={!!busy} onClick={() => void checkAvailability()}>
+                  <p className="text-ink-2">Publishing is unavailable. {availability?.reason && <span className="text-ink-3">{availability.reason}</span>}</p>
+                  <button type="button" className="mt-1 text-accent disabled:opacity-40" disabled={!!busy} onClick={() => void checkAvailability()}>
                     Retry check
                   </button>
                 </div>
@@ -288,75 +311,37 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
                 onClick={() => void publish()}
                 className="mt-4 w-full rounded-control bg-ink px-3 py-2.5 text-[13px] font-medium text-surface disabled:opacity-40"
               >
-                {busy === "publish" ? "Publishing..." : "Publish snapshot"}
+                {busy === "publish" ? (current ? "Updating..." : "Publishing...") : current ? "Update snapshot" : "Publish"}
               </button>
-            </>
-          )}
-          {featured && (
-            <button
-              type="button"
-              className={`${button} mt-4 w-full`}
-              disabled={!!busy}
-              onClick={() => {
-                setPublishedId(null);
-                setNotice("");
-              }}
-            >
-              Publish another snapshot
-            </button>
-          )}
-          {!!error && (
-            <p role="alert" className="mt-3 text-[12px] text-red">
-              {error}
-            </p>
-          )}
-          {!!notice && (
-            <p role="status" className="mt-3 text-[12px] text-ink-2">
-              {notice}
-            </p>
-          )}
-          {loading ? (
-            <p className="mt-3 text-[12px] text-ink-3">Loading snapshots...</p>
-          ) : loadFailed ? (
-            <button
-              type="button"
-              onClick={() => {
-                setLoading(true);
-                setLoadFailed(false);
-                setError("");
-                setHistoryOpen(true);
-                void load();
-              }}
-              className={`${button} mt-3`}
-            >
-              Retry
-            </button>
-          ) : history.length ? (
-            <section className="mt-4 border-t border-line pt-3">
-              {chatId ? (
-                <button
-                  type="button"
-                  data-slot="design-page-history-toggle"
-                  aria-expanded={showHistory}
-                  className="flex w-full items-center justify-between text-left text-[12px] text-ink-2"
-                  onClick={() => setHistoryOpen((open) => !open)}
-                >
-                  <span>Published snapshots ({history.length})</span>
-                  <span aria-hidden>{showHistory ? "−" : "+"}</span>
-                </button>
-              ) : (
-                <h3 className="text-[13px] font-medium">Published snapshots</h3>
+              {current && (
+                <div className="mt-3 flex min-h-7 items-center justify-between gap-3">
+                  {revoke !== current.id && <span className="text-[11px] text-ink-3">{when(current)}</span>}
+                  {revokeControl(current)}
+                </div>
               )}
-              {showHistory && (
+              {messages}
+              {loading ? <p className="mt-3 text-[12px] text-ink-3">Loading...</p> : loadFailed && retryLoad}
+            </>
+          ) : (
+            <>
+              <p id="design-page-share-warning" className="text-[12px] text-ink-3">
+                Anyone with a link can view its page.
+              </p>
+              {messages}
+              {loading ? (
+                <p className="mt-3 text-[12px] text-ink-3">Loading...</p>
+              ) : loadFailed ? (
+                retryLoad
+              ) : shares.length ? (
                 <ul className="mt-2 divide-y divide-line">
-                  {history.map((share) => (
-                    <li key={share.id}>{shareDetails(share)}</li>
+                  {shares.map((share) => (
+                    <li key={share.id}>{savedPage(share)}</li>
                   ))}
                 </ul>
+              ) : (
+                <p className="mt-4 text-[12px] text-ink-3">No pages published yet.</p>
               )}
-            </section>
-          ) : (
-            !chatId && <p className="mt-4 text-[12px] text-ink-3">No snapshots published yet.</p>
+            </>
           )}
         </ScrollArea>
       </div>

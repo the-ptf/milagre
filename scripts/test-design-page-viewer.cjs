@@ -253,6 +253,28 @@ async function check() {
     assert.equal(await evaluate("fetch('https://example.com/blocked').then(() => false, () => true)"), true, "CSP blocks external network requests");
     assert.equal(await evaluate("!!window.milagre || !!window.require"), false, "public pages cannot reach the host bridge or Node");
     await screenshot("viewer-desktop");
+    // No header or footer: the canvas fills the window; the zoom bar and the Milagre logo float bottom-right.
+    assert.equal(await evaluate("document.querySelectorAll('header, footer').length"), 0, "the public page has no header or footer");
+    assert.deepEqual(
+      await evaluate("(r => [innerHeight - r.bottom, r.top])(document.getElementById('viewport').getBoundingClientRect())"),
+      [0, 0],
+      "the canvas fills the window",
+    );
+    const logo = await evaluate(
+      "(() => {const a=document.querySelector('a.logo');return {href:a.href,target:a.target,rel:a.rel,label:a.getAttribute('aria-label')}})()",
+    );
+    assert.deepEqual(logo, { href: "https://milagre.cloud/", target: "_blank", rel: "noopener noreferrer", label: "Made with Milagre" });
+    const dock = () =>
+      evaluate(
+        "(() => {const box=e=>e.getBoundingClientRect(),bar=box(document.querySelector('.bar')),logo=box(document.querySelector('a.logo'));return {barRight:bar.right,barBottom:bar.bottom,barHeight:bar.height,logoLeft:logo.left,logoRight:logo.right,logoBottom:logo.bottom,logoSize:[logo.width,logo.height],width:innerWidth,height:innerHeight}})()",
+      );
+    const placed = await dock();
+    assert.equal(placed.width - placed.logoRight, 16, "the logo sits 16px from the right edge");
+    assert.equal(placed.height - placed.logoBottom, 16, "the logo sits 16px from the bottom edge");
+    assert.deepEqual(placed.logoSize, [32, 32]);
+    assert.equal(placed.logoLeft - placed.barRight, 8, "the zoom bar sits 8px left of the logo");
+    assert.equal(placed.barBottom, placed.logoBottom, "zoom bar and logo share a baseline");
+    assert.equal(placed.barHeight, 32);
     const before = await evaluate("document.getElementById('canvas').style.transform");
     await evaluate("document.getElementById('in').click()");
     assert.notEqual(await evaluate("document.getElementById('canvas').style.transform"), before, "zoom changes the canvas");
@@ -261,6 +283,10 @@ async function check() {
     assert.notEqual(await evaluate("document.getElementById('canvas').style.transform"), afterZoom, "wheel pans the canvas");
     await evaluate("document.getElementById('fit').click()");
     assert.equal(await evaluate("document.getElementById('canvas').style.transform"), before, "Fit restores the whole page");
+    await evaluate("document.getElementById('zoom').click()");
+    assert.equal(await evaluate("document.getElementById('zoom').textContent"), "100%", "the zoom reading resets to 100%");
+    assert.equal(await evaluate("new DOMMatrix(getComputedStyle(document.getElementById('canvas')).transform).a"), 1);
+    await evaluate("document.getElementById('fit').click()");
 
     window.setContentSize(390, 844);
     await delay(150);
@@ -343,6 +369,13 @@ async function check() {
       0,
       "Artifact snapshots have no design canvas, chooser or history controls",
     );
+    assert.equal(await evaluate("document.querySelectorAll('header, footer').length"), 0, "the public Artifact has no header or footer");
+    assert.deepEqual(
+      await evaluate("(r => [innerWidth - r.right, innerHeight - r.bottom, r.width, r.height])(document.querySelector('a.logo').getBoundingClientRect())"),
+      [16, 16, 32, 32],
+      "the Milagre logo floats bottom-right over the Artifact",
+    );
+    assert.equal(await evaluate("document.querySelector('a.logo').href"), "https://milagre.cloud/");
     await delay(150);
     await screenshot("viewer-artifact-before-click");
     const click = await evaluateArtifact(

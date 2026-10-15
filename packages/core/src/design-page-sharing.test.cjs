@@ -56,8 +56,126 @@ test("publishing captures the entire page at current versions and returns no sec
   assert.equal(result.id, createHash("sha256").update(Buffer.from(secret, "base64url")).digest("base64url"));
   assert.doesNotMatch(JSON.stringify(result), new RegExp(secret));
   assert.deepEqual(await api.list({ chatId: CHAT }), [result]);
-  const second = await api.publish(request);
-  assert.notEqual(second.id, result.id, "a deliberate publication gets a new immutable link");
+  assert.equal(result.updatedAt, undefined);
+});
+test("sharing again updates the snapshot behind the same link", async (t) => {
+  const { api, artifacts, calls, request } = await fixture(t);
+  const first = await api.publish(request);
+  await artifacts.apply({ chatId: CHAT, id: "first", expectedVersion: 1, operations: [{ op: "update", id: "heading", patch: { text: "Later" } }] });
+  const second = await api.publish({ ...request, title: "Renamed" });
+  assert.equal(second.id, first.id);
+  assert.equal(second.url, first.url);
+  assert.equal(second.title, "Renamed");
+  assert.equal(second.createdAt, first.createdAt);
+  assert.ok(second.updatedAt >= first.createdAt);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].url, calls[0].url);
+  assert.equal(calls[1].headers.authorization, calls[0].headers.authorization, "the update reuses the saved capability");
+  assert.equal(JSON.parse(calls[1].body).designs[0].document.nodes[0].text, "Later");
+  assert.deepEqual(await api.list({ chatId: CHAT }), [second]);
+  assert.equal((await api.listAll()).length, 1);
+  await api.revoke({ chatId: CHAT, id: first.id });
+  assert.deepEqual(await api.list({ chatId: CHAT }), [], "a revoked link is no longer the page's link");
+  const fresh = await api.publish(request);
+  assert.notEqual(fresh.id, first.id, "after revoking, the next share creates a new link");
+  assert.deepEqual(
+    (await api.listAll()).map((entry) => [entry.id, !!entry.revoked]),
+    [
+      [fresh.id, false],
+      [first.id, true],
+    ],
+  );
+});
+test("several live links from before updates collapse into the newest; failed revocations are kept and retried", async (t) => {
+  const { api, calls, options, request } = await fixture(t);
+  const newest = await api.publish(request);
+  const filename = path.join(options.directory, (await fs.readdir(options.directory))[0]);
+  const saved = JSON.parse(await fs.readFile(filename, "utf8"));
+  const { randomBytes } = require("node:crypto");
+  const older = [1, 2].map((n) => {
+    const secret = randomBytes(32);
+    const id = createHash("sha256").update(secret).digest("base64url");
+    return Object.assign(structuredClone(saved[0]), {
+      id,
+      secret: secret.toString("base64url"),
+      url: `https://share.milagre.cloud/s/${id}`,
+      createdAt: saved[0].createdAt - n,
+    });
+  });
+  await fs.writeFile(filename, JSON.stringify([...older, ...saved]));
+  assert.deepEqual(
+    (await api.list({ chatId: CHAT })).map((entry) => entry.id),
+    [newest.id],
+  );
+  let refuse = older[0].id;
+  const deletes = [];
+  const flaky = createDesignPageSharing({
+    ...options,
+    fetch: async (url, init) => {
+      if (init.method === "DELETE") deletes.push(url.split("/").at(-1));
+      return init.method === "DELETE" && url.endsWith(refuse) ? new Response(null, { status: 503 }) : options.fetch(url, init);
+    },
+  });
+  const first = await flaky.publish(request);
+  assert.equal(first.id, newest.id);
+  assert.equal(first.olderLinks, 1);
+  assert.equal(calls.findLast((call) => call.method === "PUT").url, calls[0].url, "the newest link is the one updated");
+  assert.deepEqual(deletes, [older[0].id, older[1].id]);
+  assert.deepEqual(
+    (await flaky.listAll()).map((entry) => entry.id).toSorted(),
+    [newest.id, older[0].id].toSorted(),
+    "the unrevoked older link stays manageable",
+  );
+  assert.deepEqual(
+    (await flaky.list({ chatId: CHAT })).map((entry) => entry.id),
+    [newest.id],
+  );
+  refuse = "none";
+  const second = await flaky.publish(request);
+  assert.equal(second.olderLinks, undefined);
+  assert.deepEqual(
+    (await flaky.listAll()).map((entry) => entry.id),
+    [newest.id],
+  );
+});
+test("a link revoked only on the service is replaced by a new one, but a local revocation is never undone", async (t) => {
+  const { api, options, request } = await fixture(t);
+  const first = await api.publish(request);
+  let gone = first.id;
+  const service = createDesignPageSharing({
+    ...options,
+    fetch: async (url, init) => (init.method === "PUT" && url.endsWith(gone) ? new Response("Snapshot revoked", { status: 410 }) : options.fetch(url, init)),
+  });
+  const replaced = await service.publish(request);
+  assert.notEqual(replaced.id, first.id);
+  assert.equal((await service.listAll()).find((entry) => entry.id === first.id).revoked, true);
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  let started;
+  const uploading = new Promise((resolve) => {
+    started = resolve;
+  });
+  const racing = createDesignPageSharing({
+    ...options,
+    fetch: async (url, init) => {
+      if (init.method === "PUT") {
+        started();
+        await held;
+        return new Response("Snapshot revoked", { status: 410 });
+      }
+      return options.fetch(url, init);
+    },
+  });
+  gone = replaced.id;
+  const publishing = racing.publish(request);
+  await uploading;
+  await racing.revoke({ chatId: CHAT, id: replaced.id });
+  release();
+  await assert.rejects(publishing, /revoked while it was updating/);
+  assert.deepEqual(await racing.list({ chatId: CHAT }), []);
+  assert.equal((await racing.listAll()).length, 2);
 });
 test("offline publishing creates no pending secret or phantom link", async (t) => {
   const { options, request } = await fixture(t);
@@ -124,14 +242,14 @@ test("upload deadlines allow larger snapshots on slow uplinks and remain bounded
   assert.equal(uploadTimeout(100 * 1024 * 1024), 300000);
 });
 
-test("both revoke paths bypass a pending upload and preserve concurrent history changes", async (t) => {
+test("both revoke paths bypass an in-flight upload and preserve concurrent history changes", async (t) => {
   const { options, request } = await fixture(t);
   let releaseUpload;
   let uploadStarted;
-  const started = new Promise((resolve) => {
+  let started = new Promise((resolve) => {
     uploadStarted = resolve;
   });
-  const held = new Promise((resolve) => {
+  let held = new Promise((resolve) => {
     releaseUpload = resolve;
   });
   t.after(() => releaseUpload());
@@ -146,12 +264,26 @@ test("both revoke paths bypass a pending upload and preserve concurrent history 
       return options.fetch(url, init);
     },
   });
+  // An update of a published link is revoked from the global list, and a new pending link from its Chat.
   const first = await api.publish(request);
   hold = true;
-  const publishing = api.publish(request);
+  const updating = api.publish(request);
   await started;
-  const pending = (await api.listAll()).find((entry) => entry.pending);
-  const revoking = Promise.all([api.revokeSaved({ id: first.id }), api.revoke({ chatId: CHAT, id: pending.id })]);
+  await api.revokeSaved({ id: first.id });
+  started = new Promise((resolve) => {
+    uploadStarted = resolve;
+  });
+  const releaseUpdate = releaseUpload;
+  held = new Promise((resolve) => {
+    releaseUpload = resolve;
+  });
+  const publishing = api.publish(request);
+  releaseUpdate();
+  assert.equal((await updating).revoked, true, "a late update acknowledgement cannot undo revocation");
+  await started;
+  const [pending] = await api.list({ chatId: CHAT });
+  assert.equal(pending.pending, true);
+  const revoking = api.revoke({ chatId: CHAT, id: pending.id });
   let timer;
   try {
     await Promise.race([
@@ -222,7 +354,8 @@ test("lost upload acknowledgement remains revocable and retries the same ID afte
   assert.equal(result.pending, undefined);
   assert.equal(calls[1].url, calls[0].url);
   await restarted.revoke({ chatId: CHAT, id: result.id });
-  assert.equal((await restarted.list({ chatId: CHAT }))[0].revoked, true);
+  assert.deepEqual(await restarted.list({ chatId: CHAT }), []);
+  assert.equal((await restarted.listAll())[0].revoked, true);
   const count = calls.length;
   await restarted.revoke({ chatId: CHAT, id: result.id });
   assert.equal(calls.length, count);
@@ -326,7 +459,7 @@ test("embedding honors the case-insensitive HTTPS schemes accepted by designs", 
   assert.match(result.designs[0].document.nodes[0].src, /^data:image\/png/);
 });
 
-test("Artifact sharing freezes one live page, separates history and works while Designs is off", async (t) => {
+test("Artifact sharing keeps one link per page, separate from Designs, and works while Designs is off", async (t) => {
   const { api, artifacts, calls, request, options } = await fixture(t);
   const designShare = await api.publish(request);
   await artifacts.show({ chatId: CHAT, title: "Explanation", html: "<h1>First explanation</h1>", width: 1280, height: 800 });
@@ -345,12 +478,11 @@ test("Artifact sharing freezes one live page, separates history and works while 
   assert.equal(page.artifacts[0].html, "<h1>First explanation</h1>");
   await artifacts.show({ chatId: CHAT, title: "Explanation", html: "<h1>Revised explanation</h1>" });
   const next = await api.publish(artifactRequest);
-  assert.notEqual(first.id, next.id);
-  assert.equal(JSON.parse(firstBody).artifacts[0].html, "<h1>First explanation</h1>");
+  assert.equal(first.id, next.id, "sharing again updates the Artifact link");
   assert.equal(JSON.parse(calls.at(-1).body).artifacts[0].html, "<h1>Revised explanation</h1>");
   assert.deepEqual(
     (await api.list({ chatId: CHAT, kind: "artifacts" })).map((item) => item.id),
-    [next.id, first.id],
+    [first.id],
   );
   await artifacts.setEnabled(true);
   assert.deepEqual(
@@ -360,8 +492,8 @@ test("Artifact sharing freezes one live page, separates history and works while 
   await assert.rejects(api.revoke({ chatId: CHAT, id: first.id }), /does not belong/);
   await artifacts.setEnabled(false);
   await api.revoke({ chatId: CHAT, id: first.id, kind: "artifacts" });
-  assert.equal((await api.list({ chatId: CHAT, kind: "artifacts" }))[1].revoked, true);
+  assert.deepEqual(await api.list({ chatId: CHAT, kind: "artifacts" }), []);
   await api.revokeSaved({ id: designShare.id });
   assert.equal((await api.listAll()).find((item) => item.id === designShare.id).revoked, true);
-  assert.equal((await createDesignPageSharing(options).listAll()).length, 3);
+  assert.equal((await createDesignPageSharing(options).listAll()).length, 2);
 });

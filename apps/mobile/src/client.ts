@@ -337,7 +337,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
         LONG_CALLS.has(method)
           ? Math.max(timeoutMs, 330000)
           : DESIGN_SHARE_CALLS.has(method)
-            ? Math.max(timeoutMs, method === "artifact:share-page" ? 360000 : 120000)
+            ? Math.max(timeoutMs, method === "artifact:share-page" ? 420000 : 120000)
             : MCP_CALLS.has(method)
               ? Math.max(timeoutMs, 45000)
               : timeoutMs,

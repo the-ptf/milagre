@@ -8948,7 +8948,12 @@ test("mobile publishing checks availability, retries, and keeps history availabl
     },
     async publish(title) {
       calls.push(["publish", title]);
-      state = { ...state, shares: [{ id: "snapshot", title, url: "https://share.milagre.cloud/s/snapshot", designCount: 2, createdAt: 1 }] };
+      const updated = state.shares.length ? { updatedAt: 2 } : {};
+      state = { ...state, shares: [{ id: "snapshot", title, url: "https://share.milagre.cloud/s/snapshot", designCount: 2, createdAt: 1, ...updated }] };
+    },
+    async revoke(id) {
+      calls.push(["revoke", id]);
+      state = { ...state, shares: state.shares.filter((share) => share.id !== id) };
     },
     dispose() {},
   };
@@ -8978,52 +8983,68 @@ test("mobile publishing checks availability, retries, and keeps history availabl
     react.begin();
     return DesignPageShareSheet({ client: {}, chatId, onClose() {}, onAvailabilityChange });
   };
+  const text = (tree, value) => find(tree, (n) => typeof n.props?.children === "string" && n.props.children.includes(value));
   let tree = render("chat");
   assert.equal(availability.at(-1), null);
-  assert.equal(find(tree, (n) => n.props?.title === "Publish snapshot").props.disabled, true);
-  assert.ok(find(tree, (n) => n.props?.children === "Checking publishing availability..."));
+  assert.ok(find(tree, (n) => n.props?.children === "Share"));
+  assert.equal(find(tree, (n) => n.props?.title === "Publish").props.disabled, true);
+  assert.ok(find(tree, (n) => n.props?.children === "Checking the sharing service..."));
+  assert.ok(text(tree, "Anyone with the link can view it."));
   state = {
     ...state,
     checking: false,
     availability: { available: false, reason: "Not deployed" },
   };
   tree = render("chat");
-  assert.equal(find(tree, (n) => n.props?.title === "Publish snapshot").props.disabled, true);
+  assert.equal(find(tree, (n) => n.props?.title === "Publish").props.disabled, true);
   assert.ok(find(tree, (n) => n.props?.children === "Not deployed"));
   assert.equal(availability.at(-1), false, "dialog health failure updates the entry gate");
   find(tree, (n) => n.props?.title === "Retry check").props.onPress();
   assert.equal(calls.at(-1), "status");
   state = { ...state, availability: { available: true } };
-  assert.equal(find(render("chat"), (n) => n.props?.title === "Publish snapshot").props.disabled, false);
+  assert.equal(find(render("chat"), (n) => n.props?.title === "Publish").props.disabled, false);
   assert.equal(availability.at(-1), true);
-  find(render("chat"), (n) => n.props?.title === "Publish snapshot").props.onPress();
+  find(render("chat"), (n) => n.props?.title === "Publish").props.onPress();
   await new Promise((resolve) => setImmediate(resolve));
   tree = render("chat");
-  assert.ok(find(tree, (n) => n.props?.children === "Snapshot shared"));
   assert.equal(
-    find(tree, (n) => n.props?.title === "Publish snapshot"),
+    find(tree, (n) => n.props?.title === "Publish"),
     undefined,
+    "a shared page offers an update instead",
   );
+  assert.ok(find(tree, (n) => n.props?.title === "Update snapshot"));
   assert.ok(find(tree, (n) => n.props?.accessibilityLabel === "Snapshot link"));
-  const copy = find(tree, (n) => n.props?.title === "Copy link");
-  assert.equal(copy.props.secondary, false, "confirmed snapshots make Copy link the primary action");
-  copy.props.onPress();
+  assert.ok(text(tree, "Published "));
+  assert.equal(text(tree, "Published snapshots"), undefined, "no history list under the link");
+  find(tree, (n) => n.props?.title === "Copy link").props.onPress();
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"]);
-  assert.ok(find(tree, (n) => typeof n.props?.children === "string" && n.props.children.includes("Shared files can include content clipped by frames")));
-  find(tree, (n) => n.props?.title === "Publish another snapshot").props.onPress();
+  find(render("chat"), (n) => n.props?.title === "Update snapshot").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
   tree = render("chat");
-  assert.ok(find(tree, (n) => n.props?.children === "Share a snapshot"));
+  assert.deepEqual(calls.at(-1), ["publish", "Designs"]);
+  assert.equal(state.shares.length, 1, "the update keeps one link");
+  assert.ok(text(tree, "Snapshot updated."));
+  assert.ok(text(tree, "Updated "));
+  find(tree, (n) => n.props?.title === "Revoke link").props.onPress();
+  tree = render("chat");
+  assert.ok(find(tree, (n) => n.props?.children === "Remove this page? Copies may remain online."));
+  find(tree, (n) => n.props?.title === "Revoke link" && !n.props.secondary).props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  tree = render("chat");
+  assert.deepEqual(calls.at(-1), ["revoke", "snapshot"]);
+  assert.ok(
+    find(tree, (n) => n.props?.title === "Publish"),
+    "after revoking, Publish creates a new link",
+  );
   assert.equal(
     find(tree, (n) => n.props?.accessibilityLabel === "Snapshot link"),
     undefined,
-    "older links start collapsed",
   );
-  find(tree, (n) => n.props?.title === "Show published snapshots (1)").props.onPress();
-  assert.ok(find(render("chat"), (n) => n.props?.accessibilityLabel === "Snapshot link"));
+  assert.ok(text(tree, "Link revoked."));
   tree = render(undefined);
   assert.equal(
-    find(tree, (n) => n.props?.title === "Publish snapshot"),
+    find(tree, (n) => n.props?.title === "Publish"),
     undefined,
   );
   assert.equal(

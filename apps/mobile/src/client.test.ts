@@ -74,7 +74,7 @@ test("slow Worktree and page-sharing calls get the desktop deadline instead of t
   for (const [method, args, deadline] of [
     ["worktree:create", [{ projectPath: "/p", baseBranch: "main", prompt: "Preview" }], 330000],
     ["worktree:remove", ["/wt/x", { force: false }], 330000],
-    ["artifact:share-page", [{ chatId: "/p#1", title: "Designs", acknowledgePublic: true }], 360000],
+    ["artifact:share-page", [{ chatId: "/p#1", title: "Designs", acknowledgePublic: true }], 420000],
     ["artifact:revoke-page-share", [{ chatId: "/p#1", id: "page" }], 120000],
     ["artifact:revoke-saved-page-share", [{ id: "page" }], 120000],
   ] as const) {
