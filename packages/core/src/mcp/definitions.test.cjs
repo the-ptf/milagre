@@ -101,3 +101,10 @@ test("safeDetail hides userinfo in scheme-less URLs and matches secret flags as 
   assert.equal(d.safeDetail({ command: "p", args: ["--keyboard", "us", "--author", "me"] }), "p --keyboard us --author me");
   assert.equal(d.safeDetail({ command: "p", args: ["--auth-header", "x", "--api_key=y"] }), "p --auth-header •••••• --api_key=••••••");
 });
+
+test("safeDetail masks compact secret flag names", () => {
+  for (const flag of ["--apikey", "--clientsecret", "--secretkey", "--githubtoken", "--auth-header", "--key"])
+    assert.equal(d.safeDetail({ command: "p", args: [flag, "v"] }), `p ${flag} ••••••`, flag);
+  assert.equal(d.safeDetail({ command: "p", args: ["--api_key=y", "--GitHubToken=z"] }), "p --api_key=•••••• --GitHubToken=••••••");
+  assert.equal(d.safeDetail({ command: "p", args: ["--keyboard", "us", "--author", "me", "--port", "3"] }), "p --keyboard us --author me --port 3");
+});

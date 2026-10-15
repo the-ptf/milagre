@@ -75,8 +75,14 @@ function codexConfigNames(file) {
   }
 }
 
-const SECRET_WORD = /(^|[-_])(token|key|secret|password|auth)([-_]|$)/i;
-const secretFlag = (flag) => SECRET_WORD.test(flag.replace(/^-+/, ""));
+const KEY_WORD = /(^|[-_])key([-_]|$)/i;
+// A flag name is secret when, with dashes and underscores removed, it holds a secret word (so compact names such
+// as --apikey and --githubtoken match), or "auth" without "author", or "key" as a whole word (--key, --api-key).
+function secretFlag(flag) {
+  const name = flag.replace(/^-+/, "");
+  const compact = name.toLowerCase().replace(/[-_]/g, "");
+  return /token|secret|password|passwd|apikey|credential/.test(compact) || (compact.includes("auth") && !compact.includes("author")) || KEY_WORD.test(name);
+}
 const WEB_PROTOCOLS = new Set(["http:", "https:", "ws:", "wss:"]);
 const SCHEME_AND_USERINFO = /^([a-z][a-z0-9+.-]*:)?(\/\/)?[^/@]*@/i;
 
