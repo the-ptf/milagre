@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { checkCodex, codexServer, addCodex, removeCodex, readCodexDefinition } = require("./codex.cjs");
+const { EventEmitter } = require("node:events");
+const { checkCodex, codexServer, addCodex, removeCodex, readCodexDefinition, signInCodex } = require("./codex.cjs");
 
 test("a Codex status maps to a report", () => {
   assert.deepEqual(
@@ -159,4 +160,91 @@ test("readCodexDefinition reads config/read", async () => {
     headers: {},
   });
   assert.equal(await readCodexDefinition({ command: "/bin/codex", cwd: "/", name: "nope", createRpc: rpc.create }), null);
+});
+
+test("signInCodex opens the authorization URL and waits for completion", async () => {
+  const emitter = new EventEmitter();
+  const requests = [];
+  const createRpc = () =>
+    Object.assign(emitter, {
+      start() {},
+      notify() {},
+      close() {
+        emitter.closed = true;
+      },
+      async request(method, params) {
+        requests.push({ method, params });
+        if (method === "mcpServer/oauth/login") return { authorizationUrl: "https://auth" };
+        return {};
+      },
+    });
+  const opened = [];
+  const result = signInCodex({
+    command: "/x",
+    cwd: "/",
+    name: "expo",
+    createRpc,
+    openUrl: (url) => {
+      opened.push(url);
+      setImmediate(() => emitter.emit("notification", { method: "mcpServer/oauthLogin/completed", params: { name: "expo", success: true } }));
+    },
+  });
+  assert.deepEqual(await result, { ok: true });
+  assert.deepEqual(opened, ["https://auth"]);
+  assert.deepEqual(requests.find((r) => r.method === "mcpServer/oauth/login").params, { name: "expo", timeoutSecs: 300 });
+  assert.equal(emitter.closed, true);
+});
+
+test("signInCodex signs in to an Everywhere server through an ephemeral thread", async () => {
+  const emitter = new EventEmitter();
+  const requests = [];
+  const createRpc = () =>
+    Object.assign(emitter, {
+      start() {},
+      notify() {},
+      close() {},
+      async request(method, params) {
+        requests.push({ method, params });
+        if (method === "thread/start") return { thread: { id: "t1", ephemeral: true } };
+        if (method === "mcpServer/oauth/login") return { authorizationUrl: "u" };
+        return {};
+      },
+    });
+  const result = signInCodex({
+    command: "/x",
+    cwd: "/w",
+    name: "linear",
+    createRpc,
+    everywhere: [{ name: "linear", type: "http", url: "https://x", headers: {} }],
+    openUrl: () => setImmediate(() => emitter.emit("notification", { method: "mcpServer/oauthLogin/completed", params: { name: "linear", success: true } })),
+  });
+  assert.deepEqual(await result, { ok: true });
+  assert.deepEqual(requests.find((r) => r.method === "thread/start").params, {
+    cwd: "/w",
+    config: { mcp_servers: { linear: { url: "https://x" } } },
+    ephemeral: true,
+  });
+  assert.equal(requests.find((r) => r.method === "mcpServer/oauth/login").params.threadId, "t1");
+});
+
+test("signInCodex reports a failed completion", async () => {
+  const emitter = new EventEmitter();
+  const createRpc = () =>
+    Object.assign(emitter, {
+      start() {},
+      notify() {},
+      close() {},
+      async request(method) {
+        return method === "mcpServer/oauth/login" ? { authorizationUrl: "u" } : {};
+      },
+    });
+  const result = signInCodex({
+    command: "/x",
+    cwd: "/",
+    name: "expo",
+    createRpc,
+    openUrl: () =>
+      setImmediate(() => emitter.emit("notification", { method: "mcpServer/oauthLogin/completed", params: { name: "expo", success: false, error: "denied" } })),
+  });
+  assert.deepEqual(await result, { ok: false, error: "denied" });
 });

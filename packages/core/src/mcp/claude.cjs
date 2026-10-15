@@ -89,4 +89,59 @@ async function removeClaude({ command, env, name, run = runCli }) {
   await run(command, ["mcp", "remove", name, "--scope", "user"], { env });
 }
 
-module.exports = { checkClaude, claudeServer, addClaude, removeClaude, runCli };
+const SIGN_IN_TIMEOUT = "Sign-in timed out after 5 minutes. Try again.";
+
+// One account's OAuth sign-in to one server through the SDK's unlisted mcpAuthenticate (probed 2026-10-15):
+// the CLI listens on a localhost port and swaps the code for a token itself; Milagre only opens the browser and
+// watches mcpServerStatus. The session stays open until then because it hosts the callback. Everywhere servers
+// are passed exactly as a Chat passes them, because the CLI keys the token by name and config.
+async function signInClaude({
+  command,
+  env,
+  cwd,
+  name,
+  everywhere = [],
+  openUrl,
+  signal,
+  timeoutMs = 300_000,
+  pollMs = 1000,
+  loadSdk = () => import("@anthropic-ai/claude-agent-sdk"),
+  now = Date.now,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+}) {
+  const { query } = await loadSdk();
+  const idle = {
+    // oxlint-disable-next-line require-yield -- never yields: the session stays idle and sends no prompt
+    async *[Symbol.asyncIterator]() {
+      await new Promise(() => {});
+    },
+  };
+  const mcpServers = Object.fromEntries(everywhere.map((def) => [def.name, toClaudeConfig(def)]));
+  const session = query({
+    prompt: idle,
+    options: { pathToClaudeCodeExecutable: command, cwd, ...(env ? { env } : {}), ...(everywhere.length ? { mcpServers } : {}) },
+  });
+  try {
+    let auth;
+    try {
+      auth = await session.mcpAuthenticate(name);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    if (auth?.authUrl) openUrl(auth.authUrl);
+    if (auth?.callbackExpected === false) return { opened: true };
+    const deadline = now() + timeoutMs;
+    // oxlint-disable-next-line no-unmodified-loop-condition -- the abort signal flips from outside the loop
+    while (!signal?.aborted && now() < deadline) {
+      const status = (await session.mcpServerStatus()).find((item) => item.name === name);
+      if (status?.status === "connected") return { ok: true };
+      if (status?.status === "failed") return { ok: false, error: status.error ?? "Sign-in failed." };
+      await sleep(pollMs);
+    }
+    return signal?.aborted ? { cancelled: true } : { ok: false, error: SIGN_IN_TIMEOUT };
+  } finally {
+    session.close?.();
+  }
+}
+
+module.exports = { checkClaude, claudeServer, addClaude, removeClaude, runCli, signInClaude };

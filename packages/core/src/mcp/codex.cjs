@@ -64,4 +64,43 @@ async function readCodexDefinition({ name, ...options }) {
   return withAppServer(options, async (rpc) => fromCodexConfig(name, (await rpc.request("config/read", { cwd: options.cwd })).config?.mcp_servers?.[name]));
 }
 
-module.exports = { checkCodex, codexServer, addCodex, removeCodex, readCodexDefinition, withAppServer };
+const SIGN_IN_TIMEOUT = "Sign-in timed out after 5 minutes. Try again.";
+
+// One account's OAuth sign-in through the app-server: it returns the URL, runs the callback and token
+// exchange, and announces the end with mcpServer/oauthLogin/completed.
+async function signInCodex({ name, openUrl, signal, timeoutMs = 300_000, everywhere = [], ...options }) {
+  return withAppServer({ ...options, signal }, async (rpc) => {
+    // An Everywhere server isn't in Codex's config; login finds it only inside a thread that carries it (probed 2026-10-15).
+    const def = everywhere.find((item) => item.name === name);
+    let finish;
+    const done = new Promise((resolve) => (finish = resolve));
+    const onNotification = ({ method, params }) => {
+      if (method === "mcpServer/oauthLogin/completed" && params?.name === name)
+        finish(params.success ? { ok: true } : { ok: false, error: params.error ?? "Sign-in failed." });
+    };
+    rpc.on("notification", onNotification);
+    const timer = setTimeout(() => finish({ ok: false, error: SIGN_IN_TIMEOUT }), timeoutMs);
+    const onAbort = () => finish({ cancelled: true });
+    signal?.addEventListener("abort", onAbort, { once: true });
+    try {
+      const threadId = def
+        ? (await rpc.request("thread/start", { cwd: options.cwd, config: { mcp_servers: { [name]: toCodexConfig(def) } }, ephemeral: true })).thread?.id
+        : undefined;
+      const { authorizationUrl } = await rpc.request("mcpServer/oauth/login", {
+        name,
+        ...(threadId ? { threadId } : {}),
+        timeoutSecs: Math.round(timeoutMs / 1000),
+      });
+      if (authorizationUrl) openUrl(authorizationUrl);
+      return await done;
+    } catch (error) {
+      return signal?.aborted ? { cancelled: true } : { ok: false, error: error instanceof Error ? error.message : String(error) };
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      rpc.off?.("notification", onNotification);
+    }
+  });
+}
+
+module.exports = { checkCodex, codexServer, addCodex, removeCodex, readCodexDefinition, withAppServer, signInCodex };

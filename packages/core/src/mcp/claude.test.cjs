@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { checkClaude, claudeServer, addClaude, removeClaude, runCli } = require("./claude.cjs");
+const { checkClaude, claudeServer, addClaude, removeClaude, runCli, signInClaude } = require("./claude.cjs");
 
 test("an SDK status maps to a report", () => {
   assert.deepEqual(claudeServer({ name: "pencil", status: "connected", scope: "user", tools: [{ name: "a" }, { name: "b" }], config: { type: "stdio" } }), {
@@ -147,5 +147,97 @@ test("runCli redacts a long argument that the CLI echoes to stderr", async () =>
     assert.match(error.message, /\[config\]/);
     assert.equal(error.message.includes(SECRET), false);
     return true;
+  });
+});
+
+function fakeSignInSdk({ auth, statuses }) {
+  const seen = { options: null, closed: false, opened: [] };
+  let index = 0;
+  const loadSdk = async () => ({
+    query: ({ options }) => {
+      seen.options = options;
+      return {
+        mcpAuthenticate: async (name) => (typeof auth === "function" ? auth(name) : auth),
+        mcpServerStatus: async () => statuses[Math.min(index++, statuses.length - 1)],
+        close: () => (seen.closed = true),
+      };
+    },
+  });
+  return { seen, loadSdk };
+}
+const signInSleep = async () => {};
+
+test("signInClaude opens the URL, waits for connected and closes", async () => {
+  const { seen, loadSdk } = fakeSignInSdk({
+    auth: { authUrl: "https://auth", callbackExpected: true },
+    statuses: [[{ name: "linear", status: "needs-auth" }], [{ name: "linear", status: "connected" }]],
+  });
+  const everywhere = [{ name: "linear", type: "http", url: "https://x", headers: {} }];
+  const result = await signInClaude({
+    command: "/c",
+    cwd: "/",
+    name: "linear",
+    everywhere,
+    openUrl: (url) => seen.opened.push(url),
+    loadSdk,
+    sleep: signInSleep,
+  });
+  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(seen.opened, ["https://auth"]);
+  assert.deepEqual(seen.options.mcpServers, { linear: { type: "http", url: "https://x" } });
+  assert.equal(seen.closed, true);
+});
+
+test("signInClaude reports a failed server, a cap and a cancel", async () => {
+  const failed = fakeSignInSdk({ auth: { authUrl: "u", callbackExpected: true }, statuses: [[{ name: "x", status: "failed", error: "invalid_client" }]] });
+  assert.deepEqual(await signInClaude({ command: "/c", cwd: "/", name: "x", openUrl() {}, loadSdk: failed.loadSdk, sleep: signInSleep }), {
+    ok: false,
+    error: "invalid_client",
+  });
+
+  let clock = 0;
+  const slow = fakeSignInSdk({ auth: { authUrl: "u", callbackExpected: true }, statuses: [[{ name: "x", status: "needs-auth" }]] });
+  const capped = await signInClaude({
+    command: "/c",
+    cwd: "/",
+    name: "x",
+    openUrl() {},
+    loadSdk: slow.loadSdk,
+    sleep: async () => void (clock += 1000),
+    now: () => clock,
+    timeoutMs: 3000,
+  });
+  assert.deepEqual(capped, { ok: false, error: "Sign-in timed out after 5 minutes. Try again." });
+  assert.equal(slow.seen.closed, true);
+
+  const controller = new AbortController();
+  const waiting = fakeSignInSdk({ auth: { authUrl: "u", callbackExpected: true }, statuses: [[{ name: "x", status: "needs-auth" }]] });
+  const cancelled = signInClaude({
+    command: "/c",
+    cwd: "/",
+    name: "x",
+    openUrl: () => controller.abort(),
+    loadSdk: waiting.loadSdk,
+    sleep: signInSleep,
+    signal: controller.signal,
+  });
+  assert.deepEqual(await cancelled, { cancelled: true });
+  assert.equal(waiting.seen.closed, true);
+});
+
+test("signInClaude returns opened for a claude.ai connector and errors for stdio", async () => {
+  const connector = fakeSignInSdk({ auth: { authUrl: "https://claude.ai/x", callbackExpected: false }, statuses: [[]] });
+  assert.deepEqual(await signInClaude({ command: "/c", cwd: "/", name: "claude.ai Linear", openUrl() {}, loadSdk: connector.loadSdk, sleep: signInSleep }), {
+    opened: true,
+  });
+  const stdio = fakeSignInSdk({
+    auth: () => {
+      throw new Error('Server type "stdio" does not support OAuth authentication');
+    },
+    statuses: [[]],
+  });
+  assert.deepEqual(await signInClaude({ command: "/c", cwd: "/", name: "p", openUrl() {}, loadSdk: stdio.loadSdk, sleep: signInSleep }), {
+    ok: false,
+    error: 'Server type "stdio" does not support OAuth authentication',
   });
 });
