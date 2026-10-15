@@ -10,6 +10,7 @@ test("an SDK status maps to a report", () => {
     state: "connected",
     tools: 2,
     error: null,
+    detail: null,
   });
   assert.deepEqual(claudeServer({ name: "resend", status: "needs-auth", scope: "user", config: { type: "http" } }), {
     name: "resend",
@@ -18,6 +19,7 @@ test("an SDK status maps to a report", () => {
     state: "needs-sign-in",
     tools: 0,
     error: null,
+    detail: null,
   });
   assert.equal(claudeServer({ name: "atl", status: "failed", scope: "dynamic", error: "No URL", config: { type: "http" } }).scope, "plugin");
   assert.equal(claudeServer({ name: "claude.ai Gmail", status: "connected", scope: "claudeai", config: { type: "claudeai-proxy" } }).transport, "connector");
@@ -36,6 +38,7 @@ test("a server still pending at the cap is failed with a timeout error", () => {
     state: "failed",
     tools: 0,
     error: "Timed out. Check this server in a terminal.",
+    detail: null,
   });
 });
 
@@ -292,4 +295,27 @@ test("signInClaude never rejects: a throwing openUrl or status poll is an error 
     cancelled: true,
   });
   assert.equal(aborted.closed, true);
+});
+
+test("claude reports carry detail and mark Everywhere servers", () => {
+  assert.equal(
+    claudeServer({ name: "l", status: "connected", scope: "user", config: { type: "http", url: "https://mcp.linear.app/mcp" } }).detail,
+    "https://mcp.linear.app/mcp",
+  );
+  assert.equal(
+    claudeServer({ name: "p", status: "connected", scope: "user", config: { type: "stdio", command: "npx", args: ["-y", "x"] } }).detail,
+    "npx -y x",
+  );
+  assert.equal(
+    claudeServer({ name: "pencil", status: "connected", scope: "dynamic", config: { type: "stdio", command: "p" } }, { everywhereNames: new Set(["pencil"]) })
+      .scope,
+    "everywhere",
+  );
+});
+
+test("checkClaude passes Everywhere servers to the idle session", async () => {
+  let options;
+  const loadSdk = async () => ({ query: (args) => ((options = args.options), { mcpServerStatus: async () => [], close() {} }) });
+  await checkClaude({ command: "/c", cwd: "/", loadSdk, everywhere: [{ name: "pencil", type: "stdio", command: "p", args: [], env: {} }] });
+  assert.deepEqual(options.mcpServers, { pencil: { type: "stdio", command: "p", args: [] } });
 });

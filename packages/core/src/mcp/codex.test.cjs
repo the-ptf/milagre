@@ -16,6 +16,7 @@ test("a Codex status maps to a report", () => {
       state: "connected",
       tools: 2,
       error: null,
+      detail: "https://mcp.linear.app/mcp",
     },
   );
   assert.deepEqual(
@@ -23,7 +24,7 @@ test("a Codex status maps to a report", () => {
       { name: "epidemic-sound", tools: {}, toolsError: "MCP startup failed: no key", authStatus: "bearerToken", pluginId: null, httpOrigin: null },
       { url: "https://x" },
     ),
-    { name: "epidemic-sound", transport: "url", scope: "user", state: "failed", tools: 0, error: "MCP startup failed: no key" },
+    { name: "epidemic-sound", transport: "url", scope: "user", state: "failed", tools: 0, error: "MCP startup failed: no key", detail: "https://x" },
   );
   assert.equal(codexServer({ name: "m", tools: {}, toolsError: null, authStatus: "notLoggedIn", pluginId: null }, { url: "https://m" }).state, "needs-sign-in");
   assert.equal(
@@ -332,4 +333,31 @@ test("signInCodex returns an error instead of throwing when the app-server fails
     request: () => Promise.reject(new Error("spawn failed")),
   });
   assert.deepEqual(await signInCodex({ command: "/x", cwd: "/", name: "expo", createRpc, openUrl() {} }), { ok: false, error: "spawn failed" });
+});
+
+test("checkCodex reports Everywhere servers through an ephemeral thread", async () => {
+  const requests = [];
+  const createRpc = () => ({
+    start() {},
+    notify() {},
+    close() {},
+    on() {},
+    off() {},
+    async request(method, params) {
+      requests.push({ method, params });
+      if (method === "config/read") return { config: { mcp_servers: {} } };
+      if (method === "thread/start") return { thread: { id: "t1" } };
+      if (method === "mcpServerStatus/list") return params.threadId ? { data: [{ name: "linear", tools: { a: {} }, authStatus: "oAuth" }] } : { data: [] };
+      return {};
+    },
+  });
+  const servers = await checkCodex({ command: "/x", cwd: "/w", createRpc, everywhere: [{ name: "linear", type: "http", url: "https://x", headers: {} }] });
+  assert.deepEqual(servers, [{ name: "linear", transport: "url", scope: "everywhere", state: "connected", tools: 1, error: null, detail: "https://x" }]);
+  assert.equal(requests.find((r) => r.method === "thread/start").params.ephemeral, true);
+});
+
+test("codex reports carry detail", () => {
+  assert.equal(codexServer({ name: "l", tools: {} }, { url: "https://x" }).detail, "https://x");
+  assert.equal(codexServer({ name: "p", tools: {} }, { command: "npx", args: ["y"] }).detail, "npx y");
+  assert.equal(codexServer({ name: "q", tools: {} }, undefined).detail, null);
 });

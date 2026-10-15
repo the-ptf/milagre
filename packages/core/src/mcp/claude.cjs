@@ -15,17 +15,25 @@ function transportOf(type) {
   return "command";
 }
 
+function detailOfConfig(config) {
+  if (!config) return null;
+  if (typeof config.url === "string") return config.url;
+  if (typeof config.command === "string") return [config.command, ...(Array.isArray(config.args) ? config.args : [])].join(" ");
+  return null;
+}
+
 /** One SDK McpServerStatus as a report; null for an in-process SDK server, which the user never configured. */
-function claudeServer(status, { timedOut = false } = {}) {
+function claudeServer(status, { timedOut = false, everywhereNames = new Set() } = {}) {
   if (status.config?.type === "sdk") return null;
   const pending = status.status === "pending";
   return {
     name: status.name,
     transport: transportOf(status.config?.type),
-    scope: SCOPES[status.scope] ?? "built-in",
+    scope: everywhereNames.has(status.name) ? "everywhere" : (SCOPES[status.scope] ?? "built-in"),
     state: pending && timedOut ? "failed" : (STATES[status.status] ?? "failed"),
     tools: Array.isArray(status.tools) ? status.tools.length : 0,
     error: pending && timedOut ? TIMEOUT_ERROR : (status.error ?? null),
+    detail: detailOfConfig(status.config),
   };
 }
 
@@ -33,6 +41,7 @@ async function checkClaude({
   command,
   env,
   cwd,
+  everywhere = [],
   loadSdk = () => import("@anthropic-ai/claude-agent-sdk"),
   signal,
   timeoutMs = 30_000,
@@ -47,7 +56,11 @@ async function checkClaude({
       await new Promise(() => {});
     },
   };
-  const session = query({ prompt: idle, options: { pathToClaudeCodeExecutable: command, cwd, ...(env ? { env } : {}) } });
+  const mcpServers = Object.fromEntries(everywhere.map((def) => [def.name, toClaudeConfig(def)]));
+  const session = query({
+    prompt: idle,
+    options: { pathToClaudeCodeExecutable: command, cwd, ...(env ? { env } : {}), ...(everywhere.length ? { mcpServers } : {}) },
+  });
   const onAbort = () => session.close?.();
   signal?.addEventListener("abort", onAbort, { once: true });
   if (signal?.aborted) onAbort();
@@ -59,7 +72,8 @@ async function checkClaude({
       list = await session.mcpServerStatus();
     }
     const timedOut = now() >= deadline;
-    return list.map((status) => claudeServer(status, { timedOut })).filter(Boolean);
+    const everywhereNames = new Set(everywhere.map((def) => def.name));
+    return list.map((status) => claudeServer(status, { timedOut, everywhereNames })).filter(Boolean);
   } finally {
     signal?.removeEventListener("abort", onAbort);
     session.close?.();

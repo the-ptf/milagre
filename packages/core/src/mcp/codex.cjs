@@ -16,6 +16,7 @@ function codexServer(status, configured) {
     state,
     tools,
     error: status.toolsError ?? null,
+    detail: configured?.url ?? (configured?.command ? [configured.command, ...(configured.args ?? [])].join(" ") : null),
   };
 }
 
@@ -36,7 +37,7 @@ async function withAppServer({ command, env, cwd, clientVersion = "0.0.0", signa
   }
 }
 
-function checkCodex({ command, env, cwd, clientVersion, signal, createRpc }) {
+function checkCodex({ command, env, cwd, clientVersion, signal, createRpc, everywhere = [] }) {
   return withAppServer({ command, env, cwd, clientVersion, signal, createRpc }, async (rpc) => {
     const configured = (await rpc.request("config/read", { cwd })).config?.mcp_servers ?? {};
     const servers = [];
@@ -46,6 +47,19 @@ function checkCodex({ command, env, cwd, clientVersion, signal, createRpc }) {
       for (const status of page.data ?? []) servers.push(codexServer(status, configured[status.name]));
       cursor = page.nextCursor ?? null;
     } while (cursor);
+    // Everywhere servers aren't in Codex's config; an ephemeral thread that carries them reports their status (probed 2026-10-15).
+    if (everywhere.length) {
+      const byName = new Map(everywhere.map((def) => [def.name, toCodexConfig(def)]));
+      const { thread } = await rpc.request("thread/start", { cwd, config: { mcp_servers: Object.fromEntries(byName) }, ephemeral: true });
+      let next = null;
+      do {
+        const page = await rpc.request("mcpServerStatus/list", { threadId: thread?.id, detail: "toolsAndAuthOnly", ...(next ? { cursor: next } : {}) });
+        for (const status of page.data ?? [])
+          if (byName.has(status.name) && !servers.some((server) => server.name === status.name))
+            servers.push({ ...codexServer(status, byName.get(status.name)), scope: "everywhere" });
+        next = page.nextCursor ?? null;
+      } while (next);
+    }
     return servers;
   });
 }
