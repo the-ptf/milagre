@@ -49,7 +49,7 @@ import { showBrief } from "../handoff-brief-store";
 import { WorktreeLinkDivider } from "../worktree-link-divider";
 import { AccountSwitchDivider } from "../account-switch-divider";
 import { ChatReloadDivider } from "../chat-reload-divider";
-import { isChatReload, RELOAD_HINT, RELOAD_TEXT } from "@milagre/shared/chat-reload";
+import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
 import { CompactionDivider } from "../compaction-divider";
 import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
@@ -1003,7 +1003,7 @@ export default function ChatScreen() {
             <Stack.Toolbar.MenuAction icon="pencil" onPress={() => headerAction("rename")}>
               Rename
             </Stack.Toolbar.MenuAction>
-            <Stack.Toolbar.MenuAction icon="arrow.clockwise" subtitle={RELOAD_HINT} disabled={busy} onPress={() => headerAction("reload")}>
+            <Stack.Toolbar.MenuAction icon="arrow.clockwise" disabled={busy} onPress={() => headerAction("reload")}>
               Reload chat
             </Stack.Toolbar.MenuAction>
             {canLink &&
