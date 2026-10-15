@@ -253,6 +253,15 @@ test("real Git resolves recorded/default bases, common directories and newline W
   run("update-ref", "refs/remotes/origin/trunk", "HEAD");
   run("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk");
   assert.deepEqual(await git.resolveBase(repo), { name: "trunk", ref: "refs/remotes/origin/trunk" });
+
+  // A recorded local base is used while it is level with or ahead of its remote, and the remote once it
+  // falls behind or diverges (a force-pushed main left the local branch on the old history).
+  run("update-ref", "refs/remotes/origin/main", "HEAD");
+  assert.deepEqual(await git.resolveBase(repo, "main"), { name: "main", ref: "main" });
+  run("commit", "--allow-empty", "-m", "local only");
+  assert.deepEqual(await git.resolveBase(repo, "main"), { name: "main", ref: "main" });
+  run("update-ref", "refs/remotes/origin/main", run("commit-tree", "-m", "rewritten", "HEAD^{tree}"));
+  assert.deepEqual(await git.resolveBase(repo, "main"), { name: "main", ref: "refs/remotes/origin/main" });
 });
 
 test("Git process execution belongs only to the Git client", async () => {

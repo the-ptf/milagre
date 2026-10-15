@@ -134,6 +134,17 @@ function createGit({ execFile = execute, env = process.env, platform = process.p
     if (typeof recorded === "string" && recorded && !recorded.startsWith("-") && (await refExists(cwd, recorded))) {
       const full = await out(cwd, ["rev-parse", "--symbolic-full-name", recorded]);
       const named = /^refs\/(?:remotes\/[^/]+|heads)\/(.+)$/.exec(full ?? "");
+      if (named && full.startsWith("refs/heads/")) {
+        // A local base that is behind its remote, or has diverged from it (a force-pushed main), would count
+        // everyone else's merged work as the chat's; compare against the remote unless the local branch is ahead.
+        const upstream = (await out(cwd, ["for-each-ref", "--format=%(upstream)", full])) || `refs/remotes/origin/${named[1]}`;
+        if (
+          upstream.startsWith("refs/remotes/") &&
+          (await refExists(cwd, upstream)) &&
+          !(await run(cwd, ["merge-base", "--is-ancestor", "--end-of-options", upstream, full])).ok
+        )
+          return { name: named[1], ref: upstream };
+      }
       if (named) return { name: named[1], ref: recorded };
     }
     const remoteHead = await out(cwd, ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]);
