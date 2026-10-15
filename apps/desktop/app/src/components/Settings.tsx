@@ -31,17 +31,20 @@ import type { ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowLeft02Icon,
+  BookOpen01Icon,
   BubbleChatIcon,
+  FlaskConicalIcon,
+  FolderKeyIcon,
   InformationCircleIcon,
   LaptopIcon,
-  MagicWand01Icon,
+  LaptopPhoneSyncIcon,
   PaintBoardIcon,
-  PlugSocketIcon,
+  Plug01Icon,
   SecurityCheckIcon,
+  ServerIcon,
   Settings01Icon,
   SmartphoneIcon,
-  TestTube01Icon,
-  UserMultipleIcon,
+  UserCircleIcon,
   VolumeHighIcon,
 } from "@hugeicons/core-free-icons";
 import { DOT_COLOR, computerTone, routeLine, seenAgo, useComputers } from "../lib/computers";
@@ -106,15 +109,15 @@ export type SettingsSection =
 
 const SECTIONS: Array<{ key: SettingsSection; label: string; icon: IconData }> = [
   { key: "general", label: "General", icon: Settings01Icon },
-  { key: "accounts", label: "Accounts", icon: UserMultipleIcon },
-  { key: "project-accounts", label: "Project Accounts", icon: UserMultipleIcon },
+  { key: "accounts", label: "Accounts", icon: UserCircleIcon },
+  { key: "project-accounts", label: "Project Accounts", icon: FolderKeyIcon },
   { key: "appearance", label: "Appearance", icon: PaintBoardIcon },
   { key: "chat", label: "Chat", icon: BubbleChatIcon },
-  { key: "skills", label: "Skills", icon: MagicWand01Icon },
-  { key: "mcp", label: "MCP", icon: PlugSocketIcon },
-  { key: "local-mcp", label: "Milagre MCP", icon: PlugSocketIcon },
-  { key: "devices", label: "Devices", icon: SmartphoneIcon },
-  { key: "experimental", label: "Experimental", icon: TestTube01Icon },
+  { key: "skills", label: "Skills", icon: BookOpen01Icon },
+  { key: "mcp", label: "MCP", icon: Plug01Icon },
+  { key: "local-mcp", label: "Milagre MCP", icon: ServerIcon },
+  { key: "devices", label: "Devices", icon: LaptopPhoneSyncIcon },
+  { key: "experimental", label: "Experimental", icon: FlaskConicalIcon },
   { key: "privacy", label: "Privacy & AI", icon: SecurityCheckIcon },
   { key: "about", label: "About", icon: InformationCircleIcon },
 ];
@@ -155,11 +158,17 @@ export function SettingsNav({
   return (
     <aside aria-label="Settings navigation" className="flex h-full w-[224px] shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card">
       <div aria-hidden className="h-[calc(var(--window-chrome-height)-12px)] shrink-0" />
-      <GlideGroup>
-        <RailButton icon={<Icon icon={ArrowLeft02Icon} />} label="Back" onClick={onBack} />
-      </GlideGroup>
-      <div className="mx-4 my-2 h-px bg-line" />
-      <div className="mx-2 flex h-8 items-center px-2 text-[12.5px] font-medium text-ink-3">App</div>
+      <div className="mx-2 mb-1.5 flex h-9 shrink-0 items-center gap-1 px-1">
+        <button
+          type="button"
+          aria-label="Back"
+          onClick={onBack}
+          className="flex size-7 items-center justify-center rounded-[7px] text-ink-2 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96]"
+        >
+          <Icon icon={ArrowLeft02Icon} size={16} />
+        </button>
+        <h2 className="text-[15px] font-semibold text-ink">Settings</h2>
+      </div>
       <GlideGroup>
         {SECTIONS.map((item) => (
           <RailButton key={item.key} icon={<Icon icon={item.icon} />} label={item.label} active={section === item.key} onClick={() => onSelect(item.key)} />

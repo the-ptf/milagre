@@ -3,16 +3,18 @@ import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { Text, View } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
 import {
+  BookOpen01Icon,
   BubbleChatIcon,
   ChartBarLineIcon,
   Download04Icon,
-  MagicWand01Icon,
+  FlaskConicalIcon,
+  FolderKeyIcon,
   Notification01Icon,
   PaintBoardIcon,
-  PlugSocketIcon,
-  TestTube01Icon,
+  Plug01Icon,
   SecurityCheckIcon,
-  UserMultipleIcon,
+  ServerIcon,
+  UserCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { usePush } from "../push";
 import { useAppUpdates } from "../update-sheet";
@@ -104,9 +106,9 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
   return (
     <View style={{ gap: 8 }}>
       <View style={[styles.card, { paddingVertical: 4, gap: 0 }]}>
-        <ListRow compact title="Project Accounts" leading={<Icon icon={UserMultipleIcon} tone="ink" size={20} />} onPress={() => onOpen("project-accounts")} />
+        <ListRow compact title="Project Accounts" leading={<Icon icon={FolderKeyIcon} tone="ink" size={20} />} onPress={() => onOpen("project-accounts")} />
         <View style={styles.separator} />
-        <ListRow compact title="Accounts" leading={<Icon icon={UserMultipleIcon} tone="ink" size={20} />} onPress={() => onOpen("accounts")} />
+        <ListRow compact title="Accounts" leading={<Icon icon={UserCircleIcon} tone="ink" size={20} />} onPress={() => onOpen("accounts")} />
         <View style={styles.separator} />
         <ListRow
           compact
@@ -122,17 +124,17 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
         <View style={styles.separator} />
         <ListRow compact title="Plan usage" leading={<Icon icon={ChartBarLineIcon} tone="ink" size={20} />} onPress={() => onOpen("usage")} />
         <View style={styles.separator} />
-        <ListRow compact title="Skills" leading={<Icon icon={MagicWand01Icon} tone="ink" size={20} />} onPress={() => onOpen("skills")} />
+        <ListRow compact title="Skills" leading={<Icon icon={BookOpen01Icon} tone="ink" size={20} />} onPress={() => onOpen("skills")} />
         <View style={styles.separator} />
-        <ListRow compact title="Milagre MCP" leading={<Icon icon={PlugSocketIcon} tone="ink" size={20} />} onPress={() => onOpen("local-mcp")} />
+        <ListRow compact title="Milagre MCP" leading={<Icon icon={ServerIcon} tone="ink" size={20} />} onPress={() => onOpen("local-mcp")} />
         <View style={styles.separator} />
-        <ListRow compact title="MCP" leading={<Icon icon={PlugSocketIcon} tone="ink" size={20} />} onPress={() => onOpen("mcp")} />
+        <ListRow compact title="MCP" leading={<Icon icon={Plug01Icon} tone="ink" size={20} />} onPress={() => onOpen("mcp")} />
         <View style={styles.separator} />
         <ListRow compact title="Appearance" leading={<Icon icon={PaintBoardIcon} tone="ink" size={20} />} onPress={() => onOpen("appearance")} />
         <View style={styles.separator} />
         <ListRow compact title="Chat" leading={<Icon icon={BubbleChatIcon} tone="ink" size={20} />} onPress={() => onOpen("chat-display")} />
         <View style={styles.separator} />
-        <ListRow compact title="Experimental" leading={<Icon icon={TestTube01Icon} tone="ink" size={20} />} onPress={() => onOpen("experimental")} />
+        <ListRow compact title="Experimental" leading={<Icon icon={FlaskConicalIcon} tone="ink" size={20} />} onPress={() => onOpen("experimental")} />
         <View style={styles.separator} />
         <ListRow compact title="Privacy & AI" leading={<Icon icon={SecurityCheckIcon} tone="ink" size={20} />} onPress={() => onOpen("privacy")} />
         <View style={styles.separator} />
