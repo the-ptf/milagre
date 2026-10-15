@@ -1,12 +1,14 @@
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { AlertCircleIcon, Cancel01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { AlertCircleIcon, Cancel01Icon, PaintBoardIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { agentActivityLabel, subagentActivityLabel, subagentRoleLabel } from "@milagre/shared/agent-activity";
 import type { Subagent, SubagentCommunication } from "@milagre/shared/model";
 import { subagentActive, subagentFinished } from "../../lib/subagents";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { DiffBar } from "../changes/ChangesChrome";
 import { SubagentTranscript } from "./SubagentTrack";
+import { useDesignsOpener } from "./ArtifactCard";
+import type { SubagentDesign } from "./subagent-designs";
 import {
   COMMUNICATION_TTL_MS,
   MAIN_AGENT,
@@ -36,6 +38,7 @@ export const SubagentCanvas = memo(function SubagentCanvas({
   onClose,
   onStop,
   onRetry,
+  designs,
 }: {
   /** The Chat the subagents belong to (see SubagentTranscript). */
   chatKey?: string | null;
@@ -47,7 +50,10 @@ export const SubagentCanvas = memo(function SubagentCanvas({
   onClose: () => void;
   onStop?: (id: string) => void;
   onRetry?: (id: string) => void;
+  /** Each subagent's design work (subagentDesigns), shown on its bot; it opens the Designs on that design. */
+  designs?: ReadonlyMap<string, SubagentDesign>;
 }) {
+  const openDesigns = useDesignsOpener();
   const panel = useRef<HTMLElement>(null);
   const surface = useRef<HTMLDivElement>(null);
   const transcriptClose = useRef<HTMLButtonElement>(null);
@@ -458,6 +464,25 @@ export const SubagentCanvas = memo(function SubagentCanvas({
                     {node.status}
                   </span>
                 )}
+                {(() => {
+                  const design = node.agent ? designs?.get(node.agent.id) : undefined;
+                  if (!design || !openDesigns) return null;
+                  const label = design.designing ? `Designing${design.title ? ` ${design.title}` : "…"}` : design.title;
+                  return (
+                    <button
+                      type="button"
+                      data-slot="subagent-design"
+                      data-designing={design.designing || undefined}
+                      className="subagent-bot-design"
+                      title={design.designing ? `Open the Designs to watch ${node.title} design` : `Open ${design.title} in the Designs`}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={() => openDesigns(design.id)}
+                    >
+                      <HugeiconsIcon icon={PaintBoardIcon} size={11} strokeWidth={1.8} aria-hidden="true" />
+                      <span>{label}</span>
+                    </button>
+                  );
+                })()}
               </div>
             );
           })}

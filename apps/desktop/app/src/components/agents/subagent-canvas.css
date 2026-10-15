@@ -387,6 +387,35 @@
 .subagent-canvas-node[data-status="failed"] .subagent-bot-status > span {
   background: var(--red);
 }
+/* What the subagent is designing, or designed last: it opens the Designs on that design. */
+.subagent-bot-design {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  margin-top: 5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 10px;
+  color: var(--ink-2);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.subagent-bot-design > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subagent-bot-design:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.subagent-bot-design[data-designing] {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--bot-tint) 70%, var(--line));
+}
 .subagent-canvas-empty {
   position: absolute;
   bottom: 20px;

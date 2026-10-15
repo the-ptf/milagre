@@ -179,6 +179,8 @@ function Fixture() {
   const [provider, setProvider] = useState("claude");
   const [crew, setCrew] = useState([]);
   window.setCrew = setCrew;
+  const [streaming, setStreaming] = useState([]);
+  window.setStreaming = setStreaming;
   window.reply = (body, steps) => setReplies((current) => [...current, { id: 10 + current.length, session_id: 1, context: null, role: "assistant", body, steps }]);
   window.step = step;
   window.setProvider = setProvider;
@@ -188,7 +190,7 @@ function Fixture() {
     ...replies,
   ];
   return <div style={{ display: "flex", height: "100%" }}><main data-workspace-main style={{ display: "flex", flex: 1, minWidth: 0, height: "100%" }}><div data-chat-pane style={{ flex: 1, minWidth: 0, height: "100%", padding: 12 }}>
-    <ChatComposer messages={messages} onSendDesignMessage={async () => true} sessionProvider={provider} subagents={crew}
+    <ChatComposer messages={messages} onSendDesignMessage={async () => true} sessionProvider={provider} subagents={crew} streamingSteps={streaming}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
       scopeKind="link" projectPath="/fixture" messageScope="milagre-link:fixture" agentChatId={chatId} draft="" onDraftChange={noop} onSend={noop} isSending={false} sendBlocked={false}
       streamingText="" asking={false}
@@ -376,6 +378,43 @@ async function browserChecks() {
     assert.equal(await evaluate(`${cursor(live("login"))}.dataset.agent`), "Noah", "the replay plays under the subagent's cursor");
     await screenshot("6d-subagent-replay", 250);
     await waitFor(`${frame("login")}.dataset.version === "4" && !${live("login")}`, 400);
+
+    // 3e. The Subagents view shows what a subagent designs: Noah's bot names his last design, and opens the Designs on
+    // it; designing, it says so.
+    await evaluate(`${dock}.querySelector("[aria-label='Close designs']").click()`);
+    await waitFor(`!${dock}`);
+    await evaluate('[...document.querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") ?? "").startsWith("Subagents,")).click()');
+    await waitFor("!!document.querySelector(\"[aria-label='Open subagent canvas']\")");
+    await evaluate("document.querySelector(\"[aria-label='Open subagent canvas']\").click()");
+    const noahDesign =
+      'document.querySelector("[data-slot=subagent-canvas] [data-canvas-agent=toolu_sub1]")?.parentElement.querySelector("[data-slot=subagent-design]")';
+    await waitFor(`${noahDesign}?.textContent === "Login"`);
+    assert.equal(
+      await evaluate(
+        '!!document.querySelector("[data-slot=subagent-canvas] [data-canvas-agent=toolu_sub0]").parentElement.querySelector("[data-slot=subagent-design]")',
+      ),
+      false,
+      "a subagent that designed nothing shows no design",
+    );
+    await evaluate(`${noahDesign}.click()`);
+    await waitFor(`!!${frame("login")}?.querySelector("[data-design-body] iframe")`);
+    assert.equal(
+      await evaluate(
+        `(() => { const c = ${dock}.querySelector("[data-slot=artifact-canvas]").getBoundingClientRect(); const f = ${frame("login")}.getBoundingClientRect(); return f.left >= c.left - 1 && f.right <= c.right + 1; })()`,
+      ),
+      true,
+      "the Designs open on Noah's design",
+    );
+    await evaluate(
+      'window.setStreaming([{ id: "toolu_sub_card", kind: "artifact", title: "Showed `Card`", status: "running", tool: "design_show", agent: "toolu_sub1", offset: 0 }]); true',
+    );
+    await waitFor(`${noahDesign}?.textContent === "Designing Card" && ${noahDesign}.dataset.designing === "true"`);
+    await screenshot("6e-subagent-view-designing");
+    await evaluate("window.setStreaming([]); true");
+    await evaluate(
+      'document.querySelector("[data-slot=subagent-canvas] [data-canvas-surface]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))',
+    );
+    await waitFor('!document.querySelector("[data-slot=subagent-canvas]")');
 
     // 3d. Two agents edit one design: the second save fails on its version and its draft goes; the retry builds again.
     const conflict = JSON.stringify({ id: "home", expectedVersion: 1, operations: [{ op: "update", id: "greeting", patch: { text: "Good evening" } }] });
