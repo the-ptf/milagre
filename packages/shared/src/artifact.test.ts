@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import {
   ARTIFACT_CSP,
+  DESIGN_CANVAS_SCRIPT,
   RESOLVED_STEP,
   artifactDocument,
   artifactShell,
   chosenDesign,
   designActivity,
+  designCanvasShell,
   designGroups,
   designFeedbackMessage,
   designFeedbackText,
@@ -175,6 +178,22 @@ test("the phone's shell frames the design with no say over the page, and loads n
   assert.doesNotMatch(shell.replace(/srcdoc="[^"]*"/, ""), /<script/, "the page itself runs nothing");
   const srcdoc = /srcdoc="([^"]*)"/.exec(shell)?.[1] ?? "";
   assert.ok(srcdoc.includes("&quot;hi&quot; &amp; bye"), srcdoc);
+});
+
+test("the phone's design canvas runs only its own script, and the design runs none", () => {
+  const shell = designCanvasShell('<p>"hi" & bye</p><script>alert(1)</script>', { width: 390, height: 844 }, "#1c1c1e");
+  const hash = createHash("sha256").update(DESIGN_CANVAS_SCRIPT).digest("base64");
+  const page = shell.replace(/srcdoc="[^"]*"/, "");
+  assert.ok(page.includes(`script-src 'sha256-${hash}'`), "the policy allows the canvas script by its hash");
+  assert.doesNotMatch(page, /script-src 'unsafe-inline'/, "and no other script");
+  assert.match(shell, /frame-src 'none'/);
+  assert.match(shell, /<iframe sandbox="" referrerpolicy="no-referrer" width="390" height="844"/);
+  assert.match(shell, /data-width="390" data-height="844"/);
+  assert.match(shell, /background:#1c1c1e/);
+  assert.equal(page.match(/<script>/g)?.length, 1, "the page runs the canvas script only");
+  assert.ok(page.includes(`<script>${DESIGN_CANVAS_SCRIPT}</script>`));
+  assert.doesNotMatch(DESIGN_CANVAS_SCRIPT, /<\/script/i);
+  assert.match(designCanvasShell("", { width: 1, height: 1 }, "red;}body{x:y"), /background:#f2f2f2/, "only a plain color reaches the style");
 });
 
 test("resolutions are read again only when a comment resolves or feedback is sent", () => {
