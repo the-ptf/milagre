@@ -789,8 +789,12 @@ function ArtifactWebView({ html, canvas }: { html: string; canvas?: { width: num
   // when the design changes or goes.
   // Named for this view and the design's content: two views never share a file, and a changed design gets a new one.
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
+  // The size, not the document: a fresh read of the same version is a new object, and preparing again would write the
+  // same file name and then delete it with the previous preparation's cleanup.
+  const width = canvas?.width;
+  const height = canvas?.height;
   const prepared = useMemo(() => {
-    const page = canvas ? designCanvasShell(html, canvas, colors.canvas) : artifactShell(html);
+    const page = width && height ? designCanvasShell(html, { width, height }, colors.canvas) : artifactShell(html);
     let hash = 5381;
     for (let index = 0; index < page.length; index++) hash = (hash * 33) ^ page.charCodeAt(index);
     const file = new File(Paths.cache, `artifact-${id}-${(hash >>> 0).toString(36)}.html`);
@@ -800,7 +804,7 @@ function ArtifactWebView({ html, canvas }: { html: string; canvas?: { width: num
     } catch {
       return null;
     }
-  }, [html, id, canvas, colors.canvas]);
+  }, [html, id, width, height, colors.canvas]);
   useEffect(
     () => () => {
       try {

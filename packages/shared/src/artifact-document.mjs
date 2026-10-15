@@ -53,34 +53,35 @@ export function artifactShell(html) {
 
 /**
  * The phone's canvas for a design: drag to pan (with a glide on release), pinch to zoom, double-tap to fit or zoom in.
- * Fixed text, so the page's policy can allow it by hash and nothing else; the board's size comes from its attributes.
+ * A third finger is ignored; reduced motion drops the glide and the animated zoom. Fixed text, so the page's policy can
+ * allow it by hash and nothing else; the board's size comes from its attributes.
  */
 export const DESIGN_CANVAS_SCRIPT = `(function(){
 var port=document.getElementById("port"),board=document.getElementById("board");
-var W=+board.getAttribute("data-width"),H=+board.getAttribute("data-height"),EDGE=48;
+var W=+board.getAttribute("data-width"),H=+board.getAttribute("data-height"),EDGE=48,still=matchMedia("(prefers-reduced-motion: reduce)");
 var x=0,y=0,s=1,moved=false,glide=0,points=new Map(),track=[],down=null,lastTap=null;
-function fit(){return Math.min((port.clientWidth-32)/W,(port.clientHeight-32)/H)}
+function fit(){return Math.max(.01,Math.min((port.clientWidth-32)/W,(port.clientHeight-32)/H))}
 function paint(){var w=port.clientWidth,h=port.clientHeight;x=Math.min(w-EDGE,Math.max(EDGE-W*s,x));y=Math.min(h-EDGE,Math.max(EDGE-H*s,y));board.style.transform="translate("+x+"px,"+y+"px) scale("+s+")"}
 function zoomAt(next,px,py){var f=fit();next=Math.min(Math.max(4,f*2),Math.max(Math.min(f,1)/2,next));x=px-(px-x)*next/s;y=py-(py-y)*next/s;s=next}
 function reset(){s=fit();x=(port.clientWidth-W*s)/2;y=(port.clientHeight-H*s)/2}
-function animate(change){board.style.transition="transform .25s cubic-bezier(.2,.8,.2,1)";change();paint();setTimeout(function(){board.style.transition=""},260)}
+function animate(change){if(!still.matches)board.style.transition="transform .25s cubic-bezier(.2,.8,.2,1)";change();paint();setTimeout(function(){board.style.transition=""},260)}
 function stop(){cancelAnimationFrame(glide);board.style.transition=""}
-function fling(at){var a=track[0],b=track[track.length-1];if(!a||b===a||at-b.t>60)return;var vx=(b.x-a.x)/(b.t-a.t),vy=(b.y-a.y)/(b.t-a.t),prev=performance.now();if(Math.hypot(vx,vy)<.2)return;
-function step(now){var dt=now-prev,k=Math.pow(.996,dt);prev=now;x+=vx*dt;y+=vy*dt;vx*=k;vy*=k;paint();if(Math.hypot(vx,vy)>.03)glide=requestAnimationFrame(step)}glide=requestAnimationFrame(step)}
-port.addEventListener("pointerdown",function(e){stop();port.setPointerCapture(e.pointerId);points.set(e.pointerId,{x:e.clientX,y:e.clientY});track=[];down=points.size===1?{x:e.clientX,y:e.clientY,t:e.timeStamp,far:false}:null});
+function fling(at){var a=track[0],b=track[track.length-1];if(still.matches||!a||b.t<=a.t||at-b.t>60)return;var vx=(b.x-a.x)/(b.t-a.t),vy=(b.y-a.y)/(b.t-a.t),prev=performance.now();if(Math.hypot(vx,vy)<.2)return;
+function step(now){var dt=Math.min(now-prev,32),k=Math.pow(.996,dt);prev=now;x+=vx*dt;y+=vy*dt;vx*=k;vy*=k;paint();if(Math.hypot(vx,vy)>.03)glide=requestAnimationFrame(step)}glide=requestAnimationFrame(step)}
+port.addEventListener("pointerdown",function(e){if(points.size>=2)return;stop();port.setPointerCapture(e.pointerId);points.set(e.pointerId,{x:e.clientX,y:e.clientY});track=[];down=points.size===1?{x:e.clientX,y:e.clientY,t:e.timeStamp,far:false}:null});
 port.addEventListener("pointermove",function(e){var old=points.get(e.pointerId);if(!old)return;
 if(points.size===1){x+=e.clientX-old.x;y+=e.clientY-old.y;track.push({x:e.clientX,y:e.clientY,t:e.timeStamp});if(track.length>5)track.shift()}
-else{var other=null;points.forEach(function(p,id){if(id!==e.pointerId&&!other)other=p});var before=Math.hypot(old.x-other.x,old.y-other.y),after=Math.hypot(e.clientX-other.x,e.clientY-other.y);if(before>0)zoomAt(s*after/before,(old.x+other.x)/2,(old.y+other.y)/2);x+=(e.clientX-old.x)/2;y+=(e.clientY-old.y)/2}
+else{var other=null;points.forEach(function(p,id){if(id!==e.pointerId)other=p});var before=Math.hypot(old.x-other.x,old.y-other.y),after=Math.hypot(e.clientX-other.x,e.clientY-other.y);if(before>0)zoomAt(s*after/before,(old.x+other.x)/2,(old.y+other.y)/2);x+=(e.clientX-old.x)/2;y+=(e.clientY-old.y)/2}
 if(down&&Math.hypot(e.clientX-down.x,e.clientY-down.y)>10)down.far=true;if(!down||down.far)moved=true;points.set(e.pointerId,{x:e.clientX,y:e.clientY});paint()});
 function up(e){if(!points.delete(e.pointerId))return;track=points.size?[]:track;if(points.size)return;
-if(e.type==="pointerup"&&down&&!down.far&&e.timeStamp-down.t<300){if(lastTap&&e.timeStamp-lastTap.t<300&&Math.hypot(e.clientX-lastTap.x,e.clientY-lastTap.y)<40){lastTap=null;var f=fit(),px=e.clientX,py=e.clientY;moved=true;animate(s>f*1.05?reset:function(){zoomAt(Math.max(1,f*2),px,py)})}else lastTap={x:e.clientX,y:e.clientY,t:e.timeStamp}}
+if(e.type==="pointerup"&&down&&!down.far&&e.timeStamp-down.t<300){if(lastTap&&e.timeStamp-lastTap.t<300&&Math.hypot(e.clientX-lastTap.x,e.clientY-lastTap.y)<40){lastTap=null;var f=fit(),px=e.clientX,py=e.clientY;moved=true;animate(Math.abs(s/f-1)>.05?reset:function(){zoomAt(Math.max(1,f*2),px,py)})}else lastTap={x:e.clientX,y:e.clientY,t:e.timeStamp}}
 else if(e.type==="pointerup")fling(e.timeStamp);down=null}
-port.addEventListener("pointerup",up);port.addEventListener("pointercancel",up);
+port.addEventListener("pointerup",up);port.addEventListener("pointercancel",up);port.addEventListener("lostpointercapture",up);
 document.addEventListener("gesturestart",function(e){e.preventDefault()});
-new ResizeObserver(function(){if(!moved)reset();paint()}).observe(port);
+new ResizeObserver(function(){stop();track=[];if(!moved)reset();paint()}).observe(port);
 reset();paint()})()`;
 // Hash of DESIGN_CANVAS_SCRIPT; artifact.test.ts checks it.
-const DESIGN_CANVAS_HASH = "sha256-7eN8Ff11+OeaFgF0xtm18pcXvtyrV0ov7a1bTI0Zvv8=";
+const DESIGN_CANVAS_HASH = "sha256-NOOMwx6JFeJGTc7CmGU0Coov0JqtPKoSyhoP47n2JTs=";
 const CANVAS_BACKGROUND = /^(#[0-9a-f]{3,8}|rgba?\([\d.,%\s/]+\))$/i;
 
 /**
