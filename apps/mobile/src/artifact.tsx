@@ -140,8 +140,9 @@ export function DesignFeedbackCard({
                 style={{
                   width: 20,
                   height: 20,
+                  // The desktop canvas's pin: round, its point the top-left corner.
                   borderRadius: 10,
-                  borderBottomLeftRadius: 0,
+                  borderTopLeftRadius: 0,
                   alignItems: "center",
                   justifyContent: "center",
                   backgroundColor: resolved === undefined ? colors.accent : colors.green,

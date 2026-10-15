@@ -20,18 +20,9 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { ZoomBar } from "./primitives/ZoomBar";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Add01Icon,
-  BubbleChatIcon,
-  Folder01Icon,
-  GitBranchIcon,
-  Link04Icon,
-  MinusSignIcon,
-  PlusSignIcon,
-  ShieldAlertIcon,
-  FitToScreenIcon,
-} from "@hugeicons/core-free-icons";
+import { Add01Icon, BubbleChatIcon, Folder01Icon, GitBranchIcon, Link04Icon, ShieldAlertIcon } from "@hugeicons/core-free-icons";
 import {
   canvasAttention,
   canvasFilterCounts,
@@ -518,34 +509,15 @@ function FilterBar({ filter, counts, onChange }: { filter: CanvasFilter; counts:
 function ZoomControls() {
   const flow = useReactFlow();
   const { zoom } = useViewport();
-  const button = "flex size-8 items-center justify-center text-ink-2 transition-colors hover:text-ink";
   return (
-    <div data-canvas-zoom className="flex h-8 items-center rounded-control bg-surface shadow-card">
-      <button type="button" aria-label="Zoom out" className={button} onClick={() => void flow.zoomOut({ duration: 160 })}>
-        <HugeiconsIcon icon={MinusSignIcon} size={14} strokeWidth={1.8} color="currentColor" />
-      </button>
-      <button
-        type="button"
-        aria-label="Zoom to 100%"
-        className="w-11 text-center text-[12px] font-medium text-ink tabular-nums"
-        onClick={() => void flow.zoomTo(1, { duration: 160 })}
-      >
-        {Math.round(zoom * 100)}%
-      </button>
-      <button type="button" aria-label="Zoom in" className={button} onClick={() => void flow.zoomIn({ duration: 160 })}>
-        <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={1.8} color="currentColor" />
-      </button>
-      <span className="h-4 w-px bg-line" />
-      <button
-        type="button"
-        aria-label="Fit everything"
-        className="flex h-8 items-center gap-1.5 px-2.5 text-[12px] font-medium text-ink transition-colors hover:text-ink-2"
-        onClick={() => void flow.fitView({ padding: 0.15, duration: 200 })}
-      >
-        <HugeiconsIcon icon={FitToScreenIcon} size={13} strokeWidth={1.8} color="currentColor" />
-        Fit
-      </button>
-    </div>
+    <ZoomBar
+      data-canvas-zoom
+      zoom={zoom}
+      onZoomOut={() => void flow.zoomOut({ duration: 160 })}
+      onReset={() => void flow.zoomTo(1, { duration: 160 })}
+      onZoomIn={() => void flow.zoomIn({ duration: 160 })}
+      onFit={() => void flow.fitView({ padding: 0.15, duration: 200 })}
+    />
   );
 }
 

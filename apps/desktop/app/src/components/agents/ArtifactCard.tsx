@@ -8,11 +8,9 @@ import {
   Cancel01Icon,
   CheckmarkCircle02Icon,
   Comment01Icon,
-  FitToScreenIcon,
-  MinusSignIcon,
-  Add01Icon,
   PaintBoardIcon,
   File01Icon,
+  Share08Icon,
 } from "@hugeicons/core-free-icons";
 import {
   chosenDesign,
@@ -36,6 +34,8 @@ import { useDesignSharingAvailable } from "../../lib/design-sharing-available";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { DESIGN_DELETED, DESIGN_SAVED, type DesignDeleted, type DesignSaved } from "./DesignEditor";
 import { DesignPageShareDialog } from "./DesignPageShareDialog";
+import { ZoomBar } from "../primitives/ZoomBar";
+import { COMMENT_KEY, useCommentKey } from "./comment-key";
 
 /** Whether the element is laid out: false while an ancestor hides it (the diff, settings or canvas in place of the chat). */
 function useShown() {
@@ -161,12 +161,13 @@ function ScaledPreview({
           {pin && (
             <span
               aria-hidden
-              className={`absolute grid size-5 place-items-center rounded-full rounded-bl-none text-[10px] font-medium text-white shadow-raised ${pin.resolved ? "bg-green" : "bg-accent"}`}
+              // The canvas's pin shape: its point, the top-left corner, on the spot.
+              className={`absolute grid size-5 place-items-center rounded-full rounded-tl-none text-[10px] font-medium text-white shadow-[0_0_0_1.5px_#fff,0_1px_3px_rgb(0_0_0/0.3)] ${pin.resolved ? "bg-green" : "bg-accent"}`}
               style={{
                 left: `${pin.x * 100}%`,
                 top: `${pin.y * 100}%`,
-                transform: `translateY(-100%) scale(${1 / scale})`,
-                transformOrigin: "bottom left",
+                transform: `scale(${1 / scale})`,
+                transformOrigin: "top left",
               }}
             >
               {pin.label}
@@ -753,6 +754,8 @@ function ArtifactDock({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [commenting, onClose]);
+  // C turns comment mode on and off, as the comment button does.
+  useCommentKey(kind === "designs" && !!onSend, () => setCommenting((value) => !value));
   const written = pins.filter((pin) => pin.text.trim());
   const feedback = kind === "artifacts" ? Number(!!pageComment.trim() && !!page) : written.length + (choice ? 1 : 0);
   const send = async () => {
@@ -847,18 +850,13 @@ function ArtifactDock({
     >
       <header className="flex shrink-0 items-center gap-1 border-b border-line px-3 py-2">
         <HugeiconsIcon icon={kind === "artifacts" ? File01Icon : PaintBoardIcon} size={16} aria-hidden />
-        <div className="ml-1 min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-[13px]">{label}</span>
-            {kind === "designs" && (
-              <span data-slot="designs-experimental" className="rounded border border-line px-1.5 py-0.5 text-[9px] leading-none text-ink-3">
-                Experimental
-              </span>
-            )}
-          </div>
-          <div className="text-[11px] text-ink-3">
-            {kind === "artifacts" ? "Chat page" : `${designs.length} ${designs.length === 1 ? "design" : "designs"} in this Chat`}
-          </div>
+        <div className="ml-1 flex min-w-0 flex-1 items-center gap-2">
+          <span className="truncate text-[13px]">{label}</span>
+          {kind === "designs" && (
+            <span data-slot="designs-experimental" className="rounded border border-line px-1.5 py-0.5 text-[9px] leading-none text-ink-3">
+              Experimental
+            </span>
+          )}
         </div>
         {feedback > 0 && (
           <button
@@ -874,16 +872,16 @@ function ArtifactDock({
           </button>
         )}
         {sharingAvailable && (
-          <button
-            type="button"
-            aria-label="Share page"
-            onClick={() => setSharingChat(chatId)}
-            className="rounded px-2 py-1 text-[12px] text-ink-2 hover:bg-hover"
-          >
-            Share
-          </button>
+          <Tooltip label="Share page">
+            <button type="button" aria-label="Share page" onClick={() => setSharingChat(chatId)} className={icon}>
+              <HugeiconsIcon icon={Share08Icon} size={16} aria-hidden />
+            </button>
+          </Tooltip>
         )}
-        <Tooltip label={commenting ? "Stop commenting" : kind === "artifacts" ? "Comment on artifact" : "Comment on a design"}>
+        <Tooltip
+          label={commenting ? "Stop commenting" : kind === "artifacts" ? "Comment on artifact" : "Comment on a design"}
+          keyHint={kind === "designs" ? COMMENT_KEY : undefined}
+        >
           <button
             type="button"
             aria-label={commenting ? "Stop commenting" : kind === "artifacts" ? "Comment on artifact" : "Comment on a design"}
@@ -895,28 +893,6 @@ function ArtifactDock({
             <HugeiconsIcon icon={Comment01Icon} size={16} aria-hidden />
           </button>
         </Tooltip>
-        {kind === "designs" && (
-          <>
-            <Tooltip label="Zoom out">
-              <button type="button" aria-label="Zoom out" onClick={() => canvas.current?.zoomBy(1 / 1.25)} className={icon}>
-                <HugeiconsIcon icon={MinusSignIcon} size={16} aria-hidden />
-              </button>
-            </Tooltip>
-            <span data-slot="artifact-zoom" className="w-10 text-center text-[11px] text-ink-3 tabular-nums">
-              {view ? `${Math.round(view.scale * 100)}%` : ""}
-            </span>
-            <Tooltip label="Zoom in">
-              <button type="button" aria-label="Zoom in" onClick={() => canvas.current?.zoomBy(1.25)} className={icon}>
-                <HugeiconsIcon icon={Add01Icon} size={16} aria-hidden />
-              </button>
-            </Tooltip>
-            <Tooltip label="Fit every design">
-              <button type="button" aria-label="Fit every design" onClick={() => canvas.current?.fitAll()} className={icon}>
-                <HugeiconsIcon icon={FitToScreenIcon} size={16} aria-hidden />
-              </button>
-            </Tooltip>
-          </>
-        )}
         {!cramped && (
           <Tooltip label={expanded ? `Show the chat beside the ${kind}` : `Fill the window with the ${kind}`}>
             <button
@@ -951,25 +927,38 @@ function ArtifactDock({
           )}
         </div>
       ) : entered ? (
-        <ArtifactCanvas
-          ref={canvas}
-          chatId={chatId}
-          designs={designs}
-          versions={versions}
-          onVersion={onVersion}
-          focus={focus}
-          commenting={commenting}
-          comments={comments}
-          choice={{
-            sent: chosen,
-            pending: choice,
-            onChoose:
-              kind === "designs" && onSend
-                ? (design) => setChoice((current) => (current?.id === design.id && current.version === design.version ? null : design))
-                : null,
-          }}
-          onView={setView}
-        />
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <ArtifactCanvas
+            ref={canvas}
+            chatId={chatId}
+            designs={designs}
+            versions={versions}
+            onVersion={onVersion}
+            focus={focus}
+            commenting={commenting}
+            comments={comments}
+            choice={{
+              sent: chosen,
+              pending: choice,
+              onChoose:
+                kind === "designs" && onSend
+                  ? (design) => setChoice((current) => (current?.id === design.id && current.version === design.version ? null : design))
+                  : null,
+            }}
+            onView={setView}
+          />
+          <ZoomBar
+            data-slot="artifact-zoom-bar"
+            className="absolute right-4 bottom-4"
+            zoom={view?.scale ?? null}
+            onZoomOut={() => canvas.current?.zoomBy(1 / 1.25)}
+            onReset={() => canvas.current?.zoomTo(1)}
+            onZoomIn={() => canvas.current?.zoomBy(1.25)}
+            onFit={() => canvas.current?.fitAll()}
+            fitLabel="Fit every design"
+            resetProps={{ "data-slot": "artifact-zoom" }}
+          />
+        </div>
       ) : (
         <div className="min-h-0 flex-1 bg-canvas" />
       )}

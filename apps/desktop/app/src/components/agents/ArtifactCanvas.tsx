@@ -10,6 +10,7 @@ import { bridgeForKey } from "../../lib/computer-bridge";
 import { DesignPageEditor as DesignEditor } from "./DesignPageEditor";
 import { DESIGN_DELETED, type DesignDeleted } from "./DesignEditor";
 import { designLayout, designNodeAt } from "@milagre/shared/design";
+import { CommentLayer, CommentPin } from "./CommentPin";
 
 /** A comment the user pinned on a design and hasn't sent yet. */
 export type DesignPin = {
@@ -43,11 +44,12 @@ export type ChoiceControls = {
 export type CanvasView = { x: number; y: number; scale: number };
 export type CanvasHandle = {
   zoomBy: (factor: number) => void;
+  /** Zooms to this scale (1 is 100%) about the middle of the view. */
+  zoomTo: (scale: number) => void;
   fitAll: () => void;
 };
 
 const GAP = 80;
-const SEND_KEYS = /Mac/.test(navigator.userAgent) ? "⌘Enter" : "Ctrl+Enter";
 // The title row above each frame, in screen pixels.
 const HEADER = 32;
 // A group's name above its block, in screen pixels, and the block's padding around its frames, in canvas pixels.
@@ -248,6 +250,10 @@ export const ArtifactCanvas = forwardRef<
       zoomBy: (factor) => {
         const port = viewport.current;
         if (port) zoomAt(factor, port.clientWidth / 2, port.clientHeight / 2);
+      },
+      zoomTo: (scale) => {
+        const port = viewport.current;
+        if (port) zoomAt(scale / viewRef.current.scale, port.clientWidth / 2, port.clientHeight / 2);
       },
       fitAll: () => {
         moved.current = true;
@@ -713,20 +719,13 @@ const DesignFrame = memo(function DesignFrame({
           <div data-slot="artifact-shield" aria-label={`Interact with ${shown.title}`} className="absolute inset-0 cursor-grab" />
         )}
         {(commenting || framePins.length > 0 || sentPins.length > 0) && (
-          // Over the design, so a click pins a comment instead of reaching the design. Outside its clipping, so a
-          // comment's bubble near an edge stays whole.
-          <div
-            data-slot="artifact-comment-layer"
-            data-design-body
-            aria-label={commenting ? `Pin a comment on ${shown.title}` : undefined}
-            className={`absolute inset-0 ${commenting ? "cursor-crosshair" : "pointer-events-none"}`}
-            onClick={(event) => {
-              if (!commenting || !artifact || event.target !== event.currentTarget) return;
-              const rect = event.currentTarget.getBoundingClientRect();
-              const x = (event.clientX - rect.left) / rect.width;
-              const y = (event.clientY - rect.top) / rect.height;
-              comments.onPin(shown, x, y, artifact.format === "design" ? designNodeAt(artifact.document, x * width, y * height)?.id : undefined);
-            }}
+          // Over the design, so a click pins a comment instead of reaching the design.
+          <CommentLayer
+            commenting={commenting}
+            title={shown.title}
+            onPin={(x, y) =>
+              artifact && comments.onPin(shown, x, y, artifact.format === "design" ? designNodeAt(artifact.document, x * width, y * height)?.id : undefined)
+            }
           >
             {sentPins.map((pin) => (
               <CommentPin
@@ -742,7 +741,7 @@ const DesignFrame = memo(function DesignFrame({
             {framePins.map((pin) => (
               <CommentPin key={pin.key} pin={pin} number={comments.pins.indexOf(pin) + 1} open={comments.open === pin.key} scale={scale} comments={comments} />
             ))}
-          </div>
+          </CommentLayer>
         )}
       </div>
       {editError && (
@@ -754,118 +753,3 @@ const DesignFrame = memo(function DesignFrame({
     </div>
   );
 });
-
-/**
- * A pinned comment, Figma-like: the pin marks the spot, and its bubble beside it holds the comment. Enter or a click
- * elsewhere closes the bubble, keeping the comment for Send; ⌘Enter sends it right away with the rest of the
- * feedback; one closed empty is removed. Both stay the same size on screen however far the canvas zooms.
- */
-function CommentPin({
-  pin,
-  number,
-  open,
-  scale,
-  comments,
-  sent = false,
-}: {
-  pin: DesignPin;
-  number: number;
-  open: boolean;
-  scale: number;
-  comments: PinControls;
-  /** A comment already sent: its bubble reads it back, and it can't change. */
-  sent?: boolean;
-}) {
-  const close = () => {
-    if (!sent && !pin.text.trim()) comments.onRemove(pin.key);
-    comments.onOpen(null);
-  };
-  // Escape closes a sent comment's bubble before it reaches the canvas (a draft's textarea handles its own).
-  useEffect(() => {
-    if (!open || !sent) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      event.preventDefault();
-      comments.onOpen(null);
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [open, sent, comments]);
-  return (
-    <div
-      // Above the frames beside it, so an open bubble that reaches past its design stays whole.
-      className={`pointer-events-auto absolute ${open ? "z-10" : ""}`}
-      style={{
-        left: `${pin.x * 100}%`,
-        top: `${pin.y * 100}%`,
-        transform: `translateY(-100%) scale(${1 / scale})`,
-        transformOrigin: "bottom left",
-      }}
-    >
-      <button
-        type="button"
-        data-slot={sent ? "artifact-sent-pin" : "artifact-pin"}
-        aria-label={`Comment ${number}${pin.resolved !== undefined ? ", resolved" : ""}${pin.text.trim() ? `: ${pin.text.trim()}` : ""}`}
-        aria-expanded={open}
-        onClick={() => (open ? close() : comments.onOpen(pin.key))}
-        className={`grid size-6 cursor-pointer place-items-center rounded-full rounded-bl-none text-[11px] font-medium shadow-raised ${pin.resolved !== undefined ? "bg-green text-white" : sent ? "bg-ink text-surface" : "bg-accent text-white"}`}
-      >
-        {number}
-      </button>
-      {open && (
-        <div
-          data-slot="artifact-comment-bubble"
-          className="absolute top-0 left-8 flex w-64 cursor-default flex-col gap-2 rounded-[10px] border border-line bg-surface p-2 text-ink shadow-raised"
-          onClick={(event) => event.stopPropagation()}
-        >
-          {sent ? (
-            <>
-              <p className="px-1 text-[13px] whitespace-pre-wrap">{pin.text}</p>
-              {pin.resolved === undefined ? (
-                <span className="px-1 text-[11px] text-ink-3">Sent to the agent</span>
-              ) : (
-                <span data-slot="artifact-comment-resolved" className="flex items-start gap-1 px-1 text-[12px] text-green">
-                  <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} className="mt-px shrink-0" aria-hidden />
-                  <span>{pin.resolved}</span>
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              <textarea
-                // oxlint-disable-next-line jsx-a11y/no-autofocus -- the bubble opens to be written in, like Figma's
-                autoFocus
-                aria-label={`Comment ${number} on ${pin.design.title}`}
-                rows={2}
-                value={pin.text}
-                placeholder="Add a comment"
-                onChange={(event) => comments.onText(pin.key, event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                    event.preventDefault();
-                    if (pin.text.trim()) comments.onSend();
-                    else close();
-                  } else if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    close();
-                  } else if (event.key === "Escape") {
-                    // Closes the bubble, not the canvas.
-                    event.preventDefault();
-                    close();
-                  }
-                }}
-                className="w-full resize-none rounded-[6px] bg-transparent px-1 text-[13px] focus:outline-none"
-              />
-              <div className="flex items-center justify-between text-[11px] text-ink-3">
-                <button type="button" onClick={() => comments.onRemove(pin.key)} className="rounded px-1 py-0.5 hover:bg-hover hover:text-ink">
-                  Delete
-                </button>
-                <span>Enter to keep · {SEND_KEYS} to send</span>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
