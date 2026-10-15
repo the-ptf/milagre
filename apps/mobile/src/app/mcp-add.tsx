@@ -4,11 +4,11 @@ import { Stack, router, useLocalSearchParams } from "expo-router";
 import { Cancel01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { MCP_SECRET_MASK, validateMcpServer, type McpServerDefinition, type McpTarget } from "@milagre/shared/mcp";
 import { Icon } from "../icons";
+import { mcpHeadersPayload, renameHeader, type McpHeaderRow } from "../mcp-headers";
 import { useMcp } from "../use-mcp";
 import { Button, CircleButton, Field, PageScroll, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
-type HeaderRow = { id: number; key: string; value: string; masked: boolean };
 const TARGETS: { value: McpTarget; title: string }[] = [
   { value: "everywhere", title: "Everywhere" },
   { value: "claude", title: "Claude only" },
@@ -26,7 +26,7 @@ export default function McpAddSheet() {
   const [name, setName] = useState(params.name ?? "");
   const [url, setUrl] = useState("");
   const [type, setType] = useState<"http" | "sse">("http");
-  const [headers, setHeaders] = useState<HeaderRow[]>([]);
+  const [headers, setHeaders] = useState<McpHeaderRow[]>([]);
   const [target, setTarget] = useState<McpTarget>(asTarget(params.target));
   const [loading, setLoading] = useState(editing);
   const [saving, setSaving] = useState(false);
@@ -41,7 +41,7 @@ export default function McpAddSheet() {
     void (async () => {
       try {
         const def = await mcp.definition(server, asTarget(params.target));
-        if (!def) setError("This server is no longer there.");
+        if (!def) setError("Couldn’t read this server’s settings. Edit it in its CLI config.");
         else if (def.type === "stdio") setError("This server runs a command. Edit it on the Mac.");
         else {
           setName(def.name);
@@ -58,20 +58,22 @@ export default function McpAddSheet() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once for the opened server
   }, []);
 
-  const change = (id: number, patch: Partial<HeaderRow>) => setHeaders((rows) => rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  const change = (id: number, patch: Partial<McpHeaderRow>) => setHeaders((rows) => rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
 
   async function save() {
     if (saving || loading) return;
-    const record: Record<string, string> = {};
-    for (const row of headers) if (row.key.trim() || row.value) record[row.key.trim()] = row.value;
-    const def: McpServerDefinition = { name: name.trim(), type, url: url.trim(), headers: record };
+    const payload = mcpHeadersPayload(headers);
+    if ("error" in payload) return setError(payload.error);
+    const def: McpServerDefinition = { name: name.trim(), type, url: url.trim(), headers: payload.headers };
     const problem = validateMcpServer(def);
     if (problem) return setError(problem);
     setSaving(true);
     setError("");
     try {
       await mcp.saveUrl(def, target, params.name ? { name: params.name, target: asTarget(params.target) } : undefined);
-      router.back();
+      // A renamed server leaves the detail screen under this sheet pointing at a name that no longer exists.
+      if (params.name && def.name !== params.name) router.dismissTo("/mcp");
+      else router.back();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not save.");
     } finally {
@@ -102,7 +104,13 @@ export default function McpAddSheet() {
               {headers.map((row) => (
                 <View key={row.id} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <View style={{ flex: 1 }}>
-                    <Field label="Header name" hideLabel placeholder="Authorization" value={row.key} onChangeText={(key) => change(row.id, { key })} />
+                    <Field
+                      label="Header name"
+                      hideLabel
+                      placeholder="Authorization"
+                      value={row.key}
+                      onChangeText={(key) => setHeaders((rows) => rows.map((item) => (item.id === row.id ? renameHeader(item, key) : item)))}
+                    />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Field

@@ -56,7 +56,12 @@ export function McpSection() {
       {signIn.length ? (
         <Group title="Needs sign-in">
           {signIn.map((row) => (
-            <View key={row.name} style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 60, paddingVertical: 10 }}>
+            <View
+              key={row.name}
+              accessible
+              accessibilityLabel={`${row.name}, needs sign-in on the Mac`}
+              style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 60, paddingVertical: 10 }}
+            >
               <View
                 style={{
                   width: 32,

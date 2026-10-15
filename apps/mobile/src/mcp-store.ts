@@ -2,7 +2,10 @@ import type { McpAccount, McpAccountCheck, McpChip, McpServerDefinition, McpTarg
 import type { Live, LiveOptions } from "./live.ts";
 
 export type McpEntry = { account: McpAccount; check: McpAccountCheck | null };
-export type McpState = { entries: McpEntry[] | null; error: string; busy: boolean };
+/** `pending` holds the value a switch was just flipped to, by `provider:accountId:name`, until its write settles. */
+export type McpState = { entries: McpEntry[] | null; error: string; busy: boolean; pending: Record<string, boolean> };
+/** Foreground and background changes, so the live socket is closed while the app is away. */
+export type McpAppState = { subscribe(listener: (active: boolean) => void): () => void };
 /** The part of the phone client the store needs. */
 export type McpClient = {
   url: string;
@@ -10,12 +13,15 @@ export type McpClient = {
   live(scope: string, options: LiveOptions): Live;
 };
 
-export const MCP_IDLE: McpState = { entries: null, error: "", busy: false };
+export const MCP_IDLE: McpState = { entries: null, error: "", busy: false, pending: {} };
 const keyOf = (account: Pick<McpAccount, "provider" | "accountId">) => `${account.provider}:${account.accountId}`;
+export const mcpPendingKey = (chip: Pick<McpChip, "provider" | "accountId">, name: string) => `${keyOf(chip)}:${name}`;
 
 /** One computer's MCP list, shared by the list, detail and add screens. Every account is checked at once and fills in as it answers. */
-export function createMcpStore(client: McpClient) {
+export function createMcpStore(initial: McpClient, appState?: McpAppState) {
+  let client = initial;
   let state: McpState = MCP_IDLE;
+  let unwatch: (() => void) | null = null;
   let run = 0;
   let holders = 0;
   let live: Live | null = null;
@@ -72,6 +78,32 @@ export function createMcpStore(client: McpClient) {
       },
     });
   }
+  function close() {
+    live?.close();
+    live = null;
+  }
+
+  /** Optimistic: a switch that was written shows its new value until the re-check answers. */
+  function applyToggle(chip: McpChip, name: string, on: boolean) {
+    set({
+      entries:
+        state.entries?.map((entry) =>
+          keyOf(entry.account) !== keyOf(chip) || !entry.check
+            ? entry
+            : {
+                ...entry,
+                check: {
+                  ...entry.check,
+                  servers: entry.check.servers.map((server) => (server.name === name ? { ...server, state: on ? "pending" : "disabled" } : server)),
+                },
+              },
+        ) ?? null,
+    });
+  }
+  const unpend = (key: string) => {
+    const { [key]: _gone, ...rest } = state.pending;
+    set({ pending: rest });
+  };
 
   return {
     get: () => state,
@@ -81,12 +113,26 @@ export function createMcpStore(client: McpClient) {
         listeners.delete(listener);
       };
     },
+    /** The session built a new client for this computer (new token or route): every later call goes through it. */
+    setClient(next: McpClient) {
+      if (next === client) return;
+      client = next;
+      if (!holders) return;
+      open();
+      void refresh();
+    },
     /** Starts the live subscription for the first screen that needs the list, and checks again. Returns the release. */
     acquire() {
       holders++;
       if (holders === 1) {
         void refresh();
         open();
+        unwatch =
+          appState?.subscribe((active) => {
+            if (!active) return close();
+            open();
+            void refresh();
+          }) ?? null;
       }
       let released = false;
       return () => {
@@ -94,33 +140,38 @@ export function createMcpStore(client: McpClient) {
         released = true;
         holders--;
         if (!holders) {
-          live?.close();
-          live = null;
+          close();
+          unwatch?.();
+          unwatch = null;
         }
       };
     },
-    /** The app came back to the foreground: the socket may be gone, and signals may have been missed. */
-    resume() {
-      if (!holders) return;
-      open();
+    refresh,
+    /** Resolves once the Mac took the write; the re-check runs on (and the Mac's mcp signal starts one too). */
+    async toggle(chip: McpChip, name: string, on: boolean) {
+      const key = mcpPendingKey(chip, name);
+      if (key in state.pending) return;
+      set({ pending: { ...state.pending, [key]: on } });
+      try {
+        await client.call("mcp:toggle", [chip.provider, chip.accountId, name, on]);
+        applyToggle(chip, name, on);
+        void refresh();
+      } finally {
+        unpend(key);
+      }
+    },
+    /** Removes the server from every config that holds it, in turn; the list re-checks even after a partial failure. */
+    async remove(name: string, targets: McpTarget[]) {
+      try {
+        for (const target of targets) await client.call("mcp:remove", [name, target]);
+      } finally {
+        void refresh();
+      }
+    },
+    definition: (name: string, target: McpTarget) => client.call<McpServerDefinition | null>("mcp:definition", [name, target]),
+    async saveUrl(def: McpServerDefinition, target: McpTarget, previous?: { name: string; target: McpTarget }) {
+      await client.call("mcp:saveUrl", [def, target, previous ?? null]);
       void refresh();
     },
-    refresh,
-    toggle: (chip: McpChip, name: string, on: boolean) => client.call("mcp:toggle", [chip.provider, chip.accountId, name, on]).then(refresh),
-    remove: (name: string, target: McpTarget) => client.call("mcp:remove", [name, target]).then(refresh),
-    definition: (name: string, target: McpTarget) => client.call<McpServerDefinition | null>("mcp:definition", [name, target]),
-    saveUrl: (def: McpServerDefinition, target: McpTarget, previous?: { name: string; target: McpTarget }) =>
-      client.call("mcp:saveUrl", [def, target, previous ?? null]).then(refresh),
   };
-}
-
-const stores = new Map<string, ReturnType<typeof createMcpStore>>();
-/** One store per connected computer, so every screen shows the same state. */
-export function mcpStoreFor(client: McpClient) {
-  let store = stores.get(client.url);
-  if (!store) {
-    store = createMcpStore(client);
-    stores.set(client.url, store);
-  }
-  return store;
 }

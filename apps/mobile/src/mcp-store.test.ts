@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createMcpStore, type McpClient } from "./mcp-store.ts";
+import { createMcpStore, mcpPendingKey, type McpClient } from "./mcp-store.ts";
 import type { LiveOptions } from "./live.ts";
 
 const account = { provider: "claude", accountId: "a", label: "Work" } as const;
@@ -125,16 +125,118 @@ test("a socket that comes back after a drop checks again; the first open does no
   assert.equal(count(), 2);
 });
 
-test("writes go through the allowed methods and refresh afterwards", async () => {
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const chip = { ...account, scope: "user", state: "connected", tools: 1, error: null } as const;
+const withServer = {
+  ...account,
+  problem: null,
+  servers: [{ name: "pencil", transport: "url", scope: "user", state: "connected", tools: 1, error: null, detail: null }],
+};
+
+test("writes go through the allowed methods and start a re-check", async () => {
   const mac = fake((method) => (method === "mcp:accounts" ? [account] : method === "mcp:check" ? check : null));
   const store = createMcpStore(mac.client);
-  const chip = { ...account, scope: "user", state: "connected", tools: 1, error: null } as const;
   await store.toggle(chip, "pencil", false);
-  await store.remove("pencil", "everywhere");
+  await store.remove("pencil", ["everywhere", "claude"]);
   await store.saveUrl({ name: "x", type: "http", url: "https://x.dev", headers: {} }, "claude");
+  await tick();
   assert.deepEqual(
     mac.calls.filter((method) => method !== "mcp:accounts" && method !== "mcp:check"),
-    ["mcp:toggle", "mcp:remove", "mcp:saveUrl"],
+    ["mcp:toggle", "mcp:remove", "mcp:remove", "mcp:saveUrl"],
   );
   assert.equal(mac.calls.filter((method) => method === "mcp:accounts").length, 3);
+});
+
+test("writes resolve once the Mac took them, before the re-check finishes", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const mac = fake(async (method) => {
+    if (method === "mcp:accounts") {
+      await gate;
+      return [account];
+    }
+    return method === "mcp:check" ? check : null;
+  });
+  const store = createMcpStore(mac.client);
+  await store.saveUrl({ name: "x", type: "http", url: "https://x.dev", headers: {} }, "everywhere");
+  assert.equal(store.get().busy, true);
+  release();
+  await tick();
+  assert.equal(store.get().busy, false);
+});
+
+test("a switch shows its new value while the write runs, ignores a second flip, and keeps it after", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const mac = fake(async (method) => {
+    if (method === "mcp:toggle") await gate;
+    return method === "mcp:accounts" ? [account] : method === "mcp:check" ? withServer : null;
+  });
+  const store = createMcpStore(mac.client);
+  await store.refresh();
+  const key = mcpPendingKey(chip, "pencil");
+  const first = store.toggle(chip, "pencil", false);
+  assert.deepEqual(store.get().pending, { [key]: false });
+  await store.toggle(chip, "pencil", true);
+  assert.equal(mac.calls.filter((method) => method === "mcp:toggle").length, 1);
+  release();
+  await first;
+  assert.deepEqual(store.get().pending, {});
+  // Until the re-check answers, the switch reads as off rather than snapping back.
+  assert.equal(store.get().entries![0]!.check!.servers[0]!.state, "disabled");
+});
+
+test("a failed write clears the pending value and leaves the switch where it was", async () => {
+  const mac = fake((method) => {
+    if (method === "mcp:toggle") throw new Error("denied");
+    return method === "mcp:accounts" ? [account] : withServer;
+  });
+  const store = createMcpStore(mac.client);
+  await store.refresh();
+  await assert.rejects(store.toggle(chip, "pencil", false), /denied/);
+  assert.deepEqual(store.get().pending, {});
+  assert.equal(store.get().entries![0]!.check!.servers[0]!.state, "connected");
+});
+
+test("a new client for the same computer takes over the next refresh and the live socket", async () => {
+  const old = fake((method) => (method === "mcp:accounts" ? [account] : check));
+  const fresh = fake((method) => (method === "mcp:accounts" ? [account] : check));
+  const store = createMcpStore(old.client);
+  const release = store.acquire();
+  await tick();
+  store.setClient(fresh.client);
+  await tick();
+  assert.equal(old.closed(), 1);
+  assert.deepEqual(fresh.calls.slice(0, 2), ["mcp:accounts", "mcp:check"]);
+  const before = old.calls.length;
+  await store.refresh();
+  assert.equal(old.calls.length, before);
+  assert.equal(fresh.calls.filter((method) => method === "mcp:accounts").length, 2);
+  release();
+});
+
+test("one app-state listener serves all screens; background closes the socket and active reopens it", async () => {
+  const mac = fake((method) => (method === "mcp:accounts" ? [account] : check));
+  let listener: ((active: boolean) => void) | null = null;
+  let subscriptions = 0;
+  let removed = 0;
+  const store = createMcpStore(mac.client, {
+    subscribe(next) {
+      subscriptions++;
+      listener = next;
+      return () => void removed++;
+    },
+  });
+  const a = store.acquire();
+  const b = store.acquire();
+  assert.equal(subscriptions, 1);
+  listener!(false);
+  assert.equal(mac.closed(), 1);
+  listener!(true);
+  await tick();
+  assert.equal(mac.calls.filter((method) => method === "mcp:accounts").length, 2);
+  a();
+  assert.equal(removed, 0);
+  b();
+  assert.equal(removed, 1);
 });
