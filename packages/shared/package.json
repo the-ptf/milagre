@@ -147,6 +147,10 @@
       "types": "./src/providers.d.mts",
       "default": "./src/providers.mjs"
     },
+    "./provider-capabilities": {
+      "types": "./src/provider-capabilities.d.mts",
+      "default": "./src/provider-capabilities.mjs"
+    },
     "./stable-order": {
       "types": "./src/stable-order.d.mts",
       "default": "./src/stable-order.mjs"
