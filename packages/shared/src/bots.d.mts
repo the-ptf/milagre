@@ -10,6 +10,8 @@ export interface GateMeta {
    * Milagre can't be sure what the command acts on: no grant covers it, and "Always" on its card allows once.
    */
   target: string | null;
+  /** Every gated action in the command, the first one's above; "Always" grants each one that has a target. */
+  actions?: Array<{ kind: GateKind; title: string; target: string | null }>;
   botId: string;
   botName: string;
   expiresAt: number;

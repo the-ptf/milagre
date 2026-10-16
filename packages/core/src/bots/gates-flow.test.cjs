@@ -115,6 +115,30 @@ test("a grant lets the gate through", async (t) => {
   assert.ok(bots.policyFor("/p#4")({ tool: "Bash", command: "gh pr merge 1 -R the-org/other" }).gate);
 });
 
+test("one grant doesn't let a whole compound command through", async (t) => {
+  const { bots, store } = await harness(t);
+  store.addGrant({ botId: "ops", gate: "merge", target: "/p", createdAt: NOW });
+  const { gate } = bots.policyFor("/p#4")({ tool: "Bash", command: "gh pr merge 474 && npm publish" });
+  assert.equal(gate.kind, "merge");
+  assert.equal(gate.title, "Merge PR #474 and 1 more");
+  assert.equal(gate.command, "gh pr merge 474 && npm publish");
+  assert.deepEqual(
+    gate.actions.map(({ kind, target }) => [kind, target]),
+    [
+      ["merge", "/p"],
+      ["publish", "/p"],
+    ],
+  );
+  // Always grants every action on the card, so the same command goes through next time.
+  await bots.observe("/p#4", { type: "permission-request", requestId: "r1", gate });
+  await bots.answerGate("r1", "always");
+  assert.deepEqual(
+    store.grants("ops").map((grant) => grant.gate),
+    ["merge", "publish"],
+  );
+  assert.equal(bots.policyFor("/p#4")({ tool: "Bash", command: "gh pr merge 474 && npm publish" }), "allow");
+});
+
 test("no grant covers a target Milagre can't be sure of, and Always on it allows once", async (t) => {
   const { bots, store } = await harness(t);
   store.addGrant({ botId: "ops", gate: "merge", target: "/p", createdAt: NOW });

@@ -964,35 +964,42 @@ function mcpToolName(request) {
 }
 
 /**
- * The gate a permission request falls under, or null. `extra` adds a template's own command prefixes.
- * The target is the repo the command names (`-R`, a PR URL, a `gh api` endpoint), or null for the caller to fill in
- * with the Chat's Project. When Milagre can't be sure what the command acts on (two repos, GH_REPO, another host, a
- * `cd` or `-C` before a command that names none), the gate is `uncoverable`: its target is null and no grant covers it.
+ * Every gate a permission request falls under, in the order its commands run, each once. `extra` adds a template's
+ * own command prefixes. A gate's target is the repo the command names (`-R`, a PR URL, a `gh api` endpoint), or null
+ * for the caller to fill in with the Chat's Project. When Milagre can't be sure what the command acts on (two repos,
+ * GH_REPO, another host, a `cd` or `-C` before a command that names none), the gate is `uncoverable`: its target is
+ * null and no grant covers it.
  */
-function matchGate(request, { extra = [] } = {}) {
+function matchGates(request, { extra = [] } = {}) {
   const mcp = mcpToolName(request);
   if (mcp) {
     const found = MCP_PATTERNS.find(({ pattern }) => pattern.test(mcp));
-    return found ? { kind: found.kind, title: `${KIND_LABEL[found.kind]}: ${mcp}`, command: mcp, target: null } : null;
+    return found ? [{ kind: found.kind, title: `${KIND_LABEL[found.kind]}: ${mcp}`, command: mcp, target: null }] : [];
   }
-  if (typeof request.command !== "string") return null;
+  if (typeof request.command !== "string") return [];
   const context = { moved: /\bGIT_(DIR|WORK_TREE)=/.test(request.command) };
   const segments = parse(request.command).flatMap((segment) => normalize(segment, context));
   const options = { cwd: request.cwd, moved: context.moved || segments.some(changesFolder), extra };
   const ghEnv = /\bGH_(REPO|HOST)=/.test(request.command);
+  const gates = new Map();
   for (const words of segments) {
     const gate = segmentGate(words, options);
     if (!gate) continue;
     const uncoverable = Boolean(gate.uncoverable) || (gate.target == null && options.moved) || (words[0] === "gh" && ghEnv);
-    return {
+    const found = {
       kind: gate.kind,
       title: gate.title ?? `${KIND_LABEL[gate.kind]}: ${gate.segment}`,
       command: request.command,
       target: uncoverable ? null : (gate.target ?? null),
       ...(uncoverable ? { uncoverable: true } : {}),
     };
+    const key = JSON.stringify([found.kind, found.title, found.target, uncoverable]);
+    if (!gates.has(key)) gates.set(key, found);
   }
-  return null;
+  return [...gates.values()];
 }
 
-module.exports = { DEFAULT_GATE_PATTERNS, matchGate, splitCommand };
+/** The first gate a permission request falls under (see matchGates), or null. */
+const matchGate = (request, options) => matchGates(request, options)[0] ?? null;
+
+module.exports = { DEFAULT_GATE_PATTERNS, matchGate, matchGates, splitCommand };

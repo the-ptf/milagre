@@ -4,7 +4,7 @@ const { randomUUID } = require("node:crypto");
 const { BOT_RUNNING_CHAT_CAP, GATE_EXPIRY_MS, botIdFromName } = require("@milagre/shared/bots");
 const { PROVIDERS } = require("@milagre/shared/providers");
 const { isTurnEnd, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
-const { matchGate } = require("./gates.cjs");
+const { matchGates } = require("./gates.cjs");
 const { createBotTools } = require("./tools.cjs");
 const { createBotHome, readBrief, writeBrief, writeInstructions } = require("./home.cjs");
 const { readMemory, saveMemoryByVictor } = require("./memory.cjs");
@@ -163,12 +163,25 @@ function createBots({
     return (request) => {
       const owned = botForChat(chatKey);
       if (!owned) return undefined;
-      const { uncoverable, ...gate } = matchGate({ ...request, cwd: request.cwd ?? cwdOf(chatKey) }) ?? {};
-      if (!gate.kind) return "allow";
+      const gates = matchGates({ ...request, cwd: request.cwd ?? cwdOf(chatKey) });
+      if (!gates.length) return "allow";
       // A target Milagre can't be sure of is null: no grant covers it, and Always on its card allows once.
-      const target = uncoverable ? null : (gate.target ?? projectOfKey(chatKey));
-      if (target !== null && store.hasGrant(owned.bot.id, gate.kind, target)) return "allow";
-      return { gate: { ...gate, target, botId: owned.bot.id, botName: owned.bot.name, expiresAt: now() + GATE_EXPIRY_MS } };
+      const actions = gates.map(({ kind, title, target, uncoverable }) => ({ kind, title, target: uncoverable ? null : (target ?? projectOfKey(chatKey)) }));
+      // One card answers the whole command, so it goes through only when grants cover every gated action in it.
+      if (actions.every(({ kind, target }) => target !== null && store.hasGrant(owned.bot.id, kind, target))) return "allow";
+      const [first] = actions;
+      return {
+        gate: {
+          kind: first.kind,
+          title: actions.length > 1 ? `${first.title} and ${actions.length - 1} more` : first.title,
+          command: gates[0].command,
+          target: first.target,
+          actions,
+          botId: owned.bot.id,
+          botName: owned.bot.name,
+          expiresAt: now() + GATE_EXPIRY_MS,
+        },
+      };
     };
   }
 
@@ -533,7 +546,9 @@ function createBots({
         await sweep();
         return store.gate(gate.requestId);
       }
-      if (choice === "always" && gate.meta.target) store.addGrant({ botId: gate.botId, gate: gate.meta.kind, target: gate.meta.target, createdAt: now() });
+      if (choice === "always")
+        for (const { kind, target } of gate.meta.actions ?? [gate.meta])
+          if (target && !store.hasGrant(gate.botId, kind, target)) store.addGrant({ botId: gate.botId, gate: kind, target, createdAt: now() });
       answer(gate, choice === "deny" ? "deny" : "allow", choice === "deny" ? "denied" : "allowed");
       changed();
       return store.gate(gate.requestId);

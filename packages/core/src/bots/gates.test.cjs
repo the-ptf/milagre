@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { DEFAULT_GATE_PATTERNS, matchGate, splitCommand } = require("./gates.cjs");
+const { DEFAULT_GATE_PATTERNS, matchGate, matchGates, splitCommand } = require("./gates.cjs");
 
 const GATED = [
   ["gh pr merge 474 --squash", "merge", "Merge PR #474"],
@@ -339,6 +339,20 @@ test("a target Milagre can't be sure of can't be granted", () => {
     assert.equal(targetOf(command), "uncoverable", command);
   // A repo named outright stays its own target after a cd.
   assert.equal(targetOf("cd ../other && gh pr merge 1 -R the-ptf/milagre"), "the-ptf/milagre");
+});
+
+test("every gated action in a command is listed, once each", () => {
+  assert.deepEqual(
+    matchGates({ tool: "Bash", command: "gh pr merge 1 && npm publish && gh pr merge 1 -R the-ptf/x" }).map(({ kind, title, target }) => [kind, title, target]),
+    [
+      ["merge", "Merge PR #1", null],
+      ["publish", "Publish: npm publish", null],
+      ["merge", "Merge PR #1", "the-ptf/x"],
+    ],
+  );
+  assert.equal(matchGates({ tool: "Bash", command: "gh pr merge 1 || gh pr merge 1" }).length, 1);
+  assert.deepEqual(matchGates({ tool: "Bash", command: "npm test" }), []);
+  assert.equal(matchGates({ tool: "mcp__slack__send_message" })[0].kind, "post");
 });
 
 test("extra prefixes from a template gate too", () => {
