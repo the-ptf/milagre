@@ -8,8 +8,9 @@ const { createRuntime } = require("./runtime.cjs");
 const { waitUntil } = require("./agents/test-helpers.cjs");
 const { runTool } = require("./linked-tools.cjs");
 
-// A Project with one commit, and fake agents that record each turn they are asked to start.
-async function fixture(t) {
+// A Project with one commit, and fake agents that record each turn they are asked to start. `before` prepares the
+// data folder before the first runtime starts.
+async function fixture(t, { before = async () => {} } = {}) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-bots-")));
   const project = path.join(dir, "project");
   await fs.mkdir(project);
@@ -84,6 +85,7 @@ async function fixture(t) {
     for (const runtime of runtimes) await runtime.close();
     await fs.rm(dir, { recursive: true, force: true });
   });
+  await before(dataDir);
   const runtime = make();
   await runtime.openProject(project);
   const input = { templateId: "ops", name: "Ops", answers: { projects: [project], ci: "CI / test" }, provider: "claude", model: "claude-sonnet" };
@@ -117,6 +119,23 @@ test("bots are off until turned on", async (t) => {
   assert.deepEqual(await runtime.invoke("bots:enabled:save", [true]), { enabled: true });
   assert.deepEqual(events.find((event) => event.channel === "bots:enabled-changed").payload, { enabled: true });
   await assert.rejects(runtime.invoke("bots:enabled:save", ["yes"]), /boolean/);
+});
+
+test("Milagre runs without bots when angelo.db can't be opened", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const { runtime, project, turns, input } = await fixture(t, { before: (dataDir) => fs.mkdir(path.join(dataDir, "angelo.db"), { recursive: true }) });
+  assert.match(String(warn.mock.calls.find((call) => /angelo\.db/.test(call.arguments[0]))?.arguments[0]), /Bots are unavailable/);
+  // Chats run as ever.
+  const { state } = await runtime.invoke("project:snapshot", [project]);
+  const worktreeId = Object.values(state.worktrees).find((worktree) => worktree.path === project).id;
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: null, worktreeId, body: "hi", provider: "claude", model: "m" }]);
+  await waitUntil(() => turnIn(turns, project));
+  // Bots read as off, and saying why; anything more says why too.
+  const unavailable = "Bots aren't available: Milagre couldn't open angelo.db.";
+  assert.deepEqual(await runtime.invoke("bots:enabled:read"), { enabled: false });
+  assert.deepEqual(await runtime.invoke("bots:list"), { enabled: false, unavailable, bots: [], gates: [], grants: [], chats: [] });
+  await assert.rejects(runtime.invoke("bots:enabled:save", [true]), { message: unavailable });
+  await assert.rejects(runtime.invoke("bots:create", [input]), { message: unavailable });
 });
 
 test("creating Ops makes a hidden home with a thread", async (t) => {

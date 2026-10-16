@@ -70,6 +70,8 @@ export interface BotChatRecord {
 
 export interface BotsSnapshot {
   enabled: boolean;
+  /** Why Bots can't be used on this Mac (angelo.db couldn't be opened); absent when they can. Bots read as off then. */
+  unavailable?: string;
   bots: BotSummary[];
   gates: GateRecord[];
   grants: GrantRecord[];

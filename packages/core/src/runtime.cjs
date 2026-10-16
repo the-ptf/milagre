@@ -80,7 +80,7 @@ const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsa
 const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 
 const { createFileSearch } = require("./project-files.cjs");
-const { createBots } = require("./bots/index.cjs");
+const { createBots, unavailableBots } = require("./bots/index.cjs");
 const { PERMISSION_MODES } = require("./agents/permissions.cjs");
 const { createBotStore } = require("./bots/store.cjs");
 const { isQuietChat } = require("@milagre/shared/bots");
@@ -1933,32 +1933,41 @@ function createRuntime(options) {
       : JSON.parse(await fs.readFile(stateFile(projectPath), "utf8").catch(() => "{}")).sessions;
     return chats.willResume(sessions?.[sessionIdFromKey(chatId)]);
   }
-  bots = createBots({
-    dataDir: realpathSync(dataDir),
-    store: createBotStore(path.join(dataDir, "angelo.db")),
-    chats,
-    agents,
-    cachedState: (projectPath) => states.states.get(projectPath),
-    openHome: readProject,
-    closeHome,
-    projects: async () => withoutHomes(await projectRegistry().list()),
-    host: localMcpHost,
-    mainBranch: (projectPath) =>
-      git.resolveBase(projectPath).then(
-        (base) => base.name,
-        () => "main",
-      ),
-    chatDetails: botChatDetails,
-    chatContinues: botChatContinues,
-    leaveBotRules: async (chatId) => {
-      chats.leaveBotRules(chatId);
-      if (agents.permissionMode(chatId, null) === "bot") await agents.setPermissionMode(chatId, "ask");
-    },
-    titleChat: (chatId, title) => editProject(projectOfKey(chatId), (state) => patchSession(state, sessionIdFromKey(chatId), { title }), { chats: [] }),
-    emit,
-    closing: () => closing,
-    owner: options.botOwner,
-  });
+  // A store that can't be opened leaves Bots unavailable, never Milagre: nothing else needs angelo.db.
+  let botStore = null;
+  try {
+    botStore = createBotStore(path.join(dataDir, "angelo.db"));
+  } catch (error) {
+    console.warn("Milagre couldn't open angelo.db. Bots are unavailable:", error.message);
+  }
+  bots = botStore
+    ? createBots({
+        dataDir: realpathSync(dataDir),
+        store: botStore,
+        chats,
+        agents,
+        cachedState: (projectPath) => states.states.get(projectPath),
+        openHome: readProject,
+        closeHome,
+        projects: async () => withoutHomes(await projectRegistry().list()),
+        host: localMcpHost,
+        mainBranch: (projectPath) =>
+          git.resolveBase(projectPath).then(
+            (base) => base.name,
+            () => "main",
+          ),
+        chatDetails: botChatDetails,
+        chatContinues: botChatContinues,
+        leaveBotRules: async (chatId) => {
+          chats.leaveBotRules(chatId);
+          if (agents.permissionMode(chatId, null) === "bot") await agents.setPermissionMode(chatId, "ask");
+        },
+        titleChat: (chatId, title) => editProject(projectOfKey(chatId), (state) => patchSession(state, sessionIdFromKey(chatId), { title }), { chats: [] }),
+        emit,
+        closing: () => closing,
+        owner: options.botOwner,
+      })
+    : unavailableBots();
   commands.handle("bots:enabled:read", () => ({ enabled: bots.enabled() }));
   commands.handle("bots:enabled:save", (_event, value) => bots.setEnabled(value));
   commands.handle("bots:list", () => bots.snapshot());

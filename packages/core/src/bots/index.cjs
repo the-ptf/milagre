@@ -669,4 +669,33 @@ function createBots({
   };
 }
 
-module.exports = { BOTS_OFF: OFF, createBots };
+const UNAVAILABLE = "Bots aren't available: Milagre couldn't open angelo.db.";
+
+/**
+ * The bots service when angelo.db can't be opened: Milagre runs as with Bots off, no Chat is a bot's, and the bots
+ * commands that would need the store say why they can't.
+ */
+function unavailableBots() {
+  const refuse = async () => {
+    throw new Error(UNAVAILABLE);
+  };
+  const commands = ["setEnabled", "templates", "create", "update", "remove", "send", "answerGate", "revokeGrant", "readBrief", "readMemory", "saveMemory"];
+  return {
+    ...Object.fromEntries(commands.map((name) => [name, refuse])),
+    enabled: () => false,
+    snapshot: () => ({ enabled: false, unavailable: UNAVAILABLE, bots: [], gates: [], grants: [], chats: [] }),
+    start: async () => {},
+    isHome: () => false,
+    takesTurns: () => true,
+    botForChat: () => null,
+    policyFor: () => undefined,
+    toolsFor: () => [],
+    observe: async () => {},
+    takeOver: async () => {},
+    answerCard: async () => null,
+    beforeThreadSend: async () => null,
+    close: () => {},
+  };
+}
+
+module.exports = { BOTS_OFF: OFF, BOTS_UNAVAILABLE: UNAVAILABLE, createBots, unavailableBots };
