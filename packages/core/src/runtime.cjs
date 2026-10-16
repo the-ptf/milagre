@@ -461,7 +461,9 @@ function createRuntime(options) {
       { chats: [] },
     );
     // A chat a quit stopped continues now; its message is saved before the project is returned, so the window shows it.
-    await chats.resumeInterrupted(projectPath, state).catch((error) => console.warn("Milagre couldn't resume a chat:", error.message));
+    // A bot's thread continues only while its bot takes turns (Bots on, not paused); until then its resume waits.
+    if (bots?.takesTurns(projectPath) ?? true)
+      await chats.resumeInterrupted(projectPath, state).catch((error) => console.warn("Milagre couldn't resume a chat:", error.message));
     state = await states.get(projectPath);
     chatTitles.resume(projectPath, state);
     void chats.recoverHandoffs(projectPath, state).catch((error) => console.warn("Milagre couldn't recover a handoff:", error.message));
@@ -1209,8 +1211,10 @@ function createRuntime(options) {
       context: linearIssueContext(issue, ask.note),
     };
   }
-  commands.handle("chat:resume", (_event, projectPath, sessionId) => {
+  commands.handle("chat:resume", async (_event, projectPath, sessionId) => {
     if (!scopeStates.has(projectPath)) throw new Error("Open the project before continuing its chats.");
+    // Continuing a bot's thread is a message to the bot: refused while it is paused or Bots are off.
+    if (bots.isHome(projectPath)) await bots.beforeThreadSend(projectPath, sessionId);
     return chats.resumeChat(projectPath, Number(sessionId));
   });
   commands.handle("chat:patch", async (_event, projectPath, sessionId, patch) => {

@@ -501,6 +501,11 @@ function createBots({
     },
 
     isHome: (projectPath) => botOfHome(projectPath) !== null,
+    /** False for the home of a bot that can't take a turn now (paused, or Bots off): its interrupted turn waits. */
+    takesTurns(projectPath) {
+      const bot = botOfHome(projectPath);
+      return !bot || (enabled() && !bot.paused);
+    },
     botForChat,
     policyFor,
     sweep,

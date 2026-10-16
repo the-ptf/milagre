@@ -56,7 +56,8 @@ async function fixture(t) {
             session.permissions.mode = request.permissionMode;
             options.emit({ type: "turn-started", turnId: "t" });
             options.emit({ type: "text-delta", messageId: `m${turns.length}`, text: "On it." });
-            options.emit({ type: "turn-completed" });
+            // A turn asked to keep working is still running when the test quits.
+            if (!/Keep working/.test(request.prompt ?? "")) options.emit({ type: "turn-completed" });
             return { turnId: "t" };
           },
           answers: [],
@@ -339,6 +340,45 @@ test("bots come back after a restart", async (t) => {
     false,
   );
 });
+
+// A bot's thread whose turn the quit stopped, in a second runtime after the restart; `before` changes the bot first.
+async function restartMidTurn(t, before = async () => {}) {
+  const f = await withOps(t);
+  await f.runtime.invoke("bots:send", ["ops", "Keep working"]);
+  await waitUntil(() => turnIn(f.turns, f.bot.homePath));
+  await before(f.runtime);
+  await f.runtime.close();
+  const started = f.turns.length;
+  const second = f.make();
+  const thread = () =>
+    second.invoke("project:snapshot", [f.bot.homePath]).then(
+      ({ state }) => state.sessions[f.bot.threadSessionId],
+      () => null,
+    );
+  await eventually(thread);
+  return { ...f, second, started, thread };
+}
+
+test("an active bot's interrupted turn continues after a restart", async (t) => {
+  const { turns, started, bot } = await restartMidTurn(t);
+  await waitUntil(() => turns.length > started);
+  assert.equal(turns.at(-1).cwd, bot.homePath);
+  assert.equal(turns.at(-1).permissionMode, "bot");
+});
+
+for (const [name, before] of [
+  ["a paused bot", (runtime) => runtime.invoke("bots:update", ["ops", { paused: true }])],
+  ["a bot with Bots off", (runtime) => runtime.invoke("bots:enabled:save", [false])],
+])
+  test(`${name} doesn't continue its interrupted turn after a restart`, async (t) => {
+    const { second, turns, started, thread, bot } = await restartMidTurn(t, before);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(turns.length, started);
+    assert.ok((await thread()).resumeTurn, "the turn waits to be continued");
+    // Continuing it by hand is a message to the bot too.
+    await assert.rejects(second.invoke("chat:resume", [bot.homePath, bot.threadSessionId]), /Ops is paused\.|Bots are off\./);
+    assert.equal(turns.length, started);
+  });
 
 test("deleting a bot moves its home to the trash", async (t) => {
   const { runtime, bot, dataDir } = await withOps(t);
