@@ -15,10 +15,10 @@ const PATHSPEC = ["--", ".", ":(exclude).milagre"];
 
 /** Same recorded/default comparison branch as Changes and the commit dialog. */
 async function diffBase(cwd, base) {
-  return (await client.resolveBase(cwd, base)).ref ?? "HEAD";
+  return (await client.chatBase(cwd, base)).ref ?? "HEAD";
 }
 
-// resolveBase is up to six git processes and its answer rarely changes, while every agent step
+// chatBase is up to eight git processes and its answer rarely changes, while every agent step
 // re-reads the stat; remember it per (cwd, base) for a short while.
 const BASE_TTL = 30_000;
 const baseCache = new Map();

@@ -1792,6 +1792,8 @@ function chatHost({
     "../worktree-link-divider": { WorktreeLinkDivider: "WorktreeLinkDivider" },
     "../compaction-divider": { CompactionDivider: "CompactionDivider" },
     "../account-switch-divider": { AccountSwitchDivider: "AccountSwitchDivider" },
+    "../chat-reload-divider": { ChatReloadDivider: "ChatReloadDivider" },
+    "@milagre/shared/chat-reload": require("@milagre/shared/chat-reload"),
     "../handoff-brief-store": { showBrief() {} },
     "@milagre/shared/handoff": require("@milagre/shared/handoff"),
     "@milagre/shared/worktree-link": require("@milagre/shared/worktree-link"),
@@ -4067,7 +4069,7 @@ test("a notification target clears an older Project loading state", async () => 
 });
 
 // Render the real activity adapters, disclosure and shimmer against native leaves.
-function activityItemHost() {
+function activityItemHost({ expandReasoning = false } = {}) {
   const hosts = new Map();
   let current;
   const react = Object.fromEntries(["useState", "useRef", "useMemo", "useEffect"].map((name) => [name, (...args) => current[name](...args)]));
@@ -4134,6 +4136,7 @@ function activityItemHost() {
   const ToolRow = load("tool-row.tsx", {
     ...common,
     "./activity-item": shared,
+    "./chat-display-setting": { useExpandReasoning: () => [expandReasoning, () => {}] },
     "./markdown": { Markdown: ({ text }) => jsx("Text", { children: text }) },
   }).ToolRow;
   function visit(node, key) {
@@ -4199,6 +4202,23 @@ test("subagent details stay expanded across live updates and collapse through th
     find(item.subagent(sampleSubagent), (node) => node.type === "Text" && node.props.children === "Connection verified."),
     undefined,
   );
+});
+
+test("Always expand reasoning opens thinking rows in Activity until tapped, and leaves other tools folded", () => {
+  const thinking = {
+    step: { id: "t", kind: "thinking", title: "Thought for 4s", status: "done", detail: "Weighing the two fixes." },
+    live: false,
+    waiting: false,
+  };
+  const shell = { step: { id: "s", kind: "shell", title: "Ran `npm test`", status: "done", detail: "51 tests passed" }, live: false, waiting: false };
+  const shows = (tree, text) => !!find(tree, (node) => node.type === "Text" && node.props.children === text);
+  assert.equal(shows(activityItemHost().tool(thinking), "Weighing the two fixes."), false, "off: thinking starts folded");
+  const item = activityItemHost({ expandReasoning: true });
+  let tree = item.tool(thinking);
+  assert.ok(shows(tree, "Weighing the two fixes."), "on: thinking starts open");
+  find(tree, (node) => node.props?.accessibilityRole === "button").props.onPress();
+  assert.equal(shows(item.tool(thinking), "Weighing the two fixes."), false, "a tap still folds it");
+  assert.equal(shows(activityItemHost({ expandReasoning: true }).tool(shell), "51 tests passed"), false, "other tools stay folded");
 });
 
 test("tool disclosure reveals late output, while its chat action opens Activity without expanding", () => {
@@ -6505,7 +6525,6 @@ test("mobile Project Accounts opens from Settings as a native stack screen", () 
     "../icons": { Icon: "Icon" },
     "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", Toggle: "Toggle", styles: {} },
     "../attention": { useAttentionButton: () => [true, () => {}] },
-    "../murilo-mode": { useMuriloMode: () => [false, () => {}] },
   });
   find(SettingsView({ onOpen: (page) => opened.push(page) }), (n) => n.props.title === "Project Accounts").props.onPress();
   assert.deepEqual(opened, ["project-accounts"]);
@@ -7056,7 +7075,7 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
     "./tool-row": { ToolRow: "ToolRow" },
     "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
     "./answer-card": { AnswerCard: "AnswerCard" },
-    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
+    "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
@@ -7143,9 +7162,9 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
   );
 });
 
-test("mobile Murilo mode shows each tool call and the notes between them in the Chat, with no activity fold", () => {
+test("mobile Full detail shows each tool call and the notes between them in the Chat, with no activity fold", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
-  const reply = (murilo) =>
+  const reply = (display) =>
     load("chat-reply.tsx", {
       "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
       react,
@@ -7162,7 +7181,7 @@ test("mobile Murilo mode shows each tool call and the notes between them in the 
       "./tool-row": { ToolRow: "ToolRow" },
       "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
       "./answer-card": { AnswerCard: "AnswerCard" },
-      "./murilo-mode": { useMuriloMode: () => [murilo, () => {}] },
+      "./chat-display-setting": { useToolCallDisplay: () => [display, () => {}] },
       "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
       "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
       "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
@@ -7194,11 +7213,11 @@ test("mobile Murilo mode shows each tool call and the notes between them in the 
     walk(tree);
     return rows;
   };
-  assert.deepEqual(shown(reply(false)(props)), ["fold", "Done."], "off: the activity folds into one row");
+  assert.deepEqual(shown(reply("compact")(props)), ["fold", "Done."], "Compact: the activity folds into one row");
   assert.deepEqual(
-    shown(reply(true)(props)),
+    shown(reply("full")(props)),
     ["Running the tests.", "a", "Tests pass, reading the config.", "b", "c", "Done."],
-    "on: every step and note, in order",
+    "Full detail: every step and note, in order",
   );
 });
 
@@ -7278,7 +7297,6 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
     "../icons": { Icon: "Icon" },
     "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", Toggle: "Toggle", styles: {} },
     "../attention": { useAttentionButton: () => [true, () => {}] },
-    "../murilo-mode": { useMuriloMode: () => [false, () => {}] },
   });
   const render = () => {
     react.begin();
@@ -7375,7 +7393,6 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
       seedsFrom: (id) => ({ from: id }),
     },
     "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
     "./ultracode-fatality-setting": {
       useUltracodeFatality: () => [false, () => {}],
     },
@@ -7432,8 +7449,8 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
   const empty = offline();
   assert.ok(text(empty, "Connect to a Mac to change its experimental features."));
   assert.ok(
-    find(empty, (n) => n.props?.title === "Murilo mode"),
-    "Murilo mode is this phone's own switch and shows without a Mac",
+    find(empty, (n) => n.props?.title === "Ultracode Fatality"),
+    "Ultracode Fatality is this phone's own switch and shows without a Mac",
   );
   assert.equal(
     find(empty, (n) => n.props?.title === "Linear"),
@@ -7465,7 +7482,6 @@ test("mobile Experimental page shows the Mac's usage-limit auto-switch, saved on
     "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
     "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue", seedsFrom: (id) => ({ from: id }) },
     "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
     "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
     "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
     "./push": { usePush: () => ({ state: null }) },
@@ -7534,7 +7550,7 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
     "./tool-row": { ToolRow: "ToolRow" },
     "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
     "./answer-card": { AnswerCard: "AnswerCard" },
-    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
+    "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
@@ -7705,7 +7721,6 @@ test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue of
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { useFocusEffect() {} },
     "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
     "./ultracode-fatality-setting": {
       useUltracodeFatality: () => [false, () => {}],
     },
@@ -8935,7 +8950,12 @@ test("mobile publishing checks availability, retries, and keeps history availabl
     },
     async publish(title) {
       calls.push(["publish", title]);
-      state = { ...state, shares: [{ id: "snapshot", title, url: "https://share.milagre.cloud/s/snapshot", designCount: 2, createdAt: 1 }] };
+      const updated = state.shares.length ? { updatedAt: 2 } : {};
+      state = { ...state, shares: [{ id: "snapshot", title, url: "https://share.milagre.cloud/s/snapshot", designCount: 2, createdAt: 1, ...updated }] };
+    },
+    async revoke(id) {
+      calls.push(["revoke", id]);
+      state = { ...state, shares: state.shares.filter((share) => share.id !== id) };
     },
     dispose() {},
   };
@@ -8965,52 +8985,71 @@ test("mobile publishing checks availability, retries, and keeps history availabl
     react.begin();
     return DesignPageShareSheet({ client: {}, chatId, onClose() {}, onAvailabilityChange });
   };
+  const text = (tree, value) => find(tree, (n) => typeof n.props?.children === "string" && n.props.children.includes(value));
   let tree = render("chat");
   assert.equal(availability.at(-1), null);
-  assert.equal(find(tree, (n) => n.props?.title === "Publish snapshot").props.disabled, true);
-  assert.ok(find(tree, (n) => n.props?.children === "Checking publishing availability..."));
+  assert.ok(find(tree, (n) => n.props?.children === "Share"));
+  assert.equal(find(tree, (n) => n.props?.title === "Publish").props.disabled, true);
+  assert.ok(find(tree, (n) => n.props?.children === "Checking the sharing service..."));
+  assert.ok(text(tree, "Anyone with the link can view it."));
   state = {
     ...state,
     checking: false,
     availability: { available: false, reason: "Not deployed" },
   };
   tree = render("chat");
-  assert.equal(find(tree, (n) => n.props?.title === "Publish snapshot").props.disabled, true);
+  assert.equal(find(tree, (n) => n.props?.title === "Publish").props.disabled, true);
   assert.ok(find(tree, (n) => n.props?.children === "Not deployed"));
   assert.equal(availability.at(-1), false, "dialog health failure updates the entry gate");
   find(tree, (n) => n.props?.title === "Retry check").props.onPress();
   assert.equal(calls.at(-1), "status");
   state = { ...state, availability: { available: true } };
-  assert.equal(find(render("chat"), (n) => n.props?.title === "Publish snapshot").props.disabled, false);
+  assert.equal(find(render("chat"), (n) => n.props?.title === "Publish").props.disabled, false);
   assert.equal(availability.at(-1), true);
-  find(render("chat"), (n) => n.props?.title === "Publish snapshot").props.onPress();
+  find(render("chat"), (n) => n.props?.title === "Publish").props.onPress();
   await new Promise((resolve) => setImmediate(resolve));
   tree = render("chat");
-  assert.ok(find(tree, (n) => n.props?.children === "Snapshot shared"));
+  assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"], "publishing copies the link right away");
+  assert.ok(text(tree, "Published. Link copied."), "a toast says what happened");
   assert.equal(
-    find(tree, (n) => n.props?.title === "Publish snapshot"),
+    find(tree, (n) => n.props?.title === "Publish"),
     undefined,
+    "a shared page offers an update instead",
   );
+  assert.ok(find(tree, (n) => n.props?.title === "Update snapshot"));
   assert.ok(find(tree, (n) => n.props?.accessibilityLabel === "Snapshot link"));
-  const copy = find(tree, (n) => n.props?.title === "Copy link");
-  assert.equal(copy.props.secondary, false, "confirmed snapshots make Copy link the primary action");
-  copy.props.onPress();
+  assert.ok(text(tree, "Published "));
+  assert.equal(text(tree, "Published snapshots"), undefined, "no history list under the link");
+  find(tree, (n) => n.props?.title === "Copy link").props.onPress();
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"]);
-  assert.ok(find(tree, (n) => typeof n.props?.children === "string" && n.props.children.includes("Shared files can include content clipped by frames")));
-  find(tree, (n) => n.props?.title === "Publish another snapshot").props.onPress();
+  find(render("chat"), (n) => n.props?.title === "Update snapshot").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
   tree = render("chat");
-  assert.ok(find(tree, (n) => n.props?.children === "Share a snapshot"));
+  assert.deepEqual(calls.at(-2), ["publish", "Designs"], "only an older host needs the title");
+  assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"]);
+  assert.equal(state.shares.length, 1, "the update keeps one link");
+  assert.ok(text(tree, "Snapshot updated. Link copied."));
+  assert.ok(text(tree, "Updated "));
+  find(tree, (n) => n.props?.title === "Revoke link").props.onPress();
+  tree = render("chat");
+  assert.ok(find(tree, (n) => n.props?.children === "Remove this page? Copies may remain online."));
+  find(tree, (n) => n.props?.title === "Revoke link" && !n.props.secondary).props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  tree = render("chat");
+  assert.deepEqual(calls.at(-1), ["revoke", "snapshot"]);
+  assert.ok(
+    find(tree, (n) => n.props?.title === "Publish"),
+    "after revoking, Publish creates a new link",
+  );
   assert.equal(
     find(tree, (n) => n.props?.accessibilityLabel === "Snapshot link"),
     undefined,
-    "older links start collapsed",
   );
-  find(tree, (n) => n.props?.title === "Show published snapshots (1)").props.onPress();
-  assert.ok(find(render("chat"), (n) => n.props?.accessibilityLabel === "Snapshot link"));
+  assert.ok(text(tree, "Link revoked."));
   tree = render(undefined);
   assert.equal(
-    find(tree, (n) => n.props?.title === "Publish snapshot"),
+    find(tree, (n) => n.props?.title === "Publish"),
     undefined,
   );
   assert.equal(
@@ -9048,7 +9087,7 @@ test("mobile Published pages entry requires owner access and remains available w
         router: { push: (path) => pushed.push(path) },
       },
       "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-      "./murilo-mode": { useMuriloMode: () => [false, () => {}] },
+      "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
       "./push": { usePush: () => ({ state: null }) },
       "./icons": { Icon: "Icon" },
       "@hugeicons/core-free-icons": {},

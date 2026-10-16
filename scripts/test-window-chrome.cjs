@@ -174,12 +174,12 @@ async function browserChecks() {
         await evaluate("window.showSettings(true)");
         await waitFor(`!!document.querySelector('[aria-label="Settings navigation"]')`);
         assert.equal((await bounds("[data-sidebar-toggle] button")).width, 0, "a hidden sidebar cannot leave a visible toggle outside its parent");
-        const backSelector = '[aria-label="Settings navigation"] button';
+        const backSelector = '[aria-label="Settings navigation"] button[aria-label="Back"]';
         const settingsBack = await bounds(backSelector);
         assert.ok(settingsBack.top >= 60, "the whole Settings Back button stays below the drag strip and native controls");
-        clickAt(settingsBack.x + 80, settingsBack.y + 4);
+        clickAt(settingsBack.x + settingsBack.width / 2, settingsBack.y + 4);
         await waitFor("window.settingsBackCalls === 1");
-        clickAt(settingsBack.x + 80, settingsBack.bottom - 4);
+        clickAt(settingsBack.x + settingsBack.width / 2, settingsBack.bottom - 4);
         await waitFor("window.settingsBackCalls === 2");
         await capture(integrated ? "integrated-settings-back" : "native-settings-back");
         await evaluate("window.showSettings(false); window.showEditor(true)");

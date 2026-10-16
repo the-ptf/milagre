@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { designFontFamily, designHtml, designInterWeight, designSvg, designTextLayout, validateDesignDocument } from "./design.mjs";
-import { designFontFaces, designInterHasGlyph } from "./design-fonts.mjs";
+import {
+  DESIGN_CATALOG_FAMILIES,
+  designCatalogFont,
+  designDrawnWeight,
+  designFontBuffers,
+  designFontFaces,
+  designFontsLoaded,
+  designInterHasGlyph,
+  loadDesignFonts,
+} from "./design-fonts.mjs";
 
 const screen = (fontFamily) => ({
   schemaVersion: 1,
@@ -108,4 +117,42 @@ test("all four weights plus heavy text stay within the 8 MiB render budget", () 
 test("the bundled Inter subset covers ASCII, Latin-1 and common punctuation, not other scripts", () => {
   for (const character of ["A", "z", "~", "é", "ó", "—", "“", "→", "€", " ", "\t", "\n"]) assert.ok(designInterHasGlyph(character), character);
   for (const character of ["ł", "ż", "ś", "Ж", "日", "😀", "✓", "★"]) assert.equal(designInterHasGlyph(character), false, character);
+});
+
+test("a catalog family is embedded only after it loads, at the measured weights its text uses", async () => {
+  const document = validateDesignDocument(screen("Bebas Neue, Arial, sans-serif"));
+  document.nodes.push({
+    id: "garamond",
+    type: "text",
+    width: 300,
+    height: 40,
+    text: "Rua dos Remédios",
+    fontFamily: "EB Garamond, Georgia, serif",
+    fontWeight: 560,
+  });
+  assert.equal(designFontsLoaded(document), false);
+  assert.doesNotMatch(designFontFaces(document), /Bebas Neue/);
+  await loadDesignFonts(document);
+  assert.equal(designFontsLoaded(document), true);
+  const faces = designFontFaces(document);
+  assert.match(faces, /font-family:"Bebas Neue";font-weight:1 1000;/);
+  // EB Garamond is drawn at 400 and 500; 560 renders with 500, which claims the weights nearest to it.
+  assert.match(faces, /font-family:"EB Garamond";font-weight:451 1000;/);
+  assert.equal((faces.match(/@font-face/g) ?? []).length, 2);
+  assert.equal(designDrawnWeight("EB Garamond, serif", 560), 500);
+  assert.equal(designDrawnWeight("Fraunces, serif", 560), 560);
+  // Every Inter weight for the rasterizer's defaults, plus the two catalog faces.
+  assert.equal(designFontBuffers(document).length, 6);
+  assert.match(designHtml(document), /font-family:"EB Garamond"/);
+  assert.match(designSvg(document), /font-family="&quot;EB Garamond&quot;, &quot;Georgia&quot;, serif" font-size="16" font-weight="500"/);
+});
+
+test("catalog families wrap with their own measured advances, and only as the first family", () => {
+  const node = (fontFamily) => ({ type: "text", text: "Nine is the number on our door", fontFamily, fontSize: 40 });
+  const condensed = designTextLayout(node("Bebas Neue, Arial, sans-serif"));
+  const sans = designTextLayout(node("Arial, Bebas Neue"));
+  assert.ok(condensed.width < sans.width * 0.8, `Bebas Neue is condensed: ${condensed.width} vs ${sans.width}`);
+  assert.equal(designCatalogFont("bebas neue, Arial").family, "Bebas Neue");
+  assert.equal(designCatalogFont("Arial, Bebas Neue"), undefined);
+  assert.ok(DESIGN_CATALOG_FAMILIES.includes("EB Garamond"));
 });

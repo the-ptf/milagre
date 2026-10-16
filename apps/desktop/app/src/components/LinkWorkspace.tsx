@@ -14,6 +14,7 @@ import { isLean } from "../lib/state-events";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import type { AgentPorts, LinkState, OpenLink, WorktreeBinding } from "@milagre/shared/model";
 import { chatKeyForScope, scopeKey } from "@milagre/shared/chat-scopes";
+import { showNotice } from "../lib/notice";
 import { chatTitle } from "@milagre/shared/chats";
 import { attentionLabel, chatsNeedingAttention, waitingFor } from "@milagre/shared/attention";
 import { useSettings } from "../lib/settings";
@@ -440,6 +441,11 @@ export function LinkWorkspace({
                 chatActions={{
                   onRename: (id, title) => void bridge.patchChat(owner, Number(id), { title }).catch((error) => setError(ipcErrorMessage(error))),
                   onMarkUnread: (id, unread) => void bridge.patchChat(owner, Number(id), { unread }),
+                  onReload: (id) =>
+                    void bridge
+                      .reloadChat(chatKeyForScope(scope, Number(id)))
+                      .then(() => showNotice("Chat reloaded. Your next message starts a fresh agent."))
+                      .catch((error) => setError(ipcErrorMessage(error))),
                   remote: isRemoteKey(owner),
                   onReveal: isRemoteKey(owner)
                     ? undefined

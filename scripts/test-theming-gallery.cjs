@@ -491,7 +491,7 @@ async function browserChecks() {
       );
       assert.equal(await style("body", "backgroundColor"), await css("backgroundColor", p.page), `${label}: the window is the theme's page`);
       assert.equal(
-        await style("[data-slot=artifact-dock] [aria-label='Zoom in']", "color"),
+        await style("[data-slot=artifact-dock] header [aria-label='Close designs']", "color"),
         await css("color", p.ink2),
         `${label}: toolbar icons use the secondary ink`,
       );

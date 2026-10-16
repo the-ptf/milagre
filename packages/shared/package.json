@@ -4,6 +4,7 @@
   "private": true,
   "files": [
     "src/*.mjs",
+    "src/design-catalog-fonts/*",
     "src/*.d.mts",
     "src/model.ts",
     "src/git-diff.ts",
@@ -23,6 +24,7 @@
     "src/use-local-mcp.ts",
     "src/linear.ts",
     "src/chat-row.ts",
+    "src/chat-display.ts",
     "src/canvas.ts",
     "src/simulator.ts",
     "src/browser.ts",
@@ -112,6 +114,10 @@
     "./chats": {
       "types": "./src/chats.d.mts",
       "default": "./src/chats.mjs"
+    },
+    "./chat-reload": {
+      "types": "./src/chat-reload.d.mts",
+      "default": "./src/chat-reload.mjs"
     },
     "./worktree-link": {
       "types": "./src/worktree-link.d.mts",
@@ -207,6 +213,10 @@
       "types": "./src/design.d.mts",
       "default": "./src/design.mjs"
     },
+    "./design-draft": {
+      "types": "./src/design-draft.d.mts",
+      "default": "./src/design-draft.mjs"
+    },
     "./genui": "./src/genui.ts",
     "./file-link": "./src/file-link.ts",
     "./simulator-receiver": {
@@ -236,6 +246,7 @@
     "./advisor-result": "./src/advisor-result.ts",
     "./themes": "./src/themes/index.ts",
     "./chat-row": "./src/chat-row.ts",
+    "./chat-display": "./src/chat-display.ts",
     "./canvas": "./src/canvas.ts",
     "./genui-renderer": "./src/genui-renderer.tsx",
     "./ai-consent": {

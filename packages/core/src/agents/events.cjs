@@ -7,6 +7,9 @@ const { isTurnEnd: isTerminal } = require("@milagre/shared/agent-runs");
 
 const { applyToolResult, applyToolUse, codexPlanTasks } = require("./tasks.cjs");
 const { claudeStep, claudeStepResult, codexStep, codexStepResult, thinkingEnd, thinkingStep } = require("./steps.cjs");
+const { claudeDesignDrafts } = require("./design-drafts.cjs");
+// The Milagre tools whose results are the Chat's designs and artifact page, whichever agent calls them.
+const SUBAGENT_ARTIFACT_TOOLS = /^mcp__milagre__(design_show|design_apply|artifact_show)$/;
 
 const { BUNDLED_SKILLS_DIRECTORY, bundledWritingInstructions } = require("../bundled-skills.cjs");
 const TLDR_INSTRUCTIONS = bundledWritingInstructions();
@@ -16,6 +19,10 @@ const LINKS_INSTRUCTIONS = [
   'Never edit a linked Worktree\'s files yourself. Ask for changes with delegate: the agent of the Chat you pick there carries them out, and its Delegation report comes back to this Chat later, so end your turn instead of waiting. A message that starts with "Delegation from" comes from another Chat, not the user; your final reply goes back to it as the report.',
   "When both sides must agree on something first (an API shape, a contract), open a Negotiation with delegate(negotiation: true). Each report then starts the other side's next turn, for up to 10 rounds; call conclude_negotiation(summary) once you agree. A turn handling a Delegation can't delegate, except inside a Negotiation.",
 ].join(" ");
+
+// What a Claude subagent is told as it starts (claude-provider.cjs, SubagentStart): it doesn't see the parent's system
+// prompt, and a custom agent with its own tool list may not have Milagre's tools at all.
+const SUBAGENT_DESIGN_INSTRUCTIONS = `Milagre Designs: this Chat has a Designs canvas. For any UI, screen, mockup or visual design, use the milagre design_show tool (design_apply to revise, keeping the design's id), so the design lands on the Chat's canvas, where the user watches and reviews it. Never write HTML or image files for it. Before your first design, read ${path.join(BUNDLED_SKILLS_DIRECTORY, "design", "SKILL.md")}. Without those tools, don't build the UI another way: describe it in your reply so the agent that started you shows it with design_show.`;
 
 function milagreInstructions(tldrEnabled = true, workspaceInstructions = "", designsEnabled = true) {
   return [
@@ -199,6 +206,7 @@ function mapClaudeMessage(message, state) {
       state.thinking = { id: `thinking-${state.thinkingCount}`, index: event.index, text: "", startedAt: now(state) };
       events.push({ type: "step-started", step: thinkingStep(state.thinking.id) });
     }
+    events.push(...claudeDesignDrafts(event, state));
     const thinking = state.thinking;
     if (thinking && event.index === thinking.index && event.type === "content_block_delta" && event.delta?.type === "thinking_delta" && event.delta.thinking) {
       thinking.text += event.delta.thinking;
@@ -207,6 +215,26 @@ function mapClaudeMessage(message, state) {
     if (thinking && event.index === thinking.index && event.type === "content_block_stop") {
       state.thinking = null;
       events.push({ type: "step-completed", ...thinkingEnd(thinking.id, now(state) - thinking.startedAt, thinking.text) });
+    }
+  }
+  // A subagent's design calls (it can't stream them yet, see design-drafts.cjs) are the Chat's designs too: they show
+  // as artifact steps of the reply, named for the subagent, so the canvas opens and plays each saved version back.
+  if (message.type === "stream_event" && message.parent_tool_use_id != null)
+    events.push(...claudeDesignDrafts(message.event ?? {}, state, message.parent_tool_use_id));
+  if (message.type === "assistant" && message.parent_tool_use_id != null) {
+    for (const block of message.message?.content ?? []) {
+      if (block?.type !== "tool_use" || !SUBAGENT_ARTIFACT_TOOLS.test(String(block.name))) continue;
+      state.subagentArtifacts ??= new Map();
+      state.subagentArtifacts.set(block.id, block);
+      events.push({ type: "step-started", step: { ...claudeStep(block.id, block.name, block.input), agent: message.parent_tool_use_id } });
+    }
+  }
+  if (message.type === "user" && message.parent_tool_use_id != null && Array.isArray(message.message?.content)) {
+    for (const block of message.message.content) {
+      const call = block?.type === "tool_result" ? state.subagentArtifacts?.get(block.tool_use_id) : undefined;
+      if (!call) continue;
+      state.subagentArtifacts.delete(block.tool_use_id);
+      events.push({ type: "step-completed", ...claudeStepResult(call, block) });
     }
   }
   if (message.type === "assistant" && message.parent_tool_use_id == null) {
@@ -282,14 +310,31 @@ function claudeContextUsage(state, used) {
 // codex app-server notification -> events. Everything not listed is ignored on purpose:
 // the server also reports MCP startup, hooks and the turn's running diff. Rate limits are only kept for the reset
 // time of a turn the plan's usage limit stops.
+function codexSubagentArtifact(method, params, state) {
+  const item = params.item;
+  const tool = item?.type === "mcpToolCall" && item.server === "milagre" ? item.tool : null;
+  if (!["item/started", "item/completed"].includes(method) || !state.subagents?.has(params.threadId) || !SUBAGENT_ARTIFACT_TOOLS.test(`mcp__milagre__${tool}`))
+    return [];
+  const step = { ...codexStep(item), agent: params.threadId };
+  state.steps ??= new Set();
+  if (method === "item/started") {
+    if (state.steps.has(step.id)) return [];
+    state.steps.add(step.id);
+    return [{ type: "step-started", step }];
+  }
+  const started = state.steps.delete(step.id) ? [] : [{ type: "step-started", step }];
+  return [...started, { type: "step-completed", ...codexStepResult(item) }];
+}
+
 function mapCodexNotification(method, params, state) {
   if (method === "account/rateLimits/updated") {
     state.rateLimits = params.rateLimits;
     return [];
   }
   const children = codexSubagents(method, params, state);
+  // A subagent's design calls are the Chat's designs too, as for Claude: artifact steps named for the subagent.
+  if (params.threadId && state.threadId && params.threadId !== state.threadId) return [...children, ...codexSubagentArtifact(method, params, state)];
   if (children.length) return children;
-  if (params.threadId && state.threadId && params.threadId !== state.threadId) return [];
   if (method === "turn/started") return [{ type: "turn-started", turnId: params.turn?.id ?? null }];
   // The last request's tokens are what the context window holds now.
   if (method === "thread/tokenUsage/updated") {
@@ -386,6 +431,7 @@ function codexReasoning(method, item, state) {
 
 module.exports = {
   MILAGRE_INSTRUCTIONS,
+  SUBAGENT_DESIGN_INSTRUCTIONS,
   milagreInstructions,
   RESUME_FAILED_MESSAGE,
   cliBrokenMessage,

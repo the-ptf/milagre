@@ -105,6 +105,7 @@ const METHODS = new Set([
   "chat:send",
   "chat:resume",
   "chat:limit-switch",
+  "chat:reload",
   "agent:interrupt",
   "advisor:stop",
   "advisor:retry",
@@ -573,7 +574,13 @@ async function startMobileBridge({
         (channel === "link:state" && isLinkScopeKey(entry.projectPath) && payload?.linkId === scopeFromKey(entry.projectPath).linkId)
       )
         signal(entry, "project");
-      else if (channel === "agent:event" && typeof payload?.chatId === "string" && chatInProject(entry.projectPath, payload.chatId)) {
+      // A design draft (step-draft) changes no run: the phone has nothing new to read.
+      else if (
+        channel === "agent:event" &&
+        typeof payload?.chatId === "string" &&
+        payload.event?.type !== "step-draft" &&
+        chatInProject(entry.projectPath, payload.chatId)
+      ) {
         // A turn's end (or a steer) saves its reply as the run goes away: one prompt snapshot shows both, where a runs
         // fetch first would hide the reply until the Project caught up. Subagents live only in the Project state.
         // The state can come whole, as a patch (version), or left out (stateTooLarge); the turn's end needs the snapshot.

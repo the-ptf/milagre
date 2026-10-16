@@ -43,6 +43,8 @@
     "squashfs-root/**",
     "docs/**",
     "packages/shared/src/design-font-data.mjs",
+    "packages/shared/src/design-font-catalog.mjs",
+    "packages/shared/src/design-catalog-fonts/**",
     "packages/shared/src/design-font-metrics.mjs",
     "packages/shared/src/design-icons.mjs"
   ],

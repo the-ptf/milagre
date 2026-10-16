@@ -1,5 +1,4 @@
-// Settings > Experimental in Electron: the section is listed, its switch turns the every-Project sidebar on and off,
-// and Murilo mode shows a reply's tool calls in the chat, one row each, instead of folding them into one line.
+// Settings > Experimental in Electron: the section is listed and its switch turns the every-Project sidebar on and off.
 // Picking a notification chime saves it and plays it; the replay button plays it again.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -12,7 +11,6 @@ import { createRoot } from 'react-dom/client';
 import { SettingsNav, SettingsPanel } from '/src/components/Settings';
 import { useSettings } from '/src/lib/settings';
 import { useApplyOtherComputers } from '/src/lib/computers';
-import { ActivityBlock } from '/src/components/agents/ActivityBlock';
 import '/src/styles.css';
 window.enabledCalls = [];
 // Chimes record what would play instead of making noise.
@@ -34,13 +32,6 @@ window.milagre = {
   },
   computers: { setEnabled: async (on) => void window.enabledCalls.push(on) },
 };
-const step = (id, title, kind = 'shell') => ({ id, kind, title, status: 'done', note: '1s' });
-const entries = [
-  { type: 'step', step: step('a', 'Ran \`npm test\`') },
-  { type: 'text', text: 'Tests pass. Checking the build next.' },
-  { type: 'step', step: step('b', 'Read \`package.json\`', 'read') },
-  { type: 'step', step: step('c', 'Searched for \`muriloMode\`', 'search') },
-];
 function Fixture() {
   const [section, setSection] = useState('appearance');
   const { legacySidebar, otherComputers } = useSettings();
@@ -49,7 +40,6 @@ function Fixture() {
     <div data-legacy-sidebar={String(legacySidebar)} data-other-computers={String(otherComputers)} style={{ display: 'flex', gap: 12, height: '100vh', padding: 12 }}>
       <SettingsNav section={section} onSelect={setSection} onSelectProject={() => {}} onBack={() => {}} showProjectSettings={false} />
       <main style={{ flex: 1, minWidth: 0 }}><SettingsPanel section={section} models={[]} update={null} /></main>
-      <aside data-reply style={{ width: 320 }}><ActivityBlock entries={entries} /></aside>
     </div>
   );
 }
@@ -122,20 +112,7 @@ async function browserChecks() {
     await screenshot("on");
     await evaluate(`${toggle}.click()`);
     await waitFor(`document.querySelector('[data-legacy-sidebar]').dataset.legacySidebar === 'false'`);
-    const murilo = `document.querySelector('[role="switch"][aria-label="Murilo mode"], button[aria-label="Murilo mode"], input[aria-label="Murilo mode"]')`;
-    const reply = (selector) => `document.querySelector('[data-reply] ${selector}')`;
-    assert.equal(await evaluate(`!!${reply("[data-slot=activity]")}`), true, "Murilo mode is off by default: the activity folds into one line");
-    assert.equal(await evaluate(`!!${reply("[data-slot=activity-inline]")}`), false);
-    await evaluate(`${murilo}.click()`);
-    await waitFor(`!!${reply("[data-slot=activity-inline]")}`);
-    assert.equal(await evaluate(`!!${reply("[data-slot=activity]")}`), false, "Murilo mode leaves no fold");
-    const text = await evaluate(`${reply("[data-slot=activity-inline]")}.innerText`);
-    for (const shown of ["npm test", "Tests pass. Checking the build next.", "package.json", "muriloMode"])
-      assert.ok(text.includes(shown), `shows ${shown} in the chat`);
-    assert.ok(text.indexOf("npm test") < text.indexOf("Tests pass") && text.indexOf("Tests pass") < text.indexOf("package.json"), "in order");
-    await screenshot("murilo-on");
-    await evaluate(`${murilo}.click()`);
-    await waitFor(`!!${reply("[data-slot=activity]")}`);
+    assert.equal(await evaluate(`!!document.querySelector('[aria-label="Murilo mode"]')`), false, "Murilo mode moved to Settings › Chat");
     const other = `document.querySelector('[role="switch"][aria-label="Other computers"]')`;
     assert.equal(await evaluate(`document.querySelector('[data-other-computers]').dataset.otherComputers`), "false", "Other computers is off by default");
     await waitFor(`JSON.stringify(window.enabledCalls) === '[false]'`);
@@ -169,7 +146,7 @@ async function browserChecks() {
     assert.match(await evaluate("window.played[2]"), /^chime_bombastic_side_eye/);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Settings lists an Experimental section whose switches turn the every-Project sidebar and Murilo mode on and off, both off by default; Murilo mode shows each tool call and the notes between them in order, with no fold; Other computers is off by default and tells main each time it flips; the notification chime starts on the system sound, and picking one saves and plays it",
+      "PASS: Settings lists an Experimental section whose switch turns the every-Project sidebar on and off, off by default, with no Murilo mode; Other computers is off by default and tells main each time it flips; the notification chime starts on the system sound, and picking one saves and plays it",
     );
     app.exit(0);
   } catch (error) {

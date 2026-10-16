@@ -55,14 +55,13 @@ async function fixture(options = {}) {
   return { id, secret, storage, service, settings, request, send, reservations };
 }
 
-test("create is immutable, identical retries survive service restart, and public responses do not contain the secret", async () => {
+test("create, identical retries survive service restart, and public responses do not contain the secret", async () => {
   const f = await fixture();
   const first = await f.send("PUT");
   assert.equal(first.status, 201);
   assert.deepEqual(await first.json(), { id: f.id, path: `/s/${f.id}` });
   const restarted = createPageService(f.settings);
   assert.equal((await restarted.fetch(f.request("PUT"), f.id, "192.0.2.1")).status, 200);
-  assert.equal((await f.send("PUT", { title: "Changed" })).status, 409);
   assert.equal(f.reservations.length, 1);
   const publicPage = await f.send("GET", undefined, { Authorization: "" });
   assert.equal(publicPage.status, 200);
@@ -123,15 +122,79 @@ test("a secret for another page cannot publish or revoke; noncanonical secrets a
   assert.equal(await authorized(alternate, zeroId), false);
 });
 
-test("simultaneous create and changed create cannot overwrite one another", async () => {
+test("simultaneous writes apply one at a time and leave exactly one whole revision", async () => {
   const f = await fixture();
-  const results = await Promise.all([f.send("PUT"), f.send("PUT", { title: "Other" }), f.send("PUT")]);
+  const results = await Promise.all([f.send("PUT"), f.send("PUT", { title: "Other" }), f.send("PUT", { title: "Other" }), f.send("PUT")]);
   assert.deepEqual(
     results.map((r) => r.status),
-    [201, 409, 200],
+    [201, 200, 200, 200],
   );
-  assert.equal(f.reservations.length, 1);
+  assert.equal(f.reservations.length, 3, "the identical retry in the middle is free");
   assert.equal(await (await f.send("GET")).text(), "<html>Page</html>");
+  assert.deepEqual(f.storage.keys("html:"), ["html:2:0"]);
+});
+
+test("an authorized PUT with changed content replaces the page under the same link", async () => {
+  const f = await fixture({ render: (value) => `<html>${value.title}</html>`.padEnd(CHUNK_BYTES * 2 + 10, "x") });
+  assert.equal((await f.send("PUT")).status, 201);
+  assert.deepEqual(f.storage.keys("html:"), ["html:0", "html:1", "html:2"]);
+  const replaced = await f.send("PUT", { title: "Second" });
+  assert.equal(replaced.status, 200);
+  assert.deepEqual(await replaced.json(), { id: f.id, path: `/s/${f.id}` });
+  assert.match(await (await f.send("GET")).text(), /^<html>Second<\/html>/);
+  assert.deepEqual(f.storage.keys("html:"), ["html:1:0", "html:1:1", "html:1:2"], "old chunks are removed with the replacement");
+  assert.equal(f.storage.get("meta").revision, 1);
+  assert.equal(f.reservations.length, 2, "a replacement stores new bytes and spends a reservation");
+  assert.equal((await f.send("PUT", { title: "Second" })).status, 200);
+  assert.equal(f.reservations.length, 2, "retrying the replacement is free");
+  assert.equal((await f.send("DELETE")).status, 204);
+  assert.deepEqual(f.storage.keys("html:"), []);
+  assert.equal((await f.send("PUT", { title: "Third" })).status, 410);
+});
+
+test("replacements pass admission and quota, and a refused one leaves the page untouched", async () => {
+  let admitted = true;
+  let reserved = true;
+  let renders = 0;
+  const f = await fixture({
+    admit: async () => admitted,
+    reserve: async () => reserved,
+    render: (value) => {
+      renders++;
+      return `<html>${value.title}</html>`;
+    },
+  });
+  assert.equal((await f.send("PUT")).status, 201);
+  admitted = false;
+  assert.equal((await f.send("PUT", { title: "Changed" })).status, 429);
+  assert.equal(renders, 1, "an exhausted publisher is refused before rendering");
+  assert.equal((await f.send("PUT")).status, 200, "identical retries survive exhaustion");
+  admitted = true;
+  reserved = false;
+  assert.equal((await f.send("PUT", { title: "Changed" })).status, 429);
+  assert.equal(await (await f.send("GET")).text(), "<html>Page</html>");
+  assert.deepEqual(f.storage.keys("html:"), ["html:0"]);
+  assert.equal((await f.send("PUT", { title: "Changed" }, { Authorization: `Bearer ${randomBytes(32).toString("base64url")}` })).status, 401);
+});
+
+test("a reader of the old revision stops instead of receiving a mixed page", async () => {
+  const f = await fixture({ render: (value) => value.title.repeat(CHUNK_BYTES * 3) });
+  assert.equal((await f.send("PUT", { title: "a" })).status, 201);
+  const reader = (await f.send("GET")).body.getReader();
+  assert.equal(new TextDecoder().decode((await reader.read()).value), "a".repeat(CHUNK_BYTES));
+  assert.equal((await f.send("PUT", { title: "b" })).status, 200);
+  await assert.rejects(reader.read(), /Snapshot updated/);
+  assert.equal(await (await f.send("GET")).text(), "b".repeat(CHUNK_BYTES * 3));
+});
+
+test("a page published before revisions existed is replaced and its chunks removed", async () => {
+  const f = await fixture();
+  f.storage.put("meta", { hash: "legacy", chunks: 2 });
+  f.storage.put("html:0", new TextEncoder().encode("<html>Old"));
+  f.storage.put("html:1", new TextEncoder().encode("</html>"));
+  assert.equal((await f.send("PUT", { title: "New" })).status, 200);
+  assert.deepEqual(f.storage.keys("html:"), ["html:1:0"]);
+  assert.equal(await (await f.send("GET")).text(), "<html>New</html>");
 });
 
 test("invalid, compressed, and oversized content never reaches storage or quota", async () => {
@@ -396,7 +459,7 @@ test("rendered size limits return 413 without a quota reservation", async () => 
   assert.equal(budget.reservations.length, 0);
 });
 
-test("one interactive Artifact publishes as an immutable sandboxed page and can be revoked", async () => {
+test("one interactive Artifact publishes as a sandboxed page, updates in place and can be revoked", async () => {
   const f = await fixture({ validate: validateDesignPageSnapshot, render: renderDesignPage });
   const snapshot = {
     schemaVersion: 1,
@@ -412,9 +475,11 @@ test("one interactive Artifact publishes as an immutable sandboxed page and can 
   assert.match(html, /sandbox="allow-scripts"/);
   assert.match(html, /Explore/);
   assert.doesNotMatch(html, /allow-same-origin|Canvas zoom/);
-  snapshot.artifacts[0].html = "<h1>Later private edit</h1>";
-  assert.equal((await f.send("PUT", snapshot)).status, 409);
-  assert.equal(await (await f.send("GET")).text(), html);
+  snapshot.artifacts[0].html = "<h1>Later edit</h1>";
+  assert.equal((await f.send("PUT", snapshot)).status, 200);
+  const updated = await (await f.send("GET")).text();
+  assert.notEqual(updated, html);
+  assert.match(updated, /Later edit/);
   assert.equal((await f.send("DELETE")).status, 204);
   assert.equal((await f.send("GET")).status, 404);
   assert.equal((await f.send("PUT", snapshot)).status, 410);
@@ -447,7 +512,7 @@ test("public Designs and Artifact pages include escaped social previews and cano
     assert.equal(html.match(/<meta name="description"/g).length, 1);
     assert.doesNotMatch(html, /content="Do not use this"/);
     assert.ok(html.indexOf('property="og:title"') < html.indexOf("</head>"));
-    assert.deepEqual(f.storage.get("html:0"), original, "metadata must not mutate immutable stored content");
+    assert.deepEqual(f.storage.get("html:0"), original, "metadata must not mutate stored content");
     assert.equal((await f.send("DELETE")).status, 204);
     const revoked = await f.send("GET");
     assert.equal(revoked.status, 404);

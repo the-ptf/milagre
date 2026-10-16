@@ -10,23 +10,33 @@ export type HtmlArtifact = ArtifactSummary & { format: "html"; latest: number; h
 export type Artifact = DesignArtifact | HtmlArtifact;
 export type ArtifactPageKind = "designs" | "artifacts";
 
+/** A public link to a Chat page. Sharing the page again updates the snapshot behind the same link. */
 export interface DesignPageShare {
   kind?: ArtifactPageKind;
   id: string;
   url: string;
   title: string;
+  /** When the link was first published. */
   createdAt: number;
+  /** When the snapshot behind the link was last replaced; absent until the first update. */
+  updatedAt?: number;
   designCount: number;
   revoked?: boolean;
+  /** The upload was never confirmed. Sharing again retries the same link. */
   pending?: boolean;
+  /** Set by sharePage: older links of this page that could not be revoked yet. They stay public, are listed in
+   * Published pages, and the next share retries them. */
+  olderLinks?: number;
 }
 
 export interface ArtifactApi {
   sharingStatus(request?: { kind?: ArtifactPageKind }): Promise<{ available: boolean; reason?: string }>;
   allPageShares(): Promise<DesignPageShare[]>;
   revokeSavedPageShare(request: { id: string }): Promise<void>;
+  /** The page's current link, or none: at most one entry. */
   pageShares(request: { chatId: string; kind?: ArtifactPageKind }): Promise<DesignPageShare[]>;
-  sharePage(request: { chatId: string; title: string; acknowledgePublic: true; kind?: ArtifactPageKind }): Promise<DesignPageShare>;
+  /** The page is named after its Chat on the host; `title` only satisfies hosts from before that, which require one. */
+  sharePage(request: { chatId: string; title?: string; acknowledgePublic: true; kind?: ArtifactPageKind }): Promise<DesignPageShare>;
   revokePageShare(request: { chatId: string; id: string; kind?: ArtifactPageKind }): Promise<void>;
   get(request: { chatId: string; id: string; version?: number }): Promise<Artifact>;
   list(request: { chatId: string; format?: "design" | "html" }): Promise<ArtifactSummary[]>;
@@ -186,6 +196,7 @@ export function chosenDesign(bodies: string[]): { id: string; version: number } 
 export {
   ARTIFACT_CSP,
   ARTIFACT_ESCAPE,
+  ARTIFACT_SEND,
   ARTIFACT_ESCAPE_SCRIPT,
   DESIGN_CANVAS_SCRIPT,
   artifactDocument,

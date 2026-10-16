@@ -15,7 +15,7 @@ import { ArtifactCards, DesignFeedbackCard } from "./artifact";
 import { advisorResultLabel } from "@milagre/shared/advisor-result";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import { AnswerCard } from "./answer-card";
-import { useMuriloMode } from "./murilo-mode";
+import { useToolCallDisplay } from "./chat-display-setting";
 import { PullRequestActionCard } from "./pr-action-card";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
@@ -218,7 +218,7 @@ export const ChatReply = memo(function ChatReply({
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
-  const [muriloMode] = useMuriloMode();
+  const [toolCallDisplay] = useToolCallDisplay();
   const savedMedia = useCallback((path: string) => media(message?.images?.find((image) => image.sourcePath === path)?.path || path), [media, message?.images]);
   const openActivity = () => onActivity(message ? String(message.id) : "run");
   const text = run?.text ?? message?.body ?? "";
@@ -275,8 +275,8 @@ export const ChatReply = memo(function ChatReply({
       {reply.setup.map((step) => (
         <ToolRow key={step.id} step={step} live={!!run} waiting={waiting} onPress={openActivity} />
       ))}
-      {/* Murilo mode (Settings > Experimental): every tool call is its own row, with the notes between them. */}
-      {muriloMode ? (
+      {/* Full detail (Settings › Chat › Tool call display): every tool call is its own row, with the notes between them. */}
+      {toolCallDisplay === "full" ? (
         reply.activity.map((entry, index) =>
           entry.type === "step" ? (
             <ToolRow key={entry.step.id} step={entry.step} live={!!run} waiting={waiting} onPress={openActivity} />

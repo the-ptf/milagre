@@ -142,6 +142,7 @@ const PATHS = Object.freeze({
   "advisor:stop": ([chatId]) => [chatProject(chatId)],
   "advisor:retry": ([chatId]) => [chatProject(chatId)],
   "agent:interrupt": ([chatId]) => [chatProject(chatId)],
+  "chat:reload": ([chatId]) => [chatProject(chatId)],
   "agent:respond-permission": ([value]) => [chatProject(value?.chatId)],
   "accounts:scopes": none,
   "accounts:scope": none,

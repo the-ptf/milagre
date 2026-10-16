@@ -1,17 +1,20 @@
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { AlertCircleIcon, Cancel01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { AlertCircleIcon, Cancel01Icon, PaintBoardIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { agentActivityLabel, subagentActivityLabel, subagentRoleLabel } from "@milagre/shared/agent-activity";
 import type { Subagent, SubagentCommunication } from "@milagre/shared/model";
 import { subagentActive, subagentFinished } from "../../lib/subagents";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { DiffBar } from "../changes/ChangesChrome";
 import { SubagentTranscript } from "./SubagentTrack";
+import { useDesignsOpener } from "./ArtifactCard";
+import type { SubagentDesign } from "./subagent-designs";
 import {
   COMMUNICATION_TTL_MS,
   MAIN_AGENT,
   agentNodeId,
   canvasAgentName,
+  subagentColor,
   fitAgents,
   initialAgentPosition,
   moveAgentWithCollisions,
@@ -22,7 +25,6 @@ import {
 } from "./subagent-canvas-layout";
 import "./subagent-canvas.css";
 
-const colors = ["mint", "blue", "peach", "lilac"];
 type Gesture = { pointerId: number; start: Point; origin: Point; nodeId?: string; moved: boolean };
 
 /** Keep the arrangement while switching between the chat and its canvas. */
@@ -36,6 +38,7 @@ export const SubagentCanvas = memo(function SubagentCanvas({
   onClose,
   onStop,
   onRetry,
+  designs,
 }: {
   /** The Chat the subagents belong to (see SubagentTranscript). */
   chatKey?: string | null;
@@ -47,6 +50,8 @@ export const SubagentCanvas = memo(function SubagentCanvas({
   onClose: () => void;
   onStop?: (id: string) => void;
   onRetry?: (id: string) => void;
+  /** Each subagent's design work (subagentDesigns), shown on its bot; it opens the Designs on that design. */
+  designs?: ReadonlyMap<string, SubagentDesign>;
 }) {
   const panel = useRef<HTMLElement>(null);
   const surface = useRef<HTMLDivElement>(null);
@@ -288,7 +293,7 @@ export const SubagentCanvas = memo(function SubagentCanvas({
       active: subagentActive(agent),
       sleeping: false,
       dead: subagentFinished(agent),
-      color: colors[indices.get(agent.id)! % colors.length],
+      color: subagentColor(indices.get(agent.id)!),
       agent,
     })),
   ];
@@ -458,6 +463,7 @@ export const SubagentCanvas = memo(function SubagentCanvas({
                     {node.status}
                   </span>
                 )}
+                {node.agent && designs?.get(node.agent.id) && <SubagentDesignChip design={designs.get(node.agent.id)!} name={node.title} />}
               </div>
             );
           })}
@@ -491,3 +497,27 @@ export const SubagentCanvas = memo(function SubagentCanvas({
     </section>
   );
 });
+
+/**
+ * A subagent's design work on its bot; it opens the Designs on that design. Its own component, so only the chip reads
+ * the Designs, which change with every step: the canvas itself doesn't re-render for them.
+ */
+function SubagentDesignChip({ design, name }: { design: SubagentDesign; name: string }) {
+  const openDesigns = useDesignsOpener();
+  if (!openDesigns) return null;
+  const label = design.designing ? `Designing${design.title ? ` ${design.title}` : "…"}` : design.title;
+  return (
+    <button
+      type="button"
+      data-slot="subagent-design"
+      data-designing={design.designing || undefined}
+      className="subagent-bot-design"
+      title={design.designing ? `Open the Designs to watch ${name} design` : `Open ${design.title} in the Designs`}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={() => openDesigns(design.id)}
+    >
+      <HugeiconsIcon icon={PaintBoardIcon} size={11} strokeWidth={1.8} aria-hidden="true" />
+      <span>{label}</span>
+    </button>
+  );
+}

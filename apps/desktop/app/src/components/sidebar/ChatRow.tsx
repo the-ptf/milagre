@@ -37,6 +37,7 @@ import {
   PencilEdit02Icon,
   PinIcon,
   PinOffIcon,
+  Refresh01Icon,
   ShieldAlertIcon,
   SourceCodeIcon,
   Tick02Icon,
@@ -56,6 +57,7 @@ import { BLOCKERS, pullRequestBlockers, pullRequestPresentation } from "@/lib/pr
 import { ScrollArea } from "../primitives/ScrollArea";
 import { useDismiss } from "../../lib/use-dismiss";
 import { chatMarkTone } from "@milagre/shared/chats";
+import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { activityAgo, DESKTOP_CHAT_ROW_SHOW, type ChatRowShow } from "@milagre/shared/chat-row";
 
 // One clock for every row's last activity, so "5m" moves on without each row keeping a timer. A read refreshes a stale
@@ -142,6 +144,8 @@ export type SidebarRecent = {
 export type ChatRowActions = {
   onRename?: (id: string, title: string) => void;
   onMarkUnread?: (id: string, unread: boolean) => void;
+  /** Restarts the chat's agent so it picks up new MCP servers, skills or a sign-in (stopping a running turn). */
+  onReload?: (id: string) => void;
   /** Pins the chat at `order` among the pinned chats (the end when left out), or unpins it (null). */
   onPin?: (id: string, order?: number | null) => void;
   onReveal?: (id: string) => void;
@@ -189,6 +193,8 @@ type MenuEntry = {
   label: string;
   icon?: HugeIconData;
   /** Drawn instead of `icon`, e.g. a brand mark. */ leading?: ReactNode;
+  /** What the item is for, shown on hover. */
+  hint?: string;
   onSelect: () => void;
   disabled?: boolean;
   danger?: boolean;
@@ -1019,6 +1025,14 @@ function ChatMenu({
     { key: "copy-path", label: "Copy path", icon: Copy01Icon, onSelect: copy(details.path ?? ""), disabled: !details.path },
     { key: "copy-branch", label: "Copy branch name", icon: GitBranchIcon, onSelect: copy(details.branch ?? ""), disabled: !details.branch },
     { key: "rename", label: "Rename chat", icon: PencilEdit02Icon, onSelect: run(onRename), disabled: !actions.onRename },
+    {
+      key: "reload",
+      label: "Reload chat",
+      icon: Refresh01Icon,
+      hint: RELOAD_HINT,
+      onSelect: run(() => actions.onReload?.(item.id)),
+      disabled: !actions.onReload,
+    },
     // Unlink and Link are offered on the same Worktrees (own, not shared, not the main checkout), as on the phone.
     ...(details.linkable
       ? details.linearKey
@@ -1129,6 +1143,7 @@ function ChatMenu({
               role="menuitem"
               type="button"
               disabled={entry.disabled}
+              title={entry.hint}
               onClick={entry.onSelect}
               {...(entry.archiveChoice ? { "data-archive-choice": true } : {})}
               className={`relative z-10 flex w-full items-center gap-2 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40 ${entry.archiveChoice ? "min-h-8 py-1.5" : "h-8"} ${entry.danger ? "text-red" : "text-ink"}`}

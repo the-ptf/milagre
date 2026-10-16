@@ -57,6 +57,7 @@ export function ActivityItem({
   loading = false,
   onPress,
   disclosureOnly = false,
+  expanded: expandedByDefault = false,
 }: {
   title: string;
   icon: IconData;
@@ -67,15 +68,18 @@ export function ActivityItem({
   loading?: boolean;
   onPress?: () => void;
   disclosureOnly?: boolean;
+  /** Open until the row is tapped; follows changes until then. */
+  expanded?: boolean;
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
-  const [expanded, setExpanded] = useState(false);
+  const [toggled, setToggled] = useState<boolean | null>(null);
+  const expanded = toggled ?? expandedByDefault;
   const expandable = !onPress && (children != null || loading);
   const failed = state === "failed";
   const stateLabel = status || (failed ? "Failed" : state === "waiting" ? "Waiting for approval" : state === "running" ? "Running" : "");
   const label = [title.replace(/`/g, ""), stateLabel, note].filter(Boolean).join(", ");
-  const action = () => (onPress ? onPress() : setExpanded((value) => !value));
+  const action = () => (onPress ? onPress() : setToggled(!expanded));
   const accessibilityState = expandable ? { expanded } : undefined;
   const headerStyle: ViewStyle = { minHeight: 36, paddingVertical: disclosureOnly ? 0 : 8, flexDirection: "row", alignItems: "center", gap: 10 };
   const heading = (

@@ -385,6 +385,8 @@ export type MilagreBridge = {
   sendMessage: (request: ChatSendRequest) => Promise<{ sessionId: number }>;
   /** Continues a chat a quit stopped mid-turn, on its saved options. Resolves false when it has nothing to continue. */
   resumeChat: (projectPath: string, sessionId: number) => Promise<boolean>;
+  /** Stops a running turn and ends the chat's agent process; the next message resumes its session in a new one. */
+  reloadChat: (chatId: string) => Promise<void>;
   /** The limit card: moves the Chat's Project to `accountId`, then continues the Chat there (`continued` false: send again). */
   switchAccountAfterLimit: (
     projectPath: string,

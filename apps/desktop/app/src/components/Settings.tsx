@@ -32,16 +32,20 @@ import type { ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowLeft02Icon,
+  BookOpen01Icon,
+  BubbleChatIcon,
+  FlaskConicalIcon,
+  FolderKeyIcon,
   InformationCircleIcon,
   LaptopIcon,
-  MagicWand01Icon,
+  LaptopPhoneSyncIcon,
   PaintBoardIcon,
-  PlugSocketIcon,
+  Plug01Icon,
   SecurityCheckIcon,
+  ServerIcon,
   Settings01Icon,
   SmartphoneIcon,
-  TestTube01Icon,
-  UserMultipleIcon,
+  UserCircleIcon,
   VolumeHighIcon,
 } from "@hugeicons/core-free-icons";
 import { DOT_COLOR, computerTone, routeLine, seenAgo, useComputers } from "../lib/computers";
@@ -63,6 +67,15 @@ import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { NOTIFICATION_CHIMES, type NotificationChime } from "@milagre/shared/notification-chimes";
+import {
+  DETAIL_LEVEL_TITLE,
+  EXPAND_REASONING_HINT,
+  EXPAND_REASONING_TITLE,
+  TOOL_CALL_DISPLAYS,
+  TOOL_CALL_DISPLAY_HINT,
+  TOOL_CALL_DISPLAY_TITLE,
+  type ToolCallDisplay,
+} from "@milagre/shared/chat-display";
 import { playNotificationChime } from "../lib/notification-chime";
 import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
@@ -84,6 +97,7 @@ export type SettingsSection =
   | "project-accounts"
   | "accounts"
   | "appearance"
+  | "chat"
   | "skills"
   | "mcp"
   | "local-mcp"
@@ -96,14 +110,15 @@ export type SettingsSection =
 
 const SECTIONS: Array<{ key: SettingsSection; label: string; icon: IconData }> = [
   { key: "general", label: "General", icon: Settings01Icon },
-  { key: "accounts", label: "Accounts", icon: UserMultipleIcon },
-  { key: "project-accounts", label: "Project Accounts", icon: UserMultipleIcon },
+  { key: "accounts", label: "Accounts", icon: UserCircleIcon },
+  { key: "project-accounts", label: "Project Accounts", icon: FolderKeyIcon },
   { key: "appearance", label: "Appearance", icon: PaintBoardIcon },
-  { key: "skills", label: "Skills", icon: MagicWand01Icon },
-  { key: "mcp", label: "MCP", icon: PlugSocketIcon },
-  { key: "local-mcp", label: "Milagre MCP", icon: PlugSocketIcon },
-  { key: "devices", label: "Devices", icon: SmartphoneIcon },
-  { key: "experimental", label: "Experimental", icon: TestTube01Icon },
+  { key: "chat", label: "Chat", icon: BubbleChatIcon },
+  { key: "skills", label: "Skills", icon: BookOpen01Icon },
+  { key: "mcp", label: "MCP", icon: Plug01Icon },
+  { key: "local-mcp", label: "Milagre MCP", icon: ServerIcon },
+  { key: "devices", label: "Devices", icon: LaptopPhoneSyncIcon },
+  { key: "experimental", label: "Experimental", icon: FlaskConicalIcon },
   { key: "privacy", label: "Privacy & AI", icon: SecurityCheckIcon },
   { key: "about", label: "About", icon: InformationCircleIcon },
 ];
@@ -144,11 +159,17 @@ export function SettingsNav({
   return (
     <aside aria-label="Settings navigation" className="flex h-full w-[224px] shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card">
       <div aria-hidden className="h-[calc(var(--window-chrome-height)-12px)] shrink-0" />
-      <GlideGroup>
-        <RailButton icon={<Icon icon={ArrowLeft02Icon} />} label="Back" onClick={onBack} />
-      </GlideGroup>
-      <div className="mx-4 my-2 h-px bg-line" />
-      <div className="mx-2 flex h-8 items-center px-2 text-[12.5px] font-medium text-ink-3">App</div>
+      <div className="mx-2 mb-1.5 flex h-9 shrink-0 items-center gap-1 px-1">
+        <button
+          type="button"
+          aria-label="Back"
+          onClick={onBack}
+          className="flex size-7 items-center justify-center rounded-[7px] text-ink-2 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96]"
+        >
+          <Icon icon={ArrowLeft02Icon} size={16} />
+        </button>
+        <h2 className="text-[15px] font-semibold text-ink">Settings</h2>
+      </div>
       <GlideGroup>
         {SECTIONS.map((item) => (
           <RailButton key={item.key} icon={<Icon icon={item.icon} />} label={item.label} active={section === item.key} onClick={() => onSelect(item.key)} />
@@ -455,6 +476,26 @@ export function DesignsSettings() {
   );
 }
 
+function ChatSettings() {
+  const settings = useSettings();
+  return (
+    <Group title={DETAIL_LEVEL_TITLE}>
+      <Row label={EXPAND_REASONING_TITLE} description={EXPAND_REASONING_HINT}>
+        <Switch label={EXPAND_REASONING_TITLE} checked={settings.expandReasoning} onChange={(expandReasoning) => updateSettings({ expandReasoning })} />
+      </Row>
+      <Row label={TOOL_CALL_DISPLAY_TITLE} description={TOOL_CALL_DISPLAY_HINT}>
+        <Select<ToolCallDisplay>
+          label={TOOL_CALL_DISPLAY_TITLE}
+          width={300}
+          value={settings.toolCallDisplay}
+          onChange={(toolCallDisplay) => updateSettings({ toolCallDisplay })}
+          options={TOOL_CALL_DISPLAYS.map((display) => ({ value: display.id, label: display.label, description: display.description }))}
+        />
+      </Row>
+    </Group>
+  );
+}
+
 function ExperimentalSettings() {
   const settings = useSettings();
   return (
@@ -486,12 +527,6 @@ function ExperimentalSettings() {
           description="Brings back the project menu at the top of the sidebar, listing only the open project's chats. Off, the sidebar lists each project and Link with its chats, and Filters chooses which projects show. With other computers paired, every project shows either way."
         >
           <Switch label="Use legacy sidebar" checked={settings.legacySidebar} onChange={(legacySidebar) => updateSettings({ legacySidebar })} />
-        </Row>
-        <Row
-          label="Murilo mode"
-          description="Shows every tool call in the chat, one row each, with the agent's notes between them. Replies no longer fold their activity into one line."
-        >
-          <Switch label="Murilo mode" checked={settings.muriloMode} onChange={(muriloMode) => updateSettings({ muriloMode })} />
         </Row>
         <Row
           label="Other computers"
@@ -1849,6 +1884,7 @@ export function SettingsPanel({
           <ProjectAccountsSettings projectPath={accountScope ?? project?.path} onManageAccounts={() => onSectionChange?.("accounts")} />
         )}
         {section === "appearance" && <AppearanceSettings />}
+        {section === "chat" && <ChatSettings />}
         {section === "skills" &&
           (project ? (
             <SkillsSettings key={project.path} projectPath={project.path} />

@@ -1,4 +1,4 @@
-// Inter renders from the embedded faces, with the advances designTextLayout assumes.
+// Inter and every catalog family render from the embedded faces, with the advances designTextLayout assumes.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
@@ -6,7 +6,8 @@ async function check() {
   const { app, BrowserWindow } = require("electron");
   app.setPath("userData", path.join(require("node:os").tmpdir(), `milagre-design-fonts-${process.pid}`));
   await app.whenReady();
-  const { designHtml, designTextLayout, validateDesignDocument } = await import("../packages/shared/src/design.mjs");
+  const { DESIGN_CATALOG_FAMILIES, designCatalogFont, designHtml, designTextLayout, loadDesignFonts, validateDesignDocument } =
+    await import("../packages/shared/src/design.mjs");
   const sample = "The quick brown fox jumps over the lazy dog. Reservations 0123456789 · Filter and sort — it’s “quoted” café € 5 → 6…";
   // 450 and 650 sit between measured weights: they must render with the face the layout measured, not CSS's heavier pick.
   const weights = [400, 450, 500, 600, 650, 700];
@@ -45,6 +46,48 @@ async function check() {
       assert.ok(delta < 0.005, `Inter ${node.fontWeight}: rendered ${rendered}px vs measured ${measured}px`);
     }
     console.log("PASS: embedded Inter renders at the measured widths");
+
+    // Every measured weight of every catalog family, loaded on demand and embedded like Inter.
+    const catalogNodes = DESIGN_CATALOG_FAMILIES.flatMap((family) =>
+      designCatalogFont(family).weights.map((fontWeight) => ({ id: `${family}-${fontWeight}`.replace(/\W+/g, "-"), family, fontWeight })),
+    ).map(({ id, family, fontWeight }, index) => ({
+      id,
+      type: "text",
+      y: index * 30,
+      width: 3000,
+      height: 30,
+      text: sample,
+      fontSize: 16,
+      fontWeight,
+      fontFamily: `${family}, Arial, sans-serif`,
+    }));
+    const catalog = validateDesignDocument({ schemaVersion: 1, width: 3200, height: catalogNodes.length * 30, nodes: catalogNodes });
+    await loadDesignFonts(catalog);
+    // Every face at once is too large for a data URL.
+    const page = path.join(app.getPath("userData"), "catalog.html");
+    require("node:fs").writeFileSync(page, designHtml(catalog));
+    await window.loadFile(page);
+    await window.webContents.executeJavaScript("document.fonts.ready");
+    const catalogFaces = await window.webContents.executeJavaScript(
+      `[...document.fonts].map((face) => ({ family: face.family.replace(/["']/g, ""), weight: face.weight, status: face.status }))`,
+    );
+    let worst = 0;
+    for (const node of catalogNodes) {
+      const family = node.fontFamily.split(",")[0];
+      const covering = catalogFaces.filter((face) => face.family === family && face.weight.split(" ").map(Number)[0] <= node.fontWeight);
+      assert.ok(
+        covering.some((face) => face.status === "loaded"),
+        `${family} ${node.fontWeight} is embedded and loaded`,
+      );
+      const rendered = await window.webContents.executeJavaScript(
+        `(() => { const span = document.querySelector('[data-design-node="${node.id}"] span'); const range = document.createRange(); range.selectNodeContents(span); return range.getBoundingClientRect().width; })()`,
+      );
+      const measured = designTextLayout(node).width;
+      const delta = Math.abs(rendered - measured) / measured;
+      worst = Math.max(worst, delta);
+      assert.ok(delta < 0.005, `${family} ${node.fontWeight}: rendered ${rendered}px vs measured ${measured}px`);
+    }
+    console.log(`PASS: ${catalogNodes.length} catalog faces render at the measured widths (worst delta ${(worst * 100).toFixed(3)}%)`);
   } finally {
     window.destroy();
     app.quit();

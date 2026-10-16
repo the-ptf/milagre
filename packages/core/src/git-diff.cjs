@@ -24,7 +24,7 @@ function checkPath(file) {
 }
 
 function createGitDiff(options = {}) {
-  const { run, out: gitOut, refExists, resolveBase } = createGit(options).read;
+  const { run, out: gitOut, refExists, chatBase } = createGit(options).read;
 
   /**
    * The refs `git diff` compares for a mode, or null when there is nothing to compare: uncommitted work
@@ -33,7 +33,7 @@ function createGitDiff(options = {}) {
   async function refsFor(cwd, base, mode) {
     const hasHead = await refExists(cwd, "HEAD");
     if (mode !== "committed") return { name: null, refs: [hasHead ? "HEAD" : EMPTY_TREE] };
-    const resolved = await resolveBase(cwd, base);
+    const resolved = await chatBase(cwd, base);
     if (!resolved.ref) return { name: null, refs: null };
     const mergeBase = hasHead ? await gitOut(cwd, ["merge-base", resolved.ref, "HEAD"]) : null;
     return { name: resolved.name, refs: mergeBase ? [mergeBase, "HEAD"] : null };

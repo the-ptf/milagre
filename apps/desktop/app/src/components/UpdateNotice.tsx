@@ -15,9 +15,27 @@ export function UpdateShell({ children }: { children: ReactNode }) {
   const [state, setState] = useState<UpdateState | null>(null);
   // The open Chat offers a spot above its composer; the latest one mounted holds the pill.
   const [slots, setSlots] = useState<HTMLElement[]>([]);
+  // A Chat stays mounted but hidden behind Settings, the canvas or a diff; its slot then has no box and gives the pill up.
+  const [shown, setShown] = useState<ReadonlySet<HTMLElement>>(() => new Set());
   const [register] = useState(() => (slot: HTMLElement) => {
     setSlots((previous) => [...previous, slot]);
-    return () => setSlots((previous) => previous.filter((item) => item !== slot));
+    const mark = (visible: boolean) =>
+      setShown((previous) => {
+        if (previous.has(slot) === visible) return previous;
+        const next = new Set(previous);
+        if (visible) next.add(slot);
+        else next.delete(slot);
+        return next;
+      });
+    // Read now so an open Chat takes the pill in this commit; the observer follows later hides and shows.
+    mark(slot.checkVisibility());
+    const observer = new IntersectionObserver((entries) => mark(entries.at(-1)?.isIntersecting ?? false));
+    observer.observe(slot);
+    return () => {
+      observer.disconnect();
+      setSlots((previous) => previous.filter((item) => item !== slot));
+      mark(false);
+    };
   });
   useEffect(() => {
     let changed = false;
@@ -43,7 +61,7 @@ export function UpdateShell({ children }: { children: ReactNode }) {
     <Updates.Provider value={state}>
       <SlotRegistry.Provider value={register}>
         {children}
-        <UpdateNotice state={state} slot={slots.at(-1) ?? null} />
+        <UpdateNotice state={state} slot={slots.filter((slot) => shown.has(slot)).at(-1) ?? null} />
       </SlotRegistry.Provider>
     </Updates.Provider>
   );

@@ -43,6 +43,7 @@ export function TooltipBubble({
 export default function Tooltip({
   label,
   shortcut,
+  keyHint,
   align = "start",
   side = "top",
   wrap = false,
@@ -52,6 +53,8 @@ export default function Tooltip({
 }: {
   label: string;
   shortcut?: string;
+  /** A key pressed on its own, without ⌘ (the canvas's C): shown in the tooltip, not with the hints holding ⌘ shows. */
+  keyHint?: string;
   align?: "start" | "end";
   /** Which side of the trigger the tooltip opens on; "bottom" for triggers at the window's top edge. */
   side?: "top" | "bottom";
@@ -69,7 +72,7 @@ export default function Tooltip({
   const showHints = useShortcutHints();
   const [hintRect, setHintRect] = useState<DOMRect | null>(null);
   const hintRef = useRef<HTMLElement>(null);
-  const hint = shortcut?.replace("⌘", shortcutModifier);
+  const hint = (shortcut ?? keyHint)?.replace("⌘", shortcutModifier);
   useLayoutEffect(() => {
     const trigger = triggerRef.current;
     const modal = openModal();

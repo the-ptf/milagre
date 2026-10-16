@@ -207,7 +207,7 @@ async function browserChecks() {
     await click("Reset");
     await waitFor(`window.calls.icons.length === 2 && window.calls.icons[1].icon === null && !document.querySelector('[data-project-icon-preview] img')`);
     console.log("PASS: every Project is listed in Settings, and its icon can be chosen and reset");
-    await click("Back");
+    await evaluate(`document.querySelector('[aria-label="Settings navigation"] button[aria-label="Back"]').click()`);
 
     // A new worktree's setup starts with the first message: no dialog, and the reply shows the setup running.
     await sendInNewWorktree("Add a checkout page");

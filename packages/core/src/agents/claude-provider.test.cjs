@@ -1182,3 +1182,39 @@ test("analysis-only Claude gets no Everywhere servers, and a failing mcpExtras s
   assert.equal(warn.mock.callCount(), 1);
   assert.match(String(warn.mock.calls[0].arguments.join(" ")), /boom/);
 });
+
+test("with Designs on, Claude's subagents are told to design on the Chat's canvas as they start", async (t) => {
+  const { SUBAGENT_DESIGN_INSTRUCTIONS } = require("./events.cjs");
+  const design = { name: "design_show", description: "Show", input: {}, readOnly: false, run: async () => "" };
+  for (const [designsEnabled, tools, told] of [
+    [true, [design], true],
+    [false, [design], false],
+    [true, [], false],
+  ]) {
+    const sdk = fakeSdk(scripts.reply);
+    const loadSdk = async () => ({
+      ...(await sdk.loadSdk()),
+      tool: (name, description, input, handler, extras) => ({ name, description, input, handler, extras }),
+      createSdkMcpServer: (options) => ({ type: "sdk", name: options.name, instance: {} }),
+    });
+    const events = [];
+    const session = new ClaudeSession({
+      cwd: "/repo",
+      command: "/usr/local/bin/claude",
+      designsEnabled,
+      linked: { tools },
+      emit: (event) => events.push(event),
+      loadSdk,
+    });
+    t.after(() => session.close());
+    await session.startTurn(TURN);
+    await ended(events);
+    const hook = sdk.calls.options.hooks?.SubagentStart?.[0]?.hooks?.[0];
+    assert.equal(!!hook, told);
+    if (hook)
+      assert.deepEqual(await hook({ hook_event_name: "SubagentStart", agent_id: "a", agent_type: "general-purpose" }), {
+        hookSpecificOutput: { hookEventName: "SubagentStart", additionalContext: SUBAGENT_DESIGN_INSTRUCTIONS },
+      });
+  }
+  assert.match(SUBAGENT_DESIGN_INSTRUCTIONS, /design_show.*Never write HTML or image files/s);
+});

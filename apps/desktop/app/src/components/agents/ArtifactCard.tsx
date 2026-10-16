@@ -1,4 +1,4 @@
-import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, useReducedMotion } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -8,13 +8,12 @@ import {
   Cancel01Icon,
   CheckmarkCircle02Icon,
   Comment01Icon,
-  FitToScreenIcon,
-  MinusSignIcon,
-  Add01Icon,
   PaintBoardIcon,
   File01Icon,
+  Share08Icon,
 } from "@hugeicons/core-free-icons";
 import {
+  ARTIFACT_SEND,
   chosenDesign,
   designActivity,
   designFeedbackMessage,
@@ -24,7 +23,8 @@ import {
   resolutionNotes,
   type DesignComment,
 } from "@milagre/shared/artifact";
-import type { ArtifactRef, ChatStep } from "../../model";
+import { isModalOpen } from "../../lib/modal";
+import type { ArtifactRef, ChatStep, Subagent } from "../../model";
 import Tooltip from "../primitives/Tooltip";
 import { DESIGNS_EXPANDED, dockLayer, useDockArea, useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
@@ -36,6 +36,9 @@ import { useDesignSharingAvailable } from "../../lib/design-sharing-available";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { DESIGN_DELETED, DESIGN_SAVED, type DesignDeleted, type DesignSaved } from "./DesignEditor";
 import { DesignPageShareDialog } from "./DesignPageShareDialog";
+import { ZoomBar } from "../primitives/ZoomBar";
+import { COMMENT_KEY, useCommentKey } from "./comment-key";
+import { useDesignWorkActive, useDesignWorkStarted, useLiveDesignFeed } from "./design-live";
 
 /** Whether the element is laid out: false while an ancestor hides it (the diff, settings or canvas in place of the chat). */
 function useShown() {
@@ -57,8 +60,8 @@ type ArtifactsValue = {
   /** The newest version of each design the Chat's replies showed, by id, in the order they were first shown. */
   latest: Map<string, ArtifactRef>;
   open: (ref: ArtifactRef) => void;
-  /** Opens the canvas framing these designs together. */
-  openAll: (refs: ArtifactRef[]) => void;
+  /** Opens the canvas framing these designs together; `kind` when there may be none yet. */
+  openAll: (refs: ArtifactRef[], kind?: "designs" | "artifacts") => void;
   /** Opens the canvas on a sent comment, its bubble open: `key` is "<message id>:<comment index>". */
   openComment: (key: string) => void;
   /** The agent's notes on the comments it resolved, by comment id. */
@@ -73,6 +76,24 @@ const Artifacts = createContext<ArtifactsValue>({
   openComment: () => {},
   resolutions: new Map(),
 });
+
+/**
+ * Opens the Chat's Designs from elsewhere in it (the Subagents view): on one design, by id, or on all of them while the
+ * design isn't saved yet. Null while Designs are off or the Chat's designs can't be read.
+ */
+export function useDesignsOpener(): ((id: string | null) => void) | null {
+  const { enabled, chatId, latest, open, openAll } = useContext(Artifacts);
+  if (!enabled || !chatId) return null;
+  return (id) => {
+    const ref = id ? latest.get(id) : undefined;
+    if (ref?.format === "design") open(ref);
+    else
+      openAll(
+        [...latest.values()].filter((design) => design.format === "design"),
+        "designs",
+      );
+  };
+}
 
 /**
  * The agent's notes on the comments it resolved, by comment id, read again when `moved` (designActivity) changes: the
@@ -161,12 +182,13 @@ function ScaledPreview({
           {pin && (
             <span
               aria-hidden
-              className={`absolute grid size-5 place-items-center rounded-full rounded-bl-none text-[10px] font-medium text-white shadow-raised ${pin.resolved ? "bg-green" : "bg-accent"}`}
+              // The canvas's pin shape: its point, the top-left corner, on the spot.
+              className={`absolute grid size-5 place-items-center rounded-full rounded-tl-none text-[10px] font-medium text-white shadow-[0_0_0_1.5px_#fff,0_1px_3px_rgb(0_0_0/0.3)] ${pin.resolved ? "bg-green" : "bg-accent"}`}
               style={{
                 left: `${pin.x * 100}%`,
                 top: `${pin.y * 100}%`,
-                transform: `translateY(-100%) scale(${1 / scale})`,
-                transformOrigin: "bottom left",
+                transform: `scale(${1 / scale})`,
+                transformOrigin: "top left",
               }}
             >
               {pin.label}
@@ -402,6 +424,12 @@ function GroupThumb({ design }: { design: ArtifactRef }) {
   );
 }
 
+/**
+ * Feedback on a Chat's designs not sent yet: closing the Designs keeps it, as the comments pinned and the design
+ * chosen, until it is sent or deleted. In memory, for the window's life.
+ */
+const unsent = new Map<string, { pins: DesignPin[]; choice: ArtifactRef | null }>();
+
 type Opened = {
   kind: "designs" | "artifacts";
   chatId: string | null;
@@ -420,15 +448,28 @@ export function ArtifactsProvider({
   steps,
   userMessages,
   onSend,
+  agent = "Agent",
+  followAgent = false,
+  subagents,
   children,
 }: {
   chatId: string | null;
   steps: ChatStep[];
   userMessages: { id: number | string; body: string }[];
   onSend?: (text: string) => Promise<boolean>;
+  /** The Chat's agent, by name, for its cursor on the canvas. */
+  agent?: string;
+  /** The Chat this window shows (not a grid tile): its Designs open each time the agent starts designing. */
+  followAgent?: boolean;
+  /** The Chat's subagents, in the Subagents view's order: their cursors carry the names and colours it gives them. */
+  subagents?: readonly Subagent[];
   children: React.ReactNode;
 }) {
   const { enabled } = useDesignsEnabled(chatId);
+  // The agent's design drafts, while its replies are on screen: the canvas shows them being written.
+  useLiveDesignFeed(enabled ? chatId : null, agent, subagents);
+  // Before the Chat has a design, the canvas opens for the one the agent is writing.
+  const designing = useDesignWorkActive(enabled ? chatId : null);
   const fromSteps = useMemo(() => latestArtifacts(steps), [steps]);
   // The catalog is read again when the replies show a new version, or the agent deleted a design.
   const deletes = steps.filter((step) => step.status === "done" && /\bdesign_delete\b/.test(step.title)).length;
@@ -603,10 +644,10 @@ export function ArtifactsProvider({
         }));
       },
       resolutions,
-      openAll: (refs) =>
+      openAll: (refs, kind) =>
         setOpenedIn((current) => ({
           chatId,
-          kind: refs[0]?.format === "design" ? "designs" : "artifacts",
+          kind: kind ?? (refs[0]?.format === "design" ? "designs" : "artifacts"),
           focus: { id: null, nonce: (current?.focus.nonce ?? 0) + 1 },
           versions: {
             ...(current?.chatId === chatId ? current.versions : {}),
@@ -618,18 +659,21 @@ export function ArtifactsProvider({
   );
   const designRefs = [...latest.values()].filter((ref) => ref.format === "design");
   const artifactRefs = [...latest.values()].filter((ref) => ref.format === "html");
-  // Deleting the last design leaves nothing to show.
+  // Deleting the last design leaves nothing to show, unless the agent is writing one.
   useEffect(() => {
-    if (opened?.kind === "designs" && !designRefs.length) setOpenedIn(null);
-  }, [opened?.kind, designRefs.length]);
+    if (opened?.kind === "designs" && !designRefs.length && !designing) setOpenedIn(null);
+  }, [opened?.kind, designRefs.length, designing]);
   // The saved catalog owns the one current HTML page; older transcript refs still open it.
   const currentHtml = (savedDesigns.chatId === chatId ? savedDesigns.refs : []).find((ref) => ref.format === "html") ?? artifactRefs.at(-1);
   const togglePanel = (kind: "designs" | "artifacts") => {
     if (document.querySelector("[data-slot=design-editor]")) return;
     if (opened?.kind === kind) setOpenedIn(null);
-    else value.openAll(kind === "designs" ? designRefs : currentHtml ? [currentHtml] : []);
+    else value.openAll(kind === "designs" ? designRefs : currentHtml ? [currentHtml] : [], kind);
   };
-  useSidePanel("designs", enabled && chatId && designRefs.length ? { open: opened?.kind === "designs", toggle: () => togglePanel("designs") } : null);
+  useSidePanel(
+    "designs",
+    enabled && chatId && (designRefs.length || designing) ? { open: opened?.kind === "designs", toggle: () => togglePanel("designs") } : null,
+  );
   useSidePanel("artifacts", chatId && artifactRefs.length ? { open: opened?.kind === "artifacts", toggle: () => togglePanel("artifacts") } : null);
   const onVersion = useCallback(
     (id: string, version: number | null) =>
@@ -644,6 +688,23 @@ export function ArtifactsProvider({
   );
   // The canvas belongs to the chat: while something else takes the chat's place, it steps aside and comes back with it.
   const [anchor, chatShown] = useShown();
+  // Each time the agent starts designing, the Designs open beside the Chat this window shows, even after the user
+  // closed them, so they watch it build. Not over the design editor, and the composer keeps the focus.
+  const shownRef = useRef(chatShown);
+  shownRef.current = chatShown;
+  useDesignWorkStarted(followAgent && enabled ? chatId : null, () => {
+    if (!shownRef.current || document.querySelector("[data-slot=design-editor]")) return;
+    setOpenedIn((current) =>
+      current?.chatId === chatId && current.kind === "designs"
+        ? current
+        : {
+            chatId,
+            kind: "designs",
+            focus: { id: null, nonce: (current?.focus.nonce ?? 0) + 1 },
+            versions: current?.chatId === chatId ? current.versions : {},
+          },
+    );
+  });
   const closeDesigns = useCallback(() => {
     if (!document.querySelector("[data-slot=design-editor]")) setOpenedIn(null);
   }, []);
@@ -725,15 +786,31 @@ function ArtifactDock({
   const [view, setView] = useState<CanvasView | null>(null);
   const [commenting, setCommenting] = useState(false);
   const [pageComment, setPageComment] = useState("");
-  // Feedback waits here until Send: comments pinned on designs, and the design the user chose.
-  const [pins, setPins] = useState<DesignPin[]>([]);
+  // Feedback waits here until Send: comments pinned on designs, and the design the user chose. Closed meanwhile, the
+  // Designs open again with it (an empty comment was never written).
+  const [kept] = useState(() => (kind === "designs" ? unsent.get(chatId) : undefined));
+  const [pins, setPins] = useState<DesignPin[]>(() => kept?.pins.filter((pin) => pin.text.trim()) ?? []);
   const [openPin, setOpenPin] = useState<string | null>(openComment ?? null);
   // A sent comment opened from the chat opens its bubble, also when the canvas is open already.
   useEffect(() => {
     if (openComment) setOpenPin(openComment);
   }, [openComment, focus.nonce]);
-  const [choice, setChoice] = useState<ArtifactRef | null>(null);
+  const [choice, setChoice] = useState<ArtifactRef | null>(kept?.choice ?? null);
   const [sending, setSending] = useState(false);
+  useEffect(() => {
+    if (kind !== "designs") return;
+    if (pins.length || choice) unsent.set(chatId, { pins, choice });
+    else unsent.delete(chatId);
+  }, [kind, chatId, pins, choice]);
+  // Kept feedback on an earlier version opens that version, where its pins and choice show, unless a version was asked for.
+  useEffect(() => {
+    if (!kept) return;
+    for (const item of [...(kept.choice ? [kept.choice] : []), ...kept.pins.filter((pin) => pin.text.trim()).map((pin) => pin.design)]) {
+      const newest = designs.find((design) => design.id === item.id)?.version;
+      if (newest !== undefined && item.version < newest && versions[item.id] == null) onVersion(item.id, item.version);
+    }
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- once, as the Designs open with the kept feedback.
+  }, []);
   // Feedback on a design deleted meanwhile has nothing left to send to.
   const designIds = designs.map((design) => design.id).join("|");
   useEffect(() => {
@@ -753,6 +830,8 @@ function ArtifactDock({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [commenting, onClose]);
+  // C turns comment mode on and off, as the comment button does.
+  useCommentKey(kind === "designs" && !!onSend, () => setCommenting((value) => !value));
   const written = pins.filter((pin) => pin.text.trim());
   const feedback = kind === "artifacts" ? Number(!!pageComment.trim() && !!page) : written.length + (choice ? 1 : 0);
   const send = async () => {
@@ -812,6 +891,38 @@ function ArtifactDock({
     },
     onSend: () => void send(),
   };
+  // ⌘Enter anywhere in the dock sends the comments and the choice waiting, as Send does. The dock has the focus when an
+  // element in it does, or when the last click landed in it and nothing took the focus since (a comment box that
+  // closes leaves it on the page). A design or artifact with the focus keeps its keys, so it forwards the press.
+  const sendFromDock = useEffectEvent(() => void send());
+  useEffect(() => {
+    if (!onSend) return;
+    const ownDock = (element: Element | null) => element?.closest("[data-slot=artifact-dock]")?.getAttribute("aria-label") === label;
+    let clickedIn = false;
+    const onPointer = (event: PointerEvent) => {
+      clickedIn = ownDock(event.target instanceof Element ? event.target : null);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || event.defaultPrevented || event.isComposing) return;
+      const focused = document.activeElement;
+      if (!(ownDock(focused) || ((!focused || focused === document.body) && clickedIn)) || isModalOpen()) return;
+      event.preventDefault();
+      sendFromDock();
+    };
+    const onMessage = (event: MessageEvent) => {
+      if (event.data !== ARTIFACT_SEND || !event.source || isModalOpen()) return;
+      const frame = [...document.querySelectorAll("iframe")].find((element) => element.contentWindow === event.source);
+      if (frame && ownDock(frame)) sendFromDock();
+    };
+    window.addEventListener("pointerdown", onPointer, true);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("pointerdown", onPointer, true);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("message", onMessage);
+    };
+  }, [onSend, label]);
   const icon = "rounded p-1 text-ink-2 hover:bg-hover disabled:opacity-40";
   return createPortal(
     <ResizableDockSlide
@@ -847,18 +958,13 @@ function ArtifactDock({
     >
       <header className="flex shrink-0 items-center gap-1 border-b border-line px-3 py-2">
         <HugeiconsIcon icon={kind === "artifacts" ? File01Icon : PaintBoardIcon} size={16} aria-hidden />
-        <div className="ml-1 min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-[13px]">{label}</span>
-            {kind === "designs" && (
-              <span data-slot="designs-experimental" className="rounded border border-line px-1.5 py-0.5 text-[9px] leading-none text-ink-3">
-                Experimental
-              </span>
-            )}
-          </div>
-          <div className="text-[11px] text-ink-3">
-            {kind === "artifacts" ? "Chat page" : `${designs.length} ${designs.length === 1 ? "design" : "designs"} in this Chat`}
-          </div>
+        <div className="ml-1 flex min-w-0 flex-1 items-center gap-2">
+          <span className="truncate text-[13px]">{label}</span>
+          {kind === "designs" && (
+            <span data-slot="designs-experimental" className="rounded border border-line px-1.5 py-0.5 text-[9px] leading-none text-ink-3">
+              Experimental
+            </span>
+          )}
         </div>
         {feedback > 0 && (
           <button
@@ -874,16 +980,16 @@ function ArtifactDock({
           </button>
         )}
         {sharingAvailable && (
-          <button
-            type="button"
-            aria-label="Share page"
-            onClick={() => setSharingChat(chatId)}
-            className="rounded px-2 py-1 text-[12px] text-ink-2 hover:bg-hover"
-          >
-            Share
-          </button>
+          <Tooltip label="Share page">
+            <button type="button" aria-label="Share page" onClick={() => setSharingChat(chatId)} className={icon}>
+              <HugeiconsIcon icon={Share08Icon} size={16} aria-hidden />
+            </button>
+          </Tooltip>
         )}
-        <Tooltip label={commenting ? "Stop commenting" : kind === "artifacts" ? "Comment on artifact" : "Comment on a design"}>
+        <Tooltip
+          label={commenting ? "Stop commenting" : kind === "artifacts" ? "Comment on artifact" : "Comment on a design"}
+          keyHint={kind === "designs" ? COMMENT_KEY : undefined}
+        >
           <button
             type="button"
             aria-label={commenting ? "Stop commenting" : kind === "artifacts" ? "Comment on artifact" : "Comment on a design"}
@@ -895,28 +1001,6 @@ function ArtifactDock({
             <HugeiconsIcon icon={Comment01Icon} size={16} aria-hidden />
           </button>
         </Tooltip>
-        {kind === "designs" && (
-          <>
-            <Tooltip label="Zoom out">
-              <button type="button" aria-label="Zoom out" onClick={() => canvas.current?.zoomBy(1 / 1.25)} className={icon}>
-                <HugeiconsIcon icon={MinusSignIcon} size={16} aria-hidden />
-              </button>
-            </Tooltip>
-            <span data-slot="artifact-zoom" className="w-10 text-center text-[11px] text-ink-3 tabular-nums">
-              {view ? `${Math.round(view.scale * 100)}%` : ""}
-            </span>
-            <Tooltip label="Zoom in">
-              <button type="button" aria-label="Zoom in" onClick={() => canvas.current?.zoomBy(1.25)} className={icon}>
-                <HugeiconsIcon icon={Add01Icon} size={16} aria-hidden />
-              </button>
-            </Tooltip>
-            <Tooltip label="Fit every design">
-              <button type="button" aria-label="Fit every design" onClick={() => canvas.current?.fitAll()} className={icon}>
-                <HugeiconsIcon icon={FitToScreenIcon} size={16} aria-hidden />
-              </button>
-            </Tooltip>
-          </>
-        )}
         {!cramped && (
           <Tooltip label={expanded ? `Show the chat beside the ${kind}` : `Fill the window with the ${kind}`}>
             <button
@@ -951,25 +1035,38 @@ function ArtifactDock({
           )}
         </div>
       ) : entered ? (
-        <ArtifactCanvas
-          ref={canvas}
-          chatId={chatId}
-          designs={designs}
-          versions={versions}
-          onVersion={onVersion}
-          focus={focus}
-          commenting={commenting}
-          comments={comments}
-          choice={{
-            sent: chosen,
-            pending: choice,
-            onChoose:
-              kind === "designs" && onSend
-                ? (design) => setChoice((current) => (current?.id === design.id && current.version === design.version ? null : design))
-                : null,
-          }}
-          onView={setView}
-        />
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <ArtifactCanvas
+            ref={canvas}
+            chatId={chatId}
+            designs={designs}
+            versions={versions}
+            onVersion={onVersion}
+            focus={focus}
+            commenting={commenting}
+            comments={comments}
+            choice={{
+              sent: chosen,
+              pending: choice,
+              onChoose:
+                kind === "designs" && onSend
+                  ? (design) => setChoice((current) => (current?.id === design.id && current.version === design.version ? null : design))
+                  : null,
+            }}
+            onView={setView}
+          />
+          <ZoomBar
+            data-slot="artifact-zoom-bar"
+            className="absolute bottom-4 left-4"
+            zoom={view?.scale ?? null}
+            onZoomOut={() => canvas.current?.zoomBy(1 / 1.25)}
+            onReset={() => canvas.current?.zoomTo(1)}
+            onZoomIn={() => canvas.current?.zoomBy(1.25)}
+            onFit={() => canvas.current?.fitAll()}
+            fitLabel="Fit every design"
+            resetProps={{ "data-slot": "artifact-zoom" }}
+          />
+        </div>
       ) : (
         <div className="min-h-0 flex-1 bg-canvas" />
       )}

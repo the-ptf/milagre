@@ -104,13 +104,13 @@ test("closing or changing Chats drops late results and blocks subsequent writes"
   assert.deepEqual(store.getSnapshot().shares, []);
 });
 
-test("revocation marks only the hosted link, keeps other snapshots and reports failures", async () => {
+test("revoking a Chat page's link drops it so the next publish creates a new one, and failures keep it", async () => {
   let fail = true;
   const calls: unknown[] = [];
   const store = createDesignPageSharing(
     caller(async (method, args) => {
       calls.push([method, args]);
-      if (method === "artifact:page-shares") return [snapshot, { ...snapshot, id: "another" }];
+      if (method === "artifact:page-shares") return [snapshot];
       if (fail) throw new Error("Disconnected");
     }),
     "a",
@@ -119,12 +119,23 @@ test("revocation marks only the hosted link, keeps other snapshots and reports f
   await store.checkAvailability();
   await store.revoke(snapshot.id);
   assert.equal(store.getSnapshot().error, "Disconnected");
-  assert.equal(store.getSnapshot().shares[0]!.revoked, undefined);
+  assert.deepEqual(store.getSnapshot().shares, [snapshot]);
   fail = false;
   await store.revoke(snapshot.id);
-  assert.equal(store.getSnapshot().shares[0]!.revoked, true);
-  assert.equal(store.getSnapshot().shares[1]!.revoked, undefined);
+  assert.deepEqual(store.getSnapshot().shares, []);
   assert.deepEqual(calls.at(-1), ["artifact:revoke-page-share", [{ chatId: "a", id: snapshot.id }]]);
+});
+
+test("publishing again replaces the Chat page's link with the updated one", async () => {
+  const updated = { ...snapshot, title: "Renamed", updatedAt: 200 };
+  const store = createDesignPageSharing(
+    caller(async (method) => (method === "artifact:page-shares" ? [snapshot] : updated)),
+    "a",
+  );
+  await store.refresh();
+  await store.checkAvailability();
+  await store.publish("Renamed");
+  assert.deepEqual(store.getSnapshot().shares, [updated]);
 });
 
 test("publish waits for the first successful history read, including after read errors", async () => {

@@ -1,6 +1,18 @@
 import { z } from "zod";
 import { designFontFamily, designFontFaces, validDesignFontFamily } from "./design-fonts.mjs";
-export { designFontFamily, designFontFaces, designInterHasGlyph, designInterWeight, designUsesInter } from "./design-fonts.mjs";
+export {
+  DESIGN_CATALOG_FAMILIES,
+  designCatalogFont,
+  designDrawnWeight,
+  designFontBuffers,
+  designFontFamily,
+  designFontFaces,
+  designFontsLoaded,
+  designInterHasGlyph,
+  designInterWeight,
+  designUsesInter,
+  loadDesignFonts,
+} from "./design-fonts.mjs";
 import { designRenderBudget, visibleDesignTextLines } from "./design-render-limits.mjs";
 import { designLayout, designTextLayout } from "./design-layout.mjs";
 import { designIcons, designIconSuggestions } from "./design-icons.mjs";
@@ -427,6 +439,24 @@ export function designHtml(value, options = {}) {
       `${selection}</main>${interactive ? `<script type="application/json" id="design-config">${safeJson([document, selected, Object.fromEntries(bounds)])}</script><script>${DESIGN_CONTROLLER_SCRIPT}</script>` : ""}</body></html>`,
     )
   );
+}
+
+/**
+ * A design as the parts designHtml puts in its page, for a page that swaps them in place as the design changes (the
+ * canvas's live frame): the root's markup, the page's background, the font faces it uses and each layer's bounds.
+ */
+export function designLiveParts(value) {
+  const document = validateDesignDocument(value);
+  const textLayout = cachedTextLayout();
+  const bounds = designLayout(document, textLayout);
+  return {
+    width: document.width,
+    height: document.height,
+    background: designColor(document, document.background, "#ffffff"),
+    fontFaces: designFontFaces(document),
+    markup: designMarkup(document, bounds, textLayout, designRenderBudget("HTML")),
+    bounds,
+  };
 }
 
 /** Build-time only. The checked-in literal keeps the controller's CSP hash stable through bundling. */

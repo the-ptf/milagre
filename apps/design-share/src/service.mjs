@@ -133,6 +133,9 @@ function withSocialPreview(chunk, requestUrl) {
   return output;
 }
 
+/** Pages published before replacements existed have no revision and keep their original keys. */
+const chunkKey = (revision, index) => (revision ? `html:${revision}:${index}` : `html:${index}`);
+
 /** The adapter's transaction is synchronous and atomic (SQLite Durable Object transactionSync). */
 export function createPageService({ storage, validate, render, admit, reserve }) {
   const enqueue = serial();
@@ -148,17 +151,20 @@ export function createPageService({ storage, validate, render, admit, reserve })
             if (request.method === "HEAD") return response(null, 200, "text/html; charset=utf-8");
             let index = 0;
             // A zero high-water mark prevents idle readers from retaining even one chunk.
-            // Check the tombstone on every pull so revocation stops an in-flight response.
+            // Check the metadata on every pull: revocation stops an in-flight response, and a reader
+            // started on one revision ends rather than splicing in chunks of the replacement.
             const stream = new ReadableStream(
               {
                 pull(controller) {
                   try {
-                    if (storage.get("meta")?.deleted) throw new Error("Snapshot revoked");
+                    const current = storage.get("meta");
+                    if (current?.deleted) throw new Error("Snapshot revoked");
+                    if (current?.revision !== meta.revision) throw new Error("Snapshot updated");
                     if (index >= meta.chunks) {
                       controller.close();
                       return;
                     }
-                    const chunk = storage.get(`html:${index++}`);
+                    const chunk = storage.get(chunkKey(meta.revision, index++));
                     if (!(chunk instanceof Uint8Array)) throw new Error("Missing stored chunk");
                     controller.enqueue(index === 1 ? withSocialPreview(chunk, request.url) : chunk);
                   } catch (error) {
@@ -176,7 +182,7 @@ export function createPageService({ storage, validate, render, admit, reserve })
             if (!meta && !(await reserve(ip, 1024))) return response("Publishing limit reached", 429);
             if (!meta?.deleted)
               storage.transaction(() => {
-                for (let i = 0; i < (meta?.chunks ?? 0); i++) storage.delete(`html:${i}`);
+                for (let i = 0; i < (meta?.chunks ?? 0); i++) storage.delete(chunkKey(meta.revision, i));
                 storage.put("meta", { deleted: true });
               });
             return response(null, 204);
@@ -202,8 +208,10 @@ export function createPageService({ storage, validate, render, admit, reserve })
           if (canonical.byteLength > MAX_BODY_BYTES) return response("Snapshot too large", 413);
           const hash = await digest(canonical);
           const result = () => JSON.stringify({ id, path: `/s/${id}` });
-          if (meta)
-            return meta.hash === hash ? response(result(), 200, "application/json; charset=utf-8") : response("Published snapshots cannot be changed", 409);
+          // An identical retry is free. Changed content replaces the page and pays like a new publication;
+          // only now, after hashing, can a replacement be told apart from a retry, so admit it before rendering.
+          if (meta?.hash === hash) return response(result(), 200, "application/json; charset=utf-8");
+          if (meta && !(await admit(ip))) return response("Publishing limit reached", 429);
           let html;
           try {
             html = encoder.encode(render(snapshot));
@@ -215,11 +223,15 @@ export function createPageService({ storage, validate, render, admit, reserve })
           // Count even failed writes against the budget. A crash can spend a reservation twice, but never bypass it.
           if (!(await reserve(ip, canonical.byteLength + html.byteLength))) return response("Publishing limit reached", 429);
           const count = Math.ceil(html.byteLength / CHUNK_BYTES);
+          // A replacement writes under the next revision and drops the old chunks in the same transaction,
+          // so storage holds one version and readers of the old one stop instead of mixing the two.
+          const revision = meta ? (meta.revision ?? 0) + 1 : 0;
           storage.transaction(() => {
-            for (let i = 0; i < count; i++) storage.put(`html:${i}`, html.slice(i * CHUNK_BYTES, (i + 1) * CHUNK_BYTES));
-            storage.put("meta", { hash, chunks: count });
+            for (let i = 0; i < (meta?.chunks ?? 0); i++) storage.delete(chunkKey(meta.revision, i));
+            for (let i = 0; i < count; i++) storage.put(chunkKey(revision, i), html.slice(i * CHUNK_BYTES, (i + 1) * CHUNK_BYTES));
+            storage.put("meta", { hash, chunks: count, revision });
           });
-          return response(result(), 201, "application/json; charset=utf-8");
+          return response(result(), meta ? 200 : 201, "application/json; charset=utf-8");
         } catch (error) {
           return response(error?.status === 413 ? "Snapshot too large" : "Unable to process snapshot", error?.status === 413 ? 413 : 503);
         }

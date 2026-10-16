@@ -233,6 +233,7 @@ function makeBridge(invoke, listen, send) {
     onProjectState: (callback) => listen("project:state", callback),
     sendMessage: (request) => invoke("chat:send", request),
     resumeChat: (projectPath, sessionId) => invoke("chat:resume", projectPath, sessionId),
+    reloadChat: (chatId) => invoke("chat:reload", chatId),
     switchAccountAfterLimit: (projectPath, sessionId, provider, accountId) => invoke("chat:limit-switch", projectPath, sessionId, provider, accountId),
     patchChat: (projectPath, sessionId, patch) => invoke("chat:patch", projectPath, sessionId, patch),
     archiveSubagent: (projectPath, sessionId, id, archived) => invoke("chat:archive-subagent", projectPath, sessionId, id, archived),

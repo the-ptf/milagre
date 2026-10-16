@@ -451,6 +451,110 @@ test("agent:interrupt during a preparing handoff cancels it, fails the divider a
   assert.ok(state.messages.some((item) => item.outcome === "cancelled"));
 });
 
+// A fake agent per chat:send. `finish` false leaves its turn running, as a long reply does.
+function reloadAgents() {
+  const sessions = [];
+  let finish = true;
+  return {
+    sessions,
+    running: () => void (finish = false),
+    createSession(provider, options) {
+      const session = {
+        provider,
+        options,
+        turnActive: false,
+        closed: false,
+        startTurn: async () => {
+          session.turnActive = true;
+          options.emit({ type: "turn-started", turnId: "t" });
+          options.emit({ type: "session-started", nativeId: "claude-1" });
+          options.emit({ type: "text-delta", messageId: `m${sessions.length}`, text: "Working." });
+          if (finish) {
+            session.turnActive = false;
+            options.emit({ type: "turn-completed" });
+          }
+          return { turnId: "t" };
+        },
+        interrupt: async () => {
+          if (!session.turnActive) return;
+          session.turnActive = false;
+          options.emit({ type: "turn-cancelled" });
+        },
+        close: async () => {
+          session.closed = true;
+        },
+      };
+      sessions.push(session);
+      return session;
+    },
+  };
+}
+
+test("chat:reload ends the agent's process, and the next message resumes its session in a new one", async (t) => {
+  const { project, make } = await fixture(t);
+  const agents = reloadAgents();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: agents.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  const stateOf = async () => (await runtime.invoke("project:snapshot", [project])).state;
+  const send = (body) => runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body, provider: "claude", model: "claude-opus-5-5" }]);
+  const completed = async (count) => {
+    for (let i = 0; i < 200 && (await stateOf()).messages.filter((item) => item.outcome === "completed").length < count; i++)
+      await new Promise((r) => setTimeout(r, 10));
+  };
+  await send("first");
+  await completed(1);
+
+  await runtime.invoke("chat:reload", [chatId]);
+  assert.equal(agents.sessions[0].closed, true);
+  const { role, body, context } = (await stateOf()).messages.at(-1);
+  assert.deepEqual({ role, body, context }, { role: "assistant", body: "Chat reloaded", context: { kind: "reload" } });
+
+  await send("second");
+  await completed(2);
+  assert.equal(agents.sessions.length, 2);
+  assert.equal(agents.sessions[1].options.resumeId, "claude-1");
+  assert.deepEqual(
+    (await stateOf()).messages.map((item) => item.context?.kind ?? item.role),
+    ["user", "assistant", "reload", "user", "assistant"],
+  );
+});
+
+test("chat:reload stops a running turn and puts its line after the reply so far", async (t) => {
+  const { project, make } = await fixture(t);
+  const agents = reloadAgents();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: agents.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const stateOf = async () => (await runtime.invoke("project:snapshot", [project])).state;
+  agents.running();
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body: "long job", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && !agents.sessions[0]?.turnActive; i++) await new Promise((r) => setTimeout(r, 10));
+
+  await runtime.invoke("chat:reload", [`${project}#${chat.id}`]);
+  for (let i = 0; i < 200 && !(await stateOf()).messages.some((item) => item.context?.kind === "reload"); i++) await new Promise((r) => setTimeout(r, 10));
+  const { messages } = await stateOf();
+  assert.equal(agents.sessions[0].closed, true);
+  assert.deepEqual(
+    messages.map((item) => [item.context?.kind ?? item.role, item.outcome]),
+    [
+      ["user", undefined],
+      ["assistant", "cancelled"],
+      ["reload", undefined],
+    ],
+  );
+});
+
+test("chat:reload adds no line to an empty Chat", async (t) => {
+  const { project, make } = await fixture(t);
+  const runtime = make({ titleModels: {} });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  await runtime.invoke("chat:reload", [`${project}#${chat.id}`]);
+  assert.deepEqual((await runtime.invoke("project:snapshot", [project])).state.messages, []);
+});
+
 test("linked Worktrees resolve to one registered Project without losing saved Chats", async (t) => {
   const { project, make } = await fixture(t);
   execFileSync("git", ["-C", project, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "Initial"], {

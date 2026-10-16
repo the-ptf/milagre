@@ -7,10 +7,12 @@ const MAX_EDGE = 1568;
 let ready;
 
 async function load() {
-  const [{ initWasm, Resvg }, { designSvg, designInterFonts }] = await Promise.all([import("@resvg/resvg-wasm"), import("@milagre/shared/design")]);
+  const [{ initWasm, Resvg }, { designSvg, designFontBuffers, loadDesignFonts }] = await Promise.all([
+    import("@resvg/resvg-wasm"),
+    import("@milagre/shared/design"),
+  ]);
   await initWasm(fs.readFileSync(require.resolve("@resvg/resvg-wasm/index_bg.wasm")));
-  const fontBuffers = Object.values(designInterFonts).map((base64) => new Uint8Array(Buffer.from(base64, "base64")));
-  return { Resvg, designSvg, fontBuffers };
+  return { Resvg, designSvg, designFontBuffers, loadDesignFonts };
 }
 
 async function render(document) {
@@ -18,7 +20,10 @@ async function render(document) {
     ready = undefined;
     throw error;
   });
-  const { Resvg, designSvg, fontBuffers } = await ready;
+  const { Resvg, designSvg, designFontBuffers, loadDesignFonts } = await ready;
+  // Inter, plus the catalog families this design names.
+  await loadDesignFonts(document);
+  const fontBuffers = designFontBuffers(document).map((base64) => new Uint8Array(Buffer.from(base64, "base64")));
   const scale = Math.min(1, MAX_EDGE / Math.max(document.width, document.height));
   let resvg;
   let rendered;

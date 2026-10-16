@@ -140,8 +140,9 @@ export function DesignFeedbackCard({
                 style={{
                   width: 20,
                   height: 20,
+                  // The desktop canvas's pin: round, its point the top-left corner.
                   borderRadius: 10,
-                  borderBottomLeftRadius: 0,
+                  borderTopLeftRadius: 0,
                   alignItems: "center",
                   justifyContent: "center",
                   backgroundColor: resolved === undefined ? colors.accent : colors.green,
@@ -340,6 +341,12 @@ function ArtifactCard({ step, chatId, chosen, kind = "design" }: { step: Artifac
 }
 
 /**
+ * Feedback not sent yet, by Chat: leaving the designs keeps the comments and the choice until they are sent or deleted,
+ * as on desktop. In memory, for the app's life.
+ */
+const unsent = new Map<string, { notes: Record<string, DesignComment>; choice: ArtifactRef | null }>();
+
+/**
  * The Chat's designs full screen, the one a card opened first. The header steps between designs and the bar under the
  * design steps through its versions, comments on it, or chooses it. Comments and the choice wait for Send, which hands
  * them to the Chat as one message for the agent.
@@ -430,8 +437,14 @@ export function ArtifactSheet({
   const [sharePage, setSharePage] = useState(false);
   // Feedback waits here until Send: a comment per design version, and the design the user chose.
   const [editing, setEditing] = useState<string | null>(null);
-  const [notes, setNotes] = useState<Record<string, DesignComment>>({});
-  const [choice, setChoice] = useState<ArtifactRef | null>(null);
+  const feedbackKey = hostId && chatId ? `${hostId}|${chatId}|${kind === "html" ? "artifacts" : "designs"}` : null;
+  const [notes, setNotes] = useState<Record<string, DesignComment>>(() => (feedbackKey && unsent.get(feedbackKey)?.notes) || {});
+  const [choice, setChoice] = useState<ArtifactRef | null>(() => (feedbackKey && unsent.get(feedbackKey)?.choice) || null);
+  useEffect(() => {
+    if (!feedbackKey) return;
+    if (Object.values(notes).some((note) => note.text.trim()) || choice) unsent.set(feedbackKey, { notes, choice });
+    else unsent.delete(feedbackKey);
+  }, [feedbackKey, notes, choice]);
   useEffect(() => {
     if (feature.enabled === false && state.artifact?.format === "design") router.back();
   }, [feature.enabled, state.artifact?.format]);
@@ -492,6 +505,7 @@ export function ArtifactSheet({
     if (!hostId || !chatId || !feedback || !source) return;
     // Each comment gets the id the agent resolves it by; the host records the comments once the message went.
     const comments = written.map((note) => ({ ...note, id: newCommentId() }));
+    if (feedbackKey) unsent.delete(feedbackKey);
     postDesignMessage(`${hostId}|${chatId}`, {
       kind: isHtml ? "artifacts" : "designs",
       text: designFeedbackMessage({ choice, comments }),

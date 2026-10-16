@@ -14,6 +14,7 @@ import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import { SubagentCanvas } from "./agents/SubagentCanvas";
+import { useSubagentDesigns } from "./agents/subagent-designs";
 import { useEvent } from "../lib/stable";
 import type { AgentPort, ChatPlan, ContextUsage, Subagent } from "../model";
 import { PortTrack } from "./agents/PortTrack";
@@ -49,6 +50,8 @@ import { ThinkingIndicator } from "./ThinkingIndicator";
 import { HandoffDivider } from "./Handover";
 import { WorktreeLinkDivider } from "./WorktreeLinkDivider";
 import { AccountSwitchDivider } from "./AccountSwitchDivider";
+import { ChatReloadDivider } from "./ChatReloadDivider";
+import { isChatReload } from "@milagre/shared/chat-reload";
 import { CompactionDivider } from "./CompactionDivider";
 import { advisorResultLabel, messageSender } from "@milagre/shared/advisor-result";
 import { LinkedMessageHeader, linkedContext } from "./LinkedMessage";
@@ -173,6 +176,7 @@ const MessageSection = memo(function MessageSection({
   if (isWorktreeLinked(message)) return <WorktreeLinkDivider context={message.context} />;
   if (isCompaction(message)) return <CompactionDivider context={message.context} />;
   if (isAccountSwitch(message)) return <AccountSwitchDivider context={message.context} />;
+  if (isChatReload(message)) return <ChatReloadDivider />;
   const linked = linkedContext(message);
   const advisor = typeof message.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
   // A PR-blocker pill's message shows as a card, not as the skill prompt the agent read.
@@ -859,6 +863,7 @@ export function ChatComposer({
   // Designs are read through the Chat's key; a shared Link Chat uses its Link-scoped key too.
   const artifactChat = runtimeChat;
   const artifactSteps = useMemo(() => [...messages.flatMap((message) => message.steps ?? []), ...(streamingSteps ?? [])], [messages, streamingSteps]);
+  const subagentDesignWork = useSubagentDesigns(artifactSteps);
   const userMessages = useMemo(() => messages.filter((message) => message.role === "user").map(({ id, body }) => ({ id, body })), [messages]);
   // What the user typed in this chat, oldest first, for Up/Down in the prompt. Host-sent context (delegations, reports) is left out.
   const promptHistory = useMemo(
@@ -879,7 +884,15 @@ export function ChatComposer({
   }
 
   return (
-    <ReplyProviders chatId={artifactChat} steps={artifactSteps} userMessages={userMessages} onSend={onSendDesignMessage}>
+    <ReplyProviders
+      chatId={artifactChat}
+      steps={artifactSteps}
+      userMessages={userMessages}
+      onSend={onSendDesignMessage}
+      agent={providerName(sessionProvider ?? selectedModel.provider)}
+      followAgent
+      subagents={subagents}
+    >
       <div
         ref={root}
         className={`relative flex h-full min-h-0 w-full flex-col overflow-visible bg-transparent ${isNewChat ? "justify-center" : ""}`}
@@ -902,6 +915,7 @@ export function ChatComposer({
           onClose={closeCanvas}
           onStop={onStopAdvisor ? stopAdvisor : undefined}
           onRetry={onRetryAdvisor ? retryAdvisor : undefined}
+          designs={subagentDesignWork}
         />
         <div className={canvasOpened ? "hidden" : "contents"} aria-hidden={canvasOpened || undefined}>
           {/* Messages scrolled past the top soften into a progressive blur under the window-drag strip. The layers fade,
@@ -1148,16 +1162,23 @@ function ReplyProviders({
   steps,
   userMessages,
   onSend,
+  agent,
+  followAgent,
+  subagents,
   children,
 }: {
   chatId: string | null;
   steps: ChatStep[];
   userMessages: { id: number | string; body: string }[];
   onSend?: (text: string) => Promise<boolean>;
+  agent?: string;
+  /** The Chat this window shows, whose Designs open as the agent starts designing (not a grid tile). */
+  followAgent?: boolean;
+  subagents?: readonly Subagent[];
   children: ReactNode;
 }) {
   return (
-    <ArtifactsProvider chatId={chatId} steps={steps} userMessages={userMessages} onSend={onSend}>
+    <ArtifactsProvider chatId={chatId} steps={steps} userMessages={userMessages} onSend={onSend} agent={agent} followAgent={followAgent} subagents={subagents}>
       <GenerativeUIProvider onSend={onSend}>{children}</GenerativeUIProvider>
     </ArtifactsProvider>
   );

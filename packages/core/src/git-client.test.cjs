@@ -253,6 +253,25 @@ test("real Git resolves recorded/default bases, common directories and newline W
   run("update-ref", "refs/remotes/origin/trunk", "HEAD");
   run("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk");
   assert.deepEqual(await git.resolveBase(repo), { name: "trunk", ref: "refs/remotes/origin/trunk" });
+
+  // A recorded local base is used while it is level with or ahead of its remote, and the remote once it
+  // falls behind or diverges (a force-pushed main left the local branch on the old history).
+  run("update-ref", "refs/remotes/origin/main", "HEAD");
+  assert.deepEqual(await git.resolveBase(repo, "main"), { name: "main", ref: "main" });
+  run("commit", "--allow-empty", "-m", "local only");
+  assert.deepEqual(await git.resolveBase(repo, "main"), { name: "main", ref: "main" });
+  run("update-ref", "refs/remotes/origin/main", run("commit-tree", "-m", "rewritten", "HEAD^{tree}"));
+  assert.deepEqual(await git.resolveBase(repo, "main"), { name: "main", ref: "refs/remotes/origin/main" });
+
+  // With no recorded base, a chat's branch is measured against the branch it was cut from.
+  run("branch", "stack", "main");
+  const stacked = path.join(root, "stacked");
+  run("worktree", "add", "-b", "on-stack", stacked, "stack");
+  assert.deepEqual(await git.chatBase(stacked), { name: "stack", ref: "stack" });
+  assert.deepEqual(await git.chatBase(stacked, "main"), { name: "main", ref: "refs/remotes/origin/main" }, "a recorded base wins");
+  const fromHead = path.join(root, "from-head");
+  run("worktree", "add", "-b", "from-head", fromHead);
+  assert.deepEqual(await git.chatBase(fromHead), { name: "trunk", ref: "refs/remotes/origin/trunk" }, "made from HEAD: the default");
 });
 
 test("Git process execution belongs only to the Git client", async () => {

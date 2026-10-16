@@ -47,7 +47,10 @@ function Chat() {
 function Fixture() {
   const [chat, setChat] = useState(false);
   window.__chat = setChat;
-  return chat ? <div style={{ height: "100vh" }}><Chat /></div> : <div style={{ maxWidth: 640, margin: "60px auto" }}><Settings /></div>;
+  const settings = <div style={{ maxWidth: 640, margin: "60px auto" }}><Settings /></div>;
+  // The app keeps the Chat mounted but hidden while Settings is open.
+  if (chat === "hidden") return <><div className="hidden" style={{ height: "100vh" }}><Chat /></div>{settings}</>;
+  return chat ? <div style={{ height: "100vh" }}><Chat /></div> : settings;
 }
 createRoot(document.getElementById("root")).render(<UpdateShell><Fixture /></UpdateShell>);
 `;
@@ -157,7 +160,16 @@ async function browserChecks() {
     // Leaving the Chat returns the pill to the window's bottom left.
     await evaluate("window.__chat(false)");
     await waitFor(`getComputedStyle(${button("Update available")}.closest("[data-update-notice]")).position === 'fixed'`);
-    console.log("PASS: update pill above the chat composer morphs into the card in place, falling back to the bottom left without a Chat");
+    // A Chat hidden behind Settings gives the pill up, so Install & restart opens a card that is on screen.
+    await evaluate("window.__chat('hidden')");
+    await waitFor(`!!${button("Install & restart")}`);
+    await waitFor(`getComputedStyle(${button("Update available")}.closest("[data-update-notice]")).position === 'fixed'`);
+    await evaluate(`${button("Install & restart")}.click()`);
+    await waitFor("document.querySelector('[role=dialog]')?.getClientRects().length > 0");
+    await screenshot("update-settings-hidden-chat");
+    await evaluate("document.querySelector('[aria-label=\"Dismiss update\"]').click()");
+    await waitFor("!document.querySelector('[role=dialog]')");
+    console.log("PASS: update pill above the chat composer morphs into the card in place, falling back to the bottom left without a visible Chat");
     console.log("PASS: update progress, ready card, dismissal, settings warning, installation, retries and keyboard access");
     app.exit(0);
   } catch (error) {

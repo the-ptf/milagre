@@ -6,11 +6,13 @@ import {
   createDesignInstance,
   detachDesignInstance,
   designDefaultFill,
+  designFontsLoaded,
   designHtml,
   designIcons,
   designInstanceRoot,
   designLayout,
   diffDesignDocuments,
+  loadDesignFonts,
   type DesignDocument,
   type DesignNode,
   type DesignOperation,
@@ -241,14 +243,29 @@ export function DesignDocumentEditor({
     },
     [cacheKey, fieldDrafts],
   );
+  // Catalog families load once per family; until then the preview draws the fallback the document names. The counter only
+  // re-renders, so fontsReady is read again from the loaded fonts.
+  const [, setLoadedFonts] = useState(0);
+  const fontsReady = designFontsLoaded(document);
+  useEffect(() => {
+    if (fontsReady) return;
+    let current = true;
+    loadDesignFonts(document)
+      .then(() => current && setLoadedFonts((count) => count + 1))
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [document, fontsReady]);
   // Pending saves reject edits. Removing the controller also clears any unacknowledged pointer/keyboard movement.
   const { html, previewError } = useMemo(() => {
     try {
-      return { html: artifactDocument(designHtml(document, { interactive: !saving })), previewError: "" };
+      // Built again once the catalog fonts load, so the preview embeds them.
+      return { html: artifactDocument(designHtml(document, { interactive: !saving })), previewError: "", fontsReady };
     } catch (cause) {
-      return { html: "", previewError: designError(cause) };
+      return { html: "", previewError: designError(cause), fontsReady };
     }
-  }, [document, saving]);
+  }, [document, saving, fontsReady]);
   const syncSelection = useCallback(
     () =>
       frame.current?.contentWindow?.postMessage(
