@@ -905,7 +905,41 @@ async function browserChecks() {
     window.setContentSize(800, 600);
     await delay(200);
     await screenshot("subagent-transcript");
-    await clickLabel("Close subagents");
+    // A subagent with its own to-do list: the detail is its plan, the current item carrying what it says and runs now.
+    await evaluate(`window.setChildren(items => (window.savedChildren = items, items.map(item => item.id === "review" ? {
+      ...item,
+      latestActivity: "Ran \`npm test -- auth\`",
+      tasks: [
+        { id: "0", content: "Read the login and refresh code", status: "completed" },
+        { id: "1", content: "Run the auth tests", activeForm: "Running the auth tests", status: "in_progress" },
+        { id: "2", content: "Write up regressions", status: "pending" },
+      ],
+      progress: { steps: 3, said: "Now running the auth suite to confirm.", tools: { reads: 6, commands: 2, searches: 1 } },
+      transcript: [
+        { id: "m1", kind: "message", text: "Child-only finding. The refresh path skips the expiry check." },
+        { id: "t1", kind: "tool", tool: "read", text: "Read \`auth.ts\`" },
+        { id: "m2", kind: "message", text: "Now running the auth suite to confirm." },
+        { id: "t2", kind: "tool", tool: "shell", text: "Ran \`npm test -- auth\`" },
+      ],
+    } : item)))`);
+    await waitFor('!!document.querySelector("[data-subagent-plan]")');
+    assert.equal(
+      await evaluate('document.querySelector("[data-subagent-plan] [data-status=in_progress]").textContent.includes("Running the auth tests")'),
+      true,
+    );
+    assert.equal(
+      await evaluate('document.querySelector("[data-subagent-plan] [data-status=in_progress]").textContent.includes("Now running the auth suite to confirm.")'),
+      true,
+    );
+    assert.equal(await evaluate('document.querySelector("[data-subagent-plan]").textContent.includes("1 of 3 done")'), true);
+    await screenshot("subagent-plan");
+    await clickLabel("Back to subagents");
+    await waitFor('document.querySelectorAll("[data-subagent-row]").length === 2');
+    assert.ok(await evaluate('document.querySelector("[data-subagent-row]").textContent.includes("1 of 3 · 6 files read · 2 commands")'));
+    assert.ok(await evaluate('document.querySelector("[data-subagent-row]").textContent.includes("Now running the auth suite to confirm.")'));
+    await screenshot("subagents-glance-list");
+    await evaluate("window.setChildren(window.savedChildren)");
+    await clickLabel("Collapse subagents");
     assert.equal(await evaluate('document.activeElement === document.querySelector("[data-slot=subagent-track] [data-face=pill] button")'), true);
     await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
@@ -961,7 +995,7 @@ async function browserChecks() {
     await waitFor('!!document.querySelector("[data-slot=subagent-transcript]")');
     assert.ok(await evaluate('document.querySelector("[data-slot=subagent-transcript]").textContent.includes("Advisor finding")'));
     await screenshot("advisor-output");
-    await clickLabel("Close subagents");
+    await clickLabel("Collapse subagents");
     assert.ok(await evaluate('document.querySelector("[data-advisor-result]").textContent.includes("Codex advisor result: Security")'));
     assert.equal(await evaluate('document.querySelector("[data-advisor-result]").closest("article").dataset.from'), "app");
     await screenshot("advisor-result");
@@ -980,7 +1014,7 @@ async function browserChecks() {
       'document.querySelector("[data-subagent-archived-toggle]")?.textContent === "Back to subagents" && document.querySelector("[data-subagent-archived-toggle]").click()',
     );
     await waitFor('document.querySelectorAll("[data-subagent-row]").length === 2');
-    assert.deepEqual(await evaluate('[...document.querySelectorAll("[data-subagent-row]")].map(row => row.textContent.trim())'), [
+    assert.deepEqual(await evaluate('[...document.querySelectorAll("[data-subagent-title]")].map(title => title.textContent.trim())'), [
       "Subagent One",
       "Subagent Two",
     ]);
@@ -991,10 +1025,12 @@ async function browserChecks() {
     await screenshot("antigravity-subagents");
     await evaluate('document.querySelector("[data-subagent-open]").click()');
     await waitFor('!!document.querySelector("[data-slot=subagent-transcript]")');
+    // Tool calls are counted in the detail; the calls themselves are in its full log.
+    await evaluate('document.querySelector("[data-subagent-log-toggle]").click()');
     for (const text of ["Ran `sleep 4; cat a.txt`", "Read `a.txt`", "File a: hello from a."])
       assert.ok(await evaluate(`document.querySelector("[data-slot=subagent-transcript]").textContent.includes(${JSON.stringify(text)})`), text);
     await screenshot("antigravity-subagent-transcript");
-    await clickLabel("Close subagents");
+    await clickLabel("Collapse subagents");
     await evaluate("window.setChildren([])");
     await waitFor('!document.querySelector("[data-slot=subagent-track]")');
     // A host that sends only the end of each transcript (subagent-tails-v1): the panel reads the whole one once, then
@@ -1015,16 +1051,18 @@ async function browserChecks() {
     );
     await waitFor('!!document.querySelector("[data-subagent-open]")');
     await evaluate('document.querySelector("[data-subagent-open]").click()');
-    await waitFor('[...document.querySelectorAll("[data-slot=subagent-transcript] > div.min-w-0")].length === 30');
+    await waitFor('!!document.querySelector("[data-subagent-log-toggle]")');
+    await evaluate('document.querySelector("[data-subagent-log-toggle]").click()');
+    await waitFor('document.querySelectorAll("[data-subagent-log-entry]").length === 30');
     assert.deepEqual(await evaluate("window.subagentReads"), [["/fixture", 1, "long"]]);
     await evaluate("window.setChildren([window.tailOf(31)])");
-    await waitFor('[...document.querySelectorAll("[data-slot=subagent-transcript] > div.min-w-0")].length === 31');
-    const shown = await evaluate('[...document.querySelectorAll("[data-slot=subagent-transcript] > div.min-w-0")].map(row => row.textContent)');
+    await waitFor('document.querySelectorAll("[data-subagent-log-entry]").length === 31');
+    const shown = await evaluate('[...document.querySelectorAll("[data-subagent-log-entry]")].map(row => row.textContent)');
     assert.equal(shown[0], "Long entry 1");
     assert.equal(shown.at(-1), "Long entry 31");
     assert.equal(await evaluate("window.subagentReads.length"), 1, "A tail that follows on doesn't read the transcript again");
     await screenshot("subagent-transcript-tails");
-    await clickLabel("Close subagents");
+    await clickLabel("Collapse subagents");
     await evaluate("window.setChildren([])");
     await waitFor('!document.querySelector("[data-slot=subagent-track]")');
     // A host that sends archived subagents as summaries (archived-subagent-summaries-v1): opening one from the Archived
@@ -1054,7 +1092,7 @@ async function browserChecks() {
     );
     await waitFor('!!document.querySelector("[data-subagent-archived-toggle]")');
     await evaluate('document.querySelector("[data-subagent-archived-toggle]").click()');
-    await waitFor('[...document.querySelectorAll("[data-subagent-row]")].map(row => row.textContent.trim()).join() === "Archived review"');
+    await waitFor('[...document.querySelectorAll("[data-subagent-title]")].map(title => title.textContent.trim()).join() === "Archived review"');
     await evaluate('document.querySelector("[data-subagent-open]").click()');
     await waitFor('!!document.querySelector("[data-subagent-loading]")');
     assert.equal(await evaluate('document.querySelector("[data-slot=subagent-transcript]").textContent.includes("No child output")'), false);
@@ -1062,6 +1100,7 @@ async function browserChecks() {
     await screenshot("archived-subagent-loading");
     await evaluate("window.releaseSummaryRead()");
     await waitFor('!document.querySelector("[data-subagent-loading]")');
+    await evaluate('document.querySelector("[data-subagent-log-toggle]").click()');
     for (const text of ["Check the token refresh path", "Finished the review", "Ran `npm test -- auth`", "Token refresh is covered."])
       assert.ok(await evaluate(`document.querySelector("[data-slot=subagent-transcript]").textContent.includes(${JSON.stringify(text)})`), text);
     await screenshot("archived-subagent-loaded");
@@ -1080,19 +1119,19 @@ async function browserChecks() {
       window.summaryReads.push([scope, chatId, agentId]);
       return window.summaryReads.length === 1 ? Promise.reject(new Error("offline")) : Promise.resolve({ ...window.summaryOf(1), id: "offline", prompt: "After reconnecting", transcript: [] });
     } }; window.setChildren(items => [...items, { ...window.summaryOf(window.summaryAt), id: "offline", title: "Offline review" }])`);
-    await evaluate('[...document.querySelectorAll("[data-slot=subagent-popover] button")].find(button => button.textContent === "Back").click()');
+    await evaluate("document.querySelector(\"[data-slot=subagent-popover] [aria-label='Back to subagents']\").click()");
     await waitFor('[...document.querySelectorAll("[data-subagent-open]")].some(button => button.textContent.includes("Offline review"))');
     await evaluate('[...document.querySelectorAll("[data-subagent-open]")].find(button => button.textContent.includes("Offline review")).click()');
     await waitFor('!!document.querySelector("[data-subagent-failed]")');
     await delay(300);
     assert.equal(await evaluate("window.summaryReads.length"), 1, "a failed read isn't retried while the panel stays open");
     await screenshot("archived-subagent-failed");
-    await evaluate('[...document.querySelectorAll("[data-slot=subagent-popover] button")].find(button => button.textContent === "Back").click()');
+    await evaluate("document.querySelector(\"[data-slot=subagent-popover] [aria-label='Back to subagents']\").click()");
     await waitFor('!!document.querySelector("[data-subagent-open]")');
     await evaluate('[...document.querySelectorAll("[data-subagent-open]")].find(button => button.textContent.includes("Offline review")).click()');
     await waitFor('document.querySelector("[data-slot=subagent-transcript]").textContent.includes("After reconnecting")');
     assert.equal(await evaluate("window.summaryReads.length"), 2, "opening it again reads again");
-    await clickLabel("Close subagents");
+    await clickLabel("Collapse subagents");
     await evaluate("window.setChildren([])");
     await waitFor('!document.querySelector("[data-slot=subagent-track]")');
     console.log(

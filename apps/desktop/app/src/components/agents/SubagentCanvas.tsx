@@ -6,7 +6,7 @@ import type { Subagent, SubagentCommunication } from "@milagre/shared/model";
 import { subagentActive, subagentFinished } from "../../lib/subagents";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { DiffBar } from "../changes/ChangesChrome";
-import { SubagentTranscript } from "./SubagentTrack";
+import { SubagentDetail } from "./SubagentTrack";
 import { useDesignsOpener } from "./ArtifactCard";
 import type { SubagentDesign } from "./subagent-designs";
 import {
@@ -40,7 +40,7 @@ export const SubagentCanvas = memo(function SubagentCanvas({
   onRetry,
   designs,
 }: {
-  /** The Chat the subagents belong to (see SubagentTranscript). */
+  /** The Chat the subagents belong to (see SubagentDetail). */
   chatKey?: string | null;
   opened: boolean;
   agents: Subagent[];
@@ -490,7 +490,7 @@ export const SubagentCanvas = memo(function SubagentCanvas({
             </button>
           </header>
           <ScrollArea>
-            <SubagentTranscript chatKey={chatKey} agent={inspectedAgent} onStop={onStop} onRetry={onRetry} />
+            <SubagentDetail chatKey={chatKey} agent={inspectedAgent} onStop={onStop} onRetry={onRetry} />
           </ScrollArea>
         </aside>
       )}
