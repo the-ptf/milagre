@@ -772,7 +772,7 @@ function createRuntime(options) {
     );
     // The issue moves to In Progress once its Worktree exists, unless that's switched off or the sign-in can only read.
     // Best effort and in the background: the Chat never waits on Linear.
-    if (issue && linear.moveToStarted() && linear.workspaces().find((item) => item.id === issue.workspace)?.canWrite)
+    if (issue && linear.moveToStarted() && linear.canWrite(issue.workspace))
       void track(() => linearIssues.markStarted(issue.key, issue.workspace), background).catch(() => {});
     // A branch named after an issue keeps that name; only a chat named from its prompt gets the Haiku name.
     if (!issue) void track(() => nameWorktree(request.projectPath, created, request.prompt ?? ""), background).catch(() => {});

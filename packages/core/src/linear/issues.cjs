@@ -217,14 +217,19 @@ function createLinearIssues({ linear, now = Date.now }) {
       const moved = await linear.query(workspace, MOVE, { id: issue.id, stateId: target.id });
       if (moved?.issueUpdate?.success !== true) return "failed";
       // The chips read the new status on their next poll, not a minute later.
-      cache.delete(`${workspace}:${String(key).toUpperCase()}`);
+      forget(key, workspace);
       return "moved";
     } catch {
       return "failed";
     }
   }
 
-  return { list, readIssue, worktreeIssues, markStarted };
+  /** Drops one issue's copy, after it changed in Linear. */
+  function forget(key, workspace) {
+    cache.delete(`${workspace}:${String(key).toUpperCase()}`);
+  }
+
+  return { list, readIssue, worktreeIssues, markStarted, forget };
 }
 
 module.exports = { createLinearIssues };

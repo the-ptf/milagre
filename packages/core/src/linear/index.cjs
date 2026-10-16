@@ -112,6 +112,8 @@ function createLinear({
   return {
     status,
     workspaces,
+    /** Whether one workspace's sign-in may change issues. */
+    canWrite: (workspace) => workspaces().find((item) => item.id === workspace)?.canWrite === true,
     /** Queries one workspace as its connected user. */
     query: (workspace, document, variables) => clientOf(workspace).query(document, variables),
     /** Downloads a Linear upload as one workspace's connected user. */
