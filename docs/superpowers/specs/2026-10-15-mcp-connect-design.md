@@ -1,6 +1,6 @@
 # Settings › MCP: add, sign in to and switch MCP servers from Milagre
 
-Date: 2026-10-15. Status: designs approved, awaiting spec review. Issue: #376.
+Date: 2026-10-15. Status: built on branch milagre/mcp-connect-design-improvements-7vdd; real sign-in check pending. Issue: #376.
 
 Follows [2026-10-09-mcp-settings-design.md](2026-10-09-mcp-settings-design.md), whose PR 1 (the read-only tab, #384)
 shipped. This spec replaces that spec's PR 2 and PR 3: it covers everything left in #376 in one round, changes how
