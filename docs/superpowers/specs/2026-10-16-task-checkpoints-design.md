@@ -8,7 +8,7 @@ A checkpoint saves the working files before each idle Chat starts a task. Steeri
 
 Save regular tracked and nonignored untracked files, including dirty files, in private daemon storage with an atomic manifest. Ignore secret filenames, recognized secret content, generated directories, symlinks, Git metadata and `.milagre`. `.milagre/checkpoint-ignore` adds newline-separated relative glob exclusions. Files over 5 MiB and snapshots over 100 MiB fail closed. Display exclusions and limitations. Checkpoints remain available across restarts.
 
-Record an end snapshot at terminal agent events. Only paths changed between start and end are restore candidates; unrelated later files remain untouched. Every changed path requires a keep-current or restore-checkpoint decision, since filesystem snapshots cannot prove which writer made a change during a task. Files edited after the end snapshot are explicitly marked conflicts. Interrupted tasks with no end snapshot require conflict resolution for all candidates. Never infer ownership of concurrent manual or other Chat edits.
+Record an end snapshot at terminal agent events. Only paths changed between start and end are restore candidates; unrelated later files remain untouched. The restore request carries a keep or restore decision for every changed path. The preview lists every path, so edits made during the task by the user or another Chat are visible before confirming; the clients answer restore for paths without a conflict (the user chose this in the redesign) and ask only for conflicts. Files edited after the end snapshot are explicitly marked conflicts. Interrupted tasks with no end snapshot require conflict resolution for all candidates. Never infer ownership of concurrent manual or other Chat edits.
 
 Preview shows paths, create/replace/delete effects and conflict status. A short-lived, single-use preview token binds the current bytes, modes, identity, exclusions and checkpoint. Restore requires explicit user confirmation in every permission mode, all conflicts resolved, and a fresh revalidation of every candidate. No restore while any Chat in the affected Worktree runs or starts. A fresh safety snapshot is persisted before writing. Never follow symlinks, invoke Git restore/reset/clean, or touch the index. Failures retain the safety snapshot for recovery.
 
@@ -16,7 +16,7 @@ File I/O runs in a short-lived Node worker. It pins its working directory, valid
 
 ## Clients
 
-A Checkpoints control in each Chat opens its saved task list. Preview lists all impacted paths. Each candidate has a required decision; restore remains disabled until review is complete. Errors remain visible and allow a fresh preview. Shared Link Chats cover each owned Worktree. Phone uses existing JS components and transport only.
+Undo changes lives in the composer, on both platforms. Desktop opens it with Esc Esc in an idle Chat with an empty prompt, `/undo`, or the undo button beside a user message that started a task; the phone with ⋯ › Undo changes or `/undo`. The composer shows the Chat's tasks that changed files (each checkpoint records its message, prompt and changed-file count), then a task's files with their effect and conflicts, then a confirmed restore. The task's message is outlined while it is in view. A successful restore writes an "Undid N files" line in the Chat whose Redo previews the recovery checkpoint. The old Changes-panel Checkpoints dialog is gone. Shared Link Chats cover each owned Worktree. Phone uses existing JS components and transport only.
 
 ## Verification
 

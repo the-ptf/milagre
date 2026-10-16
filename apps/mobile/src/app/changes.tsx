@@ -1,4 +1,3 @@
-import { CheckpointControl } from "../checkpoint-control";
 import React, { useMemo, useState } from "react";
 import { RefreshControl, Text, View } from "react-native";
 import { Redirect, Stack, router, useLocalSearchParams } from "expo-router";
@@ -30,36 +29,17 @@ export default function Changes() {
   );
 }
 
-export function ChangesView(props: { worktreeId: number; chatId?: number; header?: React.ReactNode; onOpen?: (target: DiffTarget) => void }) {
+export function ChangesView(props: { worktreeId: number; header?: React.ReactNode; onOpen?: (target: DiffTarget) => void }) {
   const session = useSession();
   return session.snapshot?.project.link ? (
-    <LinkChangesView
-      chatId={props.worktreeId}
-      header={
-        <>
-          {props.header}
-          <CheckpointControl key={`${session.snapshot.project.path}#${props.worktreeId}`} chatId={`${session.snapshot.project.path}#${props.worktreeId}`} />
-        </>
-      }
-      onOpen={props.onOpen}
-    />
+    <LinkChangesView chatId={props.worktreeId} header={props.header} onOpen={props.onOpen} />
   ) : (
     <ProjectChangesView {...props} />
   );
 }
 
 /** The Worktree's changed files as a folder tree with counts and status boxes; a file opens its diff, as a page unless `onOpen` shows it. */
-function ProjectChangesView({
-  worktreeId,
-  chatId,
-  header,
-  onOpen,
-}: {
-  worktreeId: number;
-  chatId?: number;
-  header?: React.ReactNode;
-  onOpen?: (target: DiffTarget) => void;
-}) {
+function ProjectChangesView({ worktreeId, header, onOpen }: { worktreeId: number; header?: React.ReactNode; onOpen?: (target: DiffTarget) => void }) {
   const styles = useStyles();
   const session = useSession();
   const worktree = session.snapshot?.project.state.worktrees[worktreeId];
@@ -116,7 +96,6 @@ function ProjectChangesView({
       contentContainerStyle={{ gap: 12 }}
     >
       {header}
-      {chatId !== undefined && <CheckpointControl key={`${session.snapshot?.project.path}#${chatId}`} chatId={`${session.snapshot?.project.path}#${chatId}`} />}
       <Segmented label="Changes mode" value={mode} options={MODES} onChange={(value) => setMode(value as DiffMode)} />
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 4 }}>
         <Text numberOfLines={1} style={[styles.caption, { flex: 1 }]}>

@@ -1614,6 +1614,22 @@ function chatHost({
   const sending = deferred();
   const calls = [];
   const choices = [];
+  // The Chat's Undo changes state: a stand-in for the shared hook, which has its own test.
+  const undo = {
+    view: "closed",
+    tasks: [],
+    preview: null,
+    opened: 0,
+    inspected: [],
+    async open() {
+      undo.opened++;
+      undo.view = "list";
+    },
+    async inspect(id) {
+      undo.inspected.push(id);
+      undo.view = "preview";
+    },
+  };
   const panels = {
     gesture: {},
     open: null,
@@ -1794,6 +1810,10 @@ function chatHost({
     "../account-switch-divider": { AccountSwitchDivider: "AccountSwitchDivider" },
     "../chat-reload-divider": { ChatReloadDivider: "ChatReloadDivider" },
     "@milagre/shared/chat-reload": require("@milagre/shared/chat-reload"),
+    "../checkpoint-restore-divider": { CheckpointRestoreDivider: "CheckpointRestoreDivider" },
+    "@milagre/shared/checkpoint-restore": require("@milagre/shared/checkpoint-restore"),
+    "@milagre/shared/use-checkpoints": { useCheckpoints: (api, chatId) => Object.assign(undo, { api, chatId }) },
+    "../undo-panel": { UndoPanel: "UndoPanel" },
     "../handoff-brief-store": { showBrief() {} },
     "@milagre/shared/handoff": require("@milagre/shared/handoff"),
     "@milagre/shared/worktree-link": require("@milagre/shared/worktree-link"),
@@ -1813,7 +1833,7 @@ function chatHost({
     return { ...props, value: props.draft };
   };
   const send = () => find(render(), (node) => node.type === "IconButton" && ["Send message", "Send follow-up"].includes(node.props.label)).props.onPress();
-  return { session, sending, params, field, send, render, router, calls, choices, panels };
+  return { session, sending, params, field, send, render, router, calls, choices, panels, undo };
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -1942,6 +1962,49 @@ test("archived-only subagents hide the mobile Chat menu action and pill", () => 
     find(chat.render(), (node) => node.type === "SubagentChip"),
     undefined,
   );
+});
+
+test("a saved phone Chat offers Undo changes in ⋯ and /undo, both open the list in the composer's place, and an undo line's Redo previews", async () => {
+  const chat = chatHost();
+  chat.params.id = "7";
+  const state = chat.session.snapshot.project.state;
+  state.sessions[7] = { id: 7, worktree_id: 1 };
+  state.messages.push(
+    { id: 1, session_id: 7, role: "user", body: "Edit login", context: null },
+    {
+      id: 2,
+      session_id: 7,
+      role: "assistant",
+      body: "Undid 2 files",
+      context: { kind: "checkpoint-restore", checkpointId: "t", recoveryId: "r", restored: 2, kept: 0, redo: false },
+    },
+  );
+  chat.render();
+  assert.equal(chat.undo.chatId, "/p#7");
+  assert.deepEqual(JSON.parse(JSON.stringify(chat.field().commands)), [{ name: "undo", description: "Undo a task's file changes" }]);
+  find(chat.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Undo changes").props.onPress();
+  assert.equal(chat.undo.opened, 1);
+  let tree = chat.render();
+  assert.ok(find(tree, (node) => node.type === "UndoPanel"));
+  assert.equal(
+    find(tree, (node) => node.type === "PromptField"),
+    undefined,
+    "the panel takes the composer's place",
+  );
+  chat.undo.view = "closed";
+  chat.field().onChangeText("/undo");
+  assert.equal(await chat.send(), undefined);
+  assert.equal(chat.undo.opened, 2);
+  assert.equal(
+    chat.calls.some((call) => call.method === "chat:send"),
+    false,
+    "/undo never reaches the agent",
+  );
+  chat.undo.view = "closed";
+  tree = chat.render();
+  find(tree, (node) => node.type === "CheckpointRestoreDivider").props.onPreview("r", "Redo");
+  assert.deepEqual(chat.undo.inspected, ["r"]);
+  assert.equal(find(chat.render(), (node) => node.type === "UndoPanel").props.intent, "Redo");
 });
 
 test("the mobile composer loads skills from the selected Chat Worktree", () => {
@@ -9697,71 +9760,133 @@ test("mobile notification chime sheet: a tap plays the chime and saves it with t
   assert.deepEqual(labels, ["System default", "Miracle", "FAAAH", "Bombastic side eye", "Vine boom", "Metal pipe", "Bruh", "Emotional damage"]);
 });
 
-test("checkpoint review on the phone requires decisions, submits explicit confirmation and recovers from stale previews", async (t) => {
+test("undo changes on the phone: task list, conflict-only choice, stale preview refresh, restore and the Redo line", async (t) => {
   const react = hookHost({ effects: true });
   t.after(() => react.cleanup());
-  const hook = load("../../../packages/shared/src/use-checkpoints.ts", { react });
-  const item = { id: "task", createdAt: 1, completedAt: 2, kind: "task", excluded: 0, permissionMode: "ask" };
+  const checkpoints = load("../../../packages/shared/src/checkpoints.ts", {});
+  const hook = load("../../../packages/shared/src/use-checkpoints.ts", { react, "./checkpoints": checkpoints });
+  const redirect = {
+    id: "task-2",
+    kind: "task",
+    createdAt: Date.now(),
+    completedAt: Date.now(),
+    excluded: 0,
+    permissionMode: "ask",
+    messageId: 13,
+    prompt: "After login, open the account page",
+    changed: 3,
+  };
+  const settings = { ...redirect, id: "task-1", messageId: 11, prompt: "Add an account settings page", changed: 4 };
   const files = [
-    { key: "0:a", path: "a", worktree: "/p", action: "replace", conflict: true },
-    { key: "0:b", path: "b", worktree: "/p", action: "delete", conflict: false },
+    { key: "0:src/login.ts", path: "src/login.ts", worktree: "/p", action: "replace", conflict: true },
+    { key: "0:src/redirect.ts", path: "src/redirect.ts", worktree: "/p", action: "delete", conflict: false },
+    { key: "0:src/login.test.ts", path: "src/login.test.ts", worktree: "/p", action: "replace", conflict: false },
   ];
   const calls = [];
   let stale = true;
-  const client = {
-    call: async (method, args) => {
-      calls.push({ method, args });
-      if (method === "checkpoint:list") return [item];
-      if (method === "checkpoint:preview") return { ...item, token: "preview", files };
-      if (stale) throw new Error("Files changed. Preview again before restoring");
-      return { restored: 1, recoveryId: "recovery" };
+  const api = {
+    list: async (request) => (calls.push(["list", request]), [redirect, settings]),
+    preview: async (request) => (calls.push(["preview", request]), { ...redirect, token: `preview-${calls.length}`, files }),
+    restore: async (request) => {
+      calls.push(["restore", request]);
+      if (stale) {
+        stale = false;
+        throw new Error("Files changed. Preview again before restoring");
+      }
+      return { restored: 2, kept: 1, recoveryId: "recovery", checkpointId: "task-2", redo: false };
     },
   };
-  const control = load("checkpoint-control.tsx", {
+  const panel = load("undo-panel.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { View: "View", Text: "Text" },
-    "@milagre/shared/checkpoints": { CHECKPOINT_HELP: "Review", CHECKPOINT_EXCLUSIONS: "Excluded", checkpointTitle: () => "Before task" },
-    "@milagre/shared/use-checkpoints": hook,
-    "./session": { useSession: () => ({ client }) },
-    "./ui": { Button: "Button", ErrorNotice: "ErrorNotice", ListRow: "ListRow", PillButton: "PillButton" },
+    "react-native": { Pressable: "Pressable", StyleSheet: { absoluteFill: {}, hairlineWidth: 1 }, Text: "Text", View: "View" },
+    "@sbaiahmed1/react-native-blur": { LiquidGlassView: "LiquidGlassView" },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
+    "@milagre/shared/checkpoints": checkpoints,
+    "./icons": { Icon: "Icon" },
+    "./ui": { IconButton: "IconButton", PageScroll: "PageScroll", PillButton: "PillButton", Segmented: "Segmented" },
   });
+  const opened = [];
+  // Function components render in place, so the tree holds only host elements.
+  const expand = (node) =>
+    !node || typeof node !== "object"
+      ? node
+      : Array.isArray(node)
+        ? node.map(expand)
+        : typeof node.type === "function"
+          ? expand(node.type(node.props))
+          : { ...node, props: { ...node.props, children: expand(node.props?.children) } };
+  const nodes = (node) => (!node || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(nodes) : [node, ...nodes(node.props?.children)]);
+  const strings = (node) =>
+    typeof node === "string" ? [node] : !node || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(strings) : strings(node.props?.children);
+  let review;
   const render = () => {
     react.begin();
-    return control.CheckpointControl({ chatId: "/p#1" });
+    review = hook.useCheckpoints(api, "/p#1");
+    return review.view === "closed" ? [] : nodes(expand(panel.UndoPanel({ review, intent: "Undo", onOpenFile: (file) => opened.push(file.path) })));
   };
-  const nodes = (node) => (!node || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(nodes) : [node, ...nodes(node.props?.children)]);
-  const button = (title) => nodes(render()).find((node) => node.props?.title === title);
-  const settle = async () => {
-    for (let i = 0; i < 10; i++) await Promise.resolve();
-  };
-  button("Checkpoints").props.onPress();
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const primary = () => render().find((node) => node.type === "PillButton");
+  render();
+  void review.open();
   await settle();
-  await button("Before task").props.onPress();
+  let tree = render();
+  assert.deepEqual(
+    tree.filter((node) => node.props?.testID?.startsWith("undo-task-")).map((node) => node.props.testID),
+    ["undo-task-task-2", "undo-task-task-1"],
+  );
+  assert.ok(strings(tree).includes("After login, open the account page"));
+  tree.find((node) => node.props?.testID === "undo-task-task-2").props.onPress();
   await settle();
-  assert.equal(button("Confirm restore (0)").props.disabled, true);
-  button("Keep current").props.onPress();
-  assert.equal(button("Confirm restore (0)").props.disabled, true);
-  nodes(render())
-    .filter((node) => node.props?.title === "Restore checkpoint")[1]
-    .props.onPress();
-  assert.equal(button("Confirm restore (1)").props.disabled, false);
-  await button("Confirm restore (1)").props.onPress();
+  tree = render();
+  assert.equal(tree.filter((node) => node.props?.testID === "undo-file").length, 3);
+  assert.ok(strings(tree).includes("Edited after this task"));
+  assert.deepEqual(primary().props.title, "Undo 3 files");
+  assert.equal(primary().props.disabled, true);
+  tree.find((node) => node.props?.accessibilityLabel === "src/redirect.ts. Delete").props.onPress();
+  assert.deepEqual(opened, ["src/redirect.ts"]);
+  // Only the file edited after the task asks; the others are undone.
+  render()
+    .find((node) => node.type === "Segmented")
+    .props.onChange("keep");
+  assert.equal(primary().props.title, "Undo 2 files");
+  assert.equal(primary().props.disabled, false);
+  primary().props.onPress();
   await settle();
-  assert.equal(button("Confirm restore (1)").props.disabled, true);
-  assert.ok(nodes(render()).some((node) => node.props?.message?.includes("Files changed")));
-  const sent = calls.find((call) => call.method === "checkpoint:restore").args[0];
+  tree = render();
+  assert.ok(strings(tree).includes("Files changed. Review again."));
+  const sent = calls.find(([method]) => method === "restore")[1];
   assert.equal(sent.approved, true);
   assert.equal(sent.chatId, "/p#1");
-  assert.deepEqual(JSON.parse(JSON.stringify(sent.decisions)), { "0:a": "keep", "0:b": "restore" });
-  await button("Preview again").props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(sent.decisions)), { "0:src/redirect.ts": "restore", "0:src/login.test.ts": "restore", "0:src/login.ts": "keep" });
+  assert.equal(primary().props.disabled, true, "a fresh preview asks again");
+  render()
+    .find((node) => node.type === "Segmented")
+    .props.onChange("keep");
+  primary().props.onPress();
   await settle();
-  assert.equal(button("Confirm restore (0)").props.disabled, true);
-  stale = false;
-  nodes(render())
-    .filter((node) => node.props?.title === "Keep current")
-    .forEach((node) => node.props.onPress());
-  await button("Confirm restore (0)").props.onPress();
-  await settle();
-  assert.ok(nodes(render()).some((node) => typeof node.props?.children === "string" && node.props.children.includes("1 file restored")));
+  render();
+  assert.equal(review.error, "");
+  assert.equal(review.view, "closed", JSON.stringify(calls));
+  assert.equal(calls.filter(([method]) => method === "restore").length, 2);
+
+  const divider = load("checkpoint-restore-divider.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
+    "@milagre/shared/checkpoint-restore": await import("../packages/shared/src/checkpoint-restore.mjs"),
+    "./icons": { Icon: "Icon" },
+  });
+  const previews = [];
+  const line = nodes(
+    divider.CheckpointRestoreDivider({
+      context: { kind: "checkpoint-restore", checkpointId: "task-2", recoveryId: "recovery", restored: 2, kept: 1, redo: false },
+      onPreview: (...args) => previews.push(args),
+    }),
+  );
+  assert.ok(strings(line).includes("Undid 2 files"));
+  const redo = line.find((node) => node.type === "Pressable");
+  assert.ok(strings(redo).includes("Redo"));
+  redo.props.onPress();
+  assert.deepEqual(previews, [["recovery", "Redo"]]);
 });

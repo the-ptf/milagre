@@ -275,12 +275,7 @@ export function SidePanelsHost() {
           )}
           {mounted.right && screen.worktreeId !== undefined && (
             <Animated.View {...hidden("right")} style={[StyleSheet.absoluteFill, { backgroundColor: colors.page }, right]}>
-              <ChangesPanel
-                key={`${session.snapshot?.project.path}#${screen.worktreeId}`}
-                worktreeId={screen.worktreeId}
-                chatId={screen.chatId}
-                onClose={() => show(null)}
-              />
+              <ChangesPanel key={`${session.snapshot?.project.path}#${screen.worktreeId}`} worktreeId={screen.worktreeId} onClose={() => show(null)} />
             </Animated.View>
           )}
         </View>
@@ -290,7 +285,7 @@ export function SidePanelsHost() {
 }
 
 /** Changes, and a file's diff in place of the list, so reading one never leaves the panel. */
-function ChangesPanel({ worktreeId, chatId, onClose }: { worktreeId: number; chatId?: number; onClose: () => void }) {
+function ChangesPanel({ worktreeId, onClose }: { worktreeId: number; onClose: () => void }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [file, setFile] = useState<DiffTarget | null>(null);
@@ -310,7 +305,7 @@ function ChangesPanel({ worktreeId, chatId, onClose }: { worktreeId: number; cha
       </View>
       {/* The list stays mounted under a diff, so going back keeps its mode, folders and scroll. */}
       <View style={{ flex: 1, display: file ? "none" : "flex" }}>
-        <ChangesView worktreeId={worktreeId} chatId={chatId} onOpen={setFile} />
+        <ChangesView worktreeId={worktreeId} onOpen={setFile} />
       </View>
       {file && (
         <View style={{ flex: 1 }}>

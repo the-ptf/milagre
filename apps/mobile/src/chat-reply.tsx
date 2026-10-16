@@ -201,8 +201,11 @@ export const ChatReply = memo(function ChatReply({
   designChoice,
   designsMoved,
   limitProjectPath,
+  highlighted = false,
 }: {
   message?: ChatMessage;
+  /** The task in Undo changes' view: its message is outlined, as on desktop. */
+  highlighted?: boolean;
   run?: AgentRun;
   onActivity: (message: string) => void;
   media: MediaSource;
@@ -261,7 +264,16 @@ export const ChatReply = memo(function ChatReply({
           <AnswerCard answered={message.answered} />
         ) : (
           !!text && (
-            <View style={{ backgroundColor: colors.canvas, borderRadius: 18, borderCurve: "continuous", paddingVertical: 10, paddingHorizontal: 14 }}>
+            <View
+              style={{
+                backgroundColor: colors.canvas,
+                borderRadius: 18,
+                borderCurve: "continuous",
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
+              }}
+            >
               <Text selectable style={{ color: colors.ink, fontSize: 15, lineHeight: 22 }}>
                 {text}
               </Text>
