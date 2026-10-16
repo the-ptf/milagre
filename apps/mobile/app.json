@@ -14,7 +14,6 @@
         "expo-build-properties",
         {
           "ios": {
-            "enableSceneSupport": true,
             "buildReactNativeFromSource": true
           },
           "android": {
@@ -75,7 +74,9 @@
           "enableBackgroundRecording": false
         }
       ],
-      "./plugins/with-live-activity.cjs"
+      "./plugins/with-live-activity.cjs",
+      "expo-font",
+      "expo-status-bar"
     ],
     "ios": {
       "supportsTablet": false,

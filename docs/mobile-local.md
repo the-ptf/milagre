@@ -160,7 +160,7 @@ CI=1 npx expo prebuild --platform ios --clean
 CI=1 npx expo run:ios --configuration Release --device generic --output /tmp/milagre-mobile-release --no-bundler
 ```
 
-The clean prebuild regenerates only the ignored iOS project. App config enables the [Expo 57 scene lifecycle](https://github.com/expo/fyi/blob/main/ios-scene-lifecycle.md#staying-on-sdk-57-with-xcode-27) needed to launch Xcode 27 builds on iOS 27. Keep native configuration in app config so it survives regeneration.
+The clean prebuild regenerates only the ignored iOS project. Expo 58 generates the `SceneDelegate` that Xcode 27 builds need to launch on iOS 27, so app config no longer opts into it. Keep native configuration in app config so it survives regeneration.
 
 This generates the ignored native project and produces `/tmp/milagre-mobile-release/MilagreLocal.app`. Install that app on the chosen iOS simulator and launch **Milagre Local**. Metro and Expo Go are not needed. Run `mobile:host`, enter its connection, and keep that host running. A physical-device build needs signing and a reachable HTTPS host; this simulator artifact cannot be installed on a phone.
 

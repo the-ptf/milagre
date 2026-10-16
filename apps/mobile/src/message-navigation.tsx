@@ -18,7 +18,7 @@ export function MessageNavigation({
 }) {
   const { colors } = useTheme();
   const { height, progress } = useReanimatedKeyboardAnimation();
-  const keyboardStyle = useAnimatedStyle(() => ({ bottom: bottom - height.value - keyboardOffset * progress.value }), [bottom, keyboardOffset]);
+  const keyboardStyle = useAnimatedStyle(() => ({ bottom: bottom - height.value - keyboardOffset * progress.value }));
   if (items.length < 2) return null;
   return (
     <Reanimated.View pointerEvents="box-none" style={[{ position: "absolute", left: 0, top, bottom, width: 24, justifyContent: "center" }, keyboardStyle]}>
