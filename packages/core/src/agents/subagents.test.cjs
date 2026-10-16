@@ -439,3 +439,114 @@ test("a Codex subagent's design call is an artifact step of the reply, named for
     false,
   );
 });
+test("Claude keeps a subagent's own to-do list on it, apart from the chat's, and counts its steps and tool calls", () => {
+  const state = {};
+  mapClaudeMessage(launch, state);
+  const said = (id, text) => ({ type: "assistant", parent_tool_use_id: "spawn", uuid: id, message: { id, content: [{ type: "text", text }] } });
+  const tool = (id, name, input) => ({
+    type: "assistant",
+    parent_tool_use_id: "spawn",
+    uuid: id,
+    message: { id, content: [{ type: "tool_use", id, name, input }] },
+  });
+  const todos = [
+    { content: "Read the login code", status: "completed", activeForm: "Reading the login code" },
+    { content: "Check the token refresh", status: "in_progress", activeForm: "Checking the token refresh" },
+    { content: "Write up findings", status: "pending" },
+  ];
+  const listed = mapClaudeMessage(tool("t1", "TodoWrite", { todos }), state);
+  assert.deepEqual(
+    listed
+      .filter((e) => e.type === "subagent-update")
+      .at(-1)
+      .agent.tasks.map((task) => [task.content, task.status]),
+    [
+      ["Read the login code", "completed"],
+      ["Check the token refresh", "in_progress"],
+      ["Write up findings", "pending"],
+    ],
+  );
+  // The chat's own list is untouched.
+  assert.equal(
+    listed.some((e) => e.type === "tasks-updated"),
+    false,
+  );
+  mapClaudeMessage(said("m1", "I'll start with the token refresh. It runs on every request."), state);
+  mapClaudeMessage(tool("t2", "Read", { file_path: "/repo/src/auth.ts" }), state);
+  mapClaudeMessage(tool("t3", "Read", { file_path: "/repo/docs/flow.png" }), state);
+  const last = mapClaudeMessage(tool("t4", "Bash", { command: "npm test" }), state);
+  const agent = last.filter((e) => e.type === "subagent-update").at(-1).agent;
+  // The to-do list call is the list, not a step of the transcript.
+  assert.deepEqual(agent.progress, { steps: 1, said: "I'll start with the token refresh.", tools: { reads: 1, images: 1, commands: 1 } });
+  assert.equal(
+    agent.transcript.some((entry) => /to-do/.test(entry.text)),
+    false,
+  );
+  assert.equal(agent.transcript.find((entry) => entry.text.startsWith("Ran")).tool, "shell");
+  // A transcript entry seen again (the same message replayed) isn't counted twice.
+  const replay = mapClaudeMessage(tool("t4", "Bash", { command: "npm test" }), state);
+  assert.equal((replay.filter((e) => e.type === "subagent-update").at(-1)?.agent ?? agent).progress.tools.commands, 1);
+});
+test("Claude keeps a subagent's TaskCreate list once its result gives the id", () => {
+  const state = {};
+  mapClaudeMessage(launch, state);
+  mapClaudeMessage(
+    {
+      type: "assistant",
+      parent_tool_use_id: "spawn",
+      uuid: "c1",
+      message: { id: "c1", content: [{ type: "tool_use", id: "create", name: "TaskCreate", input: { subject: "Audit the session cookie" } }] },
+    },
+    state,
+  );
+  const created = mapClaudeMessage(
+    {
+      type: "user",
+      parent_tool_use_id: "spawn",
+      message: { content: [{ type: "tool_result", tool_use_id: "create", content: "Task #7 created successfully" }] },
+    },
+    state,
+  );
+  const agent = created.filter((e) => e.type === "subagent-update").at(-1).agent;
+  assert.deepEqual(agent.tasks, [{ id: "7", content: "Audit the session cookie", status: "pending" }]);
+});
+test("Codex keeps a subagent's plan updates on it, not on the chat", () => {
+  const state = { threadId: "root", turnId: "turn" };
+  mapCodexNotification(
+    "item/completed",
+    {
+      threadId: "root",
+      turnId: "turn",
+      item: {
+        id: "spawn",
+        type: "collabAgentToolCall",
+        tool: "spawnAgent",
+        status: "completed",
+        receiverThreadIds: ["child"],
+        prompt: "Review auth",
+        agentsStates: { child: { status: "running", message: null } },
+      },
+    },
+    state,
+  );
+  const events = mapCodexNotification(
+    "turn/plan/updated",
+    {
+      threadId: "child",
+      turnId: "child-turn",
+      plan: [
+        { step: "Read the code", status: "completed" },
+        { step: "Write it up", status: "inProgress" },
+      ],
+    },
+    state,
+  );
+  assert.equal(
+    events.some((e) => e.type === "tasks-updated"),
+    false,
+  );
+  assert.deepEqual(
+    child(events).tasks.map((task) => task.status),
+    ["completed", "in_progress"],
+  );
+});

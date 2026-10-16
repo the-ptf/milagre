@@ -22,6 +22,9 @@ const LINKS_INSTRUCTIONS = [
 
 // What a Claude subagent is told as it starts (claude-provider.cjs, SubagentStart): it doesn't see the parent's system
 // prompt, and a custom agent with its own tool list may not have Milagre's tools at all.
+// Every Claude subagent gets this one: its to-do list is what the user reads in the Subagents panel.
+const SUBAGENT_PLAN_INSTRUCTIONS =
+  "Milagre shows the user your to-do list in the Chat's Subagents panel. For work with three or more steps, write a short to-do list with your todo tool (TodoWrite) before you start, and mark each item in_progress then completed as you go. Never use the milagre tasks_set, task_update or phase_set tools: they are the parent Chat's plan, not yours.";
 const SUBAGENT_DESIGN_INSTRUCTIONS = `Milagre Designs: this Chat has a Designs canvas. For any UI, screen, mockup or visual design, use the milagre design_show tool (design_apply to revise, keeping the design's id), so the design lands on the Chat's canvas, where the user watches and reviews it. Never write HTML or image files for it. Before your first design, read ${path.join(BUNDLED_SKILLS_DIRECTORY, "design", "SKILL.md")}. Without those tools, don't build the UI another way: describe it in your reply so the agent that started you shows it with design_show.`;
 
 function milagreInstructions(tldrEnabled = true, workspaceInstructions = "", designsEnabled = true) {
@@ -432,6 +435,7 @@ function codexReasoning(method, item, state) {
 module.exports = {
   MILAGRE_INSTRUCTIONS,
   SUBAGENT_DESIGN_INSTRUCTIONS,
+  SUBAGENT_PLAN_INSTRUCTIONS,
   milagreInstructions,
   RESUME_FAILED_MESSAGE,
   cliBrokenMessage,

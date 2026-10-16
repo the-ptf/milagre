@@ -2,6 +2,8 @@
 const { capOutput, claudeStep, codexStep } = require("./steps.cjs");
 const { createHash } = require("node:crypto");
 const { subagentActive: active } = require("@milagre/shared/agent-runs");
+const { addProgress } = require("@milagre/shared/subagent-glance");
+const { applyToolResult, applyToolUse, codexPlanTasks } = require("./tasks.cjs");
 function update(state, id, patch, entry) {
   state.subagents ??= new Map();
   const previous = state.subagents.get(id);
@@ -13,6 +15,8 @@ function update(state, id, patch, entry) {
   const agent = { id, title: "Subagent", status: "running", startedAt: time, transcript: [], ...previous, ...patch, updatedAt: time };
   if (row && !sameRow) {
     agent.transcript = [...agent.transcript.filter((item) => item.id !== row.id), row].slice(-100);
+    // The transcript keeps its last 100 entries and a client only their tail, so the totals are counted here, once each.
+    if (!previousRow) agent.progress = addProgress(agent.progress, row);
   }
   if (!active(agent)) agent.endedAt ??= time;
   else delete agent.endedAt;
@@ -36,6 +40,30 @@ function communicate(state, ownerId, id, fromId, toId, text) {
   state.subagentCommunicationIds.add(id);
   const communication = { id, fromId, toId, text: capOutput(text), at: Date.now() };
   return [update(state, ownerId, { communications: [...(agent.communications ?? []), communication].slice(-20) })];
+}
+// A subagent's own to-do list, as the chat's (tasks.cjs), kept per subagent. TaskCreate and TaskList wait for their
+// result, which holds the ids, so those calls are held until it comes.
+const TASK_TOOLS = new Set(["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"]);
+function subagentTasksUse(state, agentId, block) {
+  state.subagentTasks ??= new Map();
+  if (!state.subagentTasks.has(agentId)) state.subagentTasks.set(agentId, new Map());
+  if (["TaskCreate", "TaskList"].includes(block.name)) {
+    state.subagentTaskCalls ??= new Map();
+    state.subagentTaskCalls.set(block.id, { agentId, call: block });
+  } else {
+    // Their results stay out of the transcript as the calls do.
+    state.subagentTaskResults ??= new Set();
+    state.subagentTaskResults.add(block.id);
+  }
+  const tasks = applyToolUse(state.subagentTasks.get(agentId), block.name, block.input);
+  return tasks ? [update(state, agentId, { tasks })] : [];
+}
+function subagentTasksResult(state, block, structured) {
+  const held = state.subagentTaskCalls?.get(block.tool_use_id);
+  if (!held) return [];
+  state.subagentTaskCalls.delete(block.tool_use_id);
+  const tasks = applyToolResult(state.subagentTasks.get(held.agentId), held.call, block, structured);
+  return tasks ? [update(state, held.agentId, { tasks })] : [];
 }
 function claudeRecipient(state, recipient) {
   const id = state.subagents?.has(recipient) ? recipient : (state.taskAgents?.get(recipient) ?? state.subagentNames?.get(recipient));
@@ -78,21 +106,25 @@ function claudeSubagents(message, state) {
           state.subagentMessages.set(block.id, { fromId: parent ?? null, toId, text });
         }
       }
+      // A subagent's to-do list calls change its list, not its transcript: the panel shows the list itself.
+      if (parent && state.subagents?.has(parent) && block.type === "tool_use" && TASK_TOOLS.has(block.name)) {
+        events.push(...subagentTasksUse(state, parent, block));
+        continue;
+      }
       if (parent && state.subagents?.has(parent)) {
-        const text =
-          block.type === "text"
-            ? block.text
-            : block.type === "thinking"
-              ? block.thinking
-              : block.type === "tool_use"
-                ? claudeStep(block.id, block.name, block.input).title
-                : "";
+        const step = block.type === "tool_use" ? claudeStep(block.id, block.name, block.input) : undefined;
+        const text = block.type === "text" ? block.text : block.type === "thinking" ? block.thinking : (step?.title ?? "");
         events.push(
           update(
             state,
             parent,
-            { latestActivity: block.type === "tool_use" ? text : "Responding" },
-            { id: `${message.uuid ?? message.message.id}:${block.id ?? index}:${block.type}`, kind: block.type === "tool_use" ? "tool" : "message", text },
+            { latestActivity: step ? text : "Responding" },
+            {
+              id: `${message.uuid ?? message.message.id}:${block.id ?? index}:${block.type}`,
+              kind: step ? "tool" : "message",
+              text,
+              ...(step ? { tool: step.kind } : {}),
+            },
           ),
         );
       }
@@ -133,8 +165,14 @@ function claudeSubagents(message, state) {
           );
         }
       }
-      if (parent && state.subagents?.has(parent))
-        events.push(update(state, parent, {}, { id: `result:${block.tool_use_id}`, kind: "tool", text: textContent(block.content) }));
+      if (parent && state.subagents?.has(parent)) {
+        if (state.subagentTaskCalls?.has(block.tool_use_id)) {
+          // tool_use_result belongs to the message, so it can only be matched to a lone result.
+          const results = content.filter((item) => item?.type === "tool_result");
+          events.push(...subagentTasksResult(state, block, results.length === 1 ? message.tool_use_result : undefined));
+        } else if (!state.subagentTaskResults?.delete(block.tool_use_id))
+          events.push(update(state, parent, {}, { id: `result:${block.tool_use_id}`, kind: "tool", text: textContent(block.content) }));
+      }
     }
   }
   if (message.type === "system" && message.subtype?.startsWith("task_")) {
@@ -267,7 +305,18 @@ function codexSubagents(method, params, state) {
             ? [step.title, item.aggregatedOutput].filter(Boolean).join("\n")
             : "";
     if (text)
-      events.push(update(state, params.threadId, { latestActivity: step?.title || "Responding" }, { id: item.id, kind: step ? "tool" : "message", text }));
+      events.push(
+        update(
+          state,
+          params.threadId,
+          { latestActivity: step?.title || "Responding" },
+          { id: item.id, kind: step ? "tool" : "message", text, ...(step ? { tool: step.kind } : {}) },
+        ),
+      );
+  }
+  if (foreign && method === "turn/plan/updated") {
+    const tasks = codexPlanTasks(params.plan);
+    if (tasks) events.push(update(state, params.threadId, { tasks }));
   }
   if (foreign && method === "turn/started") events.push(update(state, params.threadId, { status: "running" }));
   if (foreign && method === "turn/completed")
