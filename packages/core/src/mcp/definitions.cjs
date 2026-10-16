@@ -59,13 +59,23 @@ function originOf(value) {
   }
 }
 
-// Secret arguments come back as their masked form at the same position; each is put back only there, and only
-// while the command is unchanged. A mask that can't be put back is refused rather than saved as text.
+// Secret arguments come back in their masked form. They are put back only onto an unchanged argument list: the same
+// command, the same length, and every position either the stored argument, its masked form (restored), or a new
+// value for a secret that keeps what precedes the mask ("--token=", "Authorization: "). Removing, adding or
+// reordering arguments while a mask is still there would move a stored secret under another flag, so it is refused.
+const ARGS_CHANGED = "Enter the argument values again after changing the arguments.";
 function unmaskArgs(args, stored, sameCommand) {
-  const masked = stored ? maskArgs(stored.args) : [];
-  const full = args.map((arg, index) => (sameCommand && masked[index] !== stored.args[index] && arg === masked[index] ? stored.args[index] : arg));
-  if (full.some((arg) => arg.includes(MASK))) throw new Error("Enter the hidden arguments again.");
-  return full;
+  if (!args.some((arg) => arg.includes(MASK))) return args;
+  if (!stored || !sameCommand || args.length !== stored.args.length) throw new Error(ARGS_CHANGED);
+  const masked = maskArgs(stored.args);
+  return args.map((arg, index) => {
+    const original = stored.args[index];
+    if (arg === original) return arg;
+    const secret = masked[index] !== original;
+    if (secret && arg === masked[index]) return original;
+    if (secret && !arg.includes(MASK) && arg.startsWith(masked[index].slice(0, masked[index].indexOf(MASK)))) return arg;
+    throw new Error(ARGS_CHANGED);
+  });
 }
 
 /** The definition to write: masked values sent back from a screen become the stored ones. Stored secrets never follow

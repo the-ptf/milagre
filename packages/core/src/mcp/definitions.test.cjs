@@ -147,7 +147,11 @@ test("a command server's secret arguments are masked and restored by position", 
   const masked = d.maskDefinition(server);
   assert.deepEqual(masked.args, ["mcp-remote", "--header", "Authorization: ••••••", "--token=••••••"]);
   assert.deepEqual(d.unmaskDefinition(masked, server).args, server.args);
-  assert.deepEqual(d.unmaskDefinition({ ...masked, args: [...masked.args, "--verbose"] }, server).args, [...server.args, "--verbose"]);
+  // Adding an argument while secrets are still masked asks for them again.
+  assert.throws(
+    () => d.unmaskDefinition({ ...masked, args: [...masked.args, "--verbose"] }, server),
+    /Enter the argument values again after changing the arguments\./,
+  );
   // A new value replaces the stored one; a moved mask or a new command can't be restored.
   assert.deepEqual(d.unmaskDefinition({ ...masked, args: ["mcp-remote", "--header", "Authorization: Bearer new", "--token=••••••"] }, server).args, [
     "mcp-remote",
@@ -155,6 +159,21 @@ test("a command server's secret arguments are masked and restored by position", 
     "Authorization: Bearer new",
     "--token=t1",
   ]);
-  assert.throws(() => d.unmaskDefinition({ ...masked, args: ["--token=••••••"] }, server), /Enter the hidden arguments again\./);
-  assert.throws(() => d.unmaskDefinition({ ...masked, command: "bunx" }, server), /Enter the hidden arguments again\./);
+  assert.throws(() => d.unmaskDefinition({ ...masked, args: ["--token=••••••"] }, server), /Enter the argument values again after changing the arguments\./);
+  assert.throws(() => d.unmaskDefinition({ ...masked, command: "bunx" }, server), /Enter the argument values again after changing the arguments\./);
+});
+
+test("a masked argument never lands under a different flag", () => {
+  const change = /Enter the argument values again after changing the arguments\./;
+  // A flag pair removed: K1 must not move under --github-token.
+  const a = { name: "a", type: "stdio", command: "srv", args: ["--api-key", "K1", "--github-token", "K2"], env: {} };
+  assert.throws(() => d.unmaskDefinition({ ...a, args: ["--github-token", "••••••"] }, a), change);
+  // Flag pairs swapped: A must not move under --secret.
+  const b = { name: "b", type: "stdio", command: "srv", args: ["--token", "A", "--secret", "B"], env: {} };
+  assert.throws(() => d.unmaskDefinition({ ...b, args: ["--secret", "••••••", "--token", "••••••"] }, b), change);
+  // --flag=•••••• forms compare the flag before "=".
+  const c = { name: "c", type: "stdio", command: "srv", args: ["--token=A", "--secret=B"], env: {} };
+  assert.throws(() => d.unmaskDefinition({ ...c, args: ["--secret=••••••", "--token=••••••"] }, c), change);
+  // An unchanged list restores every value in place.
+  for (const server of [a, b, c]) assert.deepEqual(d.unmaskDefinition(d.maskDefinition(server), server).args, server.args);
 });
