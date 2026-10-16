@@ -121,6 +121,14 @@ function checkCreatedBy(value) {
   throw new Error("createdBy must be the user or an agent Chat");
 }
 
+// The names a comment event's issue goes by: its id, and its key, which changes when the issue moves to another team.
+function issueNames(event) {
+  const names = [];
+  if (event.issue?.id) names.push(`id:${event.issue.id}`);
+  if (event.issue?.key) names.push(`key:${event.issue.key}`);
+  return names;
+}
+
 function assertEvent(value) {
   if (!isObject(value) || (value.kind !== "linear" && value.kind !== "webhook") || typeof value.key !== "string" || value.key === "") {
     throw new Error("An event needs a kind of linear or webhook, and a key");
@@ -460,8 +468,10 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
   }
 
   // Moves queued events into running Runs, oldest first. A Routine never has more than `limit` Runs going (or more than its
-  // maxRuns leaves), and an event not due yet (`notBefore`) waits without holding back the ones behind it. A Routine whose
-  // maxRuns is already used up, with no Run left to end it through finish(), ends here and its queue goes with it.
+  // maxRuns leaves), and an event not due yet (`notBefore`) waits without holding back the ones behind it, except the
+  // comments on its issue: those go out in the order they came, so a comment waiting for its busy Chat holds back the later
+  // ones on that issue. A Routine whose maxRuns is already used up, with no Run left to end it through finish(), ends here
+  // and its queue goes with it.
   function claimQueued(at, limit = CONCURRENT_RUNS) {
     const claims = [];
     let changed = false;
@@ -477,9 +487,13 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
       }
       let room = Math.min(limit - running, routine.maxRuns === undefined ? Infinity : routine.maxRuns - routine.runCount - running);
       const waiting = [];
+      // The issues of the comments left waiting so far in this pass.
+      const held = new Set();
       for (const item of queue) {
         const { event } = item;
-        if (event.kind === "linear" && event.change === "comment" && at - item.enqueuedAt > COMMENT_MAX_WAIT_MS) {
+        const comment = event.kind === "linear" && event.change === "comment";
+        const issue = comment ? issueNames(event) : [];
+        if (comment && at - item.enqueuedAt > COMMENT_MAX_WAIT_MS) {
           // Answering a comment hours late helps no one, and it takes no slot.
           appendRun(routine.id, {
             id: id(),
@@ -491,13 +505,14 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
             error: "comment waited 2 h",
             event,
           });
-        } else if (room > 0 && (item.notBefore ?? 0) <= at) {
+        } else if (room > 0 && (item.notBefore ?? 0) <= at && !issue.some((name) => held.has(name))) {
           // scheduledFor is when the event arrived, which deferRun hands back to the queue.
           const run = { id: id(), routineId: routine.id, scheduledFor: item.enqueuedAt, startedAt: at, status: "running", event };
           appendRun(routine.id, run);
           claims.push({ routine: copy(routine), run: copy(run) });
           room -= 1;
         } else {
+          for (const name of issue) held.add(name);
           waiting.push(item);
           continue;
         }

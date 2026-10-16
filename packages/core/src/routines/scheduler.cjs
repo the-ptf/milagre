@@ -11,15 +11,25 @@ const CONCURRENT_RUNS = 3;
 const COMMENT_RETRY_MS = 15_000;
 const NO_CHAT = "issue has no Chat";
 const RUN_NOW_EVENTS = "Run now works for schedules and heartbeats";
+const AUTHOR_MAX = 80;
 
 const errorText = (error) => error?.message ?? String(error);
 const isComment = (event) => event?.kind === "linear" && event.change === "comment";
 // Whether a claimed Run makes a Chat: a trigger's, or a schedule's with a new-chat target.
 const startsChat = (routine, run) => (run.event ? !isComment(run.event) : routine.target.kind === "new-chat");
 
-// A comment's message: the Routine's prompt with the issue's and the comment's fields filled in. The description and the
-// comment are free text from outside Milagre, so they reach the agent fenced as data.
-function commentMessage(template, issue, comment) {
+// A comment's author as its divider names them: one line, no {{ or }}, at most 80 characters. Empty when nothing is left.
+function authorName(author) {
+  let text = String(author ?? "").replace(/\s+/g, " ");
+  // Taking out one pair of braces can bring two single ones together.
+  while (/\{\{|\}\}/.test(text)) text = text.replace(/\{\{|\}\}/g, "");
+  return Array.from(text.trim()).slice(0, AUTHOR_MAX).join("").trim();
+}
+
+// A comment's message: the Routine's prompt with the issue's and the comment's fields filled in. Everything people wrote
+// in Linear (the title, description, labels, assignee, author and comment) reaches the agent as data: a block, or inline
+// with its braces and tags made harmless when it is one short line. The key, URL, state and team are Linear's own.
+function commentMessage(template, issue, comment, author) {
   const values = {
     "issue.key": issue.key,
     "issue.title": issue.title,
@@ -33,8 +43,12 @@ function commentMessage(template, issue, comment) {
     "comment.author": comment.author,
   };
   const untrusted = {
+    "issue.title": `Linear issue ${issue.key} title`,
     "issue.description": `Linear issue ${issue.key} description`,
-    "comment.body": `Linear comment on ${issue.key} by ${comment.author}`,
+    "issue.labels": `Linear issue ${issue.key} labels`,
+    "issue.assignee": `Linear issue ${issue.key} assignee`,
+    "comment.author": `Linear comment author on ${issue.key}`,
+    "comment.body": author ? `Linear comment on ${issue.key} by ${author}` : `Linear comment on ${issue.key}`,
   };
   return renderRoutinePrompt(template, values, untrusted);
 }
@@ -186,7 +200,8 @@ function createRoutineScheduler({
   }
 
   // A Linear comment goes into the Chat linked to its issue. A person wrote it, so a busy Chat makes it wait rather than skip
-  // it: its Run goes back to the head of the queue, uncounted, and tries again in 15 s (store.cjs gives up after 2 h).
+  // it: its Run goes back to the head of the queue, uncounted, and tries again in 15 s (store.cjs gives up after 2 h, and
+  // holds the later comments on that issue back meanwhile, so they arrive in order).
   async function deliverComment(routine, run) {
     const { issue, comment } = run.event;
     let chatId;
@@ -197,17 +212,20 @@ function createRoutineScheduler({
       return;
     }
     if (!chatId) {
-      finish(run, undefined, { status: "failed", error: NO_CHAT });
+      // A comment on an issue no Chat works on isn't for this Routine: skipped, so it never counts as a failure.
+      finish(run, undefined, { status: "skipped-busy", error: NO_CHAT });
       return;
     }
     if (pending.has(chatId) || chats.busy(chatId)) {
       store.deferRun(run.id, now() + COMMENT_RETRY_MS);
       return;
     }
-    const text = commentMessage(routine.prompt, issue, comment);
+    const author = authorName(comment.author);
+    const text = commentMessage(routine.prompt, issue, comment, author);
     const entry = { runId: run.id, sent: false, turnStarted: false };
     pending.set(chatId, entry);
-    const context = { kind: "routine-run", routineId: routine.id, runId: run.id, name: routine.name, at: now(), label: `Linear comment · ${comment.author}` };
+    const label = author ? `Linear comment · ${author}` : "Linear comment";
+    const context = { kind: "routine-run", routineId: routine.id, runId: run.id, name: routine.name, at: now(), label };
     await deliver(chatId, entry, { body: text, prompt: text + PASS_HINT, context });
   }
 

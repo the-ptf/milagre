@@ -1145,6 +1145,56 @@ test("a deferred Run goes back where its event's arrival puts it, whichever Run 
   );
 });
 
+// Comment `n` on issue `issue`: several comments can share an issue, unlike change()'s.
+const commentOn = (n, issue, over = {}) => ({
+  ...change(issue, "comment"),
+  key: `linear-comment:c${n}`,
+  comment: { id: `c${n}`, body: `ping ${n}`, author: "Ana", createdAt: START },
+  ...over,
+});
+const claimedKeys = (claims) => claims.map((claim) => claim.run.event.key);
+
+test("a comment waiting for its busy Chat holds back the later comments on its issue, and no other issue's", () => {
+  const { store, clock } = setup();
+  const routine = store.create({ ...spec, trigger: linear("comment") });
+  store.enqueue(routine.id, commentOn(1, 1));
+  const [first] = store.claimQueued(clock.t, 3);
+  // Its Chat was busy.
+  assert.equal(store.deferRun(first.run.id, START + 15_000), true);
+  clock.t = START + 5_000;
+  store.enqueue(routine.id, commentOn(2, 1));
+  store.enqueue(routine.id, commentOn(3, 2));
+  assert.deepEqual(claimedKeys(store.claimQueued(clock.t, 3)), ["linear-comment:c3"]);
+  clock.t = START + 15_000;
+  assert.deepEqual(claimedKeys(store.claimQueued(clock.t, 3)), ["linear-comment:c1", "linear-comment:c2"]);
+});
+
+test("a comment is held by its issue's id too, so a move to another team doesn't let it overtake", () => {
+  const { store, clock } = setup();
+  const routine = store.create({ ...spec, trigger: linear("comment") });
+  store.enqueue(routine.id, commentOn(1, 1));
+  const [first] = store.claimQueued(clock.t, 3);
+  assert.equal(store.deferRun(first.run.id, START + 15_000), true);
+  const moved = commentOn(2, 1);
+  store.enqueue(routine.id, { ...moved, issue: { ...moved.issue, key: "WEB-9" } });
+  assert.deepEqual(store.claimQueued(START + 5_000, 3), []);
+  assert.deepEqual(claimedKeys(store.claimQueued(START + 15_000, 3)), ["linear-comment:c1", "linear-comment:c2"]);
+});
+
+test("a comment that waited too long is missed and no longer holds back the next one on its issue", () => {
+  const { store, clock } = setup();
+  const routine = store.create({ ...spec, trigger: linear("comment") });
+  store.enqueue(routine.id, commentOn(1, 1));
+  const [first] = store.claimQueued(clock.t, 3);
+  const late = START + 2 * 3600_000 + 1;
+  assert.equal(store.deferRun(first.run.id, late + 15_000), true);
+  clock.t = START + 2 * 3600_000;
+  store.enqueue(routine.id, commentOn(2, 1));
+  assert.deepEqual(claimedKeys(store.claimQueued(late, 3)), ["linear-comment:c2"]);
+  const missed = store.runs(routine.id).find((run) => run.status === "missed");
+  assert.equal(missed.event.key, "linear-comment:c1");
+});
+
 test("deferRun refuses a Run that is not running, has no event, or does not exist", () => {
   const { store, clock, options } = setup();
   const routine = store.create({ ...spec, trigger: linear("comment") });
