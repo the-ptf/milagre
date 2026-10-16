@@ -191,21 +191,26 @@ test("a bot's thread stays out of the inbox", async (t) => {
   );
 });
 
-test("chat:send into a bot thread is forced to Bot rules", async (t) => {
-  const { runtime, bot, turns } = await withOps(t);
+test("chat:send into a bot thread is forced to Bot rules, on the bot's agent and model", async (t) => {
+  const { runtime, bot, turns, sessions } = await withOps(t);
   await runtime.invoke("chat:send", [
     {
       projectPath: bot.homePath,
       sessionId: bot.threadSessionId,
       worktreeId: bot.homeWorktreeId,
       body: "hi",
-      provider: "claude",
+      provider: "codex",
       model: "m",
       permissionMode: "full",
     },
   ]);
   await waitUntil(() => turnIn(turns, bot.homePath));
   assert.equal(turnIn(turns, bot.homePath).permissionMode, "bot");
+  assert.equal(turnIn(turns, bot.homePath).model, "claude-sonnet");
+  assert.deepEqual(
+    sessions.filter((item) => item.options.cwd === bot.homePath).map((item) => item.provider),
+    ["claude"],
+  );
   await assert.rejects(
     runtime.invoke("chat:send", [
       { projectPath: bot.homePath, sessionId: null, worktreeId: bot.homeWorktreeId, body: "a second thread", provider: "claude", model: "m" },

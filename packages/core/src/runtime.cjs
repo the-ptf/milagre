@@ -1172,12 +1172,13 @@ function createRuntime(options) {
 
   commands.handle("chat:send", async (_event, request) => {
     if (isLinkScopeKey(request?.projectPath) || !scopeStates.has(request?.projectPath)) throw new Error("Open the project before sending to its chats.");
-    // A bot's thread always runs in Bot rules, whatever mode the composer sent. The user's message in a Chat a bot
-    // opened makes it theirs: it runs in the mode they sent and the bot stops steering it. Bot rules are the bots' own:
-    // a message the user sends anywhere else that asks for them (the composer sends the run's mode) asks instead.
+    // A bot's thread always runs in Bot rules on the bot's agent and model, whatever the composer sent. The user's
+    // message in a Chat a bot opened makes it theirs: it runs in the mode they sent and the bot stops steering it. Bot
+    // rules are the bots' own: a message the user sends anywhere else that asks for them (the composer sends the run's
+    // mode) asks instead.
     if (bots.isHome(request.projectPath)) {
-      await bots.beforeThreadSend(request.projectPath, request.sessionId);
-      request = { ...request, permissionMode: "bot" };
+      const bot = await bots.beforeThreadSend(request.projectPath, request.sessionId);
+      request = { ...request, permissionMode: "bot", provider: bot.provider, model: bot.model };
     } else {
       if (request.sessionId != null && bots.botForChat(chatKey(request.projectPath, request.sessionId))?.role === "chat")
         await bots.takeOver(chatKey(request.projectPath, request.sessionId));

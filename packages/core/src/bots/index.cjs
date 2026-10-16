@@ -569,13 +569,14 @@ function createBots({
       await deliver(bot, body, context);
     },
 
-    /** Before a message the user sends into a bot's thread from a Chat composer (chat:send). */
+    /** Before a message the user sends into a bot's thread from a Chat composer (chat:send). Resolves with the bot. */
     async beforeThreadSend(projectPath, sessionId) {
       const bot = botOfHome(projectPath);
-      if (!bot) return;
+      if (!bot) return null;
       requireActive(bot);
       if (Number(sessionId) !== bot.threadSessionId) throw new Error(`${bot.name} has one thread. Send your message there.`);
       await refreshInstructions(bot);
+      return bot;
     },
 
     isHome: (projectPath) => botOfHome(projectPath) !== null,
