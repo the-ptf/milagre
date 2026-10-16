@@ -11,6 +11,7 @@ import { createRoot } from "react-dom/client";
 import { UpdateShell, useAppUpdates, UpdateSettingsBadge } from "/src/components/UpdateNotice";
 import { AboutSettings } from "/src/components/Settings";
 import { ChatComposer } from "/src/components/ChatComposer";
+import SidebarNav from "/src/components/SidebarNav";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
 let listener;
@@ -28,6 +29,9 @@ window.milagre = {
   onUpdateState: (cb) => { listener = cb; return () => {}; },
   installUpdate: async () => { window.__installs++; window.__update({ ...window.__state, status: "installing" }); },
   checkForUpdates: async () => { window.__checks++; window.__update({ ...window.__state, status: "checking" }); },
+  listRecentProjects: async () => [], listNamedLinks: async () => [], listProjects: async () => [],
+  getProjectImage: async () => null, listEditors: async () => [],
+  onProjectState: () => () => {}, onLinkState: () => () => {},
 };
 document.documentElement.classList.add("dark");
 function Settings() { return <AboutSettings update={useAppUpdates()} />; }
@@ -50,13 +54,24 @@ function Chat() {
 }
 function Fixture() {
   const [chat, setChat] = useState(false);
+  const [sidebar, setSidebar] = useState(false);
   window.__chat = setChat;
+  window.__sidebar = setSidebar;
   const settings = <div style={{ maxWidth: 640, margin: "60px auto" }}><Settings /></div>;
+  if (sidebar) return <div className="flex h-screen gap-3 p-3 pt-12">
+    <SidebarNav fill workspaceName="Milagre" projectPath="/fixture" recents={[]} onOpenSettings={() => setChat(false)} />
+    <div className="min-w-0 flex-1">{chat ? <Chat /> : settings}</div>
+  </div>;
   // The app keeps the Chat mounted but hidden while Settings is open.
   if (chat === "hidden") return <><div className="hidden" style={{ height: "100vh" }}><Chat /></div>{settings}</>;
   return chat ? <div style={{ height: "100vh" }}><Chat /></div> : settings;
 }
-createRoot(document.getElementById("root")).render(<UpdateShell><button data-update-settings aria-label="Settings" className="fixed right-4 top-4" onClick={() => window.__chat(false)}>Settings<UpdateSettingsBadge /></button><Fixture /></UpdateShell>);
+function App() {
+  const [sidebar, setSidebar] = useState(false);
+  window.__showSidebar = () => { setSidebar(true); window.__sidebar(true); window.__chat(true); };
+  return <UpdateShell>{!sidebar && <button data-update-settings aria-label="Settings" className="fixed right-4 top-4" onClick={() => window.__chat(false)}>Settings<UpdateSettingsBadge /></button>}<Fixture /></UpdateShell>;
+}
+createRoot(document.getElementById("root")).render(<App />);
 `;
 
 async function browserChecks() {
@@ -199,6 +214,29 @@ async function browserChecks() {
     await waitFor("!document.querySelector('[data-update-notice]')");
     assert.ok(await evaluate(`document.querySelector('[data-update-settings] [aria-label="Update available"]')`));
     assert.equal(await evaluate("document.activeElement.getAttribute('aria-label')"), "Settings");
+    await evaluate("window.__showSidebar()");
+    await waitFor(`!!document.querySelector('aside [data-update-settings] [aria-label="Update available"]')`);
+    const badgeInsideSettings = `(() => {
+      const button = document.querySelector('aside [data-update-settings]');
+      const badge = button.querySelector('[aria-label="Update available"]');
+      const gear = button.getBoundingClientRect(), dot = badge.getBoundingClientRect();
+      return badge.checkVisibility() && dot.width > 0 && dot.height > 0 && dot.left >= gear.left && dot.right <= gear.right && dot.top >= gear.top && dot.bottom <= gear.bottom;
+    })()`;
+    assert.ok(await evaluate(badgeInsideSettings), "Update dot is visible inside the actual sidebar Settings gear");
+    if (await evaluate(`!!document.querySelector('[aria-label="Expand sidebar"]')`)) {
+      await evaluate(`document.querySelector('[aria-label="Expand sidebar"]').click()`);
+    }
+    const sidebarSettled = `(() => {
+      const sidebar = document.querySelector('aside[data-sidebar-collapsed]');
+      return Math.abs(sidebar.getBoundingClientRect().width - parseFloat(sidebar.style.width)) < 1;
+    })()`;
+    await waitFor(sidebarSettled);
+    await screenshot("update-sidebar-expanded");
+    await evaluate(`document.querySelector('[aria-label="Collapse sidebar"]').click()`);
+    await waitFor(`!!document.querySelector('[aria-label="Expand sidebar"]')`);
+    await waitFor(sidebarSettled);
+    assert.ok(await evaluate(badgeInsideSettings), "Update dot remains on the collapsed sidebar Settings gear");
+    await screenshot("update-sidebar-collapsed");
     console.log("PASS: update pill above the chat composer morphs into the card in place, falling back to the bottom left without a visible Chat");
     console.log("PASS: update progress, ready card, dismissal, settings warning, installation, retries and keyboard access");
     app.exit(0);
