@@ -235,7 +235,9 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
         ? {
             ...previous,
             ...event.agent,
-            archived: previous.archived,
+            // One that ended and runs again (a resumed session picks up its background agents, as after an account
+            // switch) is back on the track; one archived while it runs stays archived.
+            archived: previous.archived && !(!subagentActive(previous) && subagentActive(event.agent)),
             title: event.agent.title === "Subagent" ? previous.title : event.agent.title,
             prompt: event.agent.prompt ?? previous.prompt,
             parentId: event.agent.parentId ?? previous.parentId,

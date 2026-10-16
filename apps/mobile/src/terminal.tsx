@@ -510,7 +510,7 @@ function TerminalView({
     let cancelled = false;
     void Promise.resolve().then(() => {
       if (cancelled) return;
-      file.write(createTerminalHtml(latestTheme.current));
+      file.writeSync(createTerminalHtml(latestTheme.current));
       setUri(file.uri);
     });
     // Output waits for the page: what arrives before it is ready is written once it is.
