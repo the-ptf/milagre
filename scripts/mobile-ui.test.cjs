@@ -6502,22 +6502,7 @@ test("mobile provider discovery uses the selected scope and ignores late respons
 
 test("mobile Project Accounts opens from Settings as a native stack screen", () => {
   const opened = [];
-  const { SettingsView } = load("app/settings.tsx", {
-    react: { useState: (value) => [value, () => {}], useCallback: (fn) => fn },
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/main-sync": { MAIN_SYNC_TITLE: "Sync main branch before new Worktrees", MAIN_SYNC_HINT: "" },
-    "react-native": { View: "View" },
-    "expo-router": { Stack: { Screen: "Screen" }, router: { push() {} }, useFocusEffect() {} },
-    "@hugeicons/core-free-icons": {},
-    "../session": { useSession: () => ({ recent: [], client: null }) },
-    "../project-icon": { ProjectIcon: "ProjectIcon" },
-    "../live-activity-native": { nativeActivity: null },
-    "../push": { usePush: () => ({}) },
-    "../update-sheet": { useAppUpdates: () => ({ state: { status: "disabled" } }) },
-    "../icons": { Icon: "Icon" },
-    "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", Toggle: "Toggle", styles: {} },
-    "../attention": { useAttentionButton: () => [true, () => {}] },
-  });
+  const { SettingsView } = loadSettings({ client: { url: "http://mac", call: async () => null } });
   find(SettingsView({ onOpen: (page) => opened.push(page) }), (n) => n.props.title === "Project Accounts").props.onPress();
   assert.deepEqual(opened, ["project-accounts"]);
   const { default: Screen } = load("app/project-accounts.tsx", {
@@ -7436,95 +7421,139 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
   assert.equal(find(render(), (n) => n.type === "ErrorNotice").props.message, "This demo computer only opens its demo project.");
 });
 
-test("mobile Settings lists desktop's sections in desktop's order, Connections only when the Mac can change Linear", async () => {
-  const opened = [];
-  let linearState = null;
-  let client = null;
-  const focus = [];
-  const set = [];
-  const { SettingsView } = load("app/settings.tsx", {
-    react: { useState: () => [linearState, (value) => set.push(value)], useCallback: (fn) => fn },
+// Settings with every import faked; `state` is read on each render, so a test can change the Mac or the Linear answer.
+function loadSettings(state) {
+  return load("app/settings.tsx", {
+    react: { useState: () => [state.linear ?? null, (value) => (state.set ??= []).push(value)], useCallback: (fn) => fn },
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { View: "View", Text: "Text" },
-    "expo-router": { Stack: { Screen: "Screen" }, router: { push() {} }, useFocusEffect: (fn) => focus.push(fn) },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable" },
+    "expo-router": {
+      Stack: { Screen: "Screen" },
+      router: { push: (target) => (state.pushed ??= []).push(target), navigate: (target) => (state.pushed ??= []).push(target) },
+      useFocusEffect: (fn) => (state.focus ??= []).push(fn),
+    },
     "@hugeicons/core-free-icons": {},
-    "../session": { useSession: () => ({ recent: [], client }) },
+    "@milagre/shared/chat-display": { TOOL_CALL_DISPLAYS: [{ id: "compact", label: "Compact" }] },
+    "../session": {
+      useSession: () => ({
+        recent: state.recent ?? [],
+        client: state.client ?? null,
+        hosts: state.client ? [{ id: state.client.url, name: "Studio", address: "http://192.168.0.2:8797" }] : (state.hosts ?? []),
+        hostName: "Studio",
+      }),
+    },
     "../project-icon": { ProjectIcon: "ProjectIcon" },
-    "../push": { usePush: () => ({}) },
-    "../update-sheet": { useAppUpdates: () => ({ state: { status: "disabled" } }) },
+    "../push": { usePush: () => ({ state: { enabled: true } }) },
+    "../update-sheet": { useAppUpdates: () => ({ state: { status: "up-to-date" }, check: async () => {} }) },
     "../icons": { Icon: "Icon" },
-    "../ui": { ListRow: "ListRow", PageScroll: "PageScroll", useStyles: () => ({}) },
+    "../routes-native": { lanRoutes: { kind: () => "lan" } },
+    "../chat-display-setting": { useToolCallDisplay: () => ["compact"] },
+    "../app-version": { appVersionLine: () => "0.1.0 · 31 · d3dac403 · 5f83390" },
+    "../theme": { useTheme: () => ({ colors: {}, settings: { mode: "system" } }) },
+    "../ui": { PageScroll: "PageScroll", useStyles: () => ({ card: {}, separator: {} }) },
   });
-  const titles = (tree) => {
-    const found = [];
-    const visit = (node) => {
-      if (!node || typeof node !== "object") return;
-      if (node.type === "ListRow") found.push(node.props.title);
-      const children = node.props?.children;
-      for (const child of Array.isArray(children) ? children.flat(Infinity) : [children]) visit(child);
-    };
-    visit(tree);
-    return found;
-  };
-  // No Mac: nothing on Connections can be changed, so it isn't listed.
-  assert.ok(!titles(SettingsView({ onOpen() {} })).includes("Connections"));
-  // A Mac that answers for Linear lists it; an older Mac that answers null keeps it hidden.
-  client = { call: async () => ({ enabled: false }) };
-  focus.length = 0;
-  SettingsView({ onOpen() {} });
-  focus.at(-1)();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(set.at(-1), client);
-  const older = { call: async () => null };
-  client = older;
-  SettingsView({ onOpen() {} });
-  focus.at(-1)();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(set.at(-1), null);
-  client = { call: async () => ({ enabled: true }) };
-  linearState = client;
-  const tree = SettingsView({ onOpen: (page) => opened.push(page) });
-  const rows = [];
-  const walk = (node) => {
+}
+
+// The groups Settings renders, each with its rows' titles and values.
+function settingsGroups(tree) {
+  const groups = [];
+  const visit = (node) => {
     if (!node || typeof node !== "object") return;
-    if (node.type === "ListRow") rows.push(node);
-    const children = node.props?.children;
-    for (const child of Array.isArray(children) ? children.flat(Infinity) : [children]) walk(child);
+    if (typeof node.type === "function" && node.type.name === "Group") {
+      const rows = [node.props.children].flat(Infinity).filter((row) => row && typeof row === "object");
+      groups.push({ title: node.props.title, rows: rows.map((row) => [row.props.title, row.props.value ?? ""]), elements: rows });
+      return;
+    }
+    for (const child of [node.props?.children].flat(Infinity)) visit(child);
   };
-  walk(tree);
+  visit(tree);
+  return groups;
+}
+
+test("mobile Settings splits this iPhone from the connected Mac, lists Connections only when the Mac can change Linear, and ends with the version", async () => {
+  const state = {};
+  const { SettingsView } = loadSettings(state);
+  // No Mac: the phone's own settings and About only, and the card offers pairing.
+  const alone = SettingsView({ onOpen() {} });
   assert.deepEqual(
-    rows.map((row) => row.props.title),
+    settingsGroups(alone).map((group) => group.title),
+    ["This iPhone", "About"],
+  );
+  assert.ok(find(alone, (n) => n.type === "Text" && n.props.children === "Pair a computer"));
+  find(alone, (n) => n.type === "Pressable" && n.props.accessibilityLabel === "Pair a computer").props.onPress();
+  assert.deepEqual(state.pushed, ["/add-computer"]);
+  // A Mac that answers for Linear lists Connections; an older Mac that answers null keeps it hidden.
+  state.client = { url: "http://studio", call: async () => ({ enabled: false }) };
+  state.focus = [];
+  SettingsView({ onOpen() {} });
+  state.focus.at(-1)();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(state.set.at(-1).client, state.client);
+  assert.equal(state.set.at(-1).enabled, false);
+  state.client = { url: "http://studio", call: async () => null };
+  SettingsView({ onOpen() {} });
+  state.focus.at(-1)();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(state.set.at(-1), null);
+  assert.ok(!settingsGroups(SettingsView({ onOpen() {} })).some((group) => group.rows.some(([title]) => title === "Connections")));
+  state.client = { url: "http://studio", call: async () => ({ enabled: true }) };
+  state.linear = { client: state.client, enabled: true };
+  state.recent = [{ path: "/work/milagre", name: "milagre" }];
+  const opened = [];
+  const tree = SettingsView({ onOpen: (page) => opened.push(page) });
+  const groups = settingsGroups(tree);
+  assert.deepEqual(
+    groups.map(({ title, rows }) => [title, rows]),
     [
-      "General",
-      "Accounts",
-      "Project Accounts",
-      "Appearance",
-      "Chat",
-      "Notifications",
-      "Connections",
-      "Skills",
-      "MCP",
-      "Milagre MCP",
-      "Experimental",
-      "Privacy & AI",
-      "App update",
+      [
+        "This iPhone",
+        [
+          ["Notifications", "On"],
+          ["Appearance", "System"],
+          ["Chat", "Compact"],
+          ["Experimental", ""],
+        ],
+      ],
+      [
+        "Studio",
+        [
+          ["General", ""],
+          ["Accounts", ""],
+          ["Project Accounts", ""],
+          ["Connections", "Linear"],
+          ["Skills", ""],
+          ["MCP", ""],
+          ["Milagre MCP", ""],
+        ],
+      ],
+      ["Projects", [["milagre", ""]]],
+      [
+        "About",
+        [
+          ["Privacy & AI", ""],
+          ["App update", "Up to date"],
+        ],
+      ],
     ],
   );
-  for (const row of rows.slice(0, -1)) row.props.onPress();
+  for (const row of [...groups[0].elements, ...groups[1].elements, groups[3].elements[0]]) row.props.onPress();
   assert.deepEqual(opened, [
+    "notifications",
+    "appearance",
+    "chat-display",
+    "experimental",
     "general",
     "accounts",
     "project-accounts",
-    "appearance",
-    "chat-display",
-    "notifications",
     "connections",
     "skills",
     "mcp",
     "local-mcp",
-    "experimental",
     "privacy",
   ]);
+  // The card names the Mac and its route; the version line closes the page.
+  assert.ok(find(tree, (n) => n.type === "Pressable" && n.props.accessibilityLabel === "Studio. Connected, Local network"));
+  assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "0.1.0 · 31 · d3dac403 · 5f83390"));
   const page = (file, title, section, name) => {
     const { default: Screen } = load(file, {
       "react/jsx-runtime": { jsx, jsxs: jsx },
