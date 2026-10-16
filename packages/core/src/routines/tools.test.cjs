@@ -13,7 +13,7 @@ const CHAT = "/code/app#s1";
 const OTHER_CHAT = "/code/other#s9";
 const SETTINGS = { provider: "claude", model: "opus", permissionMode: "default" };
 
-function setup({ settings = SETTINGS, timezone = "UTC" } = {}) {
+function setup({ settings = SETTINGS, timezone = "UTC", workspaces = ["acme"] } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-tools-"));
   const clock = { t: START };
   let n = 0;
@@ -25,7 +25,14 @@ function setup({ settings = SETTINGS, timezone = "UTC" } = {}) {
       return { id: "run1", routineId: id, status: "acted", summary: "Pinged CI" };
     },
   };
-  const tools = createRoutineTools({ store, scheduler, chatSettings: () => settings, defaultTimezone: () => timezone, now: () => clock.t });
+  const tools = createRoutineTools({
+    store,
+    scheduler,
+    chatSettings: () => settings,
+    defaultTimezone: () => timezone,
+    linearWorkspaces: () => workspaces,
+    now: () => clock.t,
+  });
   const call = (name, args, chatId = CHAT) =>
     runTool(
       tools.definitions(chatId).find((tool) => tool.name === name),
@@ -38,7 +45,7 @@ const create = { name: "watch CI", prompt: "check the PR", every: "15m" };
 
 test("the tool names and definitions line up", () => {
   const { tools } = setup();
-  assert.deepEqual(ROUTINE_TOOL_NAMES, ["routine_list", "heartbeat_create", "routine_update", "routine_delete", "routine_run_now"]);
+  assert.deepEqual(ROUTINE_TOOL_NAMES, ["routine_list", "heartbeat_create", "routine_create", "routine_update", "routine_delete", "routine_run_now"]);
   assert.deepEqual(
     tools.definitions(CHAT).map((tool) => tool.name),
     ROUTINE_TOOL_NAMES,
@@ -52,7 +59,7 @@ test("heartbeat_create with every stores the cron, the default expiry and the Ch
   assert.equal(result.isError, false);
   assert.equal(
     result.text,
-    'Heartbeat "watch CI" set: every 15 min, next 10:15, ends 2026-01-12 10:00. Reply "(pass) <reason>" on beats where nothing needs doing.',
+    '{"routine":{"id":"id1","name":"watch CI"}}\nHeartbeat "watch CI" set: every 15 min, next 10:15, ends 2026-01-12 10:00. Reply "(pass) <reason>" on beats where nothing needs doing.',
   );
   const [routine] = store.list();
   assert.equal(routine.trigger.cron, "*/15 * * * *");
@@ -88,7 +95,7 @@ test("heartbeat_create takes a cron, a timezone and an expiresIn", async () => {
   const { store, call } = setup();
   const result = await call("heartbeat_create", { name: "daily", prompt: "p", cron: "0 9 * * *", timezone: "America/New_York", expiresIn: "2d" });
   assert.equal(result.isError, false);
-  assert.match(result.text, /set: cron "0 9 \* \* \*" \(America\/New_York\), next 09:00, ends 2026-01-07 05:00\./);
+  assert.match(result.text, /set: daily 09:00, next 09:00, ends 2026-01-07 05:00\./);
   assert.equal(store.list()[0].expiresAt, START + 2 * DAY);
 });
 
@@ -149,7 +156,7 @@ test("routine_list shows this Project's heartbeats and nothing else", async () =
   );
   assert.match(
     lines.find((line) => line.includes("hourly")),
-    /^id2 · hourly · cron "30 \* \* \* \*" \(UTC\) · 10:30 · enabled$/,
+    /^id2 · hourly · cron "30 \* \* \* \*" · 10:30 · enabled$/,
   );
 });
 
@@ -263,4 +270,51 @@ test("expiresIn is capped at 30 days in heartbeat_create and routine_update, and
   assert.equal(update.isError, true);
   assert.match(update.text, /at most 30d/);
   assert.equal(store.get("id1").expiresAt, START + 30 * DAY);
+});
+
+test("routine_create with a Linear label trigger stores a new-chat Routine for the caller's Project", async () => {
+  const { store, call } = setup();
+  const result = await call("routine_create", { name: "triage", prompt: "look at it", trigger: "linear", linearEvent: "label-added", label: "agent" });
+  assert.equal(result.isError, false);
+  assert.equal(result.text, 'Routine "triage" set: Linear · label agent added, runs in a new worktree in app.');
+  const [routine] = store.list();
+  assert.deepEqual(routine.trigger, { kind: "linear", workspace: "acme", event: "label-added", label: "agent" });
+  assert.deepEqual(routine.target, { kind: "new-chat", projectPath: "/code/app", workspace: "worktree" });
+  assert.deepEqual(routine.createdBy, { kind: "agent", chatId: CHAT });
+  assert.equal(routine.model, "opus");
+});
+
+test("routine_create schedules, validates and rejects webhooks", async () => {
+  const { store, call, tools } = setup({ workspaces: ["a", "b"] });
+  const ok = await call("routine_create", { name: "nightly", prompt: "p", trigger: "schedule", every: "2h", projectWorkspace: "project" });
+  assert.equal(ok.isError, false);
+  assert.match(ok.text, /runs in the Project folder in app\.$/);
+  assert.equal(store.list()[0].trigger.cron, "0 */2 * * *");
+  assert.equal((await call("routine_create", { name: "x", prompt: "p", trigger: "schedule" })).isError, true);
+  assert.equal((await call("routine_create", { name: "x", prompt: "p", trigger: "linear", linearEvent: "label-added" })).isError, true);
+  assert.equal((await call("routine_create", { name: "x", prompt: "p", trigger: "linear", linearEvent: "state" })).isError, true);
+  const noWorkspace = await call("routine_create", { name: "x", prompt: "p", trigger: "linear", linearEvent: "assigned" });
+  assert.match(noWorkspace.text, /Say which Linear workspace/);
+  assert.equal((await call("routine_create", { name: "x", prompt: "p", trigger: "linear", linearEvent: "assigned", workspace: "b" })).isError, false);
+  assert.equal((await call("routine_create", { name: "w", prompt: "p", trigger: "webhook" })).isError, true);
+  const tool = tools.definitions(CHAT).find((item) => item.name === "routine_create");
+  assert.match(tool.description, /New routine form/);
+  assert.match(tool.description, /fresh Chat/);
+  assert.equal(store.list().length, 2);
+});
+
+test("routines of the Project are found from a sibling Chat, by chat or by projectPath", async () => {
+  const { store, call } = setup();
+  await call("routine_create", { name: "triage", prompt: "p", trigger: "linear", linearEvent: "assigned", workspace: "acme" });
+  await call("heartbeat_create", create);
+  const sibling = "/code/app#s2";
+  const listed = await call("routine_list", {}, sibling);
+  assert.match(listed.text, /triage/);
+  assert.match(listed.text, /watch CI/);
+  assert.match((await call("routine_list", {}, OTHER_CHAT)).text, /No routines/);
+  const [triage] = store.list();
+  assert.equal((await call("routine_update", { id: triage.id, enabled: false }, sibling)).isError, false);
+  assert.equal((await call("routine_run_now", { id: triage.id }, sibling)).isError, false);
+  assert.equal((await call("routine_delete", { id: triage.id }, OTHER_CHAT)).isError, true);
+  assert.equal((await call("routine_delete", { id: triage.id }, sibling)).isError, false);
 });

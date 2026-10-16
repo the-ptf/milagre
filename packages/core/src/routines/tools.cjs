@@ -1,11 +1,13 @@
+const path = require("node:path");
 const { z } = require("zod");
+const { clock, triggerText } = require("@milagre/shared/routines");
 const { projectOfKey } = require("@milagre/shared/agent-runs");
 const { everyToCron } = require("./cron.cjs");
 
 // Milagre's routine tools, the same for every provider: an agent sets, lists, changes and stops heartbeats that
 // send a message into its own Chat on a schedule. The tool names live here only; permission code auto-approves them.
-const ROUTINE_TOOL_NAMES = Object.freeze(["routine_list", "heartbeat_create", "routine_update", "routine_delete", "routine_run_now"]);
-const [ROUTINE_LIST, HEARTBEAT_CREATE, ROUTINE_UPDATE, ROUTINE_DELETE, ROUTINE_RUN_NOW] = ROUTINE_TOOL_NAMES;
+const ROUTINE_TOOL_NAMES = Object.freeze(["routine_list", "heartbeat_create", "routine_create", "routine_update", "routine_delete", "routine_run_now"]);
+const [ROUTINE_LIST, HEARTBEAT_CREATE, ROUTINE_CREATE, ROUTINE_UPDATE, ROUTINE_DELETE, ROUTINE_RUN_NOW] = ROUTINE_TOOL_NAMES;
 
 const UNIT_MS = { m: 60_000, h: 3600_000, d: 864e5 };
 const MAX_EXPIRY_MS = 30 * 864e5;
@@ -32,51 +34,33 @@ function checkTimezone(timeZone) {
   Intl.DateTimeFormat("en-US", { timeZone }).format(0);
 }
 
-function clock(epoch, timeZone, withDate) {
-  const parts = {};
-  const options = {
-    timeZone,
-    hourCycle: "h23",
-    hour: "2-digit",
-    minute: "2-digit",
-    ...(withDate ? { year: "numeric", month: "2-digit", day: "2-digit" } : {}),
-  };
-  for (const part of new Intl.DateTimeFormat("en-US", options).formatToParts(epoch)) parts[part.type] = part.value;
-  const time = `${parts.hour}:${parts.minute}`;
-  return withDate ? `${parts.year}-${parts.month}-${parts.day} ${time}` : time;
-}
-
-// The cadence in words when the cron is one `every` makes, otherwise the cron itself.
-function triggerText({ cron, timezone }) {
-  const minutes = /^\*\/(\d+) \* \* \* \*$/.exec(cron)?.[1];
-  if (minutes) return `every ${minutes} min`;
-  const hours = /^0 \*\/(\d+) \* \* \*$/.exec(cron)?.[1];
-  if (hours) return `every ${hours} h`;
-  return `cron "${cron}" (${timezone})`;
-}
-
 function endText(routine) {
   const ends = [];
   if (routine.expiresAt !== undefined) ends.push(clock(routine.expiresAt, routine.trigger.timezone, true));
   if (routine.maxRuns !== undefined) ends.push(`after ${routine.maxRuns} ${routine.maxRuns === 1 ? "run" : "runs"}`);
-  return `ends ${ends.join(" or ")}`;
+  return ends.length ? `ends ${ends.join(" or ")}` : "no end";
 }
 
 const nextText = (routine) => (routine.enabled && routine.nextRunAt != null ? clock(routine.nextRunAt, routine.trigger.timezone, false) : "-");
 
 function summary(routine) {
-  const next = routine.enabled ? `next ${nextText(routine)}` : "paused";
+  const next = routine.trigger.kind !== "schedule" ? (routine.enabled ? "on" : "paused") : routine.enabled ? `next ${nextText(routine)}` : "paused";
   return `${triggerText(routine.trigger)}, ${next}, ${endText(routine)}`;
 }
 
+const LINEAR_EVENTS = ["assigned", "label-added", "state", "comment"];
+
 /**
  * `chatSettings(chatId)` gives the Chat's provider, model and permission mode (or null) for a new heartbeat to reuse.
- * `defaultTimezone()` is the computer's IANA timezone. `now` is injected so tests can pin "expiresIn" to a date.
+ * `defaultTimezone()` is the computer's IANA timezone. `linearWorkspaces()` lists the connected Linear workspace keys. `now` is injected so tests can pin "expiresIn" to a date.
  */
-function createRoutineTools({ store, scheduler, chatSettings, defaultTimezone, now = Date.now }) {
+function createRoutineTools({ store, scheduler, chatSettings, defaultTimezone, linearWorkspaces = () => [], now = Date.now }) {
   function definitions(chatId) {
     const project = projectOfKey(chatId);
-    const inProject = (routine) => routine.target?.kind === "chat" && projectOfKey(routine.target.chatId) === project;
+    const inProject = (routine) =>
+      routine.target?.kind === "chat"
+        ? projectOfKey(routine.target.chatId) === project
+        : routine.target?.kind === "new-chat" && routine.target.projectPath === project;
     const own = (id) => {
       const routine = store.get(id);
       if (!routine || !inProject(routine)) throw new Error(`Routine not found: ${id}`);
@@ -85,7 +69,7 @@ function createRoutineTools({ store, scheduler, chatSettings, defaultTimezone, n
     return [
       {
         name: ROUTINE_LIST,
-        description: "List the routines (heartbeats) in this Chat's Project: id, name, trigger, next run and whether it is enabled.",
+        description: "List the Routines (Heartbeats and triggers) in this Chat's Project: id, name, trigger, next run and whether it is enabled.",
         input: {},
         readOnly: true,
         run: async () => {
@@ -99,7 +83,7 @@ function createRoutineTools({ store, scheduler, chatSettings, defaultTimezone, n
       {
         name: HEARTBEAT_CREATE,
         description:
-          'Set a heartbeat: Milagre sends the prompt into this Chat on a schedule, as a new turn, so you can keep watching something (a PR, a deploy, a long job). Give exactly one of cron or every. A heartbeat always ends: it stops after 7 days unless you set maxRuns or expiresIn (at most 30 days). Setting one with the same name again replaces it. On a beat where nothing needs doing, reply "(pass) <reason>". Delete the heartbeat with routine_delete as soon as the work is done (the PR is merged, the deploy is live).',
+          'Set a Heartbeat: Milagre sends the prompt into this Chat on a schedule, as a new turn, so you can keep watching something (a PR, a deploy, a long job). Give exactly one of cron or every. A heartbeat always ends: it stops after 7 days unless you set maxRuns or expiresIn (at most 30 days). Setting one with the same name again replaces it. On a beat where nothing needs doing, reply "(pass) <reason>". Delete the heartbeat with routine_delete as soon as the work is done (the PR is merged, the deploy is live).',
         input: {
           name: z.string().min(1).max(80).describe("Short name, unique in this Chat."),
           prompt: z.string().min(1).max(4000).describe("What to do on each beat."),
@@ -130,7 +114,68 @@ function createRoutineTools({ store, scheduler, chatSettings, defaultTimezone, n
             permissionMode: settings.permissionMode,
             createdBy: { kind: "agent", chatId },
           });
-          return `Heartbeat "${routine.name}" set: ${summary(routine)}. Reply "(pass) <reason>" on beats where nothing needs doing.`;
+          return `${JSON.stringify({ routine: { id: routine.id, name: routine.name } })}\nHeartbeat "${routine.name}" set: ${summary(routine)}. Reply "(pass) <reason>" on beats where nothing needs doing.`;
+        },
+      },
+      {
+        name: ROUTINE_CREATE,
+        description:
+          'Set a Routine: Milagre starts a fresh Chat in this Project on a schedule or when something happens in Linear. Each Run starts a new Chat (in a new worktree unless projectWorkspace is "project"), not this one. Use heartbeat_create instead to message this Chat. trigger "schedule" needs exactly one of cron or every. trigger "linear" needs linearEvent (assigned, label-added, state or comment), plus label for label-added and state for state; team and workspace are optional. Webhook Routines can only be set up by the person in the New routine form, because agents cannot create webhooks.',
+        input: {
+          name: z.string().min(1).max(80).describe("Short name."),
+          prompt: z.string().min(1).max(4000).describe("What each Run's Chat should do."),
+          trigger: z.enum(["schedule", "linear"]).describe("What starts a Run."),
+          cron: cronField.optional(),
+          every: everyField.optional(),
+          timezone: timezoneField.optional(),
+          linearEvent: z.enum(LINEAR_EVENTS).optional().describe("For a linear trigger: what happens to an issue."),
+          team: z.string().min(1).max(80).optional().describe("For a linear trigger: only issues of this team key."),
+          label: z.string().min(1).max(80).optional().describe("For linearEvent label-added: the label."),
+          state: z.string().min(1).max(80).optional().describe("For linearEvent state: the state the issue moves to."),
+          workspace: z.string().min(1).max(80).optional().describe("The Linear workspace. Needed only when several are connected."),
+          projectWorkspace: z.enum(["worktree", "project"]).optional().describe("Where a Run works: a new worktree (default) or the Project folder."),
+        },
+        readOnly: false,
+        run: async ({ name, prompt, trigger, cron, every, timezone, linearEvent, team, label, state, workspace, projectWorkspace }) => {
+          let built;
+          if (trigger === "schedule") {
+            if ((cron === undefined) === (every === undefined)) throw new Error("Give exactly one of cron or every, not both and not neither.");
+            const zone = timezone ?? defaultTimezone();
+            checkTimezone(zone);
+            built = { kind: "schedule", cron: cron ?? everyToCron(every), timezone: zone };
+          } else {
+            if (linearEvent === undefined) throw new Error(`A linear trigger needs linearEvent: ${LINEAR_EVENTS.join(", ")}.`);
+            if (linearEvent === "label-added" && label === undefined) throw new Error("linearEvent label-added needs a label.");
+            if (linearEvent === "state" && state === undefined) throw new Error("linearEvent state needs a state.");
+            let chosen = workspace;
+            if (chosen === undefined) {
+              const connected = linearWorkspaces();
+              if (connected.length !== 1) throw new Error("Say which Linear workspace");
+              chosen = connected[0];
+            }
+            built = {
+              kind: "linear",
+              workspace: chosen,
+              event: linearEvent,
+              ...(team !== undefined ? { team } : {}),
+              ...(linearEvent === "label-added" ? { label } : {}),
+              ...(linearEvent === "state" ? { state } : {}),
+            };
+          }
+          const settings = chatSettings(chatId) ?? {};
+          const mode = projectWorkspace ?? "worktree";
+          const routine = store.create({
+            name,
+            prompt,
+            trigger: built,
+            target: { kind: "new-chat", projectPath: project, workspace: mode },
+            provider: settings.provider,
+            model: settings.model,
+            permissionMode: settings.permissionMode,
+            createdBy: { kind: "agent", chatId },
+          });
+          const where = mode === "project" ? "in the Project folder" : "in a new worktree";
+          return `Routine "${routine.name}" set: ${triggerText(routine.trigger)}, runs ${where} in ${path.basename(project)}.`;
         },
       },
       {

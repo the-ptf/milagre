@@ -347,6 +347,15 @@ test("a step that ends with a file keeps it", () => {
   assert.equal(runs[key(1)].steps[0].file, "/tmp/ig.png");
 });
 
+test("a step that ends with a routine keeps it", () => {
+  const set = { id: "h1", kind: "other" as const, title: 'Set heartbeat "watch CI"' };
+  const { runs } = fold([
+    { type: "step-started", step: set },
+    { type: "step-completed", id: "h1", status: "done", routine: { id: "r1", name: "watch CI" } },
+  ]);
+  assert.deepEqual(runs[key(1)].steps[0].routine, { id: "r1", name: "watch CI" });
+});
+
 test("a step that ends without a detail keeps none, and a new title replaces the first", () => {
   const read = { id: "r1", kind: "read" as const, title: "Read `app.js`", detail: "$ cat app.js\n" };
   const { runs } = fold([

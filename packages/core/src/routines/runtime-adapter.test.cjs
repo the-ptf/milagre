@@ -166,7 +166,7 @@ test("a Chat on a Named Link gets no routine tools", (t) => {
     cachedState: () => undefined,
     openState: async () => undefined,
   });
-  assert.equal(routines.definitions("/project#2").length, 5);
+  assert.equal(routines.definitions("/project#2").length, 6);
   assert.deepEqual(routines.definitions("milagre-link:0f8e2c1a-1b2c-4d5e-8f90-123456789abc#2"), []);
 });
 

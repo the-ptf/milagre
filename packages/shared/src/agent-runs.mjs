@@ -72,6 +72,7 @@ function endStep({ detail: _streamed, ...step }, end) {
     ...(end.durationMs === undefined ? {} : { durationMs: end.durationMs }),
     ...(end.file === undefined ? {} : { file: end.file }),
     ...(end.artifact === undefined ? {} : { artifact: end.artifact }),
+    ...(end.routine === undefined ? {} : { routine: end.routine }),
   };
 }
 

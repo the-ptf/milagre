@@ -726,7 +726,18 @@ export type AgentEvent =
    * the subagent writing it, if one is. Not saved.
    */
   | { type: "step-draft"; id: string; tool: "design_show" | "design_apply"; offset: number; text: string; done?: boolean; agent?: string }
-  | { type: "step-completed"; id: string; status: "done" | "failed"; title?: string; note?: string; detail?: string; durationMs?: number; file?: string }
+  | {
+      type: "step-completed";
+      id: string;
+      status: "done" | "failed";
+      title?: string;
+      note?: string;
+      detail?: string;
+      durationMs?: number;
+      file?: string;
+      artifact?: ArtifactRef;
+      routine?: { id: string; name: string };
+    }
   | ({ type: "permission-request" } & PermissionRequest)
   | { type: "permission-resolved"; requestId: string; decision: PermissionDecision | "cancelled" }
   | ({ type: "question-request" } & QuestionRequest)

@@ -467,3 +467,24 @@ test("a design result with an image attached still produces the Chat card", () =
   });
   assert.deepEqual(codex.artifact, artifact);
 });
+
+test("a heartbeat_create result's JSON first line becomes step.routine, for Claude and Codex", () => {
+  const text = '{"routine":{"id":"r1","name":"watch CI"}}\nHeartbeat "watch CI" set: every 15 min.';
+  const claude = claudeStepResult(
+    { id: "t1", name: "mcp__milagre__heartbeat_create", input: { name: "watch CI" } },
+    { type: "tool_result", content: [{ type: "text", text }] },
+  );
+  assert.deepEqual(claude, { id: "t1", status: "done", routine: { id: "r1", name: "watch CI" }, detail: 'Heartbeat "watch CI" set: every 15 min.' });
+  const codex = codexStepResult({
+    type: "mcpToolCall",
+    id: "e1",
+    server: "milagre",
+    tool: "heartbeat_create",
+    status: "completed",
+    result: { content: [{ type: "text", text }] },
+  });
+  assert.deepEqual(codex.routine, { id: "r1", name: "watch CI" });
+  assert.equal(codex.detail, 'Heartbeat "watch CI" set: every 15 min.');
+  const plain = claudeStepResult({ id: "t2", name: "mcp__milagre__heartbeat_create", input: {} }, { type: "tool_result", content: "nope" });
+  assert.equal("routine" in plain, false);
+});

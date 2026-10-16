@@ -68,6 +68,7 @@ const ROUTINE_STEP_TOOLS = new Set(ROUTINE_TOOL_NAMES);
 function routineTitle(server, tool, input = {}) {
   if (server !== "milagre" || !ROUTINE_STEP_TOOLS.has(tool)) return null;
   if (tool === "heartbeat_create") return typeof input.name === "string" && input.name ? `Set heartbeat "${input.name}"` : "Set a heartbeat";
+  if (tool === "routine_create") return typeof input.name === "string" && input.name ? `Set routine "${input.name}"` : "Set a routine";
   return tool === "routine_delete" ? "Stopped a routine" : "Checked routines";
 }
 
@@ -80,6 +81,19 @@ function artifactRef(text) {
       : undefined;
   } catch {
     return undefined;
+  }
+}
+
+// The Heartbeat a finished heartbeat_create set, from the first line of its result: the JSON { routine: { id, name } }.
+// `detail` is the rest of the result, without that line.
+function routineRef(text) {
+  const [first, ...rest] = String(text).split("\n");
+  try {
+    const { id, name } = JSON.parse(first)?.routine ?? {};
+    if (typeof id !== "string" || !id || typeof name !== "string") return {};
+    return { routine: { id, name }, detail: rest.join("\n").trim() || undefined };
+  } catch {
+    return {};
   }
 }
 
@@ -149,6 +163,10 @@ function claudeStepResult(call, block, structured) {
     return end({ artifact, title: artifact ? artifactTitle(artifact.title, designTool) : undefined });
   }
   if (name === "mcp__milagre__artifact_resolve_comment") return end({ detail: input.note });
+  if (name === "mcp__milagre__heartbeat_create") {
+    const { routine, detail } = routineRef(text);
+    if (routine) return end({ routine, detail: detail ? capText(detail) : undefined });
+  }
   if (CLAUDE_EDIT_TOOLS.has(name) || name === "Write") return end({ detail: patchDiff(structured) ?? claudeEditDiff(name, input) });
   if (CLAUDE_AGENT_TOOLS.has(name) && structured?.status === "async_launched") return end({ title: `Started an agent: ${input.description || "a subtask"}` });
   if (CLAUDE_AGENT_TOOLS.has(name) && Array.isArray(structured?.content)) return end({ detail: capText(blocksText(structured.content)) || undefined });
@@ -253,6 +271,10 @@ function codexStepResult(item) {
         return compact({ id, status: "done", artifact, title: artifact ? artifactTitle(artifact.title, item.tool) : undefined });
       }
       if (done && isResolveTool(item.server, item.tool)) return compact({ id, status: "done", detail: item.arguments?.note });
+      if (done && item.server === "milagre" && item.tool === "heartbeat_create") {
+        const { routine, detail } = routineRef(text);
+        if (routine) return compact({ id, status: "done", routine, detail: detail ? capText(detail) : undefined });
+      }
       return compact({
         id,
         status: item.status === "completed" ? "done" : "failed",

@@ -245,6 +245,8 @@ function createRoutines({
     scheduler,
     chatSettings,
     defaultTimezone: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+    // Task B1 wires the connected Linear workspaces; until then an agent has to name one.
+    linearWorkspaces: () => [],
     now,
   });
 
