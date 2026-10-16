@@ -127,6 +127,10 @@
       "types": "./src/routines.d.mts",
       "default": "./src/routines.mjs"
     },
+    "./routine-prompt": {
+      "types": "./src/routine-prompt.d.mts",
+      "default": "./src/routine-prompt.mjs"
+    },
     "./worktree-link": {
       "types": "./src/worktree-link.d.mts",
       "default": "./src/worktree-link.mjs"

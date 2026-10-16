@@ -1,10 +1,23 @@
-// Routine heartbeats in a Chat: the divider a run leaves, the "(pass)" reply that makes it quiet, and how quiet runs
-// fold away. Types: routines.d.mts.
+// Routines in a Chat: the divider a run leaves, the "(pass)" reply that makes it quiet, how quiet runs fold away, and the
+// words for a Routine's trigger. Types: routines.d.mts.
 
 const SUMMARY_LIMIT = 80;
 
+/**
+ * The divider a message stands for, as a routine-run context, or null when it isn't one. A heartbeat's or a comment's
+ * divider is a "routine-run" message. A Linear Run's first message is the issue card with `routine` on it, and reads as the
+ * same divider.
+ */
+export function routineRunOf(message) {
+  const context = message?.context;
+  if (context?.kind === "routine-run") return context;
+  if (context?.kind === "linear-issue" && context.routine && typeof context.routine === "object") return { kind: "routine-run", ...context.routine };
+  return null;
+}
+
+/** Whether the message carries a routine divider (see routineRunOf for both shapes). */
 export function isRoutineRun(message) {
-  return message?.context?.kind === "routine-run";
+  return routineRunOf(message) !== null;
 }
 
 /**
@@ -21,10 +34,22 @@ export function parsePass(text) {
   return { quiet: true, summary: line.slice(0, SUMMARY_LIMIT) };
 }
 
-function clock(at, timeZone) {
-  const parts = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).formatToParts(at);
+/**
+ * A moment as "HH:MM" on a 24 hour clock, in `timeZone` (the computer's when left out). With `withDate` it leads with the
+ * date in that zone: "2026-10-16 08:30".
+ */
+export function clock(at, timeZone, withDate = false) {
+  const options = {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone,
+    ...(withDate ? { year: "numeric", month: "2-digit", day: "2-digit" } : {}),
+  };
+  const parts = new Intl.DateTimeFormat("en-GB", options).formatToParts(at);
   const part = (type) => parts.find((entry) => entry.type === type)?.value ?? "00";
-  return `${part("hour")}:${part("minute")}`;
+  const time = `${part("hour")}:${part("minute")}`;
+  return withDate ? `${part("year")}-${part("month")}-${part("day")} ${time}` : time;
 }
 
 /** The divider as text: "Heartbeat · 10:15" when the run acted, "10:30 · quiet: CI green" when it passed. */
@@ -41,7 +66,7 @@ export function mergedRoutineRunText(merged, timeZone) {
   return `${count} quiet checks · last ${clock(last.at, timeZone)}${summary}`;
 }
 
-const isQuietRun = (message) => isRoutineRun(message) && message.context.quiet === true;
+const isQuietRun = (message) => routineRunOf(message)?.quiet === true;
 
 /**
  * One entry per message, in order. A quiet run's reply is hidden. Quiet dividers with only their own replies between them
@@ -54,7 +79,7 @@ export function groupQuietRuns(messages) {
     if (run.length > 1) {
       for (const index of run.slice(0, -1)) entries[index].hidden = true;
       const last = run[run.length - 1];
-      entries[last].merged = { count: run.length, last: messages[last].context };
+      entries[last].merged = { count: run.length, last: routineRunOf(messages[last]) };
     }
     run = [];
   };
@@ -72,4 +97,62 @@ export function groupQuietRuns(messages) {
   }
   close();
   return entries;
+}
+
+const STEP = /^\*\/([1-9]\d*)$/;
+const NUMBER = /^\d{1,2}$/;
+
+/** "08:30" for a cron's minute and hour fields when both are plain numbers on a clock, else null. */
+function cronTime(minute, hour) {
+  if (!NUMBER.test(minute) || !NUMBER.test(hour) || Number(minute) > 59 || Number(hour) > 23) return null;
+  return `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
+}
+
+/**
+ * A schedule in words when it is a shape the Routines form or a heartbeat's `every` makes ("every 15 min", "every 2 h",
+ * "weekdays 08:30", "daily 08:30"), otherwise the cron expression itself.
+ */
+function scheduleText(cron) {
+  const expression = String(cron ?? "").trim();
+  const [minute, hour, dayOfMonth, month, dayOfWeek, ...rest] = expression.split(/\s+/);
+  if (rest.length === 0 && dayOfWeek !== undefined && dayOfMonth === "*" && month === "*") {
+    const minutes = hour === "*" && dayOfWeek === "*" ? STEP.exec(minute)?.[1] : undefined;
+    if (minutes && Number(minutes) <= 59) return `every ${minutes} min`;
+    const hours = minute === "0" && dayOfWeek === "*" ? STEP.exec(hour)?.[1] : undefined;
+    if (hours && Number(hours) <= 23) return `every ${hours} h`;
+    const time = cronTime(minute, hour);
+    if (time && dayOfWeek === "1-5") return `weekdays ${time}`;
+    if (time && dayOfWeek === "*") return `daily ${time}`;
+  }
+  return `cron "${expression}"`;
+}
+
+function linearText({ event, team, label, state }) {
+  const suffix = team ? ` · team ${team}` : "";
+  switch (event) {
+    case "label-added":
+      return `Linear · label ${label ? `${label} ` : ""}added${suffix}`;
+    case "assigned":
+      return `Linear · assigned to me${suffix}`;
+    case "state":
+      return `Linear · moved${state ? ` to ${state}` : ""}${suffix}`;
+    case "comment":
+      return `Linear · new comment${suffix}`;
+    default:
+      return `Linear${suffix}`;
+  }
+}
+
+/** What starts a Routine, in a few words: "every 15 min", "weekdays 08:30", "Linear · assigned to me", "Webhook". */
+export function triggerText(trigger) {
+  switch (trigger?.kind) {
+    case "schedule":
+      return scheduleText(trigger.cron);
+    case "linear":
+      return linearText(trigger);
+    case "webhook":
+      return "Webhook";
+    default:
+      return String(trigger?.kind ?? "");
+  }
 }

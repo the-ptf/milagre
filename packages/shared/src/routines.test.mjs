@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { groupQuietRuns, isRoutineRun, mergedRoutineRunText, parsePass, routineRunText } from "./routines.mjs";
+import { clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, parsePass, routineRunOf, routineRunText, triggerText } from "./routines.mjs";
 
 test("parsePass reads a leading (pass) as quiet, with the summary after it", () => {
   assert.deepEqual(parsePass("(pass) CI green"), { quiet: true, summary: "CI green" });
@@ -98,4 +98,188 @@ test("groupQuietRuns does not merge quiet dividers split by a person's message",
       [true, undefined],
     ],
   );
+});
+
+// A Linear Run's first message is the issue card; `routine` makes it a routine divider too.
+const linearRoutine = (over = {}) => ({ routineId: "r2", runId: "run2", name: "Triage", at: Date.UTC(2026, 9, 16, 13, 15), ...over });
+const linearIssue = (id, routine) => ({
+  id,
+  role: "user",
+  text: "",
+  context: {
+    kind: "linear-issue",
+    key: "MIL-1",
+    title: "Paste images in chat",
+    url: "https://linear.app/milagre/issue/MIL-1",
+    state: { name: "Todo", type: "unstarted", color: "#e2e2e2" },
+    ...(routine ? { routine } : {}),
+  },
+});
+
+test("routineRunOf returns a routine-run message's own context", () => {
+  const message = { context: context() };
+  assert.equal(routineRunOf(message), message.context);
+});
+
+test("routineRunOf reads the routine a linear-issue message carries as a routine-run context", () => {
+  const message = linearIssue("l1", linearRoutine({ quiet: true, summary: "nothing new" }));
+  const run = routineRunOf(message);
+  assert.equal(run.runId, "run2");
+  assert.deepEqual(run, {
+    kind: "routine-run",
+    routineId: "r2",
+    runId: "run2",
+    name: "Triage",
+    at: Date.UTC(2026, 9, 16, 13, 15),
+    quiet: true,
+    summary: "nothing new",
+  });
+});
+
+test("routineRunOf is null for a linear-issue message without routine and for anything else", () => {
+  assert.equal(routineRunOf(linearIssue("l1")), null);
+  assert.equal(routineRunOf({ context: { kind: "reload" } }), null);
+  assert.equal(routineRunOf({ context: null }), null);
+  assert.equal(routineRunOf({ context: "handover" }), null);
+  assert.equal(routineRunOf({}), null);
+  assert.equal(routineRunOf(null), null);
+  assert.equal(routineRunOf(undefined), null);
+});
+
+test("isRoutineRun is true for a linear-issue message that carries routine, and only then", () => {
+  assert.equal(isRoutineRun(linearIssue("l1", linearRoutine())), true);
+  assert.equal(isRoutineRun(linearIssue("l2")), false);
+});
+
+test("a linear-issue routine message words its divider through routineRunOf", () => {
+  const run = routineRunOf(linearIssue("l1", linearRoutine({ quiet: true, summary: "no change" })));
+  assert.equal(routineRunText(run, "UTC"), "13:15 · quiet: no change");
+  assert.equal(routineRunText(routineRunOf(linearIssue("l2", linearRoutine())), "UTC"), "Heartbeat · 13:15");
+});
+
+test("groupQuietRuns hides the reply after a quiet linear-issue routine message", () => {
+  const issue = linearIssue("l1", linearRoutine({ quiet: true, summary: "no change" }));
+  const grouped = groupQuietRuns([issue, reply("r1"), { id: "u", role: "user", text: "later" }]);
+  assert.deepEqual(
+    grouped.map((entry) => entry.hidden === true),
+    [false, true, false],
+  );
+  assert.equal(grouped[0].merged, undefined);
+});
+
+test("groupQuietRuns keeps the reply after an acted linear-issue routine message", () => {
+  const grouped = groupQuietRuns([linearIssue("l1", linearRoutine({ quiet: false })), reply("r1")]);
+  assert.deepEqual(
+    grouped.map((entry) => entry.hidden === true),
+    [false, false],
+  );
+});
+
+test("groupQuietRuns folds a quiet linear-issue routine message into the quiet dividers around it", () => {
+  const q1 = divider("q1", { quiet: true, summary: "one" });
+  const q2 = linearIssue("q2", linearRoutine({ runId: "q2", quiet: true, summary: "two" }));
+  const grouped = groupQuietRuns([q1, reply("r1"), q2, reply("r2")]);
+  assert.deepEqual(
+    grouped.map((entry) => entry.hidden === true),
+    [true, true, false, true],
+  );
+  assert.deepEqual(grouped[2].merged, { count: 2, last: routineRunOf(q2) });
+  assert.equal(grouped[2].merged.last.kind, "routine-run");
+  assert.equal(mergedRoutineRunText(grouped[2].merged, "UTC"), "2 quiet checks · last 13:15: two");
+});
+
+test("clock gives HH:MM on a 24 hour clock in the given zone", () => {
+  assert.equal(clock(Date.UTC(2026, 9, 16, 3, 5), "UTC"), "03:05");
+  assert.equal(clock(Date.UTC(2026, 9, 16, 0, 0), "UTC"), "00:00");
+  assert.equal(clock(Date.UTC(2026, 9, 16, 0, 5), "America/Sao_Paulo"), "21:05");
+});
+
+test("clock adds the date, in that zone, when asked", () => {
+  assert.equal(clock(Date.UTC(2026, 9, 16, 8, 30), "UTC", true), "2026-10-16 08:30");
+  assert.equal(clock(Date.UTC(2026, 9, 16, 1, 30), "America/Sao_Paulo", true), "2026-10-15 22:30");
+  assert.equal(clock(Date.UTC(2026, 9, 16, 8, 30), "UTC", false), "08:30");
+});
+
+const schedule = (cron) => ({ kind: "schedule", cron, timezone: "UTC" });
+
+test("triggerText words a schedule trigger", () => {
+  assert.equal(triggerText(schedule("*/15 * * * *")), "every 15 min");
+  assert.equal(triggerText(schedule("0 */2 * * *")), "every 2 h");
+  assert.equal(triggerText(schedule("30 8 * * 1-5")), "weekdays 08:30");
+  assert.equal(triggerText(schedule("30 8 * * *")), "daily 08:30");
+});
+
+test("triggerText reads every cadence a heartbeat's `every` makes", () => {
+  assert.equal(triggerText(schedule("*/1 * * * *")), "every 1 min");
+  assert.equal(triggerText(schedule("*/59 * * * *")), "every 59 min");
+  assert.equal(triggerText(schedule("0 */1 * * *")), "every 1 h");
+  assert.equal(triggerText(schedule("0 */23 * * *")), "every 23 h");
+  assert.equal(triggerText(schedule("0 0 * * *")), "daily 00:00");
+});
+
+test("triggerText zero-pads the clock time", () => {
+  assert.equal(triggerText(schedule("5 9 * * 1-5")), "weekdays 09:05");
+  assert.equal(triggerText(schedule("0 0 * * 1-5")), "weekdays 00:00");
+  assert.equal(triggerText(schedule("30 14 * * *")), "daily 14:30");
+  assert.equal(triggerText(schedule("59 23 * * *")), "daily 23:59");
+});
+
+test("triggerText ignores extra spaces in the expression", () => {
+  assert.equal(triggerText(schedule("  */15   *  * * *  ")), "every 15 min");
+  assert.equal(triggerText(schedule(" 0 9 1 * * ")), 'cron "0 9 1 * *"');
+});
+
+test("triggerText leaves any other schedule as its cron expression", () => {
+  for (const cron of [
+    "0 9 1 * *",
+    "*/15 8 * * *",
+    "15 */2 * * *",
+    "0,30 8 * * *",
+    "0 9-17 * * 1-5",
+    "30 8 * * 1",
+    "30 8 * * 0,6",
+    "30 8 * 6 *",
+    "* * * * *",
+    "0 * * * *",
+    "61 8 * * *",
+    "30 24 * * *",
+    "*/0 * * * *",
+    "*/60 * * * *",
+    "0 */24 * * *",
+    "not a cron",
+    "",
+  ]) {
+    assert.equal(triggerText(schedule(cron)), `cron "${cron}"`, cron);
+  }
+});
+
+const linear = (event, over = {}) => ({ kind: "linear", workspace: "milagre", event, ...over });
+
+test("triggerText words a Linear trigger", () => {
+  assert.equal(triggerText(linear("label-added", { label: "agent", team: "MIL" })), "Linear · label agent added · team MIL");
+  assert.equal(triggerText(linear("label-added", { label: "agent" })), "Linear · label agent added");
+  assert.equal(triggerText(linear("assigned")), "Linear · assigned to me");
+  assert.equal(triggerText(linear("assigned", { team: "MIL" })), "Linear · assigned to me · team MIL");
+  assert.equal(triggerText(linear("state", { state: "Todo" })), "Linear · moved to Todo");
+  assert.equal(triggerText(linear("state", { state: "Todo", team: "MIL" })), "Linear · moved to Todo · team MIL");
+  assert.equal(triggerText(linear("comment")), "Linear · new comment");
+  assert.equal(triggerText(linear("comment", { team: "MIL" })), "Linear · new comment · team MIL");
+});
+
+test("triggerText never prints undefined for a Linear trigger missing its label or state", () => {
+  assert.equal(triggerText(linear("label-added")), "Linear · label added");
+  assert.equal(triggerText(linear("state")), "Linear · moved");
+  assert.equal(triggerText(linear("label-added", { team: "MIL" })), "Linear · label added · team MIL");
+});
+
+test("triggerText words a webhook trigger", () => {
+  assert.equal(triggerText({ kind: "webhook", hookId: "ab12", signed: false }), "Webhook");
+  assert.equal(triggerText({ kind: "webhook", hookId: "ab12", signed: true }), "Webhook");
+});
+
+test("triggerText copes with a trigger from a newer version", () => {
+  assert.equal(triggerText({ kind: "email" }), "email");
+  assert.equal(triggerText(linear("teleport", { team: "MIL" })), "Linear · team MIL");
+  assert.equal(triggerText(null), "");
+  assert.equal(triggerText(undefined), "");
 });

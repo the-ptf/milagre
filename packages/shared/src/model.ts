@@ -153,6 +153,8 @@ export interface AgentSession {
   resumeTurn?: { stoppedAt?: number };
   /** How full the agent's context window was when its last turn ended. */
   contextUsage?: ContextUsage;
+  /** The Routine and Run that started this Chat; set only on a Chat a Run created. */
+  routine?: { routineId: string; runId: string };
 }
 
 /** Tokens in the agent's context window, out of the model's window size. */
@@ -276,7 +278,11 @@ export type PullRequestBlocker = "conflicts" | "changes-requested" | "checks-fai
 /** A PR-blocker pill the user clicked. Milagre wrote the message and the skill prompt the agent got. */
 export type PullRequestActionContext = { kind: "pr-action"; action: PullRequestBlocker; pr: number; url: string };
 
-/** A Chat started from a Linear issue. Milagre read the issue and wrote the message and prompt; `note` is what the user typed. */
+/**
+ * A Chat started from a Linear issue. Milagre read the issue and wrote the message and prompt; `note` is what the user typed.
+ * A Linear Routine's Run starts the same way, and its first message also carries `routine`: the divider (see
+ * RoutineRunContext, which `routineRunOf` in routines.mjs makes of it) shown with the issue card.
+ */
 export type LinearIssueContext = {
   kind: "linear-issue";
   key: string;
@@ -285,6 +291,7 @@ export type LinearIssueContext = {
   state: { name: string; type: "triage" | "backlog" | "unstarted" | "started" | "completed" | "canceled"; color: string };
   workspace?: string;
   note?: string;
+  routine?: { routineId: string; runId: string; name: string; at: number; quiet?: boolean; summary?: string };
 };
 
 /**
@@ -305,11 +312,45 @@ export type WorktreeLinkedContext = {
 /** Where the user reloaded the Chat's agent: its process ended, and the next turn resumes the session in a new one. */
 export type ChatReloadContext = { kind: "reload" };
 
-/** What starts a Routine. PR 3 adds "linear", PR 4 "webhook". */
-export type RoutineTrigger = { kind: "schedule"; cron: string; timezone: string };
+/**
+ * What starts a Routine: the clock, a change in a Linear workspace, or a POST to its webhook URL. A webhook's `hookId` is
+ * the hex sha256 of the secret in the URL, so the Routine never holds the secret itself; `signed` says an HMAC is checked.
+ */
+export type RoutineTrigger =
+  | { kind: "schedule"; cron: string; timezone: string }
+  | { kind: "linear"; workspace: string; event: "assigned" | "label-added" | "state" | "comment"; team?: string; label?: string; state?: string }
+  | { kind: "webhook"; hookId: string; signed: boolean };
 
-/** Where a Routine's run lands. PR 3 adds "new-chat". */
-export type RoutineTarget = { kind: "chat"; chatId: string };
+/** Where a Routine's Run lands: an existing Chat (a heartbeat), or a new Chat for each Run. */
+export type RoutineTarget = { kind: "chat"; chatId: string } | { kind: "new-chat"; projectPath: string; workspace: "worktree" | "project" };
+
+/** The Linear issue a Run was started for, as it was when the change was seen. */
+export interface LinearIssueSnapshot {
+  id: string;
+  key: string;
+  title: string;
+  description: string;
+  url: string;
+  labels: string[];
+  state: string;
+  team: string;
+  assignee?: string;
+  workspace: string;
+}
+
+/** The Linear comment a Run was started for. `createdAt` is epoch milliseconds. */
+export interface LinearCommentSnapshot {
+  id: string;
+  body: string;
+  author: string;
+  createdAt: number;
+}
+
+/** What made a Routine run, kept on its Run. `key` identifies the event so one change never starts two Runs. */
+export type RoutineEvent =
+  | { kind: "schedule" }
+  | { kind: "linear"; key: string; change: "assigned" | "label-added" | "state" | "comment"; issue: LinearIssueSnapshot; comment?: LinearCommentSnapshot }
+  | { kind: "webhook"; key: string; deliveryId: string };
 
 export type RoutineRunStatus = "running" | "acted" | "quiet" | "failed" | "skipped-busy" | "missed";
 
@@ -329,8 +370,12 @@ export interface Routine {
   nextRunAt?: number | null;
   lastRunAt?: number;
   runCount: number;
-  /** Counted Runs in a row that failed; three end the heartbeat. */
+  /** Counted Runs in a row that failed; three end a heartbeat and pause a trigger. Re-enabling a paused trigger clears it. */
   failedStreak?: number;
+  /** Why a trigger was switched off by itself, e.g. "3 failed runs in a row: <last error>". Cleared when it is switched on again. */
+  pausedReason?: string;
+  /** The error of the most recent failed Run, kept until a Run succeeds. */
+  lastError?: string;
   completedAt?: number;
   createdAt: number;
   updatedAt: number;
@@ -344,6 +389,10 @@ export interface RoutineRun {
   endedAt?: number;
   status: RoutineRunStatus;
   chatId?: string;
+  /** The Worktree this Run's Chat was started in. */
+  worktreeId?: string;
+  /** What started this Run. */
+  event?: RoutineEvent;
   summary?: string;
   error?: string;
 }
@@ -465,6 +514,8 @@ export interface ChatStep {
   tool?: "design_show" | "design_apply" | "artifact_show";
   /** For an artifact step a subagent made, the subagent: the id of the Agent call that started it (Subagent.id). */
   agent?: string;
+  /** For a heartbeat_create step, the Routine it set (the tool result's first line names it), so the card can stop it. */
+  routine?: { id: string; name: string };
 }
 
 export interface ImageAttachment {
