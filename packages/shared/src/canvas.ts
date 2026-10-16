@@ -7,7 +7,7 @@ import { activityAgo } from "./chat-row.ts";
 import type { ChatMessage, CoordinatorState, DiffStat, ModelProvider } from "./model.ts";
 
 /** A chat's live state, the same marks the sidebar draws; the first that applies wins. */
-export type CanvasMark = "question" | "waiting" | "delegated" | "running" | "unread" | "idle";
+export type CanvasMark = "question" | "waiting" | "delegated" | "running" | "background" | "unread" | "idle";
 
 export type CanvasChat = {
   id: number;
@@ -90,6 +90,8 @@ export function canvasStatus(chat: Pick<CanvasChat, "mark" | "lastAt" | "failed"
       return { label: "Working on a Delegation", tone: "accent" };
     case "running":
       return { label: "Running", tone: "accent" };
+    case "background":
+      return { label: "Working in the background", tone: "accent" };
     case "unread":
       return chat.failed ? { label: `Failed${since}`, tone: "red" } : { label: `Finished${since}`, tone: "accent" };
     case "idle":
@@ -109,7 +111,7 @@ export type CanvasFilter = "all" | "needs-you" | "running";
 
 export function matchesCanvasFilter(mark: CanvasMark, filter: CanvasFilter): boolean {
   if (filter === "needs-you") return mark === "question" || mark === "waiting";
-  if (filter === "running") return mark === "running" || mark === "delegated";
+  if (filter === "running") return mark === "running" || mark === "delegated" || mark === "background";
   return true;
 }
 

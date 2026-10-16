@@ -484,6 +484,43 @@ test("a send on the other provider adds a divider before the message, briefs the
   );
 });
 
+test("a send on another provider waits for the Chat's background subagents: nothing is saved and the Claude process stays (T3 #16000)", async (t) => {
+  const { host, manager, saved, created } = harness();
+  t.after(() => manager.closeAll());
+  const { sessionId } = await host.send(message(ALPHA, "review in the background"));
+  await waitUntil(() => created[0]);
+  created[0].emit({ type: "session-started", nativeId: "claude-1" });
+  created[0].emit({ type: "turn-started", turnId: "t1" });
+  created[0].emit({
+    type: "subagent-update",
+    agent: { id: "bg", title: "Review", status: "running", background: true, startedAt: 1, updatedAt: 1, transcript: [] },
+  });
+  created[0].emit({ type: "turn-completed" });
+  await waitUntil(() => saved.get(ALPHA)?.messages.length === 2 && saved.get(ALPHA).sessions[sessionId].subagents?.length === 1);
+
+  await assert.rejects(
+    host.send(message(ALPHA, "now on codex", { sessionId, provider: "codex", model: "gpt-6" })),
+    /A background agent is still running in this Chat\. Switching to Codex would stop it; send again once it finishes\./,
+  );
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).messages.length, 2);
+  assert.equal(saved.get(ALPHA).sessions[sessionId].provider, "claude");
+  assert.deepEqual([created.length, created[0].closed], [1, false]);
+  // The same provider is no switch: the message goes to the Claude process the subagent runs in.
+  await host.send(message(ALPHA, "and on claude", { sessionId }));
+  await waitUntil(() => created[0].turns.length === 2);
+
+  created[0].emit({ type: "turn-started", turnId: "t2" });
+  created[0].emit({
+    type: "subagent-update",
+    agent: { id: "bg", title: "Review", status: "completed", background: true, startedAt: 1, updatedAt: 2, transcript: [] },
+  });
+  created[0].emit({ type: "turn-completed" });
+  await waitUntil(() => !host.runs[`${ALPHA}#${sessionId}`] && saved.get(ALPHA).sessions[sessionId].subagents[0].status === "completed");
+  await host.send(message(ALPHA, "now on codex", { sessionId, provider: "codex", model: "gpt-6" }));
+  await waitUntil(() => created.find((item) => item.provider === "codex" && item.turns.length));
+});
+
 test("switching back resumes the parked session with a catch-up of what happened since", async (t) => {
   const briefs = [];
   const { host, manager, saved, created } = harness({

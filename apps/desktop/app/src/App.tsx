@@ -43,10 +43,12 @@ import {
 } from "./model";
 import { useAgentRuns } from "./components/useAgentRuns";
 import { useAgentPorts } from "./lib/ports";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import {
   chatInProject,
   chatKey,
   chatsAskingUser,
+  chatsInBackground,
   chatsRunning,
   chatsWaitingForUser,
   lastUserModel,
@@ -724,8 +726,16 @@ function App() {
   // The sets are rebuilt on every streamed batch; keeping the old one while its members hold keeps the sidebar rows still.
   const waiting = useStableSet(useMemo(() => chatsWaitingForUser(agentRuns.runs, project?.path ?? ""), [agentRuns.runs, project?.path]));
   const asking = useStableSet(useMemo(() => chatsAskingUser(agentRuns.runs, project?.path ?? ""), [agentRuns.runs, project?.path]));
-  const running = useStableSet(
-    useMemo(() => chatsRunning(agentRuns.runs, project?.path ?? "", state?.sessions), [agentRuns.runs, project?.path, state?.sessions]),
+  const running = useStableSet(useMemo(() => chatsRunning(agentRuns.runs, project?.path ?? ""), [agentRuns.runs, project?.path]));
+  // Chats whose turn ended with background agents still at work (chat-activity.mjs), with their count. Joined, so a
+  // streamed batch that changes nothing keeps the map.
+  const backgroundKey = useMemo(
+    () => [...chatsInBackground(agentRuns.runs, project?.path ?? "", state?.sessions)].map(([id, count]) => `${id}:${count}`).join(","),
+    [agentRuns.runs, project?.path, state?.sessions],
+  );
+  const backgroundChats = useMemo(
+    () => new Map(backgroundKey ? backgroundKey.split(",").map((entry) => entry.split(":").map(Number) as [number, number]) : []),
+    [backgroundKey],
   );
   const linkedWork = useLinkedWork();
   // Chats in other projects that wait on an approval or question. Joined, so a streamed batch that changes nothing keeps the arrays.
@@ -831,8 +841,10 @@ function App() {
           waiting: waiting.has(session.id),
           delegated: delegated.has(session.id),
           running: running.has(session.id) || pending,
+          background: backgroundChats.has(session.id),
           unread: Boolean(session.unread),
         }),
+        ...(backgroundChats.has(session.id) ? { background: backgroundChats.get(session.id) } : {}),
         unread: Boolean(session.unread),
         details: {
           branch: worktree?.name,
@@ -869,6 +881,7 @@ function App() {
     waiting,
     delegated,
     running,
+    backgroundChats,
     pullRequests,
     chatPrs,
     linearIssues,
@@ -2206,7 +2219,15 @@ function App() {
         group: "Chats",
         icon: "chat",
         detail: [
-          chat.mark === "waiting" || chat.mark === "question" ? "Needs you" : chat.mark === "running" ? "Working" : chat.unread ? "Unread" : "",
+          chat.mark === "waiting" || chat.mark === "question"
+            ? "Needs you"
+            : chat.mark === "running"
+              ? "Working"
+              : chat.mark === "background"
+                ? "In the background"
+                : chat.unread
+                  ? "Unread"
+                  : "",
           chat.details?.branch,
         ]
           .filter(Boolean)
@@ -2473,6 +2494,7 @@ function App() {
                       onStopAdvisor={(id) => controlAdvisor("stop", id)}
                       onRetryAdvisor={(id) => controlAdvisor("retry", id)}
                       waitingForSubagents={run?.waitingForSubagents}
+                      activity={selectedSession ? chatActivity(selectedSession, run) : undefined}
                       plan={selectedSession?.plan}
                       contextUsage={run?.contextUsage ?? selectedSession?.contextUsage}
                       ports={project && selectedSession ? agentPorts[chatKey(project.path, selectedSession.id)] : undefined}

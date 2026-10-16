@@ -6,6 +6,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useIsFocused } from "expo-router";
 import { LEFT, RIGHT, STAR, STAR_BOX } from "./logo";
 import { fonts, useTheme } from "./theme";
+import { backgroundLabel } from "@milagre/shared/chat-activity";
 
 /** A CSS keyframe segment: move to keyframe `to` over `duration` ms with the segment's timing function. */
 type Segment = { to: number; duration: number; easing?: EasingFunction };
@@ -134,6 +135,29 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
           {label}
         </Text>
       )}
+      <Elapsed startedAt={startedAt} />
+    </View>
+  );
+}
+
+/**
+ * Desktop's BackgroundIndicator: the Chat's turn ended, but background agents still work (chat-activity.mjs). How many,
+ * and for how long the oldest has; no running mark, since no turn runs.
+ */
+export function BackgroundIndicator({ count, startedAt, mark }: { count: number; startedAt?: number; mark: ReactNode }) {
+  const { colors } = useTheme();
+  const label = `${backgroundLabel(count)} working in the background`;
+  return (
+    <View
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={label}
+      style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 4, paddingVertical: 4 }}
+    >
+      {mark}
+      <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 12, flexShrink: 1 }}>
+        {label}
+      </Text>
       <Elapsed startedAt={startedAt} />
     </View>
   );

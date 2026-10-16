@@ -15,6 +15,8 @@ const { archiveFinishedSubagents, patchSession } = require("@milagre/shared/proj
 const { catchUpStart, handoffKind, isHandoff, lastTurnProvider } = require("@milagre/shared/handoff");
 const { renderTranscript } = require("./handover.cjs");
 const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
+const { backgroundBusyMessage, backgroundSubagents } = require("@milagre/shared/chat-activity");
+const { providerName } = require("@milagre/shared/providers");
 const { accountSwitchText } = require("@milagre/shared/usage-limit");
 
 // A chat stopped longer ago than this waits for the user instead of continuing by itself.
@@ -472,6 +474,9 @@ class ChatHost {
         waitFor = this.preparing.get(chatId) ?? null;
         const steering = Boolean(this.runs[chatId]) || Boolean(waitFor);
         handoff = steering ? null : handoffKind(withSession, session.id, provider);
+        // A switch ends the agent process the Chat's background subagents run in, so it waits for them (T3 #16000).
+        const background = handoff === "switch" ? backgroundSubagents(session).length : 0;
+        if (background) throw new Error(backgroundBusyMessage("switch", background, providerName(provider)));
         if (steering) {
           runProvider = session.provider ?? provider;
           runModel = this.runs[chatId]?.model || lastUserModel(withSession, session.id) || model;

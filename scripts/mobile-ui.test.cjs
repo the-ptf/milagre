@@ -127,6 +127,8 @@ function load(file, modules, extra = "") {
         const own = modules[id] ?? {};
         return { ...(base === "theme" ? themeHooks : uiHooks), ...own };
       }
+      // A Chat's activity (chat-activity.mjs) is a pure derivation many screens read; tests get the real one.
+      if (id === "@milagre/shared/chat-activity" && !(id in modules)) return require("@milagre/shared/chat-activity");
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },

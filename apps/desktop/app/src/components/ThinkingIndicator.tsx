@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { backgroundLabel } from "@milagre/shared/chat-activity";
 
 /** The Milagre mark running: the legs take turns striding while the sparkle bobs and turns a quarter on each step. */
 function RunningLogo() {
@@ -48,6 +49,26 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
         </span>
       )}
       <span aria-hidden className="font-mono text-[12px] tabular-nums text-ink-3">
+        {elapsed}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The Chat's turn ended, but background agents still work (chat-activity.mjs): how many, and for how long the oldest
+ * has. Their results come back to the Chat by themselves, so there is no running mark: no turn runs.
+ */
+export function BackgroundIndicator({ count, startedAt, mark }: { count: number; startedAt?: number; mark: ReactNode }) {
+  const elapsed = useElapsed(startedAt);
+  const label = `${backgroundLabel(count)} working in the background`;
+  return (
+    <div role="status" aria-label={label} data-background-work={count} className="flex w-fit items-center gap-2 px-1 py-1 text-[12px] text-ink-3">
+      {mark}
+      <span aria-hidden className="min-w-0 truncate">
+        {label}
+      </span>
+      <span aria-hidden className="font-mono tabular-nums">
         {elapsed}
       </span>
     </div>

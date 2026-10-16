@@ -147,6 +147,10 @@
       "types": "./src/providers.d.mts",
       "default": "./src/providers.mjs"
     },
+    "./chat-activity": {
+      "types": "./src/chat-activity.d.mts",
+      "default": "./src/chat-activity.mjs"
+    },
     "./provider-capabilities": {
       "types": "./src/provider-capabilities.d.mts",
       "default": "./src/provider-capabilities.mjs"

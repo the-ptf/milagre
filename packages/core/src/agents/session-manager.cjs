@@ -4,6 +4,9 @@ const { PERMISSION_MODES, USER_DECISIONS } = require("./permissions.cjs");
 const { validAnswers } = require("./questions.cjs");
 const { capOutput } = require("./steps.cjs");
 const { recordAntigravityModels } = require("./models.cjs");
+const { backgroundBusyMessage } = require("@milagre/shared/chat-activity");
+const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
+const { providerName } = require("@milagre/shared/providers");
 
 const IDLE_MS = 10 * 60 * 1000;
 const BATCH_MS = 50;
@@ -84,6 +87,11 @@ class SessionManager {
         existing.activeChildren?.size)
     )
       return existing;
+    // Background subagents live in the agent process: replacing it would stop them (T3 #16000). The same provider in
+    // the same folder keeps it, and new Links or instructions wait for the next process; another provider or folder can't.
+    const background = existing && !existing.session.closed ? (existing.backgroundChildren?.size ?? 0) : 0;
+    if (background && existing.provider === provider && existing.cwd === cwd) return existing;
+    if (background) throw new Error(backgroundBusyMessage(existing.provider === provider ? "move" : "switch", background, providerName(provider)));
     const resumeId = sameChat && !existing.session.closed ? (existing.session.nativeId ?? request.resumeId) : request.resumeId;
     if (existing) await this.closeEntry(chatId, existing);
     const entry = {
@@ -154,6 +162,12 @@ class SessionManager {
         entry.activeChildren.delete(event.agent.id);
         if (!entry.session.turnActive) this.scheduleIdleClose(chatId);
       }
+      // The ones that outlive their turn (chat-activity.mjs), for a provider that has them.
+      if (event.agent.background && providerCapabilities(entry.provider).backgroundSubagents) {
+        entry.backgroundChildren ??= new Set();
+        if (activeSubagent(event.agent)) entry.backgroundChildren.add(event.agent.id);
+        else entry.backgroundChildren.delete(event.agent.id);
+      }
     }
     // A usage limit belongs to the account the session runs on, which only this manager knows.
     this.send(chatId, event.type === "turn-failed" && event.limit ? { ...event, limit: { ...event.limit, accountId: entry.accountId } } : event);
@@ -217,6 +231,12 @@ class SessionManager {
     const entry = this.sessions.get(chatId);
     if (!entry || (provider && entry.provider !== provider) || entry.session.closed || (!entry.session.turnActive && !entry.activeChildren?.size)) return null;
     return { accountId: entry.accountId, command: entry.command, env: entry.env, harness: entry.harness, args: entry.args };
+  }
+
+  /** How many background subagents still run in the chat's agent process; closing it would stop them. */
+  backgroundWork(chatId) {
+    const entry = this.sessions.get(chatId);
+    return entry && !entry.session.closed ? (entry.backgroundChildren?.size ?? 0) : 0;
   }
 
   isTurnActive(chatId) {

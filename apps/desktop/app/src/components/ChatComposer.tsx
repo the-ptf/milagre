@@ -46,7 +46,9 @@ import { LinearIssuePicker } from "./LinearIssuePicker";
 import Tooltip from "./primitives/Tooltip";
 import { PillSlot, StatusPill } from "./primitives/StatusPill";
 import { AnimatePresence, LayoutGroup } from "motion/react";
-import { ThinkingIndicator } from "./ThinkingIndicator";
+import { BackgroundIndicator, ThinkingIndicator } from "./ThinkingIndicator";
+import { ChatMarkDotInline } from "./sidebar/ChatRow";
+import type { ChatActivity } from "@milagre/shared/chat-activity";
 import { HandoffDivider } from "./Handover";
 import { WorktreeLinkDivider } from "./WorktreeLinkDivider";
 import { AccountSwitchDivider } from "./AccountSwitchDivider";
@@ -496,6 +498,8 @@ interface ChatComposerProps {
   onStopAdvisor?: (id: string) => void;
   onRetryAdvisor?: (id: string) => void;
   waitingForSubagents?: boolean;
+  /** The Chat's activity (chat-activity.mjs): a background one shows how many background agents still work. */
+  activity?: ChatActivity;
   /** The Chat's plan (tasks and phases), shown as a pill beside the subagents. */
   plan?: ChatPlan;
   /** How full the agent's context window is, shown as a ring beside Send. */
@@ -790,6 +794,7 @@ export function ChatComposer({
   onStopAdvisor,
   onRetryAdvisor,
   waitingForSubagents = false,
+  activity,
   plan,
   contextUsage,
   ports,
@@ -973,6 +978,15 @@ export function ChatComposer({
                   {isSending && (
                     <div className="w-full" style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
                       <ThinkingIndicator startedAt={runStartedAt} label={waitingForSubagents ? "Waiting on subagents" : `Working with ${workingModelName}`} />
+                    </div>
+                  )}
+                  {!isSending && activity?.activity === "background" && (
+                    <div className="w-full" style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
+                      <BackgroundIndicator
+                        count={activity.background}
+                        startedAt={activity.since}
+                        mark={<ChatMarkDotInline mark="background" failed={false} background={activity.background} />}
+                      />
                     </div>
                   )}
                   {resume && !isSending && (
