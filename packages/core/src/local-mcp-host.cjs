@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { projectOfKey, sessionIdFromKey, lastUserModel } = require("@milagre/shared/agent-runs");
 const { IMAGE_TYPES } = require("@milagre/shared/limits");
+const { chatActivity } = require("@milagre/shared/chat-activity");
 
 // How much a permission mode allows, least first. A tool never gives a Chat more than its caller has without the user's say.
 const MODE_RANK = { ask: 0, auto: 1, full: 2 };
@@ -68,6 +69,8 @@ function createLocalMcpHost({
   };
   const progress = (chatId, session) => {
     const run = chats.runs[chatId];
+    // A turn's end isn't the end of the Chat's work while background agents still run (chat-activity.mjs).
+    const { activity, background } = chatActivity(session, run);
     return {
       chatId,
       id: session.id,
@@ -76,6 +79,8 @@ function createLocalMcpHost({
       archived: Boolean(session.archived),
       provider: session.provider,
       status: run ? "running" : session.status,
+      activity,
+      backgroundWork: background,
       approvals: run?.approvals?.length ?? 0,
       questions: run?.questions?.length ?? 0,
     };

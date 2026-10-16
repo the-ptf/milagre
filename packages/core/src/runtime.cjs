@@ -13,6 +13,7 @@ const { PROVIDERS } = require("@milagre/shared/providers");
 const { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } = require("@milagre/shared/pr-action");
 const { compactionMessage } = require("@milagre/shared/compaction");
 const { RELOAD_TEXT } = require("@milagre/shared/chat-reload");
+const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
 const { issueFirstMessage, linearIssueContext, linearIssuePrompt, linearIssueRequest } = require("@milagre/shared/linear-issue");
 const { ChatTitles, createChatTitleModels, generateChatTitle } = require("./chat-title.cjs");
 const { createGit } = require("./git/client.cjs");
@@ -771,7 +772,7 @@ function createRuntime(options) {
     );
     // The issue moves to In Progress once its Worktree exists, unless that's switched off or the sign-in can only read.
     // Best effort and in the background: the Chat never waits on Linear.
-    if (issue && linear.moveToStarted() && linear.workspaces().find((item) => item.id === issue.workspace)?.canWrite)
+    if (issue && linear.moveToStarted() && linear.canWrite(issue.workspace))
       void track(() => linearIssues.markStarted(issue.key, issue.workspace), background).catch(() => {});
     // A branch named after an issue keeps that name; only a chat named from its prompt gets the Haiku name.
     if (!issue) void track(() => nameWorktree(request.projectPath, created, request.prompt ?? ""), background).catch(() => {});
@@ -992,6 +993,15 @@ function createRuntime(options) {
     },
     onUnblocked: (chatId) => {
       void advisorDelivery?.drain(chatId).catch((error) => console.warn("Advisor delivery failed:", error.message));
+    },
+    // A Delegation queued before a restart keeps its Delegation open: it is followed again once its turn starts.
+    onQueuedStart: (chatId, entry, started) => {
+      if (!["delegation", "delegation-report"].includes(entry.context?.kind) || isLinkScopeKey(projectOfKey(chatId))) return;
+      void linked.queuedStarted(chatId, entry.context, started).catch((error) => console.warn("Milagre couldn't follow a Delegation:", error.message));
+    },
+    onQueuedRemoved: (chatId, entry) => {
+      if (!["delegation", "delegation-report"].includes(entry?.context?.kind) || isLinkScopeKey(projectOfKey(chatId))) return;
+      void linked.queuedRemoved(chatId, entry.context).catch((error) => console.warn("Milagre couldn't follow a Delegation:", error.message));
     },
     states: scopeStates,
     startTurn: (request) => track(() => startAgentTurn(request), starting),
@@ -1290,13 +1300,30 @@ function createRuntime(options) {
     await stopChat(chatId);
   });
 
+  // A message queued behind a turn its provider can't steer (chat-host.cjs): Send now starts it; while a turn runs it
+  // is Stop and send, so that turn stops as Stop stops it; Remove drops it unsent.
+  commands.handle("chat:queue-send", async (_event, chatId, id) => {
+    await existingChat("sending a queued message")(chatId);
+    if (typeof id !== "string") throw new Error("That queued message isn't valid.");
+    const { interrupt } = await chats.sendQueuedNow(chatId, id);
+    if (interrupt) await stopChat(chatId);
+  });
+  commands.handle("chat:queue-remove", async (_event, chatId, id) => {
+    await existingChat("removing a queued message")(chatId);
+    if (typeof id !== "string") throw new Error("That queued message isn't valid.");
+    return chats.removeQueued(chatId, id);
+  });
+
   // Reload: a running turn stops, as Stop does, and the agent's process ends. The Chat's next message starts a new one
   // on the same session, which reads its MCP servers, skills and sign-in again.
   commands.handle("chat:reload", async (_event, chatId) => {
     await existingChat("reloading it")(chatId);
-    if (chats.runs[chatId]) await stopChat(chatId);
     const state = await scopeStates.get(projectOfKey(chatId));
     const sessionId = sessionIdFromKey(chatId);
+    // Background work runs in the agent process Reload ends: the Chat reloads once it finishes (T3 #16000).
+    const background = Math.max(agents.backgroundWork(chatId), processWork(state.sessions[sessionId]).length);
+    if (background) throw new Error(backgroundBusyMessage("reload", background));
+    if (chats.runs[chatId]) await stopChat(chatId);
     // An empty Chat gets no line: it stays the one its Worktree reuses for the next send. An unloaded Chat's messages
     // aren't in the state: its summary counts them.
     if ((state.sessions[sessionId]?.summary?.count ?? 0) > 0 || state.messages.some((message) => message.session_id === sessionId))
@@ -1612,7 +1639,7 @@ function createRuntime(options) {
         resolved.add(projectPath);
         // The raw JSON is enough to find a pending turn; only a project that has one is loaded (and hydrated) in full.
         const stored = states.has(projectPath) ? null : await readRawState(projectPath);
-        if (!Object.values(stored?.sessions ?? {}).some((session) => session.resumeTurn)) continue;
+        if (!Object.values(stored?.sessions ?? {}).some((session) => session.resumeTurn || (session.queued?.length && !session.queueHeld))) continue;
         await readProject(projectPath);
       } catch (error) {
         console.warn(`Milagre couldn't resume the chats of ${projectPath}:`, error.message);

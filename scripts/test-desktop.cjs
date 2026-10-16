@@ -300,6 +300,24 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       const shot = await connection.call("Page.captureScreenshot");
       await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, expectTheme ? "packaged-desktop.png" : "desktop.png"), Buffer.from(shot.data, "base64"));
     }
+    // The tall composer's canvas estimate can call a draft short enough for one line when the compact prompt just
+    // wrapped it. Acting on it flipped the layout on every commit until React stopped (error #185) and unmounted the
+    // window, which the slow macOS runner hit. Skew the estimate and check the composer settles tall.
+    await evaluate(`(() => {
+      const measure = (window.__measureText = CanvasRenderingContext2D.prototype.measureText);
+      CanvasRenderingContext2D.prototype.measureText = function (text) { return { width: measure.call(this, text).width / 2 }; };
+      const input = document.querySelector('textarea[aria-label="Prompt"]');
+      if (!input) throw new Error('Prompt missing');
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'A draft long enough that the compact prompt has to wrap it onto a second line, while the estimate says it fits');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await waitFor(
+      () => evaluate(`document.querySelector('textarea[aria-label="Prompt"]')?.className.includes('min-h-[68px]')`),
+      "tall composer for a wrapped draft",
+    );
+    await delay(200);
+    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').className.includes('min-h-[68px]')`), true, "the composer stays tall");
+    await evaluate("(CanvasRenderingContext2D.prototype.measureText = window.__measureText, true)");
     await evaluate(`(() => {
       const input = document.querySelector('textarea[aria-label="Prompt"]');
       if (!input) throw new Error('Prompt missing');

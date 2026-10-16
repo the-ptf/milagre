@@ -2,8 +2,9 @@ const { preparePrivateDirectory, assertPrivate } = require("@milagre/core/privat
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
-const { attentionNotice, completionNotice, notificationPreview } = require("@milagre/shared/attention");
-const { isTurnEnd, projectOfKey, sessionIdFromKey, subagentActive } = require("@milagre/shared/agent-runs");
+const { attentionNotice, completionNotice } = require("@milagre/shared/attention");
+const { isTurnEnd, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { createActivityTracker } = require("@milagre/shared/chat-activity");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 const { notificationChimeChannel, notificationChimeSound, parseNotificationChime } = require("@milagre/shared/notification-chimes");
 const validOwner = (owner) => path.isAbsolute(owner) || isLinkScopeKey(owner);
@@ -63,11 +64,9 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
   let devices = new Map();
   const focus = new Map();
   const chats = new Map();
-  // Per chat, the ids of the background subagents still at work (their results wake the chat with a turn of its own)
-  // and the completion held while they do ({ run, event }): the turn a result wakes announces its own end instead, and
-  // a completion whose last subagent ends with no turn to take the result is delivered then.
-  const background = new Map();
-  const held = new Map();
+  // What each chat is doing (chat-activity.mjs): its work ends when it leaves working or background for idle or failed,
+  // so a turn that ends while background subagents work is announced only once they end with no turn to take the result.
+  const activity = createActivityTracker({ maxChats: MAX_CHATS });
   const work = new Set();
   let writes = Promise.resolve();
   let epoch = 0;
@@ -98,16 +97,15 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
     const view = focus.get(device.deviceId);
     return !closed && devices.get(device.deviceId) === device && !(view?.chatId === chatId && view.until > now()) && !isChatFocused(chatId);
   }
-  function deliver(chatId, run, event, requestId) {
+  /** An approval or question (`requestId`), or with `completion` the end of the chat's work (chat-activity.mjs). */
+  function deliver(chatId, run, event, requestId, completion) {
     if (!devices.size) return;
     const version = epoch;
     const eventId = randomUUID();
     const task = (async () => {
       const metadata = await context(chatId);
       if (!metadata) return;
-      const notice = requestId
-        ? attentionNotice(event, metadata)
-        : completionNotice(metadata.chatTitle, { failed: event.type === "turn-failed", body: event.type === "turn-failed" ? event.message : run.preview });
+      const notice = requestId ? attentionNotice(event, metadata) : completionNotice(metadata.chatTitle, completion);
       const validEvent = () => epoch === version && chats.get(chatId) === run && (requestId ? !run.ended && run.requests.has(requestId) : run.ended);
       if (!notice || !validEvent()) return;
       for (const device of devices.values()) {
@@ -209,39 +207,26 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
     observe(chatId, event) {
       if (closed || !Number.isSafeInteger(sessionIdFromKey(chatId)) || !validOwner(projectOfKey(chatId))) return;
       let run = chats.get(chatId);
+      // A turn started again under the same id (a steer that reached it) keeps its lifecycle and what it followed.
+      const repeated = event.type === "turn-started" && event.turnId && run?.turnId === event.turnId && !run.ended;
+      const { completion } = repeated ? { completion: null } : activity.observe(chatId, event);
       if (event.type === "turn-started" || (event.type === "message-sent" && run?.ended)) {
-        if (event.turnId && run?.turnId === event.turnId && !run.ended) return;
-        run = { requests: new Set(), seen: new Set(), preview: "", ended: false, turnId: event.turnId };
+        if (repeated) return;
+        run = { requests: new Set(), seen: new Set(), ended: false, turnId: event.turnId };
         chats.delete(chatId);
         chats.set(chatId, run);
-        held.delete(chatId);
       }
       if (!run) {
-        run = { requests: new Set(), seen: new Set(), preview: "", ended: false };
+        run = { requests: new Set(), seen: new Set(), ended: false };
         chats.set(chatId, run);
       }
-      if (chats.size > MAX_CHATS) {
-        const oldest = chats.keys().next().value;
-        chats.delete(oldest);
-        background.delete(oldest);
-        held.delete(oldest);
+      if (chats.size > MAX_CHATS) chats.delete(chats.keys().next().value);
+      if (isTurnEnd(event) && !run.ended) {
+        run.ended = true;
+        run.requests.clear();
       }
-      if (event.type === "text-delta" && !run.ended) run.preview = notificationPreview(run.preview, event.text, event.startsMessage);
-      if (event.type === "message-sent" || event.type === "answers-sent") run.preview = "";
-      if (event.type === "subagent-update" && event.agent?.background) {
-        const ids = background.get(chatId) ?? new Set();
-        if (subagentActive(event.agent)) ids.add(event.agent.id);
-        else ids.delete(event.agent.id);
-        if (ids.size) background.set(chatId, ids);
-        else {
-          background.delete(chatId);
-          const waiting = held.get(chatId);
-          if (waiting && run.ended) {
-            held.delete(chatId);
-            deliver(chatId, waiting.run, waiting.event);
-          }
-        }
-      } else if (event.type === "permission-request" || event.type === "question-request") {
+      if (completion) deliver(chatId, run, null, undefined, completion);
+      if (event.type === "permission-request" || event.type === "question-request") {
         if (run.ended || typeof event.requestId !== "string" || run.seen.has(event.requestId) || run.seen.size >= 100) return;
         run.seen.add(event.requestId);
         run.requests.add(event.requestId);
@@ -249,13 +234,6 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
       } else if (event.type === "permission-resolved" || event.type === "question-resolved") {
         run.requests.delete(event.requestId);
         run.seen.add(event.requestId);
-      } else if (isTurnEnd(event) && !run.ended) {
-        run.ended = true;
-        run.requests.clear();
-        if (event.type === "turn-cancelled") return;
-        // A turn that ends while the chat's background subagents still work isn't the end of the work.
-        if (event.type === "turn-completed" && background.get(chatId)?.size) held.set(chatId, { run, event });
-        else deliver(chatId, run, event);
       }
     },
     async clear() {

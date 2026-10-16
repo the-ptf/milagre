@@ -1,4 +1,5 @@
 import { CommandPalette } from "./CommandPalette";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import { useChanges } from "./changes/useChanges";
 import { LinkChangesPanel } from "./changes/LinkChangesPanel";
 import { useLinkDiffLists } from "./changes/useLinkDiffLists";
@@ -46,6 +47,7 @@ import { lazyView } from "../lib/lazy-view";
 import type { LinkedWork } from "@milagre/shared/model";
 import { TerminalPanel } from "./terminal/TerminalPanel";
 import { CORNER_PITCH, PanelToggles } from "./agents/PanelToggles";
+import { queueControls } from "./QueuedMessages";
 import { BridgeContext, ScopeContext, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { busyTerminals, newTerminal, useTerminalSync, type TerminalPlace } from "../lib/terminal-actions";
 const CanvasView = lazyView(() => import("./CanvasView").then((module) => module.CanvasView));
@@ -551,6 +553,7 @@ export function LinkWorkspace({
                         ports={chatId ? ports[chatId] : undefined}
                         agentChatId={chatId ?? undefined}
                         waitingForSubagents={run?.waitingForSubagents}
+                        activity={session ? chatActivity(session, run) : undefined}
                         asking={Boolean(question)}
                         waitingStepIds={run?.approvals.flatMap((request) => (request.stepId ? [request.stepId] : []))}
                         resume={
@@ -558,6 +561,7 @@ export function LinkWorkspace({
                             ? { onContinue: () => void bridge.resumeChat(owner, session.id).catch((error) => setError(ipcErrorMessage(error))) }
                             : undefined
                         }
+                        queue={chatId ? queueControls(bridge, chatId, session, Boolean(run), setError) : undefined}
                         onStopAdvisor={(id) => {
                           if (chatId) void bridge.stopAdvisor(chatId, id).catch((error) => setError(ipcErrorMessage(error)));
                         }}

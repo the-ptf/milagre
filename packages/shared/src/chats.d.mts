@@ -2,7 +2,7 @@ import type { AgentSession, LinkChatSession, ChatContext, ChatMessage, Coordinat
 export { pullRequestRefs, pullRequestRefsCache, chatPullRequests, type PullRequestRef } from "./chat-pull-requests.mjs";
 
 export function chatMarkTone(
-  mark: "question" | "waiting" | "delegated" | "interrupted" | "running" | "failed" | "unread" | "idle",
+  mark: "question" | "waiting" | "delegated" | "interrupted" | "running" | "background" | "failed" | "unread" | "idle",
 ): "accent" | "orange" | "red" | "ink3";
 
 export function chatTitle(session: AgentSession | LinkChatSession, messages?: readonly ChatMessage[]): string;

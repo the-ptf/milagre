@@ -19,6 +19,7 @@ import {
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import type { ChatMessage, LinkIssueResult, PullRequestActionContext } from "@milagre/shared/model";
 import { chatPullRequests, chatTitle, createPendingChat, createResendMemory, pendingChatSessionId, pullRequestRefs } from "@milagre/shared/chats";
 import { messageSender } from "@milagre/shared/advisor-result";
@@ -33,7 +34,8 @@ import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-i
 import { useComposer, usePendingChats, useSession } from "../session";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
 import { appendAttachments, attachmentPrompt, prepareAttachments } from "../attachments";
-import { PullRequestAction, SubagentChip } from "../status-indicators";
+import { BackgroundRing, PullRequestAction, SubagentChip } from "../status-indicators";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
 import { SimulatorChip } from "../simulator";
 import { BrowserChip } from "../browser";
@@ -55,10 +57,11 @@ import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
 import { accountSwitchText, isAccountSwitch } from "@milagre/shared/usage-limit";
 import { isWorktreeLinked, worktreeLinkText } from "@milagre/shared/worktree-link";
-import { ThinkingIndicator } from "../running-logo";
+import { BackgroundIndicator, ThinkingIndicator } from "../running-logo";
 import { BottomFade, EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
 import { Approval, ActivityQuestions } from "../questions";
+import { QueuedMessages } from "../queued-messages";
 import { AgentControls, PermissionChip } from "../agent-controls";
 import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
 // Linear's mark as a template image, so iOS tints it like the SF Symbols beside it in menus.
@@ -505,6 +508,8 @@ export default function ChatScreen() {
   const attachments = composer.attachments[chatId] || [];
   const attachmentDisabled = busy || picking || attachments.length >= 4;
   const run = chat ? runs.runs[chatId] : undefined;
+  // What the Chat is doing (chat-activity.mjs), the same as its sidebar row and desktop's composer show.
+  const activity = chat ? chatActivity(chat, run) : undefined;
   // Feedback cards read the agent's resolutions again only when a comment may have changed.
   const designsMoved = designActivity(
     [...messages.flatMap((message) => message.steps ?? []), ...(run?.steps ?? [])],
@@ -1197,6 +1202,9 @@ export default function ChatScreen() {
                 label={run?.waitingForSubagents ? "Waiting on subagents" : `Working with ${model.name}`}
               />
             )}
+            {!run && !pending && activity?.activity === "background" && (
+              <BackgroundIndicator count={activity.background} startedAt={activity.since} mark={<BackgroundRing count={activity.background} />} />
+            )}
             {chat?.resumeTurn && !run && (
               <PillButton
                 title="Continue interrupted turn"
@@ -1258,6 +1266,16 @@ export default function ChatScreen() {
                   {agents.length > 0 && <SubagentChip agents={agents} onPress={() => headerAction("agents")} />}
                 </ScrollView>
               )}
+              {chat?.queued?.length ? (
+                <QueuedMessages
+                  items={chat.queued}
+                  held={Boolean(chat.queueHeld)}
+                  running={Boolean(run)}
+                  disabled={actionBusy}
+                  onSendNow={(id) => void action(() => client.call("chat:queue-send", [chatId, id]), true)}
+                  onRemove={(id) => void action(() => client.call("chat:queue-remove", [chatId, id]), true)}
+                />
+              ) : null}
               {run?.approvals.map((approval) => (
                 <Approval
                   key={approval.requestId}
@@ -1508,6 +1526,8 @@ export default function ChatScreen() {
                     projectPath={worktree?.path || (project.link ? "" : project.path)}
                     draft={draft}
                     onImagePaste={(image) => void pasteImage(image)}
+                    // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
+                    placeholder={run && !providerCapabilities(chat?.provider ?? actualProvider).steer ? "Queue a message for the next turn" : undefined}
                     onChangeText={(value) => composer.setDrafts((current) => ({ ...current, [chatId]: value }))}
                   />
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
@@ -1557,7 +1577,7 @@ export default function ChatScreen() {
                     {contextUsage && contextUsage.size > 0 && params.id && (
                       <ContextRing
                         {...contextUsage}
-                        canCompact={Boolean(chat) && (chat?.provider ?? "claude") === "claude"}
+                        canCompact={Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact}
                         onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
                       />
                     )}
@@ -1573,7 +1593,15 @@ export default function ChatScreen() {
                     )}
                     {(!run || !!draft.trim() || !!attachments.length) && (
                       <IconButton
-                        label={busy ? "Sending..." : run ? "Send follow-up" : "Send message"}
+                        label={
+                          busy
+                            ? "Sending..."
+                            : run
+                              ? providerCapabilities(chat?.provider ?? actualProvider).steer
+                                ? "Send follow-up"
+                                : "Queue message"
+                              : "Send message"
+                        }
                         icon={ArrowUp01Icon}
                         filled
                         size={34}
