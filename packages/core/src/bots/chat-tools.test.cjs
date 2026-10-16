@@ -298,6 +298,34 @@ test("deleting a bot hands its running Chats to the user and denies its sign-off
   assert.deepEqual(bots.snapshot().bots, []);
 });
 
+test("a bot that fails to be made leaves no home behind", async (t) => {
+  const input = { templateId: "ops", name: "Lint", provider: "claude", model: "m", answers: { projects: [PROJECT] } };
+  const projects = async () => [{ path: PROJECT }];
+  // The home opens without its Worktree.
+  const bare = await harness(t, { projects });
+  await assert.rejects(bare.bots.create(input), /Milagre couldn't open Lint's home\./);
+  assert.equal(bare.closed.length, 1);
+  assert.equal(fs.existsSync(bare.closed[0]), false);
+  // Its thread can't be made.
+  const failing = await harness(t, {
+    projects,
+    openHome: async (home) => ({ state: { worktrees: { 1: { id: 1, path: home } } } }),
+  });
+  failing.chats.emptyChat = async () => {
+    throw new Error("No thread today.");
+  };
+  await assert.rejects(failing.bots.create(input), /No thread today\./);
+  assert.equal(failing.closed.length, 1);
+  assert.equal(fs.existsSync(failing.closed[0]), false);
+  assert.deepEqual(
+    failing.bots.snapshot().bots.map((bot) => bot.id),
+    ["ops"],
+  );
+  // The name is free to try again.
+  failing.chats.emptyChat = async () => 1;
+  assert.equal((await failing.bots.create(input)).id, "lint");
+});
+
 test("bot tools are only given to bot threads", async (t) => {
   const { bots, THREAD, open } = await harness(t);
   const { chatKey } = await open();

@@ -474,8 +474,9 @@ function createBots({
       const id = botIdFromName(name);
       checkUnique(name);
       creating.add(id);
+      let home;
       try {
-        const home = await createBotHome(botsDir, id);
+        home = await createBotHome(botsDir, id);
         const { state } = await openHome(home);
         const worktree = Object.values(state.worktrees ?? {}).find((item) => item.path === home);
         if (!worktree) throw new Error(`Milagre couldn't open ${name}'s home.`);
@@ -500,6 +501,13 @@ function createBots({
         refresh();
         changed();
         return bot;
+      } catch (error) {
+        // Nothing of a bot that wasn't made stays: its home closes, so no list shows it, and its folder goes.
+        if (home !== undefined) {
+          await closeHome(home).catch((cause) => console.warn(`Milagre couldn't close ${name}'s home:`, cause.message));
+          await fs.rm(home, { recursive: true, force: true }).catch((cause) => console.warn(`Milagre couldn't remove ${name}'s home:`, cause.message));
+        }
+        throw error;
       } finally {
         creating.delete(id);
       }
