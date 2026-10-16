@@ -46,7 +46,10 @@ window.milagre = {
   answerBotGate: record("answerBotGate"),
   revokeBotGrant: record("revokeBotGrant"),
   removeBot: record("removeBot"),
-  saveBotMemory: record("saveBotMemory"),
+  saveBotMemory: async (...args) => {
+    window.calls.push(["saveBotMemory", ...args]);
+    if (window.memoryChanged) throw new Error("MEMORY.md changed since you opened it. Reopen it to see the latest.");
+  },
   readBotBrief: async () => ({ text: "Watch main, open PRs and CI on the-ptf/milagre. Fix flakes by opening a Milagre Chat." }),
   readBotMemory: async () => ({ text: "# Memory\\n\\n## Flaky tests\\n- terminal-perf on shard 2\\n", lines: 64, bytes: 900 }),
   updateBot: async (id, patch) => { window.calls.push(["updateBot", id, patch]); window.patchBot(patch); return { ...ops, ...patch }; },
@@ -193,12 +196,12 @@ async function browserChecks() {
     // Answers.
     await evaluate(`${button(pending, "Always for Ops")}.click()`);
     await waitFor(`${button(pending, "Deny")}.disabled`);
-    assert.deepEqual(await calls("answerBotGate"), [["r1", "always"]]);
+    assert.deepEqual(await calls("answerBotGate"), [["/d/bots/ops#1", "r1", "always"]]);
     await evaluate("window.remount()");
     await waitFor(`!${button(pending, "Deny")}.disabled`);
     await evaluate(`${button(pending, "Deny")}.click()`);
     await waitFor(`window.calls.filter((call) => call[0] === "answerBotGate").length === 2`);
-    assert.deepEqual((await calls("answerBotGate"))[1], ["r1", "deny"]);
+    assert.deepEqual((await calls("answerBotGate"))[1], ["/d/bots/ops#1", "r1", "deny"]);
     await evaluate(`${button(chatCard, "Open Chat")}.click()`);
     assert.equal(await evaluate("window.opened"), "/p#4");
 
@@ -223,7 +226,26 @@ async function browserChecks() {
     await screenshot("bots-memory");
     await evaluate(`${button("[data-memory-sheet]", "Save")}.click()`);
     await waitFor(`!document.querySelector("[data-memory-sheet]")`);
-    assert.deepEqual(await calls("saveBotMemory"), [["ops", "# Memory\n\n## Flaky tests\n- terminal-perf on shard 2\n- never merge on Fridays\n"]]);
+    assert.deepEqual(
+      await calls("saveBotMemory"),
+      [
+        [
+          "ops",
+          "# Memory\n\n## Flaky tests\n- terminal-perf on shard 2\n- never merge on Fridays\n",
+          "# Memory\n\n## Flaky tests\n- terminal-perf on shard 2\n",
+        ],
+      ],
+      "the save sends the text it opened as its base",
+    );
+    // A save the runtime refuses (the bot wrote since) says why inside the sheet and keeps it open.
+    await evaluate(`window.memoryChanged = true`);
+    await evaluate(`${button(profile, "Open")}.click()`);
+    await waitFor(`document.querySelector("[data-memory-sheet]")?.open`);
+    await evaluate(`${button("[data-memory-sheet]", "Save")}.click()`);
+    await waitFor(`!!document.querySelector("[data-memory-sheet] [data-memory-error]")`);
+    assert.match(await evaluate(`document.querySelector("[data-memory-sheet] [data-memory-error]").textContent`), /MEMORY\.md changed since you opened it\./);
+    await evaluate(`${button("[data-memory-sheet]", "Cancel")}.click()`);
+    await waitFor(`!document.querySelector("[data-memory-sheet]")`);
     // Revoke a standing sign-off.
     assert.match(await evaluate(`document.querySelector('[data-grant="g1"]').textContent`), /Merge · milagre-ade/);
     await evaluate(`${button('[data-grant="g1"]', "Revoke")}.click()`);
@@ -238,6 +260,13 @@ async function browserChecks() {
     await waitFor(`window.calls.some((call) => call[0] === "removeBot")`);
     assert.deepEqual(await calls("removeBot"), [["ops"]]);
 
+    // The header's buttons sit above App's window drag strip (z-50) and out of the drag region, so a click reaches them.
+    assert.deepEqual(
+      await evaluate(
+        `(() => { const style = getComputedStyle(document.querySelector("[data-bot-thread-actions]")); return [style.zIndex, style.webkitAppRegion ?? style.getPropertyValue("-webkit-app-region")]; })()`,
+      ),
+      ["60", "no-drag"],
+    );
     // Pause: the button reads Resume and the composer sends nothing.
     await evaluate(`document.querySelector('[data-bot-thread] button[aria-label="Pause"]').click()`);
     await waitFor(`!!document.querySelector('[data-bot-thread] button[aria-label="Resume"]')`);

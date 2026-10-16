@@ -45,8 +45,14 @@ export function BotProfilePanel({ bot, snapshot, onOpenChat }: { bot: BotSummary
   };
   const readMemory = () =>
     bridge.readBotMemory(bot.id).then(
-      (value) => setMemory({ text: value.text, lines: value.lines }),
-      (cause) => setError(ipcErrorMessage(cause)),
+      (value) => {
+        setMemory({ text: value.text, lines: value.lines });
+        return true;
+      },
+      (cause) => {
+        setError(ipcErrorMessage(cause));
+        return false;
+      },
     );
   // App keys the panel by bot, so each bot's profile reads its own brief and memory once.
   useEffect(() => {
@@ -130,7 +136,13 @@ export function BotProfilePanel({ bot, snapshot, onOpenChat }: { bot: BotSummary
             <span data-memory-lines className="min-w-0 flex-1 truncate text-[13px] text-ink">
               MEMORY.md{memory ? ` · ${memory.lines} of ${MEMORY_LINE_CAP} lines` : ""}
             </span>
-            <button type="button" disabled={!memory} onClick={() => setMemoryOpen(true)} className={`${BUTTON} font-semibold text-ink hover:bg-hover`}>
+            <button
+              type="button"
+              disabled={!memory}
+              // Read again first: the bot may have written since the panel opened, and the sheet saves the whole file.
+              onClick={() => void readMemory().then((fresh) => fresh && setMemoryOpen(true))}
+              className={`${BUTTON} font-semibold text-ink hover:bg-hover`}
+            >
               Open
             </button>
           </div>
@@ -192,10 +204,15 @@ export function BotProfilePanel({ bot, snapshot, onOpenChat }: { bot: BotSummary
           text={memory.text}
           onClose={() => setMemoryOpen(false)}
           onSave={async (text) => {
-            if (await run(() => bridge.saveBotMemory(bot.id, text))) {
-              setMemoryOpen(false);
-              await readMemory();
+            // The text the sheet opened is the base: the runtime refuses the save when the bot wrote since.
+            try {
+              await bridge.saveBotMemory(bot.id, text, memory.text);
+            } catch (cause) {
+              return ipcErrorMessage(cause);
             }
+            setMemoryOpen(false);
+            await readMemory();
+            return null;
           }}
         />
       )}
@@ -203,11 +220,23 @@ export function BotProfilePanel({ bot, snapshot, onOpenChat }: { bot: BotSummary
   );
 }
 
-/** MEMORY.md, editable. Lines the user writes are marked as his, so the bot keeps them. */
-function MemorySheet({ botName, text, onClose, onSave }: { botName: string; text: string; onClose: () => void; onSave: (text: string) => Promise<void> }) {
+/** MEMORY.md, editable. Lines the user writes are marked as theirs, so the bot keeps them. */
+function MemorySheet({
+  botName,
+  text,
+  onClose,
+  onSave,
+}: {
+  botName: string;
+  text: string;
+  onClose: () => void;
+  /** Resolves to the error to show in the sheet, or null once saved. */
+  onSave: (text: string) => Promise<string | null>;
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [draft, setDraft] = useState(text);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     dialog.current?.showModal();
     return () => dialog.current?.close();
@@ -231,7 +260,10 @@ function MemorySheet({ botName, text, onClose, onSave }: { botName: string; text
         onSubmit={(event) => {
           event.preventDefault();
           setSaving(true);
-          void onSave(draft).finally(() => setSaving(false));
+          setError(null);
+          void onSave(draft)
+            .then(setError)
+            .finally(() => setSaving(false));
         }}
       >
         <h2 className="text-[16px] font-semibold">MEMORY.md</h2>
@@ -242,6 +274,11 @@ function MemorySheet({ botName, text, onClose, onSave }: { botName: string; text
           rows={18}
           className="mt-3 min-h-0 w-full flex-1 resize-none rounded-control border border-line bg-field px-3 py-2 font-mono text-[12px] leading-[1.5] outline-none focus:border-line-strong"
         />
+        {error && (
+          <p role="alert" data-memory-error className="mt-3 text-[12px] text-red">
+            {error}
+          </p>
+        )}
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" disabled={saving} onClick={onClose} className="rounded-control px-3 py-2 text-[13px] hover:bg-hover-2">
             Cancel

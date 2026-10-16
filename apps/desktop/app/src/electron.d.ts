@@ -21,7 +21,6 @@ export type FloatingDragOverlay = {
 
 /** On a state event from a host that sends patches: what changed since the state numbered `base`, or `resync`. */
 type StateNumbering = { patch?: StatePatch; base?: number; version?: number; epoch?: string; resync?: boolean; messages?: MessageChanges };
-/** To a client that reads messages by Chat: the messages a change added, changed (each after the one before it in its Chat) or removed. */
 /** A starter bot and the setup card it asks for. */
 export type BotTemplate = {
   id: string;
@@ -39,6 +38,7 @@ export type BotCreateInput = {
   model: string;
 };
 export type BotPatch = { name?: string; role?: string; brief?: string; paused?: boolean; projects?: string[] };
+/** To a client that reads messages by Chat: the messages a change added, changed (each after the one before it in its Chat) or removed. */
 export type MessageChanges = { changed: Array<{ message: ChatMessage; after: number | null }>; removed: number[] };
 /** Where a search match is and what matched. */
 export type ChatSearchMatch = { message: { id: number; session_id: number }; score: number; snippet: string; highlight: [number, number]; term: string };

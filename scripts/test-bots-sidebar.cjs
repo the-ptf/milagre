@@ -1,7 +1,7 @@
 // Browser check: with Bots on (Settings › Experimental), the sidebar gets a Projects | Bots switch. Bots lists each bot
 // with its last line and a "Needs you" row counting its pending sign-offs; New bot opens the starter's setup card and
 // creates the bot from it. Collapsed, the switch is two icon buttons. In Projects, a Chat a bot opened and still runs
-// says "from <Bot name>"; one Victor took over doesn't. With Bots off there is no switch.
+// says "from <Bot name>"; one the user took over doesn't. With Bots off there is no switch.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -130,7 +130,7 @@ async function browserChecks() {
       await evaluate(`[...document.querySelectorAll("[data-sidebar-mode-switch] [data-sidebar-mode]")].map((button) => button.textContent.trim())`),
       ["Projects", "Bots"],
     );
-    // Projects: the Chat Ops runs says so, the one Victor took over and his own don't.
+    // Projects: the Chat Ops runs says so, the one the user took over and their own don't.
     const mark = '[data-chat-id="4"] [data-bot-mark="ops"]';
     await waitFor(`!!document.querySelector(${JSON.stringify(mark)})`);
     assert.equal((await text(mark)).trim(), "from Ops");
@@ -139,7 +139,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector('[data-chat-id="5"] [data-bot-mark]')`), false);
     await screenshot("bots-sidebar-projects");
 
-    // Bots: the list, and what waits on Victor.
+    // Bots: the list, and what waits on the user.
     await evaluate(`document.querySelector('[data-sidebar-mode="bots"]').click()`);
     await waitFor(`!!document.querySelector('[data-bot-id="ops"]')`);
     assert.match(await text('[data-bot-id="ops"]'), /Ops[\s\S]*Merge #474 needs your sign-off/);

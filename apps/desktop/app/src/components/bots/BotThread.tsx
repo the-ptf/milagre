@@ -121,7 +121,7 @@ export function BotThread({
     }
   }
 
-  // What waits on Victor: this bot's sign-offs, from its thread or from a Chat it opened, oldest first. A card the
+  // What waits on the user: this bot's sign-offs, from its thread or from a Chat it opened, oldest first. A card the
   // runtime hasn't recorded yet still shows from the thread's run.
   const recorded = new Set(snapshot.gates.map((gate) => gateKey(gate.chatKey, gate.requestId)));
   const pendingGates: Array<{ chatKey: string; requestId: string; meta: GateMeta }> = [
@@ -160,7 +160,7 @@ export function BotThread({
       if (context?.kind === "bot-chat-taken-over")
         return (
           <p data-bot-taken-over className="text-[12px] text-ink-3">
-            Victor took over this Chat.
+            You took over this Chat.
           </p>
         );
       return null;
@@ -206,7 +206,8 @@ export function BotThread({
             <p className="min-w-0 truncate text-[13px] text-ink-3">
               {bot.role} · {model.name}
             </p>
-            <span className="ml-auto flex shrink-0 items-center gap-1">
+            {/* Above App's window drag strip (z-50), like the other chrome controls, so clicks reach the buttons. */}
+            <span data-bot-thread-actions className="relative z-[60] ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
               <button
                 type="button"
                 aria-label={bot.paused ? "Resume" : "Pause"}
