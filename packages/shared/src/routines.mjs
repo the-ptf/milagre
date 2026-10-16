@@ -55,10 +55,13 @@ export function clock(at, timeZone, withDate = false) {
   return withDate ? `${part("year")}-${part("month")}-${part("day")} ${time}` : time;
 }
 
-/** The divider as text: "Heartbeat · 10:15" when the run acted, "10:30 · quiet: CI green" when it passed. */
+/**
+ * The divider as text: "Heartbeat · 10:15" when the run acted, "10:30 · quiet: CI green" when it passed. An acted divider
+ * with a label leads with it instead: "Routine · Triage · 10:15", "Linear comment · Ana · 10:15".
+ */
 export function routineRunText(context, timeZone) {
   const time = clock(context.at, timeZone);
-  if (!context.quiet) return `Heartbeat · ${time}`;
+  if (!context.quiet) return `${context.label ?? "Heartbeat"} · ${time}`;
   return context.summary ? `${time} · quiet: ${context.summary}` : `${time} · quiet`;
 }
 

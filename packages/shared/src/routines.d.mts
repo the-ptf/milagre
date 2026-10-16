@@ -13,6 +13,10 @@ export function isRoutineRun(message: ChatMessage | null | undefined): message i
 export function parsePass(text: string): { quiet: true; summary: string } | { quiet: false };
 /** "HH:MM" on a 24 hour clock in `timeZone` (the computer's when left out); with `withDate`, "YYYY-MM-DD HH:MM". */
 export function clock(at: number | Date, timeZone?: string, withDate?: boolean): string;
+/**
+ * The divider as text: `<label> · HH:MM` when the run acted (`label` defaults to "Heartbeat"), "HH:MM · quiet: <summary>"
+ * (or "HH:MM · quiet") when it passed.
+ */
 export function routineRunText(context: RoutineRunContext, timeZone?: string): string;
 export function mergedRoutineRunText(merged: { count: number; last: RoutineRunContext }, timeZone?: string): string;
 export function groupQuietRuns(messages: ChatMessage[]): Array<{

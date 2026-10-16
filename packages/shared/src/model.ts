@@ -397,13 +397,18 @@ export interface RoutineRun {
   error?: string;
 }
 
-/** The divider a Routine's run leaves in its Chat. `quiet` and `summary` are set once the reply is known to be a "(pass)". */
+/**
+ * The divider a Routine's run leaves in its Chat. `quiet` and `summary` are set once the reply is known to be a "(pass)".
+ * `label` is what an acted divider says before the time, "Heartbeat" when it is left out: "Routine · <name>" on a new Chat's
+ * first message, "Linear comment · <author>" on a comment sent into a linked Chat.
+ */
 export type RoutineRunContext = {
   kind: "routine-run";
   routineId: string;
   runId: string;
   name: string;
   at: number;
+  label?: string;
   quiet?: boolean;
   summary?: string;
 };

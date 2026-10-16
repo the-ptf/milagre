@@ -33,6 +33,19 @@ test("routineRunText words the acted and the quiet divider", () => {
   assert.equal(routineRunText(context({ quiet: true }), "UTC"), "13:15 · quiet");
 });
 
+test("routineRunText leads an acted divider with its label, and with Heartbeat when it has none", () => {
+  assert.equal(routineRunText(context({ label: "Routine · Triage" }), "UTC"), "Routine · Triage · 13:15");
+  assert.equal(routineRunText(context({ label: "Linear comment · Ana" }), "UTC"), "Linear comment · Ana · 13:15");
+  assert.equal(routineRunText(context({ label: undefined }), "UTC"), "Heartbeat · 13:15");
+});
+
+test("a label leaves the quiet and the folded dividers as they were", () => {
+  assert.equal(routineRunText(context({ label: "Routine · Triage", quiet: true, summary: "nothing new" }), "UTC"), "13:15 · quiet: nothing new");
+  assert.equal(routineRunText(context({ label: "Routine · Triage", quiet: true }), "UTC"), "13:15 · quiet");
+  const last = context({ label: "Linear comment · Ana", quiet: true, summary: "seen" });
+  assert.equal(mergedRoutineRunText({ count: 2, last }, "UTC"), "2 quiet checks · last 13:15: seen");
+});
+
 test("mergedRoutineRunText counts the collapsed checks and words the last one", () => {
   const last = context({ at: Date.UTC(2026, 9, 16, 13, 30), quiet: true, summary: "CI green" });
   assert.equal(mergedRoutineRunText({ count: 2, last }, "UTC"), "2 quiet checks · last 13:30: CI green");
