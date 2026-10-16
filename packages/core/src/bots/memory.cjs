@@ -17,9 +17,14 @@ const JOURNAL_ID = /^\d+-[0-9a-f]{8}$/;
 const memoryFile = (home) => path.join(home, "MEMORY.md");
 const journalFile = (home, id) => path.join(home, "memory", ".journal", `${id}.md`);
 
-// Token-shaped strings. A KEY=value pair goes whole, name and all: the name says what leaked.
+// The names that mark a value as a secret, in a `name=value`, `NAME: value` or JSON `"name": "value"` pair.
+const SECRET_NAME = String.raw`(?:token|secret|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|credentials?)`;
+
+// Token-shaped strings. A KEY=value pair goes whole, name and all: the name says what leaked. A URL's user and
+// password go, and the rest of it stays.
 const SECRETS = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+  /https?:\/\/hooks\.slack\.com\/(?:services|workflows|triggers)\/[A-Za-z0-9_/-]+/g,
   /\bgh[pousr]_[A-Za-z0-9]{20,}/g,
   /\bgithub_pat_[A-Za-z0-9_]{6,}/g,
   /\bglpat-[A-Za-z0-9_-]{10,}/g,
@@ -30,11 +35,16 @@ const SECRETS = [
   /\bAIza[0-9A-Za-z_-]{30,}/g,
   /\bnpm_[A-Za-z0-9]{30,}/g,
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g,
-  /\b[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|ACCESS_KEY|PRIVATE_KEY|CREDENTIALS?)=\S+/g,
+  /\b[rs]k_(?:live|test)_[A-Za-z0-9]{8,}/g,
+  // KEY=value and KEY: value, the name in capitals as in an environment.
+  /\b[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|ACCESS_KEY|PRIVATE_KEY|CREDENTIALS?)(?:=|:[ \t]*)\S+/g,
+  // name=value in any case, in a config line or a query string.
+  new RegExp(String.raw`\b[\w-]*${SECRET_NAME}=[^\s&"']+`, "gi"),
+  new RegExp(String.raw`"[\w-]*${SECRET_NAME}"\s*:\s*"[^"]+"`, "gi"),
 ];
 
 function redactSecrets(text) {
-  let result = String(text ?? "");
+  let result = String(text ?? "").replace(/\b(https?:\/\/)[^\s/:@]+:[^\s/@]+@/gi, `$1${REDACTED}@`);
   for (const pattern of SECRETS) result = result.replace(pattern, REDACTED);
   // A bearer credential, told from prose ("bearer authentication") by a digit or a capital past its first letter.
   return result.replace(/\b([Bb]earer)\s+([A-Za-z0-9._~+/=-]{8,})/g, (match, word, value) => (/[A-Z0-9]/.test(value.slice(1)) ? `${word} ${REDACTED}` : match));

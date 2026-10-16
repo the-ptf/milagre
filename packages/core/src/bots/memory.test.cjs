@@ -63,6 +63,37 @@ test("secrets are redacted", () => {
     assert.equal(redactSecrets(prose), prose);
 });
 
+test("more secret shapes are redacted", () => {
+  for (const [text, redacted] of [
+    ["GITHUB_TOKEN: ghx_0123456789", "[redacted]"],
+    ["AWS_SECRET_ACCESS_KEY:wJalrXUtnFEMI", "[redacted]"],
+    ["password=hunter2 in the env", "[redacted] in the env"],
+    ["db_password=hunter2", "[redacted]"],
+    ["api_key=abc123 works", "[redacted] works"],
+    ["secret=s3cr3t", "[redacted]"],
+    ["https://x.test/cb?token=abc123&page=2", "https://x.test/cb?[redacted]&page=2"],
+    ['{"token": "abc123", "page": 2}', '{[redacted], "page": 2}'],
+    ['{"client_secret":"abc"}', "{[redacted]}"],
+    ["sk_live_0123456789abcdef", "[redacted]"],
+    ["rk_live_0123456789abcdef", "[redacted]"],
+    ["sk_test_0123456789abcdef", "[redacted]"],
+    ["git clone https://ana:hunter2@github.com/o/r.git", "git clone https://[redacted]@github.com/o/r.git"],
+    ["post to https://hooks.slack.com/services/T0000/B0000/XXXXXXXXXXXX now", "post to [redacted] now"],
+  ])
+    assert.equal(redactSecrets(text), redacted, text);
+  for (const prose of [
+    "Use the token from the vault.",
+    "The password field needs 8 characters.",
+    "Set NODE_ENV: production before the build.",
+    "Key: value pairs live in the config.",
+    "The secret sauce = patience.",
+    "See https://github.com/o/r/pull/12 and https://hooks.slack.com/ for the docs.",
+    "Stripe keys start with sk_live_ in production.",
+    "Mail ana@example.com about it.",
+  ])
+    assert.equal(redactSecrets(prose), prose);
+});
+
 test("writes are redacted", async (t) => {
   const home = await makeHome(t);
   await writeMemory(home, { section: "Tokens", text: "- EXPO_TOKEN=abc123 works", mode: "append" }, { now: 1 });
