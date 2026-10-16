@@ -60,6 +60,7 @@ import { ThinkingIndicator } from "../running-logo";
 import { BottomFade, EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
 import { Approval, ActivityQuestions } from "../questions";
+import { QueuedMessages } from "../queued-messages";
 import { AgentControls, PermissionChip } from "../agent-controls";
 import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
 // Linear's mark as a template image, so iOS tints it like the SF Symbols beside it in menus.
@@ -1252,6 +1253,16 @@ export default function ChatScreen() {
                   {agents.length > 0 && <SubagentChip agents={agents} onPress={() => headerAction("agents")} />}
                 </ScrollView>
               )}
+              {chat?.queued?.length ? (
+                <QueuedMessages
+                  items={chat.queued}
+                  held={Boolean(chat.queueHeld)}
+                  running={Boolean(run)}
+                  disabled={actionBusy}
+                  onSendNow={(id) => void action(() => client.call("chat:queue-send", [chatId, id]), true)}
+                  onRemove={(id) => void action(() => client.call("chat:queue-remove", [chatId, id]), true)}
+                />
+              ) : null}
               {run?.approvals.map((approval) => (
                 <Approval
                   key={approval.requestId}
@@ -1502,6 +1513,8 @@ export default function ChatScreen() {
                     projectPath={worktree?.path || (project.link ? "" : project.path)}
                     draft={draft}
                     onImagePaste={(image) => void pasteImage(image)}
+                    // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
+                    placeholder={run && !providerCapabilities(chat?.provider ?? actualProvider).steer ? "Queue a message for the next turn" : undefined}
                     onChangeText={(value) => composer.setDrafts((current) => ({ ...current, [chatId]: value }))}
                   />
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
@@ -1567,7 +1580,15 @@ export default function ChatScreen() {
                     )}
                     {(!run || !!draft.trim() || !!attachments.length) && (
                       <IconButton
-                        label={busy ? "Sending..." : run ? "Send follow-up" : "Send message"}
+                        label={
+                          busy
+                            ? "Sending..."
+                            : run
+                              ? providerCapabilities(chat?.provider ?? actualProvider).steer
+                                ? "Send follow-up"
+                                : "Queue message"
+                              : "Send message"
+                        }
                         icon={ArrowUp01Icon}
                         filled
                         size={34}

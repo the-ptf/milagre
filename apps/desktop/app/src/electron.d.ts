@@ -387,6 +387,10 @@ export type MilagreBridge = {
   resumeChat: (projectPath: string, sessionId: number) => Promise<boolean>;
   /** Stops a running turn and ends the chat's agent process; the next message resumes its session in a new one. */
   reloadChat: (chatId: string) => Promise<void>;
+  /** Starts a message queued behind a turn that can't be steered, stopping that turn first if it still runs. */
+  sendQueuedNow: (chatId: string, id: string) => Promise<void>;
+  /** Drops a queued message unsent; false when it was already gone. */
+  removeQueued: (chatId: string, id: string) => Promise<boolean>;
   /** The limit card: moves the Chat's Project to `accountId`, then continues the Chat there (`continued` false: send again). */
   switchAccountAfterLimit: (
     projectPath: string,

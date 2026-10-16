@@ -45,6 +45,7 @@ import { lazyView } from "../lib/lazy-view";
 import type { LinkedWork } from "@milagre/shared/model";
 import { TerminalPanel } from "./terminal/TerminalPanel";
 import { CORNER_PITCH, PanelToggles } from "./agents/PanelToggles";
+import { queueControls } from "./QueuedMessages";
 import { BridgeContext, ScopeContext, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { busyTerminals, newTerminal, useTerminalSync, type TerminalPlace } from "../lib/terminal-actions";
 const CanvasView = lazyView(() => import("./CanvasView").then((module) => module.CanvasView));
@@ -556,6 +557,7 @@ export function LinkWorkspace({
                             ? { onContinue: () => void bridge.resumeChat(owner, session.id).catch((error) => setError(ipcErrorMessage(error))) }
                             : undefined
                         }
+                        queue={chatId ? queueControls(bridge, chatId, session, Boolean(run), setError) : undefined}
                         onStopAdvisor={(id) => {
                           if (chatId) void bridge.stopAdvisor(chatId, id).catch((error) => setError(ipcErrorMessage(error)));
                         }}

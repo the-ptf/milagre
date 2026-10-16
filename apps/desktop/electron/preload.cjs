@@ -234,6 +234,8 @@ function makeBridge(invoke, listen, send) {
     sendMessage: (request) => invoke("chat:send", request),
     resumeChat: (projectPath, sessionId) => invoke("chat:resume", projectPath, sessionId),
     reloadChat: (chatId) => invoke("chat:reload", chatId),
+    sendQueuedNow: (chatId, id) => invoke("chat:queue-send", chatId, id),
+    removeQueued: (chatId, id) => invoke("chat:queue-remove", chatId, id),
     switchAccountAfterLimit: (projectPath, sessionId, provider, accountId) => invoke("chat:limit-switch", projectPath, sessionId, provider, accountId),
     patchChat: (projectPath, sessionId, patch) => invoke("chat:patch", projectPath, sessionId, patch),
     archiveSubagent: (projectPath, sessionId, id, archived) => invoke("chat:archive-subagent", projectPath, sessionId, id, archived),
