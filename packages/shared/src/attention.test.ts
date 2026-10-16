@@ -85,6 +85,11 @@ test("other Projects' chats that wait on the user need attention; the open Proje
   assert.deepEqual(chatsNeedingAttention(undefined), []);
 });
 
+test("a Project hidden from the sidebar never asks for attention", () => {
+  const runs = { "/shop#1": { approvals: [{}], questions: [] }, "/gym#2": { approvals: [], questions: [{}] } } as never;
+  assert.deepEqual(chatsNeedingAttention(runs, "", new Set(["/gym"])), ["/shop#1"]);
+});
+
 test("the attention button names one or two projects and counts the rest", () => {
   assert.equal(attentionLabel(["shop"]), "shop needs attention");
   assert.equal(attentionLabel(["shop", "api"]), "shop and api need attention");

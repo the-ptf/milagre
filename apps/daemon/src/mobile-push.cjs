@@ -49,7 +49,7 @@ function registration(value) {
     hostId: value.hostId,
     notifyWhenWaiting: value.notifyWhenWaiting,
     notifyOnCompletion: value.notifyOnCompletion,
-    // The phone's Experimental chime, bundled in its build. Older phones send none: the system sound.
+    // The phone's notification chime, bundled in its build. Older phones send none: the system sound.
     chime: parseNotificationChime(value.chime),
   };
 }
@@ -104,6 +104,7 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
     const eventId = randomUUID();
     const task = (async () => {
       const metadata = await context(chatId);
+      if (!metadata) return;
       const notice = requestId
         ? attentionNotice(event, metadata)
         : completionNotice(metadata.chatTitle, { failed: event.type === "turn-failed", body: event.type === "turn-failed" ? event.message : run.preview });

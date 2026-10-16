@@ -39,7 +39,7 @@ milagre_shots=$(mktemp -d "${TMPDIR:-/tmp}/milagre-ui.XXXXXX")
 MILAGRE_SCREENSHOT_DIR="$milagre_shots" npm test -- --only prompt-skills
 ```
 
-Inspect the images for loaded content, the intended state and clipped controls. A screenshot alone does not establish that a control worked: verify its observable result. Keep credentials, pairing codes and unrelated Chats out of captures. PR images belong on the separate screenshots branch, as [AGENTS.md](../../../AGENTS.md) specifies.
+Inspect the images for loaded content, the intended state and clipped controls. A screenshot alone does not establish that a control worked: verify its observable result. Keep credentials, pairing codes and unrelated Chats out of captures. These harness screenshots are for checking your work only. PR images come from the dev app or a packaged build with real providers and live on the separate screenshots branch, as [AGENTS.md](../../../AGENTS.md) specifies.
 
 Run the corresponding mobile checks when behavior is shared. Before a PR, run the root typecheck, lint and unit commands required by AGENTS.md. Report the checks actually run, skips, failures and evidence paths; distinguish scripted providers from real-provider verification.
 

@@ -22,6 +22,11 @@ const { accountSwitchText } = require("@milagre/shared/usage-limit");
 
 // A chat stopped longer ago than this waits for the user instead of continuing by itself.
 const RESUME_WINDOW_MS = 24 * 60 * 60 * 1000;
+/** The answer to a send that was already saved: its Chat, and no turn to start. */
+function duplicateSend(message) {
+  return { sessionId: message.session_id, started: Promise.resolve(null), duplicate: true };
+}
+
 const RESUME_BODY = "Milagre restarted. Continue where you left off.";
 const RESUME_PROMPT =
   "Milagre, the app running you, closed while you were working and has just opened again, so your last turn was cut off. Continue where you left off. Check what is already done before repeating any of it.";
@@ -593,6 +598,12 @@ class ChatHost {
     await this.beforeSend(request);
     if (request.canStart && !request.canStart()) throw new Error("Advisor delivery is deferred.");
     const { projectPath, body, images = [], files = [], model } = request;
+    // A resend whose first answer was lost carries the same clientMessageId: the message is already saved, so nothing runs twice.
+    const clientMessageId = typeof request.clientMessageId === "string" && request.clientMessageId ? request.clientMessageId : null;
+    if (clientMessageId) {
+      const earlier = await this.states.findMessage(projectPath, "clientMessageId", clientMessageId);
+      if (earlier) return duplicateSend(earlier);
+    }
     // A /compact runs on the chat's own provider, whatever the picker says: it never hands off.
     const compaction = request.context?.kind === "compaction";
     let provider = request.provider;
@@ -615,10 +626,26 @@ class ChatHost {
     let stagedSession;
     // A message for a running turn its provider can't steer waits in the chat's queue instead (see afterTurn).
     let queuedEntry = null;
+    let duplicate = null;
     const saving = this.states.update(
       projectPath,
       (latest) => {
         if (request.canStart && !request.canStart()) throw new Error("Advisor delivery is deferred.");
+        // A concurrent send with the same id may have saved it since the lookup above.
+        const twin = clientMessageId && latest.messages.find((item) => item.clientMessageId === clientMessageId);
+        if (twin) {
+          duplicate = twin;
+          return latest;
+        }
+        // A resend of a message still waiting in a queue: it runs once, when its turn comes.
+        const queuedTwin =
+          clientMessageId && request.fromQueue === undefined
+            ? Object.values(latest.sessions).find((item) => item.queued?.some((entry) => entry.clientMessageId === clientMessageId))
+            : undefined;
+        if (queuedTwin) {
+          duplicate = { session_id: queuedTwin.id };
+          return latest;
+        }
         let session = request.sessionId == null ? undefined : latest.sessions[request.sessionId];
         if (request.sessionId != null && !session) throw new Error("That chat is no longer in the project.");
         // A chat runs in its own worktree; a new one goes to the worktree asked for.
@@ -756,6 +783,7 @@ class ChatHost {
       if (target) this.doneStarting(target.chatId);
       throw error;
     });
+    if (duplicate) return duplicateSend(duplicate);
     if (queuedEntry) return this.queueSaved(projectPath, target, queuedEntry);
     try {
       await this.states.flush(projectPath);

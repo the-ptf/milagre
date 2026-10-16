@@ -1,7 +1,7 @@
 import { isGenuiFence } from "@milagre/shared/genui";
 import { GenerativeUI, MarkdownStreamingContext } from "./genui/GenerativeUI";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, Linking, Pressable, Text, View, type ImageSourcePropType, type TextStyle } from "react-native";
+import { Alert, Image, Linking, Pressable, Text, View, type ImageSourcePropType, type TextStyle, type ViewInstance } from "react-native";
 import { router } from "expo-router";
 import type { Token } from "markdown-it";
 import { localFileLink } from "@milagre/shared/file-link";
@@ -55,7 +55,7 @@ function MarkdownImage({ src, alt, media, basePath }: { src: string; alt: string
   const ready = pending ? (loaded?.source === pending ? loaded.value : null) : (source as ImageSourcePropType | null);
   const broken = !source || failed === source || (pending && loaded?.source === pending && !loaded.value);
   const [ratio, setRatio] = useState(1);
-  const thumb = useRef<View>(null);
+  const thumb = useRef<ViewInstance>(null);
   if (!target) return <Text style={styles.muted}>[Image: {alt}]</Text>;
   if (broken)
     return "url" in target ? (

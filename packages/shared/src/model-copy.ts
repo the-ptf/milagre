@@ -6,6 +6,8 @@ export const PERMISSION_MODES: Array<{ id: PermissionMode; name: string; descrip
   { id: "full", name: "Full permission", description: "Remove filesystem and network limits" },
 ];
 
+export const SETUP_APPROVAL_COPY = { allow: "Run once", always: "Trust this version", deny: "Skip setup" } as const;
+
 export const EFFORT_COPY: Record<string, { name: string; description: string }> = {
   minimal: { name: "Minimal", description: "Fastest replies with little reasoning" },
   low: { name: "Low", description: "Quick answers for small, clear tasks" },

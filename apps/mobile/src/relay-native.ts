@@ -50,7 +50,7 @@ export const relayRuntime: RelayRuntime & { forget(hostId: string): void } = {
       const dir = folder();
       dir.create({ idempotent: true, intermediates: true });
       const file = new File(dir, name);
-      file.write(bytes);
+      await file.write(bytes);
       return file.uri;
     },
   },

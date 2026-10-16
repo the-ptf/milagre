@@ -76,7 +76,7 @@ export function ThemePicker() {
                 />
               ))}
             {group === "Milagre" && settings.customThemeEnabled && settings.customTheme && (
-              <Tile id="custom" label="Custom" name="Custom" detail="From Experimental" />
+              <Tile id="custom" label="Custom" name="Custom" detail="Your colors" />
             )}
           </div>
         </section>

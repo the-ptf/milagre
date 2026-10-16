@@ -77,7 +77,7 @@ async function readPickedFile(uri: string) {
   const handle = file.open(FileMode.ReadOnly);
   let bytes: Uint8Array;
   try {
-    bytes = handle.readBytes(Math.min(file.size, 256 * 1024));
+    bytes = handle.readBytesSync(Math.min(file.size, 256 * 1024));
   } finally {
     handle.close();
   }

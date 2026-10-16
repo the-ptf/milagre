@@ -449,7 +449,9 @@ export interface ImageAttachment {
 /** What an agent asks to do, as shown on the approval card. */
 export interface PermissionRequest {
   requestId: string;
-  kind: "command" | "edit" | "other" | "delegation";
+  kind: "command" | "edit" | "other" | "delegation" | "setup";
+  /** Setup command review context. */
+  setup?: { projectPath: string; source: string; computer: string };
   /** Short name of the tool, e.g. "Bash", "Shell" or "Edit files". */
   tool: string;
   title: string;

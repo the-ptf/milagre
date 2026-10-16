@@ -21,7 +21,7 @@ import {
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import type { ChatMessage, LinkIssueResult, PullRequestActionContext } from "@milagre/shared/model";
-import { chatPullRequests, chatTitle, createPendingChat, pendingChatSessionId, pullRequestRefs } from "@milagre/shared/chats";
+import { chatPullRequests, chatTitle, createPendingChat, createResendMemory, pendingChatSessionId, pullRequestRefs } from "@milagre/shared/chats";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import { LINK_PR_HINT, issueChipLabel, issueFirstMessage, type LinearIssue, type LinearIssuesResult } from "@milagre/shared/linear";
@@ -112,6 +112,8 @@ export default function ChatScreen() {
   // Answers just sent: the card leaves and the answers show at once, until the host's copy arrives.
   const [sentAnswers, setSentAnswers] = useState<{ requestId: string; message: ChatMessage | null; count: number } | null>(null);
   const sendingRef = useRef(false);
+  // The id of a send that failed before the host answered: it may have been saved, so the same text resent reuses it.
+  const failedSends = useRef(createResendMemory());
   const [picking, setPicking] = useState(false);
   const [dockHeight, setDockHeight] = useState(140);
   const [error, setError] = useState("");
@@ -665,7 +667,9 @@ export default function ChatScreen() {
     const creates = newWorktree || issueKey !== undefined;
     const key = `${client.url}|${chatId}`;
     const operationId = project.link ? composer.linkOperations.forSend(key, JSON.stringify([sent, sending.map((item) => item.id)]), randomUUID) : null;
+    const resendParts = sending.map((item) => item.id);
     const preview = createPendingChat({
+      clientMessageId: failedSends.current.reuse(key, sent, resendParts),
       state: project.state,
       worktreeId,
       sessionId: params.id ? Number(params.id) : null,
@@ -750,6 +754,7 @@ export default function ChatScreen() {
             },
           ]);
       accepted = true;
+      failedSends.current.forget(key);
       if (operationId) composer.linkOperations.accepted(key, operationId);
       const promote = current();
       pendingStore.setPendingChats((current) =>
@@ -797,6 +802,8 @@ export default function ChatScreen() {
       return true;
     } catch (e) {
       if (!accepted) {
+        // The host may have saved the message and lost only its answer: a resend of this text carries the same id.
+        failedSends.current.remember(key, preview.message.clientMessageId!, sent, resendParts);
         pendingStore.setPendingChats((current) => {
           const next = { ...current };
           delete next[key];

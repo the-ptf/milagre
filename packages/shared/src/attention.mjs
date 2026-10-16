@@ -67,10 +67,19 @@ export function attentionContext(state, projectName, sessionId) {
   };
 }
 
-/** Chat keys outside `currentPath` whose turn waits on an approval or question, oldest key first. Link Chats are left out. */
-export function chatsNeedingAttention(runs, currentPath = "") {
+const NO_HIDDEN = new Set();
+
+/** Chat keys outside `currentPath` whose turn waits on an approval or question, oldest key first. Link Chats and the
+ * Projects in `hidden` (hidden from the sidebar and the phone's list) are left out. */
+export function chatsNeedingAttention(runs, currentPath = "", hidden = NO_HIDDEN) {
   return Object.entries(runs ?? {})
-    .filter(([key, run]) => (run?.approvals?.length || run?.questions?.length) && !isLinkScopeKey(projectOfKey(key)) && !chatInProject(currentPath, key))
+    .filter(
+      ([key, run]) =>
+        (run?.approvals?.length || run?.questions?.length) &&
+        !isLinkScopeKey(projectOfKey(key)) &&
+        !hidden.has(projectOfKey(key)) &&
+        !chatInProject(currentPath, key),
+    )
     .map(([key]) => key);
 }
 

@@ -1251,6 +1251,52 @@ test("saved input carries its client correlation id so previews reconcile before
   assert.equal(saved.get(ALPHA).messages[0].session_id, sent.sessionId);
 });
 
+test("a send repeating a saved clientMessageId answers with that message's chat and runs nothing", async (t) => {
+  const { host, manager, states, saved, created, published } = harness();
+  t.after(() => manager.closeAll());
+  const first = await host.send(message(ALPHA, "Hello", { clientMessageId: "lost-ack" }));
+  await first.started;
+  const turns = created.flatMap((item) => item.turns).length;
+  const events = published.length;
+  const saves = saved.get(ALPHA).messages.length;
+  // The phone never saw the answer, restored its draft and sent again, aimed at no Chat as before.
+  const again = await host.send(message(ALPHA, "Hello", { clientMessageId: "lost-ack" }));
+  assert.equal(again.sessionId, first.sessionId);
+  assert.equal(again.duplicate, true);
+  assert.equal(await again.started, null);
+  const resent = await host.send(message(ALPHA, "Hello", { clientMessageId: "lost-ack", sessionId: first.sessionId }));
+  assert.equal(resent.sessionId, first.sessionId);
+  const state = await states.get(ALPHA);
+  assert.equal(state.messages.filter((item) => item.clientMessageId === "lost-ack").length, 1);
+  assert.equal(saved.get(ALPHA).messages.length, saves);
+  assert.equal(created.flatMap((item) => item.turns).length, turns);
+  assert.equal(published.length, events);
+  assert.equal(Object.keys(state.sessions).length, 1);
+});
+
+test("two concurrent sends with one clientMessageId save and run it once", async (t) => {
+  const { host, manager, states, created } = harness();
+  t.after(() => manager.closeAll());
+  const [a, b] = await Promise.all([
+    host.send(message(ALPHA, "Hello", { clientMessageId: "double" })),
+    host.send(message(ALPHA, "Hello", { clientMessageId: "double" })),
+  ]);
+  await Promise.all([a.started, b.started]);
+  assert.equal(a.sessionId, b.sessionId);
+  assert.equal((await states.get(ALPHA)).messages.filter((item) => item.clientMessageId === "double").length, 1);
+  assert.equal(created.flatMap((item) => item.turns).length, 1);
+  assert.equal([a, b].filter((item) => item.duplicate).length, 1);
+});
+
+test("a different clientMessageId, or none, is a new message", async (t) => {
+  const { host, manager, states } = harness();
+  t.after(() => manager.closeAll());
+  const first = await host.send(message(ALPHA, "Hello", { clientMessageId: "one" }));
+  await host.send(message(ALPHA, "Hello", { clientMessageId: "two", sessionId: first.sessionId }));
+  await host.send(message(ALPHA, "Hello", { sessionId: first.sessionId }));
+  assert.equal((await states.get(ALPHA)).messages.filter((item) => item.role === "user").length, 3);
+});
+
 // Milagre's task tools against the real host and project state, as runtime.cjs wires them.
 function planHarness() {
   const h = harness();
@@ -1427,6 +1473,23 @@ test("a message for a running turn that can't be steered is queued, then starts 
     chatMessages(saved.get(ALPHA), chat.sessionId).map((item) => item.body),
     ["build it", "Building.", "then add tests", "The agent finished without a reply.", "and docs", "The agent finished without a reply."],
   );
+});
+
+test("a resend of a message still in the queue is not queued twice, and it runs once", async (t) => {
+  const { host, saved, session, chat } = await runningAgyChat(t);
+  const first = await host.send(agy(ALPHA, "then add tests", { sessionId: chat.sessionId, clientMessageId: "c-1" }));
+  assert.equal(first.queued, true);
+  // The phone never saw the answer and sent the same message again.
+  const again = await host.send(agy(ALPHA, "then add tests", { sessionId: chat.sessionId, clientMessageId: "c-1" }));
+  assert.equal(again.duplicate, true);
+  assert.equal(again.sessionId, chat.sessionId);
+  assert.equal(await again.started, null);
+  assert.equal(saved.get(ALPHA).sessions[chat.sessionId].queued.length, 1);
+
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => session(ALPHA).turns.length === 2);
+  await waitUntil(() => saved.get(ALPHA).sessions[chat.sessionId].queued === undefined);
+  assert.equal(saved.get(ALPHA).messages.filter((item) => item.clientMessageId === "c-1").length, 1);
 });
 
 test("a message for a running Claude turn still steers it", async (t) => {

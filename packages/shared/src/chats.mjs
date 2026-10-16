@@ -53,7 +53,7 @@ export function pinOrderAt(orders, index) {
 let nextPreviewId = -2;
 
 /** A local message preview. It is never written into the Project's persisted state. */
-export function createPendingChat({ state, worktreeId, sessionId = null, body, images = [], files = [], model, provider, context = null }) {
+export function createPendingChat({ state, worktreeId, sessionId = null, body, images = [], files = [], model, provider, context = null, clientMessageId }) {
   const id = nextPreviewId--;
   const session = state.sessions[sessionId] ?? {
     id,
@@ -71,7 +71,7 @@ export function createPendingChat({ state, worktreeId, sessionId = null, body, i
     images,
     files,
     model,
-    clientMessageId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${-id}`,
+    clientMessageId: clientMessageId ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${-id}`,
   };
   const messages = state.messages.filter((item) => item.session_id === session.id);
   return {
@@ -80,6 +80,34 @@ export function createPendingChat({ state, worktreeId, sessionId = null, body, i
     startedAt: Date.now(),
     sortId: state.next_id,
     targetSessionId: sessionId,
+  };
+}
+
+/**
+ * Remembers the clientMessageId of a send that failed before the host answered, with what was put back in the
+ * composer. The host may have saved that message and lost only the answer, so the same text sent again reuses the id
+ * and the host recognises it instead of running it twice. Keyed by the composer (a Chat, or the new-Chat view).
+ */
+export function createResendMemory() {
+  const failed = new Map();
+  const signature = (body, attachments) => JSON.stringify([body, ...attachments]);
+  return {
+    /** Keeps `clientMessageId` for the next send of the same body and attachments from `key`. */
+    remember(key, clientMessageId, body, attachments = []) {
+      failed.set(key, { clientMessageId, signature: signature(body, attachments) });
+    },
+    /** The id to resend with, or undefined for a fresh message. Anything that differs from the failed send forgets it. */
+    reuse(key, body, attachments = []) {
+      const entry = failed.get(key);
+      if (!entry) return undefined;
+      if (entry.signature === signature(body, attachments)) return entry.clientMessageId;
+      failed.delete(key);
+      return undefined;
+    },
+    /** The send went through. */
+    forget(key) {
+      failed.delete(key);
+    },
   };
 }
 

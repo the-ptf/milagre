@@ -4,7 +4,7 @@ const { isIssueKey, issueKeyInBranch } = require("./links.cjs");
 
 const ISSUE_TTL_MS = 60_000;
 const TEAMS_TTL_MS = 10 * 60_000;
-const OFF = "Linear is off in Settings › Experimental.";
+const OFF = "Linear is off in Settings › Connections › Linear.";
 const DISCONNECTED = "Linear isn't connected.";
 const ISSUE_FIELDS = "identifier title url branchName description state { name type color }";
 const NOT_CONNECTED_CODES = new Set(["not-connected", "revoked"]);

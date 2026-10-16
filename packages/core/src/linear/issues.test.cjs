@@ -37,7 +37,7 @@ const batch = (document, has) =>
 test("issues say why they can't load when the switch is off or Linear isn't connected", async () => {
   const off = fakeLinear({ enabled: false });
   assert.deepEqual(await createLinearIssues({ linear: off }).list(), {
-    error: "Linear is off in Settings › Experimental.",
+    error: "Linear is off in Settings › Connections › Linear.",
     notConnected: true,
   });
   const disconnected = fakeLinear({ connected: false });
