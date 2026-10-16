@@ -935,6 +935,46 @@ test("claimQueued never starts more Runs than a Routine's maxRuns leaves", () =>
   assert.deepEqual(store.claimQueued(clock.t, 3), []);
 });
 
+test("a Routine whose maxRuns was lowered to what already ran ends at the next claim, with its queue", () => {
+  for (const maxRuns of [3, 1]) {
+    const { store, clock, options } = setup();
+    const routine = store.create({ ...spec, trigger: linear("assigned"), maxRuns: 10 });
+    for (let n = 1; n <= 3; n += 1) store.enqueue(routine.id, change(n));
+    for (const claim of store.claimQueued(clock.t, 3)) store.finishRun(claim.run.id, { status: "acted" });
+    for (let n = 4; n <= 5; n += 1) store.enqueue(routine.id, change(n));
+    assert.equal(store.update(routine.id, { maxRuns }).completedAt, undefined);
+    assert.equal(saved(options).queues[routine.id].length, 2);
+    clock.t += 1000;
+    assert.deepEqual(store.claimQueued(clock.t, 3), [], String(maxRuns));
+    const ended = store.get(routine.id);
+    assert.equal(ended.completedAt, clock.t);
+    assert.equal(ended.enabled, false);
+    assert.equal(ended.runCount, 3);
+    assert.equal(saved(options).queues[routine.id], undefined);
+    assert.deepEqual(store.list(), []);
+    assert.deepEqual(store.enqueue(routine.id, change(6)), { queued: false, reason: "disabled" });
+    assert.deepEqual(
+      store.runs(routine.id).filter((run) => run.status !== "acted"),
+      [],
+    );
+  }
+});
+
+test("a Routine whose maxRuns was lowered while a Run is still going keeps its queue until that Run ends it", () => {
+  const { store, clock, options } = setup();
+  const routine = store.create({ ...spec, maxRuns: 10 });
+  for (let n = 1; n <= 3; n += 1) store.enqueue(routine.id, delivery(n));
+  const claims = store.claimQueued(clock.t, 3);
+  store.finishRun(claims[0].run.id, { status: "acted" });
+  store.finishRun(claims[1].run.id, { status: "acted" });
+  store.enqueue(routine.id, delivery(4));
+  store.update(routine.id, { maxRuns: 2 });
+  assert.deepEqual(store.claimQueued(clock.t, 3), []);
+  assert.equal(store.get(routine.id).completedAt, undefined);
+  assert.equal(saved(options).queues[routine.id].length, 1);
+  assert.ok(store.finishRun(claims[2].run.id, { status: "acted" }).completedAt);
+});
+
 test("claimQueued turns a Linear comment that waited more than 2 h into a missed Run, not a claim", () => {
   const { store, clock } = setup();
   const routine = store.create({ ...spec, trigger: linear("comment") });
@@ -1057,6 +1097,52 @@ test("deferring a Run again keeps its first enqueue time, so a deferred comment 
   assert.equal(run.error, "comment waited 2 h");
   assert.deepEqual(run.event, change(1, "comment"));
   assert.equal(store.runs(routine.id).length, 1);
+});
+
+test("Runs deferred in claim order come back in that order, ahead of the events that arrived after them", () => {
+  const { store, clock, options } = setup();
+  const routine = store.create({ ...spec, trigger: linear("comment") });
+  const keys = [1, 2, 3, 4].map((n) => change(n, "comment").key);
+  // All four arrive in the same millisecond, where the arrival time alone can't tell them apart.
+  for (let n = 1; n <= 4; n += 1) store.enqueue(routine.id, change(n, "comment"));
+  const claims = store.claimQueued(clock.t, 3);
+  assert.deepEqual(
+    claims.map((claim) => claim.run.event.key),
+    keys.slice(0, 3),
+  );
+  const until = clock.t + 15_000;
+  for (const claim of claims) assert.equal(store.deferRun(claim.run.id, until), true);
+  assert.deepEqual(
+    saved(options).queues[routine.id].map((item) => item.event.key),
+    keys,
+  );
+  assert.deepEqual(
+    store.claimQueued(until, 3).map((claim) => claim.run.event.key),
+    keys.slice(0, 3),
+  );
+});
+
+test("a deferred Run goes back where its event's arrival puts it, whichever Run is deferred first", () => {
+  const { store, clock, options } = setup();
+  const routine = store.create({ ...spec, trigger: linear("comment") });
+  const keys = [1, 2, 3, 4].map((n) => change(n, "comment").key);
+  for (let n = 1; n <= 4; n += 1) {
+    clock.t += 1000;
+    store.enqueue(routine.id, change(n, "comment"));
+  }
+  const claims = store.claimQueued(clock.t, 3);
+  const until = clock.t + 15_000;
+  for (const index of [2, 0, 1]) assert.equal(store.deferRun(claims[index].run.id, until), true);
+  const queued = () => saved(options).queues[routine.id].map((item) => item.event.key);
+  assert.deepEqual(queued(), keys);
+  const [first] = store.claimQueued(until, 1);
+  assert.equal(first.run.event.key, keys[0]);
+  assert.equal(store.deferRun(first.run.id, until + 15_000), true);
+  assert.deepEqual(queued(), keys);
+  assert.deepEqual(
+    store.claimQueued(until, 3).map((claim) => claim.run.event.key),
+    [keys[1], keys[2], keys[3]],
+  );
 });
 
 test("deferRun refuses a Run that is not running, has no event, or does not exist", () => {

@@ -460,7 +460,8 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
   }
 
   // Moves queued events into running Runs, oldest first. A Routine never has more than `limit` Runs going (or more than its
-  // maxRuns leaves), and an event not due yet (`notBefore`) waits without holding back the ones behind it.
+  // maxRuns leaves), and an event not due yet (`notBefore`) waits without holding back the ones behind it. A Routine whose
+  // maxRuns is already used up, with no Run left to end it through finish(), ends here and its queue goes with it.
   function claimQueued(at, limit = CONCURRENT_RUNS) {
     const claims = [];
     let changed = false;
@@ -468,6 +469,12 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
       const queue = data.queues[routine.id];
       if (!queue?.length || !routine.enabled || routine.completedAt) continue;
       const running = (data.runs[routine.id] ?? []).filter((run) => run.status === "running").length;
+      if (routine.maxRuns !== undefined && routine.runCount >= routine.maxRuns && running === 0) {
+        markCompleted(routine, at);
+        delete data.queues[routine.id];
+        changed = true;
+        continue;
+      }
       let room = Math.min(limit - running, routine.maxRuns === undefined ? Infinity : routine.maxRuns - routine.runCount - running);
       const waiting = [];
       for (const item of queue) {
@@ -504,15 +511,21 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     return claims;
   }
 
-  // Gives a running event Run back to the queue, at its head and not before `notBefore`, as if it had not started: its
-  // record goes and nothing is counted. It keeps the time its event arrived, so a comment that keeps waiting still ends.
+  // Gives a running event Run back to the queue, not before `notBefore`, as if it had not started: its record goes and
+  // nothing is counted. It keeps the time its event arrived, so a comment that keeps waiting still ends. Deferred events
+  // wait at the head in the order they arrived, ahead of everything never deferred, so Runs deferred in claim order are
+  // claimed again in claim order (events that arrived in the same millisecond keep the order they were deferred in).
   function deferRun(runId, notBefore) {
     if (typeof notBefore !== "number" || !Number.isFinite(notBefore)) throw new Error("notBefore must be a time in milliseconds");
     const found = findRun(runId);
     if (!found || found.run.status !== "running" || !found.run.event) return false;
     const { routine, run } = found;
     data.runs[routine.id].splice(data.runs[routine.id].indexOf(run), 1);
-    (data.queues[routine.id] ?? (data.queues[routine.id] = [])).unshift({ id: id(), event: run.event, enqueuedAt: run.scheduledFor ?? now(), notBefore });
+    const enqueuedAt = run.scheduledFor ?? now();
+    const queue = data.queues[routine.id] ?? (data.queues[routine.id] = []);
+    let index = 0;
+    while (index < queue.length && queue[index].notBefore !== undefined && queue[index].enqueuedAt <= enqueuedAt) index += 1;
+    queue.splice(index, 0, { id: id(), event: run.event, enqueuedAt, notBefore });
     save();
     return true;
   }
