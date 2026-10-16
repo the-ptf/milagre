@@ -31,6 +31,14 @@ export function createPendingChat(input: {
   provider: ModelProvider;
   /** What the message is when no person typed it, such as a PR-blocker pill's action. */
   context?: ChatContext;
+  /** Reuses the id of a send that failed before the host answered, so the host can recognise a resend. */
+  clientMessageId?: string;
 }): PendingChat;
+export type ResendMemory = {
+  remember(key: string, clientMessageId: string, body: string, attachments?: readonly string[]): void;
+  reuse(key: string, body: string, attachments?: readonly string[]): string | undefined;
+  forget(key: string): void;
+};
+export function createResendMemory(): ResendMemory;
 export function pendingChatSessionId(state: CoordinatorState, pending: PendingChat | null | undefined): number | null;
 export function withPendingChat(state: CoordinatorState, pending: PendingChat | null | undefined): CoordinatorState;

@@ -114,3 +114,28 @@ test("pinOrderAt fits a chat between, before or after the pinned ones", () => {
   assert.equal(pinOrderAt([2, 4], 2), 5);
   assert.equal(pinOrderAt([2, 3], 1), 2.5);
 });
+
+test("a resend of the same text reuses the failed send's client id, and anything else is a new message", async () => {
+  const { createPendingChat, createResendMemory } = await import("./chats.mjs");
+  const state: CoordinatorState = { next_id: 4, projects: {}, worktrees: {}, sessions: {}, messages: [], tasks: {} };
+  const memory = createResendMemory();
+  const first = createPendingChat({ state, worktreeId: 1, body: "Hello", model: "m", provider: "codex" });
+  assert.equal(memory.reuse("chat", "Hello"), undefined);
+  memory.remember("chat", first.message.clientMessageId!, "Hello", ["a"]);
+  assert.equal(memory.reuse("other", "Hello", ["a"]), undefined);
+  const again = createPendingChat({
+    state,
+    worktreeId: 1,
+    body: "Hello",
+    model: "m",
+    provider: "codex",
+    clientMessageId: memory.reuse("chat", "Hello", ["a"]),
+  });
+  assert.equal(again.message.clientMessageId, first.message.clientMessageId);
+  assert.notEqual(again.message.id, first.message.id);
+  assert.equal(memory.reuse("chat", "Hello", ["b"]), undefined, "other attachments are another message");
+  assert.equal(memory.reuse("chat", "Hello", ["a"]), undefined, "an edited send forgets the old id");
+  memory.remember("chat", "x", "Hi");
+  memory.forget("chat");
+  assert.equal(memory.reuse("chat", "Hi"), undefined);
+});
