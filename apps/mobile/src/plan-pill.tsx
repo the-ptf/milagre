@@ -174,12 +174,9 @@ function SectionLabel({ title, count, textRef }: { title: string; count?: number
   const text = { color: colors.ink3, fontSize: 11, fontWeight: "500", letterSpacing: 0.9, textTransform: "uppercase" } as const;
   return (
     <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <View style={{ width: 12, height: 1, backgroundColor: colors.accent }} />
-        <Text ref={textRef} accessibilityRole="header" style={text}>
-          {title}
-        </Text>
-      </View>
+      <Text ref={textRef} accessibilityRole="header" style={text}>
+        {title}
+      </Text>
       {count !== undefined && <Text style={[text, { fontVariant: ["tabular-nums"] }]}>{count}</Text>}
     </View>
   );

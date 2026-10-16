@@ -52,10 +52,7 @@ export function PhaseGraph({ plan, now: fixedNow, action }: { plan: ChatPlan; no
   return (
     <section data-slot="phase-graph" aria-label="Phase graph" className="flex shrink-0 flex-col gap-2 px-2 pb-2">
       <div className="flex items-center">
-        <h3 className="flex flex-1 items-center gap-2 text-[11px] font-medium tracking-[0.08em] text-ink-3 uppercase">
-          <span aria-hidden className="h-px w-3 bg-accent" />
-          Phase graph
-        </h3>
+        <h3 className="flex-1 text-[11px] font-medium tracking-[0.08em] text-ink-3 uppercase">Phase graph</h3>
         {action}
       </div>
       <div className="flex gap-2">
