@@ -53,6 +53,24 @@ test("steering an active turn preserves request deduplication", async (t) => {
   await push.settled();
   assert.equal(messages.length, 1);
 });
+test("a quiet chat sends approvals but no completion", async (t) => {
+  const { push, messages } = await fixture(t, { isQuietChat: (id) => id === chatId });
+  await push.register(registration());
+  push.observe(chatId, { type: "turn-started" });
+  push.observe(chatId, approval);
+  await push.settled();
+  push.observe(chatId, { type: "permission-resolved", requestId: approval.requestId, decision: "allow" });
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages.length, 1);
+  assert.match(messages[0].body, /ls/);
+  // Another Chat still announces its end.
+  push.observe("/project#2", { type: "turn-started" });
+  push.observe("/project#2", { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages.length, 2);
+});
+
 async function fixture(t, options = {}) {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-push-"));
   const messages = [];

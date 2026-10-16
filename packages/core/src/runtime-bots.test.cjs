@@ -236,6 +236,8 @@ test("Victor sending in a bot Chat takes it over", async (t) => {
   await waitUntil(() => turns.some(inWorktree));
   assert.equal(turns.find(inWorktree).permissionMode, "bot");
   assert.equal(turns.find(inWorktree).prompt, "Fix it");
+  assert.equal(runtime.isQuietChat(chatKey), true);
+  assert.equal(runtime.isQuietChat(`${project}#999`), false);
   // Its first turn ends at once: the Chat is done and the bot's thread hears about it.
   await eventually(async () => (await runtime.invoke("bots:list")).chats.find((chat) => chat.chatKey === chatKey)?.status === "done");
   await eventually(async () =>
@@ -251,6 +253,9 @@ test("Victor sending in a bot Chat takes it over", async (t) => {
   const refused = await runTool(tool("chat_send"), { chat: chatKey, text: "continue" });
   assert.equal(refused.isError, true);
   assert.equal(refused.text, "Victor took over this Chat.");
+  // The bot's thread stays quiet; the Chat is the user's now and announces its ends again.
+  assert.equal(runtime.isQuietChat(`${bot.homePath}#${bot.threadSessionId}`), true);
+  assert.equal(runtime.isQuietChat(chatKey), false);
   const chatSession = sessions.find((item) => item.options.cwd !== bot.homePath && inWorktree({ cwd: item.options.cwd }));
   assert.equal(chatSession.options.permissionPolicy({ tool: "Bash", command: "gh pr merge 1" }), undefined);
 });

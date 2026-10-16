@@ -82,6 +82,7 @@ const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 const { createFileSearch } = require("./project-files.cjs");
 const { createBots } = require("./bots/index.cjs");
 const { createBotStore } = require("./bots/store.cjs");
+const { isQuietChat } = require("@milagre/shared/bots");
 const git = createGit().read;
 
 // The composition root shared by Electron and the local daemon. Storage paths and
@@ -1982,6 +1983,8 @@ function createRuntime(options) {
       });
     },
     disconnect: (clientId) => Promise.all([simulators.disconnect(clientId), browsers.disconnect(clientId)]).then(() => undefined),
+    /** A bot's thread, or a Chat a bot opened and still runs: its completion tells no one but the bot. */
+    isQuietChat: (chatId) => isQuietChat(bots.snapshot(), chatId),
     openProject: (projectPath, options) => accept(() => openProject(projectPath, options)),
     resumeRecentProjects: () => accept(resumeRecentProjects),
     environmentReady,
