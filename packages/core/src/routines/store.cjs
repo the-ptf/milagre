@@ -37,10 +37,23 @@ const HOOK_ID = /^[0-9a-f]{64}$/i;
 // Events of a Linear or webhook Routine wait here when it already has this many Runs going, in order.
 const CONCURRENT_RUNS = 3;
 const QUEUE_MAX = 20;
-// The event keys a Routine remembers, so a poll that sees a change again can't start a second Run for it.
-const SEEN_KEPT = 500;
+// A Routine remembers the key of every event it saw for at least this long (a poll reaches back 24 h, a relay holds a
+// delivery 24 h), so seeing a change again never starts a second Run for it. Older keys go, unless their event still waits
+// or runs.
+const SEEN_MAX_AGE_MS = 48 * 3600_000;
+// Past this many young keys a Routine refuses new events (a missed Run each) rather than forget one.
+const SEEN_MAX = 5000;
 // A comment is only worth answering while it is fresh.
 const COMMENT_MAX_WAIT_MS = 2 * 3600_000;
+// Runs that never ran are kept apart, so a flood of them can't push out the Runs that did.
+const SKIPPED = new Set(["missed", "skipped-busy"]);
+const SKIPPED_KEPT = 50;
+const RUN_STATUSES = new Set(["running", "acted", "quiet", "failed", "skipped-busy", "missed"]);
+// A completed Routine stays this long after it ended, then goes with everything it kept.
+const PURGE_AFTER_MS = 30 * 864e5;
+const MAINTAIN_EVERY_MS = 3600_000;
+const NO_NEXT_RUN = "schedule has no next run";
+const VERSION = 1;
 
 function parseExpiresIn(value) {
   const match = typeof value === "string" ? /^(\d+)([mhd])$/.exec(value) : null;
@@ -135,15 +148,18 @@ function assertEvent(value) {
   }
 }
 
-function markCompleted(routine, at) {
+function markCompleted(state, routine, at) {
   routine.completedAt = at;
   routine.enabled = false;
   routine.nextRunAt = null;
   routine.updatedAt = at;
+  // Nothing it waited for will run, and nothing it sees will start a Run.
+  delete state.queues[routine.id];
+  delete state.seen[routine.id];
 }
 
 // `countsToFailures` is false for a failed Run that must not add to the streak (see recoverInterrupted).
-function finish(routine, run, status, extra, at, countsToFailures = true) {
+function finish(state, routine, run, status, extra, at, countsToFailures = true) {
   run.status = status;
   run.endedAt = at;
   if (extra.summary !== undefined) run.summary = extra.summary;
@@ -157,7 +173,7 @@ function finish(routine, run, status, extra, at, countsToFailures = true) {
     if (countsToFailures) routine.failedStreak = (routine.failedStreak ?? 0) + 1;
   } else if (COUNTED.has(status)) routine.failedStreak = 0;
   if (routine.completedAt) return;
-  if (routine.maxRuns !== undefined && routine.runCount >= routine.maxRuns) markCompleted(routine, at);
+  if (routine.maxRuns !== undefined && routine.runCount >= routine.maxRuns) markCompleted(state, routine, at);
   else if (routine.failedStreak >= MAX_FAILED_IN_A_ROW) {
     if (routine.target.kind === "new-chat") {
       // A trigger stays listed with the reason. One already switched off keeps whatever reason it had.
@@ -167,99 +183,350 @@ function finish(routine, run, status, extra, at, countsToFailures = true) {
       }
     } else {
       run.error = `${run.error ?? "failed"} · ${MAX_FAILED_IN_A_ROW} failed beats in a row`;
-      markCompleted(routine, at);
+      markCompleted(state, routine, at);
     }
   }
 }
 
+// The newest SKIPPED_KEPT Runs that never ran, and the newest MAX_RUNS_KEPT of the rest, oldest out first. A Run still in
+// flight is never dropped, whatever floods in after it: finishing it needs its record.
+function trimRuns(runs) {
+  let skippedOver = -SKIPPED_KEPT;
+  let restOver = -MAX_RUNS_KEPT;
+  for (const run of runs) {
+    if (SKIPPED.has(run.status)) skippedOver += 1;
+    else restOver += 1;
+  }
+  if (skippedOver <= 0 && restOver <= 0) return runs;
+  return runs.filter((run) => {
+    if (SKIPPED.has(run.status)) return skippedOver-- <= 0;
+    return run.status === "running" || restOver-- <= 0;
+  });
+}
+
 function empty() {
-  return { version: 1, enabled: false, routines: [], runs: {}, queues: {}, seen: {}, linear: {} };
+  return { version: VERSION, enabled: false, routines: [], runs: {}, queues: {}, seen: {}, linear: {} };
 }
 
 // The entries of a saved object that pass `valid`; what a damaged file holds besides that is left out.
 const keepValid = (value, valid) => Object.fromEntries(Object.entries(isObject(value) ? value : {}).filter(([, entry]) => valid(entry)));
 
+const finite = (value) => typeof value === "number" && Number.isFinite(value);
+const text = (value) => typeof value === "string";
+const lower = (value) => String(value ?? "").toLowerCase();
+const errorText = (error) => error?.message ?? String(error);
+
+function validTrigger(trigger) {
+  if (!isObject(trigger)) return false;
+  if (trigger.kind === "schedule") return text(trigger.cron) && text(trigger.timezone);
+  if (trigger.kind === "linear") return text(trigger.workspace) && LINEAR_EVENTS.includes(trigger.event);
+  if (trigger.kind === "webhook") return text(trigger.hookId);
+  return false;
+}
+
+function validTarget(target) {
+  if (!isObject(target)) return false;
+  if (target.kind === "chat") return text(target.chatId);
+  if (target.kind === "new-chat") return text(target.projectPath);
+  return false;
+}
+
+// Whether a saved Routine is whole enough to run: what the scheduler reads without checking is there and of its type.
+function validRoutine(routine) {
+  if (!isObject(routine) || !text(routine.id) || routine.id === "" || !text(routine.name) || !text(routine.prompt)) return false;
+  if (typeof routine.enabled !== "boolean" || !validTrigger(routine.trigger) || !validTarget(routine.target)) return false;
+  if (![routine.createdAt, routine.updatedAt, routine.runCount].every(finite)) return false;
+  if (routine.nextRunAt != null && !finite(routine.nextRunAt)) return false;
+  return ["maxRuns", "expiresAt", "completedAt", "lastRunAt", "failedStreak"].every((key) => routine[key] === undefined || finite(routine[key]));
+}
+
+const validRun = (run, routineId) => isObject(run) && text(run.id) && run.id !== "" && run.routineId === routineId && RUN_STATUSES.has(run.status);
+
+// A saved queue item claimQueued can read.
+const validQueued = (item) => isObject(item) && isObject(item.event) && text(item.event.key) && finite(item.enqueuedAt);
+
+// Seen keys as `{ key, at }`. A file saved before they had an age gives its plain keys the age of now.
+function readSeen(value, at) {
+  return keepValid(
+    Object.fromEntries(
+      Object.entries(keepValid(value, Array.isArray)).map(([routineId, keys]) => [
+        routineId,
+        keys.flatMap((entry) => {
+          if (text(entry) && entry !== "") return [{ key: entry, at }];
+          if (isObject(entry) && text(entry.key) && entry.key !== "" && finite(entry.at)) return [{ key: entry.key, at: entry.at }];
+          return [];
+        }),
+      ]),
+    ),
+    (keys) => keys.length > 0,
+  );
+}
+
+function appendRun(state, routineId, run) {
+  state.runs[routineId] = trimRuns([...(state.runs[routineId] ?? []), run]);
+}
+
+// Drops a Routine's seen keys older than 48 h, but never the key of an event still queued or running.
+function pruneSeen(state, routineId, at) {
+  const keys = state.seen[routineId];
+  if (!keys) return false;
+  const live = new Set((state.queues[routineId] ?? []).map((item) => item.event.key));
+  for (const run of state.runs[routineId] ?? []) if (run.status === "running" && run.event) live.add(run.event.key);
+  const kept = keys.filter((entry) => at - entry.at < SEEN_MAX_AGE_MS || live.has(entry.key));
+  if (kept.length === keys.length) return false;
+  if (kept.length) state.seen[routineId] = kept;
+  else delete state.seen[routineId];
+  return true;
+}
+
+// Upkeep, on load and at most hourly after: a Routine completed 30 days ago goes, with its Runs, queue, seen keys and any
+// Linear cursor no other Routine reads; seen keys past their age go. Says whether anything went.
+function maintain(state, at) {
+  let changed = false;
+  const purged = state.routines.filter((routine) => finite(routine.completedAt) && routine.completedAt + PURGE_AFTER_MS <= at);
+  if (purged.length) {
+    changed = true;
+    state.routines = state.routines.filter((routine) => !purged.includes(routine));
+    for (const routine of purged) {
+      delete state.runs[routine.id];
+      delete state.queues[routine.id];
+      delete state.seen[routine.id];
+    }
+    const read = new Set(state.routines.filter((routine) => routine.trigger.kind === "linear").map((routine) => lower(routine.trigger.workspace)));
+    for (const routine of purged) {
+      if (routine.trigger.kind !== "linear") continue;
+      const workspace = lower(routine.trigger.workspace);
+      if (read.has(workspace)) continue;
+      // The poller keeps one cursor for a workspace's issues and one for its comments.
+      delete state.linear[workspace];
+      delete state.linear[`${workspace}:comments`];
+    }
+  }
+  for (const routineId of Object.keys(state.seen)) if (pruneSeen(state, routineId, at)) changed = true;
+  return changed;
+}
+
+// The next time a schedule fires, or null when it never does: the Routine is then paused with the reason and the error,
+// so the other Routines of the tick (or of a restart) go on.
+function nextOrPause(routine, at) {
+  try {
+    return nextRun(routine.trigger.cron, routine.trigger.timezone, at);
+  } catch (error) {
+    routine.enabled = false;
+    routine.pausedReason = NO_NEXT_RUN;
+    routine.lastError = errorText(error);
+    routine.nextRunAt = null;
+    routine.updatedAt = at;
+    return null;
+  }
+}
+
+// No other live Routine may use the webhook: the URL would start both.
+function assertHookFree(state, hookId, exceptId) {
+  const taken = state.routines.some(
+    (routine) => routine.id !== exceptId && !routine.completedAt && routine.trigger.kind === "webhook" && routine.trigger.hookId === hookId,
+  );
+  if (taken) throw new Error("Another Routine already uses that webhook");
+}
+
+const isDue = (routine, at) => routine.enabled && !routine.completedAt && routine.nextRunAt != null && routine.nextRunAt <= at;
+
+const expired = (routine, at) => !routine.completedAt && routine.expiresAt !== undefined && routine.expiresAt <= at;
+
+// Which Routine each Run belongs to, so a Run is found without scanning the others.
+function indexRuns(state) {
+  const index = new Map();
+  for (const [routineId, runs] of Object.entries(state.runs)) for (const run of runs) index.set(run.id, routineId);
+  return index;
+}
+
 /**
  * The daemon's Routines and their Runs in one JSON file, with the queue of events each trigger is waiting to run (`queues`),
  * the keys of the events it has seen (`seen`) and how far each Linear workspace has been read (`linear`). Reads are cached
- * in memory; every mutation is synchronous and rewrites the whole file once (temp file plus rename, like limit-switch.cjs).
+ * in memory. Every mutation is synchronous and goes through `transact`: it changes a copy, writes the whole file once
+ * (temp file plus rename, like limit-switch.cjs), and only then makes the copy current, so a failed write changes nothing.
+ * A file it can't read (other than a missing one) or doesn't understand is never written: the store opens read-only.
  */
 function createRoutineStore({ file, now = Date.now, id = () => crypto.randomBytes(4).toString("hex") }) {
-  let data = load();
+  // Why every mutation is refused, or null.
+  let readOnly = null;
+  let maintainedAt = now();
+  let data;
+  let runIndex;
+  let positions;
+  publish(load());
+  maintain(data, maintainedAt);
+  publish(data);
+
+  function publish(state) {
+    data = state;
+    runIndex = indexRuns(state);
+    positions = new Map(state.routines.map((routine, index) => [routine.id, index]));
+  }
+
+  function openReadOnly(reason) {
+    readOnly = reason;
+    console.error(`[routines] Routine store is read-only: ${reason}`);
+    return empty();
+  }
 
   function load() {
-    let text;
+    let raw;
     try {
-      text = fs.readFileSync(file, "utf8");
-    } catch {
-      return empty();
+      raw = fs.readFileSync(file, "utf8");
+    } catch (error) {
+      // Only a missing file means there is nothing yet; anything else may hide Routines a write would destroy.
+      if (error?.code === "ENOENT") return empty();
+      return openReadOnly(`could not read ${file}: ${errorText(error)}`);
     }
+    let parsed;
     try {
-      const parsed = JSON.parse(text);
-      if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.routines) || !parsed.runs || typeof parsed.runs !== "object") {
-        throw new Error("unexpected shape");
-      }
-      return {
-        version: 1,
-        enabled: parsed.enabled === true,
-        routines: parsed.routines,
-        runs: parsed.runs,
-        // Files saved before triggers existed have none of these.
-        queues: keepValid(parsed.queues, Array.isArray),
-        seen: keepValid(parsed.seen, Array.isArray),
-        linear: keepValid(parsed.linear, Number.isFinite),
-      };
+      parsed = JSON.parse(raw);
     } catch {
       try {
         fs.renameSync(file, `${file}.corrupt`);
       } catch {}
       return empty();
     }
-  }
-
-  function save() {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const temp = `${file}.${crypto.randomUUID()}.tmp`;
-    fs.writeFileSync(temp, JSON.stringify(data));
-    fs.renameSync(temp, file);
-  }
-
-  const find = (routineId) => data.routines.find((routine) => routine.id === routineId);
-
-  function findRun(runId) {
-    for (const routine of data.routines) {
-      const run = (data.runs[routine.id] ?? []).find((item) => item.id === runId);
-      if (run) return { routine, run };
+    if (!isObject(parsed) || !Array.isArray(parsed.routines) || !isObject(parsed.runs)) return openReadOnly(`${file} has an unexpected shape`);
+    if (parsed.version !== undefined && parsed.version !== VERSION) {
+      return openReadOnly(
+        finite(parsed.version) && parsed.version > VERSION
+          ? `${file} is version ${parsed.version}, newer than this Milagre reads`
+          : `${file} has an unknown version ${JSON.stringify(parsed.version)}`,
+      );
     }
-    return null;
+    const at = now();
+    const invalid = { routines: [], runs: [] };
+    const ids = new Set();
+    const routines = [];
+    for (const routine of parsed.routines) {
+      if (validRoutine(routine) && !ids.has(routine.id)) {
+        ids.add(routine.id);
+        routines.push(routine);
+      } else invalid.routines.push(routine);
+    }
+    const dropped = new Set(invalid.routines.filter(isObject).map((routine) => routine.id));
+    const validRuns = {};
+    for (const [routineId, saved] of Object.entries(parsed.runs)) {
+      // The Runs of a Routine set aside go with it.
+      if (!Array.isArray(saved) || (dropped.has(routineId) && !ids.has(routineId))) {
+        invalid.runs.push(...(Array.isArray(saved) ? saved : [saved]));
+        continue;
+      }
+      validRuns[routineId] = [];
+      for (const run of saved) (validRun(run, routineId) ? validRuns[routineId] : invalid.runs).push(run);
+    }
+    const state = {
+      version: VERSION,
+      enabled: parsed.enabled === true,
+      routines,
+      runs: validRuns,
+      // Files saved before triggers existed have none of these.
+      queues: keepValid(
+        Object.fromEntries(Object.entries(keepValid(parsed.queues, Array.isArray)).map(([routineId, queue]) => [routineId, queue.filter(validQueued)])),
+        (queue) => queue.length > 0,
+      ),
+      seen: readSeen(parsed.seen, at),
+      linear: keepValid(parsed.linear, Number.isFinite),
+    };
+    if (invalid.routines.length || invalid.runs.length) {
+      try {
+        quarantine({ at, ...invalid });
+      } catch (error) {
+        return openReadOnly(`could not set invalid records aside: ${errorText(error)}`);
+      }
+      // Written back without them, so the next start doesn't set them aside again.
+      try {
+        write(state);
+      } catch (error) {
+        console.error("[routines] could not save the store without its invalid records", error);
+      }
+    }
+    return state;
   }
 
-  function appendRun(routineId, run) {
-    const kept = data.runs[routineId] ?? (data.runs[routineId] = []);
-    kept.push(run);
-    // The newest MAX_RUNS_KEPT stay, oldest out first. A Run still in flight is never dropped, whatever floods in after
-    // it (missed Runs of a full queue): finishing it needs its record.
-    for (let index = 0; kept.length > MAX_RUNS_KEPT && index < kept.length - 1;) {
-      if (kept[index].status === "running") index += 1;
-      else kept.splice(index, 1);
+  // Appends invalid records to `<file>.invalid.json` (without .json), an array of `{ at, routines, runs }`, mode 0600.
+  function quarantine(entry) {
+    const target = `${file.replace(/\.json$/, "")}.invalid.json`;
+    let entries = [];
+    try {
+      const saved = JSON.parse(fs.readFileSync(target, "utf8"));
+      if (!Array.isArray(saved)) throw new Error("not a list");
+      entries = saved;
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        // One it can't read stays readable as it was; one it can read but not parse is moved aside, not overwritten.
+        if (error?.code) throw error;
+        fs.renameSync(target, `${target}.corrupt`);
+      }
+    }
+    entries.push(entry);
+    write(entries, target, 0o600);
+  }
+
+  function write(state, target = file, mode) {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    const temp = `${target}.${crypto.randomUUID()}.tmp`;
+    try {
+      fs.writeFileSync(temp, JSON.stringify(state), mode === undefined ? undefined : { mode });
+      fs.renameSync(temp, target);
+    } catch (error) {
+      try {
+        fs.rmSync(temp, { force: true });
+      } catch {}
+      throw error;
     }
   }
 
-  // No other live Routine may use the webhook: the URL would start both.
-  function assertHookFree(hookId, exceptId) {
-    const taken = data.routines.some(
-      (routine) => routine.id !== exceptId && !routine.completedAt && routine.trigger.kind === "webhook" && routine.trigger.hookId === hookId,
-    );
-    if (taken) throw new Error("Another Routine already uses that webhook");
+  function assertWritable() {
+    if (readOnly) throw new Error(`Routine store is read-only: ${readOnly}`);
+  }
+
+  const maintenanceDue = () => now() - maintainedAt >= MAINTAIN_EVERY_MS;
+
+  /**
+   * Runs `change(draft, tx)` on a copy of the store. When it sets `tx.changed` (or the hourly upkeep finds something to
+   * drop), the copy is written and becomes the store; when anything throws, the store and its file stay as they were.
+   */
+  function transact(change) {
+    assertWritable();
+    const draft = structuredClone(data);
+    const tx = { changed: false };
+    const result = change(draft, tx);
+    const at = now();
+    const upkeep = at - maintainedAt >= MAINTAIN_EVERY_MS;
+    if (upkeep && maintain(draft, at)) tx.changed = true;
+    if (tx.changed) {
+      write(draft);
+      publish(draft);
+    }
+    if (upkeep) maintainedAt = at;
+    return result;
+  }
+
+  function find(state, routineId) {
+    const routine = state.routines[positions.get(routineId)];
+    // A Routine added or removed in this transaction moves the others; then it is looked for.
+    return routine?.id === routineId ? routine : state.routines.find((item) => item.id === routineId);
+  }
+
+  function findRun(state, runId) {
+    const routineId = runIndex.get(runId);
+    const run = routineId === undefined ? undefined : state.runs[routineId]?.find((item) => item.id === runId);
+    const routine = run && find(state, routineId);
+    return routine ? { routine, run } : null;
   }
 
   function enabled() {
     return data.enabled;
   }
   function setEnabled(value) {
-    data.enabled = value === true;
-    save();
-    return data.enabled;
+    return transact((state, tx) => {
+      tx.changed = state.enabled !== (value === true);
+      state.enabled = value === true;
+      return state.enabled;
+    });
   }
 
   function list() {
@@ -269,54 +536,58 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
       .map(copy);
   }
   function get(routineId) {
-    return copy(find(routineId) ?? null);
+    return copy(find(data, routineId) ?? null);
   }
   function runs(routineId) {
     return (data.runs[routineId] ?? []).toReversed().map(copy);
   }
 
   function upsertHeartbeat({ chatId, name, prompt, cron, every, timezone, maxRuns, expiresIn, provider, model, permissionMode, createdBy }) {
+    assertWritable();
     if ((cron === undefined) === (every === undefined)) throw new Error("Give exactly one of cron or every");
     if (typeof timezone !== "string" || timezone === "") throw new Error("A heartbeat needs a timezone");
     if (typeof name !== "string" || name.trim() === "") throw new Error("A heartbeat needs a name");
     if (typeof prompt !== "string" || prompt.trim() === "") throw new Error("A heartbeat needs a prompt");
     const at = now();
     const expression = cron ?? everyToCron(every);
+    // Worked out before anything changes: a schedule that never fires is refused here.
     const nextRunAt = nextRun(expression, timezone, at);
-    const existing = data.routines.find((routine) => !routine.completedAt && routine.name === name && routine.target.chatId === chatId);
-    // Set again with no end of its own, a heartbeat keeps the end it had rather than run 7 more days.
-    const keepEnd = expiresIn === undefined && maxRuns === undefined && existing && (existing.expiresAt !== undefined || existing.maxRuns !== undefined);
-    if (keepEnd) maxRuns = existing.maxRuns;
-    const expiresAt = keepEnd
-      ? existing.expiresAt
-      : expiresIn !== undefined
-        ? at + parseExpiresIn(expiresIn)
-        : maxRuns === undefined
-          ? at + DEFAULT_EXPIRY_MS
-          : undefined;
-    const routine = {
-      id: existing?.id ?? id(),
-      name,
-      prompt,
-      trigger: { kind: "schedule", cron: expression, timezone },
-      target: { kind: "chat", chatId },
-      enabled: true,
-      createdBy,
-      nextRunAt,
-      runCount: existing?.runCount ?? 0,
-      createdAt: existing?.createdAt ?? at,
-      updatedAt: at,
-    };
-    if (provider !== undefined) routine.provider = provider;
-    if (model !== undefined) routine.model = model;
-    if (permissionMode !== undefined) routine.permissionMode = permissionMode;
-    if (maxRuns !== undefined) routine.maxRuns = maxRuns;
-    if (expiresAt !== undefined) routine.expiresAt = expiresAt;
-    if (existing?.lastRunAt !== undefined) routine.lastRunAt = existing.lastRunAt;
-    if (existing) data.routines[data.routines.indexOf(existing)] = routine;
-    else data.routines.push(routine);
-    save();
-    return copy(routine);
+    return transact((state, tx) => {
+      const existing = state.routines.find((routine) => !routine.completedAt && routine.name === name && routine.target.chatId === chatId);
+      // Set again with no end of its own, a heartbeat keeps the end it had rather than run 7 more days.
+      const keepEnd = expiresIn === undefined && maxRuns === undefined && existing && (existing.expiresAt !== undefined || existing.maxRuns !== undefined);
+      const runsCap = keepEnd ? existing.maxRuns : maxRuns;
+      const expiresAt = keepEnd
+        ? existing.expiresAt
+        : expiresIn !== undefined
+          ? at + parseExpiresIn(expiresIn)
+          : runsCap === undefined
+            ? at + DEFAULT_EXPIRY_MS
+            : undefined;
+      const routine = {
+        id: existing?.id ?? id(),
+        name,
+        prompt,
+        trigger: { kind: "schedule", cron: expression, timezone },
+        target: { kind: "chat", chatId },
+        enabled: true,
+        createdBy,
+        nextRunAt,
+        runCount: existing?.runCount ?? 0,
+        createdAt: existing?.createdAt ?? at,
+        updatedAt: at,
+      };
+      if (provider !== undefined) routine.provider = provider;
+      if (model !== undefined) routine.model = model;
+      if (permissionMode !== undefined) routine.permissionMode = permissionMode;
+      if (runsCap !== undefined) routine.maxRuns = runsCap;
+      if (expiresAt !== undefined) routine.expiresAt = expiresAt;
+      if (existing?.lastRunAt !== undefined) routine.lastRunAt = existing.lastRunAt;
+      if (existing) state.routines[state.routines.indexOf(existing)] = routine;
+      else state.routines.push(routine);
+      tx.changed = true;
+      return copy(routine);
+    });
   }
 
   /**
@@ -324,6 +595,7 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
    * existing Chat (a Heartbeat, which always ends: 7 days unless it names an end), and every other Routine may run forever.
    */
   function create(input) {
+    assertWritable();
     if (!isObject(input)) throw new Error("A Routine needs its settings");
     const at = now();
     // This mistake is named before any field of the trigger or target is checked.
@@ -341,10 +613,12 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     if (input.expiresAt != null) routine.expiresAt = checkExpiresAt(input.expiresAt, at);
     else if (target.kind === "chat" && routine.maxRuns === undefined) routine.expiresAt = at + DEFAULT_EXPIRY_MS;
     if (trigger.kind === "schedule") routine.nextRunAt = nextRun(trigger.cron, trigger.timezone, at);
-    if (trigger.kind === "webhook") assertHookFree(trigger.hookId);
-    data.routines.push(routine);
-    save();
-    return copy(routine);
+    return transact((state, tx) => {
+      if (trigger.kind === "webhook") assertHookFree(state, trigger.hookId);
+      state.routines.push(routine);
+      tx.changed = true;
+      return copy(routine);
+    });
   }
 
   /**
@@ -352,120 +626,169 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
    * of the same kind. `null` clears provider, model, permissionMode, maxRuns and expiresAt. Nothing changes unless all of it is valid.
    */
   function update(routineId, patch) {
-    const routine = find(routineId);
-    if (!routine) throw new Error(`Routine not found: ${routineId}`);
-    if (routine.completedAt) throw new Error(`Routine is completed: ${routineId}`);
-    if (!isObject(patch)) throw new Error("A Routine change must be an object");
-    for (const key of Object.keys(patch)) if (!UPDATABLE.has(key)) throw new Error(`Cannot update ${key}`);
-    const at = now();
-    const next = copy(routine);
-    if (patch.name !== undefined) next.name = checkText(patch.name, "name", NAME_MAX);
-    if (patch.prompt !== undefined) next.prompt = checkText(patch.prompt, "prompt", PROMPT_MAX);
-    if (patch.enabled !== undefined) next.enabled = checkFlag(patch.enabled, "enabled");
-    for (const key of ["provider", "model", "permissionMode"]) {
-      if (patch[key] === null) delete next[key];
-      else if (patch[key] !== undefined) next[key] = checkText(patch[key], key);
-    }
-    if (patch.maxRuns === null) delete next.maxRuns;
-    else if (patch.maxRuns !== undefined) next.maxRuns = checkMaxRuns(patch.maxRuns);
-    if (patch.expiresAt === null) delete next.expiresAt;
-    else if (patch.expiresAt !== undefined) next.expiresAt = checkExpiresAt(patch.expiresAt, at);
-    if (patch.trigger !== undefined) {
-      if (!isObject(patch.trigger)) throw new Error("trigger must be an object");
-      if (patch.trigger.kind !== routine.trigger.kind) throw new Error("Can't change a Routine's trigger kind");
-      next.trigger = checkTrigger(patch.trigger);
-      if (next.trigger.kind === "webhook") assertHookFree(next.trigger.hookId, routine.id);
-    }
-    if (patch.target !== undefined) {
-      if (!isObject(patch.target)) throw new Error("target must be an object");
-      if (patch.target.kind !== routine.target.kind) throw new Error("Can't change a Routine's target kind");
-      next.target = checkTarget(patch.target);
-    }
-    // A cron or timezone given next to a whole trigger changes that trigger.
-    if (patch.cron !== undefined || patch.timezone !== undefined) {
-      if (next.trigger.kind !== "schedule") throw new Error("Only a schedule trigger has a cron or timezone");
-      if (patch.cron !== undefined) next.trigger.cron = checkText(patch.cron, "cron");
-      if (patch.timezone !== undefined) next.trigger.timezone = checkText(patch.timezone, "timezone");
-    }
-    if (next.target.kind === "chat" && next.maxRuns === undefined && next.expiresAt === undefined) {
-      throw new Error("Heartbeats need an end: keep maxRuns or expiresAt");
-    }
-    // Switching a Routine on starts its failure count over, and ends the pause that count may have caused.
-    const switchedOn = patch.enabled === true && !routine.enabled;
-    if (switchedOn) {
-      delete next.pausedReason;
-      delete next.failedStreak;
-    }
-    const retimed = patch.trigger !== undefined || patch.cron !== undefined || patch.timezone !== undefined;
-    if (next.trigger.kind === "schedule" && (retimed || switchedOn)) next.nextRunAt = nextRun(next.trigger.cron, next.trigger.timezone, at);
-    next.updatedAt = at;
-    data.routines[data.routines.indexOf(routine)] = next;
-    save();
-    return copy(next);
+    return transact((state, tx) => {
+      const routine = find(state, routineId);
+      if (!routine) throw new Error(`Routine not found: ${routineId}`);
+      if (routine.completedAt) throw new Error(`Routine is completed: ${routineId}`);
+      if (!isObject(patch)) throw new Error("A Routine change must be an object");
+      for (const key of Object.keys(patch)) if (!UPDATABLE.has(key)) throw new Error(`Cannot update ${key}`);
+      const at = now();
+      const next = copy(routine);
+      if (patch.name !== undefined) next.name = checkText(patch.name, "name", NAME_MAX);
+      if (patch.prompt !== undefined) next.prompt = checkText(patch.prompt, "prompt", PROMPT_MAX);
+      if (patch.enabled !== undefined) next.enabled = checkFlag(patch.enabled, "enabled");
+      for (const key of ["provider", "model", "permissionMode"]) {
+        if (patch[key] === null) delete next[key];
+        else if (patch[key] !== undefined) next[key] = checkText(patch[key], key);
+      }
+      if (patch.maxRuns === null) delete next.maxRuns;
+      else if (patch.maxRuns !== undefined) next.maxRuns = checkMaxRuns(patch.maxRuns);
+      if (patch.expiresAt === null) delete next.expiresAt;
+      else if (patch.expiresAt !== undefined) next.expiresAt = checkExpiresAt(patch.expiresAt, at);
+      if (patch.trigger !== undefined) {
+        if (!isObject(patch.trigger)) throw new Error("trigger must be an object");
+        if (patch.trigger.kind !== routine.trigger.kind) throw new Error("Can't change a Routine's trigger kind");
+        next.trigger = checkTrigger(patch.trigger);
+        if (next.trigger.kind === "webhook") assertHookFree(state, next.trigger.hookId, routine.id);
+      }
+      if (patch.target !== undefined) {
+        if (!isObject(patch.target)) throw new Error("target must be an object");
+        if (patch.target.kind !== routine.target.kind) throw new Error("Can't change a Routine's target kind");
+        next.target = checkTarget(patch.target);
+      }
+      // A cron or timezone given next to a whole trigger changes that trigger.
+      if (patch.cron !== undefined || patch.timezone !== undefined) {
+        if (next.trigger.kind !== "schedule") throw new Error("Only a schedule trigger has a cron or timezone");
+        if (patch.cron !== undefined) next.trigger.cron = checkText(patch.cron, "cron");
+        if (patch.timezone !== undefined) next.trigger.timezone = checkText(patch.timezone, "timezone");
+      }
+      if (next.target.kind === "chat" && next.maxRuns === undefined && next.expiresAt === undefined) {
+        throw new Error("Heartbeats need an end: keep maxRuns or expiresAt");
+      }
+      // Switching a Routine on starts its failure count over, and ends the pause that count (or a schedule that had no next
+      // run) may have caused.
+      const switchedOn = patch.enabled === true && !routine.enabled;
+      if (switchedOn) {
+        if (routine.pausedReason === NO_NEXT_RUN) delete next.lastError;
+        delete next.pausedReason;
+        delete next.failedStreak;
+      }
+      const retimed = patch.trigger !== undefined || patch.cron !== undefined || patch.timezone !== undefined;
+      if (next.trigger.kind === "schedule" && (retimed || switchedOn)) next.nextRunAt = nextRun(next.trigger.cron, next.trigger.timezone, at);
+      next.updatedAt = at;
+      state.routines[state.routines.indexOf(routine)] = next;
+      tx.changed = true;
+      return copy(next);
+    });
   }
 
   function remove(routineId) {
-    const routine = find(routineId);
-    if (!routine) return false;
-    data.routines.splice(data.routines.indexOf(routine), 1);
-    delete data.runs[routineId];
-    delete data.queues[routineId];
-    delete data.seen[routineId];
-    save();
-    return true;
+    return transact((state, tx) => {
+      const routine = find(state, routineId);
+      if (!routine) return false;
+      state.routines.splice(state.routines.indexOf(routine), 1);
+      delete state.runs[routineId];
+      delete state.queues[routineId];
+      delete state.seen[routineId];
+      tx.changed = true;
+      return true;
+    });
   }
 
   function claimDue(at) {
-    const claims = [];
-    let changed = false;
-    for (const routine of data.routines) {
-      if (!routine.enabled || routine.completedAt || routine.nextRunAt == null || routine.nextRunAt > at) continue;
-      const scheduledFor = routine.nextRunAt;
-      const late = scheduledFor < at - MISSED_AFTER_MS;
-      const run = { id: id(), routineId: routine.id, scheduledFor, startedAt: at, status: late ? "missed" : "running" };
-      if (late) run.endedAt = at;
-      appendRun(routine.id, run);
-      routine.nextRunAt = nextRun(routine.trigger.cron, routine.trigger.timezone, at);
-      routine.updatedAt = at;
-      if (!late) claims.push({ routine: copy(routine), run: copy(run) });
-      changed = true;
-    }
-    if (changed) save();
-    return claims;
+    assertWritable();
+    if (!maintenanceDue() && !data.routines.some((routine) => isDue(routine, at))) return [];
+    return transact((state, tx) => {
+      const claims = [];
+      for (const routine of state.routines) {
+        if (!isDue(routine, at)) continue;
+        tx.changed = true;
+        // The next slot is worked out before the Run is recorded: a schedule with none pauses and records nothing.
+        const next = nextOrPause(routine, at);
+        if (next === null) continue;
+        const scheduledFor = routine.nextRunAt;
+        const late = scheduledFor < at - MISSED_AFTER_MS;
+        const run = { id: id(), routineId: routine.id, scheduledFor, startedAt: at, status: late ? "missed" : "running" };
+        if (late) run.endedAt = at;
+        appendRun(state, routine.id, run);
+        routine.nextRunAt = next;
+        routine.updatedAt = at;
+        if (!late) claims.push({ routine: copy(routine), run: copy(run) });
+      }
+      return claims;
+    });
   }
 
   // A Run outside the schedule (run now): same shape as a claimed one, but nextRunAt stays where it is.
   function startRun(routineId, at) {
-    const routine = find(routineId);
-    if (!routine || routine.completedAt) return null;
-    const run = { id: id(), routineId, scheduledFor: at, startedAt: at, status: "running" };
-    appendRun(routineId, run);
-    save();
-    return { routine: copy(routine), run: copy(run) };
+    return transact((state, tx) => {
+      const routine = find(state, routineId);
+      if (!routine || routine.completedAt) return null;
+      const run = { id: id(), routineId, scheduledFor: at, startedAt: at, status: "running" };
+      appendRun(state, routineId, run);
+      tx.changed = true;
+      return { routine: copy(routine), run: copy(run) };
+    });
   }
 
-  // An event of a Linear or webhook Routine waits for a free slot. Its key is remembered from now on, so seeing the same
-  // change again (the next poll, a redelivery) never starts a second Run, however the first one ends.
-  function enqueue(routineId, event) {
-    assertEvent(event);
-    const routine = find(routineId);
-    if (!routine || !routine.enabled || routine.completedAt) return { queued: false, reason: "disabled" };
-    const waiting = data.queues[routineId] ?? [];
-    if ((data.seen[routineId] ?? []).includes(event.key) || waiting.some((item) => item.event.key === event.key)) return { queued: false, reason: "seen" };
-    const at = now();
-    const keys = data.seen[routineId] ?? (data.seen[routineId] = []);
-    keys.push(event.key);
-    if (keys.length > SEEN_KEPT) keys.splice(0, keys.length - SEEN_KEPT);
-    if (waiting.length >= QUEUE_MAX) {
-      // The event is answered with a Run of its own, so it is also not tried again later.
-      appendRun(routineId, { id: id(), routineId, scheduledFor: at, startedAt: at, endedAt: at, status: "missed", error: "queue full", event: copy(event) });
-      save();
-      return { queued: false, reason: "full" };
-    }
-    (data.queues[routineId] ?? (data.queues[routineId] = [])).push({ id: id(), event: copy(event), enqueuedAt: at });
-    save();
-    return { queued: true };
+  // A missed Run that answers an event which won't run: it never counts.
+  function missedRun(state, routineId, at, error, event) {
+    appendRun(state, routineId, { id: id(), routineId, scheduledFor: at, startedAt: at, endedAt: at, status: "missed", error, event: copy(event) });
   }
+
+  /**
+   * Queues events of Linear or webhook Routines (`[{ routineId, event }]`) for a free slot, with one write for the whole
+   * batch (none when nothing changed), and answers each in order as `enqueue` does. A key is remembered from now on, so
+   * seeing the same change again (the next poll, a redelivery) never starts a second Run, however the first one ends.
+   */
+  function enqueueMany(items) {
+    assertWritable();
+    if (!Array.isArray(items)) throw new Error("enqueueMany takes an array of { routineId, event }");
+    for (const item of items) assertEvent(item?.event);
+    if (items.length === 0) return [];
+    return transact((state, tx) => {
+      const at = now();
+      // routineId -> the keys it has seen or holds queued, read once per batch after its old keys are pruned.
+      const known = new Map();
+      return items.map(({ routineId, event }) => {
+        const routine = find(state, routineId);
+        if (!routine || !routine.enabled || routine.completedAt) return { queued: false, reason: "disabled" };
+        if (!known.has(routineId)) {
+          if (pruneSeen(state, routineId, at)) tx.changed = true;
+          known.set(
+            routineId,
+            new Set([...(state.seen[routineId] ?? []), ...(state.queues[routineId] ?? []).map((item) => item.event)].map((entry) => entry.key)),
+          );
+        }
+        const keys = known.get(routineId);
+        if (keys.has(event.key)) return { queued: false, reason: "seen" };
+        tx.changed = true;
+        const seen = state.seen[routineId] ?? (state.seen[routineId] = []);
+        if (seen.length >= SEEN_MAX) {
+          // Forgetting a key could start its event twice; refusing this one is the lesser harm.
+          missedRun(state, routineId, at, "too many events", event);
+          return { queued: false, reason: "too-many" };
+        }
+        seen.push({ key: event.key, at });
+        keys.add(event.key);
+        const queue = state.queues[routineId] ?? (state.queues[routineId] = []);
+        if (queue.length >= QUEUE_MAX) {
+          // The event is answered with a Run of its own, so it is also not tried again later.
+          missedRun(state, routineId, at, "queue full", event);
+          return { queued: false, reason: "full" };
+        }
+        queue.push({ id: id(), event: copy(event), enqueuedAt: at });
+        return { queued: true };
+      });
+    });
+  }
+
+  // One event: `enqueueMany` with one item.
+  function enqueue(routineId, event) {
+    return enqueueMany([{ routineId, event }])[0];
+  }
+
+  const claimable = (routine) => data.queues[routine.id]?.length && routine.enabled && !routine.completedAt;
 
   // Moves queued events into running Runs, oldest first. A Routine never has more than `limit` Runs going (or more than its
   // maxRuns leaves), and an event not due yet (`notBefore`) waits without holding back the ones behind it, except the
@@ -473,57 +796,58 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
   // ones on that issue. A Routine whose maxRuns is already used up, with no Run left to end it through finish(), ends here
   // and its queue goes with it.
   function claimQueued(at, limit = CONCURRENT_RUNS) {
-    const claims = [];
-    let changed = false;
-    for (const routine of data.routines) {
-      const queue = data.queues[routine.id];
-      if (!queue?.length || !routine.enabled || routine.completedAt) continue;
-      const running = (data.runs[routine.id] ?? []).filter((run) => run.status === "running").length;
-      if (routine.maxRuns !== undefined && routine.runCount >= routine.maxRuns && running === 0) {
-        markCompleted(routine, at);
-        delete data.queues[routine.id];
-        changed = true;
-        continue;
-      }
-      let room = Math.min(limit - running, routine.maxRuns === undefined ? Infinity : routine.maxRuns - routine.runCount - running);
-      const waiting = [];
-      // The issues of the comments left waiting so far in this pass.
-      const held = new Set();
-      for (const item of queue) {
-        const { event } = item;
-        const comment = event.kind === "linear" && event.change === "comment";
-        const issue = comment ? issueNames(event) : [];
-        if (comment && at - item.enqueuedAt > COMMENT_MAX_WAIT_MS) {
-          // Answering a comment hours late helps no one, and it takes no slot.
-          appendRun(routine.id, {
-            id: id(),
-            routineId: routine.id,
-            scheduledFor: item.enqueuedAt,
-            startedAt: at,
-            endedAt: at,
-            status: "missed",
-            error: "comment waited 2 h",
-            event,
-          });
-        } else if (room > 0 && (item.notBefore ?? 0) <= at && !issue.some((name) => held.has(name))) {
-          // scheduledFor is when the event arrived, which deferRun hands back to the queue.
-          const run = { id: id(), routineId: routine.id, scheduledFor: item.enqueuedAt, startedAt: at, status: "running", event };
-          appendRun(routine.id, run);
-          claims.push({ routine: copy(routine), run: copy(run) });
-          room -= 1;
-        } else {
-          for (const name of issue) held.add(name);
-          waiting.push(item);
+    assertWritable();
+    if (!maintenanceDue() && !data.routines.some(claimable)) return [];
+    return transact((state, tx) => {
+      const claims = [];
+      for (const routine of state.routines) {
+        const queue = state.queues[routine.id];
+        if (!queue?.length || !routine.enabled || routine.completedAt) continue;
+        const running = (state.runs[routine.id] ?? []).filter((run) => run.status === "running").length;
+        if (routine.maxRuns !== undefined && routine.runCount >= routine.maxRuns && running === 0) {
+          markCompleted(state, routine, at);
+          tx.changed = true;
           continue;
         }
-        changed = true;
+        let room = Math.min(limit - running, routine.maxRuns === undefined ? Infinity : routine.maxRuns - routine.runCount - running);
+        const waiting = [];
+        // The issues of the comments left waiting so far in this pass.
+        const held = new Set();
+        for (const item of queue) {
+          const { event } = item;
+          const comment = event.kind === "linear" && event.change === "comment";
+          const issue = comment ? issueNames(event) : [];
+          if (comment && at - item.enqueuedAt > COMMENT_MAX_WAIT_MS) {
+            // Answering a comment hours late helps no one, and it takes no slot.
+            appendRun(state, routine.id, {
+              id: id(),
+              routineId: routine.id,
+              scheduledFor: item.enqueuedAt,
+              startedAt: at,
+              endedAt: at,
+              status: "missed",
+              error: "comment waited 2 h",
+              event,
+            });
+          } else if (room > 0 && (item.notBefore ?? 0) <= at && !issue.some((name) => held.has(name))) {
+            // scheduledFor is when the event arrived, which deferRun hands back to the queue.
+            const run = { id: id(), routineId: routine.id, scheduledFor: item.enqueuedAt, startedAt: at, status: "running", event };
+            appendRun(state, routine.id, run);
+            claims.push({ routine: copy(routine), run: copy(run) });
+            room -= 1;
+          } else {
+            for (const name of issue) held.add(name);
+            waiting.push(item);
+            continue;
+          }
+          tx.changed = true;
+        }
+        if (waiting.length === queue.length) continue;
+        if (waiting.length) state.queues[routine.id] = waiting;
+        else delete state.queues[routine.id];
       }
-      if (waiting.length === queue.length) continue;
-      if (waiting.length) data.queues[routine.id] = waiting;
-      else delete data.queues[routine.id];
-    }
-    if (changed) save();
-    return claims;
+      return claims;
+    });
   }
 
   // Gives a running event Run back to the queue, not before `notBefore`, as if it had not started: its record goes and
@@ -532,17 +856,19 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
   // claimed again in claim order (events that arrived in the same millisecond keep the order they were deferred in).
   function deferRun(runId, notBefore) {
     if (typeof notBefore !== "number" || !Number.isFinite(notBefore)) throw new Error("notBefore must be a time in milliseconds");
-    const found = findRun(runId);
-    if (!found || found.run.status !== "running" || !found.run.event) return false;
-    const { routine, run } = found;
-    data.runs[routine.id].splice(data.runs[routine.id].indexOf(run), 1);
-    const enqueuedAt = run.scheduledFor ?? now();
-    const queue = data.queues[routine.id] ?? (data.queues[routine.id] = []);
-    let index = 0;
-    while (index < queue.length && queue[index].notBefore !== undefined && queue[index].enqueuedAt <= enqueuedAt) index += 1;
-    queue.splice(index, 0, { id: id(), event: run.event, enqueuedAt, notBefore });
-    save();
-    return true;
+    return transact((state, tx) => {
+      const found = findRun(state, runId);
+      if (!found || found.run.status !== "running" || !found.run.event) return false;
+      const { routine, run } = found;
+      state.runs[routine.id].splice(state.runs[routine.id].indexOf(run), 1);
+      const enqueuedAt = run.scheduledFor ?? now();
+      const queue = state.queues[routine.id] ?? (state.queues[routine.id] = []);
+      let index = 0;
+      while (index < queue.length && queue[index].notBefore !== undefined && queue[index].enqueuedAt <= enqueuedAt) index += 1;
+      queue.splice(index, 0, { id: id(), event: run.event, enqueuedAt, notBefore });
+      tx.changed = true;
+      return true;
+    });
   }
 
   // Records where a Run's Chat was started. The Worktree is left out when the Run works in the Project folder.
@@ -550,47 +876,55 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     const { chatId, worktreeId } = isObject(chat) ? chat : {};
     checkText(chatId, "chatId");
     if (worktreeId !== undefined) checkText(worktreeId, "worktreeId");
-    const found = findRun(runId);
-    if (!found) return false;
-    found.run.chatId = chatId;
-    if (worktreeId !== undefined) found.run.worktreeId = worktreeId;
-    save();
-    return true;
+    return transact((state, tx) => {
+      const found = findRun(state, runId);
+      if (!found) return false;
+      found.run.chatId = chatId;
+      if (worktreeId !== undefined) found.run.worktreeId = worktreeId;
+      tx.changed = true;
+      return true;
+    });
   }
 
   function finishRun(runId, { status, summary, error, chatId }) {
     if (!FINISH_STATUSES.has(status)) throw new Error(`Invalid run status: ${JSON.stringify(status)}`);
-    const found = findRun(runId);
-    // Only a run still in flight can be finished; a second call must not recount it.
-    if (!found || found.run.status !== "running") return null;
-    finish(found.routine, found.run, status, { summary, error, chatId }, now());
-    save();
-    return copy(found.routine);
+    return transact((state, tx) => {
+      const found = findRun(state, runId);
+      // Only a run still in flight can be finished; a second call must not recount it.
+      if (!found || found.run.status !== "running") return null;
+      finish(state, found.routine, found.run, status, { summary, error, chatId }, now());
+      tx.changed = true;
+      return copy(found.routine);
+    });
   }
 
   // Switches a Routine off and says why. It stays listed, and switching it on again (update) clears the reason.
   function pause(routineId, reason) {
     checkText(reason, "reason");
-    const routine = find(routineId);
-    if (!routine || routine.completedAt) return null;
-    routine.enabled = false;
-    routine.pausedReason = reason;
-    routine.updatedAt = now();
-    save();
-    return copy(routine);
+    return transact((state, tx) => {
+      const routine = find(state, routineId);
+      if (!routine || routine.completedAt) return null;
+      routine.enabled = false;
+      routine.pausedReason = reason;
+      routine.updatedAt = now();
+      tx.changed = true;
+      return copy(routine);
+    });
   }
 
   // What is wrong with a Routine right now, apart from its Runs (Linear sign-in needed); null clears it. Writes only on a change.
   function setLastError(routineId, message) {
     if (message !== null && (typeof message !== "string" || message === "")) throw new Error("lastError must be a message or null");
-    const routine = find(routineId);
-    if (!routine) return null;
-    if (routine.lastError === (message ?? undefined)) return copy(routine);
-    if (message === null) delete routine.lastError;
-    else routine.lastError = message;
-    routine.updatedAt = now();
-    save();
-    return copy(routine);
+    return transact((state, tx) => {
+      const routine = find(state, routineId);
+      if (!routine) return null;
+      if (routine.lastError === (message ?? undefined)) return copy(routine);
+      if (message === null) delete routine.lastError;
+      else routine.lastError = message;
+      routine.updatedAt = now();
+      tx.changed = true;
+      return copy(routine);
+    });
   }
 
   // How far a Linear workspace has been read, as a time in milliseconds.
@@ -599,11 +933,14 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     return Object.hasOwn(data.linear, workspace) ? data.linear[workspace] : undefined;
   }
   function setLinearCursor(workspace, at) {
+    assertWritable();
     checkText(workspace, "workspace");
     if (typeof at !== "number" || !Number.isFinite(at)) throw new Error("cursor must be a time in milliseconds");
     if (data.linear[workspace] === at) return;
-    data.linear[workspace] = at;
-    save();
+    transact((state, tx) => {
+      state.linear[workspace] = at;
+      tx.changed = true;
+    });
   }
 
   // The webhooks a relay should hold deliveries for.
@@ -614,39 +951,48 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
   }
 
   function complete(routineId, _reason) {
-    const routine = find(routineId);
-    if (!routine) return null;
-    markCompleted(routine, now());
-    save();
-    return copy(routine);
+    return transact((state, tx) => {
+      const routine = find(state, routineId);
+      if (!routine) return null;
+      markCompleted(state, routine, now());
+      tx.changed = true;
+      return copy(routine);
+    });
   }
 
   function expireDue(at) {
-    let changed = false;
-    for (const routine of data.routines) {
-      if (routine.completedAt || routine.expiresAt === undefined || routine.expiresAt > at) continue;
-      markCompleted(routine, at);
-      changed = true;
-    }
-    if (changed) save();
+    assertWritable();
+    if (!maintenanceDue() && !data.routines.some((routine) => expired(routine, at))) return;
+    transact((state, tx) => {
+      for (const routine of state.routines) {
+        if (!expired(routine, at)) continue;
+        markCompleted(state, routine, at);
+        tx.changed = true;
+      }
+    });
   }
 
   // Runs left running by a stop fail, and queued events stay queued. A restart is one failure however many Runs it cut
-  // short (a busy trigger has up to three), so only the first adds to the failure streak.
+  // short (a busy trigger has up to three), so only the first adds to the failure streak. A schedule whose next run can't
+  // be worked out pauses, and the others recover all the same.
   function recoverInterrupted() {
-    const at = now();
-    for (const routine of data.routines) {
-      let cut = 0;
-      for (const run of data.runs[routine.id] ?? []) {
-        if (run.status !== "running") continue;
-        finish(routine, run, "failed", { error: "daemon restarted" }, at, cut === 0);
-        cut += 1;
+    transact((state, tx) => {
+      const at = now();
+      for (const routine of state.routines) {
+        let cut = 0;
+        for (const run of state.runs[routine.id] ?? []) {
+          if (run.status !== "running") continue;
+          finish(state, routine, run, "failed", { error: "daemon restarted" }, at, cut === 0);
+          cut += 1;
+          tx.changed = true;
+        }
+        if (routine.enabled && !routine.completedAt && routine.nextRunAt != null && routine.nextRunAt <= at) {
+          const next = nextOrPause(routine, at);
+          if (next !== null) routine.nextRunAt = next;
+          tx.changed = true;
+        }
       }
-      if (routine.enabled && !routine.completedAt && routine.nextRunAt != null && routine.nextRunAt <= at) {
-        routine.nextRunAt = nextRun(routine.trigger.cron, routine.trigger.timezone, at);
-      }
-    }
-    save();
+    });
   }
 
   return {
@@ -662,6 +1008,7 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     claimDue,
     startRun,
     enqueue,
+    enqueueMany,
     claimQueued,
     deferRun,
     attachChat,

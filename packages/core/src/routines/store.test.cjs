@@ -765,7 +765,7 @@ test("enqueue keeps the event it was given apart from the caller's object", () =
   assert.equal(store.runs(routine.id)[0].event.issue.title, "Fix it");
 });
 
-test("enqueue remembers the last 500 event keys of a Routine", () => {
+test("enqueue remembers every event key of a Routine, past the old cap of 500", () => {
   const { store, clock } = setup();
   const routine = store.create(spec);
   for (let n = 0; n <= 500; n += 1) {
@@ -774,7 +774,7 @@ test("enqueue remembers the last 500 event keys of a Routine", () => {
   }
   assert.deepEqual(store.enqueue(routine.id, delivery(500)), { queued: false, reason: "seen" });
   assert.deepEqual(store.enqueue(routine.id, delivery(1)), { queued: false, reason: "seen" });
-  assert.deepEqual(store.enqueue(routine.id, delivery(0)), { queued: true });
+  assert.deepEqual(store.enqueue(routine.id, delivery(0)), { queued: false, reason: "seen" });
 });
 
 test("enqueue drops events for a disabled, paused or completed Routine and records no Run", () => {
@@ -1526,16 +1526,463 @@ test("a restart is one failure, however many Runs it cut short, so it does not p
   assert.equal(restarted.get(routine.id).pausedReason, "3 failed runs in a row: boom");
 });
 
-test("a flood of missed Runs never pushes a Run that is still running out of the kept 50", () => {
+test("a flood of missed Runs never pushes out a Run that is still running", () => {
   const { store, clock } = setup();
   const routine = store.create(spec);
   for (let n = 1; n <= 3; n += 1) store.enqueue(routine.id, delivery(n));
   const claims = store.claimQueued(clock.t, 3);
   for (let n = 4; n <= 100; n += 1) store.enqueue(routine.id, delivery(n));
   const runs = store.runs(routine.id);
-  assert.equal(runs.length, 50);
+  assert.equal(runs.length, 53);
   assert.equal(runs.filter((run) => run.status === "running").length, 3);
-  assert.equal(runs.filter((run) => run.status === "missed").length, 47);
+  assert.equal(runs.filter((run) => run.status === "missed").length, 50);
   assert.notEqual(store.finishRun(claims[0].run.id, { status: "acted" }), null);
-  assert.equal(store.runs(routine.id).length, 50);
+  assert.equal(store.runs(routine.id).length, 53);
+});
+
+// Hardening (Astra review): failed writes, batches, seen keys by age, retention, load safety and schedules with no next run.
+
+// Runs `fn` with `fs[method]` failing like the disk would. A failing writeFileSync leaves a partial temp file behind first.
+function failing(method, fn, code = "EIO") {
+  const original = fs[method];
+  fs[method] = (...args) => {
+    if (method === "writeFileSync") original(args[0], "partial");
+    throw Object.assign(new Error(`${code}: injected ${method} failure`), { code });
+  };
+  try {
+    return fn();
+  } finally {
+    fs[method] = original;
+  }
+}
+
+const bytes = (file) => (fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null);
+const temps = (dir) => fs.readdirSync(dir).filter((name) => name.endsWith(".tmp"));
+
+for (const method of ["writeFileSync", "renameSync"]) {
+  test(`a failed ${method} in claimQueued leaves memory and disk as they were, and the same events are claimed next time`, () => {
+    const { store, clock, dir, file } = setup();
+    const routine = store.create(spec);
+    for (let n = 1; n <= 5; n += 1) store.enqueue(routine.id, delivery(n));
+    const before = bytes(file);
+    assert.throws(() => failing(method, () => store.claimQueued(clock.t, 3)), /injected/);
+    assert.equal(bytes(file), before);
+    assert.deepEqual(temps(dir), []);
+    assert.deepEqual(store.runs(routine.id), []);
+    assert.deepEqual(
+      store.claimQueued(clock.t, 3).map((claim) => claim.run.event.key),
+      ["hook:1", "hook:2", "hook:3"],
+    );
+    assert.equal(store.runs(routine.id).filter((run) => run.status === "running").length, 3);
+  });
+
+  test(`a failed ${method} in enqueue, claimDue, finishRun and create changes nothing`, () => {
+    const { store, clock, dir, file } = setup();
+    const trigger = store.create(spec);
+    let before = bytes(file);
+    assert.throws(() => failing(method, () => store.enqueue(trigger.id, delivery(1))), /injected/);
+    assert.equal(bytes(file), before);
+    assert.deepEqual(store.enqueue(trigger.id, delivery(1)), { queued: true });
+
+    const heartbeat = store.upsertHeartbeat(base);
+    clock.t = heartbeat.nextRunAt;
+    before = bytes(file);
+    assert.throws(() => failing(method, () => store.claimDue(clock.t)), /injected/);
+    assert.equal(bytes(file), before);
+    assert.equal(store.get(heartbeat.id).nextRunAt, heartbeat.nextRunAt);
+    assert.deepEqual(store.runs(heartbeat.id), []);
+    const [claim] = store.claimDue(clock.t);
+    assert.equal(claim.routine.id, heartbeat.id);
+
+    before = bytes(file);
+    assert.throws(() => failing(method, () => store.finishRun(claim.run.id, { status: "acted" })), /injected/);
+    assert.equal(bytes(file), before);
+    assert.equal(store.runs(heartbeat.id)[0].status, "running");
+    assert.equal(store.get(heartbeat.id).runCount, 0);
+    assert.equal(store.finishRun(claim.run.id, { status: "acted" }).runCount, 1);
+
+    before = bytes(file);
+    const count = store.list().length;
+    assert.throws(() => failing(method, () => store.create({ ...spec, name: "other", trigger: webhook(OTHER_HOOK) })), /injected/);
+    assert.equal(bytes(file), before);
+    assert.equal(store.list().length, count);
+    assert.deepEqual(temps(dir), []);
+    assert.equal(store.create({ ...spec, name: "other", trigger: webhook(OTHER_HOOK) }).name, "other");
+  });
+}
+
+test("enqueueMany queues a batch with one write and answers each event in order, like enqueue", () => {
+  const { store } = setup();
+  const routine = store.create(spec);
+  const other = store.create({ ...spec, name: "other", trigger: webhook(OTHER_HOOK) });
+  const items = [
+    ...Array.from({ length: 30 }, (_, n) => ({ routineId: routine.id, event: delivery(n + 1) })),
+    ...Array.from({ length: 170 }, (_, n) => ({ routineId: other.id, event: delivery(n + 1) })),
+  ];
+  let results;
+  assert.equal(
+    countSaves(() => (results = store.enqueueMany(items))),
+    1,
+  );
+  assert.equal(results.length, 200);
+  assert.deepEqual(
+    results.slice(0, 20),
+    Array.from({ length: 20 }, () => ({ queued: true })),
+  );
+  assert.deepEqual(
+    results.slice(20, 30),
+    Array.from({ length: 10 }, () => ({ queued: false, reason: "full" })),
+  );
+  assert.deepEqual(
+    results.slice(30, 50),
+    Array.from({ length: 20 }, () => ({ queued: true })),
+  );
+  // A full queue answers every overflow event with a missed Run, in the same write.
+  const missed = store.runs(routine.id);
+  assert.equal(missed.length, 10);
+  assert.ok(missed.every((run) => run.status === "missed" && run.error === "queue full"));
+  assert.deepEqual(
+    missed.map((run) => run.event.key).toReversed(),
+    Array.from({ length: 10 }, (_, n) => `hook:${n + 21}`),
+  );
+  // Nothing new: no write at all. A key twice in one batch is seen the second time.
+  assert.equal(
+    countSaves(() =>
+      assert.deepEqual(
+        store.enqueueMany(items.slice(0, 3)),
+        Array.from({ length: 3 }, () => ({ queued: false, reason: "seen" })),
+      ),
+    ),
+    0,
+  );
+  assert.deepEqual(
+    store.enqueueMany([
+      { routineId: routine.id, event: delivery(99) },
+      { routineId: routine.id, event: delivery(99) },
+      { routineId: "nope", event: delivery(99) },
+    ]),
+    [
+      { queued: false, reason: "full" },
+      { queued: false, reason: "seen" },
+      { queued: false, reason: "disabled" },
+    ],
+  );
+  assert.throws(() => store.enqueueMany([{ routineId: routine.id, event: { kind: "schedule" } }]), /event/);
+  assert.throws(() => store.enqueueMany("nope"), /array/);
+});
+
+test("a burst of 600 events, each run, then all 600 again, starts no second Run", () => {
+  const { store, clock } = setup();
+  const routine = store.create(spec);
+  for (let n = 0; n < 600; n += 1) {
+    assert.deepEqual(store.enqueue(routine.id, delivery(n)), { queued: true }, String(n));
+    for (const claim of store.claimQueued(clock.t)) store.finishRun(claim.run.id, { status: "quiet" });
+    clock.t += 10;
+  }
+  for (let n = 0; n < 600; n += 1) assert.deepEqual(store.enqueue(routine.id, delivery(n)), { queued: false, reason: "seen" }, String(n));
+  assert.deepEqual(store.claimQueued(clock.t), []);
+  assert.equal(store.get(routine.id).runCount, 600);
+});
+
+test("seen keys are kept 48 h, then pruned, except the keys of queued and running events", () => {
+  const { store, clock, options } = setup();
+  const routine = store.create(spec);
+  store.enqueue(routine.id, delivery(1));
+  for (const claim of store.claimQueued(clock.t)) store.finishRun(claim.run.id, { status: "acted" });
+  store.enqueue(routine.id, delivery(2));
+  const [running] = store.claimQueued(clock.t);
+  store.update(routine.id, { enabled: false });
+  store.update(routine.id, { enabled: true });
+  for (let n = 3; n <= 5; n += 1) store.enqueue(routine.id, delivery(n));
+  // Nothing is claimed for 48 h: hook:2 runs and hook:3-5 wait (the Routine is full).
+  store.enqueue(routine.id, delivery(6));
+  store.enqueue(routine.id, delivery(7));
+  clock.t += 47 * 3600_000;
+  assert.deepEqual(store.enqueue(routine.id, delivery(1)), { queued: false, reason: "seen" });
+  clock.t += 2 * 3600_000;
+  store.enqueue(routine.id, delivery(8));
+  const keys = saved(options).seen[routine.id];
+  assert.ok(keys.every((entry) => typeof entry.key === "string" && Number.isFinite(entry.at)));
+  assert.deepEqual(keys.map((entry) => entry.key).toSorted(), ["hook:2", "hook:3", "hook:4", "hook:5", "hook:6", "hook:7", "hook:8"]);
+  assert.equal(running.run.event.key, "hook:2");
+  // Pruned, hook:1 is new again.
+  assert.deepEqual(store.enqueue(routine.id, delivery(1)), { queued: true });
+});
+
+test("seen keys saved as plain strings load as seen now", () => {
+  const { store, clock, options, file } = setup();
+  const routine = store.create(spec);
+  const text = saved(options);
+  text.seen = { [routine.id]: ["hook:1"] };
+  fs.writeFileSync(file, JSON.stringify(text));
+  clock.t += 1000;
+  const again = createRoutineStore(options);
+  assert.deepEqual(again.enqueue(routine.id, delivery(1)), { queued: false, reason: "seen" });
+  assert.deepEqual(again.enqueue(routine.id, delivery(2)), { queued: true });
+  assert.deepEqual(saved(options).seen[routine.id], [
+    { key: "hook:1", at: clock.t },
+    { key: "hook:2", at: clock.t },
+  ]);
+});
+
+test("past 5000 young seen keys a Routine refuses new events with a missed Run instead of forgetting any", () => {
+  const { store, clock } = setup();
+  const routine = store.create(spec);
+  const results = store.enqueueMany(Array.from({ length: 5001 }, (_, n) => ({ routineId: routine.id, event: delivery(n) })));
+  assert.deepEqual(results.at(-1), { queued: false, reason: "too-many" });
+  assert.equal(results.filter((result) => result.reason === "too-many").length, 1);
+  const [refused] = store.runs(routine.id);
+  assert.equal(refused.status, "missed");
+  assert.equal(refused.error, "too many events");
+  assert.equal(refused.event.key, "hook:5000");
+  assert.deepEqual(store.enqueue(routine.id, delivery(0)), { queued: false, reason: "seen" });
+  // Once the old keys pass 48 h they make room.
+  clock.t += 49 * 3600_000;
+  assert.deepEqual(store.enqueue(routine.id, delivery(5000)), { queued: false, reason: "full" });
+});
+
+test("a missed or skipped flood keeps the newest 50 of them and leaves the Runs that ran alone", () => {
+  const { store, clock } = setup();
+  const routine = store.create(spec);
+  for (let n = 1; n <= 10; n += 1) {
+    store.enqueue(routine.id, delivery(n));
+    for (const claim of store.claimQueued(clock.t)) store.finishRun(claim.run.id, { status: "acted" });
+  }
+  for (let n = 11; n <= 30; n += 1) store.enqueue(routine.id, delivery(n));
+  for (let n = 31; n <= 90; n += 1) store.enqueue(routine.id, delivery(n));
+  const runs = store.runs(routine.id);
+  assert.equal(runs.filter((run) => run.status === "acted").length, 10);
+  const missed = runs.filter((run) => run.status === "missed");
+  assert.equal(missed.length, 50);
+  assert.equal(missed.at(-1).event.key, "hook:41");
+});
+
+test("complete clears the Routine's queue and seen keys", () => {
+  const { store, options } = setup();
+  const routine = store.create(spec);
+  const keep = store.create({ ...spec, name: "keep", trigger: webhook(OTHER_HOOK) });
+  for (const item of [routine, keep]) for (let n = 1; n <= 3; n += 1) store.enqueue(item.id, delivery(n));
+  store.complete(routine.id, "done");
+  const file = saved(options);
+  assert.deepEqual(Object.keys(file.queues), [keep.id]);
+  assert.deepEqual(Object.keys(file.seen), [keep.id]);
+});
+
+test("a completed Routine goes 30 days after it ended, with its Runs and the Linear cursor only it used, on load", () => {
+  const { store, clock, options } = setup();
+  const alone = store.create({ ...spec, name: "alone", trigger: linear("assigned", { workspace: "Solo" }) });
+  const shared = store.create({ ...spec, name: "shared", trigger: linear("assigned") });
+  const sibling = store.create({ ...spec, name: "sibling", trigger: linear("comment") });
+  store.setLinearCursor("solo", 1);
+  store.setLinearCursor("solo:comments", 2);
+  store.setLinearCursor("acme", 3);
+  store.setLinearCursor("acme:comments", 4);
+  for (const routine of [alone, shared]) {
+    store.enqueue(routine.id, change(1));
+    for (const claim of store.claimQueued(clock.t)) store.finishRun(claim.run.id, { status: "acted" });
+    store.complete(routine.id, "done");
+  }
+  const ended = clock.t;
+  clock.t = ended + 30 * DAY - 1;
+  assert.notEqual(createRoutineStore(options).get(alone.id), null);
+  clock.t = ended + 30 * DAY;
+  const later = createRoutineStore(options);
+  for (const routine of [alone, shared]) {
+    assert.equal(later.get(routine.id), null);
+    assert.deepEqual(later.runs(routine.id), []);
+    assert.equal(later.finishRun(`id-of-${routine.id}`, { status: "acted" }), null);
+  }
+  assert.equal(later.linearCursor("solo"), undefined);
+  assert.equal(later.linearCursor("solo:comments"), undefined);
+  assert.equal(later.linearCursor("acme"), 3);
+  assert.equal(later.linearCursor("acme:comments"), 4);
+  assert.notEqual(later.get(sibling.id), null);
+  later.setEnabled(true);
+  const file = saved(options);
+  assert.deepEqual(
+    file.routines.map((routine) => routine.id),
+    [sibling.id],
+  );
+  assert.deepEqual(Object.keys(file.runs), []);
+});
+
+test("a running store purges ended Routines from claimDue, at most once an hour", () => {
+  const { store, clock } = setup();
+  const first = store.create({ ...spec, name: "first" });
+  store.complete(first.id, "done");
+  clock.t += 30 * DAY;
+  store.claimDue(clock.t);
+  assert.equal(store.get(first.id), null);
+  const second = store.create({ ...spec, name: "second", trigger: webhook(OTHER_HOOK) });
+  store.complete(second.id, "done");
+  clock.t += 30 * DAY - 30 * 60_000;
+  store.claimDue(clock.t);
+  assert.notEqual(store.get(second.id), null);
+  clock.t += 31 * 60_000;
+  store.claimDue(clock.t);
+  assert.notEqual(store.get(second.id), null, "the last purge was less than an hour ago");
+  clock.t += 30 * 60_000;
+  store.claimDue(clock.t);
+  assert.equal(store.get(second.id), null);
+});
+
+test("a Run is found by id after trims, purges and a reload", () => {
+  const { store, clock, options } = setup();
+  const routine = store.create(spec);
+  for (let n = 1; n <= 3; n += 1) store.enqueue(routine.id, delivery(n));
+  const claims = store.claimQueued(clock.t);
+  assert.equal(store.attachChat(claims[0].run.id, { chatId: "c1" }), true);
+  const again = createRoutineStore(options);
+  assert.notEqual(again.finishRun(claims[1].run.id, { status: "acted" }), null);
+  assert.equal(again.remove(routine.id), true);
+  assert.equal(again.finishRun(claims[2].run.id, { status: "acted" }), null);
+  assert.equal(again.attachChat(claims[2].run.id, { chatId: "c1" }), false);
+});
+
+function captureErrors(fn) {
+  const original = console.error;
+  const logged = [];
+  console.error = (...args) => logged.push(args.join(" "));
+  try {
+    return { value: fn(), logged };
+  } finally {
+    console.error = original;
+  }
+}
+
+for (const code of ["EACCES", "EIO"]) {
+  test(`a store file that can't be read (${code}) opens read-only and is never written`, () => {
+    const { store, options, file, dir } = setup();
+    store.create(spec);
+    store.setEnabled(true);
+    const before = bytes(file);
+    const { value: blind, logged } = captureErrors(() => failing("readFileSync", () => createRoutineStore(options), code));
+    assert.equal(logged.length, 1);
+    assert.match(logged[0], new RegExp(code));
+    assert.equal(blind.enabled(), false);
+    assert.deepEqual(blind.list(), []);
+    for (const mutate of [
+      () => blind.create({ ...spec, name: "x" }),
+      () => blind.setEnabled(true),
+      () => blind.upsertHeartbeat(base),
+      () => blind.setLinearCursor("acme", 5),
+      () => blind.enqueueMany([]),
+    ]) {
+      assert.throws(mutate, /^Error: Routine store is read-only: /);
+    }
+    assert.equal(bytes(file), before);
+    assert.deepEqual(fs.readdirSync(dir), ["routines.json"]);
+    assert.equal(captureErrors(() => blind.list()).logged.length, 0);
+  });
+}
+
+test("a file from a newer version opens read-only", () => {
+  const { file, options } = setup();
+  const text = JSON.stringify({ version: 2, enabled: true, routines: [], runs: {}, journal: [] });
+  fs.writeFileSync(file, text);
+  const { value: store, logged } = captureErrors(() => createRoutineStore(options));
+  assert.equal(logged.length, 1);
+  assert.equal(store.enabled(), false);
+  assert.throws(() => store.setEnabled(true), /Routine store is read-only: .*version 2/);
+  assert.equal(bytes(file), text);
+});
+
+test("a file of the wrong shape opens read-only rather than being moved aside", () => {
+  const { file, options, dir } = setup();
+  const text = JSON.stringify({ version: 1, routines: {}, runs: {} });
+  fs.writeFileSync(file, text);
+  const { value: store } = captureErrors(() => createRoutineStore(options));
+  assert.throws(() => store.create(spec), /Routine store is read-only/);
+  assert.equal(bytes(file), text);
+  assert.deepEqual(fs.readdirSync(dir), ["routines.json"]);
+});
+
+test("invalid Routines and Runs are quarantined next to the store and the valid ones load", () => {
+  const { store, clock, options, file, dir } = setup();
+  const good = store.create(spec);
+  store.enqueue(good.id, delivery(1));
+  const [claim] = store.claimQueued(clock.t);
+  const text = saved(options);
+  const brokenRun = { id: "r-bad", routineId: good.id, status: "exploded" };
+  const orphanOwner = { ...text.routines[0], id: "bad1", trigger: { kind: "carrier-pigeon" } };
+  text.routines = [null, text.routines[0], orphanOwner, { ...text.routines[0], id: "bad2", createdAt: "yesterday" }, 7];
+  text.runs[good.id].push(brokenRun);
+  text.runs.bad1 = [{ id: "r-orphan", routineId: "bad1", status: "acted" }];
+  fs.writeFileSync(file, JSON.stringify(text));
+  clock.t += 1000;
+  const again = createRoutineStore(options);
+  assert.deepEqual(
+    again.list().map((routine) => routine.id),
+    [good.id],
+  );
+  assert.deepEqual(
+    again.runs(good.id).map((run) => run.id),
+    [claim.run.id],
+  );
+  assert.deepEqual(again.claimDue(clock.t), []);
+  const invalid = path.join(dir, "routines.invalid.json");
+  assert.equal(fs.statSync(invalid).mode & 0o777, 0o600);
+  const [entry] = JSON.parse(fs.readFileSync(invalid, "utf8"));
+  assert.equal(entry.at, clock.t);
+  assert.deepEqual(entry.routines, [null, orphanOwner, text.routines[3], 7]);
+  assert.deepEqual(entry.runs, [brokenRun, ...text.runs.bad1]);
+  // The live store no longer holds them, and a second load quarantines nothing more.
+  assert.deepEqual(
+    saved(options).routines.map((routine) => routine.id),
+    [good.id],
+  );
+  createRoutineStore(options);
+  assert.equal(JSON.parse(fs.readFileSync(invalid, "utf8")).length, 1);
+  assert.equal(bytes(`${file}.corrupt`), null);
+});
+
+const LEAP_DAY = { kind: "schedule", cron: "0 0 29 2 *", timezone: "UTC" };
+
+test("a leap-day schedule made in March 2028 fires on 2032-02-29", () => {
+  const { store, clock } = setup();
+  clock.t = Date.UTC(2028, 2, 1, 12);
+  const routine = store.create({ ...spec, trigger: LEAP_DAY });
+  assert.equal(routine.nextRunAt, Date.UTC(2032, 1, 29));
+  clock.t = routine.nextRunAt;
+  const [claim] = store.claimDue(clock.t);
+  assert.equal(claim.routine.id, routine.id);
+  assert.equal(store.get(routine.id).nextRunAt, Date.UTC(2036, 1, 29));
+});
+
+// A store holding a schedule with no next run (the file was edited, or saved by a Milagre that took it), next to a good one.
+function withImpossibleSchedule() {
+  const ctx = setup();
+  const bad = ctx.store.create({ ...spec, name: "bad", trigger: HOURLY });
+  const good = ctx.store.create({ ...spec, name: "good", trigger: HOURLY });
+  const text = saved(ctx.options);
+  text.routines.find((routine) => routine.id === bad.id).trigger.cron = "0 0 31 2 *";
+  fs.writeFileSync(ctx.file, JSON.stringify(text));
+  ctx.clock.t = good.nextRunAt;
+  return { ...ctx, bad, good, store: createRoutineStore(ctx.options) };
+}
+
+test("a schedule with no next run pauses itself with lastError, and the other Routines of the tick still fire", () => {
+  const { store, clock, bad, good } = withImpossibleSchedule();
+  const claims = store.claimDue(clock.t);
+  assert.deepEqual(
+    claims.map((claim) => claim.routine.id),
+    [good.id],
+  );
+  const paused = store.get(bad.id);
+  assert.equal(paused.enabled, false);
+  assert.equal(paused.pausedReason, "schedule has no next run");
+  assert.equal(paused.lastError, "No run within 8 years");
+  assert.deepEqual(store.runs(bad.id), []);
+  assert.deepEqual(store.claimDue(clock.t + 3600_000).length, 1);
+});
+
+test("startup recovery with a schedule that has no next run does not throw", () => {
+  const { store, clock, bad, good } = withImpossibleSchedule();
+  store.claimDue(clock.t);
+  const ctx = withImpossibleSchedule();
+  ctx.clock.t += 2 * 3600_000;
+  ctx.store.recoverInterrupted();
+  assert.equal(ctx.store.get(ctx.bad.id).pausedReason, "schedule has no next run");
+  assert.equal(ctx.store.get(ctx.good.id).nextRunAt, ctx.good.nextRunAt + 3 * 3600_000);
+  assert.ok(store.get(good.id).enabled && !store.get(bad.id).enabled);
 });

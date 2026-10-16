@@ -1183,3 +1183,66 @@ test("a tick tells the UI about a slot it missed, though nothing was claimed", a
   assert.equal(ctx.store.runs(routine.id)[0].status, "missed");
   assert.equal(ctx.changes(), changes + 1);
 });
+
+test("enqueueEvents queues a whole batch with one store write and one change", () => {
+  const ctx = triggers();
+  const routine = createHook(ctx);
+  const changes = ctx.changes();
+  const rename = fs.renameSync;
+  let writes = 0;
+  fs.renameSync = (...args) => {
+    writes += 1;
+    return rename(...args);
+  };
+  let results;
+  try {
+    results = ctx.scheduler.enqueueEvents(Array.from({ length: 200 }, (_, n) => ({ routineId: routine.id, event: hookEvent(`d${n}`) })));
+  } finally {
+    fs.renameSync = rename;
+  }
+  assert.equal(writes, 1);
+  assert.equal(ctx.changes(), changes + 1);
+  assert.equal(results.length, 200);
+  assert.equal(results.filter((result) => result.queued).length, 20);
+  assert.equal(results.filter((result) => result.reason === "full").length, 180);
+  // Nothing new changes nothing; enqueueEvent is a batch of one.
+  ctx.scheduler.enqueueEvents([{ routineId: routine.id, event: hookEvent("d0") }]);
+  assert.equal(ctx.changes(), changes + 1);
+  assert.deepEqual(ctx.scheduler.enqueueEvent(routine.id, hookEvent("d0")), { queued: false, reason: "seen" });
+});
+
+test("a schedule with no next run pauses itself, and a heartbeat due in the same tick still beats, at start and in the tick", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-impossible-"));
+  const clock = { t: START };
+  let n = 0;
+  const options = { file: path.join(dir, "routines.json"), now: () => clock.t, id: () => `id${++n}` };
+  const first = createRoutineStore(options);
+  first.setEnabled(true);
+  const bad = first.upsertHeartbeat({ ...base, name: "bad", expiresIn: "30d" });
+  const good = first.upsertHeartbeat({ ...base, name: "good", chatId: "c2", expiresIn: "30d" });
+  const text = JSON.parse(fs.readFileSync(options.file, "utf8"));
+  text.routines.find((routine) => routine.id === bad.id).trigger.cron = "0 0 31 2 *";
+  fs.writeFileSync(options.file, JSON.stringify(text));
+  clock.t = good.nextRunAt + 3 * 15 * 60_000;
+  const store = createRoutineStore(options);
+  const sent = [];
+  const chats = {
+    exists: () => true,
+    archived: () => false,
+    busy: () => false,
+    async send(chatId) {
+      sent.push(chatId);
+      return { started: Promise.resolve({ turnId: "t" }) };
+    },
+    replyText: () => "",
+    async patchRunContext() {},
+  };
+  const scheduler = createRoutineScheduler({ store, chats, keepAwake: { setRoutinesActive() {} }, now: () => clock.t });
+  scheduler.start();
+  scheduler.stop();
+  assert.equal(store.get(bad.id).pausedReason, "schedule has no next run");
+  clock.t = store.get(good.id).nextRunAt;
+  await scheduler.tick();
+  await settle();
+  assert.deepEqual(sent, ["c2"]);
+});

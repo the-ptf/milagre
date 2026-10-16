@@ -410,14 +410,20 @@ function createRoutineScheduler({
   }
 
   /**
-   * Queues a Linear or webhook event for its Routine and returns what store.cjs `enqueue` said. The next tick, within a
-   * second, starts its Run when the Routine has a slot free.
+   * Queues Linear or webhook events (`[{ routineId, event }]`) with one store write, and returns what store.cjs
+   * `enqueueMany` said about each. The next tick, within a second, starts their Runs where a Routine has a slot free.
    */
+  function enqueueEvents(items) {
+    const results = store.enqueueMany(items);
+    // A full queue (or a Routine with too many events to remember) answers an event with a missed Run, which the UI
+    // lists too. One change for the whole batch.
+    if (results.some((result) => result.queued || result.reason === "full" || result.reason === "too-many")) onChange();
+    return results;
+  }
+
+  // One event: `enqueueEvents` with one item.
   function enqueueEvent(routineId, event) {
-    const result = store.enqueue(routineId, event);
-    // A full queue answers the event with a missed Run, which the UI lists too.
-    if (result.queued || result.reason === "full") onChange();
-    return result;
+    return enqueueEvents([{ routineId, event }])[0];
   }
 
   async function runNow(routineId) {
@@ -431,7 +437,7 @@ function createRoutineScheduler({
     return store.runs(routineId).find((item) => item.id === started.run.id);
   }
 
-  return { start, stop, tick, observe, chatArchived, runNow, enqueueEvent };
+  return { start, stop, tick, observe, chatArchived, runNow, enqueueEvent, enqueueEvents };
 }
 
 module.exports = { createRoutineScheduler, linearPrompt };
