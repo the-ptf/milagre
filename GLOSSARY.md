@@ -67,14 +67,14 @@ A symmetric, persistent relationship the user draws on the canvas between two **
 _Avoid_: Connection (the typed, possibly temporary relationship in spec 001, a separate feature), vínculo
 
 **Delegation**:
-A request from a **Chat** in one side of a **Link** for changes on the other side, delivered as a message to a **Chat** there and carried out by that side's own agent. The requesting agent picks the receiving **Worktree** and **Chat**, opening a new **Chat** when none fits. It appears there as a message from the requesting **Chat**, never as the user's. If the receiving agent is mid-turn, it steers that turn; if it is waiting on the user, the **Delegation** waits too. The requesting agent never edits the other side's files itself. When the receiving agent finishes, a **Delegation report** appears in the requesting **Chat**.
+A request from a **Chat** for work by another **Chat**, delivered as a message to it and carried out by that **Chat**'s own agent. The receiving **Chat** is on the other side of a **Link**, or in any **Worktree** of the requesting **Chat**'s own **Project**, which needs no **Link**. The requesting agent picks the receiving **Worktree** and **Chat**, opening a new **Chat** when none fits. It appears there as a message from the requesting **Chat**, never as the user's. If the receiving agent is mid-turn, it steers that turn; if it is waiting on the user, the **Delegation** waits too. Across a **Link**, the requesting agent never edits the other side's files itself. When the receiving agent finishes, a **Delegation report** appears in the requesting **Chat**.
 _Avoid_: remote edit, cross-worktree edit
 
 **Delegation report**:
-A summary of what the receiving agent did for a **Delegation**, posted to the requesting **Chat**. Outside a **Negotiation** it never starts a turn there on its own.
+A summary of what the receiving agent did for a **Delegation**, posted to the requesting **Chat**. Its agent gets it with the start of its next turn. Outside a **Negotiation** it never starts a turn there on its own.
 
 **Negotiation**:
-A back-and-forth of **Delegations** between two **Chats** across a **Link**, where each **Delegation report** starts a turn on the other side, until one agent concludes it with a summary of the agreement. The requesting agent decides on its own that a request needs a **Negotiation**, and only it can; the user never has to ask for one, and the receiving side can't turn a **Delegation** into one. It stops after at most 10 rounds, when the user stops it, and pauses while either side waits on the user.
+A back-and-forth of **Delegations** between two **Chats**, across a **Link** or inside one **Project**, where each **Delegation report** starts a turn on the other side, until one agent concludes it with a summary of the agreement. The requesting agent decides on its own that a request needs a **Negotiation**, and only it can; the user never has to ask for one, and the receiving side can't turn a **Delegation** into one. It stops after at most 10 rounds, when the user stops it, and pauses while either side waits on the user.
 _Avoid_: consensus mode, auto-chat
 
 ### Computers and devices
@@ -92,8 +92,8 @@ _Avoid_: client (any connection to the daemon, this Mac's own window included)
 - A **Project** has one or more **Worktrees**; an ordinary **Worktree** has one or more **Chats**. A named Link's shared **Chat** owns one **Worktree** per member **Project**.
 - A **Chat** has zero or more **Terminals**; each **Terminal** belongs to exactly one **Chat**.
 - A **Link** joins exactly two endpoints; each endpoint is a **Project** or a **Worktree**.
-- A **Delegation** travels along exactly one **Link**, from one **Chat** to one **Chat**.
-- A **Negotiation** involves exactly two **Chats** and is made of **Delegations** along one **Link**.
+- A **Delegation** goes from one **Chat** to one other **Chat**, along exactly one **Link**, or along none inside one **Project**.
+- A **Negotiation** involves exactly two **Chats** and is made of **Delegations** along one **Link**, or inside one **Project**.
 - A **Project** lives on exactly one **Computer**, whose daemon is its only writer (ADR-0003).
 
 ## Example dialogue
