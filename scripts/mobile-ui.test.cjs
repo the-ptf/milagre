@@ -1769,6 +1769,7 @@ function chatHost({
     }),
     "@milagre/shared/message-navigation": require("@milagre/shared/message-navigation"),
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
+    "@milagre/shared/provider-capabilities": require("@milagre/shared/provider-capabilities"),
     "../message-navigation": { MessageNavigation: "MessageNavigation" },
     "../prompt-field": { PromptField: "PromptField" },
     "../context-ring": { ContextRing: "ContextRing" },

@@ -1,4 +1,5 @@
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ComponentProps, KeyboardEvent } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -11,6 +12,7 @@ import { PickerPanel, PickerRow } from "./primitives/Picker";
 import { ModelPicker } from "./ModelPicker";
 import { UltracodeFatality } from "./UltracodeFatality";
 import { useDismiss } from "../lib/use-dismiss";
+import { composerLayout, type CompactOverflow } from "../lib/composer-layout";
 import { useSettings } from "../lib/settings";
 import { ProviderLogo } from "./ProviderLogo";
 import { Attachments } from "./Attachments";
@@ -178,6 +180,7 @@ export function PromptComposer({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const compactWidthRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const overflowRef = useRef<CompactOverflow>(null);
   const popoverRootRef = useRef<HTMLDivElement>(null);
   const [anchor, setAnchor] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number; below: boolean; alignRight: boolean }>({
     left: 0,
@@ -258,25 +261,22 @@ export function PromptComposer({
     input.style.height = `${Math.min(Math.max(contentHeight, 28), 100)}px`;
     input.style.overflowY = contentHeight > 100 ? "auto" : "hidden";
     if (!expanded) compactWidthRef.current = input.clientWidth;
-    let needsFullWidth = alwaysExpanded || draft.includes("\n");
-    if (!needsFullWidth && expanded && draft.length > 0) {
-      // Measure only short drafts when deciding whether the compact layout fits again.
-      // The compact textarea's own scrollHeight detects wrapping as the user types.
-      if (draft.length > 200 || !compactWidthRef.current) needsFullWidth = true;
-      else {
-        const canvas = (canvasRef.current ??= document.createElement("canvas"));
-        const context = canvas.getContext("2d");
-        if (context) {
-          context.font = `13px ${getComputedStyle(input).fontFamily}`;
-          needsFullWidth = context.measureText(draft).width + 8 > compactWidthRef.current;
-        }
-      }
-    } else if (!needsFullWidth && !expanded) {
-      // An empty draft never expands: the expanded branch collapses it again, so a placeholder that wraps
-      // in a narrow composer would flip the layout forever.
-      needsFullWidth = draft.length > 0 && contentHeight > 28;
-    }
-    if (needsFullWidth !== expanded) setExpanded(needsFullWidth);
+    const next = composerLayout({
+      draft,
+      expanded,
+      alwaysExpanded,
+      contentHeight,
+      compactWidth: compactWidthRef.current,
+      overflow: overflowRef.current,
+      measure: (text) => {
+        const context = (canvasRef.current ??= document.createElement("canvas")).getContext("2d");
+        if (!context) return null;
+        context.font = `13px ${getComputedStyle(input).fontFamily}`;
+        return context.measureText(text).width;
+      },
+    });
+    overflowRef.current = next.overflow;
+    if (next.expanded !== expanded) setExpanded(next.expanded);
   }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded]);
 
   // Any press outside the open picker closes it, including the prompt field and the rest of the composer.
@@ -520,7 +520,7 @@ export function PromptComposer({
                   </p>
                   {onUpdateCli &&
                     (cliStatus?.[provider]?.state === "outdated" ||
-                      (provider === "antigravity" && ["missing", "broken"].includes(cliStatus?.[provider]?.state ?? ""))) && (
+                      (providerCapabilities(provider).managedInstall && ["missing", "broken"].includes(cliStatus?.[provider]?.state ?? ""))) && (
                       <div className="flex items-center justify-end pt-0.5">
                         <button
                           type="button"
@@ -658,10 +658,10 @@ export function PromptComposer({
                 disabled={Boolean(offlineName)}
                 placeholder={
                   (running
-                    ? // Antigravity can't be steered mid-turn (ACP has no steering); a message waits for the next turn.
-                      provider === "antigravity"
-                      ? "Queue a message for the next turn…"
-                      : "Steer the agent…"
+                    ? // A provider that can't steer mid-turn takes the message at the start of the next turn.
+                      providerCapabilities(provider).steer
+                      ? "Steer the agent…"
+                      : "Queue a message for the next turn…"
                     : "Prompt or mention a file with @") + (offlineName ? offlinePlaceholder(offlineName) : "")
                 }
                 aria-label="Prompt"

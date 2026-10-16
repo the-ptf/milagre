@@ -1,6 +1,6 @@
 const { providerName } = require("@milagre/shared/providers");
 const { randomUUID } = require("node:crypto");
-const { createInput, promptInput } = require("./advisor-tools.cjs");
+const { ADVISOR_PROVIDERS, createInput, promptInput } = require("./advisor-tools.cjs");
 const { ANALYSIS_INSTRUCTIONS } = require("./agents/advisor-policy.cjs");
 const ACTIVE = new Set(["initializing", "running", "waiting"]);
 
@@ -49,7 +49,8 @@ function createAdvisors({ store, contextFor, providersFor, launch, publish = asy
     await publish(record.chatId, advisorRow(record));
   }
   async function capability(chatId, input, ctx, pinned) {
-    const provider = input.provider ?? (ctx.parentProvider === "codex" ? "claude" : "codex");
+    // By default the advisor runs on a provider the Chat itself isn't on.
+    const provider = input.provider ?? ADVISOR_PROVIDERS.find((candidate) => candidate !== ctx.parentProvider);
     const capabilities = await providersFor(chatId, pinned);
     const selected = capabilities[provider];
     if (!selected?.available || !selected.models?.length)
@@ -194,7 +195,7 @@ function createAdvisors({ store, contextFor, providersFor, launch, publish = asy
       await context(chatId);
       const all = await providersFor(chatId);
       return Object.fromEntries(
-        ["claude", "codex"].map((provider) => [
+        ADVISOR_PROVIDERS.map((provider) => [
           provider,
           { available: all[provider]?.available === true, problem: all[provider]?.problem, models: all[provider]?.models ?? [] },
         ]),

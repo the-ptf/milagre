@@ -19,6 +19,7 @@ import {
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import type { ChatMessage, LinkIssueResult, PullRequestActionContext } from "@milagre/shared/model";
 import { chatPullRequests, chatTitle, createPendingChat, createResendMemory, pendingChatSessionId, pullRequestRefs } from "@milagre/shared/chats";
 import { messageSender } from "@milagre/shared/advisor-result";
@@ -1557,7 +1558,7 @@ export default function ChatScreen() {
                     {contextUsage && contextUsage.size > 0 && params.id && (
                       <ContextRing
                         {...contextUsage}
-                        canCompact={Boolean(chat) && (chat?.provider ?? "claude") === "claude"}
+                        canCompact={Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact}
                         onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
                       />
                     )}

@@ -127,6 +127,7 @@ import { DraftChatComposer } from "./components/DraftChatComposer";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
 import { busyTerminals, newTerminal, useTerminalSync } from "./lib/terminal-actions";
 import { playNotificationChime } from "./lib/notification-chime";
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import type { ChatRowActions, SidebarRecent } from "./components/sidebar/ChatRow";
 
 // Not on screen at first paint, so each loads as its own chunk; the effect in App fetches them once the window is idle.
@@ -2450,7 +2451,11 @@ function App() {
                       messageScope={project.path}
                       earlier={earlierMessages}
                       onSend={() => void sendMessage()}
-                      onCompact={selectedSession && (selectedSession.provider ?? "claude") === "claude" && !readOnly ? () => void compactContext() : undefined}
+                      onCompact={
+                        selectedSession && providerCapabilities(selectedSession.provider ?? "claude").compact && !readOnly
+                          ? () => void compactContext()
+                          : undefined
+                      }
                       onSendDesignMessage={(text) => executeSend(text, permissionMode, [], [], true)}
                       linearActive={linear.active}
                       onStartFromIssue={startFromIssue}
