@@ -2472,6 +2472,10 @@ function App() {
                       contextUsage={run?.contextUsage ?? selectedSession?.contextUsage}
                       ports={project && selectedSession ? agentPorts[chatKey(project.path, selectedSession.id)] : undefined}
                       agentChatId={project && selectedSession ? chatKey(project.path, selectedSession.id) : undefined}
+                      onOpenDiff={(path) => {
+                        if (!changes.open) changes.toggle();
+                        changes.selectFile(path);
+                      }}
                       onStopPort={
                         project && selectedSession
                           ? (pid) => bridgeForKey(project.path).stopAgentPort(chatKey(project.path, selectedSession.id), pid)
@@ -2565,7 +2569,6 @@ function App() {
             </main>
             <ChangesPanelSlot open={changes.open}>
               <ChangesPanel
-                checkpointChatId={project && selectedSession ? chatKey(project.path, selectedSession.id) : undefined}
                 list={changes.list}
                 mode={changes.mode}
                 onModeChange={changes.setMode}

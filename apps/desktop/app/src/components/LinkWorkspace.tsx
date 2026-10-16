@@ -548,6 +548,12 @@ export function LinkWorkspace({
                         subagents={session?.subagents?.filter((agent) => agent.id !== session.native_session_id)}
                         ports={chatId ? ports[chatId] : undefined}
                         agentChatId={chatId ?? undefined}
+                        onOpenDiff={(path, worktree) => {
+                          const member = session?.worktrees.find((item) => item.worktreePath === worktree);
+                          if (member) setMemberId(member.projectId);
+                          if (!changes.open) changes.toggle();
+                          changes.selectFile(path);
+                        }}
                         waitingForSubagents={run?.waitingForSubagents}
                         asking={Boolean(question)}
                         waitingStepIds={run?.approvals.flatMap((request) => (request.stepId ? [request.stepId] : []))}
@@ -616,7 +622,6 @@ export function LinkWorkspace({
             <ChangesPanelSlot open={!canvasOpen && changes.open}>
               {session && (
                 <LinkChangesPanel
-                  checkpointChatId={chatId ?? undefined}
                   key={chatId}
                   members={session.worktrees}
                   projects={opened.projects}
