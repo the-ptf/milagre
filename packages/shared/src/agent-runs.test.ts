@@ -793,6 +793,18 @@ test("plan-updated stores the plan and native lists stop once Milagre owns it", 
   assert.equal(cleared.state.sessions["1"].plan, undefined);
 });
 
+test("background-tasks replaces the Chat's set of background tasks, outside any turn, and an empty set clears it", () => {
+  const tasks = [{ id: "b1", kind: "local_bash", title: "sleep 75", startedAt: 1 }];
+  const saved = applyAgentEvent(base(), {}, PROJECT, key(2), { type: "background-tasks", tasks });
+  assert.equal(saved.changed, true);
+  assert.deepEqual(saved.state.sessions["2"].backgroundTasks, tasks);
+  assert.equal(applyAgentEvent(saved.state, {}, PROJECT, key(2), { type: "background-tasks", tasks: [...tasks] }).changed, false);
+  const cleared = applyAgentEvent(saved.state, {}, PROJECT, key(2), { type: "background-tasks", tasks: [] });
+  assert.equal(cleared.changed, true);
+  assert.equal("backgroundTasks" in cleared.state.sessions["2"], false);
+  assert.equal(applyAgentEvent(base(), {}, PROJECT, key(2), { type: "background-tasks", tasks: [] }).changed, false);
+});
+
 test("an identical native list changes nothing, a different one does", () => {
   const runs = startRun({}, key(1), "gpt-5.5");
   const list = [

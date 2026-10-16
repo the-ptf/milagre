@@ -2,6 +2,8 @@
 // built from stored state without a model call. Capped per Worktree and in total; the caps drop the
 // Chats with the oldest activity first.
 
+const { backgroundLabel } = require("@milagre/shared/chat-activity");
+
 const CAPS = Object.freeze({ perWorktree: 4096, total: 16384, reply: 300 });
 const STATUS = { working: "working", waiting: "waiting on the user", background: "working in the background", failed: "last turn failed", idle: "idle" };
 
@@ -16,7 +18,7 @@ const clip = (text, length) => {
 function chatLine(chat, replyChars) {
   const reply = chat.lastReply ? ` · last reply: "${clip(chat.lastReply, replyChars)}"` : "";
   const receiveOnly = chat.receiveOnly ? " · receive-only" : "";
-  const background = chat.backgroundAgents ? ` (${chat.backgroundAgents} background agent${chat.backgroundAgents === 1 ? "" : "s"})` : "";
+  const background = chat.backgroundWork ? ` (${backgroundLabel(chat.backgroundWork)})` : "";
   return `- Chat ${chat.ref} "${clip(chat.title, 80)}" · ${chat.provider ?? "agent"} · ${STATUS[chat.status] ?? chat.status}${background}${receiveOnly}${reply}`;
 }
 

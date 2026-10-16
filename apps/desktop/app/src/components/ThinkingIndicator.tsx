@@ -56,12 +56,12 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
 }
 
 /**
- * The Chat's turn ended, but background agents still work (chat-activity.mjs): how many, and for how long the oldest
- * has. Their results come back to the Chat by themselves, so there is no running mark: no turn runs.
+ * The Chat's turn ended, but background work goes on (chat-activity.mjs): how many tasks, and for how long the oldest
+ * has run. Their results come back to the Chat by themselves; no turn runs, so there is no running mark.
  */
 export function BackgroundIndicator({ count, startedAt, mark }: { count: number; startedAt?: number; mark: ReactNode }) {
   const elapsed = useElapsed(startedAt);
-  const label = `${backgroundLabel(count)} working in the background`;
+  const label = `${backgroundLabel(count)} running`;
   return (
     <div role="status" aria-label={label} data-background-work={count} className="flex w-fit items-center gap-2 px-1 py-1 text-[12px] text-ink-3">
       {mark}

@@ -13,7 +13,7 @@ import { StatusPill } from "./status-pill";
 export function ChatMarkIcon({ mark, background = 0 }: { mark: ChatMark; background?: number }) {
   const { colors } = useTheme();
   const tone = chatMarkTone(mark);
-  const label = mark === "background" && background ? `${backgroundLabel(background)} working` : MARK_LABEL[mark];
+  const label = mark === "background" && background ? `${backgroundLabel(background)} running` : MARK_LABEL[mark];
   const body =
     mark === "background" ? (
       <BackgroundRing count={background} />
@@ -46,7 +46,7 @@ export function ChatMarkIcon({ mark, background = 0 }: { mark: ChatMark; backgro
   );
 }
 
-/** Desktop's background mark: a still accent ring around how many background agents still work. */
+/** Desktop's background mark: a still accent ring around how many background tasks still run. */
 export function BackgroundRing({ count = 0, size = 15 }: { count?: number; size?: number }) {
   const { colors } = useTheme();
   return (

@@ -32,7 +32,7 @@ function createLocalMcpHost({ projects, readProject, scopeStates, chats, createW
       provider: session.provider,
       status: run ? "running" : session.status,
       activity,
-      backgroundAgents: background,
+      backgroundWork: background,
       approvals: run?.approvals?.length ?? 0,
       questions: run?.questions?.length ?? 0,
     };

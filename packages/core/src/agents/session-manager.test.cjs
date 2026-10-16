@@ -529,7 +529,7 @@ test("a provider switch or a new folder never closes a process its background su
   created[0].emit({ type: "subagent-update", agent: { id: "fg", status: "running" } });
   created[0].emit({ type: "turn-completed" });
   assert.equal(manager.backgroundWork("1"), 1);
-  await assert.rejects(manager.startTurn(claude({ provider: "codex" })), /A background agent is still running in this Chat\. Switching to Codex would stop it/);
+  await assert.rejects(manager.startTurn(claude({ provider: "codex" })), /A background task is still running in this Chat\. Switching to Codex would stop it/);
   await assert.rejects(manager.startTurn(claude({ cwd: "/elsewhere" })), /can't move to another folder/);
   // New Links (workspace roots) or instructions wait for the next process: the turn runs on this one.
   await manager.startTurn(claude({ workspaceRoots: ["/linked"] }));
@@ -544,11 +544,28 @@ test("a provider switch or a new folder never closes a process its background su
   assert.equal(created[1].provider, "codex");
 });
 
+test("a background task keeps the agent process open and counts as background work until the process reports it done", async (t) => {
+  const { manager, created } = harness({ idleMs: 15 });
+  t.after(() => manager.closeAll());
+  const claude = (extra = {}) => request("1", { provider: "claude", ...extra });
+  await manager.startTurn(claude());
+  created[0].emit({ type: "background-tasks", tasks: [{ id: "b1", kind: "local_bash", title: "sleep 75", startedAt: 1 }] });
+  created[0].emit({ type: "turn-completed" });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(created[0].closed, false);
+  assert.equal(manager.backgroundWork("1"), 1);
+  await assert.rejects(manager.startTurn(claude({ provider: "codex" })), /A background task is still running in this Chat/);
+  created[0].emit({ type: "background-tasks", tasks: [] });
+  assert.equal(manager.backgroundWork("1"), 0);
+  await waitUntil(() => created[0].closed);
+});
+
 test("background subagents count only for a provider that has them", async (t) => {
   const { manager, created } = harness();
   t.after(() => manager.closeAll());
   await manager.startTurn(request("1"));
   created[0].emit({ type: "subagent-update", agent: { id: "bg", status: "running", background: true } });
+  created[0].emit({ type: "background-tasks", tasks: [{ id: "b1", kind: "local_bash", title: "sleep", startedAt: 1 }] });
   assert.equal(manager.backgroundWork("1"), 0);
 });
 

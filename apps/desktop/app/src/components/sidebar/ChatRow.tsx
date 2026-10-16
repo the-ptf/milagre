@@ -184,11 +184,11 @@ const MARK_LABEL: Record<Exclude<ChatMark, "idle">, string> = {
   unread: "Unread",
 };
 
-/** The mark's words, a background mark with its count: "2 background agents working". */
+/** The mark's words, a background mark with its count: "2 background tasks running". */
 const markLabel = (mark: Exclude<ChatMark, "idle">, background = 0) =>
-  mark === "background" && background ? `${backgroundLabel(background)} working` : MARK_LABEL[mark];
+  mark === "background" && background ? `${backgroundLabel(background)} running` : MARK_LABEL[mark];
 
-/** Work going on with no turn: a still ring around how many background agents work, so it reads apart from running. */
+/** Work going on with no turn: a still ring around how many background tasks run, so it reads apart from running. */
 function BackgroundMark({ count = 0 }: { count?: number }) {
   return (
     <span className="flex size-3 items-center justify-center rounded-full border-[1.5px] border-accent text-[7px] font-bold leading-none tabular-nums text-accent">

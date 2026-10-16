@@ -11,6 +11,11 @@ const { providerName } = require("@milagre/shared/providers");
 const IDLE_MS = 10 * 60 * 1000;
 const BATCH_MS = 50;
 
+// What still runs in a chat's agent process with no turn: children (subagents) and background tasks. It keeps the
+// process open, and the background part of it (chat-activity.mjs) is what closing the process would stop.
+const busyWithoutTurn = (entry) => Boolean(entry.activeChildren?.size || entry.backgroundTasks?.size);
+const backgroundCount = (entry) => (entry.backgroundChildren?.size ?? 0) + (entry.backgroundTasks?.size ?? 0);
+
 // Streamed events that are batched: reply text per turn, and command output per step.
 function streamKey(event) {
   if (event.type === "text-delta") return `text:${event.messageId}`;
@@ -84,12 +89,12 @@ class SessionManager {
       !existing.session.closed &&
       ((existing.tldrEnabled === tldrEnabled && existing.designsEnabled === designsEnabled && existing.accountId === accountId) ||
         existing.session.turnActive ||
-        existing.activeChildren?.size)
+        busyWithoutTurn(existing))
     )
       return existing;
-    // Background subagents live in the agent process: replacing it would stop them (T3 #16000). The same provider in
+    // Background work lives in the agent process: replacing it would stop that work (T3 #16000). The same provider in
     // the same folder keeps it, and new Links or instructions wait for the next process; another provider or folder can't.
-    const background = existing && !existing.session.closed ? (existing.backgroundChildren?.size ?? 0) : 0;
+    const background = existing && !existing.session.closed ? backgroundCount(existing) : 0;
     if (background && existing.provider === provider && existing.cwd === cwd) return existing;
     if (background) throw new Error(backgroundBusyMessage(existing.provider === provider ? "move" : "switch", background, providerName(provider)));
     const resumeId = sameChat && !existing.session.closed ? (existing.session.nativeId ?? request.resumeId) : request.resumeId;
@@ -169,6 +174,12 @@ class SessionManager {
         else entry.backgroundChildren.delete(event.agent.id);
       }
     }
+    // The process's other background work (a command run in the background…) keeps it open too, as children do.
+    if (event.type === "background-tasks" && providerCapabilities(entry.provider).backgroundSubagents) {
+      entry.backgroundTasks = new Set((event.tasks ?? []).map((task) => task.id));
+      if (entry.backgroundTasks.size) clearTimeout(entry.idleTimer);
+      else if (!entry.session.turnActive) this.scheduleIdleClose(chatId);
+    }
     // A usage limit belongs to the account the session runs on, which only this manager knows.
     this.send(chatId, event.type === "turn-failed" && event.limit ? { ...event, limit: { ...event.limit, accountId: entry.accountId } } : event);
     // A turn the provider started itself (a steer that missed the end of the last one) isn't covered by
@@ -192,7 +203,7 @@ class SessionManager {
     const entry = this.sessions.get(chatId);
     if (!entry) return;
     clearTimeout(entry.idleTimer);
-    if (entry.activeChildren?.size) return;
+    if (busyWithoutTurn(entry)) return;
     entry.idleTimer = setTimeout(() => {
       void this.serial(chatId, () => (this.sessions.get(chatId) === entry ? this.closeEntry(chatId, entry) : undefined)).catch(() => {});
     }, this.idleMs);
@@ -229,14 +240,14 @@ class SessionManager {
 
   activeAccount(chatId, provider) {
     const entry = this.sessions.get(chatId);
-    if (!entry || (provider && entry.provider !== provider) || entry.session.closed || (!entry.session.turnActive && !entry.activeChildren?.size)) return null;
+    if (!entry || (provider && entry.provider !== provider) || entry.session.closed || (!entry.session.turnActive && !busyWithoutTurn(entry))) return null;
     return { accountId: entry.accountId, command: entry.command, env: entry.env, harness: entry.harness, args: entry.args };
   }
 
-  /** How many background subagents still run in the chat's agent process; closing it would stop them. */
+  /** How much background work (subagents and tasks) still runs in the chat's agent process; closing it would stop it. */
   backgroundWork(chatId) {
     const entry = this.sessions.get(chatId);
-    return entry && !entry.session.closed ? (entry.backgroundChildren?.size ?? 0) : 0;
+    return entry && !entry.session.closed ? backgroundCount(entry) : 0;
   }
 
   isTurnActive(chatId) {

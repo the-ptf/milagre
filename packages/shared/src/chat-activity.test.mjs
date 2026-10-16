@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { activityOf, backgroundLabel, backgroundSubagents, chatActivity, createActivityTracker } from "./chat-activity.mjs";
+import {
+  activityOf,
+  backgroundBusyMessage,
+  backgroundLabel,
+  backgroundSubagents,
+  backgroundTasks,
+  chatActivity,
+  createActivityTracker,
+  processWork,
+} from "./chat-activity.mjs";
 
 const run = (patch = {}) => ({ text: "", model: "m", steps: [], approvals: [], questions: [], answered: {}, ...patch });
 const agent = (id, patch = {}) => ({ id, title: id, status: "running", startedAt: 10, updatedAt: 10, transcript: [], ...patch });
@@ -63,9 +72,38 @@ test("a running advisor is background work on any provider, but not a subagent i
   assert.equal(tracker.observe("c", { type: "subagent-update", agent: chat.subagents[0] }).next, "background");
 });
 
-test("backgroundLabel", () => {
-  assert.equal(backgroundLabel(1), "1 background agent");
-  assert.equal(backgroundLabel(3), "3 background agents");
+test("background tasks the agent process reports count as background work, after its subagents", () => {
+  const task = (id, kind, startedAt) => ({ id, kind, title: id, startedAt });
+  const chat = session({
+    subagents: [agent("bg", { background: true, startedAt: 30 })],
+    backgroundTasks: [task("shell", "local_bash", 20), task("mcp", "mcp_task", 40)],
+  });
+  assert.deepEqual(chatActivity(chat, undefined), { activity: "background", background: 3, since: 20 });
+  assert.deepEqual(
+    processWork(chat).map((item) => item.id),
+    ["shell", "bg", "mcp"],
+  );
+  assert.deepEqual(
+    backgroundTasks(chat).map((item) => item.id),
+    ["shell", "mcp"],
+  );
+  // A Codex Chat's process reports none; a saved set from a Claude turn before a switch doesn't count.
+  assert.deepEqual(backgroundTasks({ ...chat, provider: "codex" }), []);
+  assert.equal(chatActivity(session({ backgroundTasks: [task("shell", "local_bash", 1)], summary: { lastOutcome: "failed" } }), undefined).activity, "failed");
+});
+
+test("backgroundLabel and the guard's message", () => {
+  assert.equal(backgroundLabel(1), "1 background task");
+  assert.equal(backgroundLabel(3), "3 background tasks");
+  assert.equal(
+    backgroundBusyMessage("switch", 1, "Codex"),
+    "A background task is still running in this Chat. Switching to Codex would stop it. Ask the agent to stop it, or send again once it finishes.",
+  );
+  assert.equal(
+    backgroundBusyMessage("reload", 2),
+    "2 background tasks are still running in this Chat. Reloading would stop them. Ask the agent to stop them, or reload once they finish.",
+  );
+  assert.match(backgroundBusyMessage("move", 1), /can't move to another folder without stopping it/);
 });
 
 const bg = (id, status = "running") => ({ type: "subagent-update", agent: agent(id, { background: true, status }) });
@@ -136,6 +174,23 @@ test("tracker: requests make a turn waiting until they are answered or the turn 
   assert.equal(tracker.observe("c", { type: "permission-resolved", requestId: "p" }).next, "working");
   tracker.observe("c", { type: "question-request", requestId: "q" });
   assert.equal(tracker.observe("c", { type: "turn-completed" }).next, "idle");
+});
+
+test("tracker: a background command doesn't hold the turn's announcement; an MCP task does", () => {
+  const tracker = createActivityTracker();
+  const tasks = (...list) => ({ type: "background-tasks", tasks: list.map(([id, kind]) => ({ id, kind, title: id, startedAt: 1 })) });
+  tracker.observe("c", { type: "turn-started" });
+  tracker.observe("c", tasks(["server", "local_bash"]));
+  tracker.observe("c", { type: "text-delta", text: "The dev server runs.", messageId: "m" });
+  // A server can run for hours: the turn's end is announced at once.
+  assert.equal(tracker.observe("c", { type: "turn-completed" }).completion?.body, "The dev server runs.");
+  tracker.observe("c", { type: "turn-started" });
+  tracker.observe("c", tasks(["server", "local_bash"], ["export", "mcp_task"]));
+  tracker.observe("c", { type: "text-delta", text: "Exporting.", messageId: "m" });
+  const held = tracker.observe("c", { type: "turn-completed" });
+  assert.deepEqual([held.next, held.completion, tracker.background("c")], ["background", null, 1]);
+  const done = tracker.observe("c", tasks(["server", "local_bash"]));
+  assert.deepEqual([done.next, done.completion?.body], ["idle", "Exporting."]);
 });
 
 test("tracker: forget and its cap", () => {

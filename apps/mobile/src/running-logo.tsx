@@ -141,12 +141,12 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
 }
 
 /**
- * Desktop's BackgroundIndicator: the Chat's turn ended, but background agents still work (chat-activity.mjs). How many,
- * and for how long the oldest has; no running mark, since no turn runs.
+ * Desktop's BackgroundIndicator: the Chat's turn ended, but background work goes on (chat-activity.mjs). How many
+ * tasks, and for how long the oldest has run; no running mark, since no turn runs.
  */
 export function BackgroundIndicator({ count, startedAt, mark }: { count: number; startedAt?: number; mark: ReactNode }) {
   const { colors } = useTheme();
-  const label = `${backgroundLabel(count)} working in the background`;
+  const label = `${backgroundLabel(count)} running`;
   return (
     <View
       accessible

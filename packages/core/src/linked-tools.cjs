@@ -8,10 +8,10 @@ const { providerName } = require("@milagre/shared/providers");
 const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { chatActivity } = require("@milagre/shared/chat-activity");
 
-/** A linked Chat's status, the same activity its sidebar row shows (chat-activity.mjs), with its background agents. */
+/** A linked Chat's status, the same activity its sidebar row shows (chat-activity.mjs), with its background work. */
 function linkedStatus(session, run) {
   const { activity, background } = chatActivity(session, run);
-  return { status: activity, ...(background ? { backgroundAgents: background } : {}) };
+  return { status: activity, ...(background ? { backgroundWork: background } : {}) };
 }
 const { NEGOTIATION_ROUNDS } = require("@milagre/shared/limits");
 const { createGit } = require("./git/client.cjs");

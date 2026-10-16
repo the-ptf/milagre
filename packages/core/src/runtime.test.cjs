@@ -565,7 +565,7 @@ test("chat:reload waits for the Chat's background subagents instead of stopping 
 
   await assert.rejects(
     runtime.invoke("chat:reload", [chatId]),
-    /A background agent is still running in this Chat\. Reloading would stop it; reload once it finishes\./,
+    /A background task is still running in this Chat\. Reloading would stop it\. Ask the agent to stop it, or reload once it finishes\./,
   );
   assert.equal(agents.sessions[0].closed, false);
   assert.equal(

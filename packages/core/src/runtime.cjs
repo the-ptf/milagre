@@ -13,7 +13,7 @@ const { PROVIDERS } = require("@milagre/shared/providers");
 const { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } = require("@milagre/shared/pr-action");
 const { compactionMessage } = require("@milagre/shared/compaction");
 const { RELOAD_TEXT } = require("@milagre/shared/chat-reload");
-const { backgroundBusyMessage, backgroundSubagents } = require("@milagre/shared/chat-activity");
+const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
 const { issueFirstMessage, linearIssueContext, linearIssuePrompt, linearIssueRequest } = require("@milagre/shared/linear-issue");
 const { ChatTitles, createChatTitleModels, generateChatTitle } = require("./chat-title.cjs");
 const { createGit } = require("./git/client.cjs");
@@ -1281,8 +1281,8 @@ function createRuntime(options) {
     await existingChat("reloading it")(chatId);
     const state = await scopeStates.get(projectOfKey(chatId));
     const sessionId = sessionIdFromKey(chatId);
-    // Background subagents run in the agent process Reload ends: the Chat reloads once they finish (T3 #16000).
-    const background = Math.max(agents.backgroundWork(chatId), backgroundSubagents(state.sessions[sessionId]).length);
+    // Background work runs in the agent process Reload ends: the Chat reloads once it finishes (T3 #16000).
+    const background = Math.max(agents.backgroundWork(chatId), processWork(state.sessions[sessionId]).length);
     if (background) throw new Error(backgroundBusyMessage("reload", background));
     if (chats.runs[chatId]) await stopChat(chatId);
     // An empty Chat gets no line: it stays the one its Worktree reuses for the next send. An unloaded Chat's messages

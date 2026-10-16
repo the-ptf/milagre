@@ -500,7 +500,7 @@ test("a send on another provider waits for the Chat's background subagents: noth
 
   await assert.rejects(
     host.send(message(ALPHA, "now on codex", { sessionId, provider: "codex", model: "gpt-6" })),
-    /A background agent is still running in this Chat\. Switching to Codex would stop it; send again once it finishes\./,
+    /A background task is still running in this Chat\. Switching to Codex would stop it\. Ask the agent to stop it, or send again once it finishes\./,
   );
   await host.states.flush();
   assert.equal(saved.get(ALPHA).messages.length, 2);
