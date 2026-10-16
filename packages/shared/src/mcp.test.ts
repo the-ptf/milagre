@@ -5,6 +5,7 @@ import {
   mcpChipLine,
   mcpEditTarget,
   mcpRemoveTargets,
+  mcpTargetPlaces,
   mcpSummary,
   mcpTransportLine,
   validateMcpServer,
@@ -30,19 +31,25 @@ const check = (provider: McpAccountCheck["provider"], accountId: string, servers
   servers,
 });
 
-test("rows needing sign-in go to attention and leave the other lists", () => {
-  const { attention, user } = groupMcpRows([
-    check("claude", "default", [server({ name: "linear", transport: "url", state: "needs-sign-in", detail: "https://mcp.linear.app/mcp" }), server({})]),
+test("rows needing sign-in go to attention; editable ones stay in Your servers too", () => {
+  const { attention, user, other } = groupMcpRows([
+    check("claude", "default", [
+      server({ name: "linear", transport: "url", state: "needs-sign-in", detail: "https://mcp.linear.app/mcp" }),
+      server({}),
+      server({ name: "plugin:engineering:notion", transport: "url", scope: "plugin", state: "needs-sign-in", detail: "https://mcp.notion.com/mcp" }),
+    ]),
     check("codex", "default", [server({ name: "linear", transport: "url", detail: "https://mcp.linear.app/mcp" })]),
   ]);
   assert.deepEqual(
     attention.map((row) => row.name),
-    ["linear"],
+    ["linear", "plugin:engineering:notion"],
   );
+  // Your servers keeps linear with its switches, Edit and Remove; an outside row only lists under attention.
   assert.deepEqual(
     user.map((row) => row.name),
-    ["pencil"],
+    ["linear", "pencil"],
   );
+  assert.deepEqual(other, []);
 });
 
 test("a command server that reports needs-sign-in is not offered sign-in", () => {
@@ -93,6 +100,18 @@ test("summary counts connected, or on when something is off", () => {
   const all = groupMcpRows([check("claude", "a", [server({})]), check("codex", "b", [server({})])]).user;
   assert.equal(mcpSummary(all[0]), "2 of 2 connected");
   assert.equal(mcpSummary(groupMcpRows([check("claude", "a", [server({})])]).user[0]), "Connected");
+  // An account that only loads it in Chats (Antigravity) is not counted either way.
+  const loads = groupMcpRows([
+    check("claude", "a", [server({})]),
+    check("codex", "b", [server({})]),
+    check("antigravity", "c", [server({ scope: "everywhere", state: "unchecked" })]),
+  ]).user;
+  assert.equal(mcpSummary(loads[0]), "2 of 2 connected");
+  const onlyLoads = groupMcpRows([
+    check("antigravity", "c", [server({ scope: "everywhere", state: "unchecked" })]),
+    check("antigravity", "d", [server({ scope: "everywhere", state: "unchecked" })]),
+  ]).user;
+  assert.equal(mcpSummary(onlyLoads[0]), "Loads in Chats");
 });
 
 test("transport line shows the host for URLs and the command line otherwise", () => {
@@ -110,6 +129,13 @@ test("chip line reads tools, off, unchecked and shadowed", () => {
   assert.equal(mcpChipLine({ ...base, state: "connected", scope: "everywhere" }), "Connected · 14 tools · from Everywhere");
   assert.equal(mcpChipLine({ ...base, state: "failed", error: "spawn x ENOENT" }), "spawn x ENOENT");
   assert.equal(mcpChipLine({ ...base, state: "connected", shadowedBy: "claude" }), "Connected · 14 tools · uses Claude’s own");
+  assert.equal(mcpChipLine({ ...base, state: "disabled", disabledBy: "provider" }), "Off in Claude’s config");
+  assert.equal(mcpChipLine({ ...base, provider: "codex", state: "disabled", disabledBy: "provider" }), "Off in Codex’s config");
+});
+
+test("a chip carries disabledBy from its report", () => {
+  const [row] = groupMcpRows([check("codex", "default", [server({ state: "disabled", disabledBy: "provider" })])]).user;
+  assert.equal(row.chips[0].disabledBy, "provider");
 });
 
 test("validation refuses unsafe names and missing fields", () => {
@@ -140,4 +166,10 @@ test("edit opens Everywhere, else the default account's provider, else the first
   assert.equal(mcpEditTarget(defaultFirst), "codex");
   const noDefault = groupMcpRows([check("claude", "work", [server({})])]).user[0];
   assert.equal(mcpEditTarget(noDefault), "claude");
+});
+
+test("remove targets read as the places they live", () => {
+  assert.equal(mcpTargetPlaces(["everywhere"]), "Everywhere");
+  assert.equal(mcpTargetPlaces(["claude", "codex"]), "Claude’s config and Codex’s config");
+  assert.equal(mcpTargetPlaces(["everywhere", "claude", "codex"]), "Everywhere, Claude’s config and Codex’s config");
 });

@@ -13,7 +13,7 @@ const accounts = [
   { provider: 'codex', accountId: 'default', label: 'personal' },
   { provider: 'antigravity', accountId: 'default', label: 'Antigravity' },
 ];
-const s = (name, transport, scope, state, tools, detail, error = null) => ({ name, transport, scope, state, tools, error, detail });
+const s = (name, transport, scope, state, tools, detail, error = null, extra = {}) => ({ name, transport, scope, state, tools, error, detail, ...extra });
 const answers = {
   'claude:default': [
     s('pencil', 'command', 'user', 'connected', 14, 'pencil mcp --stdio'),
@@ -34,13 +34,19 @@ const answers = {
     s('pencil', 'command', 'user', 'disabled', 0, 'pencil mcp --stdio'),
     s('linear', 'url', 'user', 'needs-sign-in', 0, 'https://mcp.linear.app/mcp'),
     s('argent', 'command', 'user', 'failed', 0, 'npx @swmansion/argent mcp', 'spawn argent ENOENT'),
-    s('supabase', 'url', 'user', 'disabled', 0, 'https://mcp.supabase.com/mcp'),
+    s('supabase', 'url', 'user', 'disabled', 0, 'https://mcp.supabase.com/mcp', null, { disabledBy: 'provider' }),
   ],
   'antigravity:default': [s('pencil', 'command', 'everywhere', 'connected', 14, 'pencil mcp --stdio')],
 };
 window.checks = 0;
 window.accountsCalls = 0;
 window.removedAll = [];
+window.removeAttempts = [];
+// Stored definitions as mcp:definition answers them (secrets masked).
+const definitions = {
+  supabase: { name: 'supabase', type: 'sse', url: 'https://mcp.supabase.com/sse', headers: {} },
+  argent: { name: 'argent', type: 'stdio', command: 'npx', args: ['@swmansion/argent', 'mcp', '--label', 'My Server'], env: { TOKEN: '••••••' } },
+};
 // The real bridge announces every write on mcp:changed; toggles name the account.
 const announce = (event) => setTimeout(() => window.mcpChanged && window.mcpChanged(event), 10);
 window.milagre = {
@@ -62,10 +68,15 @@ window.milagre = {
       if (key === 'claude:default' && window.saved && window.saved[0].name === 'docs') servers.push(s('docs', 'url', 'everywhere', 'needs-sign-in', 0, 'https://docs.example/mcp'));
       return { provider, accountId, label: accounts.find(a => a.provider === provider && a.accountId === accountId).label, problem: null, servers };
     },
-    definition: async (name) => (window.noDefinition ? null : { name, type: 'http', url: 'https://mcp.linear.app/mcp', headers: { Authorization: '••••••' } }),
+    definition: async (name) => (window.noDefinition ? null : definitions[name] ?? { name, type: 'http', url: 'https://mcp.linear.app/mcp', headers: { Authorization: '••••••' } }),
     save: async (...args) => { window.saved = args; announce({ name: args[0].name }); },
     saveUrl: async (...args) => { window.saved = args; announce({ name: args[0].name }); },
-    remove: async (...args) => { window.removedAll.push(args); announce({ name: args[0] }); },
+    remove: async (...args) => {
+      window.removeAttempts.push(args);
+      if (window.failRemove === args[1]) throw new Error('claude mcp remove failed');
+      window.removedAll.push(args);
+      announce({ name: args[0] });
+    },
     toggle: async (...args) => { window.toggled = args; announce({ name: args[2], provider: args[0], accountId: args[1] }); },
     signIn: async (...args) => { window.signedIn = args; return { started: true }; },
     cancelSignIn: async (name) => { window.cancelled = name; },
@@ -93,9 +104,13 @@ async function browserChecks() {
   const type = (selector, value) =>
     evaluate(`(() => {
       const input = document.querySelector(${JSON.stringify(selector)});
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)});
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value').set.call(input, ${JSON.stringify(value)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`);
+  const openRow = async (name) => {
+    if (!(await evaluate(`document.querySelector('[data-mcp-row="${name}"]').dataset.open === 'true'`))) await click(`[data-mcp-row="${name}"] button`);
+    await waitFor(`document.querySelector('[data-mcp-row="${name}"]').dataset.open === 'true'`);
+  };
   const shot = async (name) => {
     const dir = process.env.MILAGRE_SCREENSHOT_DIR;
     if (dir) {
@@ -108,12 +123,17 @@ async function browserChecks() {
     await win.loadURL(process.argv[2]);
     await waitFor(`!!window.releaseAccounts`);
     await evaluate("window.releaseAccounts()");
-    // linear needs a sign-in, so it sits in Needs sign-in and not in Your servers.
+    // linear needs a sign-in: Needs sign-in offers the sign-in, and Your servers still lists it (switches, Edit, Remove).
     await waitFor(`!!document.querySelector('[data-mcp-attention="linear"]')`);
     await waitFor(`!document.body.textContent.includes('Checking')`);
-    assert.equal(await evaluate(`!!document.querySelector('[data-mcp-row="linear"]')`), false);
-    assert.match(await text(), /Needs sign-in/);
-    assert.match(await text(), /Your servers/);
+    assert.equal(await evaluate(`!!document.querySelector('[data-mcp-row="linear"]')`), true);
+    assert.match(await text(), /Needs sign-in · 1/);
+    assert.match(await text(), /Your servers · 4/);
+    await click('[data-mcp-row="linear"] button');
+    await waitFor(
+      `!!document.querySelector('[data-mcp-row="linear"] [data-mcp-edit]') && !!document.querySelector('[data-mcp-row="linear"] [data-mcp-remove]')`,
+    );
+    await click('[data-mcp-row="linear"] button');
     await shot("mcp-page");
     await evaluate("document.documentElement.classList.add('dark')");
     await shot("mcp-page-dark");
@@ -177,6 +197,43 @@ async function browserChecks() {
     await waitFor(`document.body.textContent.includes("Couldn’t read this server’s settings. Edit it in its CLI config.")`);
     await evaluate("window.noDefinition = false");
 
+    // An SSE server stays SSE through an edit.
+    await openRow("supabase");
+    // Off in Codex's own config: the line says so and Milagre's switch can't turn it on.
+    assert.ok(await evaluate(`document.querySelector('[data-mcp-row="supabase"]').textContent.includes('Off in Codex’s config')`));
+    assert.equal(await evaluate(`document.querySelector('[data-mcp-switch="codex:default:supabase"] [role="switch"]').disabled`), true);
+    assert.equal(await evaluate(`document.querySelector('[data-mcp-switch="claude:default:supabase"] [role="switch"]').disabled`), false);
+    await shot("mcp-provider-off");
+    await click('[data-mcp-row="supabase"] [data-mcp-edit]');
+    await waitFor(`!!document.querySelector('[data-mcp-sheet]')`);
+    await click('[data-mcp-sheet] button[type="submit"]');
+    await waitFor(`!!window.saved`);
+    assert.equal(await evaluate("window.saved[0].type"), "sse");
+    await waitFor(`!document.querySelector('[data-mcp-sheet]')`);
+    await evaluate("window.saved = undefined");
+
+    // A command server: an argument with a space survives an env-only edit, and the masked env value is replaced.
+    await openRow("argent");
+    await click('[data-mcp-row="argent"] [data-mcp-edit]');
+    await waitFor(`!!document.querySelector('[data-mcp-sheet] textarea[aria-label="Arguments"]')`);
+    assert.equal(await evaluate(`document.querySelector('[data-mcp-sheet] input[aria-label="Command"]').value`), "npx");
+    await type('[data-mcp-sheet] input[aria-label="Value"]', "new-token");
+    await shot("mcp-sheet-command");
+    await click('[data-mcp-sheet] button[type="submit"]');
+    await waitFor(`!!window.saved`);
+    assert.equal(
+      await evaluate("JSON.stringify(window.saved[0])"),
+      JSON.stringify({
+        name: "argent",
+        type: "stdio",
+        command: "npx",
+        args: ["@swmansion/argent", "mcp", "--label", "My Server"],
+        env: { TOKEN: "new-token" },
+      }),
+    );
+    await waitFor(`!document.querySelector('[data-mcp-sheet]')`);
+    await evaluate("window.saved = undefined");
+
     // A failed account: the summary counts it and a red alert sits next to it.
     assert.ok(
       await evaluate(
@@ -231,8 +288,18 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('[data-mcp-sheet]')`);
     // "Add and sign in": the new server needs a sign-in, so it starts one.
     await waitFor(`window.signedIn && window.signedIn[0] === 'docs'`);
-    // Remove reaches Everywhere and every provider config that holds the server.
+    // Remove asks first, naming every place, then reaches Everywhere and every provider config that holds the server.
+    await openRow("pencil");
     await click('[data-mcp-row="pencil"] [data-mcp-remove]');
+    await waitFor(`!!document.querySelector('[data-mcp-row="pencil"] [data-mcp-remove-question]')`);
+    assert.ok(
+      await evaluate(
+        `document.querySelector('[data-mcp-row="pencil"] [data-mcp-remove-question]').textContent.includes('Remove pencil from Everywhere, Claude’s config and Codex’s config?')`,
+      ),
+    );
+    assert.equal(await evaluate("window.removeAttempts.length"), 0);
+    await shot("mcp-remove-confirm");
+    await click('[data-mcp-row="pencil"] [data-mcp-remove-confirm]');
     await waitFor(`window.removedAll.length === 3`);
     assert.equal(
       await evaluate("JSON.stringify(window.removedAll)"),
@@ -242,6 +309,21 @@ async function browserChecks() {
         ["pencil", "codex"],
       ]),
     );
+    // One config failing doesn't stop the rest, and the failure is reported once, by place.
+    await evaluate("window.failRemove = 'claude'; window.removeAttempts = []");
+    await openRow("argent");
+    await click('[data-mcp-row="argent"] [data-mcp-remove]');
+    await click('[data-mcp-row="argent"] [data-mcp-remove-confirm]');
+    await waitFor(`window.removeAttempts.length === 2`);
+    assert.equal(
+      await evaluate("JSON.stringify(window.removeAttempts)"),
+      JSON.stringify([
+        ["argent", "claude"],
+        ["argent", "codex"],
+      ]),
+    );
+    await waitFor(`document.body.textContent.includes('Couldn’t remove argent from Claude’s config. claude mcp remove failed')`);
+    await shot("mcp-remove-failed");
     console.log("PASS: MCP page groups sign-in, servers and outside sources; rows open in place; add, switch and sign-in call the bridge.");
     app.exit(0);
   } catch (error) {

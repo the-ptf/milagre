@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert02Icon, ArrowDown01Icon, ArrowUp01Icon, CommandLineIcon, FolderGitIcon, Globe02Icon } from "@hugeicons/core-free-icons";
 import { mcpChipLine, mcpSummary, mcpTransportLine, type McpChip, type McpRow } from "@milagre/shared/mcp";
@@ -73,13 +74,19 @@ function AccountLines({ row, onSwitch }: { row: McpRow; onSwitch: (chip: McpChip
       <span className="w-64 shrink-0 truncate text-[13px] text-ink">{accountName(chip)}</span>
       <span className={`min-w-0 flex-1 truncate text-[12px] ${chip.state === "failed" ? "text-red" : "text-ink-3"}`}>{mcpChipLine(chip)}</span>
       <span data-mcp-switch={`${keyOf(chip)}:${row.name}`} className="flex">
-        <Switch label={`${row.name} for ${accountName(chip)}`} checked={chip.state !== "disabled"} onChange={(on) => onSwitch(chip, on)} />
+        <Switch
+          label={`${row.name} for ${accountName(chip)}`}
+          checked={chip.state !== "disabled"}
+          disabled={chip.disabledBy === "provider"}
+          onChange={(on) => onSwitch(chip, on)}
+        />
       </span>
     </div>
   ));
 }
 
-/** A server row; open, it lists each account with a switch, then Edit and Remove when editable. */
+/** A server row; open, it lists each account with a switch, then Edit and Remove when editable. Remove asks first,
+ * in place, naming where it removes from (`removePlaces`). */
 export function McpServerRow({
   row,
   open,
@@ -87,6 +94,7 @@ export function McpServerRow({
   onSwitch,
   onEdit,
   onRemove,
+  removePlaces = "",
 }: {
   row: McpRow;
   open: boolean;
@@ -94,7 +102,9 @@ export function McpServerRow({
   onSwitch: (chip: McpChip, on: boolean) => void;
   onEdit?: () => void;
   onRemove?: () => void;
+  removePlaces?: string;
 }) {
+  const [confirming, setConfirming] = useState(false);
   const failed = row.chips.find((chip) => chip.state === "failed");
   const subtitle = failed ? `${providerName(failed.provider)}: ${failed.error ?? "Failed"}` : mcpTransportLine(row);
   return (
@@ -115,20 +125,42 @@ export function McpServerRow({
       {open && (
         <div className="px-4 pt-1 pb-3">
           <AccountLines row={row} onSwitch={onSwitch} />
-          {(onEdit || onRemove) && (
-            <div className="mt-1 flex min-h-11 items-center gap-2">
-              <span className="min-w-0 flex-1 text-[12px] text-ink-3">{row.everywhere ? "Everywhere adds it to providers whose config lacks it." : ""}</span>
-              {onEdit && (
-                <button type="button" data-mcp-edit className={outlineButton} onClick={onEdit}>
-                  Edit
-                </button>
-              )}
-              {onRemove && (
-                <button type="button" data-mcp-remove className={removeButton} onClick={onRemove}>
-                  Remove
-                </button>
-              )}
+          {confirming && onRemove ? (
+            <div data-mcp-remove-question className="mt-1 flex min-h-11 items-center gap-2">
+              <span className="min-w-0 flex-1 text-[12px] text-ink">
+                Remove {row.name} from {removePlaces}? Chats stop loading it.
+              </span>
+              <button type="button" className={outlineButton} onClick={() => setConfirming(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-mcp-remove-confirm
+                className={removeButton}
+                onClick={() => {
+                  setConfirming(false);
+                  onRemove();
+                }}
+              >
+                Remove
+              </button>
             </div>
+          ) : (
+            (onEdit || onRemove) && (
+              <div className="mt-1 flex min-h-11 items-center gap-2">
+                <span className="min-w-0 flex-1 text-[12px] text-ink-3">{row.everywhere ? "Everywhere adds it to providers whose config lacks it." : ""}</span>
+                {onEdit && (
+                  <button type="button" data-mcp-edit className={outlineButton} onClick={onEdit}>
+                    Edit
+                  </button>
+                )}
+                {onRemove && (
+                  <button type="button" data-mcp-remove className={removeButton} onClick={() => setConfirming(true)}>
+                    Remove
+                  </button>
+                )}
+              </div>
+            )
           )}
         </div>
       )}
@@ -166,7 +198,12 @@ export function McpOutsideRow({
           {line}
         </span>
         <span data-mcp-switch={`${keyOf(only)}:${row.name}`} className="flex">
-          <Switch label={`${row.name} for ${accountName(only)}`} checked={only.state !== "disabled"} onChange={(on) => onSwitch(only, on)} />
+          <Switch
+            label={`${row.name} for ${accountName(only)}`}
+            checked={only.state !== "disabled"}
+            disabled={only.disabledBy === "provider"}
+            onChange={(on) => onSwitch(only, on)}
+          />
         </span>
       </div>
     );

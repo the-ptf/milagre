@@ -42,7 +42,11 @@ export function McpServerSheet({
   const [kind, setKind] = useState<"url" | "command">(initial?.type === "stdio" ? "command" : "url");
   const [name, setName] = useState(initial?.name ?? "");
   const [url, setUrl] = useState(initial && initial.type !== "stdio" ? initial.url : "");
-  const [command, setCommand] = useState(initial?.type === "stdio" ? [initial.command, ...initial.args].join(" ") : "");
+  // An SSE server stays SSE through an edit; new URL servers are streamable HTTP.
+  const urlType = initial?.type === "sse" ? "sse" : "http";
+  // The command and its arguments are kept apart, one argument per line, so an argument with a space survives an edit.
+  const [command, setCommand] = useState(initial?.type === "stdio" ? initial.command : "");
+  const [args, setArgs] = useState(initial?.type === "stdio" ? initial.args.join("\n") : "");
   const [pairs, setPairs] = useState<Pair[]>(toPairs(initial ? (initial.type === "stdio" ? initial.env : initial.headers) : {}));
   const [target, setTarget] = useState<McpTarget>(initialTarget);
   const [error, setError] = useState("");
@@ -52,11 +56,10 @@ export function McpServerSheet({
     // autoFocus fires before the dialog opens, so focus Name once it is modal.
     nameInput.current?.focus();
   }, []);
-  const [first = "", ...rest] = command.trim().split(/\s+/);
   const def: McpServerDefinition =
     kind === "url"
-      ? { name: name.trim(), type: "http", url: url.trim(), headers: toRecord(pairs) }
-      : { name: name.trim(), type: "stdio", command: first, args: rest, env: toRecord(pairs) };
+      ? { name: name.trim(), type: urlType, url: url.trim(), headers: toRecord(pairs) }
+      : { name: name.trim(), type: "stdio", command: command.trim(), args: args.split("\n").filter((arg) => arg.trim() !== ""), env: toRecord(pairs) };
   // Typing again clears the last problem.
   const edit = (set: (value: string) => void, value: string) => {
     setError("");
@@ -135,16 +138,24 @@ export function McpServerSheet({
             <span className="block font-normal text-ink-3">If the server asks you to sign in, your browser opens after you add it.</span>
           </label>
         ) : (
-          <label className={label}>
-            Command
-            <input
-              aria-label="Command"
-              className={field}
-              placeholder="npx -y @scope/server"
-              value={command}
-              onChange={(event) => edit(setCommand, event.target.value)}
-            />
-          </label>
+          <>
+            <label className={label}>
+              Command
+              <input aria-label="Command" className={field} placeholder="npx" value={command} onChange={(event) => edit(setCommand, event.target.value)} />
+            </label>
+            <label className={label}>
+              Arguments (optional)
+              <textarea
+                aria-label="Arguments"
+                rows={3}
+                className={`${field} resize-y font-mono text-[12.5px]`}
+                placeholder={"-y\n@scope/server"}
+                value={args}
+                onChange={(event) => edit(setArgs, event.target.value)}
+              />
+              <span className="block font-normal text-ink-3">One per line.</span>
+            </label>
+          </>
         )}
         <div className="space-y-1.5">
           <span className="block text-[12px] font-medium text-ink-2">{kind === "url" ? "Headers (optional)" : "Environment (optional)"}</span>

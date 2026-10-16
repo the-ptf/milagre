@@ -6,6 +6,7 @@ import {
   mcpEditTarget,
   mcpRemoveTargets,
   mcpSourceRank,
+  mcpTargetPlaces,
   type McpAccount,
   type McpAccountCheck,
   type McpChip,
@@ -157,6 +158,7 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
   const checking = entries === null || entries.some((entry) => entry.checking);
   const ownAttention = attention.filter((row) => row.editable);
   const outsideAttention = attention.filter((row) => !row.editable);
+  // Your servers also lists its rows that need sign-in (with their switches, Edit and Remove); Needs sign-in holds the action.
   // Outside rows that need sign-in list first in their own group, so nothing hides behind the expander's count.
   const outside = [...new Set([...outsideAttention.map((row) => row.source ?? "Built in"), ...other.map((group) => group.source)])]
     .sort((a, b) => mcpSourceRank(a) - mcpSourceRank(b) || a.localeCompare(b))
@@ -172,6 +174,7 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
   // Toggles, removes and saves announce themselves on mcp:changed, which re-checks; nothing refreshes here.
   const onSwitch = (row: McpRow) => (chip: McpChip, on: boolean) => void bridge.mcp.toggle(chip.provider, chip.accountId, row.name, on).catch(fail);
   const edit = async (row: McpRow) => {
+    setError("");
     const target = mcpEditTarget(row);
     const initial = await bridge.mcp.definition(row.name, target).catch((cause: unknown) => {
       fail(cause);
@@ -180,12 +183,19 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
     if (initial) setSheet({ initial, target, previous: { name: row.name, target } });
     else if (initial === null) setError("Couldn’t read this server’s settings. Edit it in its CLI config.");
   };
+  // Every config is tried, even after one fails; the failures are reported once, by place.
   const removeRow = async (row: McpRow) => {
-    try {
-      for (const target of mcpRemoveTargets(row)) await bridge.mcp.remove(row.name, target);
-    } catch (cause) {
-      fail(cause);
+    setError("");
+    const failed: { target: McpTarget; message: string }[] = [];
+    for (const target of mcpRemoveTargets(row)) {
+      try {
+        await bridge.mcp.remove(row.name, target);
+      } catch (cause) {
+        failed.push({ target, message: cause instanceof Error ? cause.message : String(cause) });
+      }
     }
+    if (failed.length)
+      setError(`Couldn’t remove ${row.name} from ${mcpTargetPlaces(failed.map((item) => item.target))}. ${failed.map((item) => item.message).join(" ")}`);
     scheduleRefresh();
   };
   const save = async (def: McpServerDefinition, target: McpTarget) => {
@@ -287,6 +297,7 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
                   onSwitch={onSwitch(row)}
                   onEdit={remote && row.transport === "command" ? undefined : () => void edit(row)}
                   onRemove={() => void removeRow(row)}
+                  removePlaces={mcpTargetPlaces(mcpRemoveTargets(row))}
                 />
               ))}
             </div>

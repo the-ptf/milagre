@@ -14,11 +14,20 @@ export type McpServerReport = {
   error: string | null;
   detail: string | null;
   shadowedBy?: McpProvider;
+  /** Set when the provider's own config switches it off (Codex enabled = false, a Claude disabled server): Milagre's switch can't turn it on. */
+  disabledBy?: "provider";
 };
 export type McpAccount = { provider: McpProvider; accountId: string; label: string };
 /** The answer to mcp:check. `problem` is set when the account could not be checked; `servers` is then empty. */
 export type McpAccountCheck = McpAccount & { problem: string | null; servers: McpServerReport[] };
-export type McpChip = McpAccount & { scope: McpScope; state: McpChipState; tools: number; error: string | null; shadowedBy?: McpProvider };
+export type McpChip = McpAccount & {
+  scope: McpScope;
+  state: McpChipState;
+  tools: number;
+  error: string | null;
+  shadowedBy?: McpProvider;
+  disabledBy?: "provider";
+};
 export type McpRow = {
   name: string;
   transport: McpTransport;
@@ -67,7 +76,8 @@ export function mcpSourceRank(source: string): number {
   return 4;
 }
 
-/** Rows by server name. Attention: URL or connector rows with a chip that needs sign-in. User: editable rows. Other: the rest, by source. */
+/** Rows by server name. Attention: URL or connector rows with a chip that needs sign-in. User: every editable row, those needing
+ * sign-in included (they keep their switches, Edit and Remove). Other: the outside rows that don't need sign-in, by source. */
 export function groupMcpRows(checks: McpAccountCheck[]): { attention: McpRow[]; user: McpRow[]; other: { source: string; rows: McpRow[] }[] } {
   const rows = new Map<string, McpRow>();
   for (const check of checks) {
@@ -91,6 +101,7 @@ export function groupMcpRows(checks: McpAccountCheck[]): { attention: McpRow[]; 
         tools: server.tools,
         error: server.error,
         ...(server.shadowedBy ? { shadowedBy: server.shadowedBy } : {}),
+        ...(server.disabledBy ? { disabledBy: server.disabledBy } : {}),
       });
       row.detail ??= server.detail;
       row.editable ||= server.scope === "user" || server.scope === "everywhere";
@@ -103,16 +114,15 @@ export function groupMcpRows(checks: McpAccountCheck[]): { attention: McpRow[]; 
   for (const row of sorted) if (!row.editable) row.source = sourceOf(row.name, row.chips[0]?.scope ?? "built-in");
   const needsSignIn = (row: McpRow) => row.transport !== "command" && row.chips.some((chip) => chip.state === "needs-sign-in");
   const attention = sorted.filter(needsSignIn);
-  const rest = sorted.filter((row) => !needsSignIn(row));
   const groups = new Map<string, McpRow[]>();
-  const others = rest.filter((item) => !item.editable);
+  const others = sorted.filter((item) => !item.editable && !needsSignIn(item));
   for (const row of others) {
     const source = row.source ?? "Built in";
     groups.set(source, [...(groups.get(source) ?? []), row]);
   }
   return {
     attention,
-    user: rest.filter((item) => item.editable),
+    user: sorted.filter((item) => item.editable),
     other: [...groups]
       .map(([source, groupRows]) => ({ source, rows: groupRows }))
       .sort((a, b) => mcpSourceRank(a.source) - mcpSourceRank(b.source) || a.source.localeCompare(b.source)),
@@ -125,6 +135,13 @@ const isConfigProvider = (provider: McpProvider): provider is "claude" | "codex"
 export function mcpRemoveTargets(row: McpRow): McpTarget[] {
   const providers = row.chips.filter((chip) => chip.scope === "user" && isConfigProvider(chip.provider)).map((chip) => chip.provider as McpTarget);
   return [...new Set<McpTarget>([...(row.everywhere ? (["everywhere"] as const) : []), ...providers])];
+}
+
+const TARGET_PLACES: Record<McpTarget, string> = { everywhere: "Everywhere", claude: "Claude’s config", codex: "Codex’s config" };
+/** "Everywhere, Claude’s config and Codex’s config": where a remove reaches, for its confirmation and its failures. */
+export function mcpTargetPlaces(targets: McpTarget[]): string {
+  const places = targets.map((target) => TARGET_PLACES[target]);
+  return places.length > 1 ? `${places.slice(0, -1).join(", ")} and ${places[places.length - 1]}` : (places[0] ?? "");
 }
 
 /** The config Edit reads and writes: Everywhere, else the default account's user config, else the first user config. */
@@ -144,12 +161,15 @@ const STATE_COPY: Record<McpChipState, string> = {
 };
 export const mcpStateCopy = (state: McpChipState) => STATE_COPY[state];
 
-/** "Connected" for one chip; "2 of 3 connected"; "1 of 2 on" once any chip is off. */
+/** "Connected" for one chip; "2 of 3 connected"; "1 of 2 on" once any chip is off. Accounts that only load it in
+ * Chats (unchecked) count in neither side of "connected". */
 export function mcpSummary(row: McpRow): string {
   const [only] = row.chips;
   if (only && row.chips.length === 1) return STATE_COPY[only.state];
   if (row.chips.some((chip) => chip.state === "disabled")) return `${row.chips.filter((chip) => chip.state !== "disabled").length} of ${row.chips.length} on`;
-  return `${row.chips.filter((chip) => chip.state === "connected").length} of ${row.chips.length} connected`;
+  const checked = row.chips.filter((chip) => chip.state !== "unchecked");
+  if (!checked.length) return STATE_COPY.unchecked;
+  return `${checked.filter((chip) => chip.state === "connected").length} of ${checked.length} connected`;
 }
 
 /** "URL · mcp.linear.app", "Command · npx …", "claude.ai connector". */
@@ -167,6 +187,7 @@ export function mcpTransportLine(row: Pick<McpRow, "transport" | "detail">): str
 /** One account's line in an open row. */
 export function mcpChipLine(chip: McpChip): string {
   if (chip.state === "failed") return chip.error ?? STATE_COPY.failed;
+  if (chip.state === "disabled" && chip.disabledBy === "provider") return `Off in ${PROVIDER_NAMES[chip.provider]}’s config`;
   if (chip.state !== "connected") return STATE_COPY[chip.state];
   const parts = [`Connected · ${chip.tools} tools`];
   if (chip.scope === "everywhere") parts.push("from Everywhere");
