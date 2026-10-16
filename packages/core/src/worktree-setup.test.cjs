@@ -266,3 +266,26 @@ test("the Mac stays awake through the setup and into the turn, and a cancelled s
   assert.equal(awake.isHolding, false);
   assert.deepEqual(calls, ["start prevent-app-suspension", "stop 1"]);
 });
+
+test("Stop cancels a second Chat waiting for the same Worktree without cancelling its owner's review", async () => {
+  let decide;
+  let ownerSignal;
+  const setups = new WorktreeSetups({
+    send() {},
+    review: ({ signal }) => {
+      ownerSignal = signal;
+      return new Promise((resolve) => {
+        decide = resolve;
+      });
+    },
+    run: () => assert.fail("Skipped setup must not run"),
+  });
+  await setups.prepare({ worktreePath: "/w/shared", projectPath: "/p", resolved: { source: "repo", command: "npm ci" } });
+  const owner = setups.beforeTurn("p#1", "/w/shared");
+  const waiting = setups.beforeTurn("p#2", "/w/shared");
+  await setups.cancel("p#2");
+  assert.equal(ownerSignal.aborted, false);
+  decide({ skipped: true, command: "npm ci" });
+  assert.equal((await owner).cancelled, false);
+  assert.equal((await waiting).cancelled, true);
+});

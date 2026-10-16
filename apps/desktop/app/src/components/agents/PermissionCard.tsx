@@ -1,5 +1,6 @@
 import { NEGOTIATION_ROUNDS } from "@milagre/shared/limits";
 import type { PermissionDecision, PermissionRequest } from "../../model";
+import { SETUP_APPROVAL_COPY } from "@milagre/shared/model-copy";
 import { ToolApproval, ToolApprovalCode } from "./tool-approval";
 import type { ToolApprovalParameter } from "./tool-approval";
 
@@ -24,6 +25,11 @@ export function PermissionCard({
   if (request.delegation) {
     parameters.push({ id: "target", label: "To", value: request.delegation.target });
     parameters.push({ id: "message", label: "Message", value: <span className="whitespace-pre-wrap">{request.delegation.message}</span> });
+  }
+  if (request.setup) {
+    parameters.push({ id: "project", label: "Project", value: <span className="font-mono">{request.setup.projectPath}</span> });
+    parameters.push({ id: "source", label: "Source", value: request.setup.source });
+    parameters.push({ id: "computer", label: "Computer", value: request.setup.computer });
   }
   if (request.command)
     parameters.push({ id: "command", label: "Command", value: <ToolApprovalCode code={request.command} language="bash" plain={variant === "inline"} /> });
@@ -53,8 +59,15 @@ export function PermissionCard({
       parameters={parameters}
       onApprove={() => onAnswer("allow")}
       onAlwaysAllow={request.allowForChat ? () => onAnswer("allow-for-chat") : undefined}
-      alwaysAllowLabel={request.kind === "delegation" ? "Always allow for this Link in this chat" : "Always allow in this chat"}
+      alwaysAllowLabel={
+        request.kind === "setup"
+          ? SETUP_APPROVAL_COPY.always
+          : request.kind === "delegation"
+            ? "Always allow for this Link in this chat"
+            : "Always allow in this chat"
+      }
       onDeny={() => onAnswer("deny")}
+      {...(request.kind === "setup" ? { approveLabel: SETUP_APPROVAL_COPY.allow, denyLabel: SETUP_APPROVAL_COPY.deny } : {})}
     />
   );
 }

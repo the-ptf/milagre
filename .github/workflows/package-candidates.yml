@@ -39,7 +39,7 @@ jobs:
             runner: windows-latest
             command: npm run package:win --
           - platform: linux
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             command: npm run package:linux --
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120

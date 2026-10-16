@@ -13,6 +13,7 @@ function createLinkWorkspaces({
   getSettings = async () => ({}),
   createWorktree = create,
   runSetup = runSetupCommand,
+  deferSetup,
   git = createGit(),
 }) {
   const queues = new Map();
@@ -77,6 +78,7 @@ function createLinkWorkspaces({
           alias: `${slugify(project.name) || "project"}-${i + 1}`,
           ...(settings.filesToCopy !== undefined ? { copyPatterns: settings.filesToCopy } : {}),
           setupCommand: resolved.command,
+          setupSource: resolved.source,
         });
       }
       prep = { operationId, chatId, prompt, status: "reserved", workspacePath: path.join(store.directory(link.id), "workspaces", String(chatId)), members };
@@ -109,15 +111,27 @@ function createLinkWorkspaces({
           member.created = true;
           await save(link.id, prep);
         }
-        if (member.setupCommand && !member.setupDone) {
+        if (member.setupCommand && !member.setupDone && !member.setupDeferred) {
           if (member.setupStarted) throw new Error("Setup was interrupted. Its Worktree has been retained for inspection");
-          prep.status = "setup";
-          member.setupStarted = true;
-          await save(link.id, prep);
-          const result = await runSetup({ cwd: member.worktreePath, command: member.setupCommand });
-          if (result.status !== "done") throw new Error(`Setup ${result.status}: ${result.output || result.error || "command did not complete"}`);
+          if (deferSetup) {
+            // The shared Chat must exist before the review can appear on either client. Persist the pending setup
+            // outside the Project first, then its first turn uses the same review as ordinary Worktrees.
+            await deferSetup({
+              worktreePath: member.worktreePath,
+              projectPath: member.projectPath,
+              resolved: { command: member.setupCommand, source: member.setupSource ?? "repo" },
+              strict: true,
+            });
+            member.setupDeferred = true;
+          } else {
+            prep.status = "setup";
+            member.setupStarted = true;
+            await save(link.id, prep);
+            const result = await runSetup({ cwd: member.worktreePath, command: member.setupCommand });
+            if (result.status !== "done") throw new Error(`Setup ${result.status}: ${result.output || result.error || "command did not complete"}`);
+          }
         }
-        member.setupDone = true;
+        if (!member.setupDeferred) member.setupDone = true;
         await save(link.id, prep);
       }
       await fs.mkdir(prep.workspacePath, { recursive: true });
