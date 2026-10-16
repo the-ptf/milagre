@@ -1274,13 +1274,13 @@ function createRuntime(options) {
     await stopChat(chatId);
   });
 
-  // A message queued behind a turn its provider can't steer (chat-host.cjs): Send now starts it, stopping the turn
-  // that runs first if there is one; Remove drops it unsent.
+  // A message queued behind a turn its provider can't steer (chat-host.cjs): Send now starts it; while a turn runs it
+  // is Stop and send, so that turn stops as Stop stops it; Remove drops it unsent.
   commands.handle("chat:queue-send", async (_event, chatId, id) => {
     await existingChat("sending a queued message")(chatId);
     if (typeof id !== "string") throw new Error("That queued message isn't valid.");
     const { interrupt } = await chats.sendQueuedNow(chatId, id);
-    if (interrupt && !(await chats.cancelHandoff(chatId))) await agents.interrupt(chatId);
+    if (interrupt) await stopChat(chatId);
   });
   commands.handle("chat:queue-remove", async (_event, chatId, id) => {
     await existingChat("removing a queued message")(chatId);

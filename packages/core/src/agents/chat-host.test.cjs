@@ -1491,6 +1491,29 @@ test("Send now while the turn runs stops it, then starts that message even thoug
   assert.equal(session(ALPHA).turns[2].prompt, "later");
 });
 
+test("a queued message whose save fails stays queued, and the queue waits for Send now", async (t) => {
+  const { host, saved, session, chat, states } = await runningAgyChat(t);
+  await host.send(agy(ALPHA, "next", { sessionId: chat.sessionId }));
+  const flush = states.flush.bind(states);
+  states.flush = async () => {
+    states.flush = flush;
+    throw new Error("disk full");
+  };
+  const warn = t.mock.method(console, "warn", () => {});
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => saved.get(ALPHA).sessions[chat.sessionId].queueHeld === true);
+  assert.deepEqual(
+    saved.get(ALPHA).sessions[chat.sessionId].queued.map((item) => item.body),
+    ["next"],
+  );
+  assert.equal(
+    saved.get(ALPHA).messages.some((item) => item.body === "next"),
+    false,
+  );
+  assert.equal(session(ALPHA).turns.length, 1);
+  assert.match(warn.mock.calls[0].arguments.join(" "), /disk full/);
+});
+
 test("a failed turn holds the queue too", async (t) => {
   const { host, saved, session, chat } = await runningAgyChat(t);
   await host.send(agy(ALPHA, "next", { sessionId: chat.sessionId }));

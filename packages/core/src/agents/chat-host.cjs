@@ -282,11 +282,7 @@ class ChatHost {
     // A turn the quit stops says so in its reply.
     if (this.quitting && event.type === "turn-cancelled") event = { ...event, quit: true };
     return this.fold(chatId, event).then(
-      async (folded) => {
-        await this.settle(chatId, folded);
-        if (isTurnEnd(event))
-          void this.afterTurn(chatId, event).catch((error) => console.warn(`Milagre couldn't start the queue of ${chatId}:`, error.message));
-      },
+      (folded) => this.settle(chatId, folded),
       (error) => {
         console.warn(`Milagre couldn't record an agent event for ${chatId}:`, error.message);
         this.publish(chatId, event);
@@ -309,15 +305,28 @@ class ChatHost {
     this.sendNext.delete(chatId);
     const queued = session?.queued ?? [];
     if (!queued.length) return;
-    if (next && queued.some((item) => item.id === next)) return void (await this.startQueued(chatId, next));
+    // A message that can't start (its save failed) stays queued, and the queue waits for Send now.
+    const start = (id) =>
+      this.startQueued(chatId, id).catch(async (error) => {
+        await this.holdQueue(chatId);
+        throw error;
+      });
+    if (next && queued.some((item) => item.id === next)) return void (await start(next));
     if (session.queueHeld) return;
-    if (event.type === "turn-completed") return void (await this.startQueued(chatId, queued[0].id));
+    if (event.type === "turn-completed") return void (await start(queued[0].id));
+    await this.holdQueue(chatId);
+  }
+
+  /** Marks the chat's queue held, so it waits for Send now. */
+  async holdQueue(chatId) {
+    const projectPath = projectOfKey(chatId);
+    const sessionId = sessionIdFromKey(chatId);
     const { state, changed } = await this.states.update(
       projectPath,
       (latest) => {
-        const current = latest.sessions[session.id];
+        const current = latest.sessions[sessionId];
         return current?.queued?.length && !current.queueHeld
-          ? { ...latest, sessions: { ...latest.sessions, [session.id]: { ...current, queueHeld: true } } }
+          ? { ...latest, sessions: { ...latest.sessions, [sessionId]: { ...current, queueHeld: true } } }
           : latest;
       },
       { chats: [] },
@@ -456,6 +465,8 @@ class ChatHost {
       changed && event.type !== "subagent-update" ? state : undefined,
       seq,
     );
+    // The end of a turn moves the chat's queue on, without holding up the event's caller.
+    if (isTurnEnd(event)) void this.afterTurn(chatId, event).catch((error) => console.warn(`Milagre couldn't start the queue of ${chatId}:`, error.message));
     await this.captureImages(projectOfKey(chatId), state, added);
   }
 
@@ -652,7 +663,7 @@ class ChatHost {
             },
           };
           target = { chatId, sessionId: session.id };
-          return { ...latest, sessions: { ...latest.sessions, [session.id]: { ...session, queued: [...(session.queued ?? []), queuedEntry] } } };
+          return { ...withSession, sessions: { ...withSession.sessions, [session.id]: { ...session, queued: [...(session.queued ?? []), queuedEntry] } } };
         }
         const steering = Boolean(this.runs[chatId]) || Boolean(waitFor);
         handoff = steering ? null : handoffKind(withSession, session.id, provider);
