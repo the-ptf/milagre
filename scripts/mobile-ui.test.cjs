@@ -121,6 +121,7 @@ function load(file, modules, extra = "") {
     require: (id) => {
       // Image assets are opaque sources; any value stands in.
       if (id.endsWith(".png") && !(id in modules)) return { uri: id };
+      if (id === "@milagre/shared/model-copy" && !(id in modules)) return require("../packages/shared/src/model-copy.ts");
       const base = id.replace(/^\.\.?\//, "");
       if (base === "theme" || base === "ui") {
         // Themed code reads colors through hooks; a test's own fake wins over these defaults.
@@ -707,6 +708,49 @@ test("inbox approval shows the entire action inline, including folders, files an
   );
   find(tree, (n) => n.props?.title === "Allow once").props.onPress();
   assert.deepEqual(decisions, ["allow"]);
+});
+
+test("setup approval shows full setup context and emits each setup decision", () => {
+  const react = hookHost();
+  const { Approval } = load("questions.tsx", {
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager" },
+    "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
+    "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", TextInput: "TextInput", View: "View" },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_t, k) => k }),
+    "@milagre/shared/limits": require("@milagre/shared/limits"),
+    "@milagre/shared/model-copy": require("../packages/shared/src/model-copy.ts"),
+    "./activity-drafts": { takeActivityDraft() {} },
+    "./icons": { Icon: "Icon" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
+  });
+  const command = "prepare-project --flag='full value'\necho finished";
+  const decisions = [];
+  react.begin();
+  const tree = Approval({
+    approval: {
+      kind: "setup",
+      title: "Run setup?",
+      tool: "Setup",
+      command,
+      cwd: "/worktree",
+      setup: { projectPath: "/projects/sample", source: "package.json scripts.setup", computer: "MacBook Pro" },
+      allowForChat: true,
+    },
+    busy: false,
+    respond: (decision) => decisions.push(decision),
+  });
+  for (const value of [command, "/projects/sample", "package.json scripts.setup", "MacBook Pro"])
+    assert.ok(
+      find(tree, (node) => node.type === "Text" && node.props.children === value),
+      `missing setup approval value: ${value}`,
+    );
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Run once").props.onPress();
+  find(tree, (node) => node.type === "Pressable" && node.props.accessibilityRole === "button").props.onPress();
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Skip setup").props.onPress();
+  assert.deepEqual(decisions, ["allow", "allow-for-chat", "deny"]);
 });
 
 test("phone inbox pages keep one Chat visible and retain a draft when paging back", () => {

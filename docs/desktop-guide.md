@@ -42,9 +42,11 @@ The menu refreshes when reopened and when switching worktrees. Skill names and d
 
 - **Ask approval**: the agent stops before a file edit or command it isn't already allowed to run, and shows the exact command or change. Claude asks before edits and before commands outside its allow rules; Codex asks before any command it doesn't already trust.
 - **Auto**: file edits inside the workspace go ahead. Claude still asks before commands outside its allow rules; Codex works inside its workspace sandbox and asks only to go beyond it.
-- **Full**: no approvals, and Codex runs without its sandbox. Use only when you trust the prompt and the workspace.
+- **Full**: no agent tool approvals, and Codex runs without its sandbox. Use only when you trust the prompt and the workspace.
 
 Escape denies an open approval card and dismisses an open question card. "Always allow in this chat" lasts while the chat's agent stays open, which ends after 10 idle minutes or when Milagre quits, and never changes your Claude or Codex settings files.
+
+Setup commands from a Project's `.milagre/worktree.json` require a separate review before the first agent turn in each new Worktree, including Named Link members and Full permission mode. Desktop and phone show the full command, source file, Project, target folder and Computer. **Run once** approves that Worktree; **Trust this version** remembers the exact command for that Project on that Computer; **Skip setup** continues the Chat without running it. Changing the command requires another review. Pending setup survives a host restart, and a setup interrupted by a crash requires review before retrying.
 
 Question cards appear in every mode, Full included. A message you send while a question is open dismisses it and reaches the agent as your reply. Codex asks with a card through a Codex feature that is still under development; without it, Codex asks in its reply.
 

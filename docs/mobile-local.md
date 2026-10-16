@@ -10,6 +10,8 @@ This preview connects an Expo mobile app to the Node daemon on your Mac. It grou
 
 Your Mac runs the agents and must stay awake and online. Desktop and phone share the same daemon, Chats and Worktrees. By default, the daemon uses the public encrypted relay at `relay.milagre.cloud`; no Cloudflare account or tunnel is needed. A configured named Cloudflare tunnel remains supported.
 
+Repository-provided Worktree setup commands pause for review on desktop or phone, even with Full permissions. **Run once**, **Trust this version** and **Skip setup** have the same [scope and behavior on both clients](desktop-guide.md#permission-modes). Reconnecting the phone restores a pending review.
+
 For the Ultracode announcer, enable **Settings > Experimental > Ultracode Fatality**, then turn on **Ultracode** in a Chat's model sheet. The phone plays the same clip as desktop at the same volume. It respects the phone's silent switch and stops when the overlay closes.
 
 The pairing code grants access to your agents. Keep it private. New phones can pair for 10 minutes after the code is shown; existing paired phones continue to work. **Reset access** forgets paired phones and creates a new token.

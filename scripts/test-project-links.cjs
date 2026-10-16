@@ -485,18 +485,31 @@ async function main() {
       false,
       "Explicit new Chat selection must survive a scope switch",
     );
-    const setupGate = path.join(dir, "setup-ready");
-    await client.call("worktree-setup:save", [projects[0], `while test ! -f '${setupGate}'; do sleep 0.1; done`]);
+    // Setup now runs after the Chat exists and its send is acknowledged. Hold Worktree creation itself
+    // so these checks still exercise a late acknowledgement, through the real Git/daemon/IPC path.
+    const worktreeGate = path.join(dir, "worktree-ready");
+    const worktreeStarted = path.join(dir, "worktree-started");
+    const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+    await fs.writeFile(
+      path.join(projects[0], ".git/hooks/post-checkout"),
+      `#!/bin/sh\nprintf started > ${quote(worktreeStarted)}\nwhile test ! -f ${quote(worktreeGate)}; do sleep 0.1; done\n`,
+      { mode: 0o755 },
+    );
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
     await input('textarea[aria-label="Prompt"]', "Slow new shared Chat");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
     await waitFor(
-      async () => Object.values((await client.call("link:snapshot", [link.id])).state.preparations).some((prep) => prep.status === "setup"),
-      "slow preparation started",
+      () =>
+        fs.access(worktreeStarted).then(
+          () => true,
+          () => false,
+        ),
+      "slow Worktree creation started",
     );
+    assert.equal(providerCalls, 2, "Worktree creation must still block the first send");
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
     await input('textarea[aria-label="Prompt"]', "Slow new shared Chat");
-    await fs.writeFile(setupGate, "ready");
+    await fs.writeFile(worktreeGate, "ready");
     await waitFor(() => providerCalls === 3, "earlier send finishes");
     await delay(500);
     assert.equal(
@@ -505,19 +518,25 @@ async function main() {
       "A late send must not select its Chat or clear the new draft",
     );
     await evaluate(`[...document.querySelectorAll('button[data-row]')].find(button => button.textContent.includes('Update status.txt')).click()`);
-    await fs.unlink(setupGate);
+    await fs.unlink(worktreeGate);
+    await fs.unlink(worktreeStarted);
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
     await input('textarea[aria-label="Prompt"]', "Send then switch scope");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
     await waitFor(
-      async () => Object.values((await client.call("link:snapshot", [link.id])).state.preparations).some((prep) => prep.status === "setup"),
-      "scope-switch preparation",
+      () =>
+        fs.access(worktreeStarted).then(
+          () => true,
+          () => false,
+        ),
+      "scope-switch Worktree creation started",
     );
+    assert.equal(providerCalls, 3, "Worktree creation must still block the background send");
     await selector();
     await waitFor(() => evaluate(`!!document.querySelector('[data-project-item]')`), "switch-away Project rows");
     await evaluate(`[...document.querySelectorAll('[data-project-item] [data-menu-row]')].find(button => button.textContent.includes('food-api')).click()`);
-    await waitFor(() => evaluate(`document.querySelector('[data-workspace-trigger]')?.textContent.includes('food-api')`), "switched away during setup");
-    await fs.writeFile(setupGate, "ready");
+    await waitFor(() => evaluate(`document.querySelector('[data-workspace-trigger]')?.textContent.includes('food-api')`), "switched away during creation");
+    await fs.writeFile(worktreeGate, "ready");
     await waitFor(() => providerCalls === 4, "background send acknowledgement");
     await delay(500);
     await selector();
@@ -561,7 +580,7 @@ async function main() {
     console.error(output);
     throw error;
   } finally {
-    await fs.writeFile(path.join(dir, "setup-ready"), "ready").catch(() => {});
+    await fs.writeFile(path.join(dir, "worktree-ready"), "ready").catch(() => {});
     connection?.close();
     if (child && child.exitCode === null) {
       const exit = once(child, "exit");

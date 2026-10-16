@@ -3,6 +3,7 @@ import { Pressable, Text, TextInput, View } from "react-native";
 import { ArrowLeft01Icon, ArrowRight01Icon, ArrowUp01Icon, PencilEdit02Icon, ShieldAlertIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import type { AgentQuestion, PermissionDecision, PermissionRequest, QuestionAnswers, QuestionRequest } from "@milagre/shared/model";
 import { NEGOTIATION_ROUNDS } from "@milagre/shared/limits";
+import { SETUP_APPROVAL_COPY } from "@milagre/shared/model-copy";
 import { takeActivityDraft } from "./activity-drafts";
 import { Icon } from "./icons";
 import { InboxPage, InboxPager } from "./inbox-motion";
@@ -349,6 +350,9 @@ export function Approval({
   const parameters = [
     ["To", approval.delegation?.target],
     ["Message", approval.delegation?.message],
+    ["Project", approval.setup?.projectPath],
+    ["Source", approval.setup?.source],
+    ["Computer", approval.setup?.computer],
     ["Command", approval.command],
     ["Folder", approval.cwd],
     [approval.files?.length === 1 ? "File" : "Files", approval.files?.join("\n")],
@@ -404,8 +408,19 @@ export function Approval({
         </View>
       ))}
       <View style={{ flexDirection: "row", gap: 8 }}>
-        <PillButton title="Deny" secondary disabled={busy} onPress={() => respond("deny")} style={{ flex: 1, height: 44 }} />
-        <PillButton title="Allow once" disabled={busy} onPress={() => respond("allow")} style={{ flex: 1, height: 44 }} />
+        <PillButton
+          title={approval.kind === "setup" ? SETUP_APPROVAL_COPY.deny : "Deny"}
+          secondary
+          disabled={busy}
+          onPress={() => respond("deny")}
+          style={{ flex: 1, height: 44 }}
+        />
+        <PillButton
+          title={approval.kind === "setup" ? SETUP_APPROVAL_COPY.allow : "Allow once"}
+          disabled={busy}
+          onPress={() => respond("allow")}
+          style={{ flex: 1, height: 44 }}
+        />
       </View>
       {approval.allowForChat && (
         <Pressable
@@ -419,7 +434,11 @@ export function Approval({
           }}
         >
           <Text style={{ color: colors.ink2, fontSize: 13, fontWeight: "500" }}>
-            {approval.kind === "delegation" ? "Always allow for this Link in this Chat" : "Always allow in this Chat"}
+            {approval.kind === "setup"
+              ? SETUP_APPROVAL_COPY.always
+              : approval.kind === "delegation"
+                ? "Always allow for this Link in this Chat"
+                : "Always allow in this Chat"}
           </Text>
         </Pressable>
       )}
