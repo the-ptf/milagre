@@ -535,6 +535,21 @@ test("subagent snapshots survive parent completion and late child results remain
   assert.deepEqual(runs, {});
   assert.equal(JSON.parse(JSON.stringify(state)).sessions[1].subagents[0].title, "Review");
 });
+test("a subagent that runs again loses its old end, so its clock runs; its plan and totals come with the update", () => {
+  let state = base();
+  let runs = startRun({}, key(1), "codex");
+  const agent = { id: "child", title: "Review", status: "completed" as const, startedAt: 1, updatedAt: 2, endedAt: 2, transcript: [] };
+  ({ state, runs } = applyAgentEvent(state, runs, PROJECT, key(1), { type: "subagent-update", agent }));
+  const { endedAt: _ended, ...running } = { ...agent, status: "running" as const, updatedAt: 3 };
+  const tasks = [{ id: "0", content: "Check expiry", status: "in_progress" as const }];
+  const progress = { steps: 2, said: "Checking expiry.", tools: { reads: 3 } };
+  ({ state, runs } = applyAgentEvent(state, runs, PROJECT, key(1), { type: "subagent-update", agent: { ...running, tasks, progress } }));
+  const child = state.sessions[1].subagents?.[0];
+  assert.equal(child?.status, "running");
+  assert.equal(Object.hasOwn(child ?? {}, "endedAt"), false);
+  assert.deepEqual(child?.tasks, tasks);
+  assert.deepEqual(child?.progress, progress);
+});
 test("explicit subagent waiting clears when the parent resumes output", () => {
   let state = base(),
     runs = startRun({}, key(1), "codex");

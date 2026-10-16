@@ -74,6 +74,10 @@
       "default": "./src/prompt-skills.mjs"
     },
     "./model": "./src/model.ts",
+    "./subagent-glance": {
+      "types": "./src/subagent-glance.d.mts",
+      "default": "./src/subagent-glance.mjs"
+    },
     "./subagent-transcript": {
       "types": "./src/subagent-transcript.d.mts",
       "default": "./src/subagent-transcript.mjs"
