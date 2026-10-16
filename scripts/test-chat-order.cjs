@@ -10,9 +10,16 @@ import { createRoot } from "react-dom/client";
 import SidebarNav from "/src/components/SidebarNav";
 import { SettingsPanel } from "/src/components/Settings";
 import { orderChats } from "/src/lib/chat-list";
-import { updateSettings, useSettings } from "/src/lib/settings";
+import { useSettings } from "/src/lib/settings";
 import { MODEL_CATALOG } from "/src/model";
 import "/src/styles.css";
+// The sidebar lists the open Project's group from these recents.
+window.milagre = {
+  listRecentProjects: async () => [{ path: "/work/agent-sessions-pr2", name: "agent-sessions-pr2" }],
+  readProject: async (path) => ({ path, name: path, state: { sessions: {}, worktrees: {}, messages: [] } }),
+  listProjects: async () => [], listNamedLinks: async () => [], getProjectImage: async () => null,
+  listEditors: async () => [],
+};
 // Message ids: the first dates the chat's start, the last its latest reply.
 const chats = [
   { id: "1", label: "the chat names arent reflecting the first message", ids: [1, 40] },
@@ -25,14 +32,12 @@ function Fixture() {
   const recents = orderChats(chats, chatOrder).map(({ id, label }) => ({ id, label }));
   return (
     <div style={{ display: "flex", height: "100vh", padding: "60px 12px 12px", gap: 24 }}>
-      <SidebarNav fill workspaceName="agent-sessions-pr2" recents={recents} activeId="4" />
+      <SidebarNav fill workspaceName="agent-sessions-pr2" projectPath="/work/agent-sessions-pr2" recents={recents} activeId="4" />
       <div style={{ flex: 1, overflow: "auto" }}><SettingsPanel section="general" models={MODEL_CATALOG} /></div>
     </div>
   );
 }
 document.documentElement.classList.add("dark");
-// No open Project: only the legacy sidebar lists the recents without one.
-updateSettings({ legacySidebar: true });
 createRoot(document.getElementById("root")).render(<Fixture />);
 `;
 

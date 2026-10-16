@@ -99,4 +99,9 @@ async function prepareUpdater(autoUpdater, channel, options) {
 
 /** @param {any} error */
 const isChannelNotPublished = (error) => error?.code === "ERR_UPDATER_CHANNEL_FILE_NOT_FOUND";
-module.exports = { createReleaseChannelStore, configureUpdater, isChannelNotPublished, resolveBetaFeed, prepareUpdater };
+function isNewerRelease(version, current) {
+  const next = versionKey(`v${version}`),
+    previous = versionKey(`v${current}`);
+  return next && previous ? compareKeys(next, previous) > 0 : version !== current;
+}
+module.exports = { createReleaseChannelStore, configureUpdater, isChannelNotPublished, resolveBetaFeed, prepareUpdater, isNewerRelease };

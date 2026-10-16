@@ -4,11 +4,18 @@ import { motion, useReducedMotion } from "motion/react";
 import type { UpdateState } from "../electron";
 import { useDismiss } from "../lib/use-dismiss";
 import { HIDDEN_FACE, MORPH_SURFACE, morphFace, useSize } from "./motion/morph";
+import { UpdateReleaseNotes } from "./UpdateReleaseNotes";
 
 const Updates = createContext<UpdateState | null>(null);
 const SlotRegistry = createContext<((slot: HTMLElement) => () => void) | null>(null);
 export const useAppUpdates = () => useContext(Updates);
 export const showUpdateNotice = () => window.dispatchEvent(new Event("milagre:show-update"));
+
+export function UpdateSettingsBadge() {
+  const state = useAppUpdates();
+  if (!state?.version || !["downloaded", "downloading", "error"].includes(state.status)) return null;
+  return <span role="status" aria-label="Update available" className="absolute right-1 top-1 size-1.5 rounded-full bg-accent" />;
+}
 
 /** Lives above every screen so updates remain reachable without an open Project. */
 export function UpdateShell({ children }: { children: ReactNode }) {
@@ -94,11 +101,13 @@ function Gift({ size = 20 }: { size?: number }) {
 }
 
 function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLElement | null }) {
-  const [presentation, setPresentation] = useState({ version: "", open: false });
+  const [presentation, setPresentation] = useState({ version: "", open: false, dismissed: false });
+  const [notesVersion, setNotesVersion] = useState<string | null>(null);
+  const notesTrigger = useRef<HTMLButtonElement>(null);
   const [requestError, setRequestError] = useState("");
   const [pending, setPending] = useState(false);
   const root = useRef<HTMLDivElement>(null);
-  // Closing from the keyboard or the dismiss button hands focus back to the pill.
+  // Escape collapses back to the pill; full dismissal hands focus to Settings.
   const refocus = useRef(false);
   const reduce = useReducedMotion();
   // Both faces stay mounted and report their sizes; the surface takes the size of the one on show.
@@ -110,7 +119,7 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
   const failed = state?.status === "error";
   const version = state?.version ?? "";
   if ((ready || (failed && version)) && presentation.version !== version) {
-    setPresentation({ version, open: true });
+    setPresentation({ version, open: true, dismissed: false });
     setRequestError("");
   }
   const open = presentation.open || installing;
@@ -119,14 +128,19 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
     refocus.current = returnFocus;
     setPresentation((previous) => ({ ...previous, open: false }));
   };
+  const dismiss = () => {
+    if (installing || pending) return;
+    setPresentation((previous) => ({ ...previous, open: false, dismissed: true }));
+    document.querySelector<HTMLButtonElement>("[data-update-settings]")?.focus();
+  };
   useDismiss(
-    open,
+    open && !notesVersion,
     () => close(),
     (target) => !!root.current?.contains(target),
   );
   useEffect(() => {
     const show = () => {
-      setPresentation((previous) => ({ ...previous, open: true }));
+      setPresentation((previous) => ({ ...previous, open: true, dismissed: false }));
       requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>("[role=dialog] button")?.focus());
     };
     window.addEventListener("milagre:show-update", show);
@@ -138,6 +152,7 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
     root.current?.querySelector<HTMLButtonElement>("[data-face=pill]")?.focus();
   }, [open]);
   if (!state || (!open && !ready && !installing && !downloading && !failed)) return null;
+  if (presentation.dismissed && !open && !installing) return null;
   if (state.status === "idle" || state.status === "unavailable") return null;
   const title = installing
     ? "Restarting Milagre"
@@ -207,7 +222,7 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
               <button
                 type="button"
                 aria-label="Dismiss update"
-                onClick={() => close(true)}
+                onClick={dismiss}
                 className="-mr-1 rounded-md p-1 text-ink-3 transition-colors hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"
               >
                 <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -254,14 +269,14 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
           )}
           <div className="mt-5 flex gap-2">
             {version && (
-              <a
-                href={`https://github.com/the-ptf/milagre-ade/releases/tag/v${encodeURIComponent(version)}`}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                ref={notesTrigger}
+                type="button"
+                onClick={() => setNotesVersion(version)}
                 className="flex flex-1 items-center justify-center rounded-control border border-line-strong px-3 py-2.5 text-[13px] font-medium transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:outline-ink"
               >
                 What's new
-              </a>
+              </button>
             )}
             {(ready || failed || installing) && (
               <button
@@ -294,5 +309,18 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
       </div>
     </div>
   );
-  return slot ? createPortal(notice, slot) : notice;
+  return (
+    <>
+      {slot ? createPortal(notice, slot) : notice}
+      {notesVersion && (
+        <UpdateReleaseNotes
+          version={notesVersion}
+          onClose={() => {
+            setNotesVersion(null);
+            notesTrigger.current?.focus();
+          }}
+        />
+      )}
+    </>
+  );
 }

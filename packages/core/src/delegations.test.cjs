@@ -103,7 +103,7 @@ async function linkedProjects(t, { link = true } = {}) {
   const sessions = [];
   const scripts = { api: async (session) => session.finish("api done"), web: async (session) => session.finish("web done") };
   const events = [];
-  const runtime = createRuntime({
+  const options = {
     dataDir: path.join(dir, "profile"),
     cwd: folders.api,
     version: "1.0.0",
@@ -119,10 +119,20 @@ async function linkedProjects(t, { link = true } = {}) {
       sessions.push(session);
       return session;
     },
-  });
-  runtimes.push(runtime);
+  };
+  let runtime;
   const opened = {};
-  for (const name of ["api", "web"]) opened[name] = await runtime.openProject(folders[name]);
+  const boot = async () => {
+    runtime = createRuntime(options);
+    runtimes.push(runtime);
+    for (const name of ["api", "web"]) opened[name] = await runtime.openProject(folders[name]);
+  };
+  await boot();
+  // Milagre quits and opens again on the same profile; opening the Projects resumes what the quit stopped.
+  const restart = async () => {
+    await runtime.close();
+    await boot();
+  };
   const snapshot = await runtime.invoke("canvas:snapshot");
   const ids = Object.fromEntries(Object.keys(folders).map((name) => [name, snapshot.projects.find((project) => project.path === folders[name]).id]));
   let links = [];
@@ -131,7 +141,7 @@ async function linkedProjects(t, { link = true } = {}) {
   const state = (name) => runtime.invoke("project:snapshot", [folders[name]]).then((project) => project.state);
   const messages = async (key) =>
     (await state(path.basename(key.split("#")[0]))).messages.filter((message) => message.session_id === Number(key.split("#").at(-1)));
-  const send = (name, body, permissionMode = "full") => {
+  const send = (name, body, permissionMode = "full", agent = { provider: "claude", model: "claude-test" }) => {
     const session = Object.values(opened[name].state.sessions)[0];
     return runtime.invoke("chat:send", [
       {
@@ -142,14 +152,29 @@ async function linkedProjects(t, { link = true } = {}) {
         images: [],
         files: [],
         prompt: body,
-        provider: "claude",
-        model: "claude-test",
+        ...agent,
         permissionMode,
       },
     ]);
   };
   const sessionOf = (name) => sessions.filter((session) => session.name === name).at(-1);
-  return { runtime, folders, scripts, sessions, sessionOf, chatOf, messages, send, events, links, ids };
+  return {
+    get runtime() {
+      return runtime;
+    },
+    restart,
+    folders,
+    scripts,
+    sessions,
+    sessionOf,
+    chatOf,
+    state,
+    messages,
+    send,
+    events,
+    links,
+    ids,
+  };
 }
 
 const delegation = (fixture, extra = {}) => ({
@@ -277,6 +302,40 @@ test("a working Chat is steered by the Delegation; a Chat waiting on the user re
   await fixture.runtime.invoke("agent:respond-permission", [{ chatId: fixture.chatOf("web"), requestId: "perm-1", decision: "allow" }]);
   await waitFor(() => web.prompts.length === 4);
   assert.match(web.prompts[3], /Second request/);
+});
+
+test("a Delegation queued behind an Antigravity turn survives a restart, runs after that turn and reports back", async (t) => {
+  const fixture = await linkedProjects(t);
+  // web's first turn is still running when Milagre quits.
+  fixture.scripts.web = async () => {};
+  await fixture.send("web", "Long user task", "full", { provider: "antigravity", model: "gemini-test" });
+  await waitFor(() => fixture.sessionOf("web")?.turnActive);
+  fixture.scripts.api = async (session) => {
+    await session.call("delegate", delegation(fixture));
+    session.finish("Asked web.");
+  };
+  await fixture.send("api", "Ask web");
+  const webChat = async () => (await fixture.state("web")).sessions[fixture.chatOf("web").split("#").at(-1)];
+  // Antigravity can't be steered: the Delegation waits in web's queue instead of reaching the running turn.
+  await waitFor(async () => (await webChat()).queued?.length === 1);
+  assert.equal(fixture.sessionOf("web").prompts.length, 1);
+
+  // The fake agent keeps no session, so the Delegation's turn starts with a restore brief ahead of its prompt.
+  fixture.scripts.web = async (session, prompt) => session.finish(/Delegation from api/.test(prompt) ? "Added GET /health." : "Resumed the long task.");
+  await fixture.restart();
+  const report = await findMessage(fixture, "api", "delegation-report");
+  assert.deepEqual([report.body, report.context.status], ["Added GET /health.", "done"]);
+  assert.equal((await webChat()).queued, undefined);
+  assert.deepEqual(
+    (await fixture.messages(fixture.chatOf("web"))).filter((message) => message.role === "user").map((message) => message.context?.kind ?? "user"),
+    ["user", "user", "delegation"],
+    "the resumed turn runs first, then the Delegation in a turn of its own",
+  );
+  assert.equal(
+    (await fixture.messages(fixture.chatOf("api"))).some((message) => /Milagre restarted/.test(message.body)),
+    false,
+    "the Delegation was never reported cancelled",
+  );
 });
 
 test('"new" opens a Chat in the linked Worktree on the Project\'s last used agent', async (t) => {
@@ -562,6 +621,70 @@ test("Delegations still open when Milagre starts again are cancelled with a noti
   );
   assert.equal(saved.at(-1).delegations[0].status, "cancelled");
   assert.equal(saved.at(-1).negotiations[0].status, "stopped");
+});
+
+// A receiving Chat on a provider that can't steer queues the message (chat-host.cjs), and the queue outlives a restart.
+function queuingDesk(data) {
+  const fake = desk(data ? { data } : {});
+  fake.ports.deliver = async (key, item) => {
+    fake.delivered.push({ key, item });
+    return { started: new Promise(() => {}), queued: true };
+  };
+  return fake;
+}
+
+test("a Delegation waiting in its Chat's queue stays open across a restart and reports once its turn runs", async () => {
+  const first = queuingDesk();
+  await first.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" });
+  await waitFor(() => first.saved.at(-1)?.delegations[0]?.waiting === true);
+  assert.equal(first.delegations.snapshot().delegations[0].status, "queued");
+  const { context } = first.delivered[0].item;
+
+  // Milagre starts again with the message still in web's queue: the Delegation isn't cancelled.
+  const restarted = desk({ data: first.saved.at(-1) });
+  await restarted.delegations.ready;
+  await settled();
+  assert.deepEqual(restarted.notes, []);
+  assert.equal(restarted.delegations.snapshot().delegations[0].status, "queued");
+
+  // The queue reaches it: its turn is followed, and its report goes back to api.
+  assert.equal(await restarted.delegations.adopt("/web#2", context, Promise.resolve({ turnId: "t7", steered: false })), true);
+  await end(restarted, "/web#2", "t7");
+  await waitFor(() => restarted.notes.length === 1);
+  assert.deepEqual([restarted.notes[0].key, restarted.notes[0].body, restarted.notes[0].context.status], ["/api#1", "reply", "done"]);
+  assert.equal(restarted.saved.at(-1).delegations[0].waiting, undefined);
+  assert.equal(await restarted.delegations.adopt("/web#2", context, Promise.resolve({ turnId: "t8" })), false, "it is followed once");
+  assert.equal(await restarted.delegations.adopt("/web#2", { kind: "advisor-result" }, Promise.resolve({ turnId: "t9" })), false);
+});
+
+test("a queued Negotiation round keeps its Negotiation across a restart; removed unsent, it is cancelled with a notice", async () => {
+  const first = queuingDesk();
+  await first.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Agree on the API", negotiation: true });
+  await waitFor(() => first.saved.at(-1)?.negotiations[0]?.waiting === true);
+  const restarted = desk({ data: first.saved.at(-1) });
+  await restarted.delegations.ready;
+  await settled();
+  assert.deepEqual(restarted.notes, [], "nothing says the Negotiation stopped");
+  assert.equal(restarted.delegations.snapshot().negotiations.length, 1);
+
+  assert.equal(await restarted.delegations.unqueued("/web#2", first.delivered[0].item.context), true);
+  await waitFor(() => restarted.notes.length === 3);
+  assert.equal(
+    restarted.notes.find((note) => note.context.kind === "delegation-report").body,
+    "Couldn't deliver the Delegation to /web#2: it was removed from the Chat's queue before its turn started.",
+  );
+  assert.equal(restarted.saved.at(-1).delegations[0].status, "cancelled");
+  assert.equal(restarted.saved.at(-1).negotiations[0].status, "stopped");
+  assert.deepEqual(restarted.delegations.snapshot(), { delegations: [], negotiations: [] });
+});
+
+test("a Delegation removed from the queue in the same run is reported as removed", async () => {
+  const fake = desk();
+  fake.ports.deliver = async () => ({ started: Promise.resolve({ turnId: null, steered: false, cancelled: true, removed: true }), queued: true });
+  await fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" });
+  await waitFor(() => fake.notes.length === 1);
+  assert.match(fake.notes[0].body, /removed from the Chat's queue before its turn started/);
+  assert.equal(fake.saved.at(-1).delegations[0].waiting, undefined);
 });
 
 test("a steer that reaches a turn which already ended belongs to the next turn; a turn started for it that ended handled it", async () => {

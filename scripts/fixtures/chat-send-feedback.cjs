@@ -20,6 +20,17 @@ if (new URLSearchParams(location.search).has("long")) {
   }));
   state.next_id = 303;
 }
+// ?queue: an Antigravity chat whose queue Stop held, as chat-host.cjs saves it.
+if (new URLSearchParams(location.search).has("queue")) {
+  Object.assign(state.sessions[2], {
+    provider: "antigravity",
+    queueHeld: true,
+    queued: [
+      { id: "q1", body: "Then add tests for the checkout page", model: "gemini-3.8-flash-high", provider: "antigravity", queuedAt: 1 },
+      { id: "q2", body: "And update the docs", files: ["/fixture/notes.txt"], model: "gemini-3.8-flash-high", provider: "antigravity", queuedAt: 2 },
+    ],
+  });
+}
 const lean = new URLSearchParams(location.search).has("lean");
 function leanState() {
   const copy = structuredClone(state);
@@ -86,6 +97,14 @@ window.milagre = new Proxy({
         window.ackSend = () => resolve({ sessionId });
       };
     });
+  },
+  sendQueuedNow: async (chatId, id) => void (window.calls.queueSent ??= []).push([chatId, id]),
+  removeQueued: async (chatId, id) => {
+    (window.calls.queueRemoved ??= []).push([chatId, id]);
+    const session = state.sessions[2];
+    session.queued = session.queued.filter((item) => item.id !== id);
+    listeners.forEach(listener => listener({ chatId, event: { type: "queue-changed" }, state: structuredClone(state) }));
+    return true;
   },
   onAgentEvent: callback => { listeners.add(callback); return () => listeners.delete(callback); },
   listEditors: async () => [],

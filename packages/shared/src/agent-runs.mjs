@@ -235,7 +235,9 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
         ? {
             ...previous,
             ...event.agent,
-            archived: previous.archived,
+            // One that ended and runs again (a resumed session picks up its background agents, as after an account
+            // switch) is back on the track; one archived while it runs stays archived.
+            archived: previous.archived && !(!subagentActive(previous) && subagentActive(event.agent)),
             title: event.agent.title === "Subagent" ? previous.title : event.agent.title,
             prompt: event.agent.prompt ?? previous.prompt,
             parentId: event.agent.parentId ?? previous.parentId,
@@ -257,6 +259,14 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
       if (agent.detailsOnDemand === undefined) delete agent.detailsOnDemand;
       const subagents = previous ? children.map((child) => (child.id === agent.id ? agent : child)) : [...children, agent];
       return { state: { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, subagents } } }, runs, changed: true };
+    }
+    // The agent process's background work besides subagents (chat-activity.mjs) outlasts the turn too; each set replaces the last.
+    case "background-tasks": {
+      const tasks = Array.isArray(event.tasks) ? event.tasks : [];
+      if (JSON.stringify(tasks) === JSON.stringify(session.backgroundTasks ?? [])) return { state, runs, changed: false };
+      const { backgroundTasks: _previous, ...rest } = session;
+      const next = tasks.length ? { ...rest, backgroundTasks: tasks } : rest;
+      return { state: { ...state, sessions: { ...state.sessions, [sessionId]: next } }, runs, changed: true };
     }
     // A Chat's plan lives on its session (chat-plan.mjs), so it outlasts the turn. Milagre's task tools replace it whole.
     case "plan-updated": {

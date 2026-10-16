@@ -39,6 +39,10 @@ One conversation with one agent. A Project Chat is bound to exactly one **Worktr
 An archived **Chat** stays readable from a linked side but is never chosen to receive a **Delegation**.
 _Avoid_: session, thread (the providers' names for the agent process behind a **Chat**)
 
+**Background task**:
+Work that outlives the **Chat**'s turn and reports back to it by itself: a background subagent, a command the agent ran in the background, an MCP task, or an advisor. A **Chat** whose turn ended while one still runs is "in the background", with how many still run, on every surface; a failed last turn shows as failed instead. Anything that would end the agent process (handing the **Chat** to another provider, Reload, a move to another folder) is refused until the background tasks running in that process finish.
+_Avoid_: job, child (Codex's term for a subagent)
+
 **Browser page**:
 A page in a Chromium browser on the host that a **Chat** may view and control. It belongs to the **Chat** whose agent process started its browser, or to a **Chat** the user attached that browser to. See ADR-0006.
 _Avoid_: tab (a browser's own UI term), session (the page's sign-in state is part of it, not a separate thing)

@@ -1,5 +1,5 @@
 // @ts-check
-const { isChannelNotPublished } = require("./release-channel.cjs");
+const { isChannelNotPublished, isNewerRelease } = require("./release-channel.cjs");
 
 /** One updater owns downloads, background checks, and explicit host shutdown for installation. */
 function createAppUpdates({ updater, enabled, prepare, stopHost, publish, now = Date.now }) {
@@ -18,33 +18,43 @@ function createAppUpdates({ updater, enabled, prepare, stopHost, publish, now = 
   };
   const failed = () => {
     if (state.status === "installing") return update({ status: "downloaded", error: "Could not restart Milagre. Try again." });
+    // A failed metadata check leaves the existing installer usable. Once a newer download starts,
+    // electron-updater owns/replaces the cache, so a download failure must be retried instead.
+    if (state.status === "downloaded") return state;
     return update({
       status: "error",
       error: state.status === "downloading" ? "Could not download the update. Try again." : "Could not check for updates. Try again.",
     });
   };
-  updater.autoDownload = true;
+  updater.autoDownload = false;
   // A normal quit must leave the shared host running; installation explicitly stops it.
   updater.autoInstallOnAppQuit = false;
-  updater.on("update-available", (info) => update({ status: "downloading", version: info.version, progress: 0, error: undefined }));
-  updater.on("update-not-available", () => update({ status: "up-to-date", version: null, error: undefined }));
+  const needsDownload = (info) => state.status !== "downloaded" || isNewerRelease(info.version, state.version);
+  updater.on("update-available", (info) => {
+    if (needsDownload(info)) update({ status: "downloading", version: info.version, progress: 0, error: undefined });
+  });
+  const noUpdate = () => (state.status === "downloaded" ? state : update({ status: "up-to-date", version: null, error: undefined }));
+  updater.on("update-not-available", noUpdate);
   updater.on("download-progress", (progress) => update({ status: "downloading", progress: Math.max(0, Math.min(100, progress.percent)) }));
   updater.on("update-downloaded", (info) => update({ status: "downloaded", version: info.version, progress: 100, error: undefined }));
   updater.on("error", failed);
   function check(force = false) {
     if (!enabled) return Promise.resolve(update({ status: "unavailable" }));
     if (checking) return checking;
-    if (["downloading", "downloaded", "installing"].includes(state.status)) return Promise.resolve(state);
+    if (["downloading", "installing"].includes(state.status)) return Promise.resolve(state);
     if (!force && now() - lastCheck < 60000) return Promise.resolve(state);
     lastCheck = now();
-    update({ status: "checking", progress: 0, error: undefined });
+    if (state.status !== "downloaded") update({ status: "checking", progress: 0, error: undefined });
     checking = Promise.resolve()
       .then(prepare)
       .then(() => updater.checkForUpdates())
+      .then(async (result) => {
+        if (result?.isUpdateAvailable && needsDownload(result.updateInfo)) await updater.downloadUpdate();
+      })
       .then(
         () => (state.status === "checking" ? update({ status: "up-to-date", version: null }) : state),
         (error) => {
-          if (isChannelNotPublished(error)) return update({ status: "up-to-date", version: null, error: undefined });
+          if (isChannelNotPublished(error)) return noUpdate();
           // electron-updater also emits an error event; preserve its download-specific explanation.
           return state.status === "error" ? state : failed();
         },
@@ -57,10 +67,15 @@ function createAppUpdates({ updater, enabled, prepare, stopHost, publish, now = 
   function install() {
     if (installing) return installing;
     if (state.status !== "downloaded") return Promise.resolve();
-    update({ status: "installing", error: undefined });
     installing = Promise.resolve()
-      .then(stopHost)
-      .then(() => updater.quitAndInstall())
+      .then(async () => {
+        // Finish a concurrent refresh before choosing which installer to apply.
+        if (checking) await checking;
+        if (state.status !== "downloaded") return;
+        update({ status: "installing", error: undefined });
+        await stopHost();
+        updater.quitAndInstall();
+      })
       .catch(() => {
         update({ status: "downloaded", error: "Could not restart Milagre. Try again." });
       })

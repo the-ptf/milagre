@@ -126,7 +126,8 @@ function createLinkedWorktrees({
     };
   }
 
-  // Resolves once the message is saved, with `started`: what took it (see Delegations' deliver port).
+  // Resolves once the message is saved, with `started`: what took it (see Delegations' deliver port), and `queued` when
+  // it waits in the Chat's queue for a turn its provider can't steer.
   async function deliver(key, { body, prompt, context }) {
     const projectPath = projectOfKey(key);
     let state = await project(projectPath);
@@ -134,7 +135,7 @@ function createLinkedWorktrees({
     if (!session) throw new Error("that Chat is no longer in its Project");
     // The Project's last used model is read across every Chat, unloaded ones too, when the Chat has no turn this run.
     if (!chats.turnSettings(key)) state = { ...state, messages: await messages(projectPath) };
-    const { started } = await chats.send({
+    const { started, queued } = await chats.send({
       body,
       prompt,
       context,
@@ -145,7 +146,7 @@ function createLinkedWorktrees({
       sessionId: session.id,
       worktreeId: session.worktree_id,
     });
-    return { started };
+    return { started, queued: Boolean(queued) };
   }
 
   function setToolsAvailable(chatId, available) {
@@ -267,6 +268,9 @@ function createLinkedWorktrees({
     /** The summary for the start of a turn, or "" when nothing is linked. A failed read leaves it out. */
     context: (chatId) => reads.summary(chatId).catch(() => ""),
     observe: (chatId, event) => delegations.observe(chatId, event),
+    /** A Delegation (or Negotiation report) that waited in the Chat's queue across a restart started, or was removed. */
+    queuedStarted: (chatId, context, started) => delegations.adopt(chatId, context, started),
+    queuedRemoved: (chatId, context) => delegations.unqueued(chatId, context),
     linkAdded,
     linkRemoved: (id) => delegations.linkRemoved(id),
     /** "Always allow Delegations" from the sidebar's Link popover: the grant the approval card saves, set ahead. */

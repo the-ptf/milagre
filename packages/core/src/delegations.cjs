@@ -16,13 +16,16 @@ const { clip } = require("./linked-summary.cjs");
 // belongs to the turn the agent took it in, by turn id. A steer can miss the end of its turn, so a steered
 // message's turn is settled a moment after it ends: a turn the agent starts by itself to run it (`continues`)
 // takes it over. Records live in the global store; ones still open when Milagre starts again are cancelled,
-// with a notice, as their turns are gone.
+// with a notice, as their turns are gone. The exception is a message waiting in its Chat's queue (a provider that
+// can't steer, see chat-host.cjs): the queue outlives a restart, so its Delegation (and Negotiation) stays open and is
+// followed again when the message starts its turn (`adopt`), or reported cancelled if it is removed (`unqueued`).
 
 const OPEN = new Set(["queued", "running"]);
 const OUTCOMES = { "turn-completed": "done", "turn-cancelled": "cancelled", "turn-failed": "failed" };
 const KEEP = 200;
 const RECENT_TURNS = 10;
 const STEER_GRACE_MS = 1500;
+const REMOVED = "it was removed from the Chat's queue before its turn started";
 
 function delegationPrompt(delegation) {
   return [
@@ -109,8 +112,9 @@ class Delegations {
     this.endedTurns = new Map();
     this.pumping = new Set();
     this.ready = store.load().then((data) => {
-      const delegations = data.delegations.filter((item) => OPEN.has(item.status));
-      const negotiations = data.negotiations.filter((item) => item.status === "running");
+      // `waiting`: its message still waits in the receiving Chat's queue, which a restart keeps.
+      const delegations = data.delegations.filter((item) => OPEN.has(item.status) && !item.waiting);
+      const negotiations = data.negotiations.filter((item) => item.status === "running" && !item.waiting);
       for (const delegation of delegations) delegation.status = "cancelled";
       for (const negotiation of negotiations) negotiation.status = "stopped";
       this.data = data;
@@ -122,14 +126,14 @@ class Delegations {
     return {
       delegations: this.data.delegations
         .filter((item) => OPEN.has(item.status))
-        .map(({ id, link_id, from_chat, to_chat, from_label, to_label, status, negotiation_id, round, message }) => ({
+        .map(({ id, link_id, from_chat, to_chat, from_label, to_label, status, negotiation_id, round, message, waiting }) => ({
           id,
           link_id,
           from_chat,
           to_chat,
           from_label,
           to_label,
-          status,
+          status: waiting ? "queued" : status,
           negotiation_id,
           round,
           message: clip(message, 120),
@@ -149,7 +153,7 @@ class Delegations {
         .map((item) => `Negotiation between ${item.labels[0]} and ${item.labels[1]}, round ${item.round} of ${NEGOTIATION_ROUNDS}`),
       ...this.data.delegations
         .filter((item) => OPEN.has(item.status) && between(item.from_worktree, item.to_worktree))
-        .map((item) => `Delegation ${item.status} from ${item.from_label} to ${item.to_label}: "${clip(item.message, 120)}"`),
+        .map((item) => `Delegation ${item.waiting ? "queued" : item.status} from ${item.from_label} to ${item.to_label}: "${clip(item.message, 120)}"`),
     ];
   }
 
@@ -376,16 +380,23 @@ class Delegations {
       await this.persist();
     }
     let started;
+    let queued;
     try {
-      ({ started } = await this.ports.deliver(chatKey, item));
+      ({ started, queued } = await this.ports.deliver(chatKey, item));
     } catch (error) {
       await this.undelivered(item, "failed", error.message);
       return;
     }
-    // The turn that takes it may start long after (a new Worktree's setup runs first); the queue moves on.
+    // A message for a turn its provider can't steer waits in the Chat's queue, which outlives a restart.
+    if (queued) await this.markWaiting(item, true);
+    void this.follow(chatKey, item, started);
+  }
+
+  // The turn that takes it may start long after (a new Worktree's setup runs first, or it waits in the Chat's queue).
+  follow(chatKey, item, started) {
     const entry = { item, turnId: undefined, steered: false };
     this.entries(chatKey).push(entry);
-    void Promise.resolve(started)
+    return Promise.resolve(started)
       .then(
         (result) => this.attach(chatKey, entry, result),
         () => this.attach(chatKey, entry, null),
@@ -393,13 +404,68 @@ class Delegations {
       .catch((error) => console.warn("Milagre couldn't follow a Delegation:", error.message));
   }
 
+  /** Marks the item's Delegation and Negotiation as waiting in the receiving Chat's queue, or no longer. */
+  async markWaiting(item, waiting) {
+    const records = [
+      item.kind === "delegation" ? this.data.delegations.find((entry) => entry.id === item.delegationId) : null,
+      item.negotiationId ? this.data.negotiations.find((entry) => entry.id === item.negotiationId) : null,
+    ].filter((record) => record && Boolean(record.waiting) !== waiting);
+    if (!records.length) return;
+    for (const record of records) {
+      if (waiting) record.waiting = true;
+      else delete record.waiting;
+    }
+    await this.persist();
+  }
+
+  /** The item of a message that waited in `chatKey`'s queue across a restart, found from the message's context; null when none. */
+  waitingItem(chatKey, context) {
+    if (context?.kind === "delegation") {
+      const delegation = this.data.delegations.find(
+        (entry) => entry.id === context.delegationId && entry.waiting && entry.status === "running" && entry.to_chat === chatKey,
+      );
+      return delegation ? this.delegationItem(delegation) : null;
+    }
+    if (context?.kind === "delegation-report" && context.negotiation) {
+      const negotiation = this.data.negotiations.find(
+        (entry) => entry.id === context.negotiation.id && entry.waiting && entry.status === "running" && entry.awaiting === chatKey,
+      );
+      return negotiation ? { kind: "report", negotiationId: negotiation.id } : null;
+    }
+    return null;
+  }
+
+  /**
+   * A message that waited in its Chat's queue while Milagre restarted starts its turn (`started` as from deliver): it is
+   * followed from here as one delivered this run, so its report still reaches the delegating Chat. Resolves whether it
+   * belonged to an open Delegation or Negotiation.
+   */
+  async adopt(chatKey, context, started) {
+    await this.ready;
+    const item = this.waitingItem(chatKey, context);
+    if (!item) return false;
+    await this.follow(chatKey, item, started);
+    return true;
+  }
+
+  /** Such a message was removed from its Chat's queue unsent: its Delegation is cancelled, with a notice. */
+  async unqueued(chatKey, context) {
+    await this.ready;
+    const item = this.waitingItem(chatKey, context);
+    if (!item) return false;
+    await this.markWaiting(item, false);
+    await this.undelivered(item, "cancelled", REMOVED);
+    return true;
+  }
+
   async attach(chatKey, entry, result) {
+    await this.markWaiting(entry.item, false);
     if (!result?.turnId) {
       this.remove(chatKey, entry);
       await this.undelivered(
         entry.item,
         result?.cancelled ? "cancelled" : "failed",
-        result?.cancelled ? "it was stopped before its turn started" : "its turn didn't start",
+        result?.removed ? REMOVED : result?.cancelled ? "it was stopped before its turn started" : "its turn didn't start",
       );
       return;
     }

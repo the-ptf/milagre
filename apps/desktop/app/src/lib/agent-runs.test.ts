@@ -4,6 +4,7 @@ import type { AgentEvent, CoordinatorState, ModelOption, PermissionRequest, Ques
 import {
   chatKey,
   chatsAskingUser,
+  chatsInBackground,
   chatsRunning,
   chatsWaitingForUser,
   clearAnswered,
@@ -137,12 +138,18 @@ test("chatsRunning lists only this project's chats with a run", () => {
   assert.deepEqual([...chatsRunning(runs, PROJECT)].sort(), [1, 4]);
 });
 
-test("chatsRunning counts a chat whose subagents outlive its turn", () => {
+test("chatsInBackground counts the background agents of chats whose turn ended; a failed turn or a run shows otherwise", () => {
   const sessions = base().sessions;
-  const agent = (id: string, status: string) => ({ id, status }) as unknown as NonNullable<CoordinatorState["sessions"][string]["subagents"]>[number];
-  sessions["1"] = { ...sessions["1"], subagents: [agent("a", "completed"), agent("b", "running")] };
-  sessions["2"] = { ...sessions["2"], subagents: [agent("c", "completed")] };
-  assert.deepEqual([...chatsRunning({}, PROJECT, sessions)], [1]);
+  const agent = (id: string, status: string, background = true) =>
+    ({ id, status, background }) as unknown as NonNullable<CoordinatorState["sessions"][string]["subagents"]>[number];
+  sessions["1"] = { ...sessions["1"], provider: "claude", subagents: [agent("a", "completed"), agent("b", "running"), agent("c", "running")] };
+  sessions["2"] = { ...sessions["2"], provider: "claude", subagents: [agent("d", "running", false)] };
+  const run = { text: "", model: "m", approvals: [], steps: [], questions: [], answered: {} };
+  assert.deepEqual([...chatsInBackground({}, PROJECT, sessions)], [[1, 2]]);
+  assert.equal(chatsRunning({}, PROJECT).size, 0);
+  assert.deepEqual([...chatsInBackground({ [key(1)]: run }, PROJECT, sessions)], []);
+  sessions["1"] = { ...sessions["1"], summary: { count: 2, lastOutcome: "failed" } };
+  assert.deepEqual([...chatsInBackground({}, PROJECT, sessions)], []);
 });
 
 const question = (requestId: string): QuestionRequest => ({

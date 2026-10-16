@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { Image, Pressable, Text, View, type ImageSourcePropType } from "react-native";
+import { Image, Pressable, Text, View, type ImageSourcePropType, type ViewInstance } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { router } from "expo-router";
 import { Alert02Icon, ArrowRight01Icon, Maximize01Icon } from "@hugeicons/core-free-icons";
@@ -52,7 +52,7 @@ export function useMedia(source: MediaValue | null): ImageSourcePropType | null 
   return loaded?.from === pending ? loaded.value : null;
 }
 /** Measures every thumbnail first, so the viewer morphs out of the tapped one and back into whichever is showing. */
-function open(images: ViewerImage[], index: number, thumbs: (View | null)[]) {
+function open(images: ViewerImage[], index: number, thumbs: (ViewInstance | null)[]) {
   void Promise.all(
     images.map(
       (image, i) =>
@@ -77,7 +77,7 @@ function Photos({ message, media }: { message: ChatMessage; media: MediaSource }
     name: photo.name,
     source: photo.dataUrl ? { uri: photo.dataUrl } : photo.path ? media(photo.path) : { uri: "" },
   }));
-  const thumbs = useRef<(View | null)[]>([]);
+  const thumbs = useRef<(ViewInstance | null)[]>([]);
   if (!photos.length) return null;
   const single = photos.length === 1;
   return (
@@ -109,7 +109,7 @@ function Thumbnail({ source, size }: { source: MediaValue; size: number }) {
 function GeneratedImage({ step, media }: { step: ChatStep; media: MediaSource }) {
   const { colors } = useTheme();
   const [ratio, setRatio] = useState(4 / 5);
-  const thumb = useRef<View>(null);
+  const thumb = useRef<ViewInstance>(null);
   const shown = !!step.file && step.status === "done";
   const source = shown ? media(step.file!) : null;
   const ready = useMedia(source);

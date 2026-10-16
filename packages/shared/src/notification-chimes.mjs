@@ -1,4 +1,4 @@
-// The sound a notification plays, chosen in Settings > Experimental on desktop and on the phone. Each device keeps its
+// The sound a notification plays, chosen in Settings > Notifications on desktop and on the phone. Each device keeps its
 // own choice. "system" is the platform's own notification sound; every other chime is a short clip Milagre ships:
 // desktop plays it from the app, the phone has it bundled so a push names it (iOS) or uses its channel (Android).
 

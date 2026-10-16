@@ -119,8 +119,10 @@ async function startDesktop() {
   });
   ipcMain.handle("update:state", () => updates.get());
   ipcMain.handle("update:check", () => updates.check(true));
+  const releaseNotes = require("./update-release-notes.cjs").createReleaseNotes();
+  ipcMain.handle("update:release-notes", (_event, version) => releaseNotes(version));
   ipcMain.handle("update:channel", () => releaseChannel.get());
-  // Save immediately; an existing download belongs to its original channel until installed.
+  // Save immediately; the next check can replace a pending installer with a newer release.
   ipcMain.handle("update:set-channel", async (_event, channel) => {
     const next = releaseChannel.set(channel);
     if (updates.get().status === "checking") await updates.check();
@@ -235,7 +237,7 @@ async function startDesktop() {
     notifyWhenWaiting = on === true;
   });
 
-  // The window reports the Experimental notification chime too, and plays it when a chat's notification asks.
+  // The window reports the notification chime too, and plays it when a chat's notification asks.
   ipcMain.handle("settings:notification-chime", (_event, chime) => notifier.setChime(chime));
 
   ipcMain.handle("notification:state", (_event, state) => notifier.sync(state));
@@ -343,7 +345,7 @@ async function startDesktop() {
   registerHostMethods();
   ipcMain.handle("app:version", () => app.getVersion());
 
-  // Other Macs this window drives (Settings › Experimental › Other computers): nothing connects until the window turns
+  // Other Macs this window drives (Settings › Devices › Other computers): nothing connects until the window turns
   // the switch on (computers:set-enabled), which it does at launch when it is on.
   const { createComputers } = require("./computers.cjs");
   const { registerComputers } = require("./computers-ipc.cjs");

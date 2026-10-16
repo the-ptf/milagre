@@ -325,7 +325,7 @@ function BrowserWebView({
       if (method !== "frame" || !result) return result;
       const frame = result as BrowserFrame;
       const file = new File(Paths.cache, `browser-${token}-${frame.sequence}.jpg`);
-      file.write(frame.data, { encoding: "base64" });
+      file.writeSync(frame.data, { encoding: "base64" });
       frames.push(file);
       while (frames.length > 2) drop(frames.shift()!);
       return { ...frame, data: "", uri: file.uri };
@@ -344,7 +344,7 @@ function BrowserWebView({
     void Promise.resolve()
       .then(() => {
         if (cancelled) return;
-        file.write(createBrowserReceiverHtml({ chatId, targetId, theme: latestTheme.current }));
+        file.writeSync(createBrowserReceiverHtml({ chatId, targetId, theme: latestTheme.current }));
         setUri(file.uri);
       })
       .catch((failure) => {

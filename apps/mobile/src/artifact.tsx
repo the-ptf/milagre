@@ -813,7 +813,7 @@ function ArtifactWebView({ html, canvas }: { html: string; canvas?: { width: num
     for (let index = 0; index < page.length; index++) hash = (hash * 33) ^ page.charCodeAt(index);
     const file = new File(Paths.cache, `artifact-${id}-${(hash >>> 0).toString(36)}.html`);
     try {
-      file.write(page);
+      file.writeSync(page);
       return { file, uri: file.uri };
     } catch {
       return null;

@@ -139,7 +139,7 @@ export function ScopeRail({
                     className="flex h-8 w-full min-w-0 items-center gap-2 rounded-[8px] px-2 text-left text-[13px] font-medium text-ink-2 hover:bg-hover-2 hover:text-ink focus-visible:bg-hover-2 focus-visible:outline-none"
                   >
                     <span className="flex size-4 shrink-0 items-center justify-center">
-                      <ChatMarkDotInline mark={chat.mark ?? "idle"} failed={false} />
+                      <ChatMarkDotInline mark={chat.mark ?? "idle"} failed={false} background={chat.background} />
                     </span>
                     <span className="min-w-0 flex-1 truncate">{chat.label}</span>
                   </button>

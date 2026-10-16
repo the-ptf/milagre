@@ -23,6 +23,7 @@ export function PromptField({
   onChangeText,
   onImagePaste,
   commands,
+  placeholder = "Message the agent",
 }: {
   client: Client;
   projectPath: string;
@@ -31,6 +32,7 @@ export function PromptField({
   onImagePaste?: (image: PastedImage) => void;
   /** Milagre's own slash commands, offered with the skills: `/undo` in a saved Chat. */
   commands?: { name: string; description: string }[];
+  placeholder?: string;
 }) {
   const { colors } = useTheme();
   const paste = useImagePaste(onImagePaste);
@@ -109,7 +111,7 @@ export function PromptField({
         {...paste}
         label="Message"
         hideLabel
-        placeholder="Message the agent"
+        placeholder={placeholder}
         multiline
         autoCorrect
         spellCheck

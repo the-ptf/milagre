@@ -1,6 +1,6 @@
-import { subagentActive } from "./subagents.ts";
 import type { ChatMessage, CoordinatorState, ModelOption, ModelProvider, PermissionDecision } from "../model";
-import { chatInProject, sessionIdFromKey } from "@milagre/shared/agent-runs";
+import { chatInProject, chatKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 import type { AgentRun, AgentRuns, SentAnswer } from "@milagre/shared/agent-runs";
 
@@ -25,18 +25,26 @@ export function chatsAskingUser(runs: AgentRuns, projectPath: string): Set<numbe
   return asking;
 }
 
-/**
- * Session ids of the project's chats with a turn running, so the sidebar can mark them. Subagents
- * can outlive the turn that started them, so a chat with one still active counts too.
- */
-export function chatsRunning(runs: AgentRuns, projectPath: string, sessions: CoordinatorState["sessions"] = {}): Set<number> {
-  const running = new Set(
+/** Session ids of the project's chats with a turn running, so the sidebar can mark them. */
+export function chatsRunning(runs: AgentRuns, projectPath: string): Set<number> {
+  return new Set(
     Object.keys(runs)
       .filter((key) => chatInProject(projectPath, key))
       .map(sessionIdFromKey),
   );
-  for (const session of Object.values(sessions)) if (session.subagents?.some(subagentActive)) running.add(session.id);
-  return running;
+}
+
+/**
+ * The project's chats whose activity is background (chat-activity.mjs), by session id, with how many background
+ * agents still work: their turn ended, and the agents' results will wake them. A failed last turn shows as failed.
+ */
+export function chatsInBackground(runs: AgentRuns, projectPath: string, sessions: CoordinatorState["sessions"] = {}): Map<number, number> {
+  const background = new Map<number, number>();
+  for (const session of Object.values(sessions)) {
+    const { activity, background: count } = chatActivity(session, runs[chatKey(projectPath, session.id)]);
+    if (activity === "background") background.set(session.id, count);
+  }
+  return background;
 }
 
 /** Records what the user sent for a chat's approval or question. Kept on the run, so another chat's request with the same id is untouched. */
