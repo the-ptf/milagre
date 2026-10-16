@@ -34,7 +34,8 @@ import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-i
 import { useComposer, usePendingChats, useSession } from "../session";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
 import { appendAttachments, attachmentPrompt, prepareAttachments } from "../attachments";
-import { PullRequestAction, SubagentChip } from "../status-indicators";
+import { BackgroundRing, PullRequestAction, SubagentChip } from "../status-indicators";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
 import { SimulatorChip } from "../simulator";
 import { BrowserChip } from "../browser";
@@ -56,7 +57,7 @@ import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
 import { accountSwitchText, isAccountSwitch } from "@milagre/shared/usage-limit";
 import { isWorktreeLinked, worktreeLinkText } from "@milagre/shared/worktree-link";
-import { ThinkingIndicator } from "../running-logo";
+import { BackgroundIndicator, ThinkingIndicator } from "../running-logo";
 import { BottomFade, EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
 import { Approval, ActivityQuestions } from "../questions";
@@ -507,6 +508,8 @@ export default function ChatScreen() {
   const attachments = composer.attachments[chatId] || [];
   const attachmentDisabled = busy || picking || attachments.length >= 4;
   const run = chat ? runs.runs[chatId] : undefined;
+  // What the Chat is doing (chat-activity.mjs), the same as its sidebar row and desktop's composer show.
+  const activity = chat ? chatActivity(chat, run) : undefined;
   // Feedback cards read the agent's resolutions again only when a comment may have changed.
   const designsMoved = designActivity(
     [...messages.flatMap((message) => message.steps ?? []), ...(run?.steps ?? [])],
@@ -1198,6 +1201,9 @@ export default function ChatScreen() {
                 startedAt={pending?.preview.startedAt ?? run?.startedAt}
                 label={run?.waitingForSubagents ? "Waiting on subagents" : `Working with ${model.name}`}
               />
+            )}
+            {!run && !pending && activity?.activity === "background" && (
+              <BackgroundIndicator count={activity.background} startedAt={activity.since} mark={<BackgroundRing count={activity.background} />} />
             )}
             {chat?.resumeTurn && !run && (
               <PillButton

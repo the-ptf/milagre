@@ -546,6 +546,39 @@ test("chat:reload stops a running turn and puts its line after the reply so far"
   );
 });
 
+test("chat:reload waits for the Chat's background subagents instead of stopping them (T3 #16000)", async (t) => {
+  const { project, make } = await fixture(t);
+  const agents = reloadAgents();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: agents.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  const stateOf = async () => (await runtime.invoke("project:snapshot", [project])).state;
+  const background = (status) => ({
+    type: "subagent-update",
+    agent: { id: "bg", title: "Review", status, background: true, startedAt: 1, updatedAt: Date.now(), transcript: [] },
+  });
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body: "review it", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && !agents.sessions[0]; i++) await new Promise((r) => setTimeout(r, 10));
+  agents.sessions[0].options.emit(background("running"));
+  for (let i = 0; i < 200 && !(await stateOf()).sessions[chat.id].subagents?.length; i++) await new Promise((r) => setTimeout(r, 10));
+
+  await assert.rejects(
+    runtime.invoke("chat:reload", [chatId]),
+    /A background task is still running in this Chat\. Reloading would stop it\. Ask the agent to stop it, or reload once it finishes\./,
+  );
+  assert.equal(agents.sessions[0].closed, false);
+  assert.equal(
+    (await stateOf()).messages.some((item) => item.context?.kind === "reload"),
+    false,
+  );
+
+  agents.sessions[0].options.emit(background("completed"));
+  for (let i = 0; i < 200 && (await stateOf()).sessions[chat.id].subagents[0].status !== "completed"; i++) await new Promise((r) => setTimeout(r, 10));
+  await runtime.invoke("chat:reload", [chatId]);
+  assert.equal(agents.sessions[0].closed, true);
+});
+
 test("chat:queue-send stops the running Antigravity turn and starts the queued message; chat:queue-remove drops one", async (t) => {
   const { project, make } = await fixture(t);
   const agents = reloadAgents();

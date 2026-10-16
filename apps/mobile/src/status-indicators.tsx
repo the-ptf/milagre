@@ -1,4 +1,5 @@
-import { View } from "react-native";
+import { Text, View } from "react-native";
+import { backgroundLabel } from "@milagre/shared/chat-activity";
 import { BubbleChatIcon, GitPullRequestIcon, ShieldAlertIcon, Alert02Icon } from "@hugeicons/core-free-icons";
 import type { PullRequest, Subagent } from "@milagre/shared/model";
 import { BLOCKERS, pullRequestBlockers } from "@milagre/shared/pr-blockers";
@@ -9,11 +10,14 @@ import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
 
 /** Desktop's chat mark slot: a question bubble, an approval shield, a spinning ring, an unread dot, or a faint idle dot. */
-export function ChatMarkIcon({ mark }: { mark: ChatMark }) {
+export function ChatMarkIcon({ mark, background = 0 }: { mark: ChatMark; background?: number }) {
   const { colors } = useTheme();
   const tone = chatMarkTone(mark);
+  const label = mark === "background" && background ? `${backgroundLabel(background)} running` : MARK_LABEL[mark];
   const body =
-    mark === "question" ? (
+    mark === "background" ? (
+      <BackgroundRing count={background} />
+    ) : mark === "question" ? (
       <Icon icon={BubbleChatIcon} tone={tone} size={15} strokeWidth={2} />
     ) : mark === "waiting" ? (
       <Icon icon={ShieldAlertIcon} tone={tone} size={15} strokeWidth={2} />
@@ -34,10 +38,34 @@ export function ChatMarkIcon({ mark }: { mark: ChatMark }) {
   return (
     <View
       accessible={mark !== "idle"}
-      accessibilityLabel={MARK_LABEL[mark] || undefined}
+      accessibilityLabel={label || undefined}
       style={{ width: 20, height: 20, alignItems: "center", justifyContent: "center" }}
     >
       {body}
+    </View>
+  );
+}
+
+/** Desktop's background mark: a still accent ring around how many background tasks still run. */
+export function BackgroundRing({ count = 0, size = 15 }: { count?: number; size?: number }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        borderWidth: 1.5,
+        borderColor: colors.accent,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {count > 0 && (
+        <Text allowFontScaling={false} style={{ color: colors.accent, fontSize: size * 0.55, fontWeight: "700", fontVariant: ["tabular-nums"] }}>
+          {count > 9 ? "9+" : count}
+        </Text>
+      )}
     </View>
   );
 }

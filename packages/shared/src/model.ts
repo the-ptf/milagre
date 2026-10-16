@@ -125,6 +125,11 @@ export interface AgentSession {
   /** Session ids of the providers this chat is not on right now, so switching back resumes them. */
   native_sessions?: Partial<Record<ModelProvider, string>>;
   subagents?: Subagent[];
+  /**
+   * The background work the Chat's agent process reports besides its subagents (a command run in the background, an MCP
+   * task, a workflow), live while that process runs; absent when there is none (chat-activity.mjs).
+   */
+  backgroundTasks?: BackgroundTask[];
   /** The Chat's task list and phase history (chat-plan.mjs); absent until an agent writes one. */
   plan?: ChatPlan;
   /** Automatic title from the first message; a manual title takes precedence. */
@@ -177,6 +182,18 @@ export interface QueuedMessage {
   provider: ModelProvider;
   queuedAt: number;
   clientMessageId?: string;
+}
+
+/**
+ * A piece of background work the agent's process runs that isn't a subagent: Claude Code's background tasks (a Bash
+ * command run in the background, an MCP task, a workflow). `kind` is the provider's own name for it (local_bash…).
+ */
+export interface BackgroundTask {
+  id: string;
+  kind: string;
+  title: string;
+  /** When Milagre first saw it run (ms since epoch). */
+  startedAt: number;
 }
 
 /** Tokens in the agent's context window, out of the model's window size. */
@@ -619,6 +636,8 @@ export type AgentEvent =
   /** Milagre's own event: the user's answers to a question were saved as their message, after the reply so far. */
   | { type: "answers-sent" }
   | { type: "subagent-update"; agent: Subagent }
+  /** Every piece of background work the agent's process runs besides its subagents, now: it replaces the last set. */
+  | { type: "background-tasks"; tasks: BackgroundTask[] }
   | { type: "subagents-waiting"; waiting: boolean }
   | { type: "tasks-updated"; tasks: AgentTask[] }
   /** Milagre's own event: a task tool changed the Chat's plan; null clears it. */

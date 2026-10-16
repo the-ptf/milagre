@@ -6,6 +6,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useIsFocused } from "expo-router";
 import { LEFT, RIGHT, STAR, STAR_BOX } from "./logo";
 import { fonts, useTheme } from "./theme";
+import { backgroundLabel } from "@milagre/shared/chat-activity";
 
 // The library types its class on RN's NativeMethods, which RN 0.88 removed, so JSX rejects it; the props are unchanged.
 const MaskedView = RNCMaskedView as unknown as ComponentType<{ maskElement: ReactElement; children?: ReactNode }>;
@@ -137,6 +138,29 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
           {label}
         </Text>
       )}
+      <Elapsed startedAt={startedAt} />
+    </View>
+  );
+}
+
+/**
+ * Desktop's BackgroundIndicator: the Chat's turn ended, but background work goes on (chat-activity.mjs). How many
+ * tasks, and for how long the oldest has run; no running mark, since no turn runs.
+ */
+export function BackgroundIndicator({ count, startedAt, mark }: { count: number; startedAt?: number; mark: ReactNode }) {
+  const { colors } = useTheme();
+  const label = `${backgroundLabel(count)} running`;
+  return (
+    <View
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={label}
+      style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 4, paddingVertical: 4 }}
+    >
+      {mark}
+      <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 12, flexShrink: 1 }}>
+        {label}
+      </Text>
       <Elapsed startedAt={startedAt} />
     </View>
   );

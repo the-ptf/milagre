@@ -1,4 +1,5 @@
 import { CommandPalette } from "./CommandPalette";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import { useChanges } from "./changes/useChanges";
 import { LinkChangesPanel } from "./changes/LinkChangesPanel";
 import { useLinkDiffLists } from "./changes/useLinkDiffLists";
@@ -552,6 +553,7 @@ export function LinkWorkspace({
                         ports={chatId ? ports[chatId] : undefined}
                         agentChatId={chatId ?? undefined}
                         waitingForSubagents={run?.waitingForSubagents}
+                        activity={session ? chatActivity(session, run) : undefined}
                         asking={Boolean(question)}
                         waitingStepIds={run?.approvals.flatMap((request) => (request.stepId ? [request.stepId] : []))}
                         resume={
