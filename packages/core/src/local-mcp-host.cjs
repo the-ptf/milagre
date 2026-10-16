@@ -1,9 +1,57 @@
+const crypto = require("node:crypto");
 const { realpathSync } = require("node:fs");
+const fs = require("node:fs/promises");
+const path = require("node:path");
 const { projectOfKey, sessionIdFromKey, lastUserModel } = require("@milagre/shared/agent-runs");
+const { IMAGE_TYPES } = require("@milagre/shared/limits");
 const { chatActivity } = require("@milagre/shared/chat-activity");
 
+// How much a permission mode allows, least first. A tool never gives a Chat more than its caller has without the user's say.
+const MODE_RANK = { ask: 0, auto: 1, full: 2 };
+const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
+
+/** The answers as the Chat shows them in the user's message, as the question card writes them. */
+function answerSummary(questions, answers) {
+  const shown = (question) =>
+    (answers[question.id] ?? []).map((value) => (question.secret && !question.options.some((option) => option.label === value) ? "••••••" : value)).join(", ");
+  if (questions.length === 1) return shown(questions[0]);
+  return questions.map((question, index) => `${question.header || `Question ${index + 1}`}: ${shown(question)}`).join("\n");
+}
+
+/** `body` with the attached files listed, as the composer sends it. */
+function attachmentPrompt(body, files) {
+  return files.length ? `${body}\n\nAttached files:\n${files.join("\n")}` : body;
+}
+
 // Narrow host ports; no caller-supplied method names or command payload forwarding.
-function createLocalMcpHost({ projects, readProject, scopeStates, chats, createWorktree, validateDesignChat, permissionMode }) {
+/**
+ * Ports beyond reads: stopChat(chatId), setPermissionMode(chatId, mode), respondPermission(chatId, requestId, decision),
+ * answerQuestion(chatId, requestId, answers, summary), patchChat(projectPath, sessionId, patch),
+ * searchChats(projectPath, query, limit), links: { list(), add(a, b), remove(id) }, activeWorktrees(projectPath) -> paths,
+ * models(projectPath) -> { [provider]: [{ id, efforts, defaultEffort }] }, the pickers' catalog,
+ * approve(callerChat, request) -> "allow" | "allow-for-chat" | "deny" | "cancelled".
+ * `caller` is the Chat whose agent called the tool; an outside client has none and counts as an Ask caller with nowhere
+ * to show an approval card.
+ */
+function createLocalMcpHost({
+  projects,
+  readProject,
+  scopeStates,
+  chats,
+  createWorktree,
+  validateDesignChat,
+  permissionMode,
+  stopChat,
+  setPermissionMode,
+  respondPermission,
+  answerQuestion,
+  patchChat,
+  searchChats,
+  links,
+  activeWorktrees,
+  approve,
+  models = async () => ({}),
+}) {
   const validateProject = async (projectPath) => {
     if (!(await projects()).some((project) => project.path === projectPath) || realpathSync(projectPath) !== projectPath)
       throw Error("Open this Project in Milagre first; its canonical path is required");
@@ -37,6 +85,57 @@ function createLocalMcpHost({ projects, readProject, scopeStates, chats, createW
       questions: run?.questions?.length ?? 0,
     };
   };
+  const callerMode = (caller) => (caller ? permissionMode(caller, "ask") : "ask");
+  // Past what the caller may do alone: the user decides on a card in the caller's Chat. An outside client has no Chat.
+  const confirm = async (caller, request) => {
+    if (!caller) throw Error(`${request.title.replace(/\?$/, "")} needs approval in Milagre, which an outside client can't ask for. Do it in Milagre instead.`);
+    const decision = await approve(caller, { requestId: `mcp-${crypto.randomUUID()}`, kind: "other", tool: "Milagre", allowForChat: false, ...request });
+    if (decision !== "allow" && decision !== "allow-for-chat") throw Error("The user declined.");
+  };
+  const checkMode = async (caller, chatId, mode, session) => {
+    if (MODE_RANK[mode] <= MODE_RANK[callerMode(caller)]) return;
+    const name = session?.title || session?.generatedTitle;
+    await confirm(caller, {
+      title: `Run ${name ? `"${name}"` : "another Chat"} in ${mode === "full" ? "Full permission" : "Auto mode"}?`,
+      description: "This Chat's agent asks to give it more permission than it has itself.",
+    });
+  };
+  const runOf = (chatId) => chats.runs[chatId];
+  const pending = (chatId) => {
+    const run = runOf(chatId);
+    return {
+      approvals: (run?.approvals ?? []).map(({ requestId, kind, tool, title, description, command, cwd, files, reason }) => ({
+        requestId,
+        kind,
+        tool,
+        title,
+        ...(description ? { description } : {}),
+        ...(command ? { command } : {}),
+        ...(cwd ? { cwd } : {}),
+        ...(files?.length ? { files } : {}),
+        ...(reason ? { reason } : {}),
+      })),
+      questions: run?.questions ?? [],
+    };
+  };
+  // A path the caller names for an attachment: inside the Chat's own Worktree, so a file elsewhere on the Mac can't ride along.
+  const attachment = async (root, file) => {
+    if (typeof file !== "string" || !path.isAbsolute(file)) throw Error("Attach files by absolute path inside the Chat's Worktree.");
+    const real = await fs.realpath(file).catch(() => {
+      throw Error(`No such file: ${file}`);
+    });
+    const from = path.relative(await fs.realpath(root), real);
+    if (!from || from.startsWith("..") || path.isAbsolute(from)) throw Error(`${file} is outside the Chat's Worktree.`);
+    return real;
+  };
+  const endpoint = async (projectPath, worktreeId) => {
+    const worktree = (await project(projectPath)).worktrees[worktreeId];
+    if (!worktree) throw Error(`Worktree ${worktreeId} isn't in ${projectPath}`);
+    if (!(await activeWorktrees(projectPath)).includes(worktree.path)) throw Error("That Worktree is archived or gone.");
+    const registered = (await projects()).find((item) => item.path === projectPath);
+    return { project_id: registered.id, worktree_path: worktree.path };
+  };
+  const sameEnd = (a, b) => a.project_id === b.project_id && a.worktree_path === b.worktree_path;
   return {
     projects,
     validateProject,
@@ -52,7 +151,7 @@ function createLocalMcpHost({ projects, readProject, scopeStates, chats, createW
     async readChat({ projectPath, chatId, limit }) {
       const { session } = await chat(projectPath, chatId);
       const messages = await scopeStates.chatMessages(projectPath, [session.id]);
-      return { ...progress(chatId, session), messages: messages.slice(-limit).map(({ id, role, body }) => ({ id, role, body })) };
+      return { ...progress(chatId, session), ...pending(chatId), messages: messages.slice(-limit).map(({ id, role, body }) => ({ id, role, body })) };
     },
     async createWorktree(args, operationId, assertActive) {
       const result = await createWorktree({ localMcp: { operationId, assertActive } }, args);
@@ -65,26 +164,50 @@ function createLocalMcpHost({ projects, readProject, scopeStates, chats, createW
       return { chatId: `${projectPath}#${id}` };
     },
     // A Chat with no live agent takes the mode of the Chat whose agent called the tool; other clients start it in Ask.
-    async startChat({ projectPath, chatId, prompt, provider, model }, operationId, assertActive, caller) {
+    // A provider, model or effort named here switches the Chat as the composer's pickers do; a new provider hands off.
+    async startChat(
+      { projectPath, chatId, prompt, provider, model, effort, permissionMode: asked, files = [], images = [] },
+      operationId,
+      assertActive,
+      caller,
+    ) {
       const { state, session } = await chat(projectPath, chatId);
       if (session.archived) throw Error("This Chat is archived");
       const latest = chats.turnSettings(chatId) ?? {};
       const messages = await scopeStates.chatMessages(projectPath, [session.id]);
-      const chosenModel = latest.model || lastUserModel({ ...state, messages }, session.id) || model;
+      const chosenModel = model || latest.model || lastUserModel({ ...state, messages }, session.id);
       if (!chosenModel) throw Error("Choose a model for this Chat before starting it");
+      const chosenProvider = provider || latest.provider || session.provider || "claude";
+      // The effort the pickers would allow: one named here must fit the model; a carried one falls back to its default.
+      const entry = ((await models(projectPath))[chosenProvider] ?? []).find((item) => item.id === chosenModel);
+      if (effort && entry && !entry.efforts.includes(effort)) throw Error(`${chosenModel} takes effort ${entry.efforts.join(", ") || "none"}, not ${effort}.`);
+      const chosenEffort = effort ?? (entry && latest.effort && !entry.efforts.includes(latest.effort) ? entry.defaultEffort : latest.effort);
+      if (asked) await checkMode(caller, chatId, asked, session);
+      const root = session.workspacePath ?? state.worktrees?.[session.worktree_id]?.path;
+      if ((files.length || images.length) && !root) throw Error("This Chat has no Worktree to attach files from.");
+      const attached = await Promise.all(files.map((file) => attachment(root, file)));
+      const pictures = await Promise.all(
+        images.map(async (file, index) => {
+          const real = await attachment(root, file);
+          const mime = IMAGE_MIME[path.extname(real).toLowerCase()];
+          if (!mime || !IMAGE_TYPES.includes(mime)) throw Error(`${file} isn't a PNG, JPEG, GIF or WebP image.`);
+          return { id: `mcp-${index}`, name: path.basename(real), dataUrl: `data:${mime};base64,${(await fs.readFile(real)).toString("base64")}`, path: real };
+        }),
+      );
       assertActive();
-      const modeNow = () => permissionMode(chatId, caller ? permissionMode(caller) : "ask");
+      const modeNow = () => asked ?? permissionMode(chatId, caller ? permissionMode(caller) : "ask");
       const mode = modeNow();
       const result = await chats.send({
         ...latest,
         projectPath,
         sessionId: session.id,
         body: prompt,
-        prompt,
-        images: [],
-        files: [],
-        provider: latest.provider || session.provider || provider || "claude",
+        prompt: attachmentPrompt(prompt, attached),
+        images: pictures,
+        files: attached,
+        provider: chosenProvider,
         model: chosenModel,
+        effort: chosenEffort,
         permissionMode: mode,
         operationId,
         canStart: () => {
@@ -93,7 +216,107 @@ function createLocalMcpHost({ projects, readProject, scopeStates, chats, createW
           return true;
         },
       });
+      // A running turn takes the asked mode at once, as the composer's switch does.
+      if (asked) await setPermissionMode(chatId, asked);
       return { chatId: `${projectPath}#${result.sessionId}`, accepted: true };
+    },
+    async stopChat({ projectPath, chatId }) {
+      await chat(projectPath, chatId);
+      const running = Boolean(runOf(chatId));
+      await stopChat(chatId);
+      return { chatId, stopped: running };
+    },
+    async setMode({ projectPath, chatId, permissionMode: mode }, caller) {
+      const { session } = await chat(projectPath, chatId);
+      if (!runOf(chatId) && permissionMode(chatId, null) === null)
+        throw Error("This Chat has no running agent. Pass permissionMode to chat_start to start it in that mode.");
+      await checkMode(caller, chatId, mode, session);
+      await setPermissionMode(chatId, mode);
+      return { chatId, permissionMode: mode };
+    },
+    // Answering another Chat's approval is a decision the user makes, unless the caller runs in Full permission itself.
+    async respond({ projectPath, chatId, requestId, decision, answers }, caller) {
+      const { session } = await chat(projectPath, chatId);
+      if (caller === chatId) throw Error("A Chat can't answer its own approvals or questions.");
+      const { approvals, questions } = pending(chatId);
+      const approval = approvals.find((item) => item.requestId === requestId);
+      const question = questions.find((item) => item.requestId === requestId);
+      if (!approval && !question) throw Error("Nothing with that requestId is waiting in this Chat. chat_read lists what is.");
+      const asking = `"${session.title || session.generatedTitle || "Another Chat"}"`;
+      if (approval) {
+        if (!decision) throw Error("Give a decision: allow, allow-for-chat or deny.");
+        // The card shows what the other Chat would do, in the fields its own card uses.
+        if (decision !== "deny" && callerMode(caller) !== "full")
+          await confirm(caller, {
+            title: decision === "allow-for-chat" ? `Always allow this in ${asking}?` : `Allow this in ${asking}?`,
+            description: `That Chat asks: ${approval.title.replace(/\?$/, "")}. This Chat's agent wants to answer for you.`,
+            ...(approval.command ? { command: approval.command } : {}),
+            ...(approval.cwd ? { cwd: approval.cwd } : {}),
+            ...(approval.files ? { files: approval.files } : {}),
+            ...(approval.reason ? { reason: approval.reason } : {}),
+            ...(!approval.command && !approval.files ? { detail: JSON.stringify(approval, null, 2) } : {}),
+          });
+        return { chatId, requestId, accepted: Boolean(await respondPermission(chatId, requestId, decision)) };
+      }
+      if (answers === undefined) throw Error("Give answers: the picked labels or typed text per question id, or null to dismiss.");
+      const summary = answers ? answerSummary(question.questions, answers) : undefined;
+      if (answers && callerMode(caller) !== "full")
+        await confirm(caller, {
+          title: `Answer ${asking}'s questions?`,
+          description: "This Chat's agent wants to answer them for you.",
+          reason: summary,
+        });
+      return { chatId, requestId, accepted: Boolean(await answerQuestion(chatId, requestId, answers, summary)) };
+    },
+    async updateChat({ projectPath, chatId, title, archived }) {
+      const { session } = await chat(projectPath, chatId);
+      if (title === undefined && archived === undefined) throw Error("Give a title, archived, or both.");
+      if (archived && runOf(chatId)) throw Error("Stop the Chat before archiving it.");
+      await patchChat(projectPath, session.id, { ...(title !== undefined ? { title: title.trim() } : {}), ...(archived !== undefined ? { archived } : {}) });
+      return { chatId, ...(title !== undefined ? { title: title.trim() } : {}), ...(archived !== undefined ? { archived } : {}) };
+    },
+    async searchChats({ projectPath, query, limit }) {
+      const state = await project(projectPath);
+      const matches = await searchChats(projectPath, query, limit);
+      return matches.map(({ message, snippet }) => ({
+        chatId: `${projectPath}#${message.session_id}`,
+        title: state.sessions[message.session_id]?.title || state.sessions[message.session_id]?.generatedTitle || "Chat",
+        messageId: message.id,
+        snippet,
+      }));
+    },
+    // A Link reaches the other Worktree's files, git and Chats. From an agent in Ask mode the user approves it first.
+    async linkWorktrees({ projectPath, worktreeId, targetProjectPath, targetWorktreeId }, caller, inScope) {
+      if (!inScope(targetProjectPath) && !caller) throw Error("The target Project is outside this connection's scope");
+      await validateProject(targetProjectPath);
+      const a = await endpoint(projectPath, worktreeId);
+      const b = await endpoint(targetProjectPath, targetWorktreeId);
+      const existing = (await links.list()).find((link) => [link.a, link.b].some((end) => sameEnd(end, a)) && [link.a, link.b].some((end) => sameEnd(end, b)));
+      if (existing) return { linkId: existing.id, created: false };
+      if (callerMode(caller) === "ask" && caller)
+        await confirm(caller, {
+          title: "Link this Worktree to another?",
+          description: "Its agent could read the other Worktree's files, git and Chats, and send it Delegations.",
+          detail: JSON.stringify({ from: a.worktree_path, to: b.worktree_path }, null, 2),
+        });
+      const before = new Set((await links.list()).map((link) => link.id));
+      const added = (await links.add(a, b)).find((link) => !before.has(link.id));
+      return { linkId: added?.id, created: true };
+    },
+    // Only a Worktree-to-Worktree Link that has this Worktree at one end: Project Links stay the canvas's.
+    async unlinkWorktrees({ projectPath, worktreeId, targetWorktreePath }) {
+      const worktree = (await project(projectPath)).worktrees[worktreeId];
+      if (!worktree) throw Error(`Worktree ${worktreeId} isn't in ${projectPath}`);
+      const removable = (await links.list()).filter(
+        (link) =>
+          link.a.worktree_path !== undefined &&
+          link.b.worktree_path !== undefined &&
+          [link.a, link.b].some((end) => end.worktree_path === worktree.path) &&
+          [link.a, link.b].some((end) => end.worktree_path === targetWorktreePath),
+      );
+      if (!removable.length) throw Error("No Worktree Link joins these two. Project Links are removed on the canvas.");
+      for (const link of removable) await links.remove(link.id);
+      return { removed: removable.map((link) => link.id) };
     },
     async reconcile(operation, args, operationId) {
       const state = await project(args.projectPath);
