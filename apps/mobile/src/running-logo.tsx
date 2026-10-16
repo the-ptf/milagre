@@ -1,11 +1,14 @@
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
 import { AccessibilityInfo, Animated, Easing, StyleSheet, Text, View, type EasingFunction, type TextStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import MaskedView from "@react-native-masked-view/masked-view";
+import RNCMaskedView from "@react-native-masked-view/masked-view";
 import { LinearGradient } from "expo-linear-gradient";
 import { useIsFocused } from "expo-router";
 import { LEFT, RIGHT, STAR, STAR_BOX } from "./logo";
 import { fonts, useTheme } from "./theme";
+
+// The library types its class on RN's NativeMethods, which RN 0.88 removed, so JSX rejects it; the props are unchanged.
+const MaskedView = RNCMaskedView as unknown as ComponentType<{ maskElement: ReactElement; children?: ReactNode }>;
 
 /** A CSS keyframe segment: move to keyframe `to` over `duration` ms with the segment's timing function. */
 type Segment = { to: number; duration: number; easing?: EasingFunction };

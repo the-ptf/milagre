@@ -46,7 +46,15 @@ How to check the fingerprint and publish an update: `apps/mobile/AGENTS.md`.
 
 ### Pull request screenshots
 
-Every PR that changes something visible includes screenshots in its description. Take them from a real run (an Electron check under `scripts/test-*.cjs`, or the dev app) and show the before/after or each state the change adds.
+Every PR that changes something visible includes screenshots in its description, showing the before/after or each state the change adds.
+
+Take every PR screenshot from the real app running: the dev app (desktop dev copy, or the phone app on a simulator or device against Metro) or a packaged build, driving the real providers. Never use:
+
+- `scripts/test-*.cjs` Electron checks or any other harness with seeded or scripted data. Their screenshots are test evidence, not PR images.
+- Fake or scripted SDKs and agent servers (`fakeSdk`, `fake-app-server`, `fake-acp-agent`). They stay for automated tests only.
+- Design mockups, HTML renders, components shown in isolation, or edited images.
+
+Name the source in the PR body under "Screenshots from" (for example "desktop dev app, Claude Opus, real Chat"). If the real app can't show the state, say so there and leave the screenshot out rather than faking it.
 
 Screenshots never go in the PR's own commits. They live on the `screenshots` branch, which has no shared history with `main`, holds only images and is never merged:
 
@@ -54,4 +62,4 @@ Screenshots never go in the PR's own commits. They live on the `screenshots` bra
 2. Commit and push to `screenshots`.
 3. In the PR body, link each image by that commit's SHA so the link never moves: `https://raw.githubusercontent.com/the-ptf/milagre-ade/<sha>/<feature>/<name>.png`.
 
-The `scripts/test-*.cjs` checks save screenshots only when `MILAGRE_SCREENSHOT_DIR` is set; point it outside the repo, e.g. `$TMPDIR/<feature>`.
+The `scripts/test-*.cjs` checks save screenshots only when `MILAGRE_SCREENSHOT_DIR` is set; point it outside the repo, e.g. `$TMPDIR/<feature>`. Use them to check your own work, not in the PR.

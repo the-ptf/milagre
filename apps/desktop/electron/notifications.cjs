@@ -18,7 +18,7 @@ const keyOf = (chatId, requestId) => `${chatId}\n${requestId}`;
 // A turn's end is announced too (notifyCompletion), unless a subagent the chat runs in the background is still at work:
 // its result wakes the chat with a turn of its own, whose end is the one announced. A completion held that way shows
 // once the last of them ends with no turn to take its result.
-// A chat's notification plays the chime picked in Settings > Experimental: the system notice goes silent and playChime
+// A chat's notification plays the chime picked in Settings > Notifications: the system notice goes silent and playChime
 // plays the clip in the window. With no window to play it (playChime returns false), the system sound stays.
 class AttentionNotifier {
   /** @param {{ createNotification: (notice: {title: string; subtitle: string; body: string; silent?: boolean}) => Electron.Notification; isAppFocused: () => boolean; openChat: (chatId: string) => void; openPhoneSettings?: () => void; setBadge?: (badge: string) => void; canPlayChime?: () => boolean; playChime?: (chime: string) => void }} options */

@@ -16,7 +16,7 @@ const prepareChannel = async () => {
   if (Platform.OS === "android") {
     const api = await notifications();
     await api.setNotificationChannelAsync("chats", { name: "Chat activity", importance: api.AndroidImportance.HIGH, sound: "default" });
-    // A channel's sound is fixed once created, so each Experimental chime has a channel of its own; a push names the
+    // A channel's sound is fixed once created, so each chime has a channel of its own; a push names the
     // phone's chime's channel.
     for (const chime of NOTIFICATION_CHIMES) {
       if (chime.id === "system") continue;

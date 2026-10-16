@@ -49,7 +49,7 @@ function registration(value) {
     hostId: value.hostId,
     notifyWhenWaiting: value.notifyWhenWaiting,
     notifyOnCompletion: value.notifyOnCompletion,
-    // The phone's Experimental chime, bundled in its build. Older phones send none: the system sound.
+    // The phone's notification chime, bundled in its build. Older phones send none: the system sound.
     chime: parseNotificationChime(value.chime),
   };
 }

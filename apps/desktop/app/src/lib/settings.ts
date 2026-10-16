@@ -19,7 +19,7 @@ export interface AppSettings {
   theme: ThemePreference;
   /** The color theme; each has a light and a dark palette, and `theme` (Mode) picks which. */
   colorTheme: ThemeChoice;
-  /** Experimental: the Custom theme tile and editor. */
+  /** Settings › Appearance: the Custom theme tile and editor. */
   customThemeEnabled: boolean;
   /** Seeds for the Custom theme, kept when the switch is turned off. */
   customTheme: CustomTheme | null;
@@ -48,18 +48,15 @@ export interface AppSettings {
   chatOrder: ChatOrder;
   /** What a sidebar chat row's second line shows (the Filters menu's Show). */
   chatRowShow: ChatRowShow;
-  /** Experimental: the old sidebar, with the project menu on top and only the open Project's chats, instead of every
-   * Project and Link with its chats. A new key, so the old opt-in (sidebarAllProjects, saved false for everyone) is dropped. */
-  legacySidebar: boolean;
   /** Settings › Chat: a reply's tool calls fold into one line, or show one row each with the text between them. */
   toolCallDisplay: ToolCallDisplay;
   /** Settings › Chat: thinking rows start open. */
   expandReasoning: boolean;
-  /** Experimental: drive the chats of other Macs running Milagre from this window (Add computer, the computers popover). */
+  /** Settings › Devices: drive the chats of other Macs running Milagre from this window (Add computer, the computers popover). */
   otherComputers: boolean;
   /** Experimental: turning Ultracode on plays the Mortal Kombat Fatality overlay and the announcer's voice. */
   ultracodeFatality: boolean;
-  /** Experimental: the sound a chat's notification plays, instead of the system's. */
+  /** Settings › Notifications: the sound a chat's notification plays, instead of the system's. */
   notificationChime: NotificationChime;
 }
 
@@ -90,7 +87,6 @@ const DEFAULTS: AppSettings = {
   tldrEnabled: true,
   chatOrder: "created",
   chatRowShow: DESKTOP_CHAT_ROW_SHOW,
-  legacySidebar: false,
   toolCallDisplay: "compact",
   expandReasoning: false,
   otherComputers: false,
@@ -129,7 +125,6 @@ function load(): AppSettings {
       claudeReplies: CLAUDE_REPLIES.includes(saved.claudeReplies as ClaudeReplies) ? saved.claudeReplies! : DEFAULTS.claudeReplies,
       chatOrder: CHAT_ORDERS.includes(saved.chatOrder as ChatOrder) ? saved.chatOrder! : DEFAULTS.chatOrder,
       chatRowShow: parseChatRowShow(saved.chatRowShow, DEFAULTS.chatRowShow),
-      legacySidebar: typeof saved.legacySidebar === "boolean" ? saved.legacySidebar : DEFAULTS.legacySidebar,
       toolCallDisplay: parseToolCallDisplay(saved.toolCallDisplay, saved.muriloMode),
       expandReasoning: typeof saved.expandReasoning === "boolean" ? saved.expandReasoning : DEFAULTS.expandReasoning,
       otherComputers: typeof saved.otherComputers === "boolean" ? saved.otherComputers : DEFAULTS.otherComputers,

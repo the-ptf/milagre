@@ -1,5 +1,18 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type Ref } from "react";
-import { AccessibilityInfo, BackHandler, Dimensions, Keyboard, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import {
+  AccessibilityInfo,
+  BackHandler,
+  Dimensions,
+  Keyboard,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+  type TextInstance,
+  type ViewInstance,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureDetector, usePanGesture } from "react-native-gesture-handler";
 import Animated, {
@@ -46,17 +59,17 @@ export function usePlanPanel(plan: ChatPlan | undefined, chatId: string) {
   const [keyboard, setKeyboard] = useState(0);
   // Each opening draws a fresh phase graph, so its Now is the moment the panel opened.
   const [opening, setOpening] = useState(0);
-  const chip = useRef<View | null>(null);
-  const overlay = useRef<View | null>(null);
+  const chip = useRef<ViewInstance | null>(null);
+  const overlay = useRef<ViewInstance | null>(null);
   const refocus = useRef(false);
   // The plan goes with its Chat: when it is gone, or this is another Chat, the panel is closed at once.
   const stale = state.phase !== "closed" && (!label || state.chatId !== chatId);
   if (stale) setState({ phase: "closed", chatId });
   const phase = stale ? "closed" : state.phase;
-  const attachChip = useCallback((node: View | null) => {
+  const attachChip = useCallback((node: ViewInstance | null) => {
     chip.current = node;
   }, []);
-  const attachOverlay = useCallback((node: View | null) => {
+  const attachOverlay = useCallback((node: ViewInstance | null) => {
     overlay.current = node;
   }, []);
   const measure = useCallback((then?: () => void) => {
@@ -169,7 +182,7 @@ export const PlanPill = memo(function PlanPill({ panel }: { panel: PlanPanelStat
   );
 });
 
-function SectionLabel({ title, count, textRef }: { title: string; count?: number; textRef?: Ref<Text> }) {
+function SectionLabel({ title, count, textRef }: { title: string; count?: number; textRef?: Ref<TextInstance> }) {
   const { colors } = useTheme();
   const text = { color: colors.ink3, fontSize: 11, fontWeight: "500", letterSpacing: 0.9, textTransform: "uppercase" } as const;
   return (
@@ -199,7 +212,7 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
   const drag = useSharedValue(0);
   const pillFace = useSharedValue(1);
   const panelFace = useSharedValue(0);
-  const heading = useRef<Text>(null);
+  const heading = useRef<TextInstance>(null);
   const { plan, label, phase, close, settle, opening, attachOverlay, keyboard, origin } = panel;
   // Before the first opening the pill is unmeasured; the panel still lays out at its real width so its height is known.
   const pill = panel.pill ?? { x: window.width - 80, y: window.height - insets.bottom - 64, width: 60, height: 34 };

@@ -1,11 +1,13 @@
 import { Linking, Text, View } from "react-native";
-import { Stack } from "expo-router";
-import { Notification01Icon } from "@hugeicons/core-free-icons";
+import { Stack, router } from "expo-router";
+import { ArrowRight01Icon, Notification01Icon } from "@hugeicons/core-free-icons";
+import { notificationChimeLabel } from "@milagre/shared/notification-chimes";
+import { useAttentionButton } from "../attention";
 import { useActivity } from "../live-activity";
 import { usePush } from "../push";
 import { useSession } from "../session";
 import { Icon } from "../icons";
-import { ErrorNotice, PageScroll, PillButton, PullDown, Toggle, useStyles } from "../ui";
+import { ErrorNotice, ListRow, PageScroll, PillButton, PullDown, Toggle, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 export default function NotificationsScreen() {
@@ -24,6 +26,7 @@ export function NotificationsView() {
   const push = usePush();
   const activity = useActivity();
   const session = useSession();
+  const [attentionButton, setAttentionButton] = useAttentionButton();
   const state = push.state;
   return (
     <PageScroll>
@@ -67,6 +70,22 @@ export function NotificationsView() {
           onPress={() => void push.preferences({ notifyOnCompletion: !state?.notifyOnCompletion })}
         />
         <Text style={styles.muted}>Completed turns and turns that fail.</Text>
+        <View style={styles.separator} />
+        <Toggle title="Attention button" selected={attentionButton} onPress={() => setAttentionButton(!attentionButton)} />
+        <Text style={styles.muted}>When a Chat in another Project needs an approval or an answer.</Text>
+      </View>
+      <View style={[styles.card, { gap: 4 }]}>
+        <ListRow
+          title="Notification chime"
+          onPress={() => router.push("/chime-sheet")}
+          trailing={
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Text style={{ color: colors.ink3, fontSize: 17 }}>{notificationChimeLabel(state?.chime)}</Text>
+              <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
+            </View>
+          }
+        />
+        <Text style={styles.muted}>Plays when a Chat finishes or needs you, on this phone. Picking one plays it.</Text>
       </View>
       <View style={styles.card}>
         <Toggle
