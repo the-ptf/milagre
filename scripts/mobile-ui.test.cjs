@@ -7395,6 +7395,7 @@ test("mobile subagent detail reads the whole transcript when the host sent only 
 test("mobile main sync switch re-reads the Mac's default on focus and shows a refused save", async () => {
   const react = hookHost();
   const focused = [];
+  const pushed = [];
   let saved = false;
   const client = {
     async call(method) {
@@ -7402,29 +7403,25 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
       throw new Error("This demo computer only opens its demo project.");
     },
   };
-  const { SettingsView } = load("app/settings.tsx", {
+  const { GeneralSection } = load("general-section.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "@milagre/shared/main-sync": { MAIN_SYNC_TITLE: "Sync main branch before new Worktrees", MAIN_SYNC_HINT: "" },
     "react-native": { View: "View", Text: "Text" },
-    "expo-router": { Stack: { Screen: "Screen" }, router: { push() {} }, useFocusEffect: (fn) => focused.push(fn) },
+    "expo-router": { router: { push: (path) => pushed.push(path) }, useFocusEffect: (fn) => focused.push(fn) },
     "@hugeicons/core-free-icons": {},
-    "../session": { useSession: () => ({ recent: [], client }) },
-    "../project-icon": { ProjectIcon: "ProjectIcon" },
-    "../live-activity-native": { nativeActivity: null },
-    "../push": { usePush: () => ({}) },
-    "../update-sheet": { useAppUpdates: () => ({ state: { status: "disabled" } }) },
-    "../icons": { Icon: "Icon" },
-    "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", Toggle: "Toggle", styles: {} },
-    "../attention": { useAttentionButton: () => [true, () => {}] },
+    "./session": { useSession: () => ({ client }) },
+    "./icons": { Icon: "Icon" },
+    "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
   });
   const render = () => {
     react.begin();
-    return SettingsView({ onOpen() {} });
+    return GeneralSection();
   };
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   const toggle = () => find(render(), (n) => n.props?.title === "Sync main branch before new Worktrees");
-  render();
+  find(render(), (n) => n.type === "ListRow" && n.props.title === "Plan usage").props.onPress();
+  assert.deepEqual(pushed, ["/usage"]);
   focused.at(-1)();
   await settle();
   assert.equal(toggle().props.selected, false);
@@ -7439,54 +7436,81 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
   assert.equal(find(render(), (n) => n.type === "ErrorNotice").props.message, "This demo computer only opens its demo project.");
 });
 
-test("mobile Settings opens Experimental as its own page, like desktop's section", () => {
+test("mobile Settings lists desktop's sections in desktop's order", () => {
   const opened = [];
   const { SettingsView } = load("app/settings.tsx", {
     react: { useState: (value) => [value, () => {}], useCallback: (fn) => fn },
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/main-sync": { MAIN_SYNC_TITLE: "Sync main branch before new Worktrees", MAIN_SYNC_HINT: "" },
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { Stack: { Screen: "Screen" }, router: { push() {} }, useFocusEffect() {} },
     "@hugeicons/core-free-icons": {},
     "../session": { useSession: () => ({ recent: [], client: null }) },
     "../project-icon": { ProjectIcon: "ProjectIcon" },
-    "../live-activity-native": { nativeActivity: null },
     "../push": { usePush: () => ({}) },
     "../update-sheet": { useAppUpdates: () => ({ state: { status: "disabled" } }) },
-    "../icons": { Icon: "Icon" },
-    "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", Toggle: "Toggle", styles: {} },
-    "../attention": { useAttentionButton: () => [true, () => {}] },
+    "../icons": { Icon: "Icon", LinearLogo: "LinearLogo" },
+    "../ui": { ListRow: "ListRow", PageScroll: "PageScroll", useStyles: () => ({}) },
   });
   const tree = SettingsView({ onOpen: (page) => opened.push(page) });
-  assert.equal(
-    find(tree, (n) => n.props?.title === "Linear"),
-    undefined,
-    "the Linear switch lives on the Experimental page",
+  const rows = [];
+  const walk = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "ListRow") rows.push(node);
+    const children = node.props?.children;
+    for (const child of Array.isArray(children) ? children.flat(Infinity) : [children]) walk(child);
+  };
+  walk(tree);
+  assert.deepEqual(
+    rows.map((row) => row.props.title),
+    [
+      "General",
+      "Accounts",
+      "Project Accounts",
+      "Appearance",
+      "Chat",
+      "Notifications",
+      "Linear",
+      "Skills",
+      "MCP",
+      "Milagre MCP",
+      "Experimental",
+      "Privacy & AI",
+      "App update",
+    ],
   );
-  find(tree, (n) => n.type === "ListRow" && n.props.title === "Experimental").props.onPress();
-  find(tree, (n) => n.type === "ListRow" && n.props.title === "Milagre MCP").props.onPress();
-  assert.deepEqual(opened, ["experimental", "local-mcp"]);
-  const { default: LocalScreen } = load("app/local-mcp.tsx", {
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "expo-router": { Stack: { Screen: "Screen" } },
-    "../ui": { PageScroll: "PageScroll" },
-    "../local-mcp-section": { LocalMcpSection: "LocalMcpSection" },
-  });
-  const localPage = LocalScreen();
-  assert.equal(find(localPage, (n) => n.type === "Screen").props.options.title, "Milagre MCP");
-  assert.ok(find(localPage, (n) => n.type === "LocalMcpSection"));
-  const { default: Screen } = load("app/experimental.tsx", {
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "expo-router": { Stack: { Screen: "Screen" } },
-    "../ui": { PageScroll: "PageScroll" },
-    "../experimental-section": { ExperimentalSection: "ExperimentalSection" },
-  });
-  const page = Screen();
-  assert.equal(find(page, (n) => n.type === "Screen").props.options.title, "Experimental");
-  assert.ok(find(page, (n) => n.type === "ExperimentalSection"));
+  for (const row of rows.slice(0, -1)) row.props.onPress();
+  assert.deepEqual(opened, [
+    "general",
+    "accounts",
+    "project-accounts",
+    "appearance",
+    "chat-display",
+    "notifications",
+    "linear",
+    "skills",
+    "mcp",
+    "local-mcp",
+    "experimental",
+    "privacy",
+  ]);
+  const page = (file, title, section, name) => {
+    const { default: Screen } = load(file, {
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "expo-router": { Stack: { Screen: "Screen" } },
+      "../ui": { PageScroll: "PageScroll" },
+      [`../${section}`]: { [name]: name },
+    });
+    const rendered = Screen();
+    assert.equal(find(rendered, (n) => n.type === "Screen").props.options.title, title);
+    assert.ok(find(rendered, (n) => n.type === name));
+  };
+  page("app/general.tsx", "General", "general-section", "GeneralSection");
+  page("app/linear.tsx", "Linear", "linear-section", "LinearSection");
+  page("app/local-mcp.tsx", "Milagre MCP", "local-mcp-section", "LocalMcpSection");
+  page("app/experimental.tsx", "Experimental", "experimental-section", "ExperimentalSection");
 });
 
-test("mobile Experimental page shows the Mac's Linear switch and status, re-read on focus", async () => {
+test("mobile Linear page shows the Mac's Linear switch and status, re-read on focus", async () => {
   const react = hookHost();
   const focused = [];
   let status = { connected: false };
@@ -7508,26 +7532,13 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
     "@milagre/shared/linear": require("../packages/shared/src/linear.ts"),
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
-    "@milagre/shared/themes": {
-      DEFAULT_THEME_ID: "milagre-blue",
-      seedsFrom: (id) => ({ from: id }),
-    },
-    "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./ultracode-fatality-setting": {
-      useUltracodeFatality: () => [false, () => {}],
-    },
-    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
-    "./push": { usePush: () => ({ state: null }) },
-    "./icons": { Icon: "Icon" },
-    "@hugeicons/core-free-icons": {},
-    "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
-    "./session": { useSession: () => ({ designs: designsOn, ...session }) },
+    "./session": { useSession: () => session },
     "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
   });
-  const { ExperimentalSection } = load("experimental-section.tsx", modules({ client }));
+  const { LinearSection } = load("linear-section.tsx", modules({ client }));
   const render = () => {
     react.begin();
-    return ExperimentalSection();
+    return LinearSection();
   };
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   const text = (tree, value) => find(tree, (n) => n.type === "Text" && n.props.children === value);
@@ -7564,21 +7575,37 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
   assert.deepEqual(saves, [false]);
   assert.equal(text(render(), "Connected to Acme, as Victor"), undefined, "the status hides while the switch is off");
 
-  const offline = load("experimental-section.tsx", modules({ client: null })).ExperimentalSection;
+  const offline = load("linear-section.tsx", modules({ client: null })).LinearSection;
   react.begin();
   const empty = offline();
-  assert.ok(text(empty, "Connect to a Mac to change its experimental features."));
-  assert.ok(
-    find(empty, (n) => n.props?.title === "Ultracode Fatality"),
-    "Ultracode Fatality is this phone's own switch and shows without a Mac",
-  );
+  assert.ok(text(empty, "Connect to a Mac to change its Linear connection."));
   assert.equal(
     find(empty, (n) => n.props?.title === "Linear"),
     undefined,
   );
+  // The Linear switch no longer lives on the Experimental page.
+  const experimental = load("experimental-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./icons": { Icon: "Icon" },
+    "@hugeicons/core-free-icons": {},
+    "./session": { useSession: () => ({ designs: designsOn, client }) },
+    "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
+  }).ExperimentalSection;
+  react.begin();
+  const experimentalTree = experimental();
+  assert.ok(find(experimentalTree, (n) => n.props?.title === "Ultracode Fatality"));
+  assert.equal(
+    find(experimentalTree, (n) => n.props?.title === "Linear"),
+    undefined,
+  );
 });
 
-test("mobile Experimental page shows the Mac's usage-limit auto-switch, saved on the Mac and rolled back when refused", async () => {
+test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the Mac and rolled back when refused", async () => {
   const react = hookHost();
   const focused = [];
   const saves = [];
@@ -7597,24 +7624,15 @@ test("mobile Experimental page shows the Mac's usage-limit auto-switch, saved on
   const modules = (session) => ({
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/linear": require("../packages/shared/src/linear.ts"),
     "react-native": { View: "View", Text: "Text" },
-    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
-    "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue", seedsFrom: (id) => ({ from: id }) },
-    "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
-    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
-    "./push": { usePush: () => ({ state: null }) },
-    "./icons": { Icon: "Icon" },
-    "@hugeicons/core-free-icons": {},
-    "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
-    "./session": { useSession: () => ({ designs: { ...designsOn }, ...session }) },
-    "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PillButton: "PillButton", Toggle: "Toggle", styles: {} },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+    "./session": { useSession: () => session },
+    "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
   });
-  const { ExperimentalSection } = load("experimental-section.tsx", modules({ client }));
+  const { LimitAutoSwitchSection } = load("limit-switch-section.tsx", modules({ client }));
   const render = () => {
     react.begin();
-    return ExperimentalSection();
+    return LimitAutoSwitchSection();
   };
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   const title = "Switch accounts at usage limits";
@@ -7639,7 +7657,7 @@ test("mobile Experimental page shows the Mac's usage-limit auto-switch, saved on
   assert.deepEqual(saves, [true, false]);
   assert.equal(find(tree, (n) => n.props?.title === title).props.selected, true, "a refused save puts the switch back");
   assert.match(find(tree, (n) => n.type === "ErrorNotice").props.message, /does not allow/);
-  const older = load("experimental-section.tsx", modules({ client: { call: async () => null } })).ExperimentalSection;
+  const older = load("limit-switch-section.tsx", modules({ client: { call: async () => null } })).LimitAutoSwitchSection;
   react.begin();
   older();
   for (const effect of focused.splice(0)) effect();
@@ -7818,7 +7836,7 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
   }
 });
 
-test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue off, and shows the editor only while on", () => {
+test("mobile Appearance Custom theme switch selects Custom on, Milagre Blue off, and shows the editor only while on", () => {
   const react = hookHost();
   const saved = [];
   let settings = {
@@ -7826,30 +7844,18 @@ test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue of
     customThemeEnabled: false,
     customTheme: null,
   };
-  const { ExperimentalSection } = load("experimental-section.tsx", {
+  const { AppearanceSection } = load("appearance-section.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/linear": {
-      LINEAR_TITLE: "Linear",
-      LINEAR_HINT: "hint",
-      linearStatusLine: () => "",
-    },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", Platform: { OS: "ios" } },
+    "expo-haptics": {},
     "@milagre/shared/themes": {
       DEFAULT_THEME_ID: "milagre-blue",
       seedsFrom: (id) => ({ from: id }),
+      themes: [],
+      themeSwatch: () => ({}),
     },
-    "react-native": { View: "View", Text: "Text" },
-    "expo-router": { useFocusEffect() {} },
     "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./ultracode-fatality-setting": {
-      useUltracodeFatality: () => [false, () => {}],
-    },
-    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
-    "./push": { usePush: () => ({ state: null }) },
-    "./icons": { Icon: "Icon" },
-    "@hugeicons/core-free-icons": {},
-    "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
-    "./session": { useSession: () => ({ client: null }) },
     "./theme": {
       useTheme: () => ({
         colors: fakePalette,
@@ -7861,11 +7867,11 @@ test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue of
         },
       }),
     },
-    "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
+    "./ui": { Segmented: "Segmented", Toggle: "Toggle", styles: {} },
   });
   const render = () => {
     react.begin();
-    return ExperimentalSection();
+    return AppearanceSection();
   };
   let tree = render();
   assert.equal(

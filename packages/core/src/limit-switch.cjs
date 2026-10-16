@@ -16,7 +16,7 @@ function read(file) {
 
 /**
  * Accounts that hit their plan's usage limit, and the move to another one: from the limit card in a Chat, or by
- * itself when auto-switch is on (Settings › Experimental, kept in `file`). A switch assigns the account to the
+ * itself when auto-switch is on (Settings › Accounts, kept in `file`). A switch assigns the account to the
  * Chat's Project (or Link) with `assign`, then continues the Chat on it.
  * `scope(key)` is the Project's account choices (accounts.scope); `chats` is the ChatHost.
  */

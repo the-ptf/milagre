@@ -1,11 +1,8 @@
-import { useCallback, useState } from "react";
-import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { Text, View } from "react-native";
-import { Stack, router, useFocusEffect } from "expo-router";
+import { Stack, router } from "expo-router";
 import {
   BookOpen01Icon,
   BubbleChatIcon,
-  ChartBarLineIcon,
   Download04Icon,
   FlaskConicalIcon,
   FolderKeyIcon,
@@ -14,28 +11,48 @@ import {
   Plug01Icon,
   SecurityCheckIcon,
   ServerIcon,
+  Settings01Icon,
   UserCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { usePush } from "../push";
 import { useAppUpdates } from "../update-sheet";
-import { Icon } from "../icons";
+import { Icon, LinearLogo } from "../icons";
 import { useSession } from "../session";
 import { ProjectIcon } from "../project-icon";
-import { ErrorNotice, ListRow, PageScroll, Toggle, useStyles } from "../ui";
-import { useAttentionButton } from "../attention";
+import { ListRow, PageScroll, useStyles } from "../ui";
 
 type SettingsPage =
-  | "privacy"
-  | "notifications"
-  | "usage"
+  | "general"
   | "accounts"
   | "project-accounts"
+  | "appearance"
+  | "chat-display"
+  | "notifications"
+  | "linear"
   | "skills"
   | "mcp"
   | "local-mcp"
-  | "appearance"
-  | "chat-display"
-  | "experimental";
+  | "experimental"
+  | "privacy";
+
+type IconData = Parameters<typeof Icon>[0]["icon"];
+
+/** The pages in desktop's Settings order, with its icons. Devices and About live elsewhere on the phone: the Computers
+ * screen pairs and lists computers, and App update closes the list. */
+const PAGES: Array<{ page: SettingsPage; title: string; icon: IconData | "linear" }> = [
+  { page: "general", title: "General", icon: Settings01Icon },
+  { page: "accounts", title: "Accounts", icon: UserCircleIcon },
+  { page: "project-accounts", title: "Project Accounts", icon: FolderKeyIcon },
+  { page: "appearance", title: "Appearance", icon: PaintBoardIcon },
+  { page: "chat-display", title: "Chat", icon: BubbleChatIcon },
+  { page: "notifications", title: "Notifications", icon: Notification01Icon },
+  { page: "linear", title: "Linear", icon: "linear" },
+  { page: "skills", title: "Skills", icon: BookOpen01Icon },
+  { page: "mcp", title: "MCP", icon: Plug01Icon },
+  { page: "local-mcp", title: "Milagre MCP", icon: ServerIcon },
+  { page: "experimental", title: "Experimental", icon: FlaskConicalIcon },
+  { page: "privacy", title: "Privacy & AI", icon: SecurityCheckIcon },
+];
 
 export default function SettingsScreen() {
   return (
@@ -52,40 +69,9 @@ export default function SettingsScreen() {
 export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void }) {
   const styles = useStyles();
   const push = usePush();
-  const [attentionButton, setAttentionButton] = useAttentionButton();
   const updates = useAppUpdates();
   const session = useSession();
   const projects = session.recent.filter((project) => !project.link);
-  // The computer's global default for main branch sync; null until it answers (an older Mac never does). Re-read on
-  // focus: it may have changed on the Mac while the phone was on another screen.
-  const [syncMain, setSyncMain] = useState<boolean | null>(null);
-  const [syncMainError, setSyncMainError] = useState("");
-  useFocusEffect(
-    useCallback(() => {
-      const client = session.client;
-      if (!client) return;
-      let live = true;
-      client.call<{ syncMain: boolean }>("main-sync:default:read", []).then(
-        (value) => live && setSyncMain(value.syncMain),
-        () => live && setSyncMain(null),
-      );
-      return () => {
-        live = false;
-      };
-    }, [session.client]),
-  );
-  async function changeSyncMain(next: boolean) {
-    const client = session.client;
-    if (!client) return;
-    setSyncMainError("");
-    setSyncMain(next);
-    try {
-      setSyncMain((await client.call<{ syncMain: boolean }>("main-sync:default:save", [next])).syncMain);
-    } catch (failure) {
-      setSyncMain(!next);
-      setSyncMainError(failure instanceof Error ? failure.message : "Could not change this setting.");
-    }
-  }
   const status = updates.state.status;
   const update =
     status === "disabled"
@@ -106,38 +92,26 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
   return (
     <View style={{ gap: 8 }}>
       <View style={[styles.card, { paddingVertical: 4, gap: 0 }]}>
-        <ListRow compact title="Project Accounts" leading={<Icon icon={FolderKeyIcon} tone="ink" size={20} />} onPress={() => onOpen("project-accounts")} />
-        <View style={styles.separator} />
-        <ListRow compact title="Accounts" leading={<Icon icon={UserCircleIcon} tone="ink" size={20} />} onPress={() => onOpen("accounts")} />
-        <View style={styles.separator} />
-        <ListRow
-          compact
-          title="Notifications"
-          subtitle={push.state ? (push.state.enabled ? "On" : "Off") : undefined}
-          leading={<Icon icon={Notification01Icon} tone="ink" size={20} />}
-          onPress={() => onOpen("notifications")}
-        />
-        <View style={styles.separator} />
-        <View style={{ paddingHorizontal: 16 }}>
-          <Toggle title="Attention button" selected={attentionButton} onPress={() => setAttentionButton(!attentionButton)} />
-        </View>
-        <View style={styles.separator} />
-        <ListRow compact title="Plan usage" leading={<Icon icon={ChartBarLineIcon} tone="ink" size={20} />} onPress={() => onOpen("usage")} />
-        <View style={styles.separator} />
-        <ListRow compact title="Skills" leading={<Icon icon={BookOpen01Icon} tone="ink" size={20} />} onPress={() => onOpen("skills")} />
-        <View style={styles.separator} />
-        <ListRow compact title="Milagre MCP" leading={<Icon icon={ServerIcon} tone="ink" size={20} />} onPress={() => onOpen("local-mcp")} />
-        <View style={styles.separator} />
-        <ListRow compact title="MCP" leading={<Icon icon={Plug01Icon} tone="ink" size={20} />} onPress={() => onOpen("mcp")} />
-        <View style={styles.separator} />
-        <ListRow compact title="Appearance" leading={<Icon icon={PaintBoardIcon} tone="ink" size={20} />} onPress={() => onOpen("appearance")} />
-        <View style={styles.separator} />
-        <ListRow compact title="Chat" leading={<Icon icon={BubbleChatIcon} tone="ink" size={20} />} onPress={() => onOpen("chat-display")} />
-        <View style={styles.separator} />
-        <ListRow compact title="Experimental" leading={<Icon icon={FlaskConicalIcon} tone="ink" size={20} />} onPress={() => onOpen("experimental")} />
-        <View style={styles.separator} />
-        <ListRow compact title="Privacy & AI" leading={<Icon icon={SecurityCheckIcon} tone="ink" size={20} />} onPress={() => onOpen("privacy")} />
-        <View style={styles.separator} />
+        {PAGES.map((item) => (
+          <View key={item.page}>
+            <ListRow
+              compact
+              title={item.title}
+              subtitle={item.page === "notifications" && push.state ? (push.state.enabled ? "On" : "Off") : undefined}
+              leading={
+                item.icon === "linear" ? (
+                  <View style={{ width: 20, height: 20, alignItems: "center", justifyContent: "center" }}>
+                    <LinearLogo size={16} tone="ink" />
+                  </View>
+                ) : (
+                  <Icon icon={item.icon} tone="ink" size={20} />
+                )
+              }
+              onPress={() => onOpen(item.page)}
+            />
+            <View style={styles.separator} />
+          </View>
+        ))}
         {/* Checks now and shows the update sheet, which follows the check to Up to date or Update now. */}
         <ListRow
           compact
@@ -151,16 +125,6 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
           }}
         />
       </View>
-      {session.client && syncMain !== null && (
-        <>
-          <Text style={[styles.label, { marginTop: 16 }]}>Worktrees</Text>
-          <View style={[styles.card, { gap: 4 }]}>
-            <Toggle title={MAIN_SYNC_TITLE} selected={syncMain} onPress={() => void changeSyncMain(!syncMain)} />
-            <Text style={styles.caption}>{MAIN_SYNC_HINT}</Text>
-            {syncMainError ? <ErrorNotice message={syncMainError} /> : null}
-          </View>
-        </>
-      )}
       {/* The connected computer's Projects; each opens its own settings. */}
       {session.client && projects.length > 0 && (
         <>

@@ -114,7 +114,7 @@ export type PairedDevice = {
 /** A computer pairing with this Mac for the first time, waiting for Allow in its window (devices:pending). */
 export type PendingComputer = { key: string; name: string | null; at: number };
 
-/** How a paired computer stands: "off" while Settings › Experimental › Other computers is off. */
+/** How a paired computer stands: "off" while Settings › Devices › Other computers is off. */
 export type ComputerState = "off" | "connecting" | "online" | "reconnecting" | "offline" | "refused";
 /** A computer this Mac drives, as computers.cjs reports it. `route`: how it is reached while online. */
 export type ComputerView = {
@@ -268,7 +268,7 @@ export type MilagreBridge = {
   /** `moveToStarted`: a Chat started from an issue moves it to In Progress. A Mac that predates it sends none (on). */
   readLinearEnabled: () => Promise<{ enabled: boolean; moveToStarted?: boolean }>;
   saveLinearMoveToStarted: (value: boolean) => Promise<{ moveToStarted: boolean }>;
-  /** Experimental: after a usage limit, move the Chat's Project to the next ready account and continue by itself. */
+  /** Settings › Accounts: after a usage limit, move the Chat's Project to the next ready account and continue by itself. */
   readLimitAutoSwitch: () => Promise<{ autoSwitch: boolean }>;
   saveLimitAutoSwitch: (value: boolean) => Promise<{ autoSwitch: boolean }>;
   saveLinearEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
@@ -286,7 +286,7 @@ export type MilagreBridge = {
     onChanged: (callback: (event: McpChangedEvent) => void) => () => void;
   };
   localMcp: LocalMcpApi;
-  /** The Experimental Linear switch changed, on this Mac or from a phone. */
+  /** The Linear switch (Settings › Linear) changed, on this Mac or from a phone. */
   onLinearEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   /** Assigned issues when query is empty, otherwise workspace matches (a key also finds that issue first). Never rejects. */
   listLinearIssues: (query?: string, options?: { fresh?: boolean; workspace?: string }) => Promise<LinearIssuesResult>;
@@ -490,7 +490,7 @@ export type MilagreBridge = {
   getCachedUsage: (scopeKey?: string) => Promise<UsageSnapshot>;
   /** Whether a chat that waits on the user while Milagre is in the background gets a system notification. */
   setNotifyWhenWaiting: (on: boolean) => Promise<void>;
-  /** The Experimental notification chime: a chat's notification goes silent and the window plays it (onPlayChime). */
+  /** The notification chime (Settings › Notifications): a chat's notification goes silent and the window plays it (onPlayChime). */
   setNotificationChime: (chime: import("@milagre/shared/notification-chimes").NotificationChime) => Promise<void>;
   onPlayChime: (callback: (chime: string) => void) => () => void;
   /** Whether the window lets the blurred desktop show through (macOS). `theme` picks the blur material. */

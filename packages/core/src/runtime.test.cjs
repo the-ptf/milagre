@@ -1058,7 +1058,7 @@ test("linear:worktree-issues names a worktree's issue and linear:issues reports 
     },
   });
   await runtime.openProject(project);
-  assert.deepEqual(await runtime.invoke("linear:issues", [{}]), { error: "Linear is off in Settings › Experimental.", notConnected: true });
+  assert.deepEqual(await runtime.invoke("linear:issues", [{}]), { error: "Linear is off in Settings › Linear.", notConnected: true });
   assert.deepEqual(await runtime.invoke("linear:worktree-issues", [project]), {});
   assert.deepEqual(await runtime.invoke("linear:enabled:save", [true]), { enabled: true });
   assert.deepEqual(events.filter((event) => event.channel === "linear:enabled-changed").at(-1).payload, { enabled: true });
@@ -1100,7 +1100,7 @@ test("worktree:create from a Linear issue refuses while Linear is off or disconn
   const attempt = () => runtime.invoke("worktree:create", [{ projectPath: project, baseBranch: "main", prompt: "x", issueKey: "ENG-12" }]);
 
   // Off: nothing stored, so the switch is off and no token exists.
-  await assert.rejects(attempt(), { message: "Linear is off in Settings › Experimental." });
+  await assert.rejects(attempt(), { message: "Linear is off in Settings › Linear." });
 
   // On, but never connected.
   await fs.mkdir(path.join(dataDir, "linear"), { recursive: true });
@@ -1265,7 +1265,7 @@ test("worktree:link-issue refuses while Linear is off, disconnected, malformed o
   const { project, dataDir, runtime, worktreeId, worktree, events } = await linkFixture(t);
   const attempt = (key = "ENG-12") => runtime.invoke("worktree:link-issue", [{ projectPath: project, worktreeId, key }]);
   await fs.writeFile(path.join(dataDir, "linear", "settings.json"), JSON.stringify({ enabled: false }));
-  await assert.rejects(attempt(), { message: "Linear is off in Settings › Experimental." });
+  await assert.rejects(attempt(), { message: "Linear is off in Settings › Linear." });
   await fs.writeFile(path.join(dataDir, "linear", "settings.json"), JSON.stringify({ enabled: true }));
   await fs.rm(path.join(dataDir, "linear", "workspaces", "acme.json"));
   await assert.rejects(attempt(), { message: "Linear isn't connected." });

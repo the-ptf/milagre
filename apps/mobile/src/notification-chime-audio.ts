@@ -1,7 +1,7 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
 import type { NotificationChime } from "@milagre/shared/notification-chimes";
 
-// The same wavs app.json bundles for push sounds, loaded here to preview a chime in Settings > Experimental.
+// The same wavs app.json bundles for push sounds, loaded here to preview a chime in Settings > Notifications.
 const SOURCES: Record<Exclude<NotificationChime, "system">, number> = {
   miracle: require("../assets/sounds/chime_miracle.wav"),
   faaah: require("../assets/sounds/chime_faaah.wav"),

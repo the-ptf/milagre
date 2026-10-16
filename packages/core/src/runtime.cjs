@@ -695,7 +695,7 @@ function createRuntime(options) {
   // `workspace` is the one the picker showed it from; without it, the workspace that has the key.
   async function readLinearIssue(key, workspace) {
     // Checked before any query, so a Chat that can't reach Linear never creates a Worktree.
-    if (!linear.enabled()) throw new Error("Linear is off in Settings › Experimental.");
+    if (!linear.enabled()) throw new Error("Linear is off in Settings › Linear.");
     if (!linear.workspaces().length) throw new Error("Linear isn't connected.");
     const issue = await linearIssues.readIssue(key, workspace);
     if (!issue) throw new Error(`${key} no longer exists in Linear.`);
