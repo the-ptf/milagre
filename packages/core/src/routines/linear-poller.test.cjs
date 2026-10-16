@@ -368,7 +368,7 @@ const assignedIssues = (count) =>
     });
   });
 
-test("issues past the page cap aren't lost: the cursor stops at the last issue read and the next poll goes on from there", async () => {
+test("issues past the page cap aren't lost: the next poll reads on from where the last one stopped", async () => {
   const ctx = setup();
   ctx.routine({ event: "assigned" });
   ctx.linear.data.pageSize = 2;
@@ -378,7 +378,8 @@ test("issues past the page cap aren't lost: the cursor stops at the last issue r
   await ctx.poller.pollNow("a");
   // Five pages of two.
   assert.equal(ctx.enqueued.length, 10);
-  assert.equal(ctx.store.linearCursor("a"), START + 100_000);
+  // Not saved until the read is done: a restart reads it again rather than skip what's left.
+  assert.equal(ctx.store.linearCursor("a"), undefined);
   await ctx.poller.pollNow("a");
   assert.deepEqual(
     ctx.enqueued.map(({ event }) => event.key),
@@ -388,7 +389,7 @@ test("issues past the page cap aren't lost: the cursor stops at the last issue r
   ctx.poller.stop();
 });
 
-test("comments past the page cap aren't lost: the window narrows until it fits, and the comment cursor moves on", async () => {
+test("comments past the page cap aren't lost: the window is read on across polls, then queued and the comment cursor moves on", async () => {
   const ctx = setup({ linked: () => true });
   ctx.routine({ event: "comment" });
   ctx.linear.data.pageSize = 2;
@@ -484,4 +485,94 @@ test("a poll still under way when polling stops queues nothing and moves no curs
   assert.equal(ctx.store.linearCursor("a"), undefined);
   assert.equal(ctx.store.get(routine.id).lastError, "Linear sign-in needed");
   assert.deepEqual(ctx.timers.pending(), []);
+});
+
+test("an issue history longer than the page cap is read on next poll, and the cursor waits for it", async () => {
+  const ctx = setup();
+  ctx.routine({ event: "assigned" });
+  ctx.linear.data.pageSize = 2;
+  // Fourteen changes: the poll reads five pages of two, the match is on the seventh page.
+  const whole = Array.from({ length: 14 }, (_, index) => ({
+    id: `n${index}`,
+    createdAt: iso(START + 1_000 + index),
+    addedLabels: [],
+    toAssignee: null,
+    toState: null,
+  }));
+  whole[13] = assignedToMe("mine", START + 2_000);
+  ctx.linear.data.histories["issue-1"] = whole;
+  ctx.linear.data.issues.a = [issue({ updatedAt: iso(START + 3_000), history: { nodes: whole.slice(0, 2), pageInfo: { hasNextPage: true, endCursor: "2" } } })];
+  ctx.clock.t = START + 60_000;
+  ctx.poller.start();
+  await ctx.poller.pollNow("a");
+  assert.deepEqual(ctx.enqueued, []);
+  assert.equal(ctx.store.linearCursor("a"), undefined, "the cursor doesn't pass an issue whose history wasn't all read");
+  await ctx.poller.pollNow("a");
+  assert.deepEqual(
+    ctx.enqueued.map(({ event }) => event.key),
+    ["linear:issue-1:mine"],
+  );
+  assert.equal(ctx.store.linearCursor("a"), START + 3_000);
+  ctx.poller.stop();
+});
+
+test("a bulk update with more than a page of issues sharing one updatedAt is read through, and the cursor moves past it", async () => {
+  const ctx = setup();
+  ctx.routine({ event: "assigned" });
+  ctx.linear.data.pageSize = 1;
+  const at = START + 10_000;
+  ctx.linear.data.issues.a = Array.from({ length: 12 }, (_, index) =>
+    issue({
+      id: `i${index}`,
+      identifier: `MIL-${index}`,
+      updatedAt: iso(at),
+      history: { nodes: [assignedToMe(`h${index}`, at)], pageInfo: { hasNextPage: false } },
+    }),
+  );
+  ctx.clock.t = START + 60_000;
+  ctx.poller.start();
+  await ctx.poller.pollNow("a");
+  assert.equal(ctx.enqueued.length, 5);
+  await ctx.poller.pollNow("a");
+  assert.equal(ctx.enqueued.length, 10);
+  await ctx.poller.pollNow("a");
+  assert.equal(ctx.enqueued.length, 12);
+  assert.equal(ctx.store.linearCursor("a"), at);
+  const calls = ctx.linear.data.calls.length;
+  await ctx.poller.pollNow("a");
+  // The next read starts 5 s before the cursor and finds only what it already queued.
+  assert.equal(ctx.enqueued.length, 12);
+  assert.equal(ctx.linear.data.calls.slice(calls).find((call) => call.document.includes("PollIssues")).variables.since, iso(at - 5_000));
+  ctx.poller.stop();
+});
+
+test("a dense burst of comments in one second is read forward across polls and every comment is queued once", async () => {
+  const ctx = setup({ linked: () => true });
+  ctx.routine({ event: "comment" });
+  ctx.linear.data.pageSize = 2;
+  const at = START + 10_000;
+  ctx.linear.data.comments.a = Array.from({ length: 18 }, (_, index) => ({
+    id: `c${index}`,
+    body: "Hi",
+    createdAt: iso(at),
+    botActor: null,
+    user: { name: "V" },
+    issue: issue(),
+  }));
+  ctx.clock.t = START + 60_000;
+  ctx.poller.start();
+  const afters = [];
+  for (let poll = 0; poll < 2; poll += 1) {
+    const from = ctx.linear.data.calls.length;
+    await ctx.poller.pollNow("a");
+    afters.push(ctx.linear.data.calls.slice(from).find((call) => call.document.includes("PollComments")).variables.after);
+    if (poll < 1) assert.equal(ctx.store.linearCursor("a:comments"), undefined, "no cursor move across unread pages");
+  }
+  // Each poll starts where the last stopped.
+  assert.deepEqual(afters, [null, "10"]);
+  // 18, under the store's 20-item queue cap.
+  assert.equal(ctx.enqueued.length, 18);
+  assert.equal(new Set(ctx.enqueued.map(({ event }) => event.key)).size, 18);
+  assert.equal(ctx.store.linearCursor("a:comments"), START + 60_000);
+  ctx.poller.stop();
 });
