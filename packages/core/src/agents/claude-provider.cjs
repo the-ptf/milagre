@@ -15,7 +15,7 @@ const {
   mapClaudeMessage,
   missingCliMessage,
 } = require("./events.cjs");
-const { PendingPermissions, claudeRequest, claudeResult, insideRoot, insideWorkspace } = require("./permissions.cjs");
+const { DENIED_MESSAGE, PendingPermissions, claudeRequest, claudeResult, insideRoot, insideWorkspace } = require("./permissions.cjs");
 const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = require("./questions.cjs");
 const { mcpContent, runTool } = require("../linked-tools.cjs");
 const { advisorPolicy, ANALYSIS_INSTRUCTIONS } = require("./advisor-policy.cjs");
@@ -303,6 +303,29 @@ class ClaudeSession {
     this.mcpOff = extras?.off ?? [];
     const linked = this.linked?.tools.length ? linkedOptions(this.linked.tools, sdk) : {};
     const extraServers = Object.fromEntries((extras?.servers ?? []).map((def) => [def.name, toClaudeConfig(def)]));
+    const hooks = {};
+    // Subagents don't get the system prompt above: they are told to keep a to-do list for the Subagents panel, and to
+    // design on the Chat's canvas when they have Milagre's tools.
+    if (!this.analysisOnly)
+      hooks.SubagentStart = [
+        {
+          hooks: [
+            async () => ({
+              hookSpecificOutput: {
+                hookEventName: "SubagentStart",
+                additionalContext: [
+                  SUBAGENT_PLAN_INSTRUCTIONS,
+                  this.designsEnabled && this.linked?.tools.some((tool) => tool.name === "design_show") ? SUBAGENT_DESIGN_INSTRUCTIONS : "",
+                ]
+                  .filter(Boolean)
+                  .join("\n\n"),
+              },
+            }),
+          ],
+        },
+      ];
+    if (!this.analysisOnly && this.permissions.mode === "bot" && this.permissionPolicy)
+      hooks.PreToolUse = [{ hooks: [(input, toolUseID) => this.gateHook(input, toolUseID)] }];
     this.query = sdk.query({
       prompt: this.inbox,
       options: {
@@ -328,31 +351,7 @@ class ClaudeSession {
         },
         ...linked,
         ...(Object.keys(extraServers).length ? { mcpServers: { ...extraServers, ...linked.mcpServers } } : {}),
-        // Subagents don't get the system prompt above: they are told to keep a to-do list for the Subagents panel, and to
-        // design on the Chat's canvas when they have Milagre's tools.
-        ...(!this.analysisOnly
-          ? {
-              hooks: {
-                SubagentStart: [
-                  {
-                    hooks: [
-                      async () => ({
-                        hookSpecificOutput: {
-                          hookEventName: "SubagentStart",
-                          additionalContext: [
-                            SUBAGENT_PLAN_INSTRUCTIONS,
-                            this.designsEnabled && this.linked?.tools.some((tool) => tool.name === "design_show") ? SUBAGENT_DESIGN_INSTRUCTIONS : "",
-                          ]
-                            .filter(Boolean)
-                            .join("\n\n"),
-                        },
-                      }),
-                    ],
-                  },
-                ],
-              },
-            }
-          : {}),
+        ...(Object.keys(hooks).length ? { hooks } : {}),
         canUseTool: (toolName, input, options) =>
           toolName === "AskUserQuestion" ? this.askQuestion(input, options) : this.askPermission(toolName, input, options),
         ...(this.analysisOnly ? advisorPolicy("claude", this.linked?.tools ?? []) : {}),
@@ -375,6 +374,28 @@ class ClaudeSession {
     // Thinking arrives as readable summaries rather than empty blocks, for the reply's thinking steps.
     // Only the display changes (null keeps the model's own thinking budget), so it suits every model.
     await this.query.setMaxThinkingTokens?.(null, "summarized").catch(() => {});
+  }
+
+  // Bot rules: Claude Code runs PreToolUse hooks before its permission rules, and a hook's "ask" is
+  // settled by canUseTool even when the user's Claude settings allow the tool (only their deny and ask
+  // rules are checked), so an allow rule such as `Bash(gh pr merge:*)` can't skip a gate. Anything
+  // else goes on to Claude Code's own rules and then canUseTool, where the policy answers again.
+  async gateHook(input, toolUseID) {
+    if (this.permissions.mode !== "bot") return {};
+    const output = (permissionDecision, permissionDecisionReason) => ({
+      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision, permissionDecisionReason },
+    });
+    let verdict;
+    try {
+      verdict = this.permissionPolicy(claudeRequest(input.tool_name, input.tool_input ?? {}, { toolUseID: toolUseID ?? input.tool_use_id }));
+    } catch (error) {
+      // A policy that fails can't tell a gate from the rest, so the user decides on a card.
+      console.warn("Bot permission policy failed:", error.message);
+      return output("ask", "Bot rules");
+    }
+    if (verdict?.gate) return output("ask", verdict.gate.title);
+    if (verdict === "deny") return output("deny", DENIED_MESSAGE);
+    return {};
   }
 
   // Claude Code waits on this promise until the user answers in Milagre, the turn stops, or the SDK
