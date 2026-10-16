@@ -142,6 +142,7 @@ function load(file, modules, extra = "") {
     clearTimeout,
     setInterval,
     clearInterval,
+    queueMicrotask,
   });
   return exports;
 }
@@ -3900,32 +3901,36 @@ test("a cancelled notification target ignores a later network failure", async ()
   assert.equal(await opening, false);
 });
 
+// Router 58's stack reducer, the one the app's navigators run.
+function expoRouters() {
+  return require(require.resolve("expo-router/build/react-navigation/routers/index", { paths: [path.join(__dirname, "../apps/mobile")] }));
+}
+
+// Router 58 has no initial-state helper and rejects partial states, so tests seed a complete one.
+function stackState(routeNames, routes) {
+  return { stale: false, type: "stack", key: "root", index: routes.length - 1, routeKeySeq: 0, routeNames, routes, preloadedRoutes: [] };
+}
+
 function pushHost(t, initial = "index") {
   const react = hookHost();
   react.useEffect = react.effect;
   react.useLayoutEffect = react.effect;
-  // Router 58 rebuilt its stack router as internal extensions, so this models the stack actions the push code uses.
-  let navigation = { index: 0, routes: [{ name: initial }] };
+  const { StackRouter, StackActions } = expoRouters();
+  const stack = StackRouter({ initialRouteName: initial });
+  const options = { routeNames: ["index", "projects", "project", "chat"], routeParamList: {}, routeGetIdList: {} };
+  let navigation = stackState(options.routeNames, [{ key: `${initial}-root`, name: initial }]);
   let pathname = initial === "index" ? "/" : "/chat";
   let params = initial === "chat" ? { id: "1" } : {};
-  const set = (routes) => {
-    navigation = { index: routes.length - 1, routes };
-  };
-  const top = () => navigation.routes.slice(0, -1);
-  const router = {
-    dismissAll: () => set(navigation.routes.slice(0, 1)),
-    replace: (route) => set([...top(), { name: route.pathname.slice(1), params: route.params }]),
-    dismissTo: (path) => {
-      const name = path === "/" ? "index" : path.slice(1);
-      const index = navigation.routes.findLastIndex((route) => route.name === name);
-      // Like POP_TO: a route missing from the stack replaces the current one.
-      set(index >= 0 ? navigation.routes.slice(0, index + 1) : [...top(), { name }]);
-    },
-    push: (route) =>
-      set([...navigation.routes, typeof route === "string" ? { name: route.slice(1) } : { name: route.pathname.slice(1), params: route.params }]),
-  };
   const apply = (action) => {
-    if (action.type === "GO_BACK" && navigation.routes.length > 1) set(top());
+    const result = stack.getStateForAction(navigation, action, options);
+    // An unhandled action, like popping the last route, leaves the stack as it was.
+    if (typeof result === "object") navigation = result.state;
+  };
+  const router = {
+    dismissAll: () => apply(StackActions.popToTop()),
+    replace: (route) => apply(StackActions.replace(route.pathname.slice(1), route.params)),
+    dismissTo: (path) => apply(StackActions.popTo(path === "/" ? "index" : path.slice(1))),
+    push: (route) => apply(StackActions.push(typeof route === "string" ? route.slice(1) : route.pathname.slice(1), route.params)),
   };
   let generation = 0,
     receive;
@@ -4409,10 +4414,13 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
     },
     dispatch: (action) => {
       assert.equal(action.target, "root");
+      const result = stack.getStateForAction(navigation, action, { routeNames: navigation.routeNames, routeParamList: {}, routeGetIdList: {} });
+      assert.equal(typeof result, "object", "Router accepts the reset as a complete navigation state");
       resets.push(action.payload);
-      navigation = action.payload;
+      navigation = result.state;
     },
   };
+  const stack = expoRouters().StackRouter({ initialRouteName: "index" });
   const state = { status: "ready", error: "" };
   const shell = load(
     "update-sheet.tsx",
@@ -4428,7 +4436,6 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
       "expo-updates": { isEnabled: true, useUpdates: () => ({}) },
       "@hugeicons/core-free-icons": { Cancel01Icon: "close" },
       "./update-controller": {
-        promptPopped: load("update-controller.ts", {}).promptPopped,
         watchUpdates: () => () => {},
         createUpdateController: () => {
           created++;
@@ -4449,7 +4456,7 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
     react.flush();
     if (!navigation) {
       assert.deepEqual(routes, []);
-      navigation = { key: "root", routeNames: ["index", "update-sheet", "projects"], index: 0, routes: [{ key: "computers", name: "index" }] };
+      navigation = stackState(["index", "update-sheet", "projects"], [{ key: "computers", name: "index" }]);
       navigationListener();
     }
   }
@@ -4464,8 +4471,10 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
   react.flush();
   assert.equal(resets.length, 1);
   assert.equal(navigation.index, 2);
-  assert.equal(navigation.routes[1], destination, "late navigation retains the destination and its params");
+  assert.equal(navigation.routes[1].key, destination.key, "late navigation retains the destination");
+  assert.deepEqual(navigation.routes[1].params, destination.params, "and its params");
   assert.equal(navigation.routes[2].name, "update-sheet");
+  assert.ok(navigation.routes[2].key, "Router keys the moved prompt");
   assert.equal(navigation.routes.filter((route) => route.name === "update-sheet").length, 1, "late navigation retains one prompt");
   react.begin();
   shell({ children: jsx("Stack", {}) });
@@ -4475,12 +4484,6 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
   navigation = { ...navigation, index: 0, routes: [navigation.routes[0]] };
   navigationListener();
   assert.equal(routes.length, 2, "a notification reset restores the pending prompt");
-  navigation = { ...navigation, index: 1, routes: [navigation.routes[0], { key: "restored-update", name: "update-sheet" }] };
-  navigationListener();
-  navigation = { ...navigation, index: 0, routes: [navigation.routes[0]] };
-  navigationListener();
-  navigationListener();
-  assert.equal(routes.length, 2, "a swipe or back off the prompt defers it instead of pushing it again");
   latestTree.props.value.dismiss();
   navigationListener();
   assert.equal(routes.length, 2, "explicit dismissal stops navigation from reopening the prompt");
@@ -4488,35 +4491,61 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
   assert.equal(navigationListener, undefined);
 });
 
-test("Close defers the prompt before removing its route", () => {
+test("Close, swipe and Android back defer; notification reset and route replacement do not", async () => {
+  const react = hookHost();
   let dismissals = 0,
-    backs = 0;
+    backs = 0,
+    event,
+    removed;
+  const dismiss = () => {
+    dismissals++;
+  };
+  const navigation = {
+    addListener: (name, listener) => {
+      event = name;
+      removed = listener;
+      return () => {
+        removed = undefined;
+      };
+    },
+  };
   const state = { status: "ready", error: "" };
   const route = load("app/update-sheet.tsx", {
+    react: { ...react, useEffect: react.effect },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "expo-router": {
       router: {
         back: () => {
           backs++;
-          assert.equal(dismissals, 1, "Close defers before removing its route");
         },
       },
+      useNavigation: () => navigation,
     },
-    "../update-sheet": {
-      UpdateSheet: "UpdateSheet",
-      useAppUpdates: () => ({
-        state,
-        check() {},
-        install() {},
-        dismiss: () => {
-          dismissals++;
-        },
-      }),
-    },
+    "../update-sheet": { UpdateSheet: "UpdateSheet", useAppUpdates: () => ({ state, check() {}, install() {}, dismiss }) },
   }).default;
-  route().props.onDismiss();
+  react.begin();
+  const tree = route();
+  react.flush();
+  assert.equal(event, "removed");
+  for (const type of ["RESET", "POP_TO"]) removed({ data: { action: { type } } });
+  assert.equal(dismissals, 0, "programmatic navigation keeps the prompt pending");
+  for (const type of ["GO_BACK", "POP"]) removed({ data: { action: { type } } });
+  assert.equal(dismissals, 2);
+  tree.props.onDismiss();
   assert.equal(backs, 1);
-  assert.equal(dismissals, 1);
+  assert.equal(dismissals, 3, "Close defers before removing its route");
+  state.status = "restarting";
+  react.begin();
+  route();
+  react.flush();
+  assert.equal(dismissals, 3);
+  react.cleanup();
+  assert.equal(dismissals, 3, "replacing a native sheet route does not defer the prompt");
+  // Router 58 reports the removal after the screen's effect cleanup, so the listener outlives it by a microtask.
+  removed({ data: { action: { type: "POP" } } });
+  assert.equal(dismissals, 4, "a swipe reported after unmount still defers");
+  await Promise.resolve();
+  assert.equal(removed, undefined);
 });
 
 test("a live turn's step whose output the phone left out does not expand, while saved and clipped steps do", () => {
