@@ -81,6 +81,7 @@ const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 
 const { createFileSearch } = require("./project-files.cjs");
 const { createBots } = require("./bots/index.cjs");
+const { PERMISSION_MODES } = require("./agents/permissions.cjs");
 const { createBotStore } = require("./bots/store.cjs");
 const { isQuietChat } = require("@milagre/shared/bots");
 const git = createGit().read;
@@ -1326,7 +1327,11 @@ function createRuntime(options) {
     await agents.interrupt(chatId);
   }
 
-  commands.handle("agent:respond-permission", (_event, { chatId, requestId, decision }) => agents.respondToPermission(chatId, requestId, decision));
+  // A bot's sign-off card answered from its Chat goes through the sign-off (bots.answerCard), so an expired one is denied.
+  commands.handle("agent:respond-permission", async (_event, { chatId, requestId, decision }) => {
+    const signedOff = await bots.answerCard(chatId, requestId, decision);
+    return signedOff ?? agents.respondToPermission(chatId, requestId, decision);
+  });
 
   // The answers show in the chat as the user's message (`summary`), and are taken back if they don't reach the agent.
   commands.handle("agent:answer-question", async (_event, { chatId, requestId, answers, summary } = {}) => {
@@ -1344,7 +1349,16 @@ function createRuntime(options) {
     }
   });
 
-  commands.handle("agent:set-permission-mode", (_event, { chatId, mode }) => agents.setPermissionMode(chatId, mode));
+  // Bot rules are the bots' own: no client sets them, and a bot's thread keeps them. Changing the mode of a Chat a bot
+  // opened takes it over first, which denies its sign-offs, so Full can't allow them.
+  commands.handle("agent:set-permission-mode", async (_event, { chatId, mode }) => {
+    if (mode === "bot") throw new Error("Only a bot's Chats run in Bot rules.");
+    if (!PERMISSION_MODES.has(mode)) throw new Error(`Unknown permission mode: ${mode}`);
+    const owned = typeof chatId === "string" ? bots.botForChat(chatId) : null;
+    if (owned?.role === "thread") throw new Error(`${owned.bot.name}'s thread always runs in Bot rules.`);
+    if (owned) await bots.takeOver(chatId);
+    return agents.setPermissionMode(chatId, mode);
+  });
 
   async function notifyIfWaiting(chatId, event) {
     const projectPath = projectOfKey(chatId);

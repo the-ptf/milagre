@@ -24,6 +24,8 @@ const SWEEP_MS = 60_000;
 // Answered and expired sign-offs stay in the snapshot this long, so their cards show how they ended.
 const GATE_HISTORY_MS = 24 * 60 * 60 * 1000;
 const SIGN_OFF_CHOICES = new Set(["once", "always", "deny"]);
+// What a Chat's own card answers with (agent:respond-permission).
+const CARD_DECISIONS = new Set(["allow", "allow-for-chat", "deny"]);
 const REPLY_MAX = 1000;
 const FINISHED = { "turn-completed": "done", "turn-failed": "failed", "turn-cancelled": "failed" };
 const OUTCOME = { "turn-completed": "finished", "turn-failed": "failed", "turn-cancelled": "was stopped" };
@@ -380,6 +382,24 @@ function createBots({
     await notify(chat.botId, body, { kind: "bot-chat-finished", chatKey: chat.chatKey, status: FINISHED[event.type] });
   }
 
+  /** The user's sign-off on the card `requestId` in Chat `chatKey`. A card answered or expired already stays as it is. */
+  async function answerGate(chatKey, requestId, choice) {
+    if (!SIGN_OFF_CHOICES.has(choice)) throw new Error(`Unknown sign-off: ${choice}`);
+    const gate = store.gate(String(chatKey), String(requestId));
+    if (!gate) throw new Error("That sign-off is no longer there.");
+    if (gate.status !== "pending") return gate;
+    if (gate.meta.expiresAt <= now()) {
+      await sweep();
+      return store.gate(gate.chatKey, gate.requestId);
+    }
+    if (choice === "always")
+      for (const { kind, target } of gate.meta.actions ?? [gate.meta])
+        if (target && !store.hasGrant(gate.botId, kind, target)) store.addGrant({ botId: gate.botId, gate: kind, target, createdAt: now() });
+    answer(gate, choice === "deny" ? "deny" : "allow", choice === "deny" ? "denied" : "allowed");
+    changed();
+    return store.gate(gate.chatKey, gate.requestId);
+  }
+
   const tools = createBotTools({
     now,
     bots: {
@@ -604,22 +624,18 @@ function createBots({
       }
     },
 
-    /** The user's sign-off on the card `requestId` in Chat `chatKey`. A card answered or expired already stays as it is. */
-    async answerGate(chatKey, requestId, choice) {
-      if (!SIGN_OFF_CHOICES.has(choice)) throw new Error(`Unknown sign-off: ${choice}`);
+    answerGate,
+
+    /**
+     * An answer to a card from its Chat (agent:respond-permission). A sign-off card goes through answerGate, Allow as
+     * once, and resolves true when it ended as asked; any other card is no sign-off, and gets null.
+     */
+    async answerCard(chatKey, requestId, decision) {
       const gate = store.gate(String(chatKey), String(requestId));
-      if (!gate) throw new Error("That sign-off is no longer there.");
-      if (gate.status !== "pending") return gate;
-      if (gate.meta.expiresAt <= now()) {
-        await sweep();
-        return store.gate(gate.chatKey, gate.requestId);
-      }
-      if (choice === "always")
-        for (const { kind, target } of gate.meta.actions ?? [gate.meta])
-          if (target && !store.hasGrant(gate.botId, kind, target)) store.addGrant({ botId: gate.botId, gate: kind, target, createdAt: now() });
-      answer(gate, choice === "deny" ? "deny" : "allow", choice === "deny" ? "denied" : "allowed");
-      changed();
-      return store.gate(gate.chatKey, gate.requestId);
+      if (!gate) return null;
+      if (!CARD_DECISIONS.has(decision)) throw new Error(`Unknown permission decision: ${decision}`);
+      const denied = decision === "deny";
+      return (await answerGate(gate.chatKey, gate.requestId, denied ? "deny" : "once")).status === (denied ? "denied" : "allowed");
     },
 
     /** Revoke on a grant: that gate asks again from the next request. */

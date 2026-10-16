@@ -437,6 +437,64 @@ test("the user's message in a bot Chat never runs in Bot rules", async (t) => {
   assert.equal(turns.at(-1).permissionMode, "ask");
 });
 
+test("no client sets Bot rules, nor changes a bot thread's mode", async (t) => {
+  const { runtime, bot, project, sessions } = await withOps(t);
+  const { state } = await runtime.invoke("project:snapshot", [project]);
+  const worktreeId = Object.values(state.worktrees).find((worktree) => worktree.path === project).id;
+  const { sessionId } = await runtime.invoke("chat:send", [{ projectPath: project, sessionId: null, worktreeId, body: "hi", provider: "codex", model: "m" }]);
+  await waitUntil(() => sessions.some((item) => item.options.cwd === project));
+  await assert.rejects(
+    runtime.invoke("agent:set-permission-mode", [{ chatId: `${project}#${sessionId}`, mode: "bot" }]),
+    /Only a bot's Chats run in Bot rules\./,
+  );
+  assert.notEqual(sessions.find((item) => item.options.cwd === project).permissions.mode, "bot");
+  await runtime.invoke("bots:send", ["ops", "hi"]);
+  await waitUntil(() => sessions.some((item) => item.options.cwd === bot.homePath));
+  await assert.rejects(
+    runtime.invoke("agent:set-permission-mode", [{ chatId: `${bot.homePath}#${bot.threadSessionId}`, mode: "full" }]),
+    /Ops's thread always runs in Bot rules\./,
+  );
+  assert.equal(sessions.find((item) => item.options.cwd === bot.homePath).permissions.mode, "bot");
+});
+
+// A sign-off card published in the running bot Chat, as its session would; `expiresAt` defaults to an hour from now.
+async function signOffIn(f, requestId, expiresAt = Date.now() + 3_600_000) {
+  const { gate } = f.session.options.permissionPolicy({ tool: "Bash", command: "gh pr merge 1" });
+  f.session.options.emit({
+    type: "permission-request",
+    requestId,
+    kind: "command",
+    tool: "Bash",
+    command: "gh pr merge 1",
+    title: "x",
+    gate: { ...gate, expiresAt },
+  });
+  await eventually(async () => (await f.runtime.invoke("bots:list")).gates.some((item) => item.requestId === requestId));
+}
+const gateStatus = async (runtime, requestId) => (await runtime.invoke("bots:list")).gates.find((gate) => gate.requestId === requestId).status;
+
+test("changing a bot Chat's mode takes it over, and its sign-offs are denied", async (t) => {
+  const f = await runningBotChat(t);
+  await signOffIn(f, "r1");
+  await f.runtime.invoke("agent:set-permission-mode", [{ chatId: f.chatKey, mode: "full" }]);
+  assert.equal(await chatStatus(f.runtime, f.chatKey), "taken-over");
+  assert.equal(await gateStatus(f.runtime, "r1"), "denied");
+  assert.deepEqual(f.session.answers, [["r1", "deny"]]);
+  assert.equal(f.session.permissions.mode, "full");
+});
+
+test("a sign-off card answered in its Chat goes through the sign-off", async (t) => {
+  const f = await runningBotChat(t);
+  await signOffIn(f, "r1", Date.now() - 1);
+  assert.equal(await f.runtime.invoke("agent:respond-permission", [{ chatId: f.chatKey, requestId: "r1", decision: "allow" }]), false);
+  assert.equal(await gateStatus(f.runtime, "r1"), "expired");
+  assert.deepEqual(f.session.answers, [["r1", "deny"]]);
+  await signOffIn(f, "r2");
+  assert.equal(await f.runtime.invoke("agent:respond-permission", [{ chatId: f.chatKey, requestId: "r2", decision: "allow-for-chat" }]), true);
+  assert.equal(await gateStatus(f.runtime, "r2"), "allowed");
+  assert.deepEqual(f.session.answers.at(-1), ["r2", "allow"]);
+});
+
 const chatStatus = async (runtime, chatKey) => (await runtime.invoke("bots:list")).chats.find((chat) => chat.chatKey === chatKey)?.status;
 
 test("a bot Chat the quit stopped still runs after the restart", async (t) => {
