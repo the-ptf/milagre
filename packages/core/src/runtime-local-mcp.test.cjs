@@ -139,7 +139,7 @@ test("host MCP registers Worktrees, prepares setup, starts Chats in Ask mode and
   assert.equal(f.sessions[0].turns.length, 1);
   await assert.rejects(
     call(connection, "chat_start", { projectPath: f.project, chatId: chat.chatId, prompt: "Escalate", permissionMode: "full", requestId: "turn-2" }),
-    /Unrecognized|Invalid/,
+    /outside client can't ask for/,
   );
   assert.ok(
     (await call(connection, "chat_read", { projectPath: f.project, chatId: chat.chatId })).messages.some((message) => message.body === "Inspect the project"),

@@ -58,7 +58,10 @@ test("Codex: only Milagre's own plan and routine tools are auto-approved", () =>
   });
   assert.deepEqual(PLAN_TOOL_NAMES, ["tasks_set", "task_update", "tasks_read", "phase_set"]);
   for (const name of [...PLAN_TOOL_NAMES, ...ROUTINE_TOOL_NAMES]) assert.equal(isCodexPlanToolApproval(params(name)), true, name);
+  for (const name of ["worktree_link", "chat_set_mode", "chat_respond"])
+    assert.equal(isCodexPlanToolApproval(params(name)), true, `${name} asks on its own card`);
   assert.equal(isCodexPlanToolApproval(params("design_show")), false);
+  assert.equal(isCodexPlanToolApproval(params("chat_start")), false);
   assert.equal(isCodexPlanToolApproval(params("tasks_set", { serverName: "other" })), false);
   assert.equal(isCodexPlanToolApproval(params("tasks_set", { _meta: { codex_approval_kind: "other" } })), false);
   assert.equal(isCodexPlanToolApproval(params("tasks_set", { requestedSchema: { type: "object", properties: { name: { type: "string" } } } })), false);
