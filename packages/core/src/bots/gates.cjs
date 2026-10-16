@@ -819,15 +819,53 @@ function ghGate(gh, options) {
   return null;
 }
 
-// `gh … --repo owner/name` (or `-R`, `--repo=`): the grant target.
-function repoFlag(words) {
-  if (words[0] !== "gh") return null;
-  for (let index = 1; index < words.length; index++) {
+// gh flags whose value is text, so a value that looks like a flag (`--body "-Rx"`) isn't read as one.
+const GH_TEXT_VALUES = new Set([
+  "-b",
+  "--body",
+  "-F",
+  "--body-file",
+  "-t",
+  "--title",
+  "--subject",
+  "-A",
+  "--author-email",
+  "--match-head-commit",
+  "-f",
+  "--raw-field",
+  "--field",
+  "-H",
+  "--header",
+  "-q",
+  "--jq",
+  "--template",
+]);
+
+// gh's grant target: the repo it acts on, by its last `-R`/`--repo` or a github.com PR URL, or none named. Two
+// different ones or another host leave it uncertain.
+function ghTarget(gh) {
+  const repos = new Set();
+  let last = null;
+  let host = false;
+  const words = gh.words.slice(1 + gh.command.length);
+  const add = (repo) => {
+    repos.add(repo);
+    last = repo;
+  };
+  for (let index = 0; index < words.length; index++) {
     const word = words[index];
-    if (word === "--repo" || word === "-R") return words[index + 1] ?? null;
-    if (word.startsWith("--repo=")) return word.slice("--repo=".length);
+    if (word === "-R" || word === "--repo") add(words[++index] ?? "");
+    else if (word.startsWith("--repo=")) add(word.slice("--repo=".length));
+    else if (/^-R./.test(word)) add(word.slice(2));
+    else if (word === "--hostname" || word.startsWith("--hostname=")) host = true;
+    else if (GH_TEXT_VALUES.has(word)) index++;
+    else {
+      const url = /^https?:\/\/([^/]+)\/([^/]+)\/([^/]+)\/(pull|issues)\/\d+/.exec(word);
+      if (url?.[1] === "github.com") add(`${url[2]}/${url[3]}`);
+      else if (url) host = true;
+    }
   }
-  return null;
+  return host || repos.size > 1 ? { uncoverable: true } : last ? { target: last } : {};
 }
 
 function prTitle(words) {
@@ -888,11 +926,13 @@ function segmentGate(words, options) {
   // A program named with spaces is a quoted argument read as one (`time git commit -m "gh pr merge 1"`).
   if (/\s/.test(words[0])) return null;
   const segment = readable(words);
+  let where = {};
   if (words[0] === "gh") {
     const gh = ghCommand(words);
     if (gh.command.some(dynamic) || (!gh.command.length && gh.args.some(dynamic))) return UNCHECKED;
     const special = ghGate(gh, options);
     if (special) return { ...special, segment };
+    where = ghTarget(gh);
   }
   if (words[0] === "git") {
     const git = gitArgs(words);
@@ -905,7 +945,7 @@ function segmentGate(words, options) {
   const read = readWords(words);
   const text = read.join(" ");
   const found = DEFAULT_GATE_PATTERNS.find(({ pattern }) => pattern.test(text));
-  if (found) return { kind: found.kind, title: found.kind === "merge" && read[1] === "pr" ? prTitle(read) : null, segment };
+  if (found) return { kind: found.kind, title: found.kind === "merge" && read[1] === "pr" ? prTitle(read) : null, segment, ...where };
   const added = (options.extra ?? []).find(({ prefix }) => {
     const wanted = splitCommand(prefix)[0];
     return wanted && (segment === wanted || segment.startsWith(`${wanted} `));
@@ -925,7 +965,9 @@ function mcpToolName(request) {
 
 /**
  * The gate a permission request falls under, or null. `extra` adds a template's own command prefixes.
- * The target is the command's `--repo`/`-R` value, or null for the caller to fill in with the Chat's Project.
+ * The target is the repo the command names (`-R`, a PR URL, a `gh api` endpoint), or null for the caller to fill in
+ * with the Chat's Project. When Milagre can't be sure what the command acts on (two repos, GH_REPO, another host, a
+ * `cd` or `-C` before a command that names none), the gate is `uncoverable`: its target is null and no grant covers it.
  */
 function matchGate(request, { extra = [] } = {}) {
   const mcp = mcpToolName(request);
@@ -937,15 +979,18 @@ function matchGate(request, { extra = [] } = {}) {
   const context = { moved: /\bGIT_(DIR|WORK_TREE)=/.test(request.command) };
   const segments = parse(request.command).flatMap((segment) => normalize(segment, context));
   const options = { cwd: request.cwd, moved: context.moved || segments.some(changesFolder), extra };
+  const ghEnv = /\bGH_(REPO|HOST)=/.test(request.command);
   for (const words of segments) {
     const gate = segmentGate(words, options);
-    if (gate)
-      return {
-        kind: gate.kind,
-        title: gate.title ?? `${KIND_LABEL[gate.kind]}: ${gate.segment}`,
-        command: request.command,
-        target: repoFlag(words),
-      };
+    if (!gate) continue;
+    const uncoverable = Boolean(gate.uncoverable) || (gate.target == null && options.moved) || (words[0] === "gh" && ghEnv);
+    return {
+      kind: gate.kind,
+      title: gate.title ?? `${KIND_LABEL[gate.kind]}: ${gate.segment}`,
+      command: request.command,
+      target: uncoverable ? null : (gate.target ?? null),
+      ...(uncoverable ? { uncoverable: true } : {}),
+    };
   }
   return null;
 }

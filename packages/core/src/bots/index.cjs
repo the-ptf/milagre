@@ -163,10 +163,11 @@ function createBots({
     return (request) => {
       const owned = botForChat(chatKey);
       if (!owned) return undefined;
-      const gate = matchGate({ ...request, cwd: request.cwd ?? cwdOf(chatKey) });
-      if (!gate) return "allow";
-      const target = gate.target ?? projectOfKey(chatKey);
-      if (store.hasGrant(owned.bot.id, gate.kind, target)) return "allow";
+      const { uncoverable, ...gate } = matchGate({ ...request, cwd: request.cwd ?? cwdOf(chatKey) }) ?? {};
+      if (!gate.kind) return "allow";
+      // A target Milagre can't be sure of is null: no grant covers it, and Always on its card allows once.
+      const target = uncoverable ? null : (gate.target ?? projectOfKey(chatKey));
+      if (target !== null && store.hasGrant(owned.bot.id, gate.kind, target)) return "allow";
       return { gate: { ...gate, target, botId: owned.bot.id, botName: owned.bot.name, expiresAt: now() + GATE_EXPIRY_MS } };
     };
   }
@@ -532,7 +533,7 @@ function createBots({
         await sweep();
         return store.gate(gate.requestId);
       }
-      if (choice === "always") store.addGrant({ botId: gate.botId, gate: gate.meta.kind, target: gate.meta.target, createdAt: now() });
+      if (choice === "always" && gate.meta.target) store.addGrant({ botId: gate.botId, gate: gate.meta.kind, target: gate.meta.target, createdAt: now() });
       answer(gate, choice === "deny" ? "deny" : "allow", choice === "deny" ? "denied" : "allowed");
       changed();
       return store.gate(gate.requestId);

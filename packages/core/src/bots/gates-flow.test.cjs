@@ -115,6 +115,20 @@ test("a grant lets the gate through", async (t) => {
   assert.ok(bots.policyFor("/p#4")({ tool: "Bash", command: "gh pr merge 1 -R the-org/other" }).gate);
 });
 
+test("no grant covers a target Milagre can't be sure of, and Always on it allows once", async (t) => {
+  const { bots, store } = await harness(t);
+  store.addGrant({ botId: "ops", gate: "merge", target: "/p", createdAt: NOW });
+  store.addGrant({ botId: "ops", gate: "merge", target: "the-ptf/milagre", createdAt: NOW });
+  for (const command of ["cd ../other && gh pr merge 1", "gh pr merge 1 -R evil/x -R the-ptf/milagre", "GH_REPO=evil/x gh pr merge 1"]) {
+    const { gate } = bots.policyFor("/p#4")({ tool: "Bash", command });
+    assert.equal(gate?.target, null, command);
+  }
+  const { gate } = bots.policyFor("/p#4")({ tool: "Bash", command: "cd ../other && gh pr merge 1" });
+  await bots.observe("/p#4", { type: "permission-request", requestId: "r1", gate });
+  assert.equal((await bots.answerGate("r1", "always")).status, "allowed");
+  assert.equal(store.grants("ops").length, 2);
+});
+
 test("a published gate shows in the snapshot, Always adds a grant and allows", async (t) => {
   const { bots, store, agents } = await harness(t);
   await bots.observe("/p#4", { type: "permission-request", requestId: "r1", gate: META });

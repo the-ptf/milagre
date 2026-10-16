@@ -259,8 +259,10 @@ test("after cd, pushd or -C a relative rm -r target counts as outside", () => {
   assert.equal(matchGate({ tool: "Bash", command: "cd sub && rm -rf /tmp/w/dist", cwd: "/tmp/w" }), null);
 });
 
+const kindIn = (command) => matchGate({ tool: "Bash", command, cwd: "/tmp/w" })?.kind ?? null;
+
 test("find deletes and runs commands under its start paths", () => {
-  const gate = (command) => matchGate({ tool: "Bash", command, cwd: "/tmp/w" })?.kind ?? null;
+  const gate = kindIn;
   assert.equal(gate("find / -name x -exec rm -rf {} \\;"), "delete");
   assert.equal(gate("find .. -delete"), "delete");
   assert.equal(gate("find /etc -name '*.conf' -delete"), "delete");
@@ -294,10 +296,49 @@ test("Codex names the MCP tool only in the card's title", () => {
   assert.equal(matchGate({ tool: "MCP: slack", title: 'Allow the slack MCP server to run tool "read_channel"?' }), null);
 });
 
+const targetOf = (command) => {
+  const gate = matchGate({ tool: "Bash", command, cwd: "/tmp/w" });
+  return gate.uncoverable ? "uncoverable" : gate.target;
+};
+
 test("the repo flag is the target", () => {
-  assert.equal(matchGate({ tool: "Bash", command: "gh pr merge 3 -R the-ptf/milagre" }).target, "the-ptf/milagre");
-  assert.equal(matchGate({ tool: "Bash", command: "gh pr merge 3 --repo=the-ptf/milagre" }).target, "the-ptf/milagre");
-  assert.equal(matchGate({ tool: "Bash", command: "gh pr merge 3" }).target, null);
+  assert.equal(targetOf("gh pr merge 3 -R the-ptf/milagre"), "the-ptf/milagre");
+  assert.equal(targetOf("gh pr merge 3 --repo=the-ptf/milagre"), "the-ptf/milagre");
+  assert.equal(targetOf("gh pr merge 3"), null);
+  // gh uses the last one.
+  assert.equal(targetOf("gh -R the-ptf/milagre pr merge 3 -R the-ptf/milagre"), "the-ptf/milagre");
+  assert.equal(targetOf("gh pr merge 3 -Rthe-ptf/milagre"), "the-ptf/milagre");
+  // A body that looks like a flag isn't one.
+  assert.equal(targetOf('gh pr merge 3 -R the-ptf/milagre --body "-Revil/x"'), "the-ptf/milagre");
+});
+
+test("PR URLs and gh api endpoints name the target", () => {
+  assert.equal(targetOf("gh pr merge https://github.com/the-ptf/milagre/pull/474"), "the-ptf/milagre");
+  assert.equal(targetOf("gh api -X PUT repos/the-ptf/milagre/pulls/474/merge"), "the-ptf/milagre");
+  assert.equal(targetOf("gh api -X PUT /repos/the-ptf/milagre/pulls/474/merge"), "the-ptf/milagre");
+  assert.equal(targetOf("gh api -X PUT repos/{owner}/{repo}/pulls/474/merge"), null);
+});
+
+test("a target Milagre can't be sure of can't be granted", () => {
+  for (const command of [
+    "gh pr merge 3 -R the-ptf/milagre -R evil/x",
+    "gh -R evil/x pr merge 3 --repo the-ptf/milagre",
+    "gh pr merge https://github.com/evil/x/pull/1 -R the-ptf/milagre",
+    "gh pr merge https://ghe.example.com/the-ptf/milagre/pull/1",
+    "gh --hostname ghe.example.com pr merge 1 -R the-ptf/milagre",
+    "GH_REPO=evil/x gh pr merge 1",
+    "export GH_HOST=ghe.example.com; gh pr merge 1",
+    "cd ../other && gh pr merge 1",
+    "pushd ../other; git push origin main",
+    "git -C ../other push origin main",
+    "GIT_DIR=../other/.git git push origin main",
+    "pnpm -C ../other publish",
+    "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'",
+    "$G pr merge 1",
+  ])
+    assert.equal(targetOf(command), "uncoverable", command);
+  // A repo named outright stays its own target after a cd.
+  assert.equal(targetOf("cd ../other && gh pr merge 1 -R the-ptf/milagre"), "the-ptf/milagre");
 });
 
 test("extra prefixes from a template gate too", () => {

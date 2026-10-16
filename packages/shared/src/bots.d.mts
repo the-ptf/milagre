@@ -5,8 +5,11 @@ export interface GateMeta {
   kind: GateKind;
   title: string;
   command: string;
-  /** The `--repo`/`-R` value when the command names one, else the Chat's Project path. */
-  target: string;
+  /**
+   * The repo the command names (`--repo`/`-R`, a PR URL, a `gh api` endpoint), else the Chat's Project path. Null when
+   * Milagre can't be sure what the command acts on: no grant covers it, and "Always" on its card allows once.
+   */
+  target: string | null;
   botId: string;
   botName: string;
   expiresAt: number;
