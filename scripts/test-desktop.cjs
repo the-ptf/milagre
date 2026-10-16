@@ -300,12 +300,40 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       const shot = await connection.call("Page.captureScreenshot");
       await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, expectTheme ? "packaged-desktop.png" : "desktop.png"), Buffer.from(shot.data, "base64"));
     }
+    // TEMPORARY CI PROBE (#489): record every composer measurement around the draft.
+    await evaluate(`(() => {
+      const log = (window.__probe = []);
+      const push = (entry) => { if (log.length < 600) log.push({ t: Math.round(performance.now()), ...entry }); };
+      const shGet = Object.getOwnPropertyDescriptor(Element.prototype, "scrollHeight").get;
+      Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", { configurable: true, get() {
+        const value = shGet.call(this);
+        const cs = getComputedStyle(this);
+        const r = this.getBoundingClientRect();
+        push({ sh: value, cw: this.clientWidth, w: Math.round(r.width * 100) / 100, x: Math.round(r.x), y: Math.round(r.y), h: this.style.height,
+          fs: cs.fontSize, lh: cs.lineHeight, pad: cs.paddingTop + "/" + cs.paddingLeft, minH: cs.minHeight, ws: cs.whiteSpace, ls: cs.letterSpacing,
+          cls: this.className.slice(0, 24), val: this.value, grid: Math.round(this.closest(".grid")?.getBoundingClientRect().width ?? -1),
+          prompts: document.querySelectorAll('textarea[aria-label="Prompt"]').length, focus: document.hasFocus() });
+        return value;
+      }});
+      const measure = CanvasRenderingContext2D.prototype.measureText;
+      CanvasRenderingContext2D.prototype.measureText = function (text) { const result = measure.call(this, text); push({ canvas: result.width, font: this.font, text }); return result; };
+      push({ start: true, inner: [innerWidth, innerHeight], dpr: devicePixelRatio, screen: [screen.width, screen.height],
+        family: getComputedStyle(document.querySelector('textarea[aria-label="Prompt"]')).fontFamily });
+    })()`);
     await evaluate(`(() => {
       const input = document.querySelector('textarea[aria-label="Prompt"]');
       if (!input) throw new Error('Prompt missing');
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'Keep this unsent draft');
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`);
+    await delay(500);
+    {
+      const probe = await evaluate("JSON.stringify(window.__probe)");
+      const entries = JSON.parse(probe);
+      console.log(`PROBE ${entries.length} entries`);
+      for (const entry of [...entries.slice(0, 40), ...(entries.length > 60 ? entries.slice(-20) : entries.slice(40))])
+        console.log("PROBE", JSON.stringify(entry));
+    }
     const hostControl = await require("@milagre/daemon/client").connect({ dataDir: profile });
     try {
       await hostControl.call("daemon:stop");
