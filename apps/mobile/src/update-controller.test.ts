@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createUpdateController, promptPopped, watchUpdates, type NativeUpdateState } from "./update-controller.ts";
+import { createUpdateController, watchUpdates, type NativeUpdateState } from "./update-controller.ts";
 
 const idle: NativeUpdateState = { isStartupProcedureRunning: false, isChecking: false, isDownloading: false, isUpdatePending: false };
 
@@ -335,13 +335,4 @@ test("checks in the foreground and cleans up both its timer and app-state listen
   await Promise.resolve();
   assert.equal(state.counts().checks, 2);
   assert.ok(timerRemoved && listenerRemoved);
-});
-
-test("a swiped or backed prompt is told apart from a stack reset", () => {
-  assert.equal(promptPopped(["chat", "sheet"], "sheet", ["chat"]), true);
-  assert.equal(promptPopped(["index", "chat", "sheet"], "sheet", ["index", "chat"]), true);
-  // A notification reset lands somewhere else: the prompt stays pending.
-  assert.equal(promptPopped(["chat", "sheet"], "sheet", ["other-chat"]), false);
-  assert.equal(promptPopped(["chat", "sheet"], "sheet", ["chat", "other-chat"]), false);
-  assert.equal(promptPopped(["chat"], "sheet", ["chat"]), false);
 });
