@@ -17,6 +17,7 @@ function codexServer(status, configured) {
     tools,
     error: status.toolsError ?? null,
     detail: safeDetail(configured),
+    ...(configured?.enabled === false ? { disabledBy: "provider" } : {}),
   };
 }
 
@@ -80,9 +81,10 @@ function checkCodex({ command, env, cwd, clientVersion, signal, createRpc, every
   });
 }
 
-async function addCodex({ def, ...options }) {
+// `extra` is the stored config's keys the sheet doesn't know (bearer_token_env_var, startup_timeout_sec, enabled, …), kept on an edit.
+async function addCodex({ def, extra = {}, ...options }) {
   await withAppServer(options, (rpc) =>
-    rpc.request("config/value/write", { keyPath: `mcp_servers.${def.name}`, value: toCodexConfig(def), mergeStrategy: "replace" }),
+    rpc.request("config/value/write", { keyPath: `mcp_servers.${def.name}`, value: { ...extra, ...toCodexConfig(def) }, mergeStrategy: "replace" }),
   );
 }
 
@@ -90,8 +92,13 @@ async function removeCodex({ command, env, name, run = runCli }) {
   await run(command, ["mcp", "remove", name], { env });
 }
 
-async function readCodexDefinition({ name, ...options }) {
-  return withAppServer(options, async (rpc) => fromCodexConfig(name, (await rpc.request("config/read", { cwd: options.cwd })).config?.mcp_servers?.[name]));
+/** One server's raw config.toml table as the app-server reads it, or null. */
+async function readCodexConfig({ name, ...options }) {
+  return withAppServer(options, async (rpc) => (await rpc.request("config/read", { cwd: options.cwd })).config?.mcp_servers?.[name] ?? null);
+}
+
+async function readCodexDefinition(options) {
+  return fromCodexConfig(options.name, await readCodexConfig(options));
 }
 
 const SIGN_IN_TIMEOUT = "Sign-in timed out after 5 minutes. Try again.";
@@ -134,4 +141,4 @@ async function signInCodex({ name, openUrl, signal, timeoutMs = 300_000, everywh
   }).catch((error) => (signal?.aborted ? { cancelled: true } : { ok: false, error: error instanceof Error ? error.message : String(error) }));
 }
 
-module.exports = { checkCodex, codexServer, addCodex, removeCodex, readCodexDefinition, withAppServer, signInCodex };
+module.exports = { checkCodex, codexServer, addCodex, removeCodex, readCodexConfig, readCodexDefinition, withAppServer, signInCodex };

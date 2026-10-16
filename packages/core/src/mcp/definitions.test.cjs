@@ -108,3 +108,53 @@ test("safeDetail masks compact secret flag names", () => {
   assert.equal(d.safeDetail({ command: "p", args: ["--api_key=y", "--GitHubToken=z"] }), "p --api_key=•••••• --GitHubToken=••••••");
   assert.equal(d.safeDetail({ command: "p", args: ["--keyboard", "us", "--author", "me", "--port", "3"] }), "p --keyboard us --author me --port 3");
 });
+
+test("a masked header follows the URL only within the same origin", () => {
+  const masked = d.maskDefinition(url);
+  assert.deepEqual(d.unmaskDefinition({ ...masked, url: "https://mcp.linear.app/v2/mcp" }, url).headers, { Authorization: "Bearer abc" });
+  assert.throws(() => d.unmaskDefinition({ ...masked, url: "https://evil.example/mcp" }, url), /Enter the header values again for the new address\./);
+  assert.throws(() => d.unmaskDefinition({ ...masked, url: "http://mcp.linear.app/mcp" }, url), /Enter the header values again/);
+  // A new value typed for the new host is fine.
+  assert.deepEqual(d.unmaskDefinition({ ...masked, url: "https://other.example/mcp", headers: { Authorization: "Bearer new" } }, url).headers, {
+    Authorization: "Bearer new",
+  });
+});
+
+test("a masked environment value is kept only while the command is unchanged", () => {
+  const masked = d.maskDefinition(cmd);
+  assert.deepEqual(d.unmaskDefinition({ ...masked, args: ["mcp"] }, cmd).env, { TOKEN: "t" });
+  assert.throws(() => d.unmaskDefinition({ ...masked, command: "other" }, cmd), /Enter the variable values again for the new command\./);
+});
+
+test("safeDetail masks secret header values passed as arguments", () => {
+  assert.equal(
+    d.safeDetail({ command: "npx", args: ["mcp-remote", "https://x.dev", "--header", "Authorization: Bearer abc"] }),
+    "npx mcp-remote https://x.dev --header Authorization: ••••••",
+  );
+  assert.equal(d.safeDetail({ command: "npx", args: ["-H", "X-Api-Key:abc", "-H", "Accept: json"] }), "npx -H X-Api-Key: •••••• -H Accept: json");
+  assert.equal(d.safeDetail({ command: "npx", args: ["--header=Cookie: s=1", "--header=X-Team: a"] }), "npx --header=Cookie: •••••• --header=X-Team: a");
+  assert.equal(d.safeDetail({ command: "npx", args: ["-H", "x-github-token: t", "-H", "My-Secret:s"] }), "npx -H x-github-token: •••••• -H My-Secret: ••••••");
+});
+
+test("--authorization is secret; only --author and --authors are not", () => {
+  assert.equal(d.safeDetail({ command: "p", args: ["--authorization", "Bearer x"] }), "p --authorization ••••••");
+  assert.equal(d.safeDetail({ command: "p", args: ["--authorization=Bearer x"] }), "p --authorization=••••••");
+  assert.equal(d.safeDetail({ command: "p", args: ["--author", "me", "--authors", "us"] }), "p --author me --authors us");
+});
+
+test("a command server's secret arguments are masked and restored by position", () => {
+  const server = { name: "remote", type: "stdio", command: "npx", args: ["mcp-remote", "--header", "Authorization: Bearer abc", "--token=t1"], env: {} };
+  const masked = d.maskDefinition(server);
+  assert.deepEqual(masked.args, ["mcp-remote", "--header", "Authorization: ••••••", "--token=••••••"]);
+  assert.deepEqual(d.unmaskDefinition(masked, server).args, server.args);
+  assert.deepEqual(d.unmaskDefinition({ ...masked, args: [...masked.args, "--verbose"] }, server).args, [...server.args, "--verbose"]);
+  // A new value replaces the stored one; a moved mask or a new command can't be restored.
+  assert.deepEqual(d.unmaskDefinition({ ...masked, args: ["mcp-remote", "--header", "Authorization: Bearer new", "--token=••••••"] }, server).args, [
+    "mcp-remote",
+    "--header",
+    "Authorization: Bearer new",
+    "--token=t1",
+  ]);
+  assert.throws(() => d.unmaskDefinition({ ...masked, args: ["--token=••••••"] }, server), /Enter the hidden arguments again\./);
+  assert.throws(() => d.unmaskDefinition({ ...masked, command: "bunx" }, server), /Enter the hidden arguments again\./);
+});

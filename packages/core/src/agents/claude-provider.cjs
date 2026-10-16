@@ -1,4 +1,5 @@
 const { spawnCommand } = require("./command.cjs");
+const { readMcpExtras } = require("../mcp/extras.cjs");
 const { settleSubagents } = require("./subagents.cjs");
 const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
@@ -283,7 +284,7 @@ class ClaudeSession {
     this.outputStyle = null;
     // Settings › MCP: Everywhere servers join the Chat's servers; off servers are switched off once Claude Code has started.
     // An advisor never gets them, and a failing read never stops the Chat from starting.
-    const extras = this.mcpExtras && !this.analysisOnly ? await this.mcpExtras().catch(() => null) : null;
+    const extras = this.mcpExtras && !this.analysisOnly ? await readMcpExtras(this) : null;
     if (this.closed) return;
     this.mcpOff = extras?.off ?? [];
     const linked = this.linked?.tools.length ? linkedOptions(this.linked.tools, sdk) : {};

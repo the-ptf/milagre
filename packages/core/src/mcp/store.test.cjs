@@ -37,3 +37,16 @@ test("a corrupt file reads empty and is replaced on the next write", (t) => {
   store.setEverywhere([pencil]);
   assert.equal(store.read().everywhere.length, 1);
 });
+
+test("a corrupt file is kept aside as mcp.json.corrupt-<time> before the next write", (t) => {
+  const dir = folder(t);
+  const file = path.join(dir, "mcp.json");
+  fs.writeFileSync(file, "{nope");
+  const store = createMcpStore(file);
+  store.setEverywhere([pencil]);
+  const aside = fs.readdirSync(dir).filter((name) => name.startsWith("mcp.json.corrupt-"));
+  assert.equal(aside.length, 1);
+  assert.equal(fs.readFileSync(path.join(dir, aside[0]), "utf8"), "{nope");
+  store.setOff("claude", "default", "pencil", true);
+  assert.equal(fs.readdirSync(dir).filter((name) => name.startsWith("mcp.json.corrupt-")).length, 1, "a good file is never moved aside");
+});

@@ -1,4 +1,5 @@
 const fs = require("node:fs/promises");
+const { readMcpExtras } = require("../mcp/extras.cjs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { cliName } = require("@milagre/shared/providers");
@@ -324,7 +325,7 @@ class AcpSession {
     // The Chat's linked tools reach the agent as an MCP server (see linked-mcp-server.cjs).
     const url = this.linked ? await this.linked.url().catch(() => null) : null;
     // Settings › MCP: this account's Everywhere servers (the ones switched off are already left out).
-    const extras = this.mcpExtras ? await this.mcpExtras().catch(() => null) : null;
+    const extras = this.mcpExtras ? await readMcpExtras(this) : null;
     const mcpServers = [...(url ? [{ type: "http", name: "milagre", url, headers: [] }] : []), ...(extras?.servers ?? []).map(toAcpServer)];
     const result = this.state.sessionId ? await this.resume(mcpServers) : await this.requestSession("session/new", { cwd: this.cwd, mcpServers });
     if (typeof result?.modes?.currentModeId === "string") this.state.mode = result.modes.currentModeId;

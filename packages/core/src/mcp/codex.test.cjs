@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
-const { checkCodex, codexServer, addCodex, removeCodex, readCodexDefinition, signInCodex } = require("./codex.cjs");
+const { checkCodex, codexServer, addCodex, removeCodex, readCodexConfig, readCodexDefinition, signInCodex } = require("./codex.cjs");
 
 test("a Codex status maps to a report", () => {
   assert.deepEqual(
@@ -398,4 +398,27 @@ test("checkCodex keeps config servers and marks Everywhere servers failed when t
     error: "thread refused",
     detail: "https://x/mcp",
   });
+});
+
+test("a server disabled in Codex's own config says so", () => {
+  const off = codexServer({ name: "p", tools: {}, toolsError: null, authStatus: "unsupported", pluginId: null }, { command: "p", enabled: false });
+  assert.equal(off.disabledBy, "provider");
+  assert.equal("disabledBy" in codexServer({ name: "q", tools: {}, toolsError: null, authStatus: "unsupported", pluginId: null }, { command: "q" }), false);
+});
+
+test("addCodex keeps the stored config's own keys and readCodexConfig returns the raw config", async () => {
+  const rpc = answerRpc({ "config/read": { config: { mcp_servers: { linear: { url: "https://x", bearer_token_env_var: "T" } } } } });
+  await addCodex({
+    command: "/bin/codex",
+    cwd: "/",
+    def: { name: "linear", type: "http", url: "https://y", headers: {} },
+    extra: { bearer_token_env_var: "T", startup_timeout_sec: 20, enabled: false },
+    createRpc: rpc.create,
+  });
+  assert.deepEqual(rpc.requests.at(-1).params.value, { bearer_token_env_var: "T", startup_timeout_sec: 20, enabled: false, url: "https://y" });
+  assert.deepEqual(await readCodexConfig({ command: "/bin/codex", cwd: "/", name: "linear", createRpc: rpc.create }), {
+    url: "https://x",
+    bearer_token_env_var: "T",
+  });
+  assert.equal(await readCodexConfig({ command: "/bin/codex", cwd: "/", name: "nope", createRpc: rpc.create }), null);
 });

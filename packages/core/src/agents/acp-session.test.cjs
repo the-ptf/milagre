@@ -564,3 +564,17 @@ test("an agent that refuses Everywhere servers still gets milagre, and the linke
   );
   assert.deepEqual(available, [true]);
 });
+
+test("a failing mcpExtras still starts the agent and is logged once", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const { session, events } = antigravity(t, {
+    mcpExtras: async () => {
+      throw new Error("boom");
+    },
+  });
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.ok(events.some((event) => event.type === "turn-completed"));
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(String(warn.mock.calls[0].arguments.join(" ")), /boom/);
+});

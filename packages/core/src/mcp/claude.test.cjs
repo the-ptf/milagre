@@ -330,3 +330,18 @@ test("claude detail hides secrets", () => {
     "npx --token ••••••",
   );
 });
+
+test("a server disabled in Claude's own config says so", () => {
+  const off = claudeServer({ name: "old", status: "disabled", scope: "project", config: { type: "stdio", command: "old" } });
+  assert.equal(off.state, "disabled");
+  assert.equal(off.disabledBy, "provider");
+  assert.equal("disabledBy" in claudeServer({ name: "on", status: "connected", scope: "user", config: { type: "stdio" } }), false);
+});
+
+test("addClaude keeps the stored config's own keys under the regenerated config", async () => {
+  const calls = [];
+  const run = async (_command, args) => (calls.push(args), { stdout: "", stderr: "" });
+  const def = { name: "linear", type: "http", url: "https://x", headers: {} };
+  await addClaude({ command: "/bin/claude", def, extra: { oauth: { clientId: "c" }, timeout: 5, url: "https://stale" }, run });
+  assert.deepEqual(JSON.parse(calls[0][3]), { oauth: { clientId: "c" }, timeout: 5, type: "http", url: "https://x" });
+});

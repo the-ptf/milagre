@@ -1,4 +1,5 @@
 const { isDeepStrictEqual } = require("node:util");
+const { readMcpExtras } = require("../mcp/extras.cjs");
 const { active: activeSubagent, settleSubagents } = require("./subagents.cjs");
 const fs = require("node:fs/promises");
 const { createHash } = require("node:crypto");
@@ -323,7 +324,7 @@ class CodexSession {
     // to the ordinary Chat policy because that would expose the user's external tools to an advisor.
     const inherited = this.analysisOnly ? (await rpc.request("config/read", { cwd: this.cwd })).config : null;
     // Settings › MCP: Everywhere servers join the thread, and servers switched off for this account are disabled.
-    const extras = !this.analysisOnly && this.mcpExtras ? await this.mcpExtras().catch(() => null) : null;
+    const extras = !this.analysisOnly && this.mcpExtras ? await readMcpExtras(this) : null;
     const extraServers = {
       ...Object.fromEntries((extras?.servers ?? []).map((def) => [def.name, toCodexConfig(def)])),
       // Merged into the user's own definition by Codex (Task 1, probe step 4).

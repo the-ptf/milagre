@@ -1067,12 +1067,23 @@ function createRuntime(options) {
     store: createMcpStore(path.join(dataDir, "mcp.json")),
     openUrl: (url) => openInBrowser(url),
     emit,
+    // Tests swap in accounts, routing, home and stub checkers, writers and signers.
+    ...options.mcp,
   });
+  // Phones call these too: `previous` arrives as JSON, so it becomes { name, target } strings or undefined (a new
+  // server); mcp.save checks both before anything is read or written, and keeps only the known definition fields.
+  const mcpPrevious = (previous) =>
+    previous === undefined || previous === null
+      ? undefined
+      : {
+          name: typeof previous?.name === "string" ? previous.name : "",
+          target: typeof previous?.target === "string" ? previous.target : "",
+        };
   commands.handle("mcp:accounts", () => mcp.accounts());
   commands.handle("mcp:check", (_event, provider, accountId) => mcp.check(String(provider), String(accountId)));
   commands.handle("mcp:definition", (_event, name, target) => mcp.definition(String(name), String(target)));
-  commands.handle("mcp:save", (_event, def, target, previous) => mcp.save(def, String(target), previous ?? undefined));
-  commands.handle("mcp:saveUrl", (_event, def, target, previous) => mcp.saveUrl(def, String(target), previous ?? undefined));
+  commands.handle("mcp:save", (_event, def, target, previous) => mcp.save(def, String(target), mcpPrevious(previous)));
+  commands.handle("mcp:saveUrl", (_event, def, target, previous) => mcp.saveUrl(def, String(target), mcpPrevious(previous)));
   commands.handle("mcp:remove", (_event, name, target) => mcp.remove(String(name), String(target)));
   commands.handle("mcp:toggle", (_event, provider, accountId, name, on) => mcp.toggle(String(provider), String(accountId), String(name), on === true));
   commands.handle("mcp:signIn", (_event, name, targets) => mcp.signIn(String(name), Array.isArray(targets) ? targets : []));

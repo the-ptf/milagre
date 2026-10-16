@@ -408,10 +408,10 @@ test("a failed CLI lookup, a missing CLI or a throwing runner still finishes eac
   );
 });
 
-test("signIn with nothing to run resolves at once", async (t) => {
+test("signIn with nothing to run resolves at once and ends the row with a failure", async (t) => {
   const { mcp, events } = harness(t);
   assert.deepEqual(await mcp.signIn("linear", [{ provider: "antigravity", accountId: "default" }]), { started: true });
-  assert.equal(events.length, 0);
+  assert.deepEqual(events, [["mcp:changed", { name: "linear", signIn: "failed", error: "Nothing to sign in to.", last: true }]]);
 });
 
 test("a replaced sign-in stays silent", async (t) => {
@@ -439,7 +439,7 @@ test("a failed add during a same-name edit restores the previous server and reth
       claude: {
         add: async (o) => {
           calls.push(["add", o.def.url]);
-          if (o.def.url === "https://new") throw new Error("add failed");
+          if (o.def.url === "https://figma/new") throw new Error("add failed");
         },
         remove: async (o) => calls.push(["remove", o.name]),
       },
@@ -447,10 +447,10 @@ test("a failed add during a same-name edit restores the previous server and reth
     },
   });
   const masked = await mcp.definition("figma", "claude");
-  await assert.rejects(mcp.save({ ...masked, url: "https://new" }, "claude", { name: "figma", target: "claude" }), /add failed/);
+  await assert.rejects(mcp.save({ ...masked, url: "https://figma/new" }, "claude", { name: "figma", target: "claude" }), /add failed/);
   assert.deepEqual(calls, [
     ["remove", "figma"],
-    ["add", "https://new"],
+    ["add", "https://figma/new"],
     ["add", "https://figma"],
   ]);
 });
@@ -507,4 +507,114 @@ test("toggle refuses an unknown provider or an odd server name and stores nothin
   await mcp.toggle("claude", "default", "claude.ai Gmail", false);
   await mcp.toggle("claude", "default", "plugin:engineering:notion", false);
   assert.deepEqual(store.offFor("claude", "default"), ["claude.ai Gmail", "plugin:engineering:notion"]);
+});
+
+test("a masked header never follows the server to a new host, and nothing is written", async (t) => {
+  const { mcp, calls } = harness(t);
+  const masked = await mcp.definition("figma", "claude");
+  await assert.rejects(
+    mcp.save({ ...masked, url: "https://attacker.example/mcp" }, "claude", { name: "figma", target: "claude" }),
+    /Enter the header values again for the new address\./,
+  );
+  assert.deepEqual(calls, []);
+});
+
+test("check switches off only what a Chat start would switch off", async (t) => {
+  const reports = [
+    { ...report, name: "pencil" },
+    { ...report, name: "plugin:x:docs", scope: "plugin" },
+    { ...report, name: "linear", scope: "everywhere", transport: "url" },
+    { ...report, name: "old", state: "disabled", disabledBy: "provider" },
+  ];
+  const { mcp, store, dir } = harness(t, { checkers: { codex: async () => reports, claude: async () => reports } });
+  fs.mkdirSync(path.join(dir, ".codex"));
+  fs.writeFileSync(path.join(dir, ".codex", "config.toml"), '[mcp_servers.pencil]\ncommand = "pencil"\n[mcp_servers.old]\ncommand = "old"\nenabled = false\n');
+  store.setEverywhere([linear]);
+  for (const provider of ["codex", "claude"]) for (const name of ["pencil", "plugin:x:docs", "linear", "old"]) store.setOff(provider, "default", name, true);
+  const states = async (provider) => (await mcp.check(provider, "default")).servers.map((server) => [server.name, server.state, server.disabledBy ?? null]);
+  assert.deepEqual(await states("codex"), [
+    ["pencil", "disabled", null],
+    ["plugin:x:docs", "connected", null],
+    ["linear", "disabled", null],
+    ["old", "disabled", "provider"],
+  ]);
+  assert.deepEqual(await states("claude"), [
+    ["pencil", "disabled", null],
+    ["plugin:x:docs", "disabled", null],
+    ["linear", "disabled", null],
+    ["old", "disabled", "provider"],
+  ]);
+});
+
+test("a Claude edit keeps the config keys the sheet doesn't know", async (t) => {
+  let added;
+  const { mcp, dir } = harness(t, { writers: { claude: { add: async (o) => (added = o), remove: async () => {} }, codex: {} } });
+  fs.writeFileSync(
+    path.join(dir, ".claude.json"),
+    JSON.stringify({
+      mcpServers: {
+        figma: { type: "http", url: "https://figma", headers: { Authorization: "Bearer s" }, oauth: { clientId: "c" }, timeout: 9, headersHelper: "h" },
+      },
+    }),
+  );
+  const masked = await mcp.definition("figma", "claude");
+  await mcp.save({ ...masked, url: "https://figma/v2", headers: {} }, "claude", { name: "figma", target: "claude" });
+  assert.deepEqual(added.extra, { oauth: { clientId: "c" }, timeout: 9, headersHelper: "h" });
+  assert.deepEqual(added.def, { name: "figma", type: "http", url: "https://figma/v2", headers: {} });
+  // A server that changes type or place starts clean.
+  await mcp.save({ name: "figma", type: "stdio", command: "figma", args: [], env: {} }, "claude", { name: "figma", target: "claude" });
+  assert.deepEqual(added.extra, {});
+});
+
+test("a Codex edit keeps the config keys the sheet doesn't know", async (t) => {
+  let added;
+  const raw = { url: "https://x.dev/mcp", bearer_token_env_var: "X_TOKEN", startup_timeout_sec: 20, enabled_tools: ["a"], enabled: false };
+  const { mcp } = harness(t, { writers: { claude: {}, codex: { read: async () => raw, add: async (o) => (added = o), remove: async () => {} } } });
+  assert.deepEqual(await mcp.definition("x", "codex"), { name: "x", type: "http", url: "https://x.dev/mcp", headers: {} });
+  await mcp.save({ name: "x", type: "http", url: "https://x.dev/v2", headers: {} }, "codex", { name: "x", target: "codex" });
+  assert.deepEqual(added.extra, { bearer_token_env_var: "X_TOKEN", startup_timeout_sec: 20, enabled_tools: ["a"], enabled: false });
+});
+
+test("saved definitions keep known fields and string values only", async (t) => {
+  const { mcp, store } = harness(t);
+  await mcp.save({ ...linear, headers: { A: "1", B: 2, C: { x: 1 } }, extra: "dropped", __proto__: { polluted: true } }, "everywhere");
+  assert.deepEqual(store.read().everywhere, [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp", headers: { A: "1" } }]);
+  await mcp.save({ name: "p", type: "stdio", command: "p", args: ["a", 3, "b"], env: { K: "v", N: 1 }, cwd: "/tmp" }, "everywhere");
+  assert.deepEqual(store.read().everywhere[1], { name: "p", type: "stdio", command: "p", args: ["a", "b"], env: { K: "v" } });
+});
+
+test("remote names are checked before any write", async (t) => {
+  const { mcp, calls, store } = harness(t);
+  await assert.rejects(mcp.remove("-rf", "claude"), /Unknown server name/);
+  await assert.rejects(mcp.remove("a/b", "claude"), /Unknown server name/);
+  await assert.rejects(mcp.save(linear, "claude", { name: "--scope", target: "claude" }), /Unknown server name/);
+  await assert.rejects(mcp.save(linear, "claude", { name: 3, target: "claude" }), /Unknown server name/);
+  await assert.rejects(mcp.save(linear, "claude", "figma"), /Pick where to load it/);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(store.read().everywhere, []);
+});
+
+test("remove clears the server's off entries once no config holds it, and rename moves them", async (t) => {
+  const { mcp, store, dir } = harness(t, {
+    writers: {
+      claude: {
+        add: async () => {},
+        remove: async () => fs.writeFileSync(path.join(dir, ".claude.json"), JSON.stringify({ mcpServers: {} })),
+      },
+      codex: {},
+    },
+  });
+  store.setEverywhere([{ ...linear, name: "figma" }, linear]);
+  store.setOff("claude", "default", "figma", true);
+  store.setOff("antigravity", "default", "figma", true);
+  await mcp.remove("figma", "everywhere");
+  // Claude's own config still holds figma, so its switch stays off; Antigravity only had the Everywhere one.
+  assert.deepEqual(store.read().off, { "claude:default": ["figma"] });
+  await mcp.remove("figma", "claude");
+  assert.deepEqual(store.read().off, {});
+
+  store.setOff("claude", "default", "linear", true);
+  store.setOff("codex", "default", "linear", true);
+  await mcp.save({ ...linear, name: "linear2" }, "everywhere", { name: "linear", target: "everywhere" });
+  assert.deepEqual(store.read().off, { "claude:default": ["linear2"], "codex:default": ["linear2"] });
 });

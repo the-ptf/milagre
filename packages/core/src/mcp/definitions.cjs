@@ -42,16 +42,45 @@ function fromCodexConfig(name, config) {
 
 const maskRecord = (record) => Object.fromEntries(Object.keys(record).map((key) => [key, MASK]));
 function maskDefinition(def) {
-  return def.type === "stdio" ? { ...def, env: maskRecord(def.env) } : { ...def, headers: maskRecord(def.headers) };
+  return def.type === "stdio" ? { ...def, args: maskArgs(def.args), env: maskRecord(def.env) } : { ...def, headers: maskRecord(def.headers) };
 }
 
 const unmaskRecord = (record, stored = {}) =>
   Object.fromEntries(
     Object.entries(record).flatMap(([key, value]) => (value !== MASK ? [[key, value]] : Object.hasOwn(stored, key) ? [[key, stored[key]]] : [])),
   );
+// True when the edit sends back a masked value the stored record would fill in.
+const restores = (record, stored) => Object.entries(record).some(([key, value]) => value === MASK && Object.hasOwn(stored, key));
+function originOf(value) {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+// Secret arguments come back as their masked form at the same position; each is put back only there, and only
+// while the command is unchanged. A mask that can't be put back is refused rather than saved as text.
+function unmaskArgs(args, stored, sameCommand) {
+  const masked = stored ? maskArgs(stored.args) : [];
+  const full = args.map((arg, index) => (sameCommand && masked[index] !== stored.args[index] && arg === masked[index] ? stored.args[index] : arg));
+  if (full.some((arg) => arg.includes(MASK))) throw new Error("Enter the hidden arguments again.");
+  return full;
+}
+
+/** The definition to write: masked values sent back from a screen become the stored ones. Stored secrets never follow
+ * the server to a new origin (URL) or a new command (stdio): those edits must type the values again. */
 function unmaskDefinition(def, previous) {
-  if (def.type === "stdio") return { ...def, env: unmaskRecord(def.env, previous?.type === "stdio" ? previous.env : {}) };
-  return { ...def, headers: unmaskRecord(def.headers, previous && previous.type !== "stdio" ? previous.headers : {}) };
+  if (def.type === "stdio") {
+    const stored = previous?.type === "stdio" ? previous : null;
+    const sameCommand = Boolean(stored) && stored.command === def.command;
+    if (stored && !sameCommand && restores(def.env, stored.env)) throw new Error("Enter the variable values again for the new command.");
+    return { ...def, args: unmaskArgs(def.args, stored, sameCommand), env: sameCommand ? unmaskRecord(def.env, stored.env) : unmaskRecord(def.env) };
+  }
+  const stored = previous && previous.type !== "stdio" ? previous : null;
+  const sameOrigin = Boolean(stored) && originOf(def.url) !== null && originOf(def.url) === originOf(stored.url);
+  if (stored && !sameOrigin && restores(def.headers, stored.headers)) throw new Error("Enter the header values again for the new address.");
+  return { ...def, headers: sameOrigin ? unmaskRecord(def.headers, stored.headers) : unmaskRecord(def.headers) };
 }
 
 function claudeConfigNames(file) {
@@ -77,11 +106,46 @@ function codexConfigNames(file) {
 
 const KEY_WORD = /(^|[-_])key([-_]|$)/i;
 // A flag name is secret when, with dashes and underscores removed, it holds a secret word (so compact names such
-// as --apikey and --githubtoken match), or "auth" without "author", or "key" as a whole word (--key, --api-key).
+// as --apikey and --githubtoken match), or "auth" (only --author and --authors are not), or "key" as a whole word
+// (--key, --api-key).
 function secretFlag(flag) {
   const name = flag.replace(/^-+/, "");
   const compact = name.toLowerCase().replace(/[-_]/g, "");
-  return /token|secret|password|passwd|apikey|credential/.test(compact) || (compact.includes("auth") && !compact.includes("author")) || KEY_WORD.test(name);
+  return (
+    /token|secret|password|passwd|apikey|credential/.test(compact) ||
+    (compact.includes("auth") && compact !== "author" && compact !== "authors") ||
+    KEY_WORD.test(name)
+  );
+}
+// curl-style header arguments (-H "Authorization: Bearer x", --header=Cookie: s=1): the value after the first ":"
+// is masked when the header's name looks secret.
+const HEADER_FLAGS = new Set(["-H", "--header"]);
+const SECRET_HEADER = /auth|token|key|secret|cookie|password|credential/i;
+function maskHeaderArg(value) {
+  const colon = value.indexOf(":");
+  return colon > 0 && SECRET_HEADER.test(value.slice(0, colon)) ? `${value.slice(0, colon)}: ${MASK}` : value;
+}
+/** The arguments with every secret value masked: a secret flag's value (--token x, --token=x) and a secret header's. */
+function maskArgs(args) {
+  const shown = [];
+  let next = null; // what the previous flag says this argument is: "secret" or "header"
+  for (const arg of Array.isArray(args) ? args.map(String) : []) {
+    if (next) {
+      shown.push(next === "header" ? maskHeaderArg(arg) : MASK);
+      next = null;
+      continue;
+    }
+    const equals = arg.startsWith("-") ? arg.indexOf("=") : -1;
+    if (equals > 0) {
+      const flag = arg.slice(0, equals);
+      const value = arg.slice(equals + 1);
+      shown.push(HEADER_FLAGS.has(flag) ? `${flag}=${maskHeaderArg(value)}` : secretFlag(flag) ? `${flag}=${MASK}` : arg);
+    } else {
+      shown.push(arg);
+      next = HEADER_FLAGS.has(arg) ? "header" : arg.startsWith("-") && secretFlag(arg) ? "secret" : null;
+    }
+  }
+  return shown;
 }
 const WEB_PROTOCOLS = new Set(["http:", "https:", "ws:", "wss:"]);
 const SCHEME_AND_USERINFO = /^([a-z][a-z0-9+.-]*:)?(\/\/)?[^/@]*@/i;
@@ -102,23 +166,7 @@ function safeDetail(config) {
     return config.url.split(/[?#]/)[0].replace(SCHEME_AND_USERINFO, "");
   }
   if (typeof config.command !== "string") return null;
-  const args = Array.isArray(config.args) ? config.args.map(String) : [];
-  const shown = [];
-  let maskNext = false;
-  for (const arg of args) {
-    if (maskNext) {
-      shown.push(MASK);
-      maskNext = false;
-      continue;
-    }
-    const equals = arg.startsWith("-") ? arg.indexOf("=") : -1;
-    if (equals > 0) shown.push(secretFlag(arg.slice(0, equals)) ? `${arg.slice(0, equals)}=${MASK}` : arg);
-    else {
-      shown.push(arg);
-      maskNext = arg.startsWith("-") && secretFlag(arg);
-    }
-  }
-  return [config.command, ...shown].join(" ");
+  return [config.command, ...maskArgs(config.args)].join(" ");
 }
 
 const detailOf = safeDetail;
@@ -132,6 +180,7 @@ module.exports = {
   fromCodexConfig,
   maskDefinition,
   unmaskDefinition,
+  maskArgs,
   claudeConfigNames,
   codexConfigNames,
   detailOf,

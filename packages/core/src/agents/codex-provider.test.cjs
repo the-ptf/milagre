@@ -1425,7 +1425,8 @@ test("Everywhere servers and the off list reach thread config", async (t) => {
   assert.deepEqual(config.mcp_servers.figma, { enabled: false });
 });
 
-test("a failing mcpExtras still starts the Codex thread", async (t) => {
+test("a failing mcpExtras still starts the Codex thread and is logged once", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
   const { session, events, requests } = codex(t, {
     mcpExtras: async () => {
       throw new Error("boom");
@@ -1434,6 +1435,8 @@ test("a failing mcpExtras still starts the Codex thread", async (t) => {
   await session.startTurn(TURN);
   await ended(events);
   assert.deepEqual(requests.find((r) => r.method === "thread/start").params.config, { features: { default_mode_request_user_input: true } });
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(String(warn.mock.calls[0].arguments.join(" ")), /boom/);
 });
 
 test("a Codex that refuses Everywhere servers keeps the off entries and milagre on the retry", async (t) => {

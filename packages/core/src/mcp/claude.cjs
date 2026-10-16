@@ -19,6 +19,7 @@ function transportOf(type) {
 function claudeServer(status, { timedOut = false, everywhereNames = new Set() } = {}) {
   if (status.config?.type === "sdk") return null;
   const pending = status.status === "pending";
+  // The idle check session never gets Milagre's off list, so "disabled" here comes from Claude's own config.
   return {
     name: status.name,
     transport: transportOf(status.config?.type),
@@ -27,6 +28,7 @@ function claudeServer(status, { timedOut = false, everywhereNames = new Set() } 
     tools: Array.isArray(status.tools) ? status.tools.length : 0,
     error: pending && timedOut ? TIMEOUT_ERROR : (status.error ?? null),
     detail: safeDetail(status.config),
+    ...(status.status === "disabled" ? { disabledBy: "provider" } : {}),
   };
 }
 
@@ -88,8 +90,9 @@ function runCli(command, args, { env } = {}) {
 }
 
 // The config travels as argv because `claude mcp add-json` has no stdin form, so it is briefly visible in `ps`.
-async function addClaude({ command, env, def, run = runCli }) {
-  await run(command, ["mcp", "add-json", def.name, JSON.stringify(toClaudeConfig(def)), "--scope", "user"], { env });
+// `extra` is the stored config's keys the sheet doesn't know (oauth, timeout, headersHelper, …), kept on an edit.
+async function addClaude({ command, env, def, extra = {}, run = runCli }) {
+  await run(command, ["mcp", "add-json", def.name, JSON.stringify({ ...extra, ...toClaudeConfig(def) }), "--scope", "user"], { env });
 }
 
 async function removeClaude({ command, env, name, run = runCli }) {

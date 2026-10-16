@@ -1162,6 +1162,7 @@ test("analysis-only Claude gets no Everywhere servers, and a failing mcpExtras s
   assert.equal(sdk.calls.options.mcpServers?.linear, undefined);
   assert.equal(sdk.calls.toggles, undefined);
 
+  const warn = t.mock.method(console, "warn", () => {});
   const failing = fakeSdk(scripts.reply);
   const failEvents = [];
   const second = new ClaudeSession({
@@ -1177,4 +1178,7 @@ test("analysis-only Claude gets no Everywhere servers, and a failing mcpExtras s
   await second.startTurn(TURN);
   await ended(failEvents);
   assert.equal(failing.calls.queries, 1);
+  // The failure is logged once, with its message, instead of being swallowed.
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(String(warn.mock.calls[0].arguments.join(" ")), /boom/);
 });
