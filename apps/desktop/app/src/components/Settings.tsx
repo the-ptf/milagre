@@ -1,5 +1,6 @@
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
 import { useDesignsEnabled } from "../lib/designs-enabled";
+import { useBots } from "../lib/bots-store";
 import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/ai-consent";
 import { PrivacySettings } from "./AiConsent";
 import { showUpdateNotice } from "./UpdateNotice";
@@ -476,6 +477,22 @@ export function DesignsSettings() {
   );
 }
 
+function BotsSettings() {
+  const bots = useBots();
+  return (
+    <div data-slot="bots-setting">
+      <Row label="Bots" description="Named bots that work for you and ask before anything irreversible.">
+        <Switch label="Bots" checked={bots.enabled} disabled={!bots.ready || bots.saving} onChange={(enabled) => void bots.setEnabled(enabled)} />
+      </Row>
+      {bots.error && (
+        <p role="alert" className="px-4 pb-3 text-[12px] text-red">
+          {bots.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ChatSettings() {
   const settings = useSettings();
   return (
@@ -502,6 +519,7 @@ function ExperimentalSettings() {
     <>
       <Group title="Beta">
         <DesignsSettings />
+        <BotsSettings />
         <Row
           label="Floating inbox"
           description="A thin bar attached to the screen edge. Drag its grip to show docking targets over a dimmed desktop. Drop left, right, or bottom; release elsewhere to return. The bottom bar is horizontal. Hover a dot to preview its Chat."

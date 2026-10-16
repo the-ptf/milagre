@@ -1253,12 +1253,16 @@ function createRuntime(options) {
   // A window that loads (or reloads) mid-turn picks the turns up where they are, cards included.
   commands.handle("chat:runs", () => chats.snapshot());
   commands.handle("chat:inbox", async () => {
+    // A bot's thread waits on the user in the Bots sidebar's "Needs you", not in the inbox.
     const scopes = await Promise.all(
-      scopeStates.projects().map(async (key) => ({
-        path: key,
-        name: isLinkScopeKey(key) ? (await linkRuntime.definition(scopeFromKey(key).linkId)).name : projectName(key),
-        state: await scopeStates.inboxState(key),
-      })),
+      scopeStates
+        .projects()
+        .filter((key) => !bots.isHome(key))
+        .map(async (key) => ({
+          path: key,
+          name: isLinkScopeKey(key) ? (await linkRuntime.definition(scopeFromKey(key).linkId)).name : projectName(key),
+          state: await scopeStates.inboxState(key),
+        })),
     );
     return require("@milagre/shared/attention").inboxSnapshot(scopes, chats.snapshot().runs);
   });
@@ -1924,6 +1928,7 @@ function createRuntime(options) {
   commands.handle("bots:send", (_event, id, text) => bots.send(String(id), text));
   commands.handle("bots:answer-gate", (_event, requestId, choice) => bots.answerGate(String(requestId), choice));
   commands.handle("bots:revoke-grant", (_event, id) => bots.revokeGrant(String(id)));
+  commands.handle("bots:brief:read", (_event, id) => bots.readBrief(String(id)));
   commands.handle("bots:memory:read", (_event, id) => bots.readMemory(String(id)));
   commands.handle("bots:memory:save", (_event, id, text) => bots.saveMemory(String(id), String(text ?? "")));
   void track(() => bots.start(), background).catch((error) => console.warn("Milagre couldn't start its bots:", error.message));

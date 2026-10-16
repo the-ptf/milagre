@@ -544,6 +544,8 @@ function createBots({
       changed();
     },
 
+    /** BRIEF.md, as the profile shows it. */
+    readBrief: async (id) => ({ text: await readBrief(requireBot(id).homePath) }),
     readMemory: (id) => readMemory(requireBot(id).homePath),
     saveMemory: async (id, text) => {
       const result = await saveMemoryByVictor(requireBot(id).homePath, text, { now: now() });

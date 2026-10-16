@@ -97,6 +97,9 @@ test("all AI entry points are protected while reading, stopping, and denying rem
   assert.equal(requiresAiConsent("agent:respond-permission", [{ decision: "deny" }]), false);
   assert.equal(requiresAiConsent("agent:set-permission-mode", [{ mode: "full" }]), true);
   assert.equal(requiresAiConsent("agent:set-permission-mode", [{ mode: "ask" }]), false);
+  assert.equal(requiresAiConsent("bots:send", ["ops", "hi"]), true);
+  assert.equal(requiresAiConsent("bots:answer-gate", ["r1", "once"]), true);
+  assert.equal(requiresAiConsent("bots:answer-gate", ["r1", "deny"]), false);
   for (const method of ["chat:messages", "agent:interrupt", "advisor:stop", "push:unregister"]) assert.equal(requiresAiConsent(method), false, method);
 });
 

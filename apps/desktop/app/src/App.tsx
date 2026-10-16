@@ -127,6 +127,7 @@ import { TerminalPanel } from "./components/terminal/TerminalPanel";
 import { busyTerminals, newTerminal, useTerminalSync } from "./lib/terminal-actions";
 import { playNotificationChime } from "./lib/notification-chime";
 import type { ChatRowActions, SidebarRecent } from "./components/sidebar/ChatRow";
+import { shouldNotifyCompletion, useBots } from "./lib/bots-store";
 
 // Not on screen at first paint, so each loads as its own chunk; the effect in App fetches them once the window is idle.
 const DiffView = lazyView(() => import("./components/changes/DiffView").then((module) => module.DiffView));
@@ -316,6 +317,9 @@ function App() {
   };
   const selectedCapability = capabilityFor(selectedModel, capabilities);
   const [view, setView] = useState<"chat" | "canvas" | "settings">("chat");
+  const bots = useBots();
+  const botsRef = useRef(bots.snapshot);
+  botsRef.current = bots.snapshot;
   const [layout, setLayout] = useState<ChatLayout>(() => readChatLayout(localStorage));
   const toggleLayout = () =>
     setLayout((current) => {
@@ -1115,7 +1119,7 @@ function App() {
   }, [notificationChime]);
   useEffect(() => window.milagre.onPlayChime?.(playNotificationChime), []);
 
-  // A turn that ends in the open project while Milagre is in the background gets a completion alert.
+  // A turn that ends in the open project while Milagre is in the background gets a completion alert, unless a bot runs it.
   useEffect(
     () =>
       onAnyAgentEvent(({ chatId, event }) => {
@@ -1134,7 +1138,12 @@ function App() {
         if (link && chatInProject(scopeKey({ kind: "link", linkId: link.link.id }), chatId)) {
           const latest = linkStatesRef.current[link.link.id] ?? link.state;
           const session = latest.sessions[sessionIdFromKey(chatId)];
-          if (session && !session.archived && (event.type === "turn-completed" || event.type === "turn-failed"))
+          if (
+            session &&
+            !session.archived &&
+            (event.type === "turn-completed" || event.type === "turn-failed") &&
+            shouldNotifyCompletion(botsRef.current, chatId)
+          )
             void window.milagre
               .notifyCompletion({
                 chatId,
@@ -1151,7 +1160,7 @@ function App() {
         if (!current || !latest || !chatInProject(current.path, chatId)) return;
         const session = latest.sessions[sessionIdFromKey(chatId)];
         if (!session || session.archived) return;
-        if (event.type === "turn-completed" || event.type === "turn-failed") {
+        if ((event.type === "turn-completed" || event.type === "turn-failed") && shouldNotifyCompletion(botsRef.current, chatId)) {
           void window.milagre
             .notifyCompletion({
               chatId,

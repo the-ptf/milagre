@@ -65,7 +65,11 @@ export function createAiConsent({ read, write, ask }) {
 export function requiresAiConsent(method, args = []) {
   if (method === "agent:respond-permission") return args[0]?.decision !== "deny";
   if (method === "agent:set-permission-mode") return args[0]?.mode !== "ask";
-  return ["chat:send", "link:send", "chat:resume", "chat:limit-switch", "advisor:retry", "agent:answer-question", "live-activity:answer"].includes(method);
+  // A sign-off lets the bot's turn go on; a denial ends it.
+  if (method === "bots:answer-gate") return args[1] !== "deny";
+  return ["chat:send", "bots:send", "link:send", "chat:resume", "chat:limit-switch", "advisor:retry", "agent:answer-question", "live-activity:answer"].includes(
+    method,
+  );
 }
 
 const methods = {
@@ -77,6 +81,8 @@ const methods = {
   answerQuestion: "agent:answer-question",
   respondToPermission: "agent:respond-permission",
   setAgentPermissionMode: "agent:set-permission-mode",
+  sendToBot: "bots:send",
+  answerBotGate: "bots:answer-gate",
 };
 
 /** Wrap both local and paired-computer bridges at their shared call boundary. */

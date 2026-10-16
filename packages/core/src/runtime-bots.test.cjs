@@ -175,6 +175,18 @@ test("sending to a bot runs in Bot rules with fresh instructions", async (t) => 
   assert.equal(typeof summary.lastAt, "number");
 });
 
+test("a bot's thread stays out of the inbox", async (t) => {
+  const { runtime, bot, turns } = await withOps(t);
+  await runtime.invoke("bots:send", ["ops", "Is main green?"]);
+  await waitUntil(() => turnIn(turns, bot.homePath));
+  await waitUntil(() => runtime.snapshot().runs.runs[`${bot.homePath}#${bot.threadSessionId}`] === undefined);
+  const inbox = await runtime.invoke("chat:inbox");
+  assert.equal(
+    inbox.agents.some((item) => item.projectPath === bot.homePath),
+    false,
+  );
+});
+
 test("chat:send into a bot thread is forced to Bot rules", async (t) => {
   const { runtime, bot, turns } = await withOps(t);
   await runtime.invoke("chat:send", [
@@ -280,6 +292,7 @@ test("the profile edits the brief and the memory", async (t) => {
   const { runtime, bot } = await withOps(t);
   await runtime.invoke("bots:update", ["ops", { brief: "Watch main only.", role: "Keeps main green" }]);
   assert.equal(await fs.readFile(path.join(bot.homePath, "BRIEF.md"), "utf8"), "Watch main only.");
+  assert.deepEqual(await runtime.invoke("bots:brief:read", ["ops"]), { text: "Watch main only." });
   assert.equal((await runtime.invoke("bots:list")).bots[0].role, "Keeps main green");
   await runtime.invoke("bots:memory:save", ["ops", "# Memory\n\n## Rules\n- never merge on Fridays\n"]);
   assert.match((await runtime.invoke("bots:memory:read", ["ops"])).text, /- never merge on Fridays <!-- victor -->/);
