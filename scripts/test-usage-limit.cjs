@@ -42,6 +42,8 @@ window.accountsOpened = 0;
 window.autoSaves = [];
 window.milagre = Object.freeze({
   listEditors: async () => [],
+  listAccounts: async () => ({ providers: [{ provider: "claude", selectedId: "default", accounts: [account("default")] }] }),
+  accountAction: async () => ({ providers: [] }),
   readLimitAutoSwitch: async () => ({ autoSwitch: false }),
   saveLimitAutoSwitch: async (value) => (window.autoSaves.push(value), { autoSwitch: value }),
   listRecentProjects: async () => [],
@@ -88,7 +90,7 @@ function Fixture() {
   </div>;
 }
 function Settings() {
-  return <div style={{ padding: 12, height: "100%" }}><SettingsPanel section="experimental" models={[]} update={null} /></div>;
+  return <div style={{ padding: 12, height: "100%" }}><SettingsPanel section="accounts" models={[]} update={null} /></div>;
 }
 document.documentElement.classList.add("dark");
 createRoot(document.getElementById("root")).render(scenario === "settings" ? <Settings /> : <Fixture />);
@@ -195,7 +197,7 @@ async function browserChecks(base) {
     assert.equal(await evaluate("window.accountsOpened"), 1, "a new page, a new count");
     await screenshot("all-limited");
 
-    // Experimental: the Mac-owned switch reads off, saves through the bridge.
+    // Accounts > Usage limits: the Mac-owned switch reads off, saves through the bridge.
     await window.loadURL(`${base}?scenario=settings`);
     const toggle =
       'document.querySelector(\'[role="switch"][aria-label="Switch accounts at usage limits"], button[aria-label="Switch accounts at usage limits"]\')';
@@ -208,7 +210,7 @@ async function browserChecks(base) {
 
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: the limit card shows its headline alone while a turn runs or after the Chat moved on; idle, it lists the other accounts with signed-out ones greyed, reports a failed switch and re-enables, and shows the result of a good one; the continue message is a line; Add account and Manage accounts open Settings; the Experimental switch saves through the bridge",
+      "PASS: the limit card shows its headline alone while a turn runs or after the Chat moved on; idle, it lists the other accounts with signed-out ones greyed, reports a failed switch and re-enables, and shows the result of a good one; the continue message is a line; Add account and Manage accounts open Settings; the Accounts switch saves through the bridge",
     );
     app.exit(0);
   } catch (error) {

@@ -1,6 +1,7 @@
-const { isTurnEnd: isTerminal, subagentActive } = require("@milagre/shared/agent-runs");
+const { isTurnEnd: isTerminal } = require("@milagre/shared/agent-runs");
 const { computerOfKey } = require("@milagre/shared/chat-scopes");
-const { completionNotice, notificationPreview, notificationText } = require("@milagre/shared/attention");
+const { completionNotice, notificationText } = require("@milagre/shared/attention");
+const { createActivityTracker } = require("@milagre/shared/chat-activity");
 const { parseNotificationChime } = require("@milagre/shared/notification-chimes");
 
 const MAX_TITLE = 120;
@@ -15,10 +16,10 @@ const keyOf = (chatId, requestId) => `${chatId}\n${requestId}`;
 // System notifications for chats that wait on the user: an approval or a question. Every agent event
 // is observed, so the notifier knows which requests are still open, and notify names the chat. One shows only while no Milagre window has focus, once per
 // request, and closes when its request is answered or its turn ends. Clicking it opens the chat.
-// A turn's end is announced too (notifyCompletion), unless a subagent the chat runs in the background is still at work:
-// its result wakes the chat with a turn of its own, whose end is the one announced. A completion held that way shows
-// once the last of them ends with no turn to take its result.
-// A chat's notification plays the chime picked in Settings > Experimental: the system notice goes silent and playChime
+// The end of a chat's work is announced too (notifyCompletion): the chat leaving working or background for idle or
+// failed, as the shared activity tracker (chat-activity.mjs) tells it. A turn that ends while the chat's background
+// subagents work is not that end: the window's call is kept, and announced once the work ends.
+// A chat's notification plays the chime picked in Settings > Notifications: the system notice goes silent and playChime
 // plays the clip in the window. With no window to play it (playChime returns false), the system sound stays.
 class AttentionNotifier {
   /** @param {{ createNotification: (notice: {title: string; subtitle: string; body: string; silent?: boolean}) => Electron.Notification; isAppFocused: () => boolean; openChat: (chatId: string) => void; openPhoneSettings?: () => void; setBadge?: (badge: string) => void; canPlayChime?: () => boolean; playChime?: (chime: string) => void }} options */
@@ -45,7 +46,8 @@ class AttentionNotifier {
     this.computerWaiting = null;
     // Keys of the computers waiting for Allow that were already announced.
     this.computersAnnounced = new Set();
-    this.previews = new Map();
+    // What each chat is doing, from its events, and the ends of work no window has asked to announce yet.
+    this.activity = createActivityTracker();
     this.completed = new Map();
     this.completionNotifications = new Map();
     this.unread = new Set();
@@ -55,11 +57,8 @@ class AttentionNotifier {
     this.showDockBadge = true;
     // Requests the agents wait on, by key, with the notification shown for each (or null).
     this.open = new Map();
-    // Chats whose turn runs; per chat, the ids of its background subagents still at work; and the completions held
-    // while they do ({ title, result }).
-    this.running = new Set();
-    this.background = new Map();
-    this.held = new Map();
+    // Chats a window asked to announce whose work goes on in the background, with the title to announce it by.
+    this.asked = new Map();
   }
 
   /** @param {{ projectPath?: string; activeChatId?: string | null; unread?: string[]; notifyOnCompletion?: boolean; showDockBadge?: boolean }} [state] */
@@ -100,36 +99,23 @@ class AttentionNotifier {
   }
 
   observe(chatId, event) {
-    if (event.type === "turn-started") {
-      this.previews.delete(chatId);
+    const { completion } = this.activity.observe(chatId, event);
+    // A new turn announces its own end; so does the turn a background subagent's result wakes.
+    if (event.type === "turn-started" || event.type === "turn-cancelled") {
       this.completed.delete(chatId);
-      // The turn that takes a background subagent's result announces its own end.
-      this.held.delete(chatId);
-      this.running.add(chatId);
-    } else if (event.type === "text-delta") {
-      this.previews.set(chatId, notificationPreview(this.previews.get(chatId), event.text, event.startsMessage));
-    } else if (event.type === "message-sent" || event.type === "answers-sent") {
-      this.previews.delete(chatId);
-    } else if (event.type === "subagent-update" && event.agent?.background) {
-      const ids = this.background.get(chatId) ?? new Set();
-      if (subagentActive(event.agent)) ids.add(event.agent.id);
-      else ids.delete(event.agent.id);
-      if (ids.size) this.background.set(chatId, ids);
-      else {
-        this.background.delete(chatId);
-        if (!this.running.has(chatId)) this.release(chatId);
-      }
+      this.asked.delete(chatId);
     }
-    if (isTerminal(event)) {
-      this.running.delete(chatId);
-      if (event.type !== "turn-cancelled")
-        this.completed.set(chatId, {
-          failed: event.type === "turn-failed",
-          body: event.type === "turn-failed" ? event.message : this.previews.get(chatId) || "Turn completed.",
-        });
-      else this.completed.delete(chatId);
-      this.previews.delete(chatId);
-      if (this.completed.size > 100) this.completed.delete(this.completed.keys().next().value);
+    if (completion) {
+      const result = { failed: completion.failed, body: completion.body };
+      const asked = this.asked.has(chatId);
+      const title = this.asked.get(chatId);
+      this.asked.delete(chatId);
+      if (asked) {
+        if (this.notifyOnCompletion) this.showCompletion(chatId, title, result);
+      } else {
+        this.completed.set(chatId, result);
+        if (this.completed.size > 100) this.completed.delete(this.completed.keys().next().value);
+      }
     }
     if (event.type === "permission-request" || event.type === "question-request") {
       const key = keyOf(chatId, event.requestId);
@@ -164,21 +150,10 @@ class AttentionNotifier {
     if (typeof chatId !== "string") return false;
     const result = this.completed.get(chatId);
     this.completed.delete(chatId);
+    // The turn ended, but the chat's background subagents still work: its work ends when they do (see observe).
+    if (!result && this.activity.activity(chatId) === "background") this.asked.set(chatId, title);
     if (!result || !this.notifyOnCompletion) return false;
-    // A turn that ends while the chat's background subagents still work isn't the end of the work.
-    if (!result.failed && this.background.get(chatId)?.size) {
-      this.held.set(chatId, { title, result });
-      return false;
-    }
     return this.showCompletion(chatId, title, result);
-  }
-
-  /** Shows the completion held for a chat, now that its last background subagent ended with no turn to take the result. */
-  release(chatId) {
-    const held = this.held.get(chatId);
-    if (!held) return false;
-    this.held.delete(chatId);
-    return this.notifyOnCompletion && this.showCompletion(chatId, held.title, held.result);
   }
 
   showCompletion(chatId, title, result) {
@@ -280,8 +255,8 @@ class AttentionNotifier {
       notification.close();
       this.completionNotifications.delete(chatId);
     }
-    for (const map of [this.completed, this.previews, this.background, this.held]) for (const chatId of [...map.keys()]) if (mine(chatId)) map.delete(chatId);
-    for (const chatId of [...this.running]) if (mine(chatId)) this.running.delete(chatId);
+    for (const map of [this.completed, this.asked]) for (const chatId of [...map.keys()]) if (mine(chatId)) map.delete(chatId);
+    this.activity.forget(mine);
     this.updateBadge();
   }
 
@@ -292,10 +267,8 @@ class AttentionNotifier {
     this.computerWaiting?.close();
     this.computerWaiting = null;
     this.completed.clear();
-    this.previews.clear();
-    this.background.clear();
-    this.held.clear();
-    this.running.clear();
+    this.asked.clear();
+    this.activity.forget();
     this.setBadge("");
   }
 }

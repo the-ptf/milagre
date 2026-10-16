@@ -129,6 +129,17 @@ function createProjectSettings(file) {
       });
       return { setupCommand: command };
     },
+    // Trust is kept in this Computer's profile, never in the repository. Only the exact reviewed command matches.
+    async isSetupTrusted(projectPath, command) {
+      const entry = (await read({ strict: false })).projects[path.resolve(projectPath)];
+      return !!command && entry?.trustedSetupCommand === command;
+    },
+    async trustSetup(projectPath, command) {
+      if (typeof command !== "string" || !command) throw new Error("A setup command is required.");
+      await update(projectPath, (entry) => {
+        entry.trustedSetupCommand = command;
+      });
+    },
     // null removes the chosen icon, which brings the repository's own back.
     async setIcon(projectPath, icon) {
       const value = icon === null ? null : normalizeIcon(icon);

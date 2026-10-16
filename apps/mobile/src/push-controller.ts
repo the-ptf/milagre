@@ -27,6 +27,7 @@ export function notificationTarget(value: unknown, hosts: SavedHost[]): Notifica
 // them. A full-screen modal or a pushed page hides it.
 export const SHEETS_OVER_CHAT = new Set([
   "update-sheet",
+  "update-notes",
   "confirm-sheet",
   "choice-sheet",
   "chime-sheet",

@@ -113,6 +113,8 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "computers:list",
     "app:version",
     "accounts:add",
+    "accounts:assign",
+    "chat:limit-switch",
   ])
     assert.equal(isLocalOnly(channel), true, channel);
   for (const channel of [

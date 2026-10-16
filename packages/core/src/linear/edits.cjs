@@ -39,7 +39,7 @@ function createLinearEdits({ linear, issues, refs }) {
   function writable(workspace) {
     if (!linear.canWrite(workspace))
       throw new Error(
-        `Milagre's sign-in to the ${workspace} Linear workspace can only read issues. The user can sign in to it again with Settings › Experimental › Linear › Add workspace to allow changes.`,
+        `Milagre's sign-in to the ${workspace} Linear workspace can only read issues. The user can sign in to it again with Settings › Connections › Linear › Add workspace to allow changes.`,
       );
     return workspace;
   }

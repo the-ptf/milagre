@@ -38,6 +38,8 @@ window.milagre = new Proxy({
   listRecentProjects: async () => ['alpha', 'beta', 'gamma'].map(name => ({ path: '/' + name, name })),
   listNamedLinks: async () => [],
   listProjects: async () => [],
+  // The sidebar lists every Project's chats from this read, which resolves at once; only switching is held.
+  readProject: async path => ({ path, name: path.slice(1), state: stateFor(path.slice(1)) }),
   listBranches: async () => ['main'],
   listEditors: async () => [],
   getCachedUsage: async () => ({ providers: [] }),
@@ -45,9 +47,6 @@ window.milagre = new Proxy({
   getUpdateState: async () => ({ status: 'idle' }),
 }, { get(target, key) { return target[key] ?? (String(key).startsWith('on') ? () => () => {} : async () => null); } });
 const { default: App } = await import('/src/App');
-import { updateSettings as useLegacySidebar } from "/src/lib/settings";
-// This check drives the legacy sidebar (the project menu, pins in one list).
-useLegacySidebar({ legacySidebar: true });
 createRoot(document.getElementById('root')).render(<App />);
 `;
 const mobile = `
@@ -123,6 +122,7 @@ const stubs = {
   "./chat-actions": "export const chatMenu = () => []; export const runChatAction = async () => {};",
   "./confirm-store": "export const confirm = async () => true; export const confirmSheet = () => {};",
   "./attention": "export const AttentionDot = () => null; export const useAttention = () => [];",
+  "./update-sheet": "export const UpdateSettingsBadge = () => null;",
   "./chat-row-store":
     "export const useChatRowShow = () => ({ computer: true, pullRequests: true, linearIssue: true, branch: true, diff: false, lastActivity: false }); export const saveChatRowShow = () => {}; export const useActivityClock = () => Date.now();",
 };
@@ -159,9 +159,9 @@ async function browserChecks() {
   }
   const contains = (text) => `document.body.textContent.includes(${JSON.stringify(text)})`;
   const sidebar = (text) => `document.querySelector('aside')?.textContent.includes(${JSON.stringify(text)})`;
-  async function switchTo(current, next) {
-    await click(current);
-    const target = `document.querySelector('[data-project-row="/${next}"]')`;
+  // "New chat in <name>" on another Project's sidebar group switches to that Project.
+  async function switchTo(_current, next) {
+    const target = `document.querySelector('[data-sidebar-scope="/${next}"] [data-scope-action]')`;
     await waitFor(`!!${target}`);
     await evaluate(`${target}.click()`);
   }

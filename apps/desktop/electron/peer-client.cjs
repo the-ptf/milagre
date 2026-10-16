@@ -108,6 +108,8 @@ async function connectPeer({
     keepOpen: () => {},
   });
   const pending = new Map();
+  // Calls past MAX_PENDING wait here for a free slot (the daemon drops a connection that sends more).
+  const queued = [];
   const reader = createFrameReader("evt");
   const writer = createFrameWriter("rpc");
   /** @type {import("@milagre/shared/relay-crypto").Channel | null} */
@@ -123,7 +125,7 @@ async function connectPeer({
   let whenIdle = null;
   /** Runs a pending closeWhenIdle once nothing is in flight. */
   function closeIfIdle() {
-    if (!whenIdle || client.closed || pending.size > 0 || paging > 0) return;
+    if (!whenIdle || client.closed || pending.size > 0 || queued.length > 0 || paging > 0) return;
     const before = whenIdle;
     whenIdle = null;
     try {
@@ -151,11 +153,12 @@ async function connectPeer({
     } catch {
       /* already closed */
     }
-    for (const request of pending.values()) {
+    for (const request of [...pending.values(), ...queued]) {
       clearTimeout(request.timeout);
       request.reject(new Error("Daemon connection closed"));
     }
     pending.clear();
+    queued.length = 0;
     if (settle) {
       settle.reject(error);
       settle = null;
@@ -203,6 +206,7 @@ async function connectPeer({
     if (!request) return;
     pending.delete(frame.id);
     clearTimeout(request.timeout);
+    drain();
     if (frame.error) request.reject(Object.assign(new Error(frame.error.message), { code: frame.error.code }));
     else if (frame.pages) request.resolve(readPages(frame.pages));
     else request.resolve(frame.result);
@@ -281,27 +285,45 @@ async function connectPeer({
   };
   handshake = setTimeout(() => end(new PeerError("lost")), HANDSHAKE_MS);
 
+  function start(request) {
+    if (client.closed || !channel) {
+      clearTimeout(request.timeout);
+      return request.reject(new Error("Daemon connection closed"));
+    }
+    const id = ++nextId;
+    let texts;
+    try {
+      texts = writer.write(JSON.stringify({ v: VERSION, id, method: request.method, args: request.args, pages: true }));
+    } catch (error) {
+      clearTimeout(request.timeout);
+      return request.reject(error);
+    }
+    request.id = id;
+    pending.set(id, request);
+    for (const text of texts) send(channel.sealEncoded(text));
+  }
+  function drain() {
+    while (queued.length > 0 && pending.size < MAX_PENDING) start(queued.shift());
+  }
   client.call = (method, args = []) =>
     new Promise((resolve, reject) => {
       if (client.closed || !channel) return reject(new Error("Daemon connection closed"));
-      if (pending.size >= MAX_PENDING) return reject(new Error("Too many pending daemon requests"));
-      const id = ++nextId;
-      let texts;
-      try {
-        texts = writer.write(JSON.stringify({ v: VERSION, id, method, args, pages: true }));
-      } catch (error) {
-        return reject(error);
-      }
-      const timeout = setTimeout(
+      // The deadline counts time spent queued, so a call never waits longer than it would have unqueued.
+      /** @type {{ id: number; method: string; args: unknown[]; resolve: (value: any) => void; reject: (error: Error) => void; timeout?: ReturnType<typeof setTimeout> }} */
+      const request = { id: 0, method, args, resolve, reject };
+      request.timeout = setTimeout(
         () => {
-          pending.delete(id);
+          pending.delete(request.id);
+          const index = queued.indexOf(request);
+          if (index >= 0) queued.splice(index, 1);
           reject(new Error(`Timed out: ${method}. It may still be running; do not retry a mutation without checking state.`));
+          drain();
           closeIfIdle();
         },
         deadlineFor(method, timeoutMs),
       );
-      pending.set(id, { resolve, reject, timeout });
-      for (const text of texts) send(channel.sealEncoded(text));
+      if (pending.size >= MAX_PENDING) queued.push(request);
+      else start(request);
     });
   client.close = () => end(new PeerError("lost"));
   /** Closes once no call waits for its answer (`beforeClose` runs just before), or now when none does. */

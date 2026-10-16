@@ -76,7 +76,7 @@ async function stop(entry) {
 
 /**
  * The other Macs this desktop drives (spec "This Mac (Electron main) › Computers"). Each saved computer, while
- * `setEnabled(true)` (Settings › Experimental › Other computers), gets one runtime (daemon-runtime.cjs) whose connections
+ * `setEnabled(true)` (Settings › Devices › Other computers), gets one runtime (daemon-runtime.cjs) whose connections
  * are paired-desktop channels (peer-client.cjs) on the route the shared supervisor picks: a LAN address the computer
  * gave (peer:routes) when it answers, the relay otherwise; checked on every connect, every 60 s and when this Mac's
  * network changes. A refusal retrying can't fix (removed, reset, denied) stops it until it is paired again.

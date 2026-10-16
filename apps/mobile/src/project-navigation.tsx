@@ -1,3 +1,4 @@
+import { UpdateSettingsBadge } from "./update-sheet";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
@@ -44,6 +45,7 @@ import { endNamer, linkMenuSection, linkWorktree, linkedAccessibilityLabel, link
 import { linkWithChat, removeLinkFromChat } from "./link-actions";
 import { afterSend, selectedModel, sendOptions, turnTarget } from "./turn-options";
 import { chatMark, type ChatMark } from "./indicators";
+import { backgroundLabel, chatActivity } from "@milagre/shared/chat-activity";
 import { ChatMarkIcon } from "./status-indicators";
 import { Icon } from "./icons";
 import { LoadingLogo } from "./loading-logo";
@@ -75,6 +77,8 @@ type Row = { key: string; path: string } & (
       title: string;
       worktree: string;
       mark: ChatMark;
+      /** With a background mark: how many background agents still work. */
+      background?: number;
       pending?: MobilePendingChat;
       prPath?: string;
       prRefs?: string[];
@@ -106,6 +110,7 @@ const NEEDS: ChatMark[] = ["question", "waiting", "interrupted", "failed", "unre
 const labels: Record<ChatMark, string> = {
   idle: "",
   running: "Running",
+  background: "In the background",
   question: "Needs reply",
   waiting: "Needs approval",
   interrupted: "Interrupted",
@@ -274,6 +279,8 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
           pending,
           sortId,
           mark: pending && !pending.accepted ? ("running" as const) : chatMark(chat, run, byChat.get(chat.id) || []),
+          // How many background agents still work, for a background mark (chat-activity.mjs).
+          background: chatActivity(chat, run).background,
         };
       });
       // Like desktop's sidebar, a worktree's empty starter Chat stays out until it has a message or a turn is starting.
@@ -285,7 +292,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
             (run || isListedChat(chat, chatSummary(chat, byChat.get(chat.id)).count)),
         )
         .filter(({ mark }) => show !== "needs" || NEEDS.includes(mark))
-        .filter(({ mark }) => show !== "running" || mark === "running");
+        .filter(({ mark }) => show !== "running" || mark === "running" || mark === "background");
       if (needle && copy)
         searchable.push({
           path: project.path,
@@ -305,7 +312,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
         result.push({ key: `section:${section}`, path: "", kind: "section", name: section });
       result.push({ key: project.path, path: project.path, kind: "project", name, expanded: open, members: project.projects });
       if (!open) continue;
-      for (const { chat, title, mark, pending } of chats)
+      for (const { chat, title, mark, background, pending } of chats)
         result.push({
           key: `${project.path}#${chat.id}`,
           path: project.path,
@@ -317,6 +324,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
           prPath: !pending && !copy?.project.link ? copy?.project.state.worktrees[chat.worktree_id]?.path : undefined,
           prRefs: chat.summary?.pullRequests ?? copy?.project.pullRequestRefs?.[chat.id] ?? pullRequestRefs(byChat.get(chat.id) || []),
           mark,
+          background,
         });
       if (failures[project.path])
         result.push({
@@ -625,7 +633,10 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <IconButton label="Canvas" icon={GitMergeIcon} size={44} disabled={busy} onPress={() => onNavigate("/canvas", true)} />
         <IconButton label="Link projects" icon={Link04Icon} size={44} disabled={busy} onPress={() => onNavigate("/link-projects", true)} />
-        <IconButton label="Settings" icon={Settings01Icon} size={44} onPress={() => onNavigate("/settings", true)} />
+        <View>
+          <IconButton label="Settings" icon={Settings01Icon} size={44} onPress={() => onNavigate("/settings", true)} />
+          <UpdateSettingsBadge />
+        </View>
       </View>
     </View>
   );
@@ -877,7 +888,8 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
               <Icon icon={Link04Icon} tone="ink3" size={12} />
             </View>
           ) : null;
-          const secondLine = !!branchLine || !!diff || lastAt !== undefined || !!item.chat.pinned || !!linkedIcon || !!labels[item.mark];
+          const markLabel = item.mark === "background" && item.background ? backgroundLabel(item.background) : labels[item.mark];
+          const secondLine = !!branchLine || !!diff || lastAt !== undefined || !!item.chat.pinned || !!linkedIcon || !!markLabel;
           const menu = chatMenu(
             item.chat,
             copy?.project.link ? { path: copy.project.state.worktrees[item.chat.worktree_id]?.path } : copy?.project.state.worktrees[item.chat.worktree_id],
@@ -894,7 +906,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
                 importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
               >
                 <PullDown
-                  label={`${title}${item.chat.pinned ? ", pinned" : ""}, ${item.worktree}${labels[item.mark] ? `, ${labels[item.mark]}` : ""}${linked.length ? `, ${linkedAccessibilityLabel(linked)}` : ""}`}
+                  label={`${title}${item.chat.pinned ? ", pinned" : ""}, ${item.worktree}${markLabel ? `, ${markLabel}` : ""}${linked.length ? `, ${linkedAccessibilityLabel(linked)}` : ""}`}
                   title={title}
                   sections={item.pending || archiving ? [] : menu}
                   onSelect={(action) => {
@@ -906,7 +918,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
                   style={{ flex: 1 }}
                 >
                   <View style={[s.chatBody, hasChips && { minHeight: 28, paddingTop: 6, paddingBottom: 0 }]}>
-                    <ChatMarkIcon mark={item.mark} />
+                    <ChatMarkIcon mark={item.mark} background={item.background} />
                     <View style={{ flex: 1, gap: 3 }}>
                       <Text
                         numberOfLines={hasChips ? 1 : 2}
@@ -925,9 +937,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
                             </Text>
                           )}
                           {facts}
-                          {!!labels[item.mark] && (
-                            <Text style={[s.detail, { color: tone === "accent" ? colors.accentInk : colors[tone] }]}>{labels[item.mark]}</Text>
-                          )}
+                          {!!markLabel && <Text style={[s.detail, { color: tone === "accent" ? colors.accentInk : colors[tone] }]}>{markLabel}</Text>}
                         </View>
                       )}
                     </View>
@@ -938,9 +948,9 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
                     {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
                     {linkedIcon}
                     {facts}
-                    {!!labels[item.mark] && (
+                    {!!markLabel && (
                       <Text numberOfLines={1} style={[s.detail, { flexShrink: 1, color: tone === "accent" ? colors.accentInk : colors[tone] }]}>
-                        {labels[item.mark]}
+                        {markLabel}
                       </Text>
                     )}
                   </ChatPullRequestChips>

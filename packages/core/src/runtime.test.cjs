@@ -546,6 +546,91 @@ test("chat:reload stops a running turn and puts its line after the reply so far"
   );
 });
 
+test("chat:reload waits for the Chat's background subagents instead of stopping them (T3 #16000)", async (t) => {
+  const { project, make } = await fixture(t);
+  const agents = reloadAgents();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: agents.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  const stateOf = async () => (await runtime.invoke("project:snapshot", [project])).state;
+  const background = (status) => ({
+    type: "subagent-update",
+    agent: { id: "bg", title: "Review", status, background: true, startedAt: 1, updatedAt: Date.now(), transcript: [] },
+  });
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body: "review it", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && !agents.sessions[0]; i++) await new Promise((r) => setTimeout(r, 10));
+  agents.sessions[0].options.emit(background("running"));
+  for (let i = 0; i < 200 && !(await stateOf()).sessions[chat.id].subagents?.length; i++) await new Promise((r) => setTimeout(r, 10));
+
+  await assert.rejects(
+    runtime.invoke("chat:reload", [chatId]),
+    /A background task is still running in this Chat\. Reloading would stop it\. Ask the agent to stop it, or reload once it finishes\./,
+  );
+  assert.equal(agents.sessions[0].closed, false);
+  assert.equal(
+    (await stateOf()).messages.some((item) => item.context?.kind === "reload"),
+    false,
+  );
+
+  agents.sessions[0].options.emit(background("completed"));
+  for (let i = 0; i < 200 && (await stateOf()).sessions[chat.id].subagents[0].status !== "completed"; i++) await new Promise((r) => setTimeout(r, 10));
+  await runtime.invoke("chat:reload", [chatId]);
+  assert.equal(agents.sessions[0].closed, true);
+});
+
+test("chat:queue-send stops the running Antigravity turn and starts the queued message; chat:queue-remove drops one", async (t) => {
+  const { project, make } = await fixture(t);
+  const agents = reloadAgents();
+  const prompts = [];
+  const createSession = (provider, options) => {
+    const session = agents.createSession(provider, options);
+    const start = session.startTurn;
+    session.startTurn = (turn) => {
+      prompts.push(turn.prompt);
+      return start(turn);
+    };
+    return session;
+  };
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  const sessionOf = async () => (await runtime.invoke("project:snapshot", [project])).state.sessions[chat.id];
+  const send = (body) =>
+    runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body, provider: "antigravity", model: "gemini-3.8-flash-high" }]);
+  const until = async (check) => {
+    for (let i = 0; i < 300 && !(await check()); i++) await new Promise((r) => setTimeout(r, 10));
+    assert.ok(await check());
+  };
+  agents.running();
+  await send("long job");
+  await until(() => agents.sessions[0]?.turnActive);
+  await send("then this");
+  await send("and this");
+  await until(async () => (await sessionOf()).queued?.length === 2);
+  assert.deepEqual(prompts, ["long job"]);
+  const [first, second] = (await sessionOf()).queued;
+
+  assert.equal(await runtime.invoke("chat:queue-remove", [chatId, second.id]), true);
+  assert.equal(await runtime.invoke("chat:queue-remove", [chatId, second.id]), false);
+  await assert.rejects(runtime.invoke("chat:queue-send", [`${project}#999`, first.id]), /existing Chat/);
+
+  await runtime.invoke("chat:queue-send", [chatId, first.id]);
+  await until(() => prompts.length === 2);
+  assert.equal(prompts[1], "then this");
+  assert.equal((await sessionOf()).queued, undefined);
+  const { messages } = (await runtime.invoke("project:snapshot", [project])).state;
+  assert.deepEqual(
+    messages.map((item) => [item.role, item.body, item.outcome]),
+    [
+      ["user", "long job", undefined],
+      ["assistant", "Working.\n\nWhat should I work on instead?", "cancelled"],
+      ["user", "then this", undefined],
+    ],
+  );
+});
+
 test("chat:reload adds no line to an empty Chat", async (t) => {
   const { project, make } = await fixture(t);
   const runtime = make({ titleModels: {} });
@@ -1058,7 +1143,7 @@ test("linear:worktree-issues names a worktree's issue and linear:issues reports 
     },
   });
   await runtime.openProject(project);
-  assert.deepEqual(await runtime.invoke("linear:issues", [{}]), { error: "Linear is off in Settings › Experimental.", notConnected: true });
+  assert.deepEqual(await runtime.invoke("linear:issues", [{}]), { error: "Linear is off in Settings › Connections › Linear.", notConnected: true });
   assert.deepEqual(await runtime.invoke("linear:worktree-issues", [project]), {});
   assert.deepEqual(await runtime.invoke("linear:enabled:save", [true]), { enabled: true });
   assert.deepEqual(events.filter((event) => event.channel === "linear:enabled-changed").at(-1).payload, { enabled: true });
@@ -1100,7 +1185,7 @@ test("worktree:create from a Linear issue refuses while Linear is off or disconn
   const attempt = () => runtime.invoke("worktree:create", [{ projectPath: project, baseBranch: "main", prompt: "x", issueKey: "ENG-12" }]);
 
   // Off: nothing stored, so the switch is off and no token exists.
-  await assert.rejects(attempt(), { message: "Linear is off in Settings › Experimental." });
+  await assert.rejects(attempt(), { message: "Linear is off in Settings › Connections › Linear." });
 
   // On, but never connected.
   await fs.mkdir(path.join(dataDir, "linear"), { recursive: true });
@@ -1265,7 +1350,7 @@ test("worktree:link-issue refuses while Linear is off, disconnected, malformed o
   const { project, dataDir, runtime, worktreeId, worktree, events } = await linkFixture(t);
   const attempt = (key = "ENG-12") => runtime.invoke("worktree:link-issue", [{ projectPath: project, worktreeId, key }]);
   await fs.writeFile(path.join(dataDir, "linear", "settings.json"), JSON.stringify({ enabled: false }));
-  await assert.rejects(attempt(), { message: "Linear is off in Settings › Experimental." });
+  await assert.rejects(attempt(), { message: "Linear is off in Settings › Connections › Linear." });
   await fs.writeFile(path.join(dataDir, "linear", "settings.json"), JSON.stringify({ enabled: true }));
   await fs.rm(path.join(dataDir, "linear", "workspaces", "acme.json"));
   await assert.rejects(attempt(), { message: "Linear isn't connected." });

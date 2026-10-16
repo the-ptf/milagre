@@ -44,6 +44,8 @@ export interface ToolApprovalProps {
   onAlwaysAllow?: () => void;
   /** Label for the always-allow button. */
   alwaysAllowLabel?: ReactNode;
+  approveLabel?: ReactNode;
+  denyLabel?: ReactNode;
   onDeny?: () => void;
   className?: string;
 }
@@ -109,6 +111,8 @@ export function ToolApproval({
   onApprove,
   onAlwaysAllow,
   alwaysAllowLabel = "Always allow",
+  approveLabel = "Allow once",
+  denyLabel = "Deny",
   onDeny,
   className = "",
 }: ToolApprovalProps) {
@@ -229,7 +233,7 @@ export function ToolApproval({
               transition={SPRING_PRESS}
               className="rounded-control border border-line bg-surface px-3 py-2 text-xs font-medium text-ink-2 transition-colors hover:border-line-strong hover:bg-hover"
             >
-              Deny
+              {denyLabel}
             </motion.button>
             {onAlwaysAllow && (
               <motion.button
@@ -249,7 +253,7 @@ export function ToolApproval({
               transition={SPRING_PRESS}
               className="rounded-control bg-ink px-3 py-2 text-xs font-medium text-surface transition-opacity hover:opacity-85"
             >
-              Allow once
+              {approveLabel}
             </motion.button>
           </motion.div>
         )}

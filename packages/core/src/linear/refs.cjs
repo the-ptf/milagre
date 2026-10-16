@@ -9,7 +9,7 @@ function checkWorkspace(workspace, ids) {
   const id = workspace.toLowerCase();
   if (!ids.includes(id))
     throw new Error(
-      `Milagre isn't connected to the "${workspace}" Linear workspace (connected: ${ids.join(", ")}). The user can add it in Settings › Experimental › Linear › Add workspace.`,
+      `Milagre isn't connected to the "${workspace}" Linear workspace (connected: ${ids.join(", ")}). The user can add it in Settings › Connections › Linear › Add workspace.`,
     );
   return id;
 }
@@ -18,9 +18,9 @@ function checkWorkspace(workspace, ids) {
 function createLinearRefs({ linear, issues }) {
   /** The connected workspace ids, or an error that says how to connect one. */
   function connected() {
-    if (!linear.enabled()) throw new Error("Linear is off in Milagre (Settings › Experimental).");
+    if (!linear.enabled()) throw new Error("Linear is off in Milagre (Settings › Connections › Linear).");
     const ids = linear.workspaces().map((workspace) => workspace.id);
-    if (!ids.length) throw new Error("Milagre isn't connected to Linear. The user can connect it in Settings › Experimental › Linear.");
+    if (!ids.length) throw new Error("Milagre isn't connected to Linear. The user can connect it in Settings › Connections › Linear.");
     return ids;
   }
 

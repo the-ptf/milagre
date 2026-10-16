@@ -191,21 +191,60 @@ const IDLE_AWAKE = { setupStarted() {}, setupEnded() {} };
  * holds the Mac awake while a run goes and hands the hold to the turn after it; a stopped run has no turn.
  */
 class WorktreeSetups {
-  constructor({ send, keepAwake = IDLE_AWAKE, run = runSetupCommand, timeoutMs = SETUP_TIMEOUT_MS, batchMs = BATCH_MS }) {
-    Object.assign(this, { send, keepAwake, run, timeoutMs, batchMs });
+  constructor({ send, keepAwake = IDLE_AWAKE, run = runSetupCommand, timeoutMs = SETUP_TIMEOUT_MS, batchMs = BATCH_MS, file, review }) {
+    Object.assign(this, { send, keepAwake, run, timeoutMs, batchMs, file, review });
     this.pending = new Map();
     this.running = new Map();
+    this.worktreeRuns = new Map();
+    this.saving = Promise.resolve();
+  }
+
+  load() {
+    return (this.loading ??= fs
+      .readFile(this.file, "utf8")
+      .then((text) => {
+        const entries = JSON.parse(text);
+        if (
+          !Array.isArray(entries) ||
+          entries.some(([key, entry]) => typeof key !== "string" || !entry || typeof entry.projectPath !== "string" || typeof entry.command !== "string")
+        )
+          throw new Error("Worktree setup state is invalid. Restore the Computer's setup state before continuing.");
+        this.pending = new Map(entries);
+      })
+      .catch((error) => {
+        if (error.code !== "ENOENT") throw error;
+      }));
+  }
+
+  save() {
+    if (!this.file) return Promise.resolve();
+    const text = JSON.stringify([...this.pending]);
+    this.saving = this.saving
+      .catch(() => {})
+      .then(async () => {
+        await fs.mkdir(path.dirname(this.file), { recursive: true });
+        const temporary = `${this.file}.${process.pid}.tmp`;
+        await fs.writeFile(temporary, text, { mode: 0o600 });
+        await fs.rename(temporary, this.file);
+      });
+    return this.saving;
   }
 
   /** Records what a new worktree runs before its first turn. Resolves to { command, source }, or null when there is none. */
-  async prepare({ worktreePath, projectPath, resolved }) {
+  async prepare({ worktreePath, projectPath, resolved, strict = false }) {
+    if (this.file) await this.load();
     if (!resolved.command) return null;
-    this.pending.set(worktreeKey(worktreePath), { projectPath, command: resolved.command, source: resolved.source });
+    const key = worktreeKey(worktreePath);
+    // A recovered Named Link never overwrites a setup that already started or failed.
+    if (!this.pending.has(key)) this.pending.set(key, { projectPath, command: resolved.command, source: resolved.source, strict });
+    await this.save();
     return { command: resolved.command, source: resolved.source };
   }
 
-  forget(worktreePath) {
+  async forget(worktreePath) {
+    if (this.file) await this.load();
     this.pending.delete(worktreeKey(worktreePath));
+    await this.save();
   }
 
   /**
@@ -213,19 +252,58 @@ class WorktreeSetups {
    * A message sent while it runs waits for the same run.
    */
   async beforeTurn(chatId, cwd) {
-    const active = this.running.get(chatId);
-    if (active) return { cancelled: (await active.done).status === "cancelled", note: "" };
+    if (this.file) await this.load();
+    if (this.closed) return { cancelled: true, note: "" };
     const key = worktreeKey(cwd);
+    const active = this.running.get(chatId);
+    if (active) return { ...(await active.done), note: "" };
+    const shared = this.worktreeRuns.get(key);
+    if (shared) {
+      // Another Chat owns the review. Stop must cancel this waiter without answering or cancelling that review.
+      const controller = new AbortController();
+      const cancelled = new Promise((resolve) => {
+        controller.signal.addEventListener("abort", () => resolve({ cancelled: true, note: "" }), { once: true });
+      });
+      const done = Promise.race([shared.done, cancelled]).finally(() => this.running.delete(chatId));
+      this.running.set(chatId, { controller, done });
+      return done;
+    }
     const entry = this.pending.get(key);
     if (!entry) return { cancelled: false, note: "" };
-    this.pending.delete(key);
-    const result = await this.start(chatId, cwd, entry.command);
-    return { cancelled: result.status === "cancelled", note: setupNote(entry.command, result, this.timeoutMs) };
+    const controller = new AbortController();
+    const done = this.runPending(chatId, cwd, key, entry, controller).finally(() => {
+      this.running.delete(chatId);
+      this.worktreeRuns.delete(key);
+    });
+    const running = { controller, done };
+    this.running.set(chatId, running);
+    this.worktreeRuns.set(key, running);
+    return done;
   }
 
-  start(chatId, cwd, command) {
+  async runPending(chatId, cwd, key, entry, controller) {
+    const reviewed = this.review ? await this.review({ chatId, cwd, entry, signal: controller.signal }) : entry;
+    if (reviewed.cancelled || controller.signal.aborted) return { cancelled: true, note: "" };
+    if (reviewed.skipped || !reviewed.command) {
+      this.pending.delete(key);
+      await this.save();
+      return { cancelled: false, note: reviewed.command ? "The user skipped the Worktree setup command. Do not run it without asking." : "" };
+    }
+    entry = { ...entry, command: reviewed.command, source: reviewed.source, status: "started" };
+    this.pending.set(key, entry);
+    // A crash after this write requires a fresh review; it never silently repeats a partly run command.
+    if (this.file) await this.save();
+    if (controller.signal.aborted) return { cancelled: true, note: "" };
+    const result = await this.start(chatId, cwd, entry.command, controller);
+    const failed = entry.strict && result.status !== "done";
+    if (failed) this.pending.set(key, { ...entry, status: "failed" });
+    else this.pending.delete(key);
+    await this.save();
+    return { cancelled: result.status === "cancelled", note: setupNote(entry.command, result, this.timeoutMs), ...(failed ? { failed: true } : {}) };
+  }
+
+  start(chatId, cwd, command, controller) {
     const id = `setup-${randomUUID()}`;
-    const controller = new AbortController();
     let buffered = "";
     let timer = null;
     const flush = () => {
@@ -245,15 +323,12 @@ class WorktreeSetups {
         buffered = capOutput(buffered + text);
         timer ??= setTimeout(flush, this.batchMs);
       },
-    })
-      .then((result) => {
-        flush();
-        this.send(chatId, setupCompleted(id, command, result, this.timeoutMs));
-        this.keepAwake.setupEnded(chatId, { turnFollows: result.status !== "cancelled" });
-        return result;
-      })
-      .finally(() => this.running.delete(chatId));
-    this.running.set(chatId, { controller, done });
+    }).then((result) => {
+      flush();
+      this.send(chatId, setupCompleted(id, command, result, this.timeoutMs));
+      this.keepAwake.setupEnded(chatId, { turnFollows: result.status !== "cancelled" });
+      return result;
+    });
     return done;
   }
 
@@ -266,6 +341,7 @@ class WorktreeSetups {
   }
 
   cancelAll() {
+    this.closed = true;
     return Promise.all([...this.running.keys()].map((chatId) => this.cancel(chatId)));
   }
 }

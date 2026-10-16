@@ -22,12 +22,14 @@ export function PromptField({
   draft,
   onChangeText,
   onImagePaste,
+  placeholder = "Message the agent",
 }: {
   client: Client;
   projectPath: string;
   draft: string;
   onChangeText: (value: string) => void;
   onImagePaste?: (image: PastedImage) => void;
+  placeholder?: string;
 }) {
   const { colors } = useTheme();
   const paste = useImagePaste(onImagePaste);
@@ -105,7 +107,7 @@ export function PromptField({
         {...paste}
         label="Message"
         hideLabel
-        placeholder="Message the agent"
+        placeholder={placeholder}
         multiline
         autoCorrect
         spellCheck

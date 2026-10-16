@@ -1,5 +1,6 @@
 const { realpathSync } = require("node:fs");
 const { projectOfKey, sessionIdFromKey, lastUserModel } = require("@milagre/shared/agent-runs");
+const { chatActivity } = require("@milagre/shared/chat-activity");
 
 // Narrow host ports; no caller-supplied method names or command payload forwarding.
 function createLocalMcpHost({ projects, readProject, scopeStates, chats, createWorktree, validateDesignChat, permissionMode }) {
@@ -20,6 +21,8 @@ function createLocalMcpHost({ projects, readProject, scopeStates, chats, createW
   };
   const progress = (chatId, session) => {
     const run = chats.runs[chatId];
+    // A turn's end isn't the end of the Chat's work while background agents still run (chat-activity.mjs).
+    const { activity, background } = chatActivity(session, run);
     return {
       chatId,
       id: session.id,
@@ -28,6 +31,8 @@ function createLocalMcpHost({ projects, readProject, scopeStates, chats, createW
       archived: Boolean(session.archived),
       provider: session.provider,
       status: run ? "running" : session.status,
+      activity,
+      backgroundWork: background,
       approvals: run?.approvals?.length ?? 0,
       questions: run?.questions?.length ?? 0,
     };

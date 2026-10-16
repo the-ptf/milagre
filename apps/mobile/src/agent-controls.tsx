@@ -42,6 +42,8 @@ export function AgentControls({
       style={({ pressed }) => ({
         minHeight: 34,
         maxWidth: 230,
+        // The composer row also holds the plan pill, the context ring and Send; the model label truncates so Send stays on screen.
+        flexShrink: 1,
         paddingHorizontal: 6,
         flexDirection: "row",
         alignItems: "center",
