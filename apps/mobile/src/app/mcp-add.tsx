@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { Cancel01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { MCP_SECRET_MASK, validateMcpServer, type McpServerDefinition, type McpTarget } from "@milagre/shared/mcp";
@@ -82,28 +82,60 @@ export default function McpAddSheet() {
   }
 
   const canSave = !saving && !loading && !(editing && !url);
-  // A form sheet sizes its first scroll view to the sheet, so the header lives inside it. It sticks to the top and holds
-  // Save (the iOS form place, as in the model sheet): the keyboard rises from the bottom of the sheet, so Save stays
-  // reachable however the scroll view's keyboard inset works out inside the sheet.
+  // A form sheet sizes its first scroll view to the sheet, so the header lives inside it, pinned as its sticky first
+  // child: the keyboard rises from the bottom of the sheet, so Save stays reachable however the scroll view's keyboard
+  // inset works out inside the sheet. A sticky header's own style moves to the wrapper RN draws around it, so the row
+  // sits in a plain outer View (as in model-sheet.tsx).
   return (
     <PageScroll style={styles.screen} contentContainerStyle={{ padding: 0, gap: 0 }} stickyHeaderIndices={[0]} automaticallyAdjustKeyboardInsets>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          paddingHorizontal: 16,
-          paddingTop: 14,
-          paddingBottom: 6,
-          backgroundColor: colors.page,
-        }}
-      >
-        <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
-        <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-          {editing ? "Edit MCP server" : "Add MCP server"}
-        </Text>
-        <View style={{ opacity: canSave ? 1 : 0.4 }}>
-          <CircleButton label={saving ? "Saving" : "Save"} icon={Tick02Icon} filled onPress={canSave ? () => void save() : undefined} />
+      <View style={{ backgroundColor: colors.page }}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            minHeight: 60,
+            paddingHorizontal: 16,
+            paddingTop: 14,
+            paddingBottom: 6,
+          }}
+        >
+          <Text
+            accessibilityRole="header"
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              left: 72,
+              right: 72,
+              top: 14,
+              bottom: 6,
+              textAlign: "center",
+              textAlignVertical: "center",
+              lineHeight: 40,
+              color: colors.ink,
+              fontSize: 17,
+              fontWeight: "600",
+            }}
+            numberOfLines={1}
+          >
+            {editing ? "Edit MCP server" : "Add MCP server"}
+          </Text>
+          <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Save"
+            accessibilityState={{ disabled: !canSave, busy: saving }}
+            disabled={!canSave}
+            hitSlop={8}
+            onPress={() => void save()}
+            style={({ pressed }) => ({ minWidth: 44, minHeight: 44, alignItems: "flex-end", justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
+          >
+            {saving ? (
+              <ActivityIndicator color={colors.ink3} />
+            ) : (
+              <Text style={{ color: canSave ? colors.ink : colors.ink3, fontSize: 17, fontWeight: "600" }}>Save</Text>
+            )}
+          </Pressable>
         </View>
       </View>
       <Stack.Screen options={{ headerShown: false }} />
