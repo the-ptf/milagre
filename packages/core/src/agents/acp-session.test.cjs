@@ -14,7 +14,10 @@ const FAKE = path.join(__dirname, "fixtures", "fake-acp-agent.cjs");
 const AGENT = "/opt/antigravity/agy_acp_server.par";
 const TURN = { prompt: "Hi", images: [], model: "gemini-3.8-flash-high", permissionMode: "ask" };
 
-function antigravity(t, { scenario = "reply", resumeId, linked, mcpExtras, command = AGENT, interruptGraceMs, workspaceRoots, designsEnabled, env } = {}) {
+function antigravity(
+  t,
+  { scenario = "reply", resumeId, linked, mcpExtras, command = AGENT, interruptGraceMs, workspaceRoots, designsEnabled, env, permissionPolicy } = {},
+) {
   const events = [];
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-acp-test-"));
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-acp-cwd-"));
@@ -30,6 +33,7 @@ function antigravity(t, { scenario = "reply", resumeId, linked, mcpExtras, comma
     designsEnabled,
     clientVersion: "test",
     interruptGraceMs,
+    permissionPolicy,
     config: { ...antigravityAcp, tempRoot },
     emit: (event) => events.push(event),
     createRpc: (options) => {
@@ -188,6 +192,17 @@ test("a command that exits non-zero is a failed step", async (t) => {
   await session.startTurn(TURN);
   await ended(events);
   assert.equal(of(events, "step-completed")[0].status, "failed");
+});
+
+test("in bot mode the policy answers a permission request without a card", async (t) => {
+  const { session, events } = antigravity(t, {
+    scenario: "permission",
+    permissionPolicy: (request) => (request.command === "rm -rf build" ? "deny" : "allow"),
+  });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  assert.equal(replyText(events), "picked:deny");
+  assert.equal(of(events, "permission-request").length, 0);
 });
 
 test("asks before a command and answers with the option picked", async (t) => {

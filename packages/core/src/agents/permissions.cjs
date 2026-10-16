@@ -245,9 +245,12 @@ function insideWorkspace(roots, files, cwd = roots[0]) {
 // The mode follows the user's switch mid-turn. Full answers every request without a card. Switching
 // to Auto answers the waiting edits Auto wouldn't have asked about (`inWorkspace`); later ones are left
 // to the agent's own Auto rules, which still ask before anything leaves the worktree.
+// In Bot rules the bot's `policy(request)` answers first: "allow" or "deny" without a card, `{ gate }`
+// for a sign-off card that carries the gate, nothing (or a throw) for an ordinary card.
 class PendingPermissions {
-  constructor(emit) {
+  constructor(emit, { policy } = {}) {
     this.emit = emit;
+    this.policy = policy;
     this.mode = "ask";
     // requestId -> { answer, allowForChat, inWorkspace }
     this.answers = new Map();
@@ -262,8 +265,28 @@ class PendingPermissions {
       answer("allow");
       return;
     }
-    this.answers.set(request.requestId, { answer, allowForChat: Boolean(request.allowForChat), inWorkspace: request.kind === "edit" && inWorkspace });
-    this.emit({ type: "permission-request", ...request });
+    let published = request;
+    if (this.mode === "bot" && this.policy) {
+      const verdict = this.decide(request);
+      if (verdict === "allow" || verdict === "deny") {
+        answer(verdict);
+        return;
+      }
+      // A sign-off is for this one action: "Always allow in this chat" would let the agent skip the gate next time.
+      if (verdict?.gate) published = { ...request, gate: verdict.gate, allowForChat: false };
+    }
+    this.answers.set(published.requestId, { answer, allowForChat: Boolean(published.allowForChat), inWorkspace: published.kind === "edit" && inWorkspace });
+    this.emit({ type: "permission-request", ...published });
+  }
+
+  // A policy that fails leaves the request to the user's card.
+  decide(request) {
+    try {
+      return this.policy(request);
+    } catch (error) {
+      console.warn("Bot permission policy failed:", error.message);
+      return undefined;
+    }
   }
 
   setMode(mode) {

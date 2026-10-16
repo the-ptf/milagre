@@ -149,6 +149,8 @@ class CodexSession {
     mcpExtras = null,
     clientVersion = "0.0.0",
     interruptGraceMs = 3000,
+    // Bot rules only: the bot's answer to each permission request (see PendingPermissions).
+    permissionPolicy,
     createRpc = (options) => new CodexRpc(options),
   }) {
     Object.assign(this, {
@@ -166,6 +168,7 @@ class CodexSession {
       mcpExtras,
       clientVersion,
       interruptGraceMs,
+      permissionPolicy,
       createRpc,
     });
     // steps: ids of the tool steps started in this turn and not yet completed.
@@ -181,7 +184,7 @@ class CodexSession {
     this.turnEnded = Promise.resolve();
     this.ready = false;
     this.closed = false;
-    this.permissions = new PendingPermissions((event) => this.emit(event));
+    this.permissions = new PendingPermissions((event) => this.emit(event), { policy: permissionPolicy });
     this.questions = new PendingQuestions((event) => this.emit(event));
     // fileChange items by id, from item/started: their approval requests carry no diff of their own.
     this.fileChanges = new Map();

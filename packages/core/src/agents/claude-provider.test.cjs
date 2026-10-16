@@ -223,7 +223,10 @@ function fakeSdk(script) {
   return { calls, loadSdk: async () => ({ query }) };
 }
 
-function claude(t, { script = scripts.reply, resumeId, tldrEnabled, designsEnabled, analysisOnly, command = "/usr/local/bin/claude", interruptGraceMs } = {}) {
+function claude(
+  t,
+  { script = scripts.reply, resumeId, tldrEnabled, designsEnabled, analysisOnly, command = "/usr/local/bin/claude", interruptGraceMs, permissionPolicy } = {},
+) {
   const sdk = fakeSdk(script);
   const events = [];
   const session = new ClaudeSession({
@@ -236,6 +239,7 @@ function claude(t, { script = scripts.reply, resumeId, tldrEnabled, designsEnabl
     emit: (event) => events.push(event),
     loadSdk: sdk.loadSdk,
     interruptGraceMs,
+    permissionPolicy,
   });
   t.after(() => session.close());
   return { session, events, calls: sdk.calls };
@@ -592,6 +596,37 @@ test("asks before a tool runs and passes the answer back", async (t) => {
     events.find((event) => event.type === "permission-resolved"),
     { type: "permission-resolved", requestId: "req-1", decision: "allow" },
   );
+});
+
+test("canUseTool in bot mode resolves allow when the policy allows", async (t) => {
+  const seen = [];
+  const { session, events } = claude(t, {
+    script: scripts.asks,
+    permissionPolicy: (request) => {
+      seen.push(request);
+      return "allow";
+    },
+  });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  const answer = JSON.parse(replyText(events));
+  assert.equal(answer.behavior, "allow");
+  assert.equal(seen[0].tool, "Write");
+  assert.equal(
+    events.some((event) => event.type === "permission-request"),
+    false,
+  );
+});
+
+test("canUseTool in bot mode shows a gate card when the policy gates", async (t) => {
+  const gate = { kind: "delete", title: "Delete: hello.txt" };
+  const { session, events } = claude(t, { script: scripts.asks, permissionPolicy: () => ({ gate }) });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await asked(events);
+  assert.deepEqual(events.find((event) => event.type === "permission-request").gate, gate);
+  session.respondToPermission("req-1", "deny");
+  await ended(events);
+  assert.equal(JSON.parse(replyText(events)).behavior, "deny");
 });
 
 test("switching to Full mid-turn reaches Claude Code and approves the waiting card", async (t) => {

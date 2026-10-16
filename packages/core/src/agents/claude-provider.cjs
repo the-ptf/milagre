@@ -114,6 +114,8 @@ class ClaudeSession {
     loadSdk = () => import("@anthropic-ai/claude-agent-sdk"),
     spawnImpl = spawn,
     interruptGraceMs = 3000,
+    // Bot rules only: the bot's answer to each permission request (see PendingPermissions).
+    permissionPolicy,
   }) {
     Object.assign(this, {
       cwd,
@@ -131,6 +133,7 @@ class ClaudeSession {
       loadSdk,
       spawnImpl,
       interruptGraceMs,
+      permissionPolicy,
     });
     this.state = { sessionId: resumeId ?? null, turnId: null, hasText: false };
     this.query = null;
@@ -140,7 +143,7 @@ class ClaudeSession {
     this.turnActive = false;
     this.cancelRequested = false;
     this.closed = false;
-    this.permissions = new PendingPermissions((event) => this.emit(event));
+    this.permissions = new PendingPermissions((event) => this.emit(event), { policy: permissionPolicy });
     this.questions = new PendingQuestions((event) => this.emit(event));
     // Settles once the running turn's own message is in Claude Code's input (or the turn failed to start).
     this.turnReady = Promise.resolve();

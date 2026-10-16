@@ -194,6 +194,85 @@ test("bot is a known mode and publishes a card when no policy answers", () => {
   assert.deepEqual(answers, []);
 });
 
+test("in bot mode a policy allow answers without a card", () => {
+  const events = [];
+  const answers = [];
+  const seen = [];
+  const permissions = new PendingPermissions((event) => events.push(event), {
+    policy: (request) => {
+      seen.push(request.requestId);
+      return "allow";
+    },
+  });
+  permissions.setMode("bot");
+  permissions.add({ requestId: "r1", kind: "command", tool: "Bash", command: "ls", title: "Run ls", allowForChat: true }, (decision) => answers.push(decision));
+  assert.deepEqual(answers, ["allow"]);
+  assert.deepEqual(seen, ["r1"]);
+  assert.equal(events.length, 0);
+  assert.equal(permissions.size, 0);
+});
+
+test("in bot mode a policy deny answers without a card", () => {
+  const events = [];
+  const answers = [];
+  const permissions = new PendingPermissions((event) => events.push(event), { policy: () => "deny" });
+  permissions.setMode("bot");
+  permissions.add({ requestId: "r1", kind: "command", tool: "Bash", command: "ls", title: "Run ls", allowForChat: false }, (decision) =>
+    answers.push(decision),
+  );
+  assert.deepEqual(answers, ["deny"]);
+  assert.equal(events.length, 0);
+});
+
+test("in bot mode a gate is published with its meta, and can't be allowed for the whole Chat", () => {
+  const events = [];
+  const answers = [];
+  const gate = { kind: "merge", title: "Merge PR #474" };
+  const permissions = new PendingPermissions((event) => events.push(event), { policy: () => ({ gate }) });
+  permissions.setMode("bot");
+  permissions.add({ requestId: "r2", kind: "command", tool: "Bash", command: "gh pr merge 474", title: "x", allowForChat: true }, (decision) =>
+    answers.push(decision),
+  );
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, "permission-request");
+  assert.deepEqual(events[0].gate, gate);
+  assert.equal(events[0].allowForChat, false);
+  assert.equal(permissions.size, 1);
+  permissions.resolve("r2", "allow-for-chat");
+  assert.deepEqual(answers, ["allow"]);
+});
+
+test("in bot mode a policy with no answer, or one that throws, leaves the card to the user", () => {
+  for (const policy of [
+    () => undefined,
+    () => {
+      throw new Error("broken");
+    },
+  ]) {
+    const events = [];
+    const permissions = new PendingPermissions((event) => events.push(event), { policy });
+    permissions.setMode("bot");
+    permissions.add({ requestId: "r4", kind: "command", tool: "Bash", command: "ls", title: "x", allowForChat: true }, () => {});
+    assert.equal(events.length, 1);
+    assert.equal(events[0].gate, undefined);
+    assert.equal(events[0].allowForChat, true);
+  }
+});
+
+test("outside bot mode the policy is never consulted", () => {
+  const permissions = new PendingPermissions(() => {}, {
+    policy: () => {
+      throw new Error("consulted");
+    },
+  });
+  for (const mode of ["ask", "auto", "full"]) {
+    permissions.setMode(mode);
+    assert.doesNotThrow(() =>
+      permissions.add({ requestId: `r-${mode}`, kind: "command", tool: "Bash", command: "ls", title: "x", allowForChat: false }, () => {}),
+    );
+  }
+});
+
 test("insideRoot", () => {
   assert.equal(insideRoot("/repo", ["/repo/a.txt", "src/b.ts"]), true);
   assert.equal(insideRoot("/repo", ["/repo/a.txt", "/etc/hosts"]), false);

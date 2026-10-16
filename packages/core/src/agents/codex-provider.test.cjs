@@ -14,7 +14,18 @@ const TURN = { prompt: "Hi", images: [], model: "gpt-6-sol", permissionMode: "au
 
 function codex(
   t,
-  { scenario = "reply", resumeId, tldrEnabled, designsEnabled, analysisOnly, linked, mcpExtras, command = process.execPath, interruptGraceMs } = {},
+  {
+    scenario = "reply",
+    resumeId,
+    tldrEnabled,
+    designsEnabled,
+    analysisOnly,
+    linked,
+    mcpExtras,
+    command = process.execPath,
+    interruptGraceMs,
+    permissionPolicy,
+  } = {},
 ) {
   const events = [];
   const requests = [];
@@ -29,6 +40,7 @@ function codex(
     command,
     clientVersion: "test",
     interruptGraceMs,
+    permissionPolicy,
     emit: (event) => events.push(event),
     createRpc: (options) => {
       const rpc = new CodexRpc({ ...options, args: [FAKE], env: { ...process.env, FAKE_SCENARIO: scenario } });
@@ -200,6 +212,25 @@ test("reports a failed turn and a crashed process", async (t) => {
   await ended(crashed.events);
   assert.deepEqual(crashed.events.at(-1), failedWith(crashMessage("codex", "boom: model unavailable")));
   assert.equal(crashed.session.closed, true);
+});
+
+test("in bot mode the policy answers a command approval without a card", async (t) => {
+  const seen = [];
+  const { session, events } = codex(t, {
+    scenario: "approval",
+    permissionPolicy: (request) => {
+      seen.push(request.command);
+      return "allow";
+    },
+  });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  assert.deepEqual(seen, ["rm -rf build"]);
+  assert.equal(replyText(events), "decision:accept");
+  assert.equal(
+    events.some((event) => event.type === "permission-request"),
+    false,
+  );
 });
 
 test("asks before running a command and passes the answer back", async (t) => {
