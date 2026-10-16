@@ -210,8 +210,11 @@ async function browserChecks() {
   app.setPath("userData", require("node:fs").mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-design-live-")));
   await app.whenReady();
   const window = new BrowserWindow({ width: 1440, height: 900, useContentSize: true, show: false, webPreferences: { backgroundThrottling: false } });
+  // The page runs under the packaged renderer's policy: a script it blocks (the live frame's receiver) fails the check.
+  const blocked = [];
   window.webContents.on("console-message", (details) => {
-    if (details.level === "error" && !/Content Security Policy/.test(details.message)) console.error(details.message);
+    if (/Content Security Policy/.test(details.message)) blocked.push(details.message);
+    else if (details.level === "error") console.error(details.message);
   });
   const evaluate = (source) =>
     window.webContents.executeJavaScript(source).catch((error) => {
@@ -486,8 +489,9 @@ async function browserChecks() {
     await waitFor(`!!${dock}`);
     assert.equal(await evaluate(`document.activeElement === ${prompt}`), true, "the composer keeps the focus");
     await evaluate('window.emit({ type: "step-completed", id: "c-design", status: "failed" }); window.emit({ type: "turn-completed" })');
+    assert.deepEqual(blocked, [], "the renderer's policy blocks no script the canvas runs");
     console.log(
-      "PASS: Claude's streamed design_apply builds over the frame with its cursor and hands over without a replay; a streamed design_show builds on a placeholder that hands over to the new frame; a Codex version plays back over the held frame and settles on the new one; the Designs open by themselves for each design call, in a Chat with no design too, keep the composer's focus and show a draft begun before they opened; two agents at once each get their own named cursor and placeholder, a subagent's saved edit plays back under its cursor, and a draft whose save failed goes while the retry builds again",
+      "PASS: under the packaged renderer's CSP, Claude's streamed design_apply builds over the frame with its cursor and hands over without a replay; a streamed design_show builds on a placeholder that hands over to the new frame; a Codex version plays back over the held frame and settles on the new one; the Designs open by themselves for each design call, in a Chat with no design too, keep the composer's focus and show a draft begun before they opened; two agents at once each get their own named cursor and placeholder, a subagent's saved edit plays back under its cursor, and a draft whose save failed goes while the retry builds again",
     );
     app.exit(0);
   } catch (error) {
@@ -519,6 +523,11 @@ async function main() {
               request.url,
               '<html><body><div id="root"></div><script type="module" src="/__design_live_fixture.tsx"></script></body></html>',
             );
+            // The packaged renderer's policy, which the live frame (a srcdoc iframe) inherits: a script it doesn't pin is
+            // blocked in builds only. The page's own inline scripts (Vite's) are let through by hash too.
+            const { rendererCsp } = await import("../apps/desktop/renderer-csp.mjs");
+            const own = [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+            response.setHeader("Content-Security-Policy", rendererCsp(own));
             response.setHeader("Content-Type", "text/html");
             response.end(html);
           });

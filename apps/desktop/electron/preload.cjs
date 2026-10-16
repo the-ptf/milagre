@@ -271,6 +271,7 @@ function makeBridge(invoke, listen, send) {
     stopAgentPort: (chatId, pid) => invoke("agent:stop-port", chatId, pid),
     onAgentPorts: (callback) => listen("agent:ports", callback),
     getUpdateState: () => invoke("update:state"),
+    getUpdateReleaseNotes: (version) => invoke("update:release-notes", version),
     checkForUpdates: () => invoke("update:check"),
     getReleaseChannel: () => invoke("update:channel"),
     setReleaseChannel: (channel) => invoke("update:set-channel", channel),

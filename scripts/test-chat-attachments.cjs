@@ -387,7 +387,7 @@ async function browserChecks() {
     await click("[data-subagent-open]");
     await waitFor(`document.querySelector('[data-slot=subagent-transcript]')?.textContent.includes('Both image formats render correctly.')`);
     await screenshot("subagent-delta");
-    await click('[aria-label="Close subagents"]');
+    await click('[aria-label="Collapse subagents"]');
     await key(",", { metaKey: true });
     await waitFor(String.raw`!!document.querySelector('[role=switch][aria-label="Notify when finished"]')`);
     await screenshot("notification-settings");

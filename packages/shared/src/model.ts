@@ -563,6 +563,10 @@ export interface Subagent {
   endedAt?: number;
   latestActivity?: string;
   communications?: SubagentCommunication[];
+  /** The subagent's own to-do list (its TodoWrite, task tools or Codex plan), when it keeps one. */
+  tasks?: AgentTask[];
+  /** Running totals over its whole transcript, kept by the host (subagent-glance.mjs). */
+  progress?: SubagentProgress;
   transcript: SubagentTranscriptEntry[];
   /**
    * How many entries the transcript has, when `transcript` holds only its last ones (a client that reads transcripts on
@@ -575,7 +579,12 @@ export interface Subagent {
    */
   detailsOnDemand?: true;
 }
-export type SubagentTranscriptEntry = { id: string; kind: "tool" | "message"; text: string };
+/** `tool` is a tool call's step kind, when the host knew it. */
+export type SubagentTranscriptEntry = { id: string; kind: "tool" | "message"; text: string; tool?: StepKind };
+/** What a subagent's tool calls count under in its panel (subagent-glance.mjs). */
+export type ToolCategory = "commands" | "images" | "reads" | "searches" | "edits" | "other";
+/** How many steps a subagent has taken (things it said), the first sentence of the last, and its tool calls per category. */
+export type SubagentProgress = { steps: number; said?: string; tools: Partial<Record<ToolCategory, number>> };
 
 /** One item of the agent's to-do list. */
 export interface AgentTask {

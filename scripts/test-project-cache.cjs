@@ -123,6 +123,7 @@ const stubs = {
   "./chat-actions": "export const chatMenu = () => []; export const runChatAction = async () => {};",
   "./confirm-store": "export const confirm = async () => true; export const confirmSheet = () => {};",
   "./attention": "export const AttentionDot = () => null; export const useAttention = () => [];",
+  "./update-sheet": "export const UpdateSettingsBadge = () => null;",
   "./chat-row-store":
     "export const useChatRowShow = () => ({ computer: true, pullRequests: true, linearIssue: true, branch: true, diff: false, lastActivity: false }); export const saveChatRowShow = () => {}; export const useActivityClock = () => Date.now();",
 };

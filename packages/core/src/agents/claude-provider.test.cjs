@@ -1183,10 +1183,10 @@ test("analysis-only Claude gets no Everywhere servers, and a failing mcpExtras s
   assert.match(String(warn.mock.calls[0].arguments.join(" ")), /boom/);
 });
 
-test("with Designs on, Claude's subagents are told to design on the Chat's canvas as they start", async (t) => {
-  const { SUBAGENT_DESIGN_INSTRUCTIONS } = require("./events.cjs");
+test("Claude's subagents are told to keep a to-do list as they start, and to design on the Chat's canvas with Designs on", async (t) => {
+  const { SUBAGENT_DESIGN_INSTRUCTIONS, SUBAGENT_PLAN_INSTRUCTIONS } = require("./events.cjs");
   const design = { name: "design_show", description: "Show", input: {}, readOnly: false, run: async () => "" };
-  for (const [designsEnabled, tools, told] of [
+  for (const [designsEnabled, tools, designs] of [
     [true, [design], true],
     [false, [design], false],
     [true, [], false],
@@ -1210,11 +1210,13 @@ test("with Designs on, Claude's subagents are told to design on the Chat's canva
     await session.startTurn(TURN);
     await ended(events);
     const hook = sdk.calls.options.hooks?.SubagentStart?.[0]?.hooks?.[0];
-    assert.equal(!!hook, told);
-    if (hook)
-      assert.deepEqual(await hook({ hook_event_name: "SubagentStart", agent_id: "a", agent_type: "general-purpose" }), {
-        hookSpecificOutput: { hookEventName: "SubagentStart", additionalContext: SUBAGENT_DESIGN_INSTRUCTIONS },
-      });
+    assert.deepEqual(await hook({ hook_event_name: "SubagentStart", agent_id: "a", agent_type: "general-purpose" }), {
+      hookSpecificOutput: {
+        hookEventName: "SubagentStart",
+        additionalContext: designs ? `${SUBAGENT_PLAN_INSTRUCTIONS}\n\n${SUBAGENT_DESIGN_INSTRUCTIONS}` : SUBAGENT_PLAN_INSTRUCTIONS,
+      },
+    });
   }
   assert.match(SUBAGENT_DESIGN_INSTRUCTIONS, /design_show.*Never write HTML or image files/s);
+  assert.match(SUBAGENT_PLAN_INSTRUCTIONS, /TodoWrite.*Never use the milagre tasks_set/s);
 });

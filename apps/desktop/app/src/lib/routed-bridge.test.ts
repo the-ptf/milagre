@@ -101,6 +101,7 @@ const ALLOWED: Record<string, string[]> = {
   "components/LinkWorkspace.tsx": ["syncNotifications", "revealInFolder"],
   "components/ComputerAllowPrompt.tsx": ["onDevicesPending", "listPendingDevices", "allowDevice", "denyDevice"],
   "components/UpdateNotice.tsx": ["onUpdateState", "getUpdateState", "installUpdate", "checkForUpdates"],
+  "components/UpdateReleaseNotes.tsx": ["getUpdateReleaseNotes"],
   "components/AccountsSettings.tsx": ["getCliStatus", "listAccounts", "onAccountsChanged", "accountAction", "onCliProgress", "updateCli"],
   "components/ProjectAccountsSettings.tsx": ["listAccountScopes", "onAccountsChanged", "accountAction"],
   "components/CanvasView.tsx": ["getCanvas", "stopNegotiation", "addLink", "removeLink", "setProjectPosition", "setWorktreePosition"],

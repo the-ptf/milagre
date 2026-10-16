@@ -7,6 +7,7 @@ const { killTree } = require("./process-tree.cjs");
 const {
   milagreInstructions,
   SUBAGENT_DESIGN_INSTRUCTIONS,
+  SUBAGENT_PLAN_INSTRUCTIONS,
   RESUME_FAILED_MESSAGE,
   crashMessage,
   failedWith,
@@ -323,12 +324,27 @@ class ClaudeSession {
         },
         ...linked,
         ...(Object.keys(extraServers).length ? { mcpServers: { ...extraServers, ...linked.mcpServers } } : {}),
-        // Subagents design on the Chat's canvas too: they get Milagre's tools, but not the system prompt above.
-        ...(this.designsEnabled && !this.analysisOnly && this.linked?.tools.some((tool) => tool.name === "design_show")
+        // Subagents don't get the system prompt above: they are told to keep a to-do list for the Subagents panel, and to
+        // design on the Chat's canvas when they have Milagre's tools.
+        ...(!this.analysisOnly
           ? {
               hooks: {
                 SubagentStart: [
-                  { hooks: [async () => ({ hookSpecificOutput: { hookEventName: "SubagentStart", additionalContext: SUBAGENT_DESIGN_INSTRUCTIONS } })] },
+                  {
+                    hooks: [
+                      async () => ({
+                        hookSpecificOutput: {
+                          hookEventName: "SubagentStart",
+                          additionalContext: [
+                            SUBAGENT_PLAN_INSTRUCTIONS,
+                            this.designsEnabled && this.linked?.tools.some((tool) => tool.name === "design_show") ? SUBAGENT_DESIGN_INSTRUCTIONS : "",
+                          ]
+                            .filter(Boolean)
+                            .join("\n\n"),
+                        },
+                      }),
+                    ],
+                  },
                 ],
               },
             }

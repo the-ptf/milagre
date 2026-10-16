@@ -1,3 +1,4 @@
+import { UpdateSettingsBadge } from "./update-sheet";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
@@ -625,7 +626,10 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <IconButton label="Canvas" icon={GitMergeIcon} size={44} disabled={busy} onPress={() => onNavigate("/canvas", true)} />
         <IconButton label="Link projects" icon={Link04Icon} size={44} disabled={busy} onPress={() => onNavigate("/link-projects", true)} />
-        <IconButton label="Settings" icon={Settings01Icon} size={44} onPress={() => onNavigate("/settings", true)} />
+        <View>
+          <IconButton label="Settings" icon={Settings01Icon} size={44} onPress={() => onNavigate("/settings", true)} />
+          <UpdateSettingsBadge />
+        </View>
       </View>
     </View>
   );

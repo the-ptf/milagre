@@ -2,25 +2,16 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 import { ARTIFACT_CSP, artifactDocument } from "@milagre/shared/artifact";
 import { designLiveParts, type DesignDocument } from "@milagre/shared/design";
+import { DESIGN_LIVE_RECEIVER_SCRIPT } from "@milagre/shared/design-draft";
 import type { ArtifactRef } from "../../model";
 import { AgentCursor } from "./AgentCursor";
 import { finishLiveDesign, useDraftFrameShown, useLiveCrew, useLiveDesigns, type LiveDesign } from "./design-live";
 import { SUBAGENT_TINTS, subagentPersona } from "./subagent-canvas-layout";
 
-// The live frame's page: an empty design root and a receiver that swaps the design in place from the canvas's
-// messages, fading in the layers that just appeared. It never reloads, so a design being written doesn't flash.
-// Only the canvas (its parent) is listened to, and only for markup the shared renderer made.
-const RECEIVER = `(function(){
-var root=document.getElementById("design-root"),fonts=document.getElementById("design-fonts"),still=matchMedia("(prefers-reduced-motion: reduce)");
-addEventListener("message",function(e){var d=e.data;if(e.source!==parent||!d||d.type!=="milagre:live-design"||typeof d.markup!=="string")return;
-if(typeof d.fontFaces==="string")fonts.textContent=d.fontFaces;
-if(typeof d.width==="number"&&typeof d.height==="number"){document.body.style.width=d.width+"px";document.body.style.height=d.height+"px"}
-if(typeof d.background==="string")document.body.style.background=d.background;
-root.innerHTML=d.markup;
-if(!still.matches&&Array.isArray(d.appeared))d.appeared.slice(0,40).forEach(function(id){if(typeof id!=="string")return;var el=root.querySelector('[data-design-node="'+CSS.escape(id)+'"]');if(el&&el.animate)el.animate([{opacity:0,transform:"scale(.97)"},{opacity:1,transform:"none"}],{duration:260,easing:"cubic-bezier(.2,.8,.2,1)"})});
-parent.postMessage({type:"milagre:live-painted",seq:d.seq},"*")})})()`;
+// The live frame's page: an empty design root and the receiver (DESIGN_LIVE_RECEIVER_SCRIPT) that swaps the design in
+// place from the canvas's messages. It never reloads, so a design being written doesn't flash.
 const LIVE_DOCUMENT = artifactDocument(
-  `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;overflow:hidden;background:#fff}*{box-sizing:border-box}#design-root{position:relative;width:100%;height:100%}</style><style id="design-fonts"></style></head><body><main id="design-root"></main><script>${RECEIVER}</script></body></html>`,
+  `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;overflow:hidden;background:#fff}*{box-sizing:border-box}#design-root{position:relative;width:100%;height:100%}</style><style id="design-fonts"></style></head><body><main id="design-root"></main><script>${DESIGN_LIVE_RECEIVER_SCRIPT}</script></body></html>`,
 );
 
 type Parts = ReturnType<typeof designLiveParts>;

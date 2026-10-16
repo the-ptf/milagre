@@ -119,8 +119,10 @@ async function startDesktop() {
   });
   ipcMain.handle("update:state", () => updates.get());
   ipcMain.handle("update:check", () => updates.check(true));
+  const releaseNotes = require("./update-release-notes.cjs").createReleaseNotes();
+  ipcMain.handle("update:release-notes", (_event, version) => releaseNotes(version));
   ipcMain.handle("update:channel", () => releaseChannel.get());
-  // Save immediately; an existing download belongs to its original channel until installed.
+  // Save immediately; the next check can replace a pending installer with a newer release.
   ipcMain.handle("update:set-channel", async (_event, channel) => {
     const next = releaseChannel.set(channel);
     if (updates.get().status === "checking") await updates.check();

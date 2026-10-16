@@ -128,10 +128,7 @@ export function TaskTrack({ plan }: { plan?: ChatPlan }) {
             {plan.tasks.length > 0 && (
               <div className="flex shrink-0 items-center gap-2 px-2 pt-1">
                 <h3 id={`${panelId}-tasks`} className="flex flex-1 items-center justify-between text-[11px] font-medium tracking-[0.08em] text-ink-3 uppercase">
-                  <span className="flex items-center gap-2">
-                    <span aria-hidden className="h-px w-3 bg-accent" />
-                    Tasks
-                  </span>
+                  <span>Tasks</span>
                   <span className="tabular-nums">{total}</span>
                 </h3>
                 {collapse}

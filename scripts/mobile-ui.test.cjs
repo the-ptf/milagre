@@ -1856,7 +1856,14 @@ function subagentsHost({ call = async () => {} } = {}) {
     "@milagre/shared/project-edits": require("@milagre/shared/project-edits"),
     "@milagre/shared/agent-activity": require("@milagre/shared/agent-activity"),
     "../session": { useSession: () => session },
-    "../subagent-item": { SubagentItem: "SubagentItem" },
+    "../subagent-glance": {
+      SubagentRow: "SubagentRow",
+      SubagentDetail: "SubagentDetail",
+      elapsed: () => "1s",
+      subagentRunning: (agent) => ["initializing", "running", "waiting"].includes(agent.status),
+      useClock: () => 0,
+      useWholeSubagent: (agent) => agent,
+    },
     "../icons": { Icon: "Icon" },
     "../ui": {
       CircleButton: "CircleButton",
@@ -1873,12 +1880,13 @@ function subagentsHost({ call = async () => {} } = {}) {
     return AgentsSheet();
   };
   const button = (title) => find(render(), (node) => node.props?.title === title || node.props?.label === title);
-  return { render, button, calls, state, session };
+  const open = (id) => find(render(), (node) => node.type === "SubagentRow" && node.props.agent.id === id).props.onPress();
+  return { render, button, open, calls, state, session };
 }
 
 test("mobile archives finished subagents without offering archived browsing", async () => {
   const host = subagentsHost();
-  const archive = host.button("Archive finished subagents");
+  const archive = host.button("Archive finished");
   assert.ok(archive, "the sheet must offer bulk archive");
   await archive.props.onPress();
   assert.deepEqual(host.calls[0], { method: "chat:archive-finished-subagents", args: ["/project", 7] });
@@ -1886,17 +1894,21 @@ test("mobile archives finished subagents without offering archived browsing", as
     host.state.sessions[7].subagents.filter((agent) => agent.archived).map((agent) => agent.id),
     ["completed", "failed", "cancelled"],
   );
-  assert.equal(host.button("Archive finished subagents").props.disabled, true);
+  assert.equal(host.button("Archive finished").props.disabled, true);
   assert.equal(host.button("Archived (3)"), undefined);
   assert.equal(host.button("Restore completed"), undefined);
   assert.equal(
-    find(host.render(), (node) => node.type === "SubagentItem" && node.props.agent.archived),
+    find(host.render(), (node) => node.type === "SubagentRow" && node.props.agent.archived),
     undefined,
   );
-  await host.button("Archive running").props.onPress();
+  // One subagent is archived from its detail, which closes back to the list.
+  host.open("running");
+  assert.ok(find(host.render(), (node) => typeof node.type === "function" && node.props.agent?.id === "running" && node.props.read));
+  host.button("Archive subagent").props.onPress();
+  await settle();
   assert.deepEqual(host.calls[1], { method: "chat:archive-subagent", args: ["/project", 7, "running", true] });
   assert.equal(
-    find(host.render(), (node) => node.type === "SubagentItem" && node.props.agent.id === "running"),
+    find(host.render(), (node) => node.type === "SubagentRow" && node.props.agent.id === "running"),
     undefined,
   );
 });
@@ -1904,12 +1916,12 @@ test("mobile archives finished subagents without offering archived browsing", as
 test("mobile blocks duplicate archive taps and reports a failed request without hiding entries", async () => {
   const pending = deferred();
   const host = subagentsHost({ call: () => pending.promise });
-  const archive = host.button("Archive finished subagents");
+  const archive = host.button("Archive finished");
   assert.ok(archive, "the sheet must offer bulk archive");
   const first = archive.props.onPress();
   await archive.props.onPress();
   assert.equal(host.calls.length, 1);
-  assert.equal(host.button("Archive finished subagents").props.disabled, true);
+  assert.equal(host.button("Archive finished").props.disabled, true);
   pending.reject(new Error("Computer disconnected"));
   await first;
   assert.match(find(host.render(), (node) => node.type === "ErrorNotice").props.message, /Computer disconnected/);
@@ -1917,7 +1929,7 @@ test("mobile blocks duplicate archive taps and reports a failed request without 
     host.state.sessions[7].subagents.some((agent) => agent.archived),
     false,
   );
-  assert.equal(host.button("Archive finished subagents").props.disabled, false);
+  assert.equal(host.button("Archive finished").props.disabled, false);
 });
 
 test("archived-only subagents hide the mobile Chat menu action and pill", () => {
@@ -2174,6 +2186,7 @@ function navigationHost(opening, { session: extra = {}, alert = () => {}, calls 
   // Groups folded by hand, as the phone's store keeps them; the tests start with none, so every group is open.
   const folded = new Set();
   const { ProjectNavigation } = load("project-navigation.tsx", {
+    "./update-sheet": { UpdateSettingsBadge: "UpdateSettingsBadge" },
     react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "./hosts-native": {
@@ -4190,11 +4203,6 @@ function activityItemHost({ expandReasoning = false } = {}) {
     "./running-logo": running,
     "./theme": { fonts: { mono: "mono" } },
   });
-  const SubagentItem = load("subagent-item.tsx", {
-    ...common,
-    "./activity-item": shared,
-    "@milagre/shared/agent-activity": require("@milagre/shared/agent-activity"),
-  }).SubagentItem;
   const ToolRow = load("tool-row.tsx", {
     ...common,
     "./activity-item": shared,
@@ -4219,53 +4227,9 @@ function activityItemHost({ expandReasoning = false } = {}) {
     };
   }
   return {
-    subagent: (agent) => visit(jsx(SubagentItem, { agent }), "agent"),
     tool: (props) => visit(jsx(ToolRow, props), "tool"),
   };
 }
-const sampleSubagent = {
-  id: "a",
-  title: "Check the phone connection",
-  status: "running",
-  startedAt: 1,
-  updatedAt: 1,
-  latestActivity: "Checking pairing",
-  transcript: [{ id: "t", kind: "message", text: "Connection verified." }],
-};
-
-test("subagent execution shimmers, while waiting, failure and completion stop it", () => {
-  const item = activityItemHost();
-  for (const status of ["initializing", "running"])
-    assert.ok(
-      find(item.subagent({ ...sampleSubagent, status }), (node) => node.type === "MaskedView"),
-      status,
-    );
-  for (const status of ["waiting", "failed", "completed", "cancelled"])
-    assert.equal(
-      find(item.subagent({ ...sampleSubagent, status }), (node) => node.type === "MaskedView"),
-      undefined,
-      status,
-    );
-});
-
-test("subagent details stay expanded across live updates and collapse through the disclosure", () => {
-  const item = activityItemHost();
-  let tree = item.subagent(sampleSubagent);
-  assert.equal(
-    find(tree, (node) => node.type === "Text" && node.props.children === "Connection verified."),
-    undefined,
-  );
-  find(tree, (node) => node.props?.accessibilityRole === "button").props.onPress();
-  tree = item.subagent({ ...sampleSubagent, status: "completed", transcript: [{ id: "t", kind: "message", text: "New live output" }] });
-  assert.ok(find(tree, (node) => node.type === "Text" && node.props.children === "New live output"));
-  assert.equal(find(tree, (node) => node.props?.accessibilityRole === "button").props.accessibilityState.expanded, true);
-  find(tree, (node) => node.props?.accessibilityRole === "button").props.onPress();
-  assert.equal(
-    find(item.subagent(sampleSubagent), (node) => node.type === "Text" && node.props.children === "Connection verified."),
-    undefined,
-  );
-});
-
 test("Always expand reasoning opens thinking rows in Activity until tapped, and leaves other tools folded", () => {
   const thinking = {
     step: { id: "t", kind: "thinking", title: "Thought for 4s", status: "done", detail: "Weighing the two fixes." },
@@ -4324,19 +4288,22 @@ function updatesHost() {
     },
   };
   let reloads = 0,
-    retries = 0;
-  const { UpdateSheet, useUpdatePresentation } = load("update-sheet.tsx", {
-    react: { ...react, useEffect: react.effect, useSyncExternalStore: (_, get) => get() },
+    retries = 0,
+    notes = 0;
+  const { UpdateSheet, useUpdatePresentation, UpdateSettingsBadge } = load("update-sheet.tsx", {
+    react: { ...react, useEffect: react.effect, useSyncExternalStore: (_, get) => get(), useContext: () => ({ state }) },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { View: "View", Text: "Text", Modal: "Modal", ActivityIndicator: "ActivityIndicator", useColorScheme: () => "dark", AppState: appState },
     "expo-router": {},
     "expo-updates": {},
+    "@hugeicons/core-free-icons": { Cancel01Icon: "close" },
     "./update-controller": {},
     "./theme": { colors: {}, hex: () => ({ page: "#17181a" }) },
-    "./ui": { PillButton: "PillButton" },
+    "./ui": { PillButton: "PillButton", IconButton: "IconButton" },
   });
   return {
-    set(status, error = "") {
+    set(status, error = "", updateId = state.updateId) {
+      state.updateId = updateId;
       state.status = status;
       state.error = error;
     },
@@ -4357,8 +4324,11 @@ function updatesHost() {
           retries++;
         },
         onDismiss: presentation.dismiss,
+        onNotes: () => {
+          notes++;
+        },
       });
-      return { ...presentation, content };
+      return { ...presentation, content, badge: UpdateSettingsBadge() };
     },
     foreground() {
       appState.currentState = "active";
@@ -4372,10 +4342,11 @@ function updatesHost() {
     listeners,
     reloads: () => reloads,
     retries: () => retries,
+    notes: () => notes,
   };
 }
 
-test("the update sheet opens only for an actionable update and Later lasts until foreground entry", () => {
+test("the update sheet opens only for an actionable update and dismissal survives foreground entry", () => {
   const host = updatesHost();
   for (const status of ["idle", "checking", "downloading", "up-to-date", "disabled"]) {
     host.set(status);
@@ -4384,17 +4355,36 @@ test("the update sheet opens only for an actionable update and Later lasts until
   host.set("ready");
   const ready = host.render();
   assert.equal(ready.presented, true);
-  find(ready.content, (node) => node.type === "PillButton" && node.props.title === "Later").props.onPress();
+  find(ready.content, (node) => node.type === "IconButton" && node.props.label === "Dismiss update").props.onPress();
   assert.equal(host.render().presented, false);
   host.background();
   assert.equal(host.render().presented, false);
   host.foreground();
-  assert.equal(host.render().presented, true);
+  assert.equal(host.render().presented, false);
   host.render().dismiss();
-  assert.equal(host.render().presented, false, "swipe dismissal behaves like Later");
+  assert.equal(host.render().presented, false, "swipe dismissal behaves like the close button");
   assert.equal(host.reloads(), 0);
   host.cleanup();
   assert.equal(host.listeners.size, 0);
+});
+
+test("closing the update keeps a Settings dot and only a newer update prompts again", () => {
+  const host = updatesHost();
+  host.set("ready", "", "first");
+  const ready = host.render();
+  find(ready.content, (node) => node.type === "PillButton" && node.props.title === "What's new").props.onPress();
+  assert.equal(host.notes(), 1);
+  find(ready.content, (node) => node.type === "IconButton" && node.props.label === "Dismiss update").props.onPress();
+  assert.equal(host.render().presented, false);
+  assert.ok(host.render().badge);
+  host.set("downloading");
+  host.set("ready", "", "first");
+  assert.equal(host.render().presented, false);
+  host.set("ready", "", "second");
+  assert.equal(host.render().presented, true);
+  host.set("up-to-date");
+  assert.equal(host.render().badge, null);
+  host.cleanup();
 });
 
 test("an update downloaded in the background waits until foreground entry to present", () => {
@@ -4408,17 +4398,17 @@ test("an update downloaded in the background waits until foreground entry to pre
   host.cleanup();
 });
 
-test("Later during retry stays dismissed when the download finishes or polling fails", () => {
+test("Closing during retry stays dismissed when the download finishes or polling fails", () => {
   for (const final of ["ready", "error"]) {
     const host = updatesHost();
     host.set("error");
     host.render();
     host.set("downloading");
-    find(host.render().content, (node) => node.type === "PillButton" && node.props.title === "Later").props.onPress();
+    find(host.render().content, (node) => node.type === "IconButton" && node.props.label === "Dismiss update").props.onPress();
     host.set(final);
     assert.equal(host.render().presented, false);
     host.foreground();
-    assert.equal(host.render().presented, true);
+    assert.equal(host.render().presented, false);
     host.cleanup();
   }
 });
@@ -4492,6 +4482,7 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
         useNavigationContainerRef: () => navigationRef,
       },
       "expo-updates": { isEnabled: true, useUpdates: () => ({}) },
+      "@hugeicons/core-free-icons": { Cancel01Icon: "close" },
       "./update-controller": {
         watchUpdates: () => () => {},
         createUpdateController: () => {
@@ -4546,7 +4537,7 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
   assert.equal(navigationListener, undefined);
 });
 
-test("Later, swipe and Android back defer; notification reset and route replacement do not", () => {
+test("Close, swipe and Android back defer; notification reset and route replacement do not", () => {
   const react = hookHost();
   let dismissals = 0,
     backs = 0,
@@ -4585,7 +4576,7 @@ test("Later, swipe and Android back defer; notification reset and route replacem
   assert.equal(dismissals, 2);
   tree.props.onDismiss();
   assert.equal(backs, 1);
-  assert.equal(dismissals, 3, "Later defers before removing its route");
+  assert.equal(dismissals, 3, "Close defers before removing its route");
   state.status = "restarting";
   react.begin();
   route();
@@ -4720,6 +4711,7 @@ test("refreshing saved hosts during startup cannot cancel the claimed auto-open"
     navigationVersion: () => 0,
   };
   const { default: Screen } = load("app/index.tsx", {
+    "../update-sheet": { UpdateSettingsBadge: "UpdateSettingsBadge", useAppUpdates: () => ({ state: { status: "idle" } }) },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": {
@@ -7317,21 +7309,149 @@ test("mobile usage identifies the account by email, falls back to its label, and
   assert.doesNotThrow(() => ProviderRows({ provider, now: Date.now() }));
 });
 
-test("mobile subagent rows show current activity and preserve terminal states", () => {
-  const { SubagentItem } = load("subagent-item.tsx", {
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Text: "Text" },
-    "@hugeicons/core-free-icons": { AiBrainIcon: "brain" },
+function subagentGlance() {
+  const react = hookHost();
+  const glance = load("subagent-glance.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
     "@milagre/shared/agent-activity": require("@milagre/shared/agent-activity"),
-    "./activity-item": { ActivityItem: "ActivityItem" },
-    "./ui": { colors: {}, styles: {} },
+    "@milagre/shared/subagent-glance": require("@milagre/shared/subagent-glance"),
+    "./icons": { Icon: "Icon", ProviderLogo: "ProviderLogo", SpinnerRing: "SpinnerRing" },
+    "./theme": { fonts: { mono: "mono" } },
   });
-  const agent = { title: "Review authentication", status: "running", latestActivity: "Reading auth.ts", transcript: [] };
-  assert.equal(SubagentItem({ agent }).props.status, "Reading files");
-  assert.equal(SubagentItem({ agent: { ...agent, latestActivity: "Running auth tests" } }).props.status, "Running tests");
-  const failed = SubagentItem({ agent: { ...agent, status: "failed" } });
-  assert.equal(failed.props.status, "Needs attention");
-  assert.equal(failed.props.state, "failed");
+  // Function components render in place, so the tree shows what they draw.
+  const draw = (node) => {
+    if (Array.isArray(node)) return node.map(draw);
+    if (!node || typeof node !== "object" || !node.type) return node;
+    if (typeof node.type === "function") return draw(node.type(node.props));
+    return { ...node, props: { ...node.props, children: draw(node.props?.children) } };
+  };
+  const render = (Component, props) => {
+    react.begin();
+    return draw(jsx(Component, props));
+  };
+  return { ...glance, render };
+}
+// The text a tree shows: each element's text on its own, its pieces joined as React joins them.
+const texts = (tree) => {
+  const walk = (node) => {
+    if (typeof node === "string" || typeof node === "number") return String(node);
+    if (Array.isArray(node)) return node.map(walk).join("");
+    return node?.props ? ` ${walk(node.props.children)} ` : "";
+  };
+  return walk(tree).replace(/\s+/g, " ");
+};
+const glanceAgent = {
+  id: "auth",
+  title: "Review authentication",
+  status: "running",
+  startedAt: 1000,
+  updatedAt: 2000,
+  latestActivity: "Ran `npm test -- auth`",
+  progress: { steps: 2, said: "Now running the auth suite.", tools: { reads: 3, commands: 1 } },
+  transcript: [
+    { id: "m1", kind: "message", text: "The refresh path skips the expiry check. I will confirm it." },
+    { id: "t1", kind: "tool", tool: "read", text: "Read `auth.ts`" },
+    { id: "m2", kind: "message", text: "Now running the auth suite." },
+    { id: "t2", kind: "tool", tool: "shell", text: "Ran `npm test -- auth`" },
+  ],
+};
+
+test("mobile subagent rows say what it does now and how far it got, and a finished one its outcome", () => {
+  const { SubagentRow, render } = subagentGlance();
+  const row = render(SubagentRow, { agent: glanceAgent, provider: "claude", now: 66000, onPress() {} });
+  const shown = texts(row);
+  for (const text of ["Review authentication", "1m 5s", "Now running the auth suite.", "Step 2 · 3 files read · 1 command"])
+    assert.ok(shown.includes(text), text);
+  const planned = texts(
+    render(SubagentRow, {
+      agent: {
+        ...glanceAgent,
+        tasks: [
+          { id: "0", content: "Read", status: "completed" },
+          { id: "1", content: "Test", status: "in_progress" },
+        ],
+      },
+      provider: "claude",
+      now: 66000,
+      onPress() {},
+    }),
+  );
+  assert.ok(planned.includes("1 of 2 · 3 files read · 1 command"));
+  const done = {
+    ...glanceAgent,
+    status: "completed",
+    endedAt: 11000,
+    transcript: [...glanceAgent.transcript, { id: "result", kind: "message", text: "Expiry is skipped on refresh. Patch attached." }],
+  };
+  const finished = texts(render(SubagentRow, { agent: done, provider: "claude", now: 66000, onPress() {} }));
+  assert.ok(finished.includes("Expiry is skipped on refresh."));
+  assert.ok(finished.includes("10s"), "a finished subagent's time stops at its end");
+});
+
+test("mobile subagent detail shows its plan with what it does now, else its steps; the log waits behind Full log", () => {
+  const { SubagentDetail, render } = subagentGlance();
+  const tasks = [
+    { id: "0", content: "Read the refresh code", status: "completed" },
+    { id: "1", content: "Run the auth tests", activeForm: "Running the auth tests", status: "in_progress" },
+    { id: "2", content: "Write it up", status: "pending" },
+  ];
+  const plan = texts(render(SubagentDetail, { agent: { ...glanceAgent, tasks } }));
+  for (const text of [
+    "Plan",
+    "1 of 3 done",
+    "Running the auth tests",
+    "Now running the auth suite.",
+    "Ran npm test -- auth · 3 files read · 1 command so far",
+    "Write it up",
+  ])
+    assert.ok(plan.includes(text), text);
+  assert.equal(plan.includes("Read `auth.ts`"), false, "tool calls stay in the log");
+  const steps = render(SubagentDetail, { agent: glanceAgent });
+  const shown = texts(steps);
+  for (const text of [
+    "Now · step 2",
+    "Now running the auth suite.",
+    "Earlier",
+    "The refresh path skips the expiry check.",
+    "1 file read",
+    "Full log (4 entries)",
+  ])
+    assert.ok(shown.includes(text), text);
+  find(steps, (node) => node.props?.accessibilityState?.expanded === false).props.onPress();
+  assert.ok(texts(render(SubagentDetail, { agent: glanceAgent })).includes("Read `auth.ts`"), "Full log shows the calls");
+});
+
+test("mobile subagent detail reads the whole transcript when the host sent only its end", async () => {
+  const react = hookHost({ effects: true });
+  const { useWholeSubagent } = load("subagent-glance.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
+    "@milagre/shared/agent-activity": require("@milagre/shared/agent-activity"),
+    "@milagre/shared/subagent-glance": require("@milagre/shared/subagent-glance"),
+    "./icons": { Icon: "Icon", ProviderLogo: "ProviderLogo", SpinnerRing: "SpinnerRing" },
+    "./theme": { fonts: { mono: "mono" } },
+  });
+  const tail = { ...glanceAgent, transcript: glanceAgent.transcript.slice(-2), transcriptLength: 4 };
+  let reads = 0;
+  const read = async () => (reads++, glanceAgent);
+  const use = () => {
+    react.begin();
+    const agent = useWholeSubagent(tail, read);
+    react.flush();
+    return agent;
+  };
+  assert.equal(use().transcript.length, 2, "the end shows until the read lands");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(reads, 1);
+  assert.equal(use().transcript.length, 4);
+  const short = { ...glanceAgent, transcriptLength: undefined };
+  react.begin();
+  assert.equal(useWholeSubagent(short, read), short, "a whole transcript isn't read again");
 });
 
 test("mobile main sync switch re-reads the Mac's default on focus and shows a refused save", async () => {

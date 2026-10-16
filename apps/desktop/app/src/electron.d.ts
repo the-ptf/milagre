@@ -467,6 +467,7 @@ export type MilagreBridge = {
   /** Every chat's listening ports, each time any of them change. */
   onAgentPorts: (callback: (ports: AgentPorts) => void) => () => void;
   getUpdateState: () => Promise<UpdateState>;
+  getUpdateReleaseNotes: (version: string) => Promise<string>;
   checkForUpdates: () => Promise<UpdateState>;
   getReleaseChannel: () => Promise<ReleaseChannel>;
   setReleaseChannel: (channel: ReleaseChannel) => Promise<ReleaseChannel>;

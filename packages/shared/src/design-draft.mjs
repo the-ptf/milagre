@@ -2,6 +2,24 @@
 // while an agent works on a design. Types: design-draft.d.mts.
 import { applyDesignOperations, designIcons, designOperationSchema, validateDesignDocument } from "./design.mjs";
 
+// --- The live frame ---
+
+/**
+ * The script of the frame a design builds in while an agent writes it (the desktop's LiveDesignFrame): it swaps the
+ * design in place from the canvas's messages, fading in the layers that just appeared, so the frame never reloads.
+ * Only the canvas (its parent) is listened to, and only for markup the shared renderer made. The frame is a srcdoc
+ * iframe, which runs under the app's own CSP: the desktop pins this exact text by hash (apps/desktop/renderer-csp.mjs).
+ */
+export const DESIGN_LIVE_RECEIVER_SCRIPT = `(function(){
+var root=document.getElementById("design-root"),fonts=document.getElementById("design-fonts"),still=matchMedia("(prefers-reduced-motion: reduce)");
+addEventListener("message",function(e){var d=e.data;if(e.source!==parent||!d||d.type!=="milagre:live-design"||typeof d.markup!=="string")return;
+if(typeof d.fontFaces==="string")fonts.textContent=d.fontFaces;
+if(typeof d.width==="number"&&typeof d.height==="number"){document.body.style.width=d.width+"px";document.body.style.height=d.height+"px"}
+if(typeof d.background==="string")document.body.style.background=d.background;
+root.innerHTML=d.markup;
+if(!still.matches&&Array.isArray(d.appeared))d.appeared.slice(0,40).forEach(function(id){if(typeof id!=="string")return;var el=root.querySelector('[data-design-node="'+CSS.escape(id)+'"]');if(el&&el.animate)el.animate([{opacity:0,transform:"scale(.97)"},{opacity:1,transform:"none"}],{duration:260,easing:"cubic-bezier(.2,.8,.2,1)"})});
+parent.postMessage({type:"milagre:live-painted",seq:d.seq},"*")})})()`;
+
 // --- Partial JSON ---
 
 class Malformed extends Error {}

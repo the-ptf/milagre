@@ -147,6 +147,8 @@ const METHODS = new Set([
   "chat:patch",
   "chat:archive-subagent",
   "chat:archive-finished-subagents",
+  // One subagent whole: the phone gets only the end of each transcript, and its subagent detail reads the rest.
+  "chat:subagent",
   "attachment:preview",
   "worktree:pull-request",
   "worktree:pull-requests",
