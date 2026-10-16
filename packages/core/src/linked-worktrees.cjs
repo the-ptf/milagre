@@ -86,6 +86,24 @@ function createLinkedWorktrees({
     return [...found.values()];
   }
 
+  /** An active Worktree of the Chat's own Project as a Delegation target, with no Link, or null. */
+  async function ownWorktree(chatId, worktreePath) {
+    const projectPath = projectOfKey(chatId);
+    if (isLinkScopeKey(projectPath)) return null;
+    const state = await project(projectPath);
+    const worktree = Object.values(state.worktrees).find((item) => item.path === worktreePath);
+    if (!worktree || !(await active(projectPath)).includes(worktreePath)) return null;
+    if (worktree.sharedChat) throw new Error("Delegation into a shared Link Chat is not supported. Read its canonical transcript instead.");
+    const entry = (await registry().snapshot()).projects.find((item) => item.path === projectPath);
+    return {
+      link_id: null,
+      link_ids: [],
+      projectPath,
+      projectName: entry?.name ?? path.basename(projectPath),
+      branch: worktree.name ?? path.basename(worktreePath),
+    };
+  }
+
   const reads = createLinkedReads({
     sides,
     state: project,
@@ -162,6 +180,9 @@ function createLinkedWorktrees({
     store,
     ports: {
       async target(fromChat, worktreePath) {
+        // A Worktree of the Chat's own Project needs no Link: its agent can already start Chats there.
+        const own = await ownWorktree(fromChat, worktreePath);
+        if (own) return own;
         const side = (await sides(fromChat)).find((item) => item.worktree_path === worktreePath);
         if (!side) return null;
         const state = await project(side.projectPath);
@@ -265,8 +286,20 @@ function createLinkedWorktrees({
       url: () => mcp.url(chatId),
       toolsAvailable: (available) => setToolsAvailable(chatId, available),
     }),
-    /** The summary for the start of a turn, or "" when nothing is linked. A failed read leaves it out. */
-    context: (chatId) => reads.summary(chatId).catch(() => ""),
+    /**
+     * What a turn starts with: the linked summary, then the Delegation reports its agent hasn't had, or "" when there is
+     * neither. A failed read leaves its part out.
+     */
+    context: async (chatId) => {
+      const [summary, reports] = await Promise.all([
+        reads.summary(chatId).catch(() => ""),
+        delegations.takeReports(chatId).catch((error) => {
+          console.warn("Milagre couldn't read the Delegation reports:", error.message);
+          return "";
+        }),
+      ]);
+      return [summary, reports].filter(Boolean).join("\n\n");
+    },
     observe: (chatId, event) => delegations.observe(chatId, event),
     /** A Delegation (or Negotiation report) that waited in the Chat's queue across a restart started, or was removed. */
     queuedStarted: (chatId, context, started) => delegations.adopt(chatId, context, started),

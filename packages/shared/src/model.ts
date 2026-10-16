@@ -381,7 +381,8 @@ export type LinkedContext =
 /** A Delegation still queued or running (see delegations.cjs in @milagre/core). */
 export interface OpenDelegation {
   id: string;
-  link_id: string;
+  /** The Link it travels along; null for a Delegation inside its Chat's own Project. */
+  link_id: string | null;
   from_chat: string;
   to_chat: string | null;
   from_label: string;
@@ -394,7 +395,7 @@ export interface OpenDelegation {
 
 export interface RunningNegotiation {
   id: string;
-  link_id: string;
+  link_id: string | null;
   chats: [string, string | null];
   labels: [string, string];
   round: number;

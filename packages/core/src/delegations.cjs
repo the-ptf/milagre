@@ -5,9 +5,9 @@ const { isTurnEnd } = require("@milagre/shared/agent-runs");
 const { NEGOTIATION_ROUNDS } = require("@milagre/shared/limits");
 const { clip } = require("./linked-summary.cjs");
 
-// Delegations and Negotiations across Links (ADR-0002). A Delegation is a message from a Chat on one side
-// of a Link to a Chat on the other, carried out by that side's own agent; the reply of the turn that took
-// it comes back as the Delegation report. A Negotiation is a run of Delegations between two Chats: the
+// Delegations and Negotiations (ADR-0002). A Delegation is a message from a Chat to another Chat, across a
+// Link or in its own Project, carried out by that Chat's own agent; the reply of the turn that took it comes
+// back as the Delegation report, which the requesting agent also gets with its next turn (`takeReports`). A Negotiation is a run of Delegations between two Chats: the
 // receiving side answers in its report, which starts the requesting side's next move (another round or
 // `conclude_negotiation`), until it concludes, the user stops it, or it reaches NEGOTIATION_ROUNDS.
 //
@@ -25,6 +25,8 @@ const OUTCOMES = { "turn-completed": "done", "turn-cancelled": "cancelled", "tur
 const KEEP = 200;
 const RECENT_TURNS = 10;
 const STEER_GRACE_MS = 1500;
+// How much of each Delegation report the requesting agent gets with its next turn; the whole reply stays in the Chat.
+const REPORT_CHARS = 4000;
 const REMOVED = "it was removed from the Chat's queue before its turn started";
 
 function delegationPrompt(delegation) {
@@ -88,7 +90,8 @@ class Delegations {
   /**
    * Ports, all supplied by the runtime:
    *   target(fromChat, worktreePath) -> { link_id, link_ids, projectPath, projectName, branch } | null, when the Chat can see that
-   *     Worktree; link_ids are every Link that reaches it, link_id the one it routes along
+   *     Worktree; link_ids are every Link that reaches it, link_id the one it routes along, and both empty (null, [])
+   *     for a Worktree of the Chat's own Project, which needs no Link
    *   chat(chatKey) -> { label, worktreePath, archived } | null; openChat(projectPath, worktreePath) -> a new Chat's key
    *   status(chatKey) -> "idle" | "working" | "waiting"
    *   deliver(chatKey, { body, prompt, context }) -> { started }, once the message is saved; `started` resolves with
@@ -193,11 +196,14 @@ class Delegations {
       toLabel = info.label;
     }
     const from = await this.ports.chat(fromChat);
-    const linkIds = [target.link_id, ...(target.link_ids ?? []).filter((id) => id !== target.link_id)];
-    const decision = await this.approval(fromChat, linkIds, { target: toLabel, message, negotiation });
+    // A Link reaches another Project's Chats, so the user approves it in Ask mode. The Chat's own Project needs no card:
+    // its agent can already start Chats there (chat_start).
+    const linkIds = target.link_id ? [target.link_id, ...(target.link_ids ?? []).filter((id) => id !== target.link_id)] : [];
+    const decision = linkIds.length ? await this.approval(fromChat, linkIds, { target: toLabel, message, negotiation }) : "allow";
     if (decision === "deny") throw new Error("The user denied this Delegation. Don't send it again unless they ask.");
     if (decision === "cancelled") throw new Error("The approval card closed before the user answered, so nothing was sent.");
     const toChat = chat === "new" ? await this.ports.openChat(target.projectPath, worktree) : chat;
+    if (toChat === fromChat) throw new Error('A Chat can\'t delegate to itself. Pick another Chat, or "new".');
     const record = negotiation
       ? {
           id: this.id(),
@@ -581,8 +587,25 @@ class Delegations {
     }
     if (negotiation?.status === "running")
       await this.end(negotiation, "stopped", { reason: `round ${delegation.round} ${outcome === "cancelled" ? "was stopped" : "failed"}` });
+    delegation.report = reportBody(outcome, reply);
     await this.persist();
-    await this.ports.note(delegation.from_chat, { body: reportBody(outcome, reply), context });
+    await this.ports.note(delegation.from_chat, { body: delegation.report, context });
+  }
+
+  /**
+   * The Delegation reports the requesting Chat's agent hasn't had yet, as a block for the start of its next turn, or "".
+   * A report is otherwise only a line in the Chat: the agent would see it only through a Link's summary, and an
+   * in-Project Delegation has none. Each report goes once.
+   */
+  async takeReports(chatKey) {
+    await this.ready;
+    const waiting = this.data.delegations.filter((item) => item.from_chat === chatKey && item.report);
+    if (!waiting.length) return "";
+    // The Chat ref tells apart several "new" Chats, and is what chat_read and the next delegate take.
+    const lines = waiting.map((item) => `Delegation report from ${item.to_label} (${item.to_chat}, ${item.status}):\n${clip(item.report, REPORT_CHARS)}`);
+    for (const item of waiting) delete item.report;
+    await this.persist();
+    return ["<delegation_reports>", ...lines, "</delegation_reports>"].join("\n");
   }
 
   /** Ends a running Negotiation, drops its waiting messages and tells both Chats. */
@@ -620,10 +643,12 @@ class Delegations {
   }
 
   async noteInterrupted(delegations, negotiations) {
+    for (const delegation of delegations)
+      delegation.report = `Milagre restarted before ${delegation.to_label} finished this Delegation, so it was cancelled: "${clip(delegation.message, 120)}"`;
     await this.persist();
     const notes = delegations.map((delegation) =>
       this.ports.note(delegation.from_chat, {
-        body: `Milagre restarted before ${delegation.to_label} finished this Delegation, so it was cancelled: "${clip(delegation.message, 120)}"`,
+        body: delegation.report,
         context: { kind: "delegation-report", delegationId: delegation.id, from: delegation.to_chat, fromLabel: delegation.to_label, status: "cancelled" },
       }),
     );

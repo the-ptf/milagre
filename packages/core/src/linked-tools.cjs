@@ -300,10 +300,12 @@ function linkedToolDefinitions(chatId, { reads, delegations }) {
     },
     {
       name: "delegate",
-      description: `Ask for changes in a linked Worktree. That side's own agent carries them out in the Chat you pick (a Chat ref from linked_overview, or "new"); its Delegation report comes back to this Chat later, so don't wait for it. Set \`negotiation\` when the two sides must agree on something first: each report then starts the other side's next turn, for up to ${NEGOTIATION_ROUNDS} rounds.`,
+      description: `Hand work to another Chat: in a linked Worktree, or in any Worktree of this Chat's own Project (this one included, no Link needed). That Chat's own agent carries it out in the Chat you pick (a Chat ref, or "new"); its Delegation report comes back to this Chat later and reaches you with your next turn, so don't wait for it. Use it instead of chat_start when you want the result back. Set \`negotiation\` when the two sides must agree on something first: each report then starts the other side's next turn, for up to ${NEGOTIATION_ROUNDS} rounds.`,
       input: {
-        worktree,
-        chat: z.string().describe('A Chat ref from linked_overview (projectPath#id) in that Worktree, or "new".'),
+        worktree: z
+          .string()
+          .describe("The Worktree's absolute path: as linked_overview shows it after \"worktree\", or from worktree_list for this Chat's own Project."),
+        chat: z.string().describe('A Chat ref (projectPath#id) in that Worktree, from linked_overview or chat_list, or "new".'),
         message: z.string().min(1),
         negotiation: z.boolean().optional(),
       },
