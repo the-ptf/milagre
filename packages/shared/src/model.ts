@@ -162,7 +162,10 @@ export interface AgentSession {
   queueHeld?: boolean;
 }
 
-/** A message waiting for the running turn to end (AgentSession.queued). It becomes a ChatMessage when its turn starts. */
+/**
+ * A message waiting for the running turn to end (AgentSession.queued). It becomes a ChatMessage when its turn starts.
+ * The host also keeps the send's prompt and turn options on it, which clients don't read.
+ */
 export interface QueuedMessage {
   id: string;
   body: string;
