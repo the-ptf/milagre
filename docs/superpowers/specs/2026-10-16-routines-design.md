@@ -163,9 +163,10 @@ A heartbeat whose Chat is archived or deleted completes itself, as Paseo does wi
      `{{issue.labels}}`.
 4. **Webhook runs:** fill `{{body.path}}`, `{{headers.name}}`, `{{query.name}}`, `{{body}}`, as T3 does.
 5. **Untrusted data:** issue text and webhook payloads always reach the agent fenced in a block labelled as untrusted
-   data, never as instructions. This holds even inline: `{{issue.description}}` and `{{body}}` expand to a delimited
-   data block. Short single-line fields (`{{issue.key}}`, `{{issue.title}}`, header values) substitute inline. The
-   autocomplete preview shows the substituted value.
+   data, never as instructions. Every value that comes from outside Milagre expands to a delimited data block,
+   whatever its length: `{{issue.description}}`, `{{issue.title}}`, `{{issue.state}}`, labels, names, `{{body}}`,
+   header and query values. Only Milagre or Linear identifiers (`{{issue.key}}`, `{{issue.url}}`, `{{date}}`,
+   `{{time}}`) substitute inline. The autocomplete preview shows the substituted value.
 6. **Quiet run:** the Chat is archived and no push is sent.
 7. **Approvals:** push to the phone and wait, the same as any Chat.
 
