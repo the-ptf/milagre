@@ -170,6 +170,10 @@ function createRuntime(options) {
     directory: path.join(dataDir, "design-page-shares"),
     artifacts,
     validateChat: existingChat("sharing Designs"),
+    chatTitle: async (chatId) => {
+      const session = (await scopeStates.get(projectOfKey(chatId)))?.sessions[sessionIdFromKey(chatId)];
+      return session?.title || session?.generatedTitle || null;
+    },
     ...options.designSharing,
   });
   commands.handle("artifact:page-shares", (_context, request) => designPageSharing.list(request));

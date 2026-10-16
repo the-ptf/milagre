@@ -35,7 +35,8 @@ export interface ArtifactApi {
   revokeSavedPageShare(request: { id: string }): Promise<void>;
   /** The page's current link, or none: at most one entry. */
   pageShares(request: { chatId: string; kind?: ArtifactPageKind }): Promise<DesignPageShare[]>;
-  sharePage(request: { chatId: string; title: string; acknowledgePublic: true; kind?: ArtifactPageKind }): Promise<DesignPageShare>;
+  /** The page is named after its Chat on the host; `title` only satisfies hosts from before that, which require one. */
+  sharePage(request: { chatId: string; title?: string; acknowledgePublic: true; kind?: ArtifactPageKind }): Promise<DesignPageShare>;
   revokePageShare(request: { chatId: string; id: string; kind?: ArtifactPageKind }): Promise<void>;
   get(request: { chatId: string; id: string; version?: number }): Promise<Artifact>;
   list(request: { chatId: string; format?: "design" | "html" }): Promise<ArtifactSummary[]>;

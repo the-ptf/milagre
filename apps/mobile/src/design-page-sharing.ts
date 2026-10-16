@@ -82,6 +82,7 @@ export function createDesignPageSharing(client: Caller, chatId?: string | null, 
         if (current === generation) update({ ...state, loading: false, error: errorText(error) });
       }
     },
+    /** The host names the page after its Chat; `title` only satisfies an older host, which requires one. */
     async publish(title: string) {
       if (disposed || !chatId || state.busy || !state.loaded || state.checking || !state.availability?.available || !title.trim()) return;
       const current = ++generation;

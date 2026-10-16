@@ -20,8 +20,10 @@ async function fixture(t) {
   for (const id of ["first", "second"]) await artifacts.showDesign({ chatId: CHAT, id, title: id, document: document() });
   const calls = [];
   let failure = false;
+  const chat = { title: "My page" };
   const options = {
     directory: path.join(directory, "shares"),
+    chatTitle: async () => chat.title,
     artifacts,
     validateChat,
     fetch: async (url, options) => {
@@ -36,12 +38,13 @@ async function fixture(t) {
   return {
     artifacts,
     calls,
+    chat,
     options,
     api: createDesignPageSharing(options),
     fail: (value) => {
       failure = value;
     },
-    request: { chatId: CHAT, title: "My page", acknowledgePublic: true },
+    request: { chatId: CHAT, acknowledgePublic: true },
   };
 }
 test("publishing captures the entire page at current versions and returns no secret", async (t) => {
@@ -58,11 +61,24 @@ test("publishing captures the entire page at current versions and returns no sec
   assert.deepEqual(await api.list({ chatId: CHAT }), [result]);
   assert.equal(result.updatedAt, undefined);
 });
+test("the public page takes the Chat's title, never one the request carries", async (t) => {
+  const { api, calls, chat, request } = await fixture(t);
+  chat.title = "  Login   flow\n redesign ";
+  const named = await api.publish({ ...request, title: "Designs" });
+  assert.equal(named.title, "Login flow redesign");
+  assert.equal(JSON.parse(calls[0].body).title, "Login flow redesign");
+  chat.title = "x".repeat(200);
+  assert.equal((await api.publish(request)).title.length, 120);
+  chat.title = null;
+  assert.equal((await api.publish(request)).title, "Designs", "an untitled Chat's page is called Designs");
+});
 test("sharing again updates the snapshot behind the same link", async (t) => {
-  const { api, artifacts, calls, request } = await fixture(t);
+  const { api, artifacts, calls, chat, request } = await fixture(t);
   const first = await api.publish(request);
+  assert.equal(first.title, "My page", "the page is named after its Chat");
   await artifacts.apply({ chatId: CHAT, id: "first", expectedVersion: 1, operations: [{ op: "update", id: "heading", patch: { text: "Later" } }] });
-  const second = await api.publish({ ...request, title: "Renamed" });
+  chat.title = "Renamed";
+  const second = await api.publish(request);
   assert.equal(second.id, first.id);
   assert.equal(second.url, first.url);
   assert.equal(second.title, "Renamed");

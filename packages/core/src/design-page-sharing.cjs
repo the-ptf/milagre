@@ -42,6 +42,8 @@ function createDesignPageSharing({
   directory,
   artifacts,
   validateChat,
+  // The Chat's own title (set by the user or generated from its first message), which names its public page.
+  chatTitle = async () => null,
   origin = "https://share.milagre.cloud",
   fetch: fetcher = fetch,
   embedImages = embedPageImages,
@@ -224,11 +226,15 @@ function createDesignPageSharing({
     // A lost acknowledgement leaves the same capability in place, and the retry is an idempotent PUT.
     publish: (request) =>
       serial(async () => {
-        const { chatId, title, acknowledgePublic, kind } = request ?? {};
+        const { chatId, acknowledgePublic, kind } = request ?? {};
         const selectedKind = pageKind(kind);
         await check(chatId, kind);
         if (acknowledgePublic !== true) throw Error("Confirm that the entire page will be public before publishing.");
-        if (typeof title !== "string" || !title.trim() || title.length > 120) throw Error("A public page title must have 1 to 120 characters.");
+        // The page is named after its Chat; a title the request carries (older phones send one) is ignored.
+        const named = String((await chatTitle(chatId).catch(() => null)) ?? "")
+          .replace(/\s+/g, " ")
+          .trim();
+        const title = [...named].slice(0, 120).join("") || (selectedKind === "artifacts" ? "Artifact" : "Designs");
         const availability = await status({ kind });
         if (!availability.available) throw Error(availability.reason);
         const current = await artifacts.pageSnapshot({ chatId, title, kind: selectedKind });

@@ -5,6 +5,7 @@ import { ipcErrorMessage } from "@milagre/shared/result";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { confirmDesignSharingAvailability } from "../../lib/design-sharing-available";
 import { ScrollArea } from "../primitives/ScrollArea";
+import { showToast } from "../../lib/toast";
 
 const button = "rounded-[8px] border border-line px-3 py-1.5 text-[12px] hover:bg-hover disabled:opacity-40";
 
@@ -20,14 +21,11 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
   const alive = useRef(false);
   const working = useRef(false);
   const reads = useRef(0);
-  const titleEdited = useRef(false);
-  const [title, setTitle] = useState(kind === "artifacts" ? "Artifact" : "Designs");
   const [shares, setShares] = useState<DesignPageShare[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [availability, setAvailability] = useState<{ available: boolean; reason?: string } | null>(null);
   const [checking, setChecking] = useState(true);
   const [revoke, setRevoke] = useState<string | null>(null);
@@ -41,8 +39,6 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
         const rows = await (chatId ? api.pageShares({ chatId, kind }) : api.allPageShares());
         if (alive.current && read === reads.current) {
           setShares(rows);
-          const live = chatId && rows.find((share) => !share.revoked);
-          if (live && !titleEdited.current) setTitle(live.title);
         }
       } catch (cause) {
         if (alive.current && read === reads.current) {
@@ -86,25 +82,30 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
   }, [load, chatId, checkAvailability]);
 
   async function publish() {
-    if (!chatId || checking || !availability?.available || working.current || loading || loadFailed || !title.trim()) return;
+    if (!chatId || checking || !availability?.available || working.current || loading || loadFailed) return;
     const updating = !!current;
     working.current = true;
     setBusy("publish");
     setError("");
-    setNotice("");
     setRevoke(null);
     try {
       const share = await api.sharePage({
         chatId,
-        title: title.trim(),
+        // The host names the page after its Chat; an older host still requires a title.
+        title: current?.title ?? (kind === "artifacts" ? "Artifact" : "Designs"),
         acknowledgePublic: true,
         kind,
       });
       if (alive.current) {
         reads.current++;
         setShares([share]);
-        setNotice([updating ? "Snapshot updated." : "", olderLinksNotice(share.olderLinks)].filter(Boolean).join(" "));
       }
+      // Publishing copies the link right away: sharing it is what comes next.
+      const copied = await navigator.clipboard.writeText(share.url).then(
+        () => true,
+        () => false,
+      );
+      showToast([updating ? "Snapshot updated." : "Published.", copied ? "Link copied." : "", olderLinksNotice(share.olderLinks)].filter(Boolean).join(" "));
     } catch (cause) {
       if (alive.current) {
         setError(ipcErrorMessage(cause));
@@ -121,7 +122,6 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
     working.current = true;
     setBusy(id);
     setError("");
-    setNotice("");
     try {
       if (chatId) await api.revokePageShare({ chatId, id, kind });
       else await api.revokeSavedPageShare({ id });
@@ -130,8 +130,8 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
         // A Chat page drops its revoked link; the next Publish creates a new one. The global list keeps the row.
         setShares((rows) => (chatId ? rows.filter((row) => row.id !== id) : rows.map((row) => (row.id === id ? { ...row, revoked: true } : row))));
         setRevoke(null);
-        setNotice("Link revoked. Copies may remain online.");
       }
+      showToast("Link revoked. Copies may remain online.");
     } catch (cause) {
       if (alive.current) setError(ipcErrorMessage(cause));
     } finally {
@@ -142,7 +142,7 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
   async function copy(url: string) {
     try {
       await navigator.clipboard.writeText(url);
-      if (alive.current) setNotice("Link copied.");
+      showToast("Link copied.");
     } catch {
       if (alive.current) setError("Could not copy the link. Select it and copy it.");
     }
@@ -230,11 +230,6 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
           {error}
         </p>
       )}
-      {!!notice && (
-        <p role="status" className="mt-3 text-[12px] text-ink-2">
-          {notice}
-        </p>
-      )}
     </>
   );
   return createPortal(
@@ -274,22 +269,7 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
                   {current.pending && <p className="text-[12px] text-ink-2">Not confirmed yet. Update to retry.</p>}
                 </div>
               )}
-              <label htmlFor="design-page-share-name" className="mb-1.5 block text-[12px] text-ink-2">
-                Page title
-              </label>
-              <input
-                id="design-page-share-name"
-                autoFocus
-                value={title}
-                maxLength={120}
-                disabled={!!busy}
-                onChange={(event) => {
-                  titleEdited.current = true;
-                  setTitle(event.target.value);
-                }}
-                className="h-9 w-full rounded-control bg-field px-2.5 text-[13px] outline-none ring-1 ring-line-strong focus-visible:ring-accent"
-              />
-              <p id="design-page-share-warning" className="mt-2 text-[12px] text-ink-3">
+              <p id="design-page-share-warning" className="text-[12px] text-ink-3">
                 {kind === "artifacts" ? "Anyone with the link can view it, hidden HTML included." : "Anyone with the link can view it."}
               </p>
               {checking ? (
@@ -307,7 +287,7 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
               <button
                 type="button"
                 data-slot="design-page-publish"
-                disabled={checking || !availability?.available || loading || loadFailed || !!busy || !title.trim()}
+                disabled={checking || !availability?.available || loading || loadFailed || !!busy}
                 onClick={() => void publish()}
                 className="mt-4 w-full rounded-control bg-ink px-3 py-2.5 text-[13px] font-medium text-surface disabled:opacity-40"
               >

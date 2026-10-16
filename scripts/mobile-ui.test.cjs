@@ -9007,6 +9007,8 @@ test("mobile publishing checks availability, retries, and keeps history availabl
   find(render("chat"), (n) => n.props?.title === "Publish").props.onPress();
   await new Promise((resolve) => setImmediate(resolve));
   tree = render("chat");
+  assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"], "publishing copies the link right away");
+  assert.ok(text(tree, "Published. Link copied."), "a toast says what happened");
   assert.equal(
     find(tree, (n) => n.props?.title === "Publish"),
     undefined,
@@ -9022,9 +9024,10 @@ test("mobile publishing checks availability, retries, and keeps history availabl
   find(render("chat"), (n) => n.props?.title === "Update snapshot").props.onPress();
   await new Promise((resolve) => setImmediate(resolve));
   tree = render("chat");
-  assert.deepEqual(calls.at(-1), ["publish", "Designs"]);
+  assert.deepEqual(calls.at(-2), ["publish", "Designs"], "only an older host needs the title");
+  assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"]);
   assert.equal(state.shares.length, 1, "the update keeps one link");
-  assert.ok(text(tree, "Snapshot updated."));
+  assert.ok(text(tree, "Snapshot updated. Link copied."));
   assert.ok(text(tree, "Updated "));
   find(tree, (n) => n.props?.title === "Revoke link").props.onPress();
   tree = render("chat");

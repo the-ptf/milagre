@@ -307,7 +307,7 @@ createRoot(document.getElementById("root")).render(<><Fixture /><ChangesToggle o
 `;
 
 async function browserChecks() {
-  const { app, BrowserWindow } = require("electron");
+  const { app, BrowserWindow, clipboard } = require("electron");
   // `--preview` leaves the window open on the comment layer; `frameGuard` below checks the first card's frame.
   const keepOpen = process.argv.includes("--preview");
   app.setPath("userData", require("node:fs").mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-artifacts-")));
@@ -455,7 +455,8 @@ async function browserChecks() {
     const shareText = `${shareDialog}.textContent`;
     const publishLabel = `${publish}.textContent`;
     assert.match(await evaluate(shareText), /^Share/, "a short title");
-    assert.match(await evaluate(shareText), /Page title.*Anyone with the link can view it\./s);
+    assert.match(await evaluate(shareText), /Anyone with the link can view it\./);
+    assert.equal(await evaluate(`!!${shareDialog}.querySelector("input")`), false, "no title field: the host names the page after its Chat");
     assert.equal(await evaluate(`document.getElementById(${shareDialog}.getAttribute("aria-describedby")).textContent`), "Anyone with the link can view it.");
     assert.equal(await evaluate(publishLabel), "Publish");
     assert.doesNotMatch(await evaluate(shareText), /Published snapshots|frozen|Public access/);
@@ -476,16 +477,17 @@ async function browserChecks() {
     });
     assert.equal(await evaluate(`${shareDialog}.querySelector("a").getAttribute("href")`), "https://share.milagre.cloud/s/snapshot-1");
     assert.match(await evaluate(shareText), /Published /);
+    // What an action did shows as a toast over the sheet, not in it; publishing copies the link right away.
+    const toastText = `(document.querySelector("[data-toast]:popover-open")?.textContent ?? "")`;
+    await waitFor(`${toastText}.startsWith("Published.")`);
+    assert.doesNotMatch(await evaluate(shareText), /Published\.|Link copied/);
+    assert.equal(await evaluate("document.querySelector('[data-toast]').matches(':popover-open')"), true, "the toast sits in the top layer, over the modal");
+    if ((await evaluate(toastText)).includes("Link copied.")) assert.equal(clipboard.readText(), "https://share.milagre.cloud/s/snapshot-1");
     await screenshot("share-page-published-first");
-    // Sharing again updates the same link, with the new title; no history list appears.
-    await evaluate(`(() => {
-      const input = document.getElementById("design-page-share-name");
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "Login flow");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    })()`);
+    // Sharing again updates the same link; no history list appears.
     await evaluate(`${publish}.click()`);
-    await waitFor(`${shareText}.includes("Snapshot updated.")`);
-    assert.equal(await evaluate('window.shareCalls.filter(([kind]) => kind === "publish").at(-1)[1].title'), "Login flow");
+    await waitFor(`${toastText}.startsWith("Snapshot updated.")`);
+    assert.equal(await evaluate('window.shareCalls.filter(([kind]) => kind === "publish").at(-1)[1].title'), "Designs", "only an older host needs a title");
     assert.equal(await evaluate(`${shareDialog}.querySelectorAll("[data-share-id]").length`), 1);
     assert.equal(
       await evaluate(`${shareDialog}.querySelector("a").getAttribute("href")`),
@@ -505,7 +507,7 @@ async function browserChecks() {
     assert.ok(await evaluate(`${shareRow}.querySelector("a") !== null`));
     await evaluate(`window.shareRevokeError = false; ${shareDialog}.querySelector("[data-slot=design-page-revoke-confirm]").click()`);
     await waitFor(`!${shareRow} && ${publishLabel} === "Publish"`);
-    assert.match(await evaluate(shareText), /Link revoked/);
+    await waitFor(`${toastText}.startsWith("Link revoked")`);
     await screenshot("share-page-revoked");
     // Native modal Escape returns to the canvas, without closing it too.
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "ESCAPE" });

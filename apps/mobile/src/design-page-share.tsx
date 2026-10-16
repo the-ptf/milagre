@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Linking, Platform, Share, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Linking, Platform, Share, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { createDesignPageSharing } from "./design-page-sharing";
@@ -39,42 +39,52 @@ export function DesignPageShareSheet({
   }, [state.checking, state.availability?.available, onAvailabilityChange]);
   useEffect(() => onBusyChange?.(!!state.busy), [state.busy, onBusyChange]);
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
-  // Until the person edits it, the title field shows the live link's title.
-  const [draft, setDraft] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
-  const [notice, setNotice] = useState("");
+  // What an action did shows as a toast over the sheet, not as text in it.
+  const [toast, setToast] = useState<{ text: string; key: number } | null>(null);
+  const toastKey = useRef(0);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  const showToast = (text: string) => text && setToast({ text, key: ++toastKey.current });
   const current = chatId ? state.shares.find((share) => !share.revoked) : undefined;
-  const title = draft ?? current?.title ?? (kind === "artifacts" ? "Artifact" : "Designs");
+  // The host names the page after its Chat; this only satisfies an older host, which requires a title.
+  const title = current?.title ?? (kind === "artifacts" ? "Artifact" : "Designs");
   useEffect(() => {
     void sharing.refresh();
     void sharing.checkAvailability();
     return () => sharing.dispose();
   }, [sharing]);
   const act = async (action: () => Promise<unknown>, success = "") => {
-    setNotice("");
     try {
       await action();
-      setNotice(success);
+      showToast(success);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Could not open this link.");
+      showToast(error instanceof Error ? error.message : "Could not open this link.");
     }
   };
   const publish = async () => {
     const updating = !!current;
-    setNotice("");
     setConfirm(null);
     await sharing.publish(title);
     const result = sharing.getSnapshot();
     const share = result.shares[0];
-    if (!result.error && share) setNotice([updating ? "Snapshot updated." : "", olderLinksNotice(share.olderLinks)].filter(Boolean).join(" "));
+    if (result.error || !share) return;
+    // Publishing copies the link right away: sharing it is what comes next.
+    const copied = await Clipboard.setStringAsync(share.url).then(
+      () => true,
+      () => false,
+    );
+    showToast([updating ? "Snapshot updated." : "Published.", copied ? "Link copied." : "", olderLinksNotice(share.olderLinks)].filter(Boolean).join(" "));
   };
   const revoke = async (id: string) => {
-    setNotice("");
     await sharing.revoke(id);
     const result = sharing.getSnapshot();
     if (!result.error) {
       setConfirm(null);
-      setNotice("Link revoked. Copies may remain online.");
+      showToast("Link revoked. Copies may remain online.");
     }
   };
   const quiet = { borderWidth: 0, paddingHorizontal: 8 };
@@ -153,11 +163,6 @@ export function DesignPageShareSheet({
           <PillButton title="Refresh" secondary disabled={!!state.busy} onPress={() => void sharing.refresh()} />
         </View>
       )}
-      {!!notice && (
-        <Text accessibilityLiveRegion="polite" selectable style={{ color: colors.ink2 }}>
-          {notice}
-        </Text>
-      )}
       {state.loading && <Text style={styles.muted}>Loading...</Text>}
     </>
   );
@@ -204,23 +209,9 @@ export function DesignPageShareSheet({
                 {current.pending && <Text style={styles.muted}>Not confirmed yet. Update to retry.</Text>}
               </View>
             )}
-            <View style={{ gap: 6 }}>
-              <Text style={{ color: colors.ink2, fontSize: 13 }}>Page title</Text>
-              <TextInput
-                accessibilityLabel="Page title"
-                accessibilityHint={kind === "artifacts" ? "Anyone with the link can view it, hidden HTML included." : "Anyone with the link can view it."}
-                value={title}
-                onChangeText={setDraft}
-                maxLength={120}
-                editable={!state.busy}
-                selectionColor={colors.accent}
-                style={styles.input}
-                returnKeyType="done"
-              />
-              <Text style={styles.muted}>
-                {kind === "artifacts" ? "Anyone with the link can view it, hidden HTML included." : "Anyone with the link can view it."}
-              </Text>
-            </View>
+            <Text style={styles.muted}>
+              {kind === "artifacts" ? "Anyone with the link can view it, hidden HTML included." : "Anyone with the link can view it."}
+            </Text>
             {state.checking ? (
               <Text style={styles.muted}>Checking the sharing service...</Text>
             ) : !state.availability?.available ? (
@@ -232,7 +223,7 @@ export function DesignPageShareSheet({
             ) : null}
             <PillButton
               title={current ? "Update snapshot" : "Publish"}
-              disabled={!!state.busy || state.loading || !state.loaded || state.checking || !state.availability?.available || !title.trim()}
+              disabled={!!state.busy || state.loading || !state.loaded || state.checking || !state.availability?.available}
               loading={state.busy === "publish"}
               onPress={() => void publish()}
             />
@@ -253,6 +244,16 @@ export function DesignPageShareSheet({
           </>
         )}
       </PageScroll>
+      {toast && (
+        <View key={toast.key} pointerEvents="none" style={{ position: "absolute", left: 16, right: 16, bottom: 24, alignItems: "center" }}>
+          <View
+            accessibilityLiveRegion="polite"
+            style={{ maxWidth: 360, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: colors.ink }}
+          >
+            <Text style={{ color: colors.surface, fontSize: 14 }}>{toast.text}</Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
