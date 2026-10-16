@@ -325,3 +325,87 @@ test("a Chat a Routine started gets no tools that make or start Routines", (t) =
   for (const name of ["heartbeat_create", "routine_create", "routine_run_now"]) assert.ok(!names("/project#3").includes(name), name);
   assert.ok(names("/project#3").includes("routine_list"));
 });
+
+// The runtime makes Linear after the Routines: a getter read too early throws, which must not break anything.
+function linearRoutines(t, linear) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-adapter-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const timers = [];
+  const routines = createRoutines({
+    file: path.join(dir, "routines.json"),
+    chats: { turnSettings: () => null },
+    keepAwake: { setRoutinesActive() {} },
+    emit() {},
+    cachedState: () => undefined,
+    openState: async () => undefined,
+    linear,
+    timers: {
+      setInterval: () => ({ unref() {} }),
+      clearInterval() {},
+      setTimeout(fn, ms) {
+        const timer = { fn, ms, cleared: false, unref() {} };
+        timers.push(timer);
+        return timer;
+      },
+      clearTimeout(timer) {
+        if (timer) timer.cleared = true;
+      },
+    },
+  });
+  return { routines, timers };
+}
+
+test("routine_create takes the one connected Linear workspace, and a Linear not made yet lists none", async (t) => {
+  const fake = { enabled: () => true, workspaces: () => [{ id: "acme", organization: { name: "Acme" } }], query: async () => ({}) };
+  const { routines } = linearRoutines(t, () => fake);
+  await routines.save(true);
+  const create = routines.definitions("/project#2").find((tool) => tool.name === "routine_create");
+  await create.run({ name: "Assigned", prompt: "Look at {{issue.key}}", trigger: "linear", linearEvent: "assigned" });
+  assert.equal(routines.list().routines[0].trigger.workspace, "acme");
+  await routines.save(false);
+
+  const early = linearRoutines(t, () => {
+    throw new ReferenceError("Cannot access 'linear' before initialization");
+  });
+  await early.routines.save(true);
+  const tool = early.routines.definitions("/project#2").find((item) => item.name === "routine_create");
+  await assert.rejects(tool.run({ name: "A", prompt: "B", trigger: "linear", linearEvent: "assigned" }), /Say which Linear workspace/);
+  await early.routines.save(false);
+});
+
+test("the Routines switch starts and stops Linear polling", async (t) => {
+  const queries = [];
+  const fake = {
+    enabled: () => true,
+    workspaces: () => [{ id: "acme", organization: { name: "Acme" } }],
+    query: async (workspace, document) => {
+      queries.push(workspace);
+      return document.includes("PollIssues") ? { issues: { nodes: [] } } : { comments: { nodes: [] } };
+    },
+  };
+  const { routines, timers } = linearRoutines(t, () => fake);
+  routines.create({
+    name: "Assigned",
+    prompt: "Look",
+    trigger: { kind: "linear", workspace: "acme", event: "assigned" },
+    target: { kind: "new-chat", projectPath: "/project", workspace: "worktree" },
+  });
+  assert.deepEqual(
+    timers.filter((timer) => !timer.cleared),
+    [],
+    "off: nothing polls",
+  );
+  await routines.save(true);
+  const first = timers.find((timer) => !timer.cleared && timer.ms === 0);
+  assert.ok(first, "on: a poll is due at once");
+  // A timer that fired is done with, as a cleared one is.
+  first.cleared = true;
+  await first.fn();
+  assert.deepEqual(queries, ["acme", "acme"]);
+  await routines.save(false);
+  assert.deepEqual(
+    timers.filter((timer) => !timer.cleared),
+    [],
+    "off again: every poll timer is cleared",
+  );
+});

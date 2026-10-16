@@ -1198,6 +1198,8 @@ function createRuntime(options) {
   // Issues are read through the same connection; both answer without throwing (see linear/issues.cjs).
   const linearIssues = createLinearIssues({ linear });
   const linearTools = createLinearTools({ linear, issues: linearIssues });
+  // The Routines form's Linear choices: workspaces, teams, and a team's labels and states. Never throws.
+  commands.handle("routines:linear-options", (_event, value) => linearIssues.routineOptions({ workspace: value?.workspace, team: value?.team }));
   commands.handle("linear:issues", (_event, value) => linearIssues.list(value?.query, { fresh: value?.fresh === true, workspace: value?.workspace }));
   commands.handle("linear:worktree-issues", async (_event, projectPath) => {
     try {

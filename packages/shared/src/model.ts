@@ -374,7 +374,7 @@ export interface Routine {
   failedStreak?: number;
   /** Why a trigger was switched off by itself, e.g. "3 failed runs in a row: <last error>". Cleared when it is switched on again. */
   pausedReason?: string;
-  /** The error of the most recent failed Run, kept until a Run succeeds. */
+  /** The latest system error about the Routine itself, apart from its Runs (e.g. "Linear sign-in needed"); cleared when it is fixed. */
   lastError?: string;
   completedAt?: number;
   createdAt: number;

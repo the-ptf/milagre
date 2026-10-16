@@ -5,6 +5,7 @@ const { renderRoutinePrompt } = require("@milagre/shared/routine-prompt");
 const { createRoutineStore } = require("./store.cjs");
 const { createRoutineScheduler, linearPrompt } = require("./scheduler.cjs");
 const { createRoutineTools } = require("./tools.cjs");
+const { createLinearPoller } = require("./linear-poller.cjs");
 
 const OFF = "Routines are off. Turn them on in Settings › Experimental.";
 const TOOLS_OFF = "Routines are turned off in Settings › Experimental.";
@@ -198,7 +199,7 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
 
 /**
  * Routines in the runtime: the store at `file`, the scheduler over the Chats, the agent tools and the `routines:*`
- * commands. Every write says `routines:changed`. `timers` ({ now, setInterval, clearInterval }) is for tests.
+ * commands. Every write says `routines:changed`. `timers` ({ now, setInterval, clearInterval, setTimeout, clearTimeout }) is for tests.
  */
 function createRoutines({
   file,
@@ -210,23 +211,51 @@ function createRoutines({
   isClosing = () => false,
   worktrees,
   archiveChat = async () => {},
-  // Linear polling (Task B1) and webhooks (Task C2) arrive later; both are read lazily, as the runtime makes them after this.
-  linear: _linear = () => null,
+  // The Mac's Linear connections and (Task C2) webhooks, read lazily: the runtime makes them after this.
+  linear: getLinear = () => null,
   hooks: _hooks = () => null,
   timers = {},
 }) {
   const now = timers.now ?? Date.now;
   const store = createRoutineStore({ file, now });
-  const changed = () => emit("routines:changed", { enabled: store.enabled() });
+  let poller = null;
+  // Every change may add, remove or switch a Linear Routine, so the poller looks again (a cheap scan).
+  const changed = () => {
+    emit("routines:changed", { enabled: store.enabled() });
+    poller?.sync();
+  };
+  const routineChatsView = routineChats({ chats, store, cachedState, openState, isClosing, worktrees, archiveChat, now });
   const scheduler = createRoutineScheduler({
     store,
-    chats: routineChats({ chats, store, cachedState, openState, isClosing, worktrees, archiveChat, now }),
+    chats: routineChatsView,
     keepAwake,
     now,
     ...(timers.setInterval ? { setInterval: timers.setInterval } : {}),
     ...(timers.clearInterval ? { clearInterval: timers.clearInterval } : {}),
     onChange: changed,
   });
+  // The Linear connections, or null when they aren't made yet (a getter read before the runtime declared them throws).
+  const linearNow = () => {
+    try {
+      return getLinear() ?? null;
+    } catch {
+      return null;
+    }
+  };
+  poller = createLinearPoller({
+    linear: linearNow,
+    store,
+    scheduler,
+    // Only an issue a Chat is linked to takes comments; the rest are dropped before they make a Run.
+    linkedIssue: async (issue) => Boolean(await routineChatsView.linkedChat(issue)),
+    onChange: changed,
+    ...(timers.setTimeout ? { setTimeout: timers.setTimeout } : {}),
+    ...(timers.clearTimeout ? { clearTimeout: timers.clearTimeout } : {}),
+  });
+  function linearWorkspaces() {
+    const linear = linearNow();
+    return linear?.enabled() ? linear.workspaces().map((item) => item.id) : [];
+  }
   function chatSettings(chatId) {
     const latest = chats.turnSettings(chatId);
     const state = cachedState(projectOfKey(chatId));
@@ -245,8 +274,7 @@ function createRoutines({
     scheduler,
     chatSettings,
     defaultTimezone: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
-    // Task B1 wires the connected Linear workspaces; until then an agent has to name one.
-    linearWorkspaces: () => [],
+    linearWorkspaces,
     now,
   });
 
@@ -281,15 +309,25 @@ function createRoutines({
     chatArchived: (chatId) => scheduler.chatArchived(chatId),
     // The timer only starts once the switch is on; off again, it keeps running and each tick returns at once.
     start() {
-      if (store.enabled()) scheduler.start();
+      if (!store.enabled()) return;
+      scheduler.start();
+      poller.start();
     },
-    stop: () => scheduler.stop(),
+    stop() {
+      scheduler.stop();
+      poller.stop();
+    },
     read: () => ({ enabled: store.enabled() }),
     async save(value) {
       const enabled = store.setEnabled(value === true);
-      if (enabled) scheduler.start();
-      // Off: one tick turns the routines' keep-awake off now.
-      else await scheduler.tick();
+      if (enabled) {
+        scheduler.start();
+        poller.start();
+      } else {
+        poller.stop();
+        // Off: one tick turns the routines' keep-awake off now.
+        await scheduler.tick();
+      }
       changed();
       return { enabled };
     },

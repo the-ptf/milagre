@@ -82,6 +82,13 @@ export type RoutineCreate = Pick<Routine, "name" | "prompt" | "trigger" | "targe
   Partial<Pick<Routine, "provider" | "model" | "permissionMode" | "maxRuns" | "expiresAt">>;
 
 /** Where a Routine can run: each Project Milagre lists, with up to 50 of its unarchived Chats, newest first. */
+export type RoutineLinearOptions = {
+  workspaces: Array<{ id: string; name: string }>;
+  teams: Array<{ key: string; name: string }>;
+  labels: string[];
+  states: Array<{ name: string; type: string }>;
+  error?: string;
+};
 export type RoutineTargets = { projects: Array<{ path: string; name: string; chats: Array<{ chatId: string; title: string; lastAt: number }> }> };
 
 /** Which patterns apply to new worktrees, and the files they match in the main checkout. */
@@ -309,6 +316,8 @@ export type MilagreBridge = {
   /** `hookUrl` comes with a webhook Routine (a later update). */
   createRoutine: (input: RoutineCreate) => Promise<{ routine: Routine; hookUrl?: string }>;
   routineTargets: () => Promise<RoutineTargets>;
+  /** The Routines form's Linear choices: labels and states are the named team's. `error` says why a read failed. */
+  routineLinearOptions: (args?: { workspace?: string; team?: string }) => Promise<RoutineLinearOptions>;
   onRoutinesChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   saveLinearEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
   onLinearStatusChanged: (callback: (status: LinearStatus) => void) => () => void;

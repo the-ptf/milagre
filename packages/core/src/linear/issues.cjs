@@ -23,6 +23,30 @@ const MOVE = "mutation Move($id: String!, $stateId: String!) { issueUpdate(id: $
 // Only work not yet begun moves; started, done and canceled issues keep their status.
 const NOT_STARTED = new Set(["triage", "backlog", "unstarted"]);
 
+// Routines' Linear polling (routines/linear-poller.cjs). Every field is checked against the schema @linear/sdk publishes:
+// Issue.history (IssueHistory.toAssignee.isMe, addedLabels.name, toState.name), IssueFilter.updatedAt and
+// CommentFilter.createdAt (DateComparator.gt, a DateTimeOrDuration), Comment.botActor (ActorBot.type) and Comment.user.
+const ROUTINE_ISSUE_FIELDS = "id identifier title description url state { name } team { key } assignee { name } labels(first: 20) { nodes { name } }";
+const POLL_ISSUES = `query PollIssues($since: DateTimeOrDuration!, $after: String) {
+  issues(first: 50, after: $after, orderBy: updatedAt, filter: { updatedAt: { gt: $since } }) {
+    nodes { ${ROUTINE_ISSUE_FIELDS} updatedAt history(first: 50) { nodes { id createdAt toAssignee { isMe } addedLabels { name } toState { name } } } }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
+const POLL_COMMENTS = `query PollComments($since: DateTimeOrDuration!, $after: String) {
+  comments(first: 50, after: $after, orderBy: createdAt, filter: { createdAt: { gt: $since } }) {
+    nodes { id body createdAt botActor { type } user { name displayName } issue { ${ROUTINE_ISSUE_FIELDS} } }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
+// The Routines form's choices: a workspace's teams, and one team's labels (its own and the workspace's, groups left out,
+// as an issue can't carry a group) and workflow states.
+const ROUTINE_TEAMS = "query RoutineTeams { teams(first: 250) { nodes { key name } } }";
+const ROUTINE_TEAM_OPTIONS = `query RoutineTeamOptions($team: String!) {
+  issueLabels(first: 250, filter: { isGroup: { eq: false }, or: [{ team: { key: { eqIgnoreCase: $team } } }, { team: { null: true } }] }) { nodes { name } }
+  teams(first: 1, filter: { key: { eqIgnoreCase: $team } }) { nodes { states(first: 100) { nodes { name type position } } } }
+}`;
+
 function toIssue(node) {
   if (!node || typeof node !== "object") return null;
   return {
@@ -224,7 +248,32 @@ function createLinearIssues({ linear, now = Date.now }) {
     }
   }
 
-  return { list, readIssue, worktreeIssues, markStarted };
+  // What the Routines form offers for a Linear trigger: the connected workspaces, the named one's teams (the first
+  // workspace when none is named), and the named team's labels and states. Never throws: a failed read says why in `error`.
+  async function routineOptions({ workspace, team } = {}) {
+    const empty = { workspaces: [], teams: [], labels: [], states: [] };
+    const unready = unavailable();
+    if (unready) return { ...empty, error: unready.error };
+    const connected = linear.workspaces();
+    const result = { ...empty, workspaces: connected.map((item) => ({ id: item.id, name: item.organization?.name ?? item.id })) };
+    const chosen = connected.find((item) => item.id === String(workspace ?? "").toLowerCase()) ?? connected[0];
+    try {
+      const data = await linear.query(chosen.id, ROUTINE_TEAMS);
+      result.teams = (data?.teams?.nodes ?? []).map((node) => ({ key: node.key, name: node.name })).toSorted((a, b) => a.name.localeCompare(b.name));
+      if (typeof team === "string" && team.trim()) {
+        const options = await linear.query(chosen.id, ROUTINE_TEAM_OPTIONS, { team: team.trim() });
+        result.labels = [...new Set((options?.issueLabels?.nodes ?? []).map((node) => node.name))].toSorted((a, b) => a.localeCompare(b));
+        result.states = (options?.teams?.nodes?.[0]?.states?.nodes ?? [])
+          .toSorted((a, b) => a.position - b.position)
+          .map((node) => ({ name: node.name, type: node.type }));
+      }
+      return result;
+    } catch (error) {
+      return { ...result, error: error.message };
+    }
+  }
+
+  return { list, readIssue, worktreeIssues, markStarted, routineOptions };
 }
 
-module.exports = { createLinearIssues };
+module.exports = { createLinearIssues, POLL_ISSUES, POLL_COMMENTS, ROUTINE_TEAMS, ROUTINE_TEAM_OPTIONS };

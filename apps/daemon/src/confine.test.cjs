@@ -629,6 +629,7 @@ test("a confined phone reads Routines but can't switch, create, change, delete o
   await confine.checkCall("routines:enabled:read", []);
   await confine.checkCall("routines:list", []);
   await confine.checkCall("routines:targets", []);
+  await confine.checkCall("routines:linear-options", [{ workspace: "acme", team: "ENG" }]);
   await assert.rejects(confine.checkCall("routines:create", [{ name: "Daily", prompt: "Look" }]), { status: 403, message: REFUSED });
   await assert.rejects(confine.checkCall("routines:enabled:save", [true]), { status: 403, message: REFUSED });
   await assert.rejects(confine.checkCall("routines:update", ["r1", { enabled: false }]), { status: 403, message: REFUSED });

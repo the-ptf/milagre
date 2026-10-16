@@ -128,6 +128,7 @@ const PATHS = Object.freeze({
   "routines:enabled:read": none,
   "routines:list": none,
   "routines:targets": none,
+  "routines:linear-options": none,
   "routines:enabled:save": denied,
   "routines:update": denied,
   "routines:delete": denied,

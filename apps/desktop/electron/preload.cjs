@@ -160,6 +160,7 @@ function makeBridge(invoke, listen, send) {
     runRoutineNow: (id) => invoke("routines:run-now", id),
     createRoutine: (input) => invoke("routines:create", input),
     routineTargets: () => invoke("routines:targets"),
+    routineLinearOptions: (args) => invoke("routines:linear-options", args),
     onRoutinesChanged: (callback) => listen("routines:changed", callback),
     mcp: {
       accounts: () => invoke("mcp:accounts"),

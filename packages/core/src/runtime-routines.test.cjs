@@ -389,6 +389,17 @@ test("routines:targets lists the registered Projects with their Chats", async (t
   assert.equal(typeof project.chats[0].lastAt, "number");
 });
 
+test("routines:linear-options answers with empty choices and the reason while Linear is off", async (t) => {
+  const f = await fixture(t);
+  assert.deepEqual(await f.runtime.invoke("routines:linear-options", [{ team: "ENG" }]), {
+    workspaces: [],
+    teams: [],
+    labels: [],
+    states: [],
+    error: "Linear is off in Settings › Experimental.",
+  });
+});
+
 test("routines:create refuses webhook triggers for now and a Project that isn't registered", async (t) => {
   const f = await fixture(t);
   await assert.rejects(
