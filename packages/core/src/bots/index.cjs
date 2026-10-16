@@ -260,27 +260,47 @@ function createBots({
       ...(operationId ? { operationId } : {}),
     });
 
+  // Chats a bot is opening now, by bot id: they hold a slot of the cap before their record exists.
+  const opening = new Map();
+  function requireRoom(bot) {
+    const running = store.chatsFor(bot.id).filter((chat) => chat.status === "running").length + (opening.get(bot.id) ?? 0);
+    if (running >= BOT_RUNNING_CHAT_CAP) throw new Error(`${bot.name} already has ${BOT_RUNNING_CHAT_CAP} Chats running. Wait for one to finish or close one.`);
+  }
+
   /** chat_open: a new Worktree from `base` (the main branch) in one of the bot's Projects, and a Chat started there. */
   async function chatOpen(botId, { project, title, prompt, base } = {}) {
     const bot = requireBot(botId);
     requireActive(bot);
     const projectPath = bot.projects.find((item) => item === project || nameOf(item) === project);
     if (!projectPath) throw new Error(`${bot.name} may open Chats only in: ${bot.projects.map(nameOf).join(", ")}.`);
-    const running = store.chatsFor(bot.id).filter((chat) => chat.status === "running").length;
-    if (running >= BOT_RUNNING_CHAT_CAP) throw new Error(`${bot.name} already has ${BOT_RUNNING_CHAT_CAP} Chats running. Wait for one to finish or close one.`);
     const name = String(title ?? "").trim();
     const text = String(prompt ?? "").trim();
     if (!name || !text) throw new Error("A Chat needs a title and a prompt.");
-    const operationId = `bot:${bot.id}:${randomUUID()}`;
-    const assertActive = () => requireActive(requireBot(bot.id));
-    const baseBranch = typeof base === "string" && base.trim() ? base.trim() : await mainBranch(projectPath);
-    const { worktreeId } = await host.createWorktree({ projectPath, baseBranch, prompt: text }, operationId, assertActive);
-    const { chatId } = await host.createChat({ projectPath, worktreeId }, operationId, assertActive);
-    store.linkChat({ chatKey: chatId, botId: bot.id, title: name, projectPath, status: "running", createdAt: now() });
-    changed();
-    await titleChat(chatId, name);
-    await sendToChat(bot, chatId, text, operationId);
-    return { chatKey: chatId, title: name, project: nameOf(projectPath), baseBranch };
+    requireRoom(bot);
+    // The slot is taken before the first await, so chat_open calls made at once can't all pass the cap.
+    opening.set(bot.id, (opening.get(bot.id) ?? 0) + 1);
+    let held = true;
+    const release = () => {
+      if (!held) return;
+      held = false;
+      opening.set(bot.id, opening.get(bot.id) - 1);
+    };
+    try {
+      const operationId = `bot:${bot.id}:${randomUUID()}`;
+      const assertActive = () => requireActive(requireBot(bot.id));
+      const baseBranch = typeof base === "string" && base.trim() ? base.trim() : await mainBranch(projectPath);
+      const { worktreeId } = await host.createWorktree({ projectPath, baseBranch, prompt: text }, operationId, assertActive);
+      const { chatId } = await host.createChat({ projectPath, worktreeId }, operationId, assertActive);
+      // From here its record holds the slot.
+      store.linkChat({ chatKey: chatId, botId: bot.id, title: name, projectPath, status: "running", createdAt: now() });
+      release();
+      changed();
+      await titleChat(chatId, name);
+      await sendToChat(bot, chatId, text, operationId);
+      return { chatKey: chatId, title: name, project: nameOf(projectPath), baseBranch };
+    } finally {
+      release();
+    }
   }
 
   /** chat_status: one Chat the bot opened, as it stands now. */
@@ -307,6 +327,8 @@ function createBots({
     const body = String(text ?? "").trim();
     if (!body) throw new Error("Write a message first.");
     if (chat.status !== "running") {
+      // Continuing a finished Chat runs it again: it needs a slot of the cap.
+      requireRoom(bot);
       store.setChatStatus(chat.chatKey, "running");
       changed();
     }

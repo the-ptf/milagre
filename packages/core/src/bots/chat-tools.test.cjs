@@ -125,6 +125,41 @@ test("a fourth running Chat is refused", async (t) => {
   await assert.rejects(open("four"), /Ops already has 3 Chats running\. Wait for one to finish or close one\./);
 });
 
+test("chat_open calls made at once share the cap", async (t) => {
+  const { bots, open } = await harness(t);
+  const results = await Promise.allSettled(["one", "two", "three", "four"].map((title) => open(title)));
+  assert.deepEqual(
+    results.map((result) => result.status),
+    ["fulfilled", "fulfilled", "fulfilled", "rejected"],
+  );
+  assert.match(results[3].reason.message, /Ops already has 3 Chats running\./);
+  assert.equal(bots.chatsMine("ops").length, 3);
+});
+
+test("a chat_open that fails frees its slot", async (t) => {
+  const { host, open } = await harness(t);
+  const createWorktree = host.createWorktree;
+  host.createWorktree = async () => {
+    host.createWorktree = createWorktree;
+    throw new Error("No worktree today.");
+  };
+  await assert.rejects(open("broken"), /No worktree today\./);
+  await open("one");
+  await open("two");
+  await open("three");
+});
+
+test("chat_send doesn't run a finished Chat again past the cap", async (t) => {
+  const { bots, store, open } = await harness(t);
+  const { chatKey } = await open("one");
+  await open("two");
+  await open("three");
+  await bots.observe(chatKey, { type: "turn-completed" });
+  await open("four");
+  await assert.rejects(bots.chatSend("ops", chatKey, "Rebase on main"), /Ops already has 3 Chats running\./);
+  assert.equal(store.chat(chatKey).status, "done");
+});
+
 test("a paused bot opens no Chats", async (t) => {
   const { bots, host, open } = await harness(t);
   await bots.update("ops", { paused: true });
