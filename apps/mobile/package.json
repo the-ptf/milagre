@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test src/*.test.ts",
     "export:ios": "expo export --platform ios",
-    "update:testflight": "npx eas-cli@latest update --channel testflight --environment production --platform all --non-interactive"
+    "update:testflight": "EXPO_PUBLIC_GIT_COMMIT=$(git rev-parse --short HEAD) npx eas-cli@latest update --channel testflight --environment production --platform all --non-interactive"
   },
   "dependencies": {
     "@expo/ui": "~57.0.21",

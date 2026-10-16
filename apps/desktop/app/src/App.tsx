@@ -1112,7 +1112,7 @@ function App() {
     void window.milagre.setNotifyWhenWaiting(notifyWhenWaiting).catch(() => {});
   }, [notifyWhenWaiting]);
 
-  // A chat's notification goes silent and this window plays the Experimental chime instead.
+  // A chat's notification goes silent and this window plays the chosen chime instead.
   useEffect(() => {
     void window.milagre.setNotificationChime?.(notificationChime).catch(() => {});
   }, [notificationChime]);

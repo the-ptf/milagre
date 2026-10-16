@@ -1,7 +1,7 @@
 import type { SavedHost } from "./hosts-store.ts";
 import type { NotificationChime } from "@milagre/shared/notification-chimes";
 
-/** `chime` is the Experimental notification chime; state saved before it existed has none, read as the system sound. */
+/** `chime` is the notification chime; state saved before it existed has none, read as the system sound. */
 export type PushPreferences = { notifyWhenWaiting: boolean; notifyOnCompletion: boolean; chime?: NotificationChime };
 export type PushState = PushPreferences & {
   deviceId: string;
