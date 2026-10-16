@@ -23,6 +23,8 @@ async function fixture(t, { enable = true } = {}) {
   const project = path.join(dir, "project");
   await fs.mkdir(project);
   execFileSync("git", ["init", "-qb", "main", project]);
+  // A commit to branch Worktrees from.
+  execFileSync("git", ["-C", project, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "--allow-empty", "-m", "init"]);
   const sessions = [];
   const emitted = [];
   // What publishAgentEvent hands on, with whether the Chat's run still held its streamed text at that moment.
@@ -33,6 +35,9 @@ async function fixture(t, { enable = true } = {}) {
   runtime = createRuntime({
     dataDir: path.join(dir, "data"),
     cwd: project,
+    worktreeRoot: path.join(dir, "worktrees"),
+    // The Project registry lists only what the test opens, not folders found on this Mac.
+    registryRoots: [],
     environmentReady: Promise.resolve(),
     titleModels: {},
     agentCli: async () => ({ command: "fixture" }),
@@ -284,4 +289,139 @@ test("a quiet beat leaves the Chat's unread mark as it was; a beat that acts mar
   await f.finish("CI failed, fixing the test.");
   await eventually(async () => (await latestRun(f)).status === "acted");
   assert.equal(await unread(), true, "a beat that acts marks the Chat unread");
+});
+
+// A Routine that starts a Chat of its own every 5 minutes, made through the command the Routines form uses.
+async function createTriage(f, workspace = "worktree") {
+  const { routine } = await f.runtime.invoke("routines:create", [
+    {
+      name: "Morning triage",
+      prompt: "Triage the inbox on {{date}}",
+      trigger: { kind: "schedule", cron: "*/5 * * * *", timezone: "UTC" },
+      target: { kind: "new-chat", projectPath: f.project, workspace },
+    },
+  ]);
+  return routine;
+}
+const snapshot = async (f) => (await f.runtime.invoke("project:snapshot", [f.project])).state;
+// The Run's Chat, once its agent has the first message.
+async function runChat(f) {
+  await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1, { timeoutMs: 10_000 });
+  const state = await snapshot(f);
+  const session = Object.values(state.sessions).find((item) => item.routine);
+  return { state, session, agent: f.sessions[1], chatId: `${f.project}#${session.id}` };
+}
+
+test("a schedule Routine starts a Chat of its own in a new Worktree; a quiet Run archives it and removes the clean Worktree", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const before = Object.keys((await snapshot(f)).worktrees).length;
+  const routine = await createTriage(f);
+  assert.equal(routine.createdBy.kind, "user");
+  assert.ok(f.emitted.some((item) => item.channel === "routines:changed"));
+  await f.beat();
+  const { state, session, agent, chatId } = await runChat(f);
+  assert.equal(Object.keys(state.worktrees).length, before + 1, "one new Worktree");
+  const run = await latestRun(f);
+  assert.deepEqual(session.routine, { routineId: routine.id, runId: run.id });
+  assert.equal(session.title, "Morning triage");
+  assert.notEqual(state.worktrees[session.worktree_id].path, f.project);
+  const first = state.messages.find((message) => message.session_id === session.id && message.role === "user");
+  assert.equal(first.context.kind, "routine-run");
+  assert.equal(first.context.label, "Routine · Morning triage");
+  assert.equal(first.body, "Triage the inbox on 2026-10-16");
+  assert.match(agent.turns[0].prompt, /^Triage the inbox on 2026-10-16\n\nIf nothing needs doing/);
+  assert.equal(agent.turns[0].permissionMode, "auto");
+  assert.equal(run.chatId, chatId);
+
+  // No recursion: the Run's agent can't make or start Routines.
+  const names = agent.options.linked.tools.map((tool) => tool.name);
+  for (const name of ["heartbeat_create", "routine_create", "routine_run_now"]) assert.ok(!names.includes(name), name);
+  assert.ok(f.tool("heartbeat_create"), "the Chat the user started keeps them");
+
+  const worktreeId = session.worktree_id;
+  agent.finish("(pass) inbox empty");
+  await eventually(async () => (await latestRun(f)).status === "quiet");
+  await eventually(async () => !(await snapshot(f)).worktrees[worktreeId], { timeoutMs: 10_000 });
+});
+
+test("a quiet Run keeps a Worktree with uncommitted work", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  await createTriage(f);
+  await f.beat();
+  const { state, session, agent } = await runChat(f);
+  const worktree = state.worktrees[session.worktree_id];
+  await fs.writeFile(path.join(worktree.path, "notes.md"), "keep me\n");
+  agent.finish("(pass) nothing to do");
+  await eventually(async () => (await snapshot(f)).sessions[session.id]?.archived === true);
+  // The archive's removal check has run by the time the Chat shows archived plus a beat.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const latest = await snapshot(f);
+  assert.ok(latest.worktrees[session.worktree_id], "the Worktree stays");
+  await fs.access(path.join(worktree.path, "notes.md"));
+});
+
+test("a Routine on the Project folder makes no Worktree", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const before = Object.keys((await snapshot(f)).worktrees).length;
+  await createTriage(f, "project");
+  await f.beat();
+  const { state, session } = await runChat(f);
+  assert.equal(Object.keys(state.worktrees).length, before);
+  assert.equal(state.worktrees[session.worktree_id].path, f.project);
+  assert.notEqual(session.id, f.id);
+});
+
+test("routines:targets lists the registered Projects with their Chats", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const { projects } = await f.runtime.invoke("routines:targets");
+  const project = projects.find((item) => item.path === f.project);
+  assert.ok(project, "the Project is listed");
+  assert.equal(project.name, "project");
+  assert.deepEqual(
+    project.chats.map((chat) => chat.chatId),
+    [f.chatId],
+  );
+  assert.equal(project.chats[0].title, "Watch CI");
+  assert.equal(typeof project.chats[0].lastAt, "number");
+});
+
+test("routines:create refuses webhook triggers for now and a Project that isn't registered", async (t) => {
+  const f = await fixture(t);
+  await assert.rejects(
+    f.runtime.invoke("routines:create", [
+      {
+        name: "Sentry",
+        prompt: "Look",
+        trigger: { kind: "webhook", hookId: "a".repeat(64), signed: false },
+        target: { kind: "new-chat", projectPath: f.project, workspace: "worktree" },
+      },
+    ]),
+    /Webhook Routines arrive in a later update/,
+  );
+  await assert.rejects(
+    f.runtime.invoke("routines:create", [
+      {
+        name: "Elsewhere",
+        prompt: "Look",
+        trigger: { kind: "schedule", cron: "0 8 * * *", timezone: "UTC" },
+        target: { kind: "new-chat", projectPath: "/nowhere", workspace: "worktree" },
+      },
+    ]),
+    /Project/,
+  );
+  // An agent can't be named as the author from a command.
+  const { routine } = await f.runtime.invoke("routines:create", [
+    {
+      name: "Daily",
+      prompt: "Look",
+      trigger: { kind: "schedule", cron: "0 8 * * *", timezone: "UTC" },
+      target: { kind: "new-chat", projectPath: f.project, workspace: "worktree" },
+      createdBy: { kind: "agent", chatId: f.chatId },
+    },
+  ]);
+  assert.deepEqual(routine.createdBy, { kind: "user" });
 });

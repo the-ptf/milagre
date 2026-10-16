@@ -79,6 +79,9 @@ const { createLinkedWorktrees } = require("./linked-worktrees.cjs");
 const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsage, readAntigravityUsage } = require("./usage.cjs");
 const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 const { createRoutines } = require("./routines/runtime-adapter.cjs");
+const { chatTitle } = require("@milagre/shared/chats");
+// The Chats routines:targets lists per Project, newest first.
+const ROUTINE_TARGET_CHATS = 50;
 
 const { createFileSearch } = require("./project-files.cjs");
 const git = createGit().read;
@@ -1047,6 +1050,30 @@ function createRuntime(options) {
       return scopeStates.load(scope, [sessionId]);
     },
     isClosing: () => closing,
+    // A Run's Worktree goes through the same steps as one the user makes, and only ever leaves when nothing in it is
+    // worth keeping (worktree-cleanup.cjs; never forced).
+    worktrees: {
+      create: async (request) => ({ worktreeId: (await handlers.get("worktree:create")({}, request)).worktreeId }),
+      // Tracked, so closing waits for a removal under way rather than leave it half done.
+      remove: (projectPath, worktreeId, chatId) =>
+        track(async () => {
+          const worktree = (await states.get(projectPath)).worktrees[worktreeId];
+          if (worktree) await handlers.get("worktree:remove")({}, worktree.path, { projectPath, ...(chatId ? { chatId } : {}) });
+        }, background),
+      async removable(projectPath, worktreeId) {
+        if (!states.has(projectPath)) return false;
+        const worktree = (await states.get(projectPath)).worktrees[worktreeId];
+        if (!worktree?.base || worktree.path === projectPath) return false;
+        await environmentReady;
+        return (await worktreeStatus(worktree.path, worktree.base).catch(() => null))?.removable === true;
+      },
+      base: async (projectPath) => (await git.resolveBase(projectPath).catch(() => ({ name: "main" }))).name,
+      projectWorktree: async (projectPath) => Object.values((await linkedState(projectPath)).worktrees).find((worktree) => worktree.path === projectPath)?.id,
+    },
+    archiveChat: (chatId) => track(() => archiveChat(projectOfKey(chatId), sessionIdFromKey(chatId)), background),
+    // Made further down; read when a Routine first needs them.
+    linear: () => linear,
+    hooks: () => null,
     timers: options.routines,
   });
   routines.start();
@@ -1056,6 +1083,32 @@ function createRuntime(options) {
   commands.handle("routines:update", (_event, id, patch) => routines.update(id, patch));
   commands.handle("routines:delete", (_event, id) => routines.remove(id));
   commands.handle("routines:run-now", (_event, id) => routines.runNow(id));
+  // A Routine the user made in the Routines form. A new Chat's Project must be one Milagre lists.
+  commands.handle("routines:create", async (_event, input) => {
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("A Routine needs its settings.");
+    if (input.target?.kind === "new-chat") {
+      const projects = await projectRegistry().list();
+      if (!projects.some((project) => project.path === input.target.projectPath)) throw new Error("Choose a Project Milagre lists.");
+    }
+    return { routine: routines.create(input) };
+  });
+  // Where a Routine can run: each Project Milagre lists, with its latest Chats for a Heartbeat.
+  commands.handle("routines:targets", async () => {
+    const projects = await projectRegistry().list();
+    return {
+      projects: await Promise.all(
+        projects.map(async (project) => {
+          const state = await linkedState(project.path).catch(() => null);
+          const chats = Object.values(state?.sessions ?? {})
+            .filter((session) => !session.archived && (session.summary?.count ?? 0) > 0)
+            .toSorted((a, b) => (b.summary?.lastAt ?? 0) - (a.summary?.lastAt ?? 0) || b.id - a.id)
+            .slice(0, ROUTINE_TARGET_CHATS)
+            .map((session) => ({ chatId: chatKey(project.path, session.id), title: chatTitle(session), lastAt: session.summary?.lastAt ?? 0 }));
+          return { path: project.path, name: project.name || projectName(project.path), chats };
+        }),
+      ),
+    };
+  });
 
   // A Chat stays in memory while its turn runs or prepares, and while a window shows it.
   busyChat = (chatId) => chats.isBusy(chatId) || Boolean(options.isChatFocused?.(chatId));
@@ -1226,14 +1279,20 @@ function createRuntime(options) {
     if (!scopeStates.has(projectPath)) throw new Error("Open the project before continuing its chats.");
     return chats.resumeChat(projectPath, Number(sessionId));
   });
+  // Archiving a Chat stops what runs for it (its Terminals, advisors, heartbeats), then saves the patch. The user's archive
+  // and a quiet Routine Run's both come here.
+  async function archiveChat(projectPath, sessionId, patch = { archived: true }) {
+    if (!scopeStates.has(projectPath)) return;
+    const chatId = `${projectPath}#${sessionId}`;
+    terminals.closeChat(chatId);
+    await advisorDelivery.stop(chatId);
+    await advisors.stopChat(chatId);
+    routines.chatArchived(chatId);
+    await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
+  }
   commands.handle("chat:patch", async (_event, projectPath, sessionId, patch) => {
     if (!scopeStates.has(projectPath)) return;
-    if (patch?.archived) {
-      terminals.closeChat(`${projectPath}#${sessionId}`);
-      await advisorDelivery.stop(`${projectPath}#${sessionId}`);
-      await advisors.stopChat(`${projectPath}#${sessionId}`);
-      routines.chatArchived(`${projectPath}#${sessionId}`);
-    }
+    if (patch?.archived) return archiveChat(projectPath, sessionId, patch);
     await editProject(projectPath, (state) => patchSession(state, sessionId, patch ?? {}), { chats: [] });
   });
   // Opening a chat reads it. Only on opening: "Mark as unread" on the open chat sticks until it's opened again.

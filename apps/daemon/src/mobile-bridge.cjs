@@ -53,6 +53,8 @@ const METHODS = new Set([
   "routines:update",
   "routines:delete",
   "routines:run-now",
+  "routines:create",
+  "routines:targets",
   "linear:issues",
   "linear:worktree-issues",
   "chat:runs",

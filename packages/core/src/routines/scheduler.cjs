@@ -26,10 +26,11 @@ function authorName(author) {
   return Array.from(text.trim()).slice(0, AUTHOR_MAX).join("").trim();
 }
 
-// A comment's message: the Routine's prompt with the issue's and the comment's fields filled in. Everything people wrote
-// in Linear (the title, description, labels, assignee, author and comment) reaches the agent as data: a block, or inline
-// with its braces and tags made harmless when it is one short line. The key, URL, state and team are Linear's own.
-function commentMessage(template, issue, comment, author) {
+// A Linear Run's message: the Routine's prompt with the issue's fields filled in, and a comment's when there is one.
+// Everything people wrote in Linear (the title, description, labels, assignee, author and comment) reaches the agent as
+// data: a block, or inline with its braces and tags made harmless when it is one short line. The key, URL, state and team
+// are Linear's own.
+function linearPrompt(template, issue, comment, author) {
   const values = {
     "issue.key": issue.key,
     "issue.title": issue.title,
@@ -39,17 +40,20 @@ function commentMessage(template, issue, comment, author) {
     "issue.state": issue.state,
     "issue.team": issue.team,
     "issue.assignee": issue.assignee,
-    "comment.body": comment.body,
-    "comment.author": comment.author,
   };
   const untrusted = {
     "issue.title": `Linear issue ${issue.key} title`,
     "issue.description": `Linear issue ${issue.key} description`,
     "issue.labels": `Linear issue ${issue.key} labels`,
     "issue.assignee": `Linear issue ${issue.key} assignee`,
-    "comment.author": `Linear comment author on ${issue.key}`,
-    "comment.body": author ? `Linear comment on ${issue.key} by ${author}` : `Linear comment on ${issue.key}`,
   };
+  if (comment) {
+    Object.assign(values, { "comment.body": comment.body, "comment.author": comment.author });
+    Object.assign(untrusted, {
+      "comment.author": `Linear comment author on ${issue.key}`,
+      "comment.body": author ? `Linear comment on ${issue.key} by ${author}` : `Linear comment on ${issue.key}`,
+    });
+  }
   return renderRoutinePrompt(template, values, untrusted);
 }
 
@@ -221,7 +225,7 @@ function createRoutineScheduler({
       return;
     }
     const author = authorName(comment.author);
-    const text = commentMessage(routine.prompt, issue, comment, author);
+    const text = linearPrompt(routine.prompt, issue, comment, author);
     const entry = { runId: run.id, sent: false, turnStarted: false };
     pending.set(chatId, entry);
     const label = author ? `Linear comment · ${author}` : "Linear comment";
@@ -430,4 +434,4 @@ function createRoutineScheduler({
   return { start, stop, tick, observe, chatArchived, runNow, enqueueEvent };
 }
 
-module.exports = { createRoutineScheduler };
+module.exports = { createRoutineScheduler, linearPrompt };

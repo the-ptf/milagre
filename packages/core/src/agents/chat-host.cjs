@@ -83,12 +83,17 @@ function withNativeSessions(session, current, parked) {
 const hasMessages = (state, session) => (session.summary?.count ?? 0) > 0 || state.messages.some((message) => message.session_id === session.id);
 
 // A new chat in a worktree takes its chat that has no messages yet, if there is one (not a handover still
-// waiting for its brief or holding it as a draft); otherwise one is made. Resolves the state with it.
+// waiting for its brief or holding it as a draft, nor one a Routine's Run made); otherwise one is made. Resolves the state with it.
 function starterChat(latest, worktree) {
   const existing = Object.values(latest.sessions).find(
-    (item) => item.worktree_id === worktree.id && !item.handoverPending && item.handoverDraft === undefined && !hasMessages(latest, item),
+    (item) => item.worktree_id === worktree.id && !item.handoverPending && item.handoverDraft === undefined && !item.routine && !hasMessages(latest, item),
   );
   if (existing) return { state: latest, session: existing };
+  return newChat(latest, worktree);
+}
+
+// A new chat in a worktree, with no messages. Resolves the state with it.
+function newChat(latest, worktree) {
   const session = { id: latest.next_id, worktree_id: worktree.id, agent_name: worktree.name, status: "Created" };
   return { state: { ...latest, next_id: latest.next_id + 1, sessions: { ...latest.sessions, [session.id]: session } }, session };
 }
@@ -160,8 +165,12 @@ class ChatHost {
     return settings;
   }
 
-  /** A worktree's chat with no messages yet, made when it has none: where a message Milagre sends opens a new chat. Resolves with its id. */
-  async emptyChat(projectPath, worktreeId, { operationId, assertActive } = {}) {
+  /**
+   * A worktree's chat with no messages yet, made when it has none: where a message Milagre sends opens a new chat. Resolves
+   * with its id. `fresh` always makes a new one. `origin` ({ routineId, runId }) marks it as a Routine's Run's, saved as
+   * `routine`, and `title` names it, both in the same change.
+   */
+  async emptyChat(projectPath, worktreeId, { operationId, assertActive, origin, title, fresh = false } = {}) {
     let sessionId;
     const { state, changed } = await this.states.update(
       projectPath,
@@ -170,17 +179,16 @@ class ChatHost {
         const worktree = latest.worktrees[worktreeId];
         if (!worktree) throw new Error("That worktree is no longer in the project.");
         if (worktree.sharedChat) throw new Error("This Worktree belongs to a shared Link Chat. Open its Link instead.");
-        const result = starterChat(latest, worktree);
+        const result = fresh ? newChat(latest, worktree) : starterChat(latest, worktree);
         sessionId = result.session.id;
-        return operationId
-          ? {
-              ...result.state,
-              sessions: {
-                ...result.state.sessions,
-                [sessionId]: { ...result.session, localMcpOperations: [...(result.session.localMcpOperations ?? []), operationId] },
-              },
-            }
-          : result.state;
+        if (!operationId && !origin && title === undefined) return result.state;
+        const session = {
+          ...result.session,
+          ...(operationId ? { localMcpOperations: [...(result.session.localMcpOperations ?? []), operationId] } : {}),
+          ...(origin ? { routine: { routineId: origin.routineId, runId: origin.runId } } : {}),
+          ...(title !== undefined ? { title } : {}),
+        };
+        return { ...result.state, sessions: { ...result.state.sessions, [sessionId]: session } };
       },
       { chats: [] },
     );

@@ -127,10 +127,12 @@ const PATHS = Object.freeze({
   // Routines send prompts into any Chat on the Mac: a confined phone sees them and the switch, and changes nothing.
   "routines:enabled:read": none,
   "routines:list": none,
+  "routines:targets": none,
   "routines:enabled:save": denied,
   "routines:update": denied,
   "routines:delete": denied,
   "routines:run-now": denied,
+  "routines:create": denied,
   // Issues name no folder. A Project's worktree issues name the Project's folder, like its other reads.
   "linear:issues": none,
   "linear:worktree-issues": ([projectPath]) => [projectPath],

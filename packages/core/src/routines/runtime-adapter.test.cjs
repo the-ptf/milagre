@@ -169,3 +169,159 @@ test("a Chat on a Named Link gets no routine tools", (t) => {
   assert.equal(routines.definitions("/project#2").length, 5);
   assert.deepEqual(routines.definitions("milagre-link:0f8e2c1a-1b2c-4d5e-8f90-123456789abc#2"), []);
 });
+
+// The adapter's half of a Run in a Chat of its own: Worktrees and Chats faked, with what each call got.
+function newChatFixture({ removable = true, failChat = false, createDelayMs = 0, timeoutMs } = {}) {
+  const calls = { created: [], removed: [], archived: [], emptyChats: [] };
+  const projectState = {
+    worktrees: { 1: { id: 1, path: "/project" }, 7: { id: 7, path: "/worktrees/seven", base: "main" } },
+    sessions: { 4: { id: 4, worktree_id: 7 } },
+  };
+  const chats = {
+    runs: {},
+    isBusy: () => false,
+    turnSettings: () => null,
+    emptyChat: async (projectPath, worktreeId, options) => {
+      calls.emptyChats.push({ projectPath, worktreeId, options });
+      if (failChat) throw new Error("no chat");
+      return 4;
+    },
+  };
+  const worktrees = {
+    create: async (args) => {
+      calls.created.push(args);
+      if (createDelayMs) await new Promise((resolve) => setTimeout(resolve, createDelayMs));
+      return { worktreeId: 7 };
+    },
+    remove: async (...args) => {
+      calls.removed.push(args);
+    },
+    removable: async () => removable,
+    base: async () => "main",
+    projectWorktree: async () => 1,
+  };
+  const adapter = routineChats({
+    chats,
+    store: { get: () => null },
+    cachedState: (scope) => (scope === "/project" ? projectState : undefined),
+    openState: async () => projectState,
+    isClosing: () => false,
+    worktrees,
+    archiveChat: async (chatId) => calls.archived.push(chatId),
+    now: () => Date.UTC(2026, 9, 16, 11, 5),
+    ...(timeoutMs ? { timeoutMs } : {}),
+  });
+  return { adapter, calls };
+}
+
+const triage = (workspace = "worktree", trigger = { kind: "schedule", cron: "0 8 * * *", timezone: "America/Sao_Paulo" }) => ({
+  id: "r9",
+  name: "Morning triage",
+  prompt: "Triage on {{date}} at {{time}}",
+  trigger,
+  target: { kind: "new-chat", projectPath: "/project", workspace },
+});
+
+test("a schedule Run in a new Worktree makes the Worktree and a Chat marked with its Run, and words the first message", async () => {
+  const { adapter, calls } = newChatFixture();
+  const chat = await adapter.startChat({ routine: triage(), run: { id: "run-5" } });
+  assert.deepEqual(calls.created, [{ projectPath: "/project", baseBranch: "main", prompt: "" }]);
+  assert.equal(calls.emptyChats[0].worktreeId, 7);
+  assert.deepEqual(calls.emptyChats[0].options.origin, { routineId: "r9", runId: "run-5" });
+  assert.equal(calls.emptyChats[0].options.title, "Morning triage");
+  assert.equal(chat.chatId, "/project#4");
+  assert.equal(chat.worktreeId, "7");
+  assert.equal(chat.createdWorktree, true);
+  // 11:05 UTC is 08:05 in São Paulo.
+  assert.equal(chat.body, "Triage on 2026-10-16 at 08:05");
+  assert.equal(chat.prompt, chat.body);
+  assert.deepEqual(chat.context, {
+    kind: "routine-run",
+    routineId: "r9",
+    runId: "run-5",
+    name: "Morning triage",
+    at: Date.UTC(2026, 9, 16, 11, 5),
+    label: "Routine · Morning triage",
+  });
+});
+
+test("a Run in the Project folder makes no Worktree and a fresh Chat in the main checkout", async () => {
+  const { adapter, calls } = newChatFixture();
+  const chat = await adapter.startChat({ routine: triage("project"), run: { id: "run-6" } });
+  assert.deepEqual(calls.created, []);
+  assert.equal(calls.emptyChats[0].worktreeId, 1);
+  assert.equal(calls.emptyChats[0].options.fresh, true);
+  assert.equal(chat.createdWorktree, false);
+  assert.equal(chat.worktreeId, "1");
+});
+
+test("a Chat that can't be made takes its new Worktree with it", async () => {
+  const { adapter, calls } = newChatFixture({ failChat: true });
+  await assert.rejects(adapter.startChat({ routine: triage(), run: { id: "run-7" } }), /no chat/);
+  assert.deepEqual(calls.removed, [["/project", 7]]);
+});
+
+test("a Worktree that takes too long fails the Run, and goes once it is made", async () => {
+  const { adapter, calls } = newChatFixture({ createDelayMs: 40, timeoutMs: 5 });
+  await assert.rejects(adapter.startChat({ routine: triage(), run: { id: "run-8" } }), /took too long/);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.deepEqual(calls.removed, [["/project", 7]]);
+  assert.deepEqual(calls.emptyChats, []);
+});
+
+test("a webhook Run isn't supported yet", async () => {
+  const { adapter, calls } = newChatFixture();
+  await assert.rejects(
+    adapter.startChat({
+      routine: triage("worktree", { kind: "webhook", hookId: "h", signed: false }),
+      run: { id: "r", event: { kind: "webhook", key: "k", deliveryId: "d" } },
+    }),
+    /Webhook Routines arrive in a later update/,
+  );
+  assert.deepEqual(calls.created, []);
+});
+
+test("a Linear Run makes the issue's Worktree and names the Chat after the issue", async () => {
+  const { adapter, calls } = newChatFixture();
+  const issue = { id: "i", key: "MIL-1", title: "Paste images", description: "d", url: "u", labels: [], state: "Todo", team: "MIL", workspace: "w1" };
+  const routine = { ...triage("worktree", { kind: "linear", workspace: "w1", event: "assigned" }), prompt: "Work on {{issue.key}}: {{issue.title}}" };
+  const chat = await adapter.startChat({ routine, run: { id: "run-9", event: { kind: "linear", key: "linear:i:h", change: "assigned", issue } } });
+  assert.deepEqual(calls.created, [{ projectPath: "/project", baseBranch: "main", prompt: "", issueKey: "MIL-1", issueWorkspace: "w1" }]);
+  assert.equal(calls.emptyChats[0].options.title, "MIL-1 Paste images");
+  assert.equal(chat.body, "Work on MIL-1: Paste images");
+});
+
+test("archive removes the Run's Worktree only when asked and it has nothing to keep", async () => {
+  const clean = newChatFixture();
+  await clean.adapter.archive("/project#4", { removeWorktree: true });
+  assert.deepEqual(clean.calls.archived, ["/project#4"]);
+  assert.deepEqual(clean.calls.removed, [["/project", 7, "/project#4"]]);
+
+  const dirty = newChatFixture({ removable: false });
+  await dirty.adapter.archive("/project#4", { removeWorktree: true });
+  assert.deepEqual(dirty.calls.archived, ["/project#4"]);
+  assert.deepEqual(dirty.calls.removed, []);
+
+  const kept = newChatFixture();
+  await kept.adapter.archive("/project#4", { removeWorktree: false });
+  assert.deepEqual(kept.calls.removed, []);
+});
+
+test("a Chat a Routine started gets no tools that make or start Routines", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-adapter-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const sessions = { 2: { id: 2 }, 3: { id: 3, routine: { routineId: "r", runId: "run" } } };
+  const routines = createRoutines({
+    file: path.join(dir, "routines.json"),
+    chats: { turnSettings: () => null },
+    keepAwake: { setRoutinesActive() {} },
+    emit() {},
+    cachedState: () => ({ sessions }),
+    openState: async () => undefined,
+  });
+  const names = (chatId) => routines.definitions(chatId).map((tool) => tool.name);
+  assert.ok(names("/project#2").includes("heartbeat_create"));
+  assert.ok(names("/project#2").includes("routine_run_now"));
+  for (const name of ["heartbeat_create", "routine_create", "routine_run_now"]) assert.ok(!names("/project#3").includes(name), name);
+  assert.ok(names("/project#3").includes("routine_list"));
+});
