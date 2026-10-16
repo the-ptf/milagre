@@ -3904,22 +3904,28 @@ function pushHost(t, initial = "index") {
   const react = hookHost();
   react.useEffect = react.effect;
   react.useLayoutEffect = react.effect;
-  const { StackRouter, StackActions } = require(
-    require.resolve("expo-router/build/react-navigation/routers", { paths: [path.join(__dirname, "../apps/mobile")] }),
-  );
-  const stack = StackRouter({ initialRouteName: initial });
-  const options = { routeNames: ["index", "projects", "project", "chat"], routeParamList: {}, routeGetIdList: {} };
-  let navigation = stack.getInitialState(options);
+  // Router 58 rebuilt its stack router as internal extensions, so this models the stack actions the push code uses.
+  let navigation = { index: 0, routes: [{ name: initial }] };
   let pathname = initial === "index" ? "/" : "/chat";
   let params = initial === "chat" ? { id: "1" } : {};
-  const apply = (action) => {
-    navigation = stack.getStateForAction(navigation, action, options) || navigation;
+  const set = (routes) => {
+    navigation = { index: routes.length - 1, routes };
   };
+  const top = () => navigation.routes.slice(0, -1);
   const router = {
-    dismissAll: () => apply(StackActions.popToTop()),
-    replace: (route) => apply(StackActions.replace(route.pathname.slice(1), route.params)),
-    dismissTo: (path) => apply(StackActions.popTo(path === "/" ? "index" : path.slice(1))),
-    push: (route) => apply(StackActions.push(typeof route === "string" ? route.slice(1) : route.pathname.slice(1), route.params)),
+    dismissAll: () => set(navigation.routes.slice(0, 1)),
+    replace: (route) => set([...top(), { name: route.pathname.slice(1), params: route.params }]),
+    dismissTo: (path) => {
+      const name = path === "/" ? "index" : path.slice(1);
+      const index = navigation.routes.findLastIndex((route) => route.name === name);
+      // Like POP_TO: a route missing from the stack replaces the current one.
+      set(index >= 0 ? navigation.routes.slice(0, index + 1) : [...top(), { name }]);
+    },
+    push: (route) =>
+      set([...navigation.routes, typeof route === "string" ? { name: route.slice(1) } : { name: route.pathname.slice(1), params: route.params }]),
+  };
+  const apply = (action) => {
+    if (action.type === "GO_BACK" && navigation.routes.length > 1) set(top());
   };
   let generation = 0,
     receive;
@@ -4422,6 +4428,7 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
       "expo-updates": { isEnabled: true, useUpdates: () => ({}) },
       "@hugeicons/core-free-icons": { Cancel01Icon: "close" },
       "./update-controller": {
+        promptPopped: load("update-controller.ts", {}).promptPopped,
         watchUpdates: () => () => {},
         createUpdateController: () => {
           created++;
@@ -4468,6 +4475,12 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
   navigation = { ...navigation, index: 0, routes: [navigation.routes[0]] };
   navigationListener();
   assert.equal(routes.length, 2, "a notification reset restores the pending prompt");
+  navigation = { ...navigation, index: 1, routes: [navigation.routes[0], { key: "restored-update", name: "update-sheet" }] };
+  navigationListener();
+  navigation = { ...navigation, index: 0, routes: [navigation.routes[0]] };
+  navigationListener();
+  navigationListener();
+  assert.equal(routes.length, 2, "a swipe or back off the prompt defers it instead of pushing it again");
   latestTree.props.value.dismiss();
   navigationListener();
   assert.equal(routes.length, 2, "explicit dismissal stops navigation from reopening the prompt");
@@ -4475,54 +4488,35 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
   assert.equal(navigationListener, undefined);
 });
 
-test("Close, swipe and Android back defer; notification reset and route replacement do not", () => {
-  const react = hookHost();
+test("Close defers the prompt before removing its route", () => {
   let dismissals = 0,
-    backs = 0,
-    beforeRemove;
-  const dismiss = () => {
-    dismissals++;
-  };
-  const navigation = {
-    addListener: (_, listener) => {
-      beforeRemove = listener;
-      return () => {
-        beforeRemove = undefined;
-      };
-    },
-  };
+    backs = 0;
   const state = { status: "ready", error: "" };
   const route = load("app/update-sheet.tsx", {
-    react: { ...react, useEffect: react.effect },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "expo-router": {
       router: {
         back: () => {
           backs++;
+          assert.equal(dismissals, 1, "Close defers before removing its route");
         },
       },
-      useNavigation: () => navigation,
     },
-    "../update-sheet": { UpdateSheet: "UpdateSheet", useAppUpdates: () => ({ state, check() {}, install() {}, dismiss }) },
+    "../update-sheet": {
+      UpdateSheet: "UpdateSheet",
+      useAppUpdates: () => ({
+        state,
+        check() {},
+        install() {},
+        dismiss: () => {
+          dismissals++;
+        },
+      }),
+    },
   }).default;
-  react.begin();
-  const tree = route();
-  react.flush();
-  for (const type of ["RESET", "POP_TO"]) beforeRemove({ data: { action: { type } } });
-  assert.equal(dismissals, 0, "programmatic navigation keeps the prompt pending");
-  for (const type of ["GO_BACK", "POP"]) beforeRemove({ data: { action: { type } } });
-  assert.equal(dismissals, 2);
-  tree.props.onDismiss();
+  route().props.onDismiss();
   assert.equal(backs, 1);
-  assert.equal(dismissals, 3, "Close defers before removing its route");
-  state.status = "restarting";
-  react.begin();
-  route();
-  react.flush();
-  assert.equal(dismissals, 3);
-  react.cleanup();
-  assert.equal(dismissals, 3, "replacing a native sheet route does not defer the prompt");
-  assert.equal(beforeRemove, undefined);
+  assert.equal(dismissals, 1);
 });
 
 test("a live turn's step whose output the phone left out does not expand, while saved and clipped steps do", () => {
@@ -4847,7 +4841,7 @@ function simulatorHost(client, file = "simulator.tsx") {
     constructor(_cache, name) {
       this.uri = "file:///cache/" + name;
     }
-    write(value) {
+    writeSync(value) {
       if (writeError) throw writeError;
       files.set(this.uri, value);
     }
@@ -5183,7 +5177,7 @@ function browserHost(client) {
     constructor(_cache, name) {
       this.uri = "file:///cache/" + name;
     }
-    write(value, options) {
+    writeSync(value, options) {
       files.set(this.uri, value);
       writes.push([this.uri, options?.encoding ?? "utf8"]);
     }
@@ -6220,7 +6214,7 @@ test("mobile picked files preview locally before sending", async () => {
         open(mode) {
           assert.equal(mode, "readOnly");
           return {
-            readBytes(length) {
+            readBytesSync(length) {
               assert.equal(length, bytes.length);
               return bytes;
             },
@@ -6785,7 +6779,7 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
     constructor(_cache, name) {
       this.uri = "file:///cache/" + name;
     }
-    write(value) {
+    writeSync(value) {
       files.set(this.uri, value);
     }
     get exists() {
