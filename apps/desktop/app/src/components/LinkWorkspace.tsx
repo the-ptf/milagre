@@ -17,6 +17,7 @@ import { chatKeyForScope, scopeKey } from "@milagre/shared/chat-scopes";
 import { showNotice } from "../lib/notice";
 import { chatTitle } from "@milagre/shared/chats";
 import { attentionLabel, chatsNeedingAttention, waitingFor } from "@milagre/shared/attention";
+import { useHiddenProjects } from "../lib/hidden-projects";
 import { useSettings } from "../lib/settings";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { ipcErrorMessage } from "@milagre/shared/result";
@@ -122,8 +123,9 @@ export function LinkWorkspace({
     label: member.alias ?? member.projectPath.split(/[\\/]/).filter(Boolean).at(-1) ?? member.worktreePath,
   }));
   const run = chatId ? agents.runs[chatId] : undefined;
-  // Every project's chats that wait on the user; the Link's own are marked in its sidebar.
-  const attentionKey = chatsNeedingAttention(agents.runs).join("\n");
+  // Every project's chats that wait on the user, except in Projects hidden from the sidebar; the Link's own are marked in its sidebar.
+  const hiddenProjects = useHiddenProjects();
+  const attentionKey = chatsNeedingAttention(agents.runs, "", hiddenProjects).join("\n");
   const sidebarRunKeys = runKeys(agents.runs);
   const attentionChats = useMemo(() => (attentionKey ? attentionKey.split("\n") : []), [attentionKey]);
   const { showAttentionButton, floatingInbox } = useSettings();
