@@ -131,7 +131,7 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
   }, [refresh]);
   useEffect(
     () =>
-      bridge.mcp.onChanged?.((event) => {
+      bridge.mcp?.onChanged?.((event) => {
         if (event.signIn) {
           // One account finished; the row stays "signing in" while the next account's tab is open.
           if (event.last || event.signIn !== "done") setSigningIn((current) => new Set([...current].filter((name) => name !== event.name)));

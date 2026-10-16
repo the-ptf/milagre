@@ -6,9 +6,9 @@ import { providerName } from "@milagre/shared/providers";
 import { Switch } from "./primitives/Switch";
 
 const keyOf = (chip: Pick<McpChip, "provider" | "accountId">) => `${chip.provider}:${chip.accountId}`;
-export const outlineButton =
+const outlineButton =
   "rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12.5px] font-medium text-ink transition-colors hover:bg-hover disabled:opacity-40";
-export const solidButton = "rounded-lg bg-ink px-3 py-1.5 text-[12.5px] font-semibold text-surface transition-opacity hover:opacity-90 disabled:opacity-40";
+const solidButton = "rounded-lg bg-ink px-3 py-1.5 text-[12.5px] font-semibold text-surface transition-opacity hover:opacity-90 disabled:opacity-40";
 const removeButton = "rounded-lg border border-red/30 bg-surface px-3 py-1.5 text-[12.5px] font-medium text-red transition-colors hover:bg-red-tint";
 
 /** The name without the group it already sits under: "notion" for plugin:engineering:notion, "Gmail" for claude.ai Gmail. */

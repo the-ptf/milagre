@@ -1,7 +1,7 @@
 import { mcpTargetPlaces, type McpAccount, type McpAccountCheck, type McpChip, type McpServerDefinition, type McpTarget } from "@milagre/shared/mcp";
 import type { Live, LiveOptions } from "./live.ts";
 
-export type McpEntry = { account: McpAccount; check: McpAccountCheck | null };
+type McpEntry = { account: McpAccount; check: McpAccountCheck | null };
 /** `pending` holds the value a switch was just flipped to, by `provider:accountId:name`, until its write settles. */
 export type McpState = { entries: McpEntry[] | null; error: string; busy: boolean; pending: Record<string, boolean> };
 /** Foreground and background changes, so the live socket is closed while the app is away. */
