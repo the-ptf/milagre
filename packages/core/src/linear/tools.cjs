@@ -1,15 +1,15 @@
-// The Linear tools a Chat's agent gets, reading through the Mac's own Linear connections, so an agent never needs a
-// Linear MCP or connector of its own. Read-only: nothing here writes to Linear.
+// The Linear tools a Chat's agent gets, reading and writing through the Mac's own Linear connections, so an agent never
+// needs a Linear MCP or connector of its own. Writes need a sign-in that allowed them (`canWrite`, see linear/index.cjs).
 const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { z } = require("zod");
-const { isIssueKey } = require("./links.cjs");
+const { createLinearEdits, PRIORITIES } = require("./edits.cjs");
+const { createLinearRefs } = require("./refs.cjs");
 
 const MAX_OUTPUT = 40_000;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
-const ISSUE_URL = /^https:\/\/linear\.app\/([^/\s]+)\/issue\/([a-z][a-z0-9]{0,6}-\d+)(?:[/?#]|$)/i;
 const UPLOAD_URL = /^https:\/\/uploads\.linear\.app\/[^\s]+$/;
 const EXTENSIONS = {
   "image/png": ".png",
@@ -82,34 +82,8 @@ function formatIssue(issue) {
 
 /** `linear` holds the Mac's connections, `issues` reads issues through them (see linear/index.cjs and linear/issues.cjs). */
 function createLinearTools({ linear, issues, dir = path.join(os.tmpdir(), "milagre-linear") }) {
-  function connected() {
-    if (!linear.enabled()) throw new Error("Linear is off in Milagre (Settings › Connections › Linear).");
-    const ids = linear.workspaces().map((workspace) => workspace.id);
-    if (!ids.length) throw new Error("Milagre isn't connected to Linear. The user can connect it in Settings › Connections › Linear.");
-    return ids;
-  }
-  function checkWorkspace(workspace, ids) {
-    if (workspace === undefined) return undefined;
-    const id = workspace.toLowerCase();
-    if (!ids.includes(id))
-      throw new Error(
-        `Milagre isn't connected to the "${workspace}" Linear workspace (connected: ${ids.join(", ")}). The user can add it in Settings › Connections › Linear › Add workspace.`,
-      );
-    return id;
-  }
-
-  // An issue key, or a Linear issue URL, whose workspace then is the URL's.
-  async function find(ref, workspace) {
-    const ids = connected();
-    const text = String(ref ?? "").trim();
-    const url = ISSUE_URL.exec(text);
-    const key = (url ? url[2] : text).toUpperCase();
-    if (!isIssueKey(key)) throw new Error("Give an issue key such as ENG-12, or a linear.app issue URL.");
-    const named = checkWorkspace(workspace ?? url?.[1], ids);
-    const found = await issues.readIssue(key, named);
-    if (!found) throw new Error(`${key} isn't in ${named ? `the ${named} workspace` : `any connected Linear workspace (${ids.join(", ")})`}.`);
-    return found;
-  }
+  const refs = createLinearRefs({ linear, issues });
+  const { connected, checkWorkspace, find } = refs;
 
   async function issue(ref, workspace) {
     const found = await find(ref, workspace);
@@ -151,10 +125,14 @@ function createLinearTools({ linear, issues, dir = path.join(os.tmpdir(), "milag
     throw new Error(named ? lastError.message : `None of the connected Linear workspaces (${ids.join(", ")}) has that file.`);
   }
 
-  return { issue, search, file };
+  return { issue, search, file, ...createLinearEdits({ linear, issues, refs }) };
 }
 
 const workspace = z.string().optional().describe("A connected workspace's URL key (linear.app/<key>/…); by default, the one that has the issue.");
+
+const priority = z.enum(Object.keys(PRIORITIES)).optional().describe("none, urgent, high, medium or low.");
+const status = z.string().optional().describe("A status of the issue's team, by name, such as In Progress.");
+const description = z.string().optional().describe("Markdown.");
 
 /** The Linear tools, as provider-neutral definitions (see linked-tools.cjs). Offered while Linear is on in Settings. */
 function linearToolDefinitions(tools) {
@@ -181,6 +159,54 @@ function linearToolDefinitions(tools) {
       input: { url: z.string(), workspace },
       readOnly: true,
       run: ({ url, workspace }) => tools.file(url, workspace),
+    },
+    {
+      name: "linear_create_issue",
+      description: "Create a Linear issue through Milagre's own Linear sign-in. Returns its key and URL. Use this instead of a Linear MCP or connector.",
+      input: {
+        team: z.string().describe("The team's key, such as ENG, or its name."),
+        title: z.string(),
+        description,
+        priority,
+        assignee: z.string().optional().describe('"me", or a user\'s email, name or display name.'),
+        state: status,
+        labels: z.array(z.string()).optional().describe("Label names."),
+        parent: z.string().optional().describe("The parent issue's key or URL, to make this a sub-issue."),
+        project: z.string().optional().describe("A project, by name."),
+        workspace: z.string().optional().describe("A connected workspace's URL key; by default, the one that has the team."),
+      },
+      readOnly: false,
+      run: (input) => tools.createIssue(input),
+    },
+    {
+      name: "linear_update_issue",
+      description:
+        "Change a Linear issue through Milagre's own Linear sign-in: title, description, status, priority, assignee, labels or project. Only the fields given change.",
+      input: {
+        issue: z.string().describe("An issue key such as ENG-12, or a linear.app issue URL."),
+        title: z.string().optional(),
+        description,
+        priority,
+        assignee: z.string().optional().describe('"me", a user\'s email, name or display name, or "none" to unassign.'),
+        state: status,
+        addLabels: z.array(z.string()).optional().describe("Label names to add."),
+        removeLabels: z.array(z.string()).optional().describe("Label names to remove."),
+        project: z.string().optional().describe('A project by name, or "none" to remove it from its project.'),
+        workspace,
+      },
+      readOnly: false,
+      run: (input) => tools.updateIssue(input),
+    },
+    {
+      name: "linear_comment",
+      description: "Comment on a Linear issue through Milagre's own Linear sign-in.",
+      input: {
+        issue: z.string().describe("An issue key such as ENG-12, or a linear.app issue URL."),
+        body: z.string().describe("Markdown."),
+        workspace,
+      },
+      readOnly: false,
+      run: (input) => tools.comment(input),
     },
   ];
 }
