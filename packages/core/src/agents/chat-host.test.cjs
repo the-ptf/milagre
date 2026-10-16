@@ -64,6 +64,7 @@ function harness({
     writeTranscript: async ({ sessionId }) => `/tmp/handovers/${sessionId}.md`,
     brief: async ({ transcriptPath }) => `BRIEF ${transcriptPath}`,
   },
+  hooks = {},
 } = {}) {
   const saved = new Map();
   const published = [];
@@ -90,6 +91,7 @@ function harness({
     isFocused: () => focused,
     handoverTools,
     now,
+    ...hooks,
   });
   const session = (cwd) => created.find((item) => item.options.cwd === cwd);
   return { host, manager, states, saved, published, broadcasts, created, session };
@@ -1454,7 +1456,7 @@ test("Stop holds the queue; Send now starts a message and the rest follow it, Re
   const [first, second, third] = saved.get(ALPHA).sessions[chat.sessionId].queued;
   assert.equal(await host.removeQueued(chatId, first.id), true);
   assert.equal(await host.removeQueued(chatId, first.id), false);
-  assert.deepEqual(await removed.started, { turnId: null, steered: false, cancelled: true });
+  assert.deepEqual(await removed.started, { turnId: null, steered: false, cancelled: true, removed: true });
 
   // Send now on the last one: it starts at once, and the held queue is released.
   assert.deepEqual(await host.sendQueuedNow(chatId, third.id), { interrupt: false });
@@ -1620,4 +1622,51 @@ test("a message sent while a handoff to Antigravity prepares is queued behind th
     agent().turns.map((turn) => turn.prompt),
     ["BRIEF\n\nmove over", "after the move"],
   );
+});
+
+test("a queued message nobody waits on since a restart tells the runtime when it starts or is removed", async (t) => {
+  const started = [];
+  const removed = [];
+  const { host, manager, states, saved } = harness({
+    hooks: {
+      onQueuedStart: (chatId, entry, run) => started.push({ chatId, entry, run }),
+      onQueuedRemoved: (chatId, entry) => removed.push({ chatId, entry }),
+    },
+  });
+  t.after(() => manager.closeAll());
+  const context = { kind: "delegation", delegationId: "d1", from: "/api#1", fromLabel: "api" };
+  const entry = { id: "q1", body: "Add it", context, model: "gemini-3-pro", provider: "antigravity", queuedAt: NOW, turn: { permissionMode: "auto" } };
+  await states.update(ALPHA, (state) => ({
+    ...state,
+    next_id: 9,
+    sessions: {
+      7: { id: 7, worktree_id: 1, agent_name: "main", status: "Created", provider: "antigravity", native_session_id: "a", queued: [entry] },
+      8: {
+        id: 8,
+        worktree_id: 1,
+        agent_name: "main",
+        status: "Created",
+        provider: "antigravity",
+        native_session_id: "b",
+        queued: [{ ...entry, id: "q2" }],
+        queueHeld: true,
+      },
+    },
+  }));
+  await states.flush();
+  await host.resumeInterrupted(ALPHA, saved.get(ALPHA));
+  await waitUntil(() => started.length === 1);
+  assert.equal(started[0].chatId, `${ALPHA}#7`);
+  assert.deepEqual(started[0].entry.context, context);
+  assert.equal((await started[0].run).turnId, "t1");
+  // The message keeps the Delegation's context, which its report is found by.
+  await waitUntil(() => saved.get(ALPHA).messages.some((item) => item.body === "Add it"));
+  assert.deepEqual(saved.get(ALPHA).messages.find((item) => item.body === "Add it").context, context);
+
+  assert.equal(await host.removeQueued(`${ALPHA}#8`, "q2"), true);
+  assert.deepEqual(
+    removed.map((item) => [item.chatId, item.entry.id, item.entry.context.kind]),
+    [[`${ALPHA}#8`, "q2", "delegation"]],
+  );
+  assert.equal(started.length, 1);
 });

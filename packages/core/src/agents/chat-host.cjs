@@ -127,6 +127,8 @@ class ChatHost {
    * event changed it, and its number when it was folded into the runs; `broadcast(projectPath, state)` tells
    * them of a change no agent event made. `isFocused()` says whether a Milagre
    * window has focus: a turn that ends in the open chat while it hasn't leaves the chat unread too.
+   * `onQueuedStart(chatId, entry, started)` and `onQueuedRemoved(chatId, entry)` tell the runtime about a queued message
+   * (AgentSession.queued) whose sender is gone because Milagre restarted since it was queued, such as a Delegation.
    */
   constructor({
     states,
@@ -140,6 +142,8 @@ class ChatHost {
     handoverTools,
     beforeSend = async () => {},
     onUnblocked = () => {},
+    onQueuedStart = () => {},
+    onQueuedRemoved = () => {},
     now = Date.now,
   }) {
     Object.assign(this, {
@@ -154,6 +158,8 @@ class ChatHost {
       handoverTools,
       beforeSend,
       onUnblocked,
+      onQueuedStart,
+      onQueuedRemoved,
       now,
     });
     // Chats whose handoff is staged or its brief being written, by chat key: { controller, done, settle, ... }.
@@ -370,6 +376,8 @@ class ChatHost {
     const waiter = this.queueWaiters.get(id);
     this.queueWaiters.delete(id);
     if (waiter) void sent.started.then(waiter, () => waiter(null));
+    // Queued before Milagre restarted, nobody waits on it here: the runtime tells its sender (a Delegation) it started.
+    else this.onQueuedStart(chatId, entry, sent.started);
     return true;
   }
 
@@ -392,11 +400,13 @@ class ChatHost {
   async removeQueued(chatId, id) {
     const projectPath = projectOfKey(chatId);
     const sessionId = sessionIdFromKey(chatId);
+    let removed = null;
     const { state, changed } = await this.states.update(
       projectPath,
       (latest) => {
         const session = latest.sessions[sessionId];
-        if (!session?.queued?.some((item) => item.id === id)) return latest;
+        removed = session?.queued?.find((item) => item.id === id) ?? null;
+        if (!removed) return latest;
         return { ...latest, sessions: { ...latest.sessions, [sessionId]: withoutQueued(session, id) } };
       },
       { chats: [] },
@@ -407,7 +417,8 @@ class ChatHost {
     if (this.sendNext.get(chatId) === id) this.sendNext.delete(chatId);
     const waiter = this.queueWaiters.get(id);
     this.queueWaiters.delete(id);
-    waiter?.({ turnId: null, steered: false, cancelled: true });
+    if (waiter) waiter({ turnId: null, steered: false, cancelled: true, removed: true });
+    else this.onQueuedRemoved(chatId, removed);
     return true;
   }
 

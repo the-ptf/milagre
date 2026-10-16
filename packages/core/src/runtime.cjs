@@ -984,6 +984,15 @@ function createRuntime(options) {
     onUnblocked: (chatId) => {
       void advisorDelivery?.drain(chatId).catch((error) => console.warn("Advisor delivery failed:", error.message));
     },
+    // A Delegation queued before a restart keeps its Delegation open: it is followed again once its turn starts.
+    onQueuedStart: (chatId, entry, started) => {
+      if (!["delegation", "delegation-report"].includes(entry.context?.kind) || isLinkScopeKey(projectOfKey(chatId))) return;
+      void linked.queuedStarted(chatId, entry.context, started).catch((error) => console.warn("Milagre couldn't follow a Delegation:", error.message));
+    },
+    onQueuedRemoved: (chatId, entry) => {
+      if (!["delegation", "delegation-report"].includes(entry?.context?.kind) || isLinkScopeKey(projectOfKey(chatId))) return;
+      void linked.queuedRemoved(chatId, entry.context).catch((error) => console.warn("Milagre couldn't follow a Delegation:", error.message));
+    },
     states: scopeStates,
     startTurn: (request) => track(() => startAgentTurn(request), starting),
     readSubagents: async ({ cwd, agents, projectPath, provider = "codex", nativeSessionId }) => {
