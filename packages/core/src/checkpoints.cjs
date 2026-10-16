@@ -26,7 +26,8 @@ async function atomic(file, data) {
   }
 }
 async function identity(root) {
-  if ((await fs.realpath(root)) !== root || (await git.text(root, ["rev-parse", "--show-toplevel"])).trim() !== root)
+  // Git for Windows uses forward slashes and can spell the drive differently from Node.
+  if ((await fs.realpath(root)) !== root || (await fs.realpath((await git.text(root, ["rev-parse", "--show-toplevel"])).trim())) !== root)
     throw new Error("Checkpoint Worktree identity changed");
   const stat = await fs.stat(root);
   return { root, dev: stat.dev, ino: stat.ino, gitDir: (await git.text(root, ["rev-parse", "--absolute-git-dir"])).trim() };

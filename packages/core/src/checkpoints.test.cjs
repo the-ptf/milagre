@@ -24,6 +24,49 @@ async function fixture(t) {
   return { root, store, options, git, write, read, chatId: root + "#1" };
 }
 const decisions = (preview, choice = "restore") => Object.fromEntries(preview.files.map((file) => [file.key, choice]));
+test("checkpoint capture and restore resolve Git's Windows path spelling through the filesystem", async (t) => {
+  const f = await fixture(t);
+  const reportedRoot = "C:/Projects/account-settings";
+  let resolvedRoot = f.root;
+  const realpath = fs.realpath;
+  // Emulate Git for Windows at the path boundary while using real Git and file operations.
+  t.mock.method(fs, "realpath", (name, ...args) => (name === reportedRoot ? Promise.resolve(resolvedRoot) : realpath(name, ...args)));
+  const client = require("./git/client.cjs");
+  const createGit = client.createGit;
+  t.mock.method(client, "createGit", (options) => {
+    const git = createGit(options);
+    return {
+      read: {
+        ...git.read,
+        text: async (root, args) => {
+          const result = await git.read.text(root, args);
+          return args[0] === "rev-parse" && args[1] === "--show-toplevel" ? reportedRoot + "\n" : result;
+        },
+      },
+    };
+  });
+  const filename = require.resolve("./checkpoints.cjs");
+  const cached = require.cache[filename];
+  let store;
+  try {
+    delete require.cache[filename];
+    store = require(filename).createCheckpoints(f.options);
+  } finally {
+    require.cache[filename] = cached;
+  }
+  const item = await store.begin({ chatId: f.chatId, roots: [f.root] });
+  await f.write("a.txt", "agent edit\n");
+  await store.finish(f.chatId);
+  const preview = await store.preview(f.chatId, item.id);
+  assert.deepEqual(
+    preview.files.map((file) => file.path),
+    ["a.txt"],
+  );
+  await store.restore(f.chatId, { token: preview.token, decisions: decisions(preview), approved: true });
+  assert.equal(await f.read("a.txt"), "committed\n");
+  resolvedRoot = path.dirname(f.root);
+  await assert.rejects(store.begin({ chatId: f.chatId, roots: [f.root] }), /Worktree identity changed/);
+});
 test("restores dirty tracked and relevant untracked files after restart without changing the index or unrelated edits", async (t) => {
   const f = await fixture(t);
   await f.write("a.txt", "staged\n");
