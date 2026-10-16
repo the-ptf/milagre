@@ -18,6 +18,10 @@ export default function AppUpdateSheet() {
       state={state}
       onUpdate={() => void install()}
       onRetry={() => void check(true)}
+      onNotes={() => {
+        dismiss();
+        router.push("/update-notes");
+      }}
       onDismiss={() => {
         dismiss();
         router.back();

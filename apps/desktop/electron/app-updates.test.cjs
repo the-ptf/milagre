@@ -71,7 +71,7 @@ test("startup, focus and wake find releases without reopening the app; rapid foc
   assert.equal(cancelled, true);
   assert.equal(power.listenerCount("resume"), 0);
 });
-test("checks coalesce and a ready download is never replaced by a background check", async () => {
+test("checks coalesce and an empty background check keeps the ready download", async () => {
   const f = fixture();
   let release;
   f.updater.checkForUpdates = () =>
@@ -85,9 +85,82 @@ test("checks coalesce and a ready download is never replaced by a background che
   f.updater.emit("update-downloaded", { version: "1.2.3" });
   release();
   await first;
+  f.updater.checkForUpdates = async () => f.updater.emit("update-not-available");
   await f.controller.check(true);
   assert.equal(f.controller.get().status, "downloaded");
   assert.equal(f.controller.get().version, "1.2.3");
+});
+
+test("polling replaces a pending installer with the newest release, skipping the same or older version", async () => {
+  const f = fixture();
+  let version = "1.2.3",
+    downloads = [];
+  f.updater.checkForUpdates = async () => {
+    f.updater.emit("update-available", { version });
+    return { isUpdateAvailable: true, updateInfo: { version } };
+  };
+  f.updater.downloadUpdate = async () => {
+    downloads.push(version);
+    f.updater.emit("update-downloaded", { version });
+  };
+  assert.equal(f.updater.autoDownload, false);
+  await f.controller.check();
+  await f.controller.check(true);
+  version = "1.2.2";
+  await f.controller.check(true);
+  assert.deepEqual(downloads, ["1.2.3"]);
+  version = "1.2.4";
+  f.advance(60000);
+  await f.controller.check();
+  assert.deepEqual(downloads, ["1.2.3", "1.2.4"]);
+  assert.equal(f.controller.get().version, "1.2.4");
+  assert.equal(f.controller.get().status, "downloaded");
+});
+
+test("offline refresh preserves the ready installer, but a failed replacement disables installation until retry", async () => {
+  const f = fixture();
+  f.updater.emit("update-downloaded", { version: "1.2.3" });
+  f.updater.checkForUpdates = async () => {
+    f.updater.emit("error");
+    throw new Error("offline");
+  };
+  await f.controller.check(true);
+  assert.equal(f.controller.get().status, "downloaded");
+  f.updater.checkForUpdates = async () => {
+    f.updater.emit("update-available", { version: "1.2.4" });
+    return { isUpdateAvailable: true, updateInfo: { version: "1.2.4" } };
+  };
+  f.updater.downloadUpdate = async () => {
+    throw new Error("download failed");
+  };
+  await f.controller.check(true);
+  assert.equal(f.controller.get().status, "error");
+  await f.controller.install();
+  assert.equal(f.counts().stops, 0);
+  f.updater.downloadUpdate = async () => f.updater.emit("update-downloaded", { version: "1.2.4" });
+  await f.controller.check(true);
+  assert.equal(f.controller.get().status, "downloaded");
+});
+
+test("install waits for an active refresh and applies its replacement only once", async () => {
+  const f = fixture();
+  f.updater.emit("update-downloaded", { version: "1.2.3" });
+  let finish;
+  f.updater.checkForUpdates = () =>
+    new Promise((resolve) => {
+      finish = resolve;
+    });
+  f.updater.downloadUpdate = async () => f.updater.emit("update-downloaded", { version: "1.2.4" });
+  const refresh = f.controller.check(true);
+  const install = f.controller.install();
+  assert.equal(f.controller.install(), install);
+  await new Promise(setImmediate);
+  assert.equal(f.counts().stops, 0);
+  f.updater.emit("update-available", { version: "1.2.4" });
+  finish({ isUpdateAvailable: true, updateInfo: { version: "1.2.4" } });
+  await Promise.all([refresh, install]);
+  assert.equal(f.controller.get().version, "1.2.4");
+  assert.equal(f.counts().installs, 1);
 });
 test("only a downloaded update can stop agents; duplicate install clicks stop the host once", async () => {
   const f = fixture();

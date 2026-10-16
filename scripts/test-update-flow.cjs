@@ -8,7 +8,7 @@ const { setTimeout: delay } = require("node:timers/promises");
 const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { UpdateShell, useAppUpdates } from "/src/components/UpdateNotice";
+import { UpdateShell, useAppUpdates, UpdateSettingsBadge } from "/src/components/UpdateNotice";
 import { AboutSettings } from "/src/components/Settings";
 import { ChatComposer } from "/src/components/ChatComposer";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
@@ -21,6 +21,10 @@ window.__update = (state) => { window.__state = state; listener(state); };
 window.milagre = {
   getAppVersion: async () => "1.2.2", getReleaseChannel: async () => "stable",
   getUpdateState: async () => window.__state,
+  getUpdateReleaseNotes: async (version) => {
+    if (window.__notesFail) throw new Error("offline");
+    return window.__notesEmpty ? "" : "## Changes in v" + version + "\\n\\n- Keep downloading the latest update.\\n- Read release notes inside Milagre.";
+  },
   onUpdateState: (cb) => { listener = cb; return () => {}; },
   installUpdate: async () => { window.__installs++; window.__update({ ...window.__state, status: "installing" }); },
   checkForUpdates: async () => { window.__checks++; window.__update({ ...window.__state, status: "checking" }); },
@@ -52,7 +56,7 @@ function Fixture() {
   if (chat === "hidden") return <><div className="hidden" style={{ height: "100vh" }}><Chat /></div>{settings}</>;
   return chat ? <div style={{ height: "100vh" }}><Chat /></div> : settings;
 }
-createRoot(document.getElementById("root")).render(<UpdateShell><Fixture /></UpdateShell>);
+createRoot(document.getElementById("root")).render(<UpdateShell><button data-update-settings aria-label="Settings" className="fixed right-4 top-4" onClick={() => window.__chat(false)}>Settings<UpdateSettingsBadge /></button><Fixture /></UpdateShell>);
 `;
 
 async function browserChecks() {
@@ -83,6 +87,8 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor("document.body.innerText.includes('Downloading update')");
+    await screenshot("update-downloading-pill");
+    assert.equal(await evaluate(`!!document.querySelector('[data-face=pill] [aria-label="Dismiss update"]')`), false);
     await evaluate(`${button("Downloading update · 42%")}.click()`);
     await waitFor("!!document.querySelector('[role=progressbar]')");
     await screenshot("update-downloading");
@@ -90,13 +96,26 @@ async function browserChecks() {
     await waitFor("!!document.querySelector('[aria-label=\"Update available\"]')");
     assert.match(await evaluate("document.body.innerText"), /stop running agents/);
     assert.doesNotMatch(await evaluate("document.body.innerText"), /terminal/i);
-    assert.equal(await evaluate("document.querySelector('a').href"), "https://github.com/the-ptf/milagre-ade/releases/tag/v1.2.3");
+    await evaluate(`${button("What's new")}.click()`);
+    await waitFor("!!document.querySelector('dialog[open]') && document.body.innerText.includes('Changes in v1.2.3')");
+    await screenshot("update-release-notes");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    await waitFor("!document.querySelector('dialog[open]')");
+    assert.equal(await evaluate("document.activeElement.textContent.trim()"), "What's new");
+    await evaluate("window.__notesFail = true");
+    await evaluate(`${button("What's new")}.click()`);
+    await waitFor("document.querySelector('dialog')?.innerText.includes('Could not load release notes')");
+    await evaluate("window.__notesFail = false; document.querySelector('dialog [role=alert] button').click()");
+    await waitFor("document.querySelector('dialog')?.innerText.includes('Changes in v1.2.3')");
+    await evaluate(`document.querySelector('[aria-label="Close release notes"]').click()`);
     await screenshot("update-ready-dark");
     await evaluate("document.documentElement.classList.remove('dark')");
     await screenshot("update-ready-light");
     await evaluate("document.documentElement.classList.add('dark'); document.querySelector('[aria-label=\"Dismiss update\"]').click()");
     await waitFor("!document.querySelector('[role=dialog]')");
-    assert.ok(await evaluate(`${button("Update available")}`));
+    assert.equal(await evaluate("!!document.querySelector('[data-update-notice]')"), false);
+    assert.ok(await evaluate(`document.querySelector('[data-update-settings] [aria-label="Update available"]')`));
+    assert.equal(await evaluate("document.activeElement.getAttribute('aria-label')"), "Settings");
     // Repeated download events must not undo dismissal.
     await evaluate("window.__update({ status: 'downloaded', version: '1.2.3', progress: 100 })");
     await delay(100);
@@ -132,7 +151,7 @@ async function browserChecks() {
     await evaluate("window.__chat(true)");
     await waitFor("[...document.querySelectorAll('button')].some(n => n.textContent.includes('Subagents'))");
     const placement = await evaluate(`(() => {
-      const pill = ${button("Update available")}.getBoundingClientRect();
+      const pill = ${button("Update available")}.closest('[data-face=pill]').getBoundingClientRect();
       const chip = [...document.querySelectorAll('button')].find(n => n.textContent.includes('Subagents')).getBoundingClientRect();
       const column = document.querySelector('textarea[aria-label="Prompt"]').closest('.max-w-3xl').getBoundingClientRect();
       return { pillCenter: (pill.left + pill.right) / 2, columnCenter: (column.left + column.right) / 2, pillBottom: pill.bottom, chipBottom: chip.bottom, fixed: getComputedStyle(${button("Update available")}.closest("[data-update-notice]")).position };
@@ -144,7 +163,7 @@ async function browserChecks() {
     await evaluate(`${button("Update available")}.click()`);
     await waitFor("!!document.querySelector('[role=dialog]')");
     // The pill morphs into the card in its own spot instead of opening a card above it.
-    await waitFor(`getComputedStyle(${button("Update available")}).visibility === "hidden" && ${button("Update available")}.inert`);
+    await waitFor(`getComputedStyle(${button("Update available")}).visibility === "hidden" && ${button("Update available")}.closest('[data-face=pill]').inert`);
     await delay(600);
     const card = await evaluate(`(() => {
       const card = document.querySelector('[data-update-notice] > div').getBoundingClientRect();
@@ -154,7 +173,7 @@ async function browserChecks() {
     assert.ok(Math.abs(card.bottom - placement.pillBottom) < 1, `card grows from the pill's line: ${JSON.stringify(card)}`);
     assert.ok(Math.abs(card.width - 360) < 1, `card reaches full width: ${JSON.stringify(card)}`);
     await screenshot("update-pill-chat-open");
-    await evaluate("document.querySelector('[aria-label=\"Dismiss update\"]').click()");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     await waitFor("!document.querySelector('[role=dialog]')");
     assert.equal(await evaluate("document.activeElement.textContent.trim()"), "Update available");
     // Leaving the Chat returns the pill to the window's bottom left.
@@ -167,8 +186,19 @@ async function browserChecks() {
     await evaluate(`${button("Install & restart")}.click()`);
     await waitFor("document.querySelector('[role=dialog]')?.getClientRects().length > 0");
     await screenshot("update-settings-hidden-chat");
-    await evaluate("document.querySelector('[aria-label=\"Dismiss update\"]').click()");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     await waitFor("!document.querySelector('[role=dialog]')");
+    await waitFor("getComputedStyle(document.querySelector('[data-face=pill]')).visibility === 'visible'");
+    assert.equal(await evaluate(`!!document.querySelector('[data-face=pill] [aria-label="Dismiss update"]')`), false);
+    await evaluate(`${button("Update available")}.click()`);
+    await waitFor("getComputedStyle(document.querySelector('[data-face=card]')).visibility === 'visible'");
+    await evaluate(`document.querySelector('[role=dialog] [aria-label="Dismiss update"]').focus()`);
+    assert.equal(await evaluate("document.activeElement.getAttribute('aria-label')"), "Dismiss update");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Space" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Space" });
+    await waitFor("!document.querySelector('[data-update-notice]')");
+    assert.ok(await evaluate(`document.querySelector('[data-update-settings] [aria-label="Update available"]')`));
+    assert.equal(await evaluate("document.activeElement.getAttribute('aria-label')"), "Settings");
     console.log("PASS: update pill above the chat composer morphs into the card in place, falling back to the bottom left without a visible Chat");
     console.log("PASS: update progress, ready card, dismissal, settings warning, installation, retries and keyboard access");
     app.exit(0);

@@ -2184,6 +2184,7 @@ function navigationHost(opening, { session: extra = {}, alert = () => {}, calls 
   // Groups folded by hand, as the phone's store keeps them; the tests start with none, so every group is open.
   const folded = new Set();
   const { ProjectNavigation } = load("project-navigation.tsx", {
+    "./update-sheet": { UpdateSettingsBadge: "UpdateSettingsBadge" },
     react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "./hosts-native": {
@@ -4225,19 +4226,22 @@ function updatesHost() {
     },
   };
   let reloads = 0,
-    retries = 0;
-  const { UpdateSheet, useUpdatePresentation } = load("update-sheet.tsx", {
-    react: { ...react, useEffect: react.effect, useSyncExternalStore: (_, get) => get() },
+    retries = 0,
+    notes = 0;
+  const { UpdateSheet, useUpdatePresentation, UpdateSettingsBadge } = load("update-sheet.tsx", {
+    react: { ...react, useEffect: react.effect, useSyncExternalStore: (_, get) => get(), useContext: () => ({ state }) },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { View: "View", Text: "Text", Modal: "Modal", ActivityIndicator: "ActivityIndicator", useColorScheme: () => "dark", AppState: appState },
     "expo-router": {},
     "expo-updates": {},
+    "@hugeicons/core-free-icons": { Cancel01Icon: "close" },
     "./update-controller": {},
     "./theme": { colors: {}, hex: () => ({ page: "#17181a" }) },
-    "./ui": { PillButton: "PillButton" },
+    "./ui": { PillButton: "PillButton", IconButton: "IconButton" },
   });
   return {
-    set(status, error = "") {
+    set(status, error = "", updateId = state.updateId) {
+      state.updateId = updateId;
       state.status = status;
       state.error = error;
     },
@@ -4258,8 +4262,11 @@ function updatesHost() {
           retries++;
         },
         onDismiss: presentation.dismiss,
+        onNotes: () => {
+          notes++;
+        },
       });
-      return { ...presentation, content };
+      return { ...presentation, content, badge: UpdateSettingsBadge() };
     },
     foreground() {
       appState.currentState = "active";
@@ -4273,10 +4280,11 @@ function updatesHost() {
     listeners,
     reloads: () => reloads,
     retries: () => retries,
+    notes: () => notes,
   };
 }
 
-test("the update sheet opens only for an actionable update and Later lasts until foreground entry", () => {
+test("the update sheet opens only for an actionable update and dismissal survives foreground entry", () => {
   const host = updatesHost();
   for (const status of ["idle", "checking", "downloading", "up-to-date", "disabled"]) {
     host.set(status);
@@ -4285,17 +4293,36 @@ test("the update sheet opens only for an actionable update and Later lasts until
   host.set("ready");
   const ready = host.render();
   assert.equal(ready.presented, true);
-  find(ready.content, (node) => node.type === "PillButton" && node.props.title === "Later").props.onPress();
+  find(ready.content, (node) => node.type === "IconButton" && node.props.label === "Dismiss update").props.onPress();
   assert.equal(host.render().presented, false);
   host.background();
   assert.equal(host.render().presented, false);
   host.foreground();
-  assert.equal(host.render().presented, true);
+  assert.equal(host.render().presented, false);
   host.render().dismiss();
-  assert.equal(host.render().presented, false, "swipe dismissal behaves like Later");
+  assert.equal(host.render().presented, false, "swipe dismissal behaves like the close button");
   assert.equal(host.reloads(), 0);
   host.cleanup();
   assert.equal(host.listeners.size, 0);
+});
+
+test("closing the update keeps a Settings dot and only a newer update prompts again", () => {
+  const host = updatesHost();
+  host.set("ready", "", "first");
+  const ready = host.render();
+  find(ready.content, (node) => node.type === "PillButton" && node.props.title === "What's new").props.onPress();
+  assert.equal(host.notes(), 1);
+  find(ready.content, (node) => node.type === "IconButton" && node.props.label === "Dismiss update").props.onPress();
+  assert.equal(host.render().presented, false);
+  assert.ok(host.render().badge);
+  host.set("downloading");
+  host.set("ready", "", "first");
+  assert.equal(host.render().presented, false);
+  host.set("ready", "", "second");
+  assert.equal(host.render().presented, true);
+  host.set("up-to-date");
+  assert.equal(host.render().badge, null);
+  host.cleanup();
 });
 
 test("an update downloaded in the background waits until foreground entry to present", () => {
@@ -4309,17 +4336,17 @@ test("an update downloaded in the background waits until foreground entry to pre
   host.cleanup();
 });
 
-test("Later during retry stays dismissed when the download finishes or polling fails", () => {
+test("Closing during retry stays dismissed when the download finishes or polling fails", () => {
   for (const final of ["ready", "error"]) {
     const host = updatesHost();
     host.set("error");
     host.render();
     host.set("downloading");
-    find(host.render().content, (node) => node.type === "PillButton" && node.props.title === "Later").props.onPress();
+    find(host.render().content, (node) => node.type === "IconButton" && node.props.label === "Dismiss update").props.onPress();
     host.set(final);
     assert.equal(host.render().presented, false);
     host.foreground();
-    assert.equal(host.render().presented, true);
+    assert.equal(host.render().presented, false);
     host.cleanup();
   }
 });
@@ -4393,6 +4420,7 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
         useNavigationContainerRef: () => navigationRef,
       },
       "expo-updates": { isEnabled: true, useUpdates: () => ({}) },
+      "@hugeicons/core-free-icons": { Cancel01Icon: "close" },
       "./update-controller": {
         watchUpdates: () => () => {},
         createUpdateController: () => {
@@ -4447,7 +4475,7 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
   assert.equal(navigationListener, undefined);
 });
 
-test("Later, swipe and Android back defer; notification reset and route replacement do not", () => {
+test("Close, swipe and Android back defer; notification reset and route replacement do not", () => {
   const react = hookHost();
   let dismissals = 0,
     backs = 0,
@@ -4486,7 +4514,7 @@ test("Later, swipe and Android back defer; notification reset and route replacem
   assert.equal(dismissals, 2);
   tree.props.onDismiss();
   assert.equal(backs, 1);
-  assert.equal(dismissals, 3, "Later defers before removing its route");
+  assert.equal(dismissals, 3, "Close defers before removing its route");
   state.status = "restarting";
   react.begin();
   route();
@@ -4621,6 +4649,7 @@ test("refreshing saved hosts during startup cannot cancel the claimed auto-open"
     navigationVersion: () => 0,
   };
   const { default: Screen } = load("app/index.tsx", {
+    "../update-sheet": { UpdateSettingsBadge: "UpdateSettingsBadge", useAppUpdates: () => ({ state: { status: "idle" } }) },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": {

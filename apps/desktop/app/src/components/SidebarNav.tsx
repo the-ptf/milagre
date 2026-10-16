@@ -57,6 +57,7 @@ import { dropIntent, pinOrderAt, type DropIntent, type DropZone } from "@/lib/ch
 import { linkBetween } from "@milagre/shared/chat-links";
 import { SidebarLinksProvider, useSidebarLinks, type LinkListHandle, type LinkScopeChats } from "./sidebar/SidebarLinks";
 import { updateSettings, useSettings } from "../lib/settings";
+import { UpdateSettingsBadge } from "./UpdateNotice";
 import { RECENT_PROJECTS_CHANGED } from "../lib/project-list";
 import { cachedProjectCopy, railLive, rememberScopeRows, scopeChats, useScopeStates } from "../lib/sidebar-scopes";
 import { ScopeRail, type RailScope } from "./sidebar/ScopeRail";
@@ -1522,8 +1523,15 @@ export default memo(function SidebarNav({
               )}
             </div>
             <Tooltip label="Settings" shortcut="⌘," align={collapsed ? "start" : "end"}>
-              <button type="button" aria-label="Settings" onClick={onOpenSettings} className={`${BOTTOM_BAR_BUTTON} ${collapsed ? "size-8" : "size-9"}`}>
+              <button
+                type="button"
+                data-update-settings=""
+                aria-label="Settings"
+                onClick={onOpenSettings}
+                className={`relative ${BOTTOM_BAR_BUTTON} ${collapsed ? "size-8" : "size-9"}`}
+              >
                 <IconSettingsGear1 size={17} />
+                <UpdateSettingsBadge />
               </button>
             </Tooltip>
           </div>

@@ -15,11 +15,14 @@ import type { SavedHost } from "../hosts-store";
 import { Icon } from "../icons";
 import { ErrorNotice, HeaderButton, IconButton, ListRow, PageScroll, showActions, useStyles } from "../ui";
 import { useTheme } from "../theme";
+import { UpdateSettingsBadge, useAppUpdates } from "../update-sheet";
 
 type Reachability = "online" | "checking" | "offline";
 const DEMO = process.env.EXPO_PUBLIC_DEMO === "1";
 
 export default function ComputersScreen() {
+  const updates = useAppUpdates();
+  const updateAvailable = ["ready", "downloading", "error"].includes(updates.state.status);
   const { colors } = useTheme();
   const styles = useStyles();
   const session = useSession();
@@ -137,10 +140,19 @@ export default function ComputersScreen() {
       <Stack.Screen options={{ title: "Computers" }} />
       <Stack.Toolbar placement="right">
         {Platform.OS === "ios" ? (
-          <Stack.Toolbar.Button icon="gearshape" accessibilityLabel="Settings" onPress={() => router.push("/settings")} />
+          <Stack.Toolbar.Button
+            icon="gearshape"
+            accessibilityLabel={updateAvailable ? "Settings, update available" : "Settings"}
+            onPress={() => router.push("/settings")}
+          >
+            {updateAvailable && <Stack.Toolbar.Badge style={{ backgroundColor: colors.green }} />}
+          </Stack.Toolbar.Button>
         ) : (
           <Stack.Toolbar.View>
-            <HeaderButton label="Settings" icon={Settings01Icon} onPress={() => router.push("/settings")} />
+            <View>
+              <HeaderButton label="Settings" icon={Settings01Icon} onPress={() => router.push("/settings")} />
+              <UpdateSettingsBadge />
+            </View>
           </Stack.Toolbar.View>
         )}
       </Stack.Toolbar>
