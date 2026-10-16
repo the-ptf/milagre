@@ -7,7 +7,7 @@ const { isTurnEnd, projectOfKey, sessionIdFromKey } = require("@milagre/shared/a
 const { matchGates } = require("./gates.cjs");
 const { createBotTools } = require("./tools.cjs");
 const { createBotHome, readBrief, writeBrief, writeInstructions } = require("./home.cjs");
-const { readMemory, saveMemoryByVictor } = require("./memory.cjs");
+const { readMemory, saveMemoryByUser } = require("./memory.cjs");
 const { TEMPLATES, renderBrief, setupFields } = require("./templates.cjs");
 
 // Bots (docs/adr/0010-bots-are-hidden-projects.md): each bot is a hidden Project, its home <dataDir>/bots/<id>/, opened
@@ -615,7 +615,7 @@ function createBots({
     readBrief: async (id) => ({ text: await readBrief(requireBot(id).homePath) }),
     readMemory: (id) => readMemory(requireBot(id).homePath),
     saveMemory: async (id, text) => {
-      const result = await saveMemoryByVictor(requireBot(id).homePath, text, { now: now() });
+      const result = await saveMemoryByUser(requireBot(id).homePath, text, { now: now() });
       changed();
       return result;
     },

@@ -63,7 +63,7 @@ function createBotTools({ now = Date.now, bots } = {}) {
     return [
       {
         name: "memory_read",
-        description: `Read your MEMORY.md: what you noted in earlier sessions, under ## section headings. Lines ending in <!-- victor --> were written by the user. It holds at most ${MEMORY_LINE_CAP} lines.`,
+        description: `Read your MEMORY.md: what you noted in earlier sessions, under ## section headings. Lines ending in <!-- user --> were written by the user. It holds at most ${MEMORY_LINE_CAP} lines.`,
         input: {},
         readOnly: true,
         run: async () => {

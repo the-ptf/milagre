@@ -6,9 +6,12 @@ const { EMPTY_MEMORY, writeAtomic } = require("./home.cjs");
 
 // A bot's MEMORY.md: `## <section>` headings with notes under them, kept under MEMORY_LINE_CAP lines and
 // MEMORY_BYTE_CAP bytes. Every write is redacted, keeps the text it replaced in memory/.journal/<id>.md so the profile
-// can undo it, and lands with a rename. Lines the user wrote end with VICTOR_MARK; the bot's writes never remove them.
+// can undo it, and lands with a rename. Lines the user wrote end with USER_MARK; the bot's writes never remove them,
+// and every mark in what the bot writes is taken out, so it can't pass its lines off as the user's.
 
-const VICTOR_MARK = "<!-- victor -->";
+const USER_MARK = "<!-- user -->";
+// The mark anywhere in a line, however it is spaced or cased, with the blanks before it.
+const ANY_MARK = /[ \t]*<!--\s*user\s*-->/gi;
 const REDACTED = "[redacted]";
 const JOURNAL_ID = /^\d+-[0-9a-f]{8}$/;
 const memoryFile = (home) => path.join(home, "MEMORY.md");
@@ -39,9 +42,12 @@ function redactSecrets(text) {
 
 const countLines = (text) => (text === "" ? 0 : text.replace(/\n$/, "").split("\n").length);
 const measure = (text) => ({ lines: countLines(text), bytes: Buffer.byteLength(text) });
-const isVictors = (line) => line.trimEnd().endsWith(VICTOR_MARK);
-const unmarked = (line) => (isVictors(line) ? line.trimEnd().slice(0, -VICTOR_MARK.length).trimEnd() : line);
-const markLine = (line) => (line.trim() === "" || line.startsWith("#") || isVictors(line) ? line : `${line.trimEnd()} ${VICTOR_MARK}`);
+const isUsers = (line) => line.trimEnd().endsWith(USER_MARK);
+function unmarked(line) {
+  const stripped = line.replace(ANY_MARK, "");
+  return stripped === line ? line : stripped.trimEnd();
+}
+const markLine = (line) => (line.trim() === "" || line.startsWith("#") || isUsers(line) ? line : `${line.trimEnd()} ${USER_MARK}`);
 const heading = (section) => `## ${section}`;
 
 async function readText(home) {
@@ -105,13 +111,13 @@ function edit(text, section, lines, mode) {
   while (trailing > 0 && body[trailing - 1].trim() === "") trailing -= 1;
   const tail = body.slice(trailing);
   body = body.slice(0, trailing);
-  const kept = mode === "replace" ? body.filter(isVictors) : body;
+  const kept = mode === "replace" ? body.filter(isUsers) : body;
   return [...all.slice(0, start + 1), ...kept, ...lines, ...tail, ...all.slice(end)].join("\n") + "\n";
 }
 
 /** Adds to or replaces one section. The bot's writes are capped and can't mark lines as the user's. */
 function writeMemory(home, { section, text, mode }, { now, by = "bot" }) {
-  const name = redactSecrets(String(section ?? ""))
+  const name = unmarked(redactSecrets(String(section ?? "")))
     .replace(/\s+/g, " ")
     .replace(/^#+\s*/, "")
     .trim();
@@ -120,17 +126,17 @@ function writeMemory(home, { section, text, mode }, { now, by = "bot" }) {
     .replace(/\r\n?/g, "\n")
     .replace(/\n+$/, "")
     .split("\n")
-    .map((line) => (by === "victor" ? markLine(line) : unmarked(line)));
+    .map((line) => (by === "user" ? markLine(line) : unmarked(line)));
   return serial(home, async () => {
     const previous = await readText(home);
     const next = edit(previous, name, lines, mode === "replace" ? "replace" : "append");
-    if (by !== "victor") checkCaps(previous, next);
+    if (by !== "user") checkCaps(previous, next);
     return commit(home, previous, next, now);
   });
 }
 
 /** The user's whole-file save from the profile: every line that isn't in the stored text becomes theirs. */
-function saveMemoryByVictor(home, text, { now }) {
+function saveMemoryByUser(home, text, { now }) {
   return serial(home, async () => {
     const previous = await readText(home);
     const stored = new Set(previous.split("\n").map((line) => unmarked(line).trimEnd()));
@@ -158,4 +164,4 @@ function undoMemory(home, journalId, { now = Date.now() } = {}) {
   });
 }
 
-module.exports = { VICTOR_MARK, readMemory, redactSecrets, saveMemoryByVictor, undoMemory, writeMemory };
+module.exports = { USER_MARK, readMemory, redactSecrets, saveMemoryByUser, undoMemory, writeMemory };

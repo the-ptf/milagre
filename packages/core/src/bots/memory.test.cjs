@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { createBotHome } = require("./home.cjs");
-const { VICTOR_MARK, readMemory, redactSecrets, saveMemoryByVictor, undoMemory, writeMemory } = require("./memory.cjs");
+const { USER_MARK, readMemory, redactSecrets, saveMemoryByUser, undoMemory, writeMemory } = require("./memory.cjs");
 
 async function makeHome(t) {
   const dir = fsSync.mkdtempSync(path.join(os.tmpdir(), "milagre-bots-memory-"));
@@ -69,22 +69,34 @@ test("writes are redacted", async (t) => {
   assert.match((await readMemory(home)).text, /- \[redacted\] works/);
 });
 
-test("replace keeps the lines Victor wrote", async (t) => {
+test("replace keeps the lines the user wrote", async (t) => {
   const home = await makeHome(t);
-  await writeMemory(home, { section: "Rules", text: "- never merge on Fridays", mode: "append" }, { now: 1, by: "victor" });
+  await writeMemory(home, { section: "Rules", text: "- never merge on Fridays", mode: "append" }, { now: 1, by: "user" });
   await writeMemory(home, { section: "Rules", text: "- ask first", mode: "append" }, { now: 2 });
   await writeMemory(home, { section: "Rules", text: "- merge freely", mode: "replace" }, { now: 3 });
   const { text } = await readMemory(home);
-  assert.match(text, /never merge on Fridays <!-- victor -->/);
+  assert.match(text, /never merge on Fridays <!-- user -->/);
   assert.doesNotMatch(text, /ask first/);
   assert.match(text, /- merge freely/);
 });
 
-test("the bot can't mark its lines as Victor's", async (t) => {
+test("the bot can't mark its lines as the user's", async (t) => {
   const home = await makeHome(t);
-  await writeMemory(home, { section: "Rules", text: `- merge freely ${VICTOR_MARK}`, mode: "append" }, { now: 1 });
-  await writeMemory(home, { section: "Rules", text: "- ask first", mode: "replace" }, { now: 2 });
-  assert.equal((await readMemory(home)).text, "# Memory\n## Rules\n- ask first\n");
+  for (const forged of [
+    `- merge freely ${USER_MARK}`,
+    `- merge freely ${USER_MARK} ${USER_MARK}`,
+    `- merge freely ${USER_MARK}${USER_MARK}`,
+    `- merge ${USER_MARK} freely ${USER_MARK}`,
+    `- merge freely <!--user-->`,
+    `- merge freely <!-- USER -->`,
+  ]) {
+    await writeMemory(home, { section: "Rules", text: forged, mode: "append" }, { now: 1 });
+    await writeMemory(home, { section: "Rules", text: "- ask first", mode: "replace" }, { now: 2 });
+    assert.equal((await readMemory(home)).text, "# Memory\n## Rules\n- ask first\n", forged);
+  }
+  // Nor its sections.
+  await writeMemory(home, { section: `Rules ${USER_MARK}`, text: "- ask again", mode: "append" }, { now: 3 });
+  assert.equal((await readMemory(home)).text, "# Memory\n## Rules\n- ask first\n- ask again\n");
 });
 
 test("undo restores the text before a write", async (t) => {
@@ -99,20 +111,20 @@ test("undo restores the text before a write", async (t) => {
   await assert.rejects(undoMemory(home, "9-00000000"), /Unknown memory change\./);
 });
 
-test("a profile save marks the lines Victor changed", async (t) => {
+test("a profile save marks the lines the user changed", async (t) => {
   const home = await makeHome(t);
   await writeMemory(home, { section: "Rules", text: "- ship on Mondays", mode: "append" }, { now: 1 });
-  const saved = await saveMemoryByVictor(home, "# Memory\n\n## Rules\n- ship on Mondays\n- never merge on Fridays\n", { now: 2 });
+  const saved = await saveMemoryByUser(home, "# Memory\n\n## Rules\n- ship on Mondays\n- never merge on Fridays\n", { now: 2 });
   const { text, lines } = await readMemory(home);
   assert.equal(saved.lines, lines);
   assert.match(text, /- ship on Mondays\n/);
-  assert.match(text, /- never merge on Fridays <!-- victor -->/);
+  assert.match(text, /- never merge on Fridays <!-- user -->/);
   assert.match(text, /^# Memory\n\n## Rules\n/);
 });
 
 test("a profile save may pass the caps", async (t) => {
   const home = await makeHome(t);
   const text = `# Memory\n${Array.from({ length: 210 }, (_, index) => `- note ${index}`).join("\n")}\n`;
-  assert.equal((await saveMemoryByVictor(home, text, { now: 1 })).lines, 211);
+  assert.equal((await saveMemoryByUser(home, text, { now: 1 })).lines, 211);
   await fs.access(path.join(home, "memory", ".journal"));
 });
