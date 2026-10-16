@@ -1840,11 +1840,14 @@ function createRuntime(options) {
       if (!session || session.archived) throw Error("Chat is unavailable or archived");
       const designGrant = { designs: { chatId, designIds: "*", capabilities: ["read", "write"] } };
       if (isLinkScopeKey(projectPath)) return designGrant;
+      // A bot's thread and the Chats it opened reach other Chats only through its own tools (chat_open, chat_send),
+      // which keep them in Bot rules: creating or starting one here would run it outside its gates.
+      const botChat = Boolean(bots?.botForChat(chatId));
       return {
         ...designGrant,
         projects: { projectPaths: [projectPath], capabilities: ["read"] },
         worktrees: { projectPaths: [projectPath], capabilities: ["read", "create"] },
-        chats: { projectPaths: [projectPath], capabilities: ["read", "create", "start"] },
+        chats: { projectPaths: [projectPath], capabilities: botChat ? ["read"] : ["read", "create", "start"] },
       };
     },
     host: localMcpHost,

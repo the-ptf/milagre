@@ -272,6 +272,33 @@ test("Victor sending in a bot Chat takes it over", async (t) => {
   assert.equal(chatSession.options.permissionPolicy({ tool: "Bash", command: "gh pr merge 1" }), undefined);
 });
 
+const names = (session) => session.options.linked.tools.map((tool) => tool.name);
+
+test("a bot's thread and the Chats it opened can't create or start other Chats", async (t) => {
+  const { runtime, bot, project, sessions, dir } = await withOps(t);
+  // An ordinary Chat keeps Milagre's Chat tools.
+  const { state } = await runtime.invoke("project:snapshot", [project]);
+  const worktreeId = Object.values(state.worktrees).find((worktree) => worktree.path === project).id;
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: null, worktreeId, body: "hi", provider: "claude", model: "m" }]);
+  await waitUntil(() => sessions.some((item) => item.options.cwd === project));
+  const own = names(sessions.find((item) => item.options.cwd === project));
+  assert.ok(own.includes("chat_create") && own.includes("chat_start"), own.join(", "));
+  await runtime.invoke("bots:send", ["ops", "Fix the flaky test"]);
+  await waitUntil(() => sessions.some((item) => item.options.cwd === bot.homePath));
+  const thread = sessions.find((item) => item.options.cwd === bot.homePath);
+  assert.ok(names(thread).includes("chat_open"));
+  assert.ok(names(thread).includes("chat_read"));
+  assert.equal(names(thread).includes("chat_create") || names(thread).includes("chat_start"), false);
+  const opened = await runTool(
+    thread.options.linked.tools.find((item) => item.name === "chat_open"),
+    { project: "project", title: "Fix flaky terminal-perf test", prompt: "Fix it" },
+  );
+  assert.equal(opened.isError, false, opened.text);
+  await waitUntil(() => sessions.some((item) => item.options.cwd.startsWith(path.join(dir, "worktrees"))));
+  const chat = names(sessions.find((item) => item.options.cwd.startsWith(path.join(dir, "worktrees"))));
+  assert.equal(chat.includes("chat_create") || chat.includes("chat_start"), false, chat.join(", "));
+});
+
 test("with bots off, sends to a bot are refused", async (t) => {
   const { runtime, bot } = await withOps(t);
   await runtime.invoke("bots:enabled:save", [false]);
