@@ -30,18 +30,26 @@ const NOT_STARTED = new Set(["triage", "backlog", "unstarted"]);
 // Linear's 10 000-point complexity cap (linear-poller.test.cjs estimates them).
 const ROUTINE_ISSUE_FIELDS = "id identifier title description url state { name } team { key } assignee { name } labels(first: 10) { nodes { name } }";
 const HISTORY_FIELDS = "id createdAt toAssignee { isMe } addedLabels { name } toState { name }";
-// Oldest change first, so a poll cut short by the page cap can resume where it stopped.
-const POLL_ISSUES = `query PollIssues($since: DateTimeOrDuration!, $after: String) {
-  issues(first: 25, after: $after, sort: [{ updatedAt: { order: Ascending } }], filter: { updatedAt: { gt: $since } }) {
+// Oldest change first, so a poll cut short by its request budget can resume where it stopped.
+const POLL_ISSUES_PAGE = `issues(first: 25, after: $after, sort: [{ updatedAt: { order: Ascending } }], filter: { updatedAt: { gt: $since } }) {
     nodes { ${ROUTINE_ISSUE_FIELDS} updatedAt history(first: 10) { nodes { ${HISTORY_FIELDS} } pageInfo { hasNextPage endCursor } } }
     pageInfo { hasNextPage endCursor }
-  }
+  }`;
+const POLL_ISSUES = `query PollIssues($since: DateTimeOrDuration!, $after: String) {
+  ${POLL_ISSUES_PAGE}
+}`;
+// A scan resumed on a later poll also reads the issue its page cursor names: an issue edited since then sits elsewhere
+// in the updatedAt order, so the cursor would skip what lies between, and the poller starts that scan over instead.
+const POLL_ISSUES_RESUME = `query PollIssuesResume($since: DateTimeOrDuration!, $after: String!, $anchor: String!) {
+  anchor: issue(id: $anchor) { id updatedAt }
+  ${POLL_ISSUES_PAGE}
 }`;
 // One issue's whole history, when the poll's first page of it wasn't all of it.
 const ISSUE_HISTORY = `query IssueHistory($id: String!, $after: String) {
   issue(id: $id) { history(first: 50, after: $after) { nodes { ${HISTORY_FIELDS} } pageInfo { hasNextPage endCursor } } }
 }`;
-// Comments have no sort: a window bounded on both sides, which the poller narrows until it fits in the page cap.
+// Comments have no sort: a window bounded on both sides, read whole before its comments are queued (the poller narrows
+// it when it holds more than the poller buffers).
 const POLL_COMMENTS = `query PollComments($since: DateTimeOrDuration!, $until: DateTimeOrDuration!, $after: String) {
   comments(first: 50, after: $after, filter: { createdAt: { gt: $since, lte: $until } }) {
     nodes { id body createdAt botActor { type } user { name displayName } issue { ${ROUTINE_ISSUE_FIELDS} } }
@@ -293,4 +301,4 @@ function createLinearIssues({ linear, now = Date.now }) {
   return { list, readIssue, worktreeIssues, markStarted, routineOptions, forget };
 }
 
-module.exports = { createLinearIssues, POLL_ISSUES, POLL_COMMENTS, ISSUE_HISTORY, ROUTINE_TEAMS, ROUTINE_TEAM_OPTIONS };
+module.exports = { createLinearIssues, isNotFound, POLL_ISSUES, POLL_ISSUES_RESUME, POLL_COMMENTS, ISSUE_HISTORY, ROUTINE_TEAMS, ROUTINE_TEAM_OPTIONS };

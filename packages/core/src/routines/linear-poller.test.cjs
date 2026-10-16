@@ -6,7 +6,7 @@ const test = require("node:test");
 const { LinearError } = require("../linear/errors.cjs");
 const { createRoutineStore } = require("./store.cjs");
 const { createLinearPoller } = require("./linear-poller.cjs");
-const { POLL_ISSUES, POLL_COMMENTS, ISSUE_HISTORY } = require("../linear/issues.cjs");
+const { POLL_ISSUES, POLL_ISSUES_RESUME, POLL_COMMENTS, ISSUE_HISTORY } = require("../linear/issues.cjs");
 
 const START = Date.UTC(2026, 0, 5, 10, 0, 0);
 const iso = (ms) => new Date(ms).toISOString();
@@ -14,14 +14,36 @@ const target = { kind: "new-chat", projectPath: "/p", workspace: "worktree" };
 
 // A fake Linear that filters and pages as Linear does: issues by updatedAt > since, oldest first when sorted so; comments by
 // since < createdAt <= until, in the order given (Linear can't sort them); an issue's whole history from `histories`.
-// `errors` per workspace are thrown once each; `pageSize` is the fake's page length. Every query is recorded.
+// `errors` per workspace are thrown once each (a code, or { message, code, extensions }); `pageSize` is the fake's page
+// length. Page cursors are offsets, or with `cursor: "id"` the last node's id, found again in the list as it is now (so an
+// issue edited since a page was read moves, and a cursor whose node is gone fails). `notFound` holds issue ids Linear no
+// longer finds. Every query is recorded.
+const missing = (what) => Object.assign(new LinearError(`Entity not found: ${what}`, "failed"), { extensions: { type: "invalid input" } });
+
 function fakeLinear() {
-  const data = { issues: {}, comments: {}, histories: {}, errors: {}, workspaces: ["a", "b"], calls: [], pageSize: 50, hold: null };
+  const data = {
+    issues: {},
+    comments: {},
+    histories: {},
+    errors: {},
+    workspaces: ["a", "b"],
+    calls: [],
+    pageSize: 50,
+    hold: null,
+    cursor: "offset",
+    notFound: new Set(),
+  };
   const page = (list, after) => {
-    const from = after ? Number(after) : 0;
+    let from = after ? Number(after) : 0;
+    if (data.cursor === "id" && after) {
+      const index = list.findIndex((node) => node.id === after);
+      if (index < 0) throw new LinearError("Invalid cursor", "failed");
+      from = index + 1;
+    }
     const nodes = list.slice(from, from + data.pageSize);
     const hasNextPage = from + data.pageSize < list.length;
-    return { nodes, pageInfo: { hasNextPage, endCursor: hasNextPage ? String(from + data.pageSize) : null } };
+    const endCursor = hasNextPage ? (data.cursor === "id" ? nodes.at(-1).id : String(from + data.pageSize)) : null;
+    return { nodes, pageInfo: { hasNextPage, endCursor } };
   };
   return {
     data,
@@ -31,17 +53,26 @@ function fakeLinear() {
       data.calls.push({ workspace, document, variables });
       if (data.hold) await data.hold;
       const error = data.errors[workspace]?.shift();
-      if (error) throw new LinearError(error, error);
+      if (typeof error === "string") throw new LinearError(error, error);
+      if (error) throw Object.assign(new LinearError(error.message, error.code), { extensions: error.extensions });
       if (document.includes("PollIssues")) {
         const since = Date.parse(variables.since);
-        const list = (data.issues[workspace] ?? [])
-          .filter((item) => Date.parse(item.updatedAt) > since)
-          .sort((x, y) => Date.parse(x.updatedAt) - Date.parse(y.updatedAt));
+        const all = data.issues[workspace] ?? [];
+        const list = all.filter((item) => Date.parse(item.updatedAt) > since).sort((x, y) => Date.parse(x.updatedAt) - Date.parse(y.updatedAt));
         // Without the ascending sort Linear lists the newest first.
         if (!document.includes("updatedAt: { order: Ascending }")) list.reverse();
-        return { issues: page(list, variables.after) };
+        const result = {};
+        if (document.includes("anchor:")) {
+          const anchor = all.find((item) => item.id === variables.anchor);
+          if (!anchor || data.notFound.has(variables.anchor)) throw missing("Issue");
+          result.anchor = { id: anchor.id, updatedAt: anchor.updatedAt };
+        }
+        return { ...result, issues: page(list, variables.after) };
       }
-      if (document.includes("IssueHistory")) return { issue: { history: page(data.histories[variables.id] ?? [], variables.after) } };
+      if (document.includes("IssueHistory")) {
+        if (data.notFound.has(variables.id)) throw missing("Issue");
+        return { issue: { history: page(data.histories[variables.id] ?? [], variables.after) } };
+      }
       if (document.includes("PollComments")) {
         const [since, until] = [Date.parse(variables.since), Date.parse(variables.until)];
         const list = (data.comments[workspace] ?? []).filter((item) => Date.parse(item.createdAt) > since && Date.parse(item.createdAt) <= until);
@@ -69,7 +100,7 @@ function fakeTimers() {
   };
 }
 
-function setup({ linked = () => false } = {}) {
+function setup({ linked = () => false, ...options } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "linear-poller-"));
   const clock = { t: START };
   let n = 0;
@@ -77,12 +108,26 @@ function setup({ linked = () => false } = {}) {
   store.setEnabled(true);
   const linear = fakeLinear();
   const timers = fakeTimers();
+  // What the store queued, every event handed to the scheduler (one entry per batch in `batches`), and those it hadn't
+  // seen before (queued, or answered with a missed Run when the queue was full).
   const enqueued = [];
+  const delivered = [];
+  const fresh = [];
+  const batches = [];
   const scheduler = {
+    enqueueEvents(items) {
+      batches.push(items.length);
+      const results = store.enqueueMany(items);
+      items.forEach((item, index) => {
+        delivered.push(item);
+        if (results[index].queued) enqueued.push(item);
+        if (results[index].queued || results[index].reason === "full") fresh.push(item);
+      });
+      return results;
+    },
+    // Kept so an older poller still runs here; each call is a batch of one.
     enqueueEvent(routineId, event) {
-      const result = store.enqueue(routineId, event);
-      if (result.queued) enqueued.push({ routineId, event });
-      return result;
+      return scheduler.enqueueEvents([{ routineId, event }])[0];
     },
   };
   const linkedCalls = [];
@@ -97,10 +142,17 @@ function setup({ linked = () => false } = {}) {
     now: () => clock.t,
     setTimeout: timers.setTimeout,
     clearTimeout: timers.clearTimeout,
+    ...options,
   });
   const routine = (trigger, name = "r") =>
     store.create({ name, prompt: "Look at {{issue.key}}", trigger: { kind: "linear", workspace: "a", ...trigger }, target, createdBy: { kind: "user" } });
-  return { store, clock, linear, timers, enqueued, poller, routine, linkedCalls };
+  // Polls `a` and returns the queries it made.
+  const poll = async (workspace = "a") => {
+    const from = linear.data.calls.length;
+    await poller.pollNow(workspace);
+    return linear.data.calls.slice(from);
+  };
+  return { store, clock, linear, timers, enqueued, delivered, fresh, batches, poller, routine, linkedCalls, poll, dir };
 }
 
 const issue = (overrides = {}) => ({
@@ -333,9 +385,17 @@ function complexity(document) {
         i += 1;
         return cost;
       }
-      const name = /^[A-Za-z_]\w*/.exec(document.slice(i))[0];
+      let name = /^[A-Za-z_]\w*/.exec(document.slice(i))[0];
       i += name.length;
       space();
+      if (document[i] === ":") {
+        // An alias: the field's own name follows.
+        i += 1;
+        space();
+        name = /^[A-Za-z_]\w*/.exec(document.slice(i))[0];
+        i += name.length;
+        space();
+      }
       const given = document[i] === "(" ? args() : "";
       space();
       if (document[i] === "{") {
@@ -349,7 +409,9 @@ function complexity(document) {
 
 test("each poll query stays well under Linear's 10 000-point complexity cap", (t) => {
   assert.equal(Math.round(complexity("{ a { b c } d(first: 2) { e } }") * 10) / 10, 3.4); // 1 + 0.2 + (1 + 0.1) × 2
-  for (const [name, document] of Object.entries({ POLL_ISSUES, POLL_COMMENTS, ISSUE_HISTORY })) {
+  assert.equal(Math.round(complexity("{ x: a { b } }") * 10) / 10, 1.1);
+  for (const [name, document] of Object.entries({ POLL_ISSUES, POLL_ISSUES_RESUME, POLL_COMMENTS, ISSUE_HISTORY })) {
+    assert.equal(typeof document, "string", name);
     const cost = complexity(document);
     t.diagnostic(`${name}: ${cost.toFixed(1)}`);
     assert.ok(cost < 5_000, `${name} costs ${cost}`);
@@ -368,8 +430,8 @@ const assignedIssues = (count) =>
     });
   });
 
-test("issues past the page cap aren't lost: the next poll reads on from where the last one stopped", async () => {
-  const ctx = setup();
+test("issues past the request budget aren't lost: the next poll reads on from where the last one stopped", async () => {
+  const ctx = setup({ requestBudget: 5 });
   ctx.routine({ event: "assigned" });
   ctx.linear.data.pageSize = 2;
   ctx.linear.data.issues.a = assignedIssues(13);
@@ -389,8 +451,8 @@ test("issues past the page cap aren't lost: the next poll reads on from where th
   ctx.poller.stop();
 });
 
-test("comments past the page cap aren't lost: the window is read on across polls, then queued and the comment cursor moves on", async () => {
-  const ctx = setup({ linked: () => true });
+test("comments past the request budget aren't lost: the window is read on across polls, then queued and the comment cursor moves on", async () => {
+  const ctx = setup({ linked: () => true, requestBudget: 3 });
   ctx.routine({ event: "comment" });
   ctx.linear.data.pageSize = 2;
   // Listed newest first: Linear's comment order isn't one the poller can rely on.
@@ -415,8 +477,9 @@ test("comments past the page cap aren't lost: the window is read on across polls
     ctx.enqueued.map(({ event }) => event.comment.createdAt),
     ctx.enqueued.map(({ event }) => event.comment.createdAt).toSorted((x, y) => x - y),
   );
-  // The issue cursor is its own.
-  assert.equal(ctx.store.linearCursor("a"), START - 5_000);
+  // With no issue Routine, issues aren't read at all.
+  assert.equal(ctx.store.linearCursor("a"), undefined);
+  assert.ok(!ctx.linear.data.calls.some((call) => call.document.includes("PollIssues")));
   ctx.poller.stop();
 });
 
@@ -458,6 +521,7 @@ for (const order of ["newest first", "oldest first"]) {
 test("a poll never reaches back more than 24 hours", async () => {
   const ctx = setup();
   ctx.routine({ event: "assigned" });
+  ctx.routine({ event: "comment" }, "comments");
   ctx.store.setLinearCursor("a", START + 1_000);
   ctx.clock.t = START + 3 * 24 * 60 * 60_000;
   ctx.poller.start();
@@ -487,11 +551,11 @@ test("a poll still under way when polling stops queues nothing and moves no curs
   assert.deepEqual(ctx.timers.pending(), []);
 });
 
-test("an issue history longer than the page cap is read on next poll, and the cursor waits for it", async () => {
-  const ctx = setup();
+test("an issue history longer than the request budget is read on next poll, and the cursor waits for it", async () => {
+  const ctx = setup({ requestBudget: 5 });
   ctx.routine({ event: "assigned" });
   ctx.linear.data.pageSize = 2;
-  // Fourteen changes: the poll reads five pages of two, the match is on the seventh page.
+  // Fourteen changes: the poll reads the issues and four pages of two, the match is on the seventh page.
   const whole = Array.from({ length: 14 }, (_, index) => ({
     id: `n${index}`,
     createdAt: iso(START + 1_000 + index),
@@ -517,7 +581,7 @@ test("an issue history longer than the page cap is read on next poll, and the cu
 });
 
 test("a bulk update with more than a page of issues sharing one updatedAt is read through, and the cursor moves past it", async () => {
-  const ctx = setup();
+  const ctx = setup({ requestBudget: 5 });
   ctx.routine({ event: "assigned" });
   ctx.linear.data.pageSize = 1;
   const at = START + 10_000;
@@ -547,7 +611,7 @@ test("a bulk update with more than a page of issues sharing one updatedAt is rea
 });
 
 test("a dense burst of comments in one second is read forward across polls and every comment is queued once", async () => {
-  const ctx = setup({ linked: () => true });
+  const ctx = setup({ linked: () => true, requestBudget: 5 });
   ctx.routine({ event: "comment" });
   ctx.linear.data.pageSize = 2;
   const at = START + 10_000;
@@ -573,6 +637,298 @@ test("a dense burst of comments in one second is read forward across polls and e
   // 18, under the store's 20-item queue cap.
   assert.equal(ctx.enqueued.length, 18);
   assert.equal(new Set(ctx.enqueued.map(({ event }) => event.key)).size, 18);
-  assert.equal(ctx.store.linearCursor("a:comments"), START + 60_000);
+  // The cursor is the newest comment Linear sent, not the Mac's clock.
+  assert.equal(ctx.store.linearCursor("a:comments"), at);
+  ctx.poller.stop();
+});
+
+const comment = (id, at, issueNumber = 1, extra = {}) => ({
+  id,
+  body: "Hi",
+  createdAt: iso(at),
+  botActor: null,
+  user: { name: "Victor" },
+  issue: issue({ id: `issue-${issueNumber}`, identifier: `MIL-${issueNumber}` }),
+  ...extra,
+});
+const byIssue = (items) => {
+  const groups = new Map();
+  for (const { event } of items) groups.set(event.issue.key, [...(groups.get(event.issue.key) ?? []), event.comment.createdAt]);
+  return groups;
+};
+
+test("3000 comments are each handed over once, oldest first per issue, in batches no bigger than the 1000-event buffer", async (t) => {
+  const ctx = setup({ linked: () => true });
+  ctx.routine({ event: "comment" });
+  const count = 3000;
+  // Listed newest first, across seven issues.
+  ctx.linear.data.comments.a = Array.from({ length: count }, (_, index) => comment(`c${index}`, START + 1_000 + index * 10, index % 7)).toReversed();
+  ctx.clock.t = START + 1_000 + count * 10 + 1_000;
+  ctx.poller.start();
+  let polls = 0;
+  for (; polls < 60 && ctx.fresh.length < count; polls += 1) {
+    const calls = await ctx.poll();
+    assert.ok(calls.length <= 40, `poll ${polls} made ${calls.length} requests`);
+    ctx.clock.t += 60_000;
+  }
+  t.diagnostic(`${polls} polls, batches ${ctx.batches.join(" ")}`);
+  assert.equal(ctx.fresh.length, count);
+  assert.equal(new Set(ctx.fresh.map(({ event }) => event.key)).size, count);
+  for (const [key, times] of byIssue(ctx.fresh)) {
+    assert.deepEqual(
+      times,
+      times.toSorted((x, y) => x - y),
+      `${key} oldest first`,
+    );
+  }
+  assert.ok(Math.max(...ctx.batches) <= 1000, `largest batch ${Math.max(...ctx.batches)}`);
+  assert.ok(ctx.batches.length < count / 10, "handed over in batches, not one by one");
+  ctx.poller.stop();
+});
+
+test("one poll never makes more than its 40-request budget, and under a backlog issues and comments both move", async () => {
+  const ctx = setup({ linked: () => true });
+  ctx.routine({ event: "assigned" });
+  ctx.routine({ event: "comment" }, "comments");
+  ctx.linear.data.pageSize = 5;
+  // 200 issues, each with a three-page history.
+  ctx.linear.data.issues.a = Array.from({ length: 200 }, (_, index) => {
+    const at = START + 10_000 + index * 100;
+    const id = `i${index}`;
+    const whole = Array.from({ length: 14 }, (_, n) => ({ id: `${id}-n${n}`, createdAt: iso(at - 50 + n), addedLabels: [], toAssignee: null, toState: null }));
+    whole.push(assignedToMe(`${id}-mine`, at));
+    ctx.linear.data.histories[id] = whole;
+    return issue({
+      id,
+      identifier: `MIL-${index}`,
+      updatedAt: iso(at),
+      history: { nodes: whole.slice(0, 5), pageInfo: { hasNextPage: true, endCursor: "5" } },
+    });
+  });
+  ctx.linear.data.comments.a = Array.from({ length: 150 }, (_, index) => comment(`c${index}`, START + 10_000 + index * 10, index % 3));
+  ctx.clock.t = START + 60_000;
+  ctx.poller.start();
+  for (let poll = 0; poll < 3; poll += 1) {
+    const calls = await ctx.poll();
+    assert.ok(calls.length <= 40, `poll ${poll} made ${calls.length} requests`);
+    ctx.clock.t += 60_000;
+  }
+  const kinds = new Set(ctx.delivered.map(({ event }) => event.change));
+  assert.ok(kinds.has("assigned"), "issue changes came through");
+  assert.ok(kinds.has("comment"), "comments came through");
+  ctx.poller.stop();
+});
+
+test("a workspace with only comment Routines reads no issues, and one with only issue Routines reads no comments", async () => {
+  const ctx = setup({ linked: () => true });
+  ctx.routine({ event: "comment" });
+  ctx.routine({ event: "assigned", workspace: "b" }, "on b");
+  ctx.linear.data.issues.a = [issue({ history: { nodes: [assignedToMe("h1", START + 10_000)] } })];
+  ctx.linear.data.comments.b = [comment("c1", START + 10_000)];
+  ctx.clock.t = START + 60_000;
+  ctx.poller.start();
+  const onA = await ctx.poll("a");
+  const onB = await ctx.poll("b");
+  assert.deepEqual(
+    onA.map((call) => call.document.match(/query (\w+)/)[1]),
+    ["PollComments"],
+  );
+  assert.deepEqual(
+    onB.map((call) => call.document.match(/query (\w+)/)[1]),
+    ["PollIssues"],
+  );
+  ctx.poller.stop();
+});
+
+test("an issue no Routine's team filter takes never has its long history read", async () => {
+  const ctx = setup();
+  ctx.routine({ event: "assigned", team: "MIL" });
+  ctx.linear.data.pageSize = 2;
+  ctx.linear.data.histories["web-1"] = Array.from({ length: 6 }, (_, n) => assignedToMe(`w${n}`, START + 1_000 + n));
+  ctx.linear.data.issues.a = [
+    issue({ id: "web-1", identifier: "WEB-1", team: { key: "WEB" }, history: { nodes: [], pageInfo: { hasNextPage: true, endCursor: "2" } } }),
+  ];
+  ctx.clock.t = START + 60_000;
+  ctx.poller.start();
+  const calls = await ctx.poll();
+  assert.ok(!calls.some((call) => call.document.includes("IssueHistory")));
+  ctx.poller.stop();
+});
+
+test("a Mac clock an hour ahead, then put right, never hides a comment made after it", async () => {
+  const ctx = setup({ linked: () => true });
+  ctx.routine({ event: "comment" });
+  ctx.linear.data.comments.a = [comment("c1", START + 10_000)];
+  ctx.clock.t = START + 60 * 60_000;
+  ctx.poller.start();
+  await ctx.poll();
+  ctx.clock.t = START + 60_000;
+  ctx.linear.data.comments.a.push(comment("c2", START + 30_000));
+  await ctx.poll();
+  await ctx.poll();
+  assert.deepEqual(
+    ctx.enqueued.map(({ event }) => event.key),
+    ["linear-comment:c1", "linear-comment:c2"],
+  );
+  ctx.poller.stop();
+});
+
+test("a saved cursor more than 5 minutes ahead of the clock is read as now minus the overlap", async () => {
+  const ctx = setup({ linked: () => true });
+  ctx.routine({ event: "assigned" });
+  ctx.routine({ event: "comment" }, "comments");
+  ctx.clock.t = START + 60_000;
+  ctx.store.setLinearCursor("a", ctx.clock.t + 60 * 60_000);
+  ctx.store.setLinearCursor("a:comments", ctx.clock.t + 60 * 60_000);
+  ctx.poller.start();
+  const calls = await ctx.poll();
+  const since = (name) => calls.find((call) => call.document.includes(name)).variables.since;
+  assert.equal(since("PollIssues"), iso(ctx.clock.t - 10_000));
+  assert.equal(since("PollComments"), iso(ctx.clock.t - 10_000));
+  ctx.poller.stop();
+});
+
+test("a linked-Chat lookup that fails holds the comment scan back, and the next poll delivers the comment once", async () => {
+  let fail = true;
+  const ctx = setup({
+    linked: () => {
+      if (fail) {
+        fail = false;
+        throw new Error("daemon busy");
+      }
+      return true;
+    },
+  });
+  ctx.routine({ event: "comment" });
+  ctx.routine({ event: "assigned" }, "assigned");
+  ctx.linear.data.issues.a = [issue({ history: { nodes: [assignedToMe("h1", START + 10_000)] } })];
+  ctx.linear.data.comments.a = [comment("c1", START + 10_000)];
+  ctx.clock.t = START + 60_000;
+  ctx.poller.start();
+  await ctx.poll();
+  // The issue scan went through; the comment wasn't dropped as unlinked and the comment cursor stayed put.
+  assert.deepEqual(
+    ctx.delivered.map(({ event }) => event.key),
+    ["linear:issue-1:h1"],
+  );
+  assert.equal(ctx.store.linearCursor("a:comments"), undefined);
+  await ctx.poll();
+  await ctx.poll();
+  assert.deepEqual(
+    ctx.enqueued.map(({ event }) => event.key).filter((key) => key.startsWith("linear-comment")),
+    ["linear-comment:c1"],
+  );
+  ctx.poller.stop();
+});
+
+test("three failed polls in a row say so on the workspace's Routines, without tokens or bodies, and a good poll clears it", async () => {
+  const ctx = setup();
+  const routine = ctx.routine({ event: "assigned" });
+  const message = `Bad request with Bearer lin_oauth_secret123 ${"y".repeat(300)} {"query":"query PollIssues { issues { nodes { id } } }"}`;
+  ctx.linear.data.errors.a = [1, 2, 3].map(() => ({ message, code: "failed" }));
+  ctx.poller.start();
+  await ctx.poll();
+  await ctx.poll();
+  assert.equal(ctx.store.get(routine.id).lastError, undefined, "two failures stay quiet");
+  await ctx.poll();
+  const error = ctx.store.get(routine.id).lastError;
+  assert.ok(error.startsWith("Linear polling failed: Bad request"), error);
+  assert.ok(error.length <= 200, `${error.length} characters`);
+  assert.ok(!/lin_oauth|secret123|\{|query/.test(error), error);
+  await ctx.poll();
+  assert.equal(ctx.store.get(routine.id).lastError, undefined);
+  ctx.poller.stop();
+});
+
+test("a long history held across polls whose issue is then deleted is dropped, and other issues keep coming", async () => {
+  const ctx = setup({ requestBudget: 3 });
+  ctx.routine({ event: "assigned" });
+  ctx.linear.data.pageSize = 2;
+  ctx.linear.data.histories["issue-1"] = Array.from({ length: 14 }, (_, n) => ({
+    id: `n${n}`,
+    createdAt: iso(START + 1_000 + n),
+    addedLabels: [],
+    toAssignee: null,
+    toState: null,
+  }));
+  ctx.linear.data.issues.a = [issue({ updatedAt: iso(START + 3_000), history: { nodes: [], pageInfo: { hasNextPage: true, endCursor: "2" } } })];
+  ctx.clock.t = START + 60_000;
+  ctx.poller.start();
+  await ctx.poll();
+  assert.equal(ctx.store.linearCursor("a"), undefined, "the history is held");
+  ctx.linear.data.notFound.add("issue-1");
+  ctx.linear.data.issues.a = [
+    issue({ id: "issue-2", identifier: "MIL-2", updatedAt: iso(START + 40_000), history: { nodes: [assignedToMe("h2", START + 40_000)] } }),
+  ];
+  for (let poll = 0; poll < 3; poll += 1) await ctx.poll();
+  assert.deepEqual(
+    ctx.enqueued.map(({ event }) => event.key),
+    ["linear:issue-2:h2"],
+  );
+  assert.equal(ctx.store.linearCursor("a"), START + 40_000);
+  ctx.poller.stop();
+});
+
+test("a held comment page cursor Linear stops taking is dropped after the failure, and the window is read again", async () => {
+  const ctx = setup({ linked: () => true, requestBudget: 5 });
+  ctx.routine({ event: "comment" });
+  ctx.linear.data.pageSize = 2;
+  ctx.linear.data.cursor = "id";
+  ctx.linear.data.comments.a = Array.from({ length: 14 }, (_, index) => comment(`c${index}`, START + 1_000 + index * 1_000));
+  ctx.clock.t = START + 60_000;
+  ctx.poller.start();
+  await ctx.poll();
+  assert.deepEqual(ctx.enqueued, [], "the window isn't read through yet");
+  // The node the held cursor points at goes away.
+  ctx.linear.data.comments.a = ctx.linear.data.comments.a.filter((item) => item.id !== "c9");
+  for (let poll = 0; poll < 6; poll += 1) await ctx.poll();
+  assert.deepEqual(
+    ctx.enqueued.map(({ event }) => event.key),
+    Array.from({ length: 14 }, (_, index) => `linear-comment:c${index}`).filter((key) => key !== "linear-comment:c9"),
+  );
+  assert.equal(ctx.store.linearCursor("a:comments"), START + 14_000);
+  ctx.poller.stop();
+});
+
+// Linear's page cursor names a node, found again where that node sits now.
+test("an issue scan held across polls starts over when the issue its cursor names was edited since, so nothing is skipped", async () => {
+  const ctx = setup({ requestBudget: 5 });
+  ctx.routine({ event: "assigned" });
+  ctx.linear.data.pageSize = 2;
+  ctx.linear.data.cursor = "id";
+  ctx.linear.data.issues.a = assignedIssues(14);
+  ctx.clock.t = START + 600_000;
+  ctx.poller.start();
+  await ctx.poll();
+  assert.equal(ctx.enqueued.length, 10);
+  // The cursor issue (the tenth) is edited, then the first is edited later still.
+  const issues = ctx.linear.data.issues.a;
+  issues[9] = { ...issues[9], updatedAt: iso(START + 200_000) };
+  issues[0] = { ...issues[0], updatedAt: iso(START + 210_000) };
+  for (let poll = 0; poll < 3; poll += 1) await ctx.poll();
+  assert.deepEqual(
+    ctx.enqueued.map(({ event }) => event.key),
+    Array.from({ length: 14 }, (_, index) => `linear:i${index}:h${index}`),
+  );
+  assert.equal(ctx.store.linearCursor("a"), START + 210_000);
+  ctx.poller.stop();
+});
+
+test("an issue scan held across polls whose cursor issue was deleted starts over from that issue's time", async () => {
+  const ctx = setup({ requestBudget: 5 });
+  ctx.routine({ event: "assigned" });
+  ctx.linear.data.pageSize = 2;
+  ctx.linear.data.cursor = "id";
+  ctx.linear.data.issues.a = assignedIssues(14);
+  ctx.clock.t = START + 600_000;
+  ctx.poller.start();
+  await ctx.poll();
+  ctx.linear.data.issues.a = ctx.linear.data.issues.a.filter((item) => item.id !== "i9");
+  for (let poll = 0; poll < 3; poll += 1) await ctx.poll();
+  assert.deepEqual(
+    ctx.enqueued.map(({ event }) => event.key),
+    Array.from({ length: 14 }, (_, index) => `linear:i${index}:h${index}`),
+  );
+  assert.equal(ctx.store.linearCursor("a"), START + 140_000);
   ctx.poller.stop();
 });

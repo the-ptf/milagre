@@ -418,7 +418,7 @@ test("a Chat a Routine started gets no tools that make or start Routines", (t) =
 });
 
 // The runtime makes Linear after the Routines: a getter read too early throws, which must not break anything.
-function linearRoutines(t, linear) {
+function linearRoutines(t, linear, now) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-adapter-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const timers = [];
@@ -431,6 +431,7 @@ function linearRoutines(t, linear) {
     openState: async () => undefined,
     linear,
     timers: {
+      ...(now ? { now } : {}),
       setInterval: () => ({ unref() {} }),
       clearInterval() {},
       setTimeout(fn, ms) {
@@ -492,11 +493,43 @@ test("the Routines switch starts and stops Linear polling", async (t) => {
   // A timer that fired is done with, as a cleared one is.
   first.cleared = true;
   await first.fn();
-  assert.deepEqual(queries, ["acme", "acme"]);
+  // An assigned Routine needs issues only.
+  assert.deepEqual(queries, ["acme"]);
   await routines.save(false);
   assert.deepEqual(
     timers.filter((timer) => !timer.cleared),
     [],
     "off again: every poll timer is cleared",
   );
+});
+
+test("Linear polling runs on the Routines' clock", async (t) => {
+  const clock = Date.UTC(2020, 0, 1, 12);
+  const queries = [];
+  const fake = {
+    enabled: () => true,
+    workspaces: () => [{ id: "acme", organization: { name: "Acme" } }],
+    query: async (workspace, document, variables) => {
+      queries.push(variables);
+      return { issues: { nodes: [] } };
+    },
+  };
+  const { routines, timers } = linearRoutines(
+    t,
+    () => fake,
+    () => clock,
+  );
+  routines.create({
+    name: "Assigned",
+    prompt: "Look",
+    trigger: { kind: "linear", workspace: "acme", event: "assigned" },
+    target: { kind: "new-chat", projectPath: "/project", workspace: "worktree" },
+  });
+  await routines.save(true);
+  const first = timers.find((timer) => !timer.cleared && timer.ms === 0);
+  first.cleared = true;
+  await first.fn();
+  // 5 s before the Routine was made on that clock; on the real one this would be floored at a day ago.
+  assert.equal(queries[0].since, new Date(clock - 5_000).toISOString());
+  await routines.save(false);
 });

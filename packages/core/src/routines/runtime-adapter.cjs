@@ -287,6 +287,7 @@ function createRoutines({
     // Only an issue a Chat is linked to takes comments; the rest are dropped before they make a Run.
     linkedIssue: async (issue) => Boolean(await routineChatsView.linkedChat(issue)),
     onChange: changed,
+    now,
     ...(timers.setTimeout ? { setTimeout: timers.setTimeout } : {}),
     ...(timers.clearTimeout ? { clearTimeout: timers.clearTimeout } : {}),
   });
