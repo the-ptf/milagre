@@ -51,6 +51,11 @@ import { showBrief } from "../handoff-brief-store";
 import { WorktreeLinkDivider } from "../worktree-link-divider";
 import { AccountSwitchDivider } from "../account-switch-divider";
 import { ChatReloadDivider } from "../chat-reload-divider";
+import { CheckpointRestoreDivider } from "../checkpoint-restore-divider";
+import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
+import { useCheckpoints } from "@milagre/shared/use-checkpoints";
+import type { CheckpointApi } from "@milagre/shared/checkpoints";
+import { UndoPanel, type UndoIntent } from "../undo-panel";
 import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
 import { CompactionDivider } from "../compaction-divider";
 import { isHandoff } from "@milagre/shared/handoff";
@@ -99,6 +104,12 @@ function issueChoices(issues: LinearIssue[]) {
 }
 /** The workspace the issue sheet showed last, so it opens there again. */
 let lastLinearWorkspace: string | undefined;
+const UNDO_COMMANDS = [{ name: "undo", description: "Undo a task's file changes" }];
+const NO_CHECKPOINTS: CheckpointApi = {
+  list: async () => [],
+  preview: () => Promise.reject(new Error("Connect to the computer to undo changes")),
+  restore: () => Promise.reject(new Error("Connect to the computer to undo changes")),
+};
 
 export default function ChatScreen() {
   const { colors } = useTheme();
@@ -128,6 +139,21 @@ export default function ChatScreen() {
     },
     [],
   );
+  // Undo changes: the Chat's task checkpoints, shown in the composer's place from ⋯, /undo or an undo line's Redo.
+  const undoClient = session.client;
+  const checkpointApi = useMemo<CheckpointApi | null>(
+    () =>
+      undoClient
+        ? {
+            list: (request) => undoClient.call("checkpoint:list", [request]),
+            preview: (request) => undoClient.call("checkpoint:preview", [request]),
+            restore: (request) => undoClient.call("checkpoint:restore", [request]),
+          }
+        : null,
+    [undoClient],
+  );
+  const undo = useCheckpoints(checkpointApi ?? NO_CHECKPOINTS, session.snapshot && params.id ? `${session.snapshot.project.path}#${params.id}` : "");
+  const [undoIntent, setUndoIntent] = useState<UndoIntent>("Undo");
   const targetHost = params.hostId || session.client?.url || "";
   const targetProject = params.projectPath || session.snapshot?.project.path || "";
   const targetScope = JSON.stringify([targetHost, targetProject]);
@@ -354,7 +380,9 @@ export default function ChatScreen() {
                 ? `Go to ${accountSwitchText(messages[index].context)}, ${index + 1} of ${messages.length}.`
                 : isChatReload(messages[index])
                   ? `Go to ${RELOAD_TEXT}, ${index + 1} of ${messages.length}.`
-                  : `Go to ${messageSender(messages[index])} message ${index + 1} of ${messages.length}. ${messages[index].body.slice(0, 88)}`,
+                  : isCheckpointRestore(messages[index])
+                    ? `Go to ${messages[index].body}, ${index + 1} of ${messages.length}.`
+                    : `Go to ${messageSender(messages[index])} message ${index + 1} of ${messages.length}. ${messages[index].body.slice(0, 88)}`,
       })),
     [messages, handoffModels],
   );
@@ -508,6 +536,7 @@ export default function ChatScreen() {
   const attachments = composer.attachments[chatId] || [];
   const attachmentDisabled = busy || picking || attachments.length >= 4;
   const run = chat ? runs.runs[chatId] : undefined;
+  const undoHighlight = (undo.view === "list" ? undo.tasks[0] : undo.view === "preview" ? undo.preview : null)?.messageId;
   // What the Chat is doing (chat-activity.mjs), the same as its sidebar row and desktop's composer show.
   const activity = chat ? chatActivity(chat, run) : undefined;
   // Feedback cards read the agent's resolutions again only when a comment may have changed.
@@ -653,6 +682,13 @@ export default function ChatScreen() {
   }
   /** Whether the message went: "busy" when it wasn't tried, the Chat being busy. An issue key starts the Chat in its own new worktree. */
   async function send(body = draft, withAttachments = true, prAction?: PullRequestActionContext, issue?: LinearIssue): Promise<boolean | "busy"> {
+    // `/undo` opens Undo changes instead of reaching the agent, even mid-turn; its preview waits for the turn to end.
+    if (chat && withAttachments && body.trim() === "/undo") {
+      composer.setDrafts((current) => ({ ...current, [chatId]: "" }));
+      setUndoIntent("Undo");
+      void undo.open();
+      return false;
+    }
     const issueKey = issue?.key;
     // A turn running now takes this message as a steer, on the provider it already runs.
     const steered = Boolean(run);
@@ -827,6 +863,10 @@ export default function ChatScreen() {
   }
   function headerAction(id: string) {
     if (id === "changes") panels.show("right");
+    else if (id === "undo" && chat) {
+      setUndoIntent("Undo");
+      void undo.open();
+    }
     // oxlint-disable-next-line unicorn/prefer-string-starts-ends-with -- pr comes unvalidated from the host's JSON response, so pr.url may be missing and startsWith would throw
     else if (id === "pr" && pr && /^https:\/\//.test(pr.url)) void Linking.openURL(pr.url).catch(() => {});
     else if (id === "agents" && chat) router.push({ pathname: "/agents", params: { id: String(chat.id) } });
@@ -988,6 +1028,11 @@ export default function ChatScreen() {
         >
           View changes
         </Stack.Toolbar.MenuAction>
+        {chat && (
+          <Stack.Toolbar.MenuAction icon="arrow.uturn.backward" disabled={!!run} onPress={() => headerAction("undo")}>
+            Undo changes
+          </Stack.Toolbar.MenuAction>
+        )}
         {pr && (
           <Stack.Toolbar.MenuAction
             icon="arrow.triangle.pull"
@@ -1179,6 +1224,18 @@ export default function ChatScreen() {
                   <AccountSwitchDivider context={message.context} />
                 ) : isChatReload(message) ? (
                   <ChatReloadDivider />
+                ) : isCheckpointRestore(message) ? (
+                  <CheckpointRestoreDivider
+                    context={message.context}
+                    onPreview={
+                      run
+                        ? undefined
+                        : (recoveryId, intent) => {
+                            setUndoIntent(intent);
+                            void undo.inspect(recoveryId);
+                          }
+                    }
+                  />
                 ) : (
                   <ChatReply
                     message={message}
@@ -1190,6 +1247,7 @@ export default function ChatScreen() {
                     // A limit card offers other accounts only on the Chat's last message, with no turn running.
                     limitProjectPath={!run && !pending && message === messages[messages.length - 1] ? project.path : undefined}
                     onActivity={openActivity}
+                    highlighted={message.id === undoHighlight}
                   />
                 )}
               </View>,
@@ -1316,310 +1374,323 @@ export default function ChatScreen() {
                   />
                 </View>
               )}
-              {(!question || answering) && (
-                <View
-                  style={{
-                    backgroundColor: "transparent",
-                    borderWidth: 1,
-                    borderColor: colors.lineStrong,
-                    borderRadius: 24,
-                    borderCurve: "continuous",
-                    overflow: "hidden",
-                    paddingTop: 8,
-                    paddingHorizontal: 8,
-                    paddingBottom: 6,
-                    gap: 4,
-                    boxShadow: ultracodeOn ? `0 4px 22px ${colors.purple}47` : "0 4px 20px #0000000f",
-                  }}
-                >
-                  <LiquidGlassView
-                    pointerEvents="none"
-                    glassType="clear"
-                    isInteractive={false}
-                    reducedTransparencyFallbackColor={colors.surface}
-                    style={[StyleSheet.absoluteFill, { borderRadius: 24, borderCurve: "continuous" }]}
-                  />
-                  {/* With Ultracode on, the composer takes its purple: a breathing tint and border, and a glow. */}
-                  {ultracodeOn && <UltracodeGlow radius={24} />}
-                  {!params.id && !project.link && (
-                    <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
-                      <PullDown
-                        label="Choose isolation"
-                        nativeTrigger={{
-                          title: isolation === "local" ? "Local" : "New worktree",
-                          systemImage: isolation === "local" ? "laptopcomputer" : "arrow.triangle.branch",
-                          icon: isolation === "local" ? "laptop" : "fork",
-                          disabled: targetDisabled,
-                        }}
-                        sections={[
-                          {
-                            title: "Isolation",
-                            items: [
-                              {
-                                id: "local",
-                                title: "Local",
-                                systemImage: "laptopcomputer",
-                                icon: "laptop",
-                                checked: isolation === "local",
-                                disabled: targetDisabled,
-                              },
-                              {
-                                id: "worktree",
-                                title: "New worktree",
-                                systemImage: "arrow.triangle.branch",
-                                icon: "fork",
-                                checked: isolation === "worktree",
-                                disabled: targetDisabled,
-                              },
-                            ],
-                          },
-                        ]}
-                        onSelect={(id) => {
-                          if (!targetDisabled) chooseTarget({ isolation: id === "worktree" ? "worktree" : "local" });
-                        }}
-                      >
-                        <View
-                          style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 6,
-                            paddingHorizontal: 10,
-                            paddingVertical: 6,
-                            opacity: targetDisabled ? 0.35 : 1,
+              {undo.view !== "closed" && chat ? (
+                <UndoPanel
+                  review={undo}
+                  intent={undoIntent}
+                  onOpenFile={
+                    project.link || !worktree
+                      ? undefined
+                      : (file) => router.push({ pathname: "/diff", params: { worktreeId: String(worktreeId), path: file.path, mode: "uncommitted" } })
+                  }
+                />
+              ) : (
+                (!question || answering) && (
+                  <View
+                    style={{
+                      backgroundColor: "transparent",
+                      borderWidth: 1,
+                      borderColor: colors.lineStrong,
+                      borderRadius: 24,
+                      borderCurve: "continuous",
+                      overflow: "hidden",
+                      paddingTop: 8,
+                      paddingHorizontal: 8,
+                      paddingBottom: 6,
+                      gap: 4,
+                      boxShadow: ultracodeOn ? `0 4px 22px ${colors.purple}47` : "0 4px 20px #0000000f",
+                    }}
+                  >
+                    <LiquidGlassView
+                      pointerEvents="none"
+                      glassType="clear"
+                      isInteractive={false}
+                      reducedTransparencyFallbackColor={colors.surface}
+                      style={[StyleSheet.absoluteFill, { borderRadius: 24, borderCurve: "continuous" }]}
+                    />
+                    {/* With Ultracode on, the composer takes its purple: a breathing tint and border, and a glow. */}
+                    {ultracodeOn && <UltracodeGlow radius={24} />}
+                    {!params.id && !project.link && (
+                      <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+                        <PullDown
+                          label="Choose isolation"
+                          nativeTrigger={{
+                            title: isolation === "local" ? "Local" : "New worktree",
+                            systemImage: isolation === "local" ? "laptopcomputer" : "arrow.triangle.branch",
+                            icon: isolation === "local" ? "laptop" : "fork",
+                            disabled: targetDisabled,
                           }}
-                        >
-                          <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={14} />
-                          <Text style={styles.label}>{isolation === "local" ? "Local" : "New worktree"}</Text>
-                          <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
-                        </View>
-                      </PullDown>
-                      <PullDown
-                        label="Choose branch"
-                        searchable={{
-                          placeholder: newWorktree ? "Search branches" : "Search worktrees",
-                          emptyLabel: newWorktree ? "No branches found." : "No worktrees found.",
-                        }}
-                        nativeTrigger={{ title: branchName, systemImage: "arrow.triangle.branch", disabled: branchDisabled, maxWidth: 180 }}
-                        sections={[
-                          {
-                            title: newWorktree ? "Branch from" : "Choose a worktree",
-                            items: newWorktree
-                              ? (branches?.items || []).map((item) => ({
-                                  id: item,
-                                  title: item,
-                                  checked: item === base,
-                                  systemImage: "arrow.triangle.branch",
-                                  disabled: branchDisabled,
-                                }))
-                              : Object.values(project.state.worktrees).map((item) => ({
-                                  id: String(item.id),
-                                  title: item.name,
-                                  subtitle: item.path?.split("/").filter(Boolean).pop(),
-                                  checked: item.id === worktreeId,
-                                  systemImage: "arrow.triangle.branch",
+                          sections={[
+                            {
+                              title: "Isolation",
+                              items: [
+                                {
+                                  id: "local",
+                                  title: "Local",
+                                  systemImage: "laptopcomputer",
+                                  icon: "laptop",
+                                  checked: isolation === "local",
                                   disabled: targetDisabled,
-                                })),
-                          },
-                        ]}
-                        onSelect={(id) => {
-                          if (!branchDisabled) {
-                            if (newWorktree) chooseTarget({ baseBranch: id });
-                            else navigation.setParams({ worktreeId: id });
-                          }
-                        }}
-                      >
-                        <View
-                          style={{
-                            maxWidth: 180,
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 6,
-                            paddingHorizontal: 10,
-                            paddingVertical: 6,
-                            opacity: branchDisabled ? 0.35 : 1,
+                                },
+                                {
+                                  id: "worktree",
+                                  title: "New worktree",
+                                  systemImage: "arrow.triangle.branch",
+                                  icon: "fork",
+                                  checked: isolation === "worktree",
+                                  disabled: targetDisabled,
+                                },
+                              ],
+                            },
+                          ]}
+                          onSelect={(id) => {
+                            if (!targetDisabled) chooseTarget({ isolation: id === "worktree" ? "worktree" : "local" });
                           }}
                         >
-                          <Icon icon={GitBranchIcon} tone="ink2" size={14} />
-                          <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
-                            {branchName}
-                          </Text>
-                          <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
-                        </View>
-                      </PullDown>
-                      {linearActive && (
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel="Start from a Linear issue"
-                          disabled={targetDisabled}
-                          onPress={() => void chooseIssue()}
-                          style={({ pressed }) => ({
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 6,
-                            paddingHorizontal: 10,
-                            paddingVertical: 6,
-                            opacity: targetDisabled ? 0.35 : pressed ? 0.6 : 1,
-                          })}
-                        >
-                          <LinearLogo size={13} />
-                          <Text style={styles.label}>Linear issue</Text>
-                        </Pressable>
-                      )}
-                    </View>
-                  )}
-                  {!!attachments.length && (
-                    <PageScroll horizontal contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 8 }}>
-                      {attachments.map((item) => (
-                        <View
-                          key={item.id}
-                          style={{
-                            backgroundColor: colors.field,
-                            borderRadius: 12,
-                            borderCurve: "continuous",
-                            paddingLeft: item.image ? 4 : 10,
-                            flexDirection: "row",
-                            alignItems: "center",
-                            maxWidth: 220,
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 6,
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
+                              opacity: targetDisabled ? 0.35 : 1,
+                            }}
+                          >
+                            <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={14} />
+                            <Text style={styles.label}>{isolation === "local" ? "Local" : "New worktree"}</Text>
+                            <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
+                          </View>
+                        </PullDown>
+                        <PullDown
+                          label="Choose branch"
+                          searchable={{
+                            placeholder: newWorktree ? "Search branches" : "Search worktrees",
+                            emptyLabel: newWorktree ? "No branches found." : "No worktrees found.",
+                          }}
+                          nativeTrigger={{ title: branchName, systemImage: "arrow.triangle.branch", disabled: branchDisabled, maxWidth: 180 }}
+                          sections={[
+                            {
+                              title: newWorktree ? "Branch from" : "Choose a worktree",
+                              items: newWorktree
+                                ? (branches?.items || []).map((item) => ({
+                                    id: item,
+                                    title: item,
+                                    checked: item === base,
+                                    systemImage: "arrow.triangle.branch",
+                                    disabled: branchDisabled,
+                                  }))
+                                : Object.values(project.state.worktrees).map((item) => ({
+                                    id: String(item.id),
+                                    title: item.name,
+                                    subtitle: item.path?.split("/").filter(Boolean).pop(),
+                                    checked: item.id === worktreeId,
+                                    systemImage: "arrow.triangle.branch",
+                                    disabled: targetDisabled,
+                                  })),
+                            },
+                          ]}
+                          onSelect={(id) => {
+                            if (!branchDisabled) {
+                              if (newWorktree) chooseTarget({ baseBranch: id });
+                              else navigation.setParams({ worktreeId: id });
+                            }
                           }}
                         >
-                          {item.image ? (
-                            <Image source={{ uri: item.uri }} accessibilityLabel={item.name} style={{ width: 44, height: 44, borderRadius: 8 }} />
-                          ) : (
-                            <Pressable
-                              accessibilityRole="button"
-                              accessibilityLabel={`Preview ${item.name}`}
-                              onPress={() =>
-                                router.push({ pathname: "/file-preview", params: item.path ? { path: item.path } : { uri: item.uri, name: item.name } })
-                              }
-                              style={{ flexDirection: "row", alignItems: "center", flexShrink: 1 }}
-                            >
-                              <Icon icon={File01Icon} tone="ink2" size={18} />
+                          <View
+                            style={{
+                              maxWidth: 180,
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 6,
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
+                              opacity: branchDisabled ? 0.35 : 1,
+                            }}
+                          >
+                            <Icon icon={GitBranchIcon} tone="ink2" size={14} />
+                            <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
+                              {branchName}
+                            </Text>
+                            <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
+                          </View>
+                        </PullDown>
+                        {linearActive && (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Start from a Linear issue"
+                            disabled={targetDisabled}
+                            onPress={() => void chooseIssue()}
+                            style={({ pressed }) => ({
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 6,
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
+                              opacity: targetDisabled ? 0.35 : pressed ? 0.6 : 1,
+                            })}
+                          >
+                            <LinearLogo size={13} />
+                            <Text style={styles.label}>Linear issue</Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    )}
+                    {!!attachments.length && (
+                      <PageScroll horizontal contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 8 }}>
+                        {attachments.map((item) => (
+                          <View
+                            key={item.id}
+                            style={{
+                              backgroundColor: colors.field,
+                              borderRadius: 12,
+                              borderCurve: "continuous",
+                              paddingLeft: item.image ? 4 : 10,
+                              flexDirection: "row",
+                              alignItems: "center",
+                              maxWidth: 220,
+                            }}
+                          >
+                            {item.image ? (
+                              <Image source={{ uri: item.uri }} accessibilityLabel={item.name} style={{ width: 44, height: 44, borderRadius: 8 }} />
+                            ) : (
+                              <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel={`Preview ${item.name}`}
+                                onPress={() =>
+                                  router.push({ pathname: "/file-preview", params: item.path ? { path: item.path } : { uri: item.uri, name: item.name } })
+                                }
+                                style={{ flexDirection: "row", alignItems: "center", flexShrink: 1 }}
+                              >
+                                <Icon icon={File01Icon} tone="ink2" size={18} />
+                                <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
+                                  {item.name}
+                                </Text>
+                              </Pressable>
+                            )}
+                            {item.image && (
                               <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
                                 {item.name}
                               </Text>
-                            </Pressable>
-                          )}
-                          {item.image && (
-                            <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
-                              {item.name}
-                            </Text>
-                          )}
-                          <IconButton
-                            label={`Remove ${item.name}`}
-                            icon={Cancel01Icon}
-                            size={32}
-                            disabled={busy || picking}
-                            onPress={() =>
-                              composer.setAttachments((current) => ({
-                                ...current,
-                                [chatId]: (current[chatId] || []).filter((attachment) => attachment.id !== item.id),
-                              }))
-                            }
-                          />
-                        </View>
-                      ))}
-                    </PageScroll>
-                  )}
-                  <PromptField
-                    key={chatId}
-                    client={client}
-                    projectPath={worktree?.path || (project.link ? "" : project.path)}
-                    draft={draft}
-                    onImagePaste={(image) => void pasteImage(image)}
-                    // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
-                    placeholder={run && !providerCapabilities(chat?.provider ?? actualProvider).steer ? "Queue a message for the next turn" : undefined}
-                    onChangeText={(value) => composer.setDrafts((current) => ({ ...current, [chatId]: value }))}
-                  />
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                    <PullDown
-                      label="Add photos or files"
-                      nativeTrigger={{ systemImage: "plus", disabled: attachmentDisabled }}
-                      sections={[
-                        {
-                          items: [
-                            { id: "photos", title: "Photo Library", systemImage: "photo.on.rectangle", disabled: attachmentDisabled },
-                            { id: "camera", title: "Take Photo", systemImage: "camera", disabled: attachmentDisabled },
-                            { id: "files", title: "Choose Files", systemImage: "folder", disabled: attachmentDisabled },
-                            { id: "paste", title: "Paste image", systemImage: "doc.on.clipboard", disabled: attachmentDisabled },
-                          ],
-                        },
-                      ]}
-                      onSelect={(kind) => void pick(kind as "photos" | "camera" | "files" | "paste")}
-                    >
-                      <View style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", opacity: attachmentDisabled ? 0.35 : 1 }}>
-                        <Icon icon={Add01Icon} tone="ink2" size={21} />
-                      </View>
-                    </PullDown>
-                    <AgentControls
-                      model={model}
-                      effort={preferences.effort}
-                      fastMode={preferences.fastMode}
-                      ultracode={preferences.ultracode}
-                      onToggle={() => {
-                        router.push({
-                          pathname: "/model-sheet",
-                          params: {
-                            chatId,
-                            model: model.id,
-                            provider: actualProvider,
-                            ...(chat?.provider ? { on: chat.provider } : {}),
-                            ...(run ? { busy: "1" } : {}),
+                            )}
+                            <IconButton
+                              label={`Remove ${item.name}`}
+                              icon={Cancel01Icon}
+                              size={32}
+                              disabled={busy || picking}
+                              onPress={() =>
+                                composer.setAttachments((current) => ({
+                                  ...current,
+                                  [chatId]: (current[chatId] || []).filter((attachment) => attachment.id !== item.id),
+                                }))
+                              }
+                            />
+                          </View>
+                        ))}
+                      </PageScroll>
+                    )}
+                    <PromptField
+                      key={chatId}
+                      client={client}
+                      projectPath={worktree?.path || (project.link ? "" : project.path)}
+                      draft={draft}
+                      onImagePaste={(image) => void pasteImage(image)}
+                      commands={chat ? UNDO_COMMANDS : undefined}
+                      // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
+                      placeholder={run && !providerCapabilities(chat?.provider ?? actualProvider).steer ? "Queue a message for the next turn" : undefined}
+                      onChangeText={(value) => composer.setDrafts((current) => ({ ...current, [chatId]: value }))}
+                    />
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <PullDown
+                        label="Add photos or files"
+                        nativeTrigger={{ systemImage: "plus", disabled: attachmentDisabled }}
+                        sections={[
+                          {
+                            items: [
+                              { id: "photos", title: "Photo Library", systemImage: "photo.on.rectangle", disabled: attachmentDisabled },
+                              { id: "camera", title: "Take Photo", systemImage: "camera", disabled: attachmentDisabled },
+                              { id: "files", title: "Choose Files", systemImage: "folder", disabled: attachmentDisabled },
+                              { id: "paste", title: "Paste image", systemImage: "doc.on.clipboard", disabled: attachmentDisabled },
+                            ],
                           },
-                        });
-                      }}
-                    />
-                    <PermissionChip
-                      mode={preferences.permissionMode}
-                      onPress={() => router.push({ pathname: "/permission-sheet", params: { chatId, ...(run ? { busy: "1" } : {}) } })}
-                    />
-                    <View style={{ flex: 1 }} />
-                    <PlanPill panel={planPanel} />
-                    {contextUsage && contextUsage.size > 0 && params.id && (
-                      <ContextRing
-                        {...contextUsage}
-                        canCompact={Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact}
-                        onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
+                        ]}
+                        onSelect={(kind) => void pick(kind as "photos" | "camera" | "files" | "paste")}
+                      >
+                        <View style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", opacity: attachmentDisabled ? 0.35 : 1 }}>
+                          <Icon icon={Add01Icon} tone="ink2" size={21} />
+                        </View>
+                      </PullDown>
+                      <AgentControls
+                        model={model}
+                        effort={preferences.effort}
+                        fastMode={preferences.fastMode}
+                        ultracode={preferences.ultracode}
+                        onToggle={() => {
+                          router.push({
+                            pathname: "/model-sheet",
+                            params: {
+                              chatId,
+                              model: model.id,
+                              provider: actualProvider,
+                              ...(chat?.provider ? { on: chat.provider } : {}),
+                              ...(run ? { busy: "1" } : {}),
+                            },
+                          });
+                        }}
                       />
-                    )}
-                    {run && !draft.trim() && !attachments.length && (
-                      <IconButton
-                        label="Stop"
-                        icon={StopIcon}
-                        filled
-                        size={34}
-                        disabled={actionBusy}
-                        onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
+                      <PermissionChip
+                        mode={preferences.permissionMode}
+                        onPress={() => router.push({ pathname: "/permission-sheet", params: { chatId, ...(run ? { busy: "1" } : {}) } })}
                       />
-                    )}
-                    {(!run || !!draft.trim() || !!attachments.length) && (
-                      <IconButton
-                        label={
-                          busy
-                            ? "Sending..."
-                            : run
-                              ? providerCapabilities(chat?.provider ?? actualProvider).steer
-                                ? "Send follow-up"
-                                : "Queue message"
-                              : "Send message"
-                        }
-                        icon={ArrowUp01Icon}
-                        filled
-                        size={34}
-                        loading={busy}
-                        disabled={
-                          busy ||
-                          picking ||
-                          (newWorktree && !base) ||
-                          (!draft.trim() && !attachments.length) ||
-                          !!session.error ||
-                          !!chat?.archived ||
-                          unavailable
-                        }
-                        onPress={() => void send()}
-                      />
-                    )}
+                      <View style={{ flex: 1 }} />
+                      <PlanPill panel={planPanel} />
+                      {contextUsage && contextUsage.size > 0 && params.id && (
+                        <ContextRing
+                          {...contextUsage}
+                          canCompact={Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact}
+                          onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
+                        />
+                      )}
+                      {run && !draft.trim() && !attachments.length && (
+                        <IconButton
+                          label="Stop"
+                          icon={StopIcon}
+                          filled
+                          size={34}
+                          disabled={actionBusy}
+                          onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
+                        />
+                      )}
+                      {(!run || !!draft.trim() || !!attachments.length) && (
+                        <IconButton
+                          label={
+                            busy
+                              ? "Sending..."
+                              : run
+                                ? providerCapabilities(chat?.provider ?? actualProvider).steer
+                                  ? "Send follow-up"
+                                  : "Queue message"
+                                : "Send message"
+                          }
+                          icon={ArrowUp01Icon}
+                          filled
+                          size={34}
+                          loading={busy}
+                          disabled={
+                            busy ||
+                            picking ||
+                            (newWorktree && !base) ||
+                            (!draft.trim() && !attachments.length) ||
+                            !!session.error ||
+                            !!chat?.archived ||
+                            unavailable
+                          }
+                          onPress={() => void send()}
+                        />
+                      )}
+                    </View>
                   </View>
-                </View>
+                )
               )}
             </View>
             {/* Drawn last and floated above the dock, so showing it changes no other view's layout or order: either

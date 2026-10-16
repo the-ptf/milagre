@@ -233,6 +233,11 @@ function makeBridge(invoke, listen, send) {
     retryQuit: () => invoke("app:retry-quit"),
     onQuitFailed: (callback) => listen("app:quit-failed", callback),
     onProjectState: (callback) => listen("project:state", callback),
+    checkpoints: {
+      list: (request) => invoke("checkpoint:list", request),
+      preview: (request) => invoke("checkpoint:preview", request),
+      restore: (request) => invoke("checkpoint:restore", request),
+    },
     sendMessage: (request) => invoke("chat:send", request),
     resumeChat: (projectPath, sessionId) => invoke("chat:resume", projectPath, sessionId),
     reloadChat: (chatId) => invoke("chat:reload", chatId),

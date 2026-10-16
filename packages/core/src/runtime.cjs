@@ -58,6 +58,7 @@ const { createProjectSettings } = require("./project-settings.cjs");
 const { WorktreeSetups, resolveSetupCommand } = require("./worktree-setup.cjs");
 const { SetupReview } = require("./setup-review.cjs");
 const { readDiffStat } = require("./diffstat.cjs");
+const { registerCheckpoints } = require("./checkpoint-runtime.cjs");
 const { registerGitHandlers } = require("./git-ipc.cjs");
 const { createPullRequestReader, readPullRequestState, readPullRequests } = require("./pull-request.cjs");
 const { emptyState, reconcileState, markDisconnectedSubagents } = require("./project-state.cjs");
@@ -873,6 +874,8 @@ function createRuntime(options) {
   // Set up with the accounts below; agent events only arrive after start.
   let limitSwitch = null;
   function publishAgentEvent(chatId, event, state, seq) {
+    if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type))
+      void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
     options.observeAgentEvent?.(chatId, event);
     // A turn the plan's usage limit stopped marks its account, and may move the Chat to another (auto-switch).
     if (event.type === "turn-failed" && event.limit && limitSwitch)
@@ -988,6 +991,7 @@ function createRuntime(options) {
   }
 
   const chats = new ChatHost({
+    beforeTask: (request) => checkpoints.begin(request),
     beforeSend: async (request) => {
       if (request.context?.kind !== "advisor-result" && request.sessionId != null) await advisorDelivery?.resume(`${request.projectPath}#${request.sessionId}`);
     },
@@ -1181,6 +1185,14 @@ function createRuntime(options) {
     ready: () => environmentReady,
     clientVersion: version,
     knownFolders: () => scopeStates.worktreePaths(),
+  });
+
+  const checkpoints = registerCheckpoints(commands, {
+    directory: path.join(dataDir, "checkpoints"),
+    states: scopeStates,
+    ready: () => environmentReady,
+    busy: (chatId) => chats.isBusy(chatId) || agents.isTurnActive(chatId) || Boolean(agents.sessions.get(chatId)?.activeChildren?.size),
+    note: (chatId, message) => chats.addNote(chatId, message),
   });
 
   commands.handle("chat:send", async (_event, request) => {

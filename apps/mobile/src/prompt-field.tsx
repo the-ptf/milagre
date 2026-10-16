@@ -22,6 +22,7 @@ export function PromptField({
   draft,
   onChangeText,
   onImagePaste,
+  commands,
   placeholder = "Message the agent",
 }: {
   client: Client;
@@ -29,12 +30,15 @@ export function PromptField({
   draft: string;
   onChangeText: (value: string) => void;
   onImagePaste?: (image: PastedImage) => void;
+  /** Milagre's own slash commands, offered with the skills: `/undo` in a saved Chat. */
+  commands?: { name: string; description: string }[];
   placeholder?: string;
 }) {
   const { colors } = useTheme();
   const paste = useImagePaste(onImagePaste);
   const { data, loading, error, refresh } = useRpc<SkillCatalog>(projectPath ? client : null, "skills:list", [projectPath]);
-  const skills = data?.skills;
+  const skillList = data?.skills;
+  const skills = useMemo(() => (commands?.length ? [...commands, ...(skillList ?? [])] : skillList), [commands, skillList]);
   const parts = useMemo(
     () =>
       promptSkillParts(

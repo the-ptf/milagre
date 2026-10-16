@@ -40,6 +40,8 @@ const SOURCES: Source[] = [
   { key: "paste", name: "Paste image", desc: "Attach an image from the clipboard", icon: ClipboardPasteIcon },
 ];
 
+const UNDO_COMMAND = { key: "undo", name: "/undo", desc: "Undo a task's file changes" };
+
 const COMMANDS = [
   { key: "summarize", name: "/summarize", desc: "Digest the thread so far" },
   { key: "blockers", name: "/blockers", desc: "Find blockers across worktrees" },
@@ -86,6 +88,8 @@ interface PromptComposerProps {
   alwaysExpanded?: boolean;
   /** How full the agent's context window is, shown as a ring beside Send. */
   contextUsage?: ContextUsage;
+  /** The Chat is saved: `/undo` is offered, and sending it opens Undo changes instead of reaching the agent. */
+  canUndo?: boolean;
 }
 
 const NO_HISTORY: string[] = [];
@@ -144,6 +148,7 @@ export function PromptComposer({
   onPermissionModeChange,
   alwaysExpanded = false,
   contextUsage,
+  canUndo = false,
 }: PromptComposerProps) {
   const [dismissed, setDismissed] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
@@ -216,10 +221,12 @@ export function PromptComposer({
       })),
   );
   const commands: MenuRow[] = [
-    ...COMMANDS.filter((command) => !skills.some((skill) => skill.name.toLowerCase() === command.key)).map((command) => ({
-      ...command,
-      group: "Milagre skills",
-    })),
+    ...[...(canUndo ? [UNDO_COMMAND] : []), ...COMMANDS]
+      .filter((command) => !skills.some((skill) => skill.name.toLowerCase() === command.key))
+      .map((command) => ({
+        ...command,
+        group: "Milagre skills",
+      })),
     ...skillRows,
   ];
   const skillParts = promptSkillParts(

@@ -129,6 +129,9 @@ const PATHS = Object.freeze({
   "linear:worktree-issues": ([projectPath]) => [projectPath],
   "chat:runs": none,
   "chat:inbox": none,
+  "checkpoint:list": ([value]) => [chatProject(value?.chatId)],
+  "checkpoint:preview": ([value]) => [chatProject(value?.chatId)],
+  "checkpoint:restore": ([value]) => [chatProject(value?.chatId)],
   "chat:ports": ([chatId]) => [chatProject(chatId)],
   "agent:stop-port": ([chatId]) => [chatProject(chatId)],
   "chat:send": ([request]) => [

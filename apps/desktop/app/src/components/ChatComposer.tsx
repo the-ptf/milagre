@@ -22,7 +22,7 @@ import { TaskTrack } from "./agents/TaskTrack";
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, DragEvent, ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, GitBranchIcon, GitForkIcon, GitPullRequestIcon, LaptopIcon } from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, GitBranchIcon, GitForkIcon, GitPullRequestIcon, LaptopIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { LinearLogo } from "./ProviderLogo";
 import type { LinearIssue } from "@milagre/shared/linear";
 import type {
@@ -57,6 +57,13 @@ import { AccountSwitchDivider } from "./AccountSwitchDivider";
 import { ChatReloadDivider } from "./ChatReloadDivider";
 import { isChatReload } from "@milagre/shared/chat-reload";
 import { CompactionDivider } from "./CompactionDivider";
+import { CheckpointRestoreDivider } from "./CheckpointRestoreDivider";
+import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
+import { useCheckpoints } from "@milagre/shared/use-checkpoints";
+import { undoableTasks, type CheckpointApi } from "@milagre/shared/checkpoints";
+import { UndoPanel, type UndoIntent } from "./checkpoints/UndoPanel";
+import { bridgeForKey } from "../lib/computer-bridge";
+import { isModalOpen } from "../lib/modal";
 import { advisorResultLabel, messageSender } from "@milagre/shared/advisor-result";
 import { LinkedMessageHeader, linkedContext } from "./LinkedMessage";
 import { isHandoff } from "@milagre/shared/handoff";
@@ -154,10 +161,27 @@ const MessageSection = memo(function MessageSection({
   limitInteractive = false,
   onOpenAccounts,
   models,
+  undoId,
+  undoLatest = false,
+  undoDisabled = false,
+  onUndo,
+  highlighted = false,
+  onCheckpointPreview,
 }: {
   message: AppChatMessage;
   isUser: boolean;
   models: ModelOption[];
+  /** The checkpoint of the task this message started, when it changed files: the hover button opens its preview. */
+  undoId?: string;
+  /** It is the newest such task, the one Esc Esc lists first. */
+  undoLatest?: boolean;
+  /** A turn is running: undo waits for it. */
+  undoDisabled?: boolean;
+  onUndo?: (checkpointId: string) => void;
+  /** The task in the undo panel's view: its message is outlined. */
+  highlighted?: boolean;
+  /** Opens the preview behind an undo line's Redo. */
+  onCheckpointPreview?: (recoveryId: string, action: UndoIntent) => void;
   onRecommendationSelect: (option: string) => void;
   onUpdateCli?: (provider: ModelProvider) => void;
   updatingCli?: ModelProvider | null;
@@ -181,6 +205,7 @@ const MessageSection = memo(function MessageSection({
   if (isCompaction(message)) return <CompactionDivider context={message.context} />;
   if (isAccountSwitch(message)) return <AccountSwitchDivider context={message.context} />;
   if (isChatReload(message)) return <ChatReloadDivider />;
+  if (isCheckpointRestore(message)) return <CheckpointRestoreDivider context={message.context} onPreview={onCheckpointPreview} />;
   const linked = linkedContext(message);
   const advisor = typeof message.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
   // A PR-blocker pill's message shows as a card, not as the skill prompt the agent read.
@@ -206,7 +231,7 @@ const MessageSection = memo(function MessageSection({
       data-from={messageSender(message)}
       data-linked={linked?.kind}
       data-streaming={streaming || undefined}
-      className={`flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-300 ${bubble || feedback || answered || prAction || issue ? "items-end pl-12" : ""}`}
+      className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-300 ${bubble || feedback || answered || prAction || issue ? "items-end pl-12" : ""}`}
       style={animate ? { animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" } : undefined}
     >
       {advisor && (
@@ -216,8 +241,29 @@ const MessageSection = memo(function MessageSection({
       )}
       {linked && <LinkedMessageHeader context={linked} onOpenChat={onOpenChat} />}
       <div
-        className={`min-w-0 max-w-full text-[13px] leading-[1.55] text-ink ${bubble ? "rounded-xl bg-field px-3 py-1.5" : feedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "rounded-xl border border-line px-3 py-2" : ""}`}
+        className={`min-w-0 max-w-full text-[13px] leading-[1.55] text-ink ${bubble ? "relative rounded-xl bg-field px-3 py-1.5" : feedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "rounded-xl border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
       >
+        {/* Beside the bubble, not under it: showing it on hover never moves the transcript. */}
+        {bubble && undoId && onUndo && (
+          <div className="absolute top-[3px] right-full mr-1.5 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+            <Tooltip
+              label={undoDisabled ? "Wait for the task to finish" : "Undo changes"}
+              keyHint={undoLatest && !undoDisabled ? "Esc Esc" : undefined}
+              align="end"
+            >
+              <button
+                type="button"
+                data-undo-message={message.id}
+                aria-label="Undo this task's changes"
+                disabled={undoDisabled}
+                onClick={() => onUndo(undoId)}
+                className="flex size-7 items-center justify-center rounded-[7px] text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-50"
+              >
+                <Icon icon={Undo02Icon} size={15} />
+              </button>
+            </Tooltip>
+          </div>
+        )}
         <Attachments images={isUser ? message.images : message.images?.filter((image) => !image.sourcePath)} files={message.files} />
         {prAction ? (
           <PullRequestActionCard action={prAction} />
@@ -293,7 +339,19 @@ const MessageTranscript = memo(function MessageTranscript({
   findOpen,
   models,
   earlier,
-}: Pick<
+  undoable,
+  undoBlocked = false,
+  onUndo,
+  highlightId = null,
+  onCheckpointPreview,
+}: {
+  /** Message id → the checkpoint of the task it started, for tasks that changed files; `latest` is the newest. */
+  undoable?: Map<number, { id: string; latest: boolean }>;
+  undoBlocked?: boolean;
+  onUndo?: (checkpointId: string) => void;
+  highlightId?: number | null;
+  onCheckpointPreview?: (recoveryId: string, action: UndoIntent) => void;
+} & Pick<
   ChatComposerProps,
   | "earlier"
   | "messages"
@@ -451,6 +509,13 @@ const MessageTranscript = memo(function MessageTranscript({
           limitInteractive={message.id === limitMessageId}
           onOpenAccounts={onOpenAccounts}
           models={models}
+          // Only the messages that show undo get its props: a send or turn end leaves the rest memoized.
+          undoId={message.role === "user" ? undoable?.get(message.id)?.id : undefined}
+          undoLatest={message.role === "user" && undoable?.get(message.id)?.latest}
+          undoDisabled={message.role === "user" && undoable?.has(message.id) && undoBlocked}
+          onUndo={message.role === "user" && undoable?.has(message.id) ? onUndo : undefined}
+          highlighted={message.id === highlightId}
+          onCheckpointPreview={isCheckpointRestore(message) && !undoBlocked ? onCheckpointPreview : undefined}
         />
       ))}
     </>
@@ -462,6 +527,8 @@ interface ChatComposerProps {
   offlineName?: string | null;
   /** Sends a comment on a design, or the design the user chose, to the agent; resolves whether it went. */
   onSendDesignMessage?: (text: string) => Promise<boolean>;
+  /** Opens a file's diff in the Changes panel, from the undo preview. */
+  onOpenDiff?: (path: string, worktree: string) => void;
   scopeKind?: "project" | "link";
   /** The find bar over the message list; the parent owns it so ⌘F and the command palette can open it. */
   findOpen?: boolean;
@@ -849,6 +916,7 @@ export function ChatComposer({
   notice,
   onDismissNotice,
   onSendDesignMessage,
+  onOpenDiff,
 }: ChatComposerProps) {
   const root = useRef<HTMLDivElement>(null);
   const chatId = messages[0]?.session_id ?? "new";
@@ -870,6 +938,89 @@ export function ChatComposer({
 
   // The runtime knows a Chat by its Project's path, not the Worktree's `projectPath` it runs in.
   const runtimeChat = typeof chatId === "number" && chatId > 0 && projectPath ? (agentChatId ?? `${messageScope ?? projectPath}#${chatId}`) : null;
+  // Undo changes: the Chat's task checkpoints, the panel that takes the composer's place, and the message it outlines.
+  const checkpointApi = useMemo<CheckpointApi>(() => (runtimeChat ? (bridgeForKey(runtimeChat).checkpoints ?? NO_CHECKPOINTS) : NO_CHECKPOINTS), [runtimeChat]);
+  const review = useCheckpoints(checkpointApi, runtimeChat ?? "");
+  const [undoIntent, setUndoIntent] = useState<UndoIntent>("Undo");
+  const [highlightId, setHighlightId] = useState<number | null>(null);
+  const reloadCheckpoints = review.reload;
+  // A task's checkpoint gets its file count when the turn ends.
+  useEffect(() => {
+    if (runtimeChat && !isSending) void reloadCheckpoints();
+  }, [runtimeChat, isSending, reloadCheckpoints]);
+  const undoable = useMemo(
+    () =>
+      new Map(
+        undoableTasks(review.items)
+          .filter((task) => task.messageId !== undefined)
+          .map((task, index) => [task.messageId!, { id: task.id, latest: index === 0 }]),
+      ),
+    [review.items],
+  );
+  const openUndo = useEvent(() => {
+    setUndoIntent("Undo");
+    void review.open();
+  });
+  const undoTask = useEvent((id: string) => {
+    setUndoIntent("Undo");
+    void review.inspect(id);
+  });
+  const previewRecovery = useEvent((id: string, action: UndoIntent) => {
+    setUndoIntent(action);
+    void review.inspect(id);
+  });
+  const focusPrompt = useCallback(() => {
+    requestAnimationFrame(() => root.current?.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')?.focus());
+  }, []);
+  useEffect(() => {
+    if (highlightId !== null) root.current?.querySelector(`#message-${highlightId}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [highlightId]);
+  // Esc Esc in an idle Chat with an empty prompt lists its tasks to undo, as in Claude Code. It never writes anything.
+  const lastEscape = useRef(0);
+  const onEscape = useEvent((event: globalThis.KeyboardEvent) => {
+    if (event.key !== "Escape" || event.defaultPrevented || event.isComposing || event.repeat) return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    // Escape in the prompt closes an open list, as it closes the slash menu.
+    if (review.view !== "closed" && target?.closest("[data-promptbar]")) {
+      event.preventDefault();
+      review.close();
+      return;
+    }
+    const typing =
+      !!target?.closest("input, select, [contenteditable='true'], .xterm") || (target?.tagName === "TEXTAREA" && !target.closest("[data-promptbar]"));
+    const hidden = !root.current?.offsetParent;
+    if (
+      isSending ||
+      review.view !== "closed" ||
+      draft.trim() ||
+      typing ||
+      hidden ||
+      isModalOpen() ||
+      document.documentElement.hasAttribute("data-popover-open")
+    ) {
+      lastEscape.current = 0;
+      return;
+    }
+    if (lastEscape.current && event.timeStamp - lastEscape.current < 450) {
+      lastEscape.current = 0;
+      event.preventDefault();
+      openUndo();
+    } else lastEscape.current = event.timeStamp;
+  });
+  useEffect(() => {
+    if (!runtimeChat || offlineName) return;
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [runtimeChat, offlineName, onEscape]);
+  // `/undo` opens the same list instead of going to the agent.
+  const send = useEvent(() => {
+    if (runtimeChat && draft.trim() === "/undo") {
+      onDraftChange("");
+      openUndo();
+      return;
+    }
+    onSend();
+  });
   // Designs are read through the Chat's key; a shared Link Chat uses its Link-scoped key too.
   const artifactChat = runtimeChat;
   const artifactSteps = useMemo(() => [...messages.flatMap((message) => message.steps ?? []), ...(streamingSteps ?? [])], [messages, streamingSteps]);
@@ -968,6 +1119,11 @@ export function ChatComposer({
                       streamingText={streamingText}
                       streamingSteps={streamingSteps}
                       asking={asking}
+                      undoable={undoable}
+                      undoBlocked={isSending || Boolean(offlineName)}
+                      onUndo={runtimeChat ? undoTask : undefined}
+                      highlightId={highlightId}
+                      onCheckpointPreview={runtimeChat ? previewRecovery : undefined}
                       waitingStepIds={waitingStepIds}
                       onRecommendationSelect={onRecommendationSelect}
                       onUpdateCli={onUpdateCli}
@@ -1077,7 +1233,10 @@ export function ChatComposer({
             {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
             {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
             {approval && <div className="mb-2 w-full">{approval}</div>}
-            <div className={offlineName ? "pointer-events-none opacity-60" : undefined}>
+            {review.view !== "closed" && !isNewChat && (
+              <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
+            )}
+            <div className={`${offlineName ? "pointer-events-none opacity-60" : ""} ${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
               <PromptComposer
                 offlineName={offlineName}
                 imageDraft={imageDraft}
@@ -1085,7 +1244,8 @@ export function ChatComposer({
                 draft={draft}
                 onDraftChange={onDraftChange}
                 history={promptHistory}
-                onSend={onSend}
+                onSend={send}
+                canUndo={Boolean(runtimeChat)}
                 onStop={onStop}
                 onCompact={onCompact}
                 sendBlocked={sendBlocked}
@@ -1123,6 +1283,11 @@ export function ChatComposer({
 }
 
 const NO_OP = () => {};
+const NO_CHECKPOINTS: CheckpointApi = {
+  list: async () => [],
+  preview: () => Promise.reject(new Error("Open a saved Chat to undo its changes")),
+  restore: () => Promise.reject(new Error("Open a saved Chat to undo its changes")),
+};
 
 /** A Chat's transcript alone, following its stream: an unfocused tile of the Chat grid. Replying means focusing the tile. */
 export function ChatTranscript({
