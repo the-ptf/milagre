@@ -16,7 +16,9 @@ const cronField = z.string().max(100).describe('Five-field cron expression, e.g.
 const everyField = z
   .string()
   .max(10)
-  .describe('A fixed cadence: a number and m (minutes) or h (hours), e.g. "15m" or "2h". At most every minute. Give this or cron, not both.');
+  .describe(
+    'A fixed cadence: minutes that divide 60 (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30) with m, or hours that divide 24 (1, 2, 3, 4, 6, 8, 12, 24) with h, e.g. "15m" or "2h". Give this or cron, not both.',
+  );
 const timezoneField = z.string().max(64).describe("IANA timezone, e.g. America/Sao_Paulo. Defaults to the computer's timezone.");
 const maxRunsField = z.number().int().min(1).max(1000).describe("End the heartbeat after this many runs.");
 const expiresInField = z.string().max(10).describe('End the heartbeat after this long: a number and m, h or d, e.g. "12h" or "3d". At most 30d.');

@@ -53,18 +53,41 @@ test("parseCron rejects malformed expressions", () => {
 test("everyToCron converts minutes and hours", () => {
   assert.equal(everyToCron("15m"), "*/15 * * * *");
   assert.equal(everyToCron("1m"), "*/1 * * * *");
-  assert.equal(everyToCron("59m"), "*/59 * * * *");
+  assert.equal(everyToCron("30m"), "*/30 * * * *");
   assert.equal(everyToCron("60m"), "0 */1 * * *");
   assert.equal(everyToCron("120m"), "0 */2 * * *");
   assert.equal(everyToCron("2h"), "0 */2 * * *");
-  assert.equal(everyToCron("23h"), "0 */23 * * *");
+  assert.equal(everyToCron("12h"), "0 */12 * * *");
   assert.equal(everyToCron("24h"), "0 0 * * *");
 });
 
 test("everyToCron rejects anything else", () => {
-  for (const bad of ["0m", "0h", "90m", "61m", "25h", "1.5h", "15", "15s", "1d", " 15m", "15m ", "-5m", "", "m"]) {
+  for (const bad of ["0m", "0h", "1.5h", "15", "15s", "1d", " 15m", "15m ", "-5m", "", "m"]) {
     assert.throws(() => everyToCron(bad), /Invalid every/, JSON.stringify(bad));
   }
+});
+
+const MINUTES_RULE = "Every N minutes must divide 60 (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30)";
+const HOURS_RULE = "Every N hours must divide 24 (1, 2, 3, 4, 6, 8, 12, 24)";
+
+test("everyToCron takes only minutes that divide 60 and hours that divide 24", () => {
+  for (const bad of ["7m", "45m", "59m", "61m", "90m"]) assert.throws(() => everyToCron(bad), { message: MINUTES_RULE }, bad);
+  for (const bad of ["5h", "7h", "23h", "25h", "300m"]) assert.throws(() => everyToCron(bad), { message: HOURS_RULE }, bad);
+});
+
+// The times a cadence fires at over two days from midnight UTC, and the gaps between them.
+function gaps(every) {
+  const expression = everyToCron(every);
+  let at = Date.UTC(2026, 9, 16) - 1;
+  const fired = [];
+  while (at < Date.UTC(2026, 9, 18)) fired.push((at = nextRun(expression, "UTC", at)));
+  return new Set(fired.slice(1).map((t, index) => (t - fired[index]) / 60_000));
+}
+
+test("every accepted cadence fires at even gaps, across the hour and midnight", () => {
+  for (const minutes of [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30]) assert.deepEqual(gaps(`${minutes}m`), new Set([minutes]), `${minutes}m`);
+  for (const hours of [1, 2, 3, 4, 6, 8, 12, 24]) assert.deepEqual(gaps(`${hours}h`), new Set([hours * 60]), `${hours}h`);
+  assert.deepEqual(gaps("120m"), new Set([120]));
 });
 
 test("nextRun finds the next quarter hour, strictly after", () => {
@@ -130,8 +153,30 @@ test("nextRun finds a leap day within the year cap", () => {
   assert.equal(nextRun("0 0 29 2 *", "UTC", Date.UTC(2027, 2, 1)), Date.UTC(2028, 1, 29));
 });
 
-test("nextRun throws when nothing matches within a year", () => {
-  assert.throws(() => nextRun("0 0 31 2 *", "UTC", Date.UTC(2026, 0, 1)), /No run within a year/);
+test("nextRun finds a leap day more than a year away", () => {
+  // Made in March 2028, just after a leap day: the next one is four years on.
+  const started = performance.now();
+  assert.equal(nextRun("0 0 29 2 *", "UTC", Date.UTC(2028, 2, 1, 12, 0)), Date.UTC(2032, 1, 29));
+  assert.equal(nextRun("0 0 29 2 *", "America/Sao_Paulo", Date.UTC(2028, 2, 1, 12, 0)), localEpoch("America/Sao_Paulo", 2032, 2, 29, 0, 0));
+  assert.ok(performance.now() - started < 200, "skips whole days and months");
+});
+
+test("nextRun throws, quickly, when nothing matches within 8 years", () => {
+  const started = performance.now();
+  assert.throws(() => nextRun("0 0 31 2 *", "UTC", Date.UTC(2026, 0, 1)), { message: "No run within 8 years" });
+  assert.throws(() => nextRun("0 0 30 2 *", "Europe/Lisbon", Date.UTC(2026, 0, 1)), { message: "No run within 8 years" });
+  assert.ok(performance.now() - started < 200, "skips whole days and months");
+});
+
+test("a minute cadence still answers fast and exactly", () => {
+  const started = performance.now();
+  let at = Date.UTC(2026, 9, 16, 10, 0, 30);
+  for (let index = 0; index < 1000; index += 1) {
+    const next = nextRun("* * * * *", "Europe/Lisbon", at);
+    assert.equal(next, Math.floor(at / 60_000) * 60_000 + 60_000);
+    at = next;
+  }
+  assert.ok(performance.now() - started < 1000);
 });
 
 test("nextRun rejects bad expressions and unknown time zones", () => {

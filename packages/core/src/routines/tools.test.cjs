@@ -318,3 +318,30 @@ test("routines of the Project are found from a sibling Chat, by chat or by proje
   assert.equal((await call("routine_delete", { id: triage.id }, OTHER_CHAT)).isError, true);
   assert.equal((await call("routine_delete", { id: triage.id }, sibling)).isError, false);
 });
+
+test("an uneven every is refused with the rule, by every tool that takes one, and nothing is saved", async () => {
+  const { store, call } = setup();
+  const minutes = "Every N minutes must divide 60 (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30)";
+  const hours = "Every N hours must divide 24 (1, 2, 3, 4, 6, 8, 12, 24)";
+  for (const [every, rule] of [
+    ["59m", minutes],
+    ["23h", hours],
+  ]) {
+    const heartbeat = await call("heartbeat_create", { ...create, every });
+    assert.equal(heartbeat.isError, true);
+    assert.match(heartbeat.text, new RegExp(rule.replace(/[()]/g, "\\$&")));
+    const routine = await call("routine_create", { name: "x", prompt: "p", trigger: "schedule", every });
+    assert.equal(routine.isError, true);
+    assert.match(routine.text, new RegExp(rule.replace(/[()]/g, "\\$&")));
+  }
+  assert.deepEqual(store.list(), []);
+  await call("heartbeat_create", create);
+  const update = await call("routine_update", { id: store.list()[0].id, every: "45m" });
+  assert.equal(update.isError, true);
+  assert.match(update.text, /Every N minutes must divide 60/);
+  assert.equal(store.list()[0].trigger.cron, "*/15 * * * *");
+  const tool = setup()
+    .tools.definitions(CHAT)
+    .find((item) => item.name === "heartbeat_create");
+  assert.match(JSON.stringify(inputSchema(tool)), /divide 60/);
+});
