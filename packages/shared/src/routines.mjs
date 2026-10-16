@@ -15,9 +15,12 @@ export function routineRunOf(message) {
   return null;
 }
 
-/** Whether the message carries a routine divider (see routineRunOf for both shapes). */
+/**
+ * Whether the message is a "routine-run" divider message. A Linear Run's first message is not one: it is the issue card with
+ * `routine` on it, which only routineRunOf reads.
+ */
 export function isRoutineRun(message) {
-  return routineRunOf(message) !== null;
+  return message?.context?.kind === "routine-run";
 }
 
 /**

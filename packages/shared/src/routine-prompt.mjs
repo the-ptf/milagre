@@ -67,8 +67,13 @@ function stripBraces(text) {
   return current;
 }
 
-// Text must not be able to write an <untrusted-data> tag of its own: it could close its block and speak as the prompt.
-const escapeTags = (text) => text.replace(/<(\s*\/?\s*untrusted-data)/gi, "&lt;$1");
+// Text must not be able to write an <untrusted-data> tag of its own: it could close its block and speak as the prompt. A "<"
+// is replaced when the tag name follows it, however the way there is dressed up: any characters that are not brackets,
+// letters or digits may stand between them (spaces, "/", and characters that show nothing, such as a zero-width space or a
+// soft hyphen). It is one lookahead over one class, which cannot hold the next "<", so the work grows with the length of the
+// text and not with its square: a webhook body may be 256 KiB and the daemon renders the prompt on its main thread.
+const TAG_START = /<(?=[^<>\w]*untrusted-data)/gi;
+const escapeTags = (text) => text.replace(TAG_START, "&lt;");
 
 // The label goes inside source="...", so it loses what could end the attribute or the tag, and its line breaks.
 const cleanLabel = (label) => String(label).replace(/[<>"]/g, "").replace(/\s+/g, " ").trim();

@@ -146,15 +146,17 @@ test("routineRunOf is null for a linear-issue message without routine and for an
   assert.equal(routineRunOf(undefined), null);
 });
 
-test("isRoutineRun is true for a linear-issue message that carries routine, and only then", () => {
-  assert.equal(isRoutineRun(linearIssue("l1", linearRoutine())), true);
+test("isRoutineRun is for the routine-run message alone; a linear-issue message that carries routine is read through routineRunOf", () => {
+  const issue = linearIssue("l1", linearRoutine());
+  assert.equal(isRoutineRun({ context: context() }), true);
+  assert.equal(isRoutineRun(issue), false);
   assert.equal(isRoutineRun(linearIssue("l2")), false);
+  assert.equal(routineRunOf(issue)?.runId, "run2");
 });
 
-test("a linear-issue routine message words its divider through routineRunOf", () => {
+test("a quiet linear-issue routine message words its divider through routineRunOf", () => {
   const run = routineRunOf(linearIssue("l1", linearRoutine({ quiet: true, summary: "no change" })));
   assert.equal(routineRunText(run, "UTC"), "13:15 · quiet: no change");
-  assert.equal(routineRunText(routineRunOf(linearIssue("l2", linearRoutine())), "UTC"), "Heartbeat · 13:15");
 });
 
 test("groupQuietRuns hides the reply after a quiet linear-issue routine message", () => {

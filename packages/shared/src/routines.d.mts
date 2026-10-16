@@ -6,9 +6,8 @@ import type { ChatMessage, RoutineRunContext, RoutineTrigger } from "./model.ts"
  */
 export function routineRunOf(message: ChatMessage | null | undefined): RoutineRunContext | null;
 /**
- * Whether the message carries a routine divider, in either of the two shapes `routineRunOf` reads. The guard keeps the
- * shape the callers were written for: `message.context` is a `RoutineRunContext` only for a `routine-run` message, so for
- * a Linear Run's message read the divider with `routineRunOf`.
+ * Whether the message is a `routine-run` divider message, so `message.context` is a `RoutineRunContext`. A Linear Run's first
+ * message is not one: it is a `linear-issue` message that carries `routine`, which only `routineRunOf` reads.
  */
 export function isRoutineRun(message: ChatMessage | null | undefined): message is ChatMessage & { context: RoutineRunContext };
 export function parsePass(text: string): { quiet: true; summary: string } | { quiet: false };
