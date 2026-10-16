@@ -224,7 +224,7 @@ test("a bot's thread session asks for sign-offs through the bots policy", async 
     return listed.length ? listed : null;
   });
   assert.equal(gates[0].requestId, "r1");
-  assert.equal((await runtime.invoke("bots:answer-gate", ["r1", "once"])).status, "allowed");
+  assert.equal((await runtime.invoke("bots:answer-gate", [`${bot.homePath}#${bot.threadSessionId}`, "r1", "once"])).status, "allowed");
   assert.deepEqual(session.answers, [["r1", "allow"]]);
   // Projects' own Chats get no policy.
   assert.equal(

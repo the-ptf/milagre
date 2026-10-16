@@ -188,14 +188,14 @@ function createBots({
   // A sign-off's answer reaches the session that asked. One that is gone can't take it: the card expires instead.
   function answer(gate, decision, status) {
     const reached = agents.respondToPermission(gate.chatKey, gate.requestId, decision);
-    store.setGateStatus(gate.requestId, reached ? status : "expired");
+    store.setGateStatus(gate.chatKey, gate.requestId, reached ? status : "expired");
   }
 
   /** Ends the sign-offs whose hour is up: each is denied, shows Expired, and its bot is told it may ask again. */
   async function sweep(at = now()) {
     const expired = store.expiredGates(at);
     for (const gate of expired) {
-      store.setGateStatus(gate.requestId, "expired");
+      store.setGateStatus(gate.chatKey, gate.requestId, "expired");
       agents.respondToPermission(gate.chatKey, gate.requestId, "deny");
     }
     if (expired.length) changed();
@@ -376,7 +376,7 @@ function createBots({
      */
     async start() {
       const stale = store.pendingGates();
-      for (const gate of stale) store.setGateStatus(gate.requestId, "expired");
+      for (const gate of stale) store.setGateStatus(gate.chatKey, gate.requestId, "expired");
       if (stale.length) changed();
       // Every minute, on or off: the Chats a bot opened keep their gates when Bots is switched off.
       sweeper ??= setInterval(() => void sweep().catch((error) => console.warn("Milagre couldn't expire sign-offs:", error.message)), SWEEP_MS);
@@ -464,7 +464,7 @@ function createBots({
       const bot = requireBot(id);
       for (const chat of store.chatsFor(id)) if (chat.status !== "taken-over") store.setChatStatus(chat.chatKey, "taken-over");
       for (const gate of store.pendingGates().filter((item) => item.botId === id)) {
-        store.setGateStatus(gate.requestId, "denied");
+        store.setGateStatus(gate.chatKey, gate.requestId, "denied");
         agents.respondToPermission(gate.chatKey, gate.requestId, "deny");
       }
       await closeHome(bot.homePath);
@@ -522,10 +522,10 @@ function createBots({
         return;
       }
       if (event.type === "permission-resolved") {
-        const gate = store.gate(event.requestId);
+        const gate = store.gate(chatKey, event.requestId);
         // Answered here first, or expired: the card already says how it ended.
-        if (!gate || gate.chatKey !== chatKey || gate.status !== "pending") return;
-        store.setGateStatus(event.requestId, event.decision === "allow" || event.decision === "allow-for-chat" ? "allowed" : "denied");
+        if (!gate || gate.status !== "pending") return;
+        store.setGateStatus(chatKey, event.requestId, event.decision === "allow" || event.decision === "allow-for-chat" ? "allowed" : "denied");
         changed();
         return;
       }
@@ -536,22 +536,22 @@ function createBots({
       }
     },
 
-    /** The user's sign-off. A card answered or expired already stays as it is. */
-    async answerGate(requestId, choice) {
+    /** The user's sign-off on the card `requestId` in Chat `chatKey`. A card answered or expired already stays as it is. */
+    async answerGate(chatKey, requestId, choice) {
       if (!SIGN_OFF_CHOICES.has(choice)) throw new Error(`Unknown sign-off: ${choice}`);
-      const gate = store.gate(String(requestId));
+      const gate = store.gate(String(chatKey), String(requestId));
       if (!gate) throw new Error("That sign-off is no longer there.");
       if (gate.status !== "pending") return gate;
       if (gate.meta.expiresAt <= now()) {
         await sweep();
-        return store.gate(gate.requestId);
+        return store.gate(gate.chatKey, gate.requestId);
       }
       if (choice === "always")
         for (const { kind, target } of gate.meta.actions ?? [gate.meta])
           if (target && !store.hasGrant(gate.botId, kind, target)) store.addGrant({ botId: gate.botId, gate: kind, target, createdAt: now() });
       answer(gate, choice === "deny" ? "deny" : "allow", choice === "deny" ? "denied" : "allowed");
       changed();
-      return store.gate(gate.requestId);
+      return store.gate(gate.chatKey, gate.requestId);
     },
 
     /** Revoke on a grant: that gate asks again from the next request. */

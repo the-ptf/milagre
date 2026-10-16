@@ -1926,7 +1926,7 @@ function createRuntime(options) {
   commands.handle("bots:remove", (_event, id) => bots.remove(String(id)));
   // A client sends text only: the contexts that mark a message as Milagre's are written here.
   commands.handle("bots:send", (_event, id, text) => bots.send(String(id), text));
-  commands.handle("bots:answer-gate", (_event, requestId, choice) => bots.answerGate(String(requestId), choice));
+  commands.handle("bots:answer-gate", (_event, chatKey, requestId, choice) => bots.answerGate(String(chatKey), String(requestId), choice));
   commands.handle("bots:revoke-grant", (_event, id) => bots.revokeGrant(String(id)));
   commands.handle("bots:brief:read", (_event, id) => bots.readBrief(String(id)));
   commands.handle("bots:memory:read", (_event, id) => bots.readMemory(String(id)));

@@ -289,7 +289,8 @@ export type MilagreBridge = {
   /** The bot's Chats stay in Milagre as the user's; its pending sign-offs are denied. */
   removeBot: (id: string) => Promise<void>;
   sendToBot: (id: string, text: string) => Promise<void>;
-  answerBotGate: (requestId: string, choice: "once" | "always" | "deny") => Promise<GateRecord>;
+  /** A sign-off is the card `requestId` in Chat `chatKey`: request ids repeat across Chats. */
+  answerBotGate: (chatKey: string, requestId: string, choice: "once" | "always" | "deny") => Promise<GateRecord>;
   revokeBotGrant: (id: string) => Promise<void>;
   readBotBrief: (id: string) => Promise<{ text: string }>;
   readBotMemory: (id: string) => Promise<{ text: string; lines: number; bytes: number }>;

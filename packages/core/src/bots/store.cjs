@@ -5,18 +5,20 @@ const { database } = require("../chat-db.cjs");
 
 // <dataDir>/angelo.db: what a bot keeps that is not a Chat (types in @milagre/shared/bots). Records are JSON; the
 // columns the store looks things up by sit beside them. One connection stays open for the daemon's life, so each
-// call is one synchronous statement.
+// call is one synchronous statement. A sign-off is keyed by its Chat and request id: Codex and ACP number their
+// requests per session, so ids repeat across Chats.
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS bots (id TEXT PRIMARY KEY, record TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS gates (
-    request_id TEXT PRIMARY KEY,
-    bot_id TEXT NOT NULL,
     chat_key TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    bot_id TEXT NOT NULL,
     record TEXT NOT NULL,
     status TEXT NOT NULL,
-    expires_at INTEGER NOT NULL
+    expires_at INTEGER NOT NULL,
+    PRIMARY KEY (chat_key, request_id)
   );
   CREATE INDEX IF NOT EXISTS gates_status ON gates (status, expires_at);
   CREATE TABLE IF NOT EXISTS grants (
@@ -64,8 +66,8 @@ function createBotStore(file) {
     const row = sql("SELECT record FROM bots WHERE id = ?").get(id);
     return row ? JSON.parse(row.record) : null;
   }
-  function gate(requestId) {
-    return gateFrom(sql("SELECT record, status FROM gates WHERE request_id = ?").get(requestId));
+  function gate(chatKey, requestId) {
+    return gateFrom(sql("SELECT record, status FROM gates WHERE chat_key = ? AND request_id = ?").get(chatKey, requestId));
   }
 
   return {
@@ -106,18 +108,18 @@ function createBotStore(file) {
 
     recordGate(record) {
       const { status, ...rest } = record;
-      sql("INSERT OR REPLACE INTO gates (request_id, bot_id, chat_key, record, status, expires_at) VALUES (?, ?, ?, ?, ?, ?)").run(
+      sql("INSERT OR REPLACE INTO gates (chat_key, request_id, bot_id, record, status, expires_at) VALUES (?, ?, ?, ?, ?, ?)").run(
+        record.chatKey,
         record.requestId,
         record.botId,
-        record.chatKey,
         JSON.stringify(rest),
         status,
         record.meta.expiresAt,
       );
     },
     gate,
-    setGateStatus(requestId, status) {
-      sql("UPDATE gates SET status = ? WHERE request_id = ?").run(status, requestId);
+    setGateStatus(chatKey, requestId, status) {
+      sql("UPDATE gates SET status = ? WHERE chat_key = ? AND request_id = ?").run(status, chatKey, requestId);
     },
     pendingGates: () => sql("SELECT record, status FROM gates WHERE status = 'pending' ORDER BY rowid").all().map(gateFrom),
     /** Pending sign-offs, and the ones that ended (answered or expired) with an expiry after `since`: what cards show. */

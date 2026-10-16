@@ -54,9 +54,9 @@ test("bots, gates, grants and chats round-trip", (t) => {
     store.expiredGates(11).map((gate) => gate.requestId),
     ["r1"],
   );
-  assert.deepEqual(store.gate("r1"), { requestId: "r1", botId: "ops", chatKey: "/p#4", meta: META, status: "pending", createdAt: 1 });
-  store.setGateStatus("r1", "allowed");
-  assert.equal(store.gate("r1").status, "allowed");
+  assert.deepEqual(store.gate("/p#4", "r1"), { requestId: "r1", botId: "ops", chatKey: "/p#4", meta: META, status: "pending", createdAt: 1 });
+  store.setGateStatus("/p#4", "r1", "allowed");
+  assert.equal(store.gate("/p#4", "r1").status, "allowed");
   assert.deepEqual(store.pendingGates(), []);
   const grant = store.addGrant({ botId: "ops", gate: "merge", target: "/p", createdAt: 1 });
   assert.equal(store.hasGrant("ops", "merge", "/p"), true);
@@ -71,6 +71,17 @@ test("bots, gates, grants and chats round-trip", (t) => {
   store.setChatStatus("/p#4", "done");
   assert.deepEqual(store.chatsFor("ops"), [{ ...CHAT, status: "done" }]);
   assert.equal(store.chat("/p#5"), null);
+});
+
+test("a sign-off is keyed by its Chat and request id", (t) => {
+  const store = open(t);
+  store.recordGate({ requestId: "1", botId: "ops", chatKey: "/p#4", meta: META, status: "pending", createdAt: 1 });
+  store.recordGate({ requestId: "1", botId: "ops", chatKey: "/q#2", meta: { ...META, title: "Other" }, status: "pending", createdAt: 2 });
+  assert.equal(store.pendingGates().length, 2);
+  store.setGateStatus("/q#2", "1", "denied");
+  assert.equal(store.gate("/p#4", "1").status, "pending");
+  assert.equal(store.gate("/q#2", "1").meta.title, "Other");
+  assert.equal(store.gate("/r#1", "1"), null);
 });
 
 test("updating a bot that does not exist throws", (t) => {

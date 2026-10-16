@@ -27,6 +27,9 @@ const HEADER_BUTTON =
   "flex size-8 items-center justify-center rounded-[8px] text-ink-3 transition-colors hover:bg-hover-2 hover:text-ink [-webkit-app-region:no-drag]";
 const NO_OP = () => {};
 
+// A sign-off is a request in one Chat: request ids repeat across Chats.
+const gateKey = (chatKey: string, requestId: string) => `${chatKey}\n${requestId}`;
+
 /**
  * A bot's one thread: the ordinary Chat in its home, hosted the way LinkWorkspace hosts its composer, always in Bot
  * rules. Sign-offs for anything the bot or a Chat it opened wants to run wait above the composer; the Chats it opened
@@ -102,11 +105,12 @@ export function BotThread({
     }
   }
 
-  function answerGate(requestId: string, choice: GateChoice) {
-    setAnswering((current) => ({ ...current, [requestId]: choice }));
-    bridge.answerBotGate(requestId, choice).catch((cause) => {
+  function answerGate(chatKey: string, requestId: string, choice: GateChoice) {
+    const key = gateKey(chatKey, requestId);
+    setAnswering((current) => ({ ...current, [key]: choice }));
+    bridge.answerBotGate(chatKey, requestId, choice).catch((cause) => {
       setError(ipcErrorMessage(cause));
-      setAnswering(({ [requestId]: _, ...rest }) => rest);
+      setAnswering(({ [key]: _, ...rest }) => rest);
     });
   }
   async function togglePause() {
@@ -119,11 +123,13 @@ export function BotThread({
 
   // What waits on Victor: this bot's sign-offs, from its thread or from a Chat it opened, oldest first. A card the
   // runtime hasn't recorded yet still shows from the thread's run.
-  const recorded = new Set(snapshot.gates.map((gate) => gate.requestId));
-  const pendingGates: Array<{ requestId: string; meta: GateMeta }> = [
+  const recorded = new Set(snapshot.gates.map((gate) => gateKey(gate.chatKey, gate.requestId)));
+  const pendingGates: Array<{ chatKey: string; requestId: string; meta: GateMeta }> = [
     ...snapshot.gates.filter((gate) => gate.botId === bot.id && gate.status === "pending").sort((a, b) => a.createdAt - b.createdAt),
     ...(run?.approvals ?? []).flatMap((request) =>
-      request.gate && !recorded.has(request.requestId) && !run?.answered[request.requestId] ? [{ requestId: request.requestId, meta: request.gate }] : [],
+      request.gate && !recorded.has(gateKey(chatId, request.requestId)) && !run?.answered[request.requestId]
+        ? [{ chatKey: chatId, requestId: request.requestId, meta: request.gate }]
+        : [],
     ),
   ];
   const approval = run?.approvals.find((request) => !request.gate && !run.answered[request.requestId]);
@@ -142,7 +148,7 @@ export function BotThread({
         );
       }
       if (context?.kind === "bot-gate-expired") {
-        const gate = snapshot.gates.find((item) => item.requestId === context.requestId);
+        const gate = snapshot.gates.find((item) => item.requestId === context.requestId && item.chatKey === context.chatKey);
         return gate ? (
           <GateCard gate={gate.meta} status="expired" botName={bot.name} />
         ) : (
@@ -167,11 +173,11 @@ export function BotThread({
       <div className="flex flex-col gap-2">
         {pendingGates.map((gate) => (
           <GateCard
-            key={gate.requestId}
+            key={gateKey(gate.chatKey, gate.requestId)}
             gate={gate.meta}
             botName={bot.name}
-            answering={answering[gate.requestId] ?? null}
-            onAnswer={(choice) => answerGate(gate.requestId, choice)}
+            answering={answering[gateKey(gate.chatKey, gate.requestId)] ?? null}
+            onAnswer={(choice) => answerGate(gate.chatKey, gate.requestId, choice)}
           />
         ))}
       </div>

@@ -106,7 +106,7 @@ function makeBridge(invoke, listen, send) {
     updateBot: (id, patch) => invoke("bots:update", id, patch),
     removeBot: (id) => invoke("bots:remove", id),
     sendToBot: (id, text) => invoke("bots:send", id, text),
-    answerBotGate: (requestId, choice) => invoke("bots:answer-gate", requestId, choice),
+    answerBotGate: (chatKey, requestId, choice) => invoke("bots:answer-gate", chatKey, requestId, choice),
     revokeBotGrant: (id) => invoke("bots:revoke-grant", id),
     readBotBrief: (id) => invoke("bots:brief:read", id),
     readBotMemory: (id) => invoke("bots:memory:read", id),

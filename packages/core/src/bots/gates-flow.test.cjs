@@ -131,7 +131,7 @@ test("one grant doesn't let a whole compound command through", async (t) => {
   );
   // Always grants every action on the card, so the same command goes through next time.
   await bots.observe("/p#4", { type: "permission-request", requestId: "r1", gate });
-  await bots.answerGate("r1", "always");
+  await bots.answerGate("/p#4", "r1", "always");
   assert.deepEqual(
     store.grants("ops").map((grant) => grant.gate),
     ["merge", "publish"],
@@ -149,7 +149,7 @@ test("no grant covers a target Milagre can't be sure of, and Always on it allows
   }
   const { gate } = bots.policyFor("/p#4")({ tool: "Bash", command: "cd ../other && gh pr merge 1" });
   await bots.observe("/p#4", { type: "permission-request", requestId: "r1", gate });
-  assert.equal((await bots.answerGate("r1", "always")).status, "allowed");
+  assert.equal((await bots.answerGate("/p#4", "r1", "always")).status, "allowed");
   assert.equal(store.grants("ops").length, 2);
 });
 
@@ -158,48 +158,65 @@ test("a published gate shows in the snapshot, Always adds a grant and allows", a
   await bots.observe("/p#4", { type: "permission-request", requestId: "r1", gate: META });
   assert.equal(bots.snapshot().gates.length, 1);
   assert.equal(bots.snapshot().bots[0].pendingGates, 1);
-  const answered = await bots.answerGate("r1", "always");
+  const answered = await bots.answerGate("/p#4", "r1", "always");
   assert.equal(answered.status, "allowed");
   assert.deepEqual(agents.responses, [["/p#4", "r1", "allow"]]);
   assert.equal(store.hasGrant("ops", "merge", "/p"), true);
   // The resolved event that follows changes nothing.
   await bots.observe("/p#4", { type: "permission-resolved", requestId: "r1", decision: "allow" });
-  assert.equal(store.gate("r1").status, "allowed");
+  assert.equal(store.gate("/p#4", "r1").status, "allowed");
   assert.equal(bots.snapshot().bots[0].pendingGates, 0);
 });
 
 test("Deny denies, and a second answer does nothing", async (t) => {
   const { bots, agents, store } = await harness(t);
   await bots.observe("/p#4", { type: "permission-request", requestId: "r1", gate: META });
-  await bots.answerGate("r1", "deny");
-  await bots.answerGate("r1", "once");
+  await bots.answerGate("/p#4", "r1", "deny");
+  await bots.answerGate("/p#4", "r1", "once");
   assert.deepEqual(agents.responses, [["/p#4", "r1", "deny"]]);
-  assert.equal(store.gate("r1").status, "denied");
-  await assert.rejects(bots.answerGate("r1", "maybe"), /Unknown sign-off/);
+  assert.equal(store.gate("/p#4", "r1").status, "denied");
+  await assert.rejects(bots.answerGate("/p#4", "r1", "maybe"), /Unknown sign-off/);
+});
+
+test("sign-offs with the same request id in two Chats stay apart", async (t) => {
+  // Codex and ACP number their requests per session, so ids repeat across Chats.
+  const { bots, store, agents, THREAD } = await harness(t);
+  await bots.observe("/p#4", { type: "permission-request", requestId: "r1", gate: META });
+  await bots.observe(THREAD, { type: "permission-request", requestId: "r1", gate: { ...META, title: "Publish: npm publish", kind: "publish" } });
+  assert.equal(bots.snapshot().gates.length, 2);
+  await bots.answerGate(THREAD, "r1", "deny");
+  assert.deepEqual(agents.responses, [[THREAD, "r1", "deny"]]);
+  assert.equal(store.gate(THREAD, "r1").status, "denied");
+  assert.equal(store.gate("/p#4", "r1").status, "pending");
+  // The other Chat's card resolving doesn't end this one.
+  await bots.observe(THREAD, { type: "permission-resolved", requestId: "r1", decision: "allow" });
+  assert.equal(store.gate("/p#4", "r1").status, "pending");
+  assert.equal((await bots.answerGate("/p#4", "r1", "once")).status, "allowed");
+  await assert.rejects(bots.answerGate("/p#5", "r1", "once"), /no longer there/);
 });
 
 test("a card answered from the Chat itself ends the sign-off too", async (t) => {
   const { bots, store } = await harness(t);
   await bots.observe("/p#4", { type: "permission-request", requestId: "r1", gate: META });
   await bots.observe("/p#4", { type: "permission-resolved", requestId: "r1", decision: "cancelled" });
-  assert.equal(store.gate("r1").status, "denied");
+  assert.equal(store.gate("/p#4", "r1").status, "denied");
 });
 
 test("a sign-off whose session is gone expires instead", async (t) => {
   const { bots, agents } = await harness(t);
   await bots.observe("/p#4", { type: "permission-request", requestId: "r1", gate: META });
   agents.reachable = false;
-  assert.equal((await bots.answerGate("r1", "once")).status, "expired");
+  assert.equal((await bots.answerGate("/p#4", "r1", "once")).status, "expired");
 });
 
 test("an hour later the gate expires, is denied and the bot is told", async (t) => {
   const { bots, agents, store, chats, OPS } = await harness(t);
   await bots.observe("/p#4", { type: "permission-request", requestId: "r1", gate: META });
   await bots.sweep(NOW + 3_599_999);
-  assert.equal(store.gate("r1").status, "pending");
+  assert.equal(store.gate("/p#4", "r1").status, "pending");
   await bots.sweep(NOW + 3_600_001);
   assert.deepEqual(agents.responses.at(-1), ["/p#4", "r1", "deny"]);
-  assert.equal(store.gate("r1").status, "expired");
+  assert.equal(store.gate("/p#4", "r1").status, "expired");
   assert.equal(chats.sent.at(-1).projectPath, OPS.homePath);
   assert.equal(chats.sent.at(-1).permissionMode, "bot");
   assert.equal(chats.sent.at(-1).context.kind, "bot-gate-expired");
@@ -213,7 +230,7 @@ test("an expired sign-off reaches no paused bot", async (t) => {
   store.updateBot("ops", { paused: true });
   const paused = await harness(t, { store, home: store.getBot("ops").homePath });
   await paused.bots.sweep(NOW + 3_600_001);
-  assert.equal(store.gate("r1").status, "expired");
+  assert.equal(store.gate("/p#4", "r1").status, "expired");
   assert.deepEqual([...chats.sent, ...paused.chats.sent], []);
 });
 
@@ -222,7 +239,7 @@ test("pending gates from before a restart are expired at start", async (t) => {
   first.store.recordGate({ requestId: "r9", botId: "ops", chatKey: "/p#4", meta: META, status: "pending", createdAt: NOW });
   const second = await harness(t, { store: first.store, home: first.OPS.homePath });
   await second.bots.start();
-  assert.equal(first.store.gate("r9").status, "expired");
+  assert.equal(first.store.gate("/p#4", "r9").status, "expired");
   assert.deepEqual(second.opened, [first.OPS.homePath]);
 });
 
