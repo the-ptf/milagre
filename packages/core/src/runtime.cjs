@@ -1345,12 +1345,13 @@ function createRuntime(options) {
   });
 
   async function stopChat(chatId) {
+    // Stop the report before advisor cancellation can make an idle parent look complete. Provider teardown can be slow.
+    await linked.stop({ chatKey: chatId });
     await advisorDelivery.stop(chatId);
     await advisors.stopChat(chatId);
     // A handoff still writing its brief has no agent to stop: cancelling it is the whole interrupt.
     if (await chats.cancelHandoff(chatId)) return;
     await worktreeSetups.cancel(chatId);
-    await linked.stop({ chatKey: chatId });
     await agents.interrupt(chatId);
   }
 
@@ -1459,6 +1460,8 @@ function createRuntime(options) {
     chats,
     agents,
     emit,
+    pendingAdvisorResults: async (chatId) =>
+      (await advisorStore.read(chatId)).some((record) => record.completions?.some((result) => ["pending", "sending"].includes(result.delivery))),
     extraTools: (chatId) => [
       ...planTools.definitions(chatId),
       ...simulatorToolDefinitions(chatId, simulators),
@@ -1567,7 +1570,8 @@ function createRuntime(options) {
         permissionMode: ctx.settings.permissionMode ?? "auto",
         ...message,
       });
-      return sent.started;
+      // A queued result already belongs to the Chat. Waiting for its turn would stall later results and shutdown.
+      return sent.queued ? { queued: true } : sent.started;
     },
   });
   advisors = require("./advisors.cjs").createAdvisors({
@@ -1921,6 +1925,7 @@ function createRuntime(options) {
 
   function close() {
     closing = true;
+    linked.suspend();
     closed ??= (async () => {
       await localMcp.close();
       await advisorDelivery.close();

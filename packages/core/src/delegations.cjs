@@ -2,6 +2,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { isTurnEnd } = require("@milagre/shared/agent-runs");
+const { createActivityTracker, activityBusy } = require("@milagre/shared/chat-activity");
 const { NEGOTIATION_ROUNDS } = require("@milagre/shared/limits");
 const { clip } = require("./linked-summary.cjs");
 
@@ -94,6 +95,7 @@ class Delegations {
    *     for a Worktree of the Chat's own Project, which needs no Link
    *   chat(chatKey) -> { label, worktreePath, archived } | null; openChat(projectPath, worktreePath) -> a new Chat's key
    *   status(chatKey) -> "idle" | "working" | "waiting"
+   *   pendingResults(chatKey) -> whether advisor results still need a turn, including saved queued results
    *   deliver(chatKey, { body, prompt, context }) -> { started }, once the message is saved; `started` resolves with
    *     { turnId, steered, cancelled? } (turnId null when no turn started), or null
    *   reply(chatKey, delegationId) -> what the Chat replied after that Delegation's message
@@ -111,7 +113,13 @@ class Delegations {
     this.delivered = new Map();
     // Steered items whose turn just ended, for STEER_GRACE_MS: { entry, from, outcome, timer }.
     this.settling = new Map();
+    // Reports wait for all background work, including commands, and for the reply that consumes its result.
+    this.activity = createActivityTracker({ holdsTask: () => true });
+    this.background = new Map();
+    this.backgroundTimers = new Map();
+    this.observations = new Map();
     this.currentTurn = new Map();
+    this.stoppedTurns = new Map();
     this.endedTurns = new Map();
     this.pumping = new Set();
     this.ready = store.load().then((data) => {
@@ -280,7 +288,7 @@ class Delegations {
 
   // Whether this Chat's current (or next) turn holds a delivered item that matches.
   holding(chatKey, match) {
-    return [...this.entries(chatKey), ...(this.settling.get(chatKey) ?? []).map(({ entry }) => entry)].some(match);
+    return [...this.entries(chatKey), ...(this.background.get(chatKey) ?? []), ...(this.settling.get(chatKey) ?? []).map(({ entry }) => entry)].some(match);
   }
 
   entries(chatKey) {
@@ -479,7 +487,7 @@ class Delegations {
     const ended = this.endedTurns.get(chatKey)?.find((turn) => turn.turnId === result.turnId);
     if (!ended) entry.turnId = result.turnId;
     // A steer into a turn that already ended runs in the next one; a turn started for it that already ended handled it.
-    else if (entry.steered) entry.turnId = null;
+    else if (entry.steered && ended.outcome === "done") entry.turnId = null;
     else {
       this.remove(chatKey, entry);
       await this.handle(chatKey, [entry], ended.outcome);
@@ -506,10 +514,27 @@ class Delegations {
   }
 
   /** Every agent event of every Chat, after the Chat's state took it in. */
-  async observe(chatKey, event) {
+  observe(chatKey, event) {
+    return this.serialize(chatKey, () => this.observeEvent(chatKey, event));
+  }
+
+  serialize(chatKey, change) {
+    const work = (this.observations.get(chatKey) ?? Promise.resolve()).catch(() => {}).then(change);
+    this.observations.set(chatKey, work);
+    const forget = () => {
+      if (this.observations.get(chatKey) === work) this.observations.delete(chatKey);
+    };
+    work.then(forget, forget);
+    return work;
+  }
+
+  async observeEvent(chatKey, event) {
     await this.ready;
+    if (this.suspended) return;
+    this.activity.observe(chatKey, event);
     if (event.type === "turn-started") {
       this.currentTurn.set(chatKey, event.turnId);
+      for (const entry of this.takeBackground(chatKey)) this.entries(chatKey).push(Object.assign(entry, { turnId: event.turnId, steered: false }));
       const settling = this.settling.get(chatKey) ?? [];
       for (const held of settling.filter((item) => event.continues && item.from === event.continues)) {
         clearTimeout(held.timer);
@@ -522,30 +547,74 @@ class Delegations {
     } else if (event.type === "permission-resolved" || event.type === "question-resolved") {
       await this.pump(chatKey);
     }
+    this.settleBackground(chatKey);
+  }
+
+  takeBackground(chatKey) {
+    clearTimeout(this.backgroundTimers.get(chatKey));
+    this.backgroundTimers.delete(chatKey);
+    const entries = this.background.get(chatKey) ?? [];
+    this.background.delete(chatKey);
+    return entries;
+  }
+
+  async waitingForResults(chatKey) {
+    return activityBusy(this.activity.activity(chatKey)) || Boolean(await this.ports.pendingResults?.(chatKey));
+  }
+
+  settleBackground(chatKey) {
+    if (this.suspended || !this.background.has(chatKey) || this.backgroundTimers.has(chatKey) || activityBusy(this.activity.activity(chatKey))) return;
+    // A provider can announce the last child's completion just before starting the turn that reads its result.
+    const timer = setTimeout(() => {
+      void this.serialize(chatKey, async () => {
+        this.backgroundTimers.delete(chatKey);
+        if (await this.waitingForResults(chatKey)) {
+          this.settleBackground(chatKey);
+          return;
+        }
+        await this.handle(chatKey, this.takeBackground(chatKey), "done");
+      }).catch((error) => console.warn("Milagre couldn't finish a background Delegation:", error.message));
+    }, STEER_GRACE_MS);
+    timer.unref?.();
+    this.backgroundTimers.set(chatKey, timer);
   }
 
   async turnEnded(chatKey, outcome) {
     const turnId = this.currentTurn.get(chatKey);
     this.currentTurn.delete(chatKey);
+    if (turnId && this.stoppedTurns.get(chatKey) === turnId) {
+      outcome = "cancelled";
+      this.stoppedTurns.delete(chatKey);
+    }
     this.endedTurns.set(chatKey, [...(this.endedTurns.get(chatKey) ?? []), { turnId, outcome }].slice(-RECENT_TURNS));
     const entries = this.entries(chatKey);
     const handled = turnId ? entries.filter((entry) => entry.turnId === turnId) : [];
     for (const entry of handled) entries.splice(entries.indexOf(entry), 1);
-    for (const entry of handled.filter((item) => item.steered)) {
+    handled.push(...this.takeBackground(chatKey));
+    // Background follow-ups are explicit sends too, so they need not carry the provider's `continues` hint.
+    if (outcome === "done" && handled.length && (await this.waitingForResults(chatKey))) {
+      this.background.set(chatKey, handled);
+      await this.pump(chatKey);
+      return;
+    }
+    for (const entry of handled.filter((item) => item.steered && outcome === "done")) {
       const held = { entry, from: turnId, outcome };
       held.timer = setTimeout(() => {
-        const settling = this.settling.get(chatKey);
-        settling.splice(settling.indexOf(held), 1);
-        void this.handle(chatKey, [entry], outcome)
-          .then(() => this.pump(chatKey))
-          .catch((error) => console.warn("Milagre couldn't follow a Delegation:", error.message));
+        void this.serialize(chatKey, async () => {
+          const settling = this.settling.get(chatKey);
+          if (!settling?.includes(held)) return;
+          settling.splice(settling.indexOf(held), 1);
+          await this.handle(chatKey, [entry], outcome);
+          this.settleBackground(chatKey);
+          await this.pump(chatKey);
+        }).catch((error) => console.warn("Milagre couldn't follow a Delegation:", error.message));
       }, STEER_GRACE_MS);
       held.timer.unref?.();
       this.settling.set(chatKey, [...(this.settling.get(chatKey) ?? []), held]);
     }
     await this.handle(
       chatKey,
-      handled.filter((item) => !item.steered),
+      handled.filter((item) => !item.steered || outcome !== "done"),
       outcome,
     );
     await this.pump(chatKey);
@@ -553,6 +622,12 @@ class Delegations {
 
   // The turn that took these items ended: Delegations report, and a requesting side that let its move go ends its Negotiation.
   async handle(chatKey, entries, outcome) {
+    if (this.suspended) return;
+    if (outcome === "done" && entries.length && (await this.waitingForResults(chatKey))) {
+      this.background.set(chatKey, [...(this.background.get(chatKey) ?? []), ...entries]);
+      this.settleBackground(chatKey);
+      return;
+    }
     for (const { item } of entries) {
       if (item.kind === "delegation")
         await this.finish(
@@ -569,7 +644,7 @@ class Delegations {
   }
 
   async finish(delegation, outcome) {
-    if (delegation?.status !== "running") return;
+    if (this.suspended || delegation?.status !== "running") return;
     delegation.status = outcome;
     const reply = await this.ports.reply(delegation.to_chat, delegation.id);
     const negotiation = delegation.negotiation_id ? this.data.negotiations.find((entry) => entry.id === delegation.negotiation_id) : null;
@@ -659,9 +734,28 @@ class Delegations {
     for (const result of results) if (result.status === "rejected") console.warn("Milagre couldn't post a Delegation notice:", result.reason?.message);
   }
 
-  /** Stop pressed in a Chat or on the canvas: its running Negotiations stop. */
+  /** Quit preserves open records for the restart notice, without reporting advisor teardown as success. */
+  suspend() {
+    this.suspended = true;
+    for (const timer of this.backgroundTimers.values()) clearTimeout(timer);
+    this.backgroundTimers.clear();
+    for (const items of this.settling.values()) for (const item of items) clearTimeout(item.timer);
+  }
+
+  /** Stop pressed in a Chat or on the canvas: its running Negotiations and held reports stop. */
   async stop({ chatKey, negotiationId }) {
     await this.ready;
+    if (chatKey) {
+      await this.serialize(chatKey, async () => {
+        // The parent can finish naturally while its advisors are still stopping. Stop owns that turn's outcome.
+        const turnId = this.currentTurn.get(chatKey);
+        if (turnId) this.stoppedTurns.set(chatKey, turnId);
+        const held = this.settling.get(chatKey) ?? [];
+        this.settling.delete(chatKey);
+        for (const item of held) clearTimeout(item.timer);
+        await this.handle(chatKey, [...this.takeBackground(chatKey), ...held.map(({ entry }) => entry)], "cancelled");
+      });
+    }
     for (const negotiation of this.data.negotiations.filter(
       (item) => item.status === "running" && (item.id === negotiationId || item.chats.includes(chatKey)),
     )) {

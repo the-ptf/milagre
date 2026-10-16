@@ -88,6 +88,39 @@ async function call(connection, name, args = {}) {
   return JSON.parse(payload.result.content[0].text.split("\n", 1)[0]);
 }
 
+test("a local MCP send stays queued through Stop and a retry after restart", async (t) => {
+  const f = await fixture(t);
+  const grants = { chats: { projectPaths: [f.project], capabilities: ["read", "create", "start"] } };
+  const connection = await f.runtime.invoke("local-mcp:create", [{ label: "Local editor", grants }]);
+  const id = Object.values(f.opened.state.sessions)[0].id;
+  const chatId = `${f.project}#${id}`;
+  await f.runtime.invoke("chat:send", [{ projectPath: f.project, sessionId: id, body: "Working", provider: "antigravity", model: "fixture" }]);
+  await waitUntil(() => f.sessions[0]?.turns.length === 1);
+  const args = { projectPath: f.project, chatId, prompt: "Next task", requestId: "queued-task" };
+  await call(connection, "chat_start", args);
+  const queued = f.runtime.snapshot().projects[0].state.sessions[id].queued;
+  assert.equal(queued?.length, 1, "MCP messages must enter the durable Chat queue");
+  assert.equal(f.sessions[0].turns.length, 1);
+  await f.runtime.invoke("agent:interrupt", [chatId]);
+  await f.runtime.close();
+  const journalFile = path.join(f.directory, "data/local-mcp/operations.json");
+  const journal = JSON.parse(await fs.readFile(journalFile, "utf8"));
+  for (const record of Object.values(journal)) {
+    record.status = "pending";
+    delete record.result;
+  }
+  await fs.writeFile(journalFile, JSON.stringify(journal), { mode: 0o600 });
+  const restarted = f.make();
+  await restarted.openProject(f.project);
+  await restarted.invoke("local-mcp:status");
+  assert.deepEqual(await call(connection, "chat_start", args), { chatId, accepted: true });
+  assert.equal(restarted.snapshot().projects[0].state.sessions[id].queued.length, 1);
+  assert.equal(f.sessions.length, 1, "reconciling the queued operation must not start another turn");
+  await restarted.invoke("chat:queue-send", [chatId, queued[0].id]);
+  await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1);
+  assert.equal(f.sessions[1].turns[0].prompt, "Next task");
+});
+
 test("host MCP registers Worktrees, prepares setup, starts Chats in Ask mode and preserves retry results after restart", async (t) => {
   const f = await fixture(t);
   const grants = Object.fromEntries(

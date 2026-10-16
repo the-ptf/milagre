@@ -31,6 +31,7 @@ function createLinkedWorktrees({
   chats,
   agents,
   emit,
+  pendingAdvisorResults = async () => false,
   extraTools = () => [],
   createMcpServer = createLinkedMcpServer,
   store = jsonFileStore(path.join(dataDir, "delegations.json")),
@@ -204,6 +205,15 @@ function createLinkedWorktrees({
         return chatKey(projectPath, await chats.emptyChat(projectPath, worktree.id));
       },
       status: (key) => runStatus(chats.runs[key]),
+      pendingResults: async (key) => {
+        const session = (await project(projectOfKey(key))).sessions[sessionIdFromKey(key)];
+        return Boolean(
+          chats.runs[key] ||
+          chats.startingTurns?.has(key) ||
+          session?.queued?.some((entry) => entry.context?.kind === "advisor-result") ||
+          (await pendingAdvisorResults(key)),
+        );
+      },
       deliver,
       note: (key, note) => chats.addNote(key, note),
       reply: async (key, delegationId) => delegationReply(await messages(projectOfKey(key), [sessionIdFromKey(key)]), sessionIdFromKey(key), delegationId),
@@ -315,6 +325,7 @@ function createLinkedWorktrees({
     },
     stop: (target) => delegations.stop(target),
     snapshot,
+    suspend: () => delegations.suspend(),
     close: () => mcp.close(),
   };
 }

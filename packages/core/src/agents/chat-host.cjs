@@ -682,8 +682,8 @@ class ChatHost {
         }
         // The provider of the turn running or about to start: a handoff still preparing starts on its target.
         const runningProvider = this.runs[chatId] ? (session.provider ?? provider) : waitFor ? waitFor.to : this.startingTurns.get(chatId);
-        // Programmatic sends that check `canStart` (advisor results, the local MCP) and compactions never queue.
-        if (runningProvider && request.fromQueue === undefined && !request.canStart && !compaction && !providerCapabilities(runningProvider).steer) {
+        // canStart gates acceptance above. Once accepted, programmatic messages have the same durable queue as user sends.
+        if (runningProvider && request.fromQueue === undefined && !compaction && !providerCapabilities(runningProvider).steer) {
           queuedEntry = {
             id: randomUUID(),
             body,

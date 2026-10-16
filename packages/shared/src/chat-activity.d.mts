@@ -56,4 +56,4 @@ export interface ActivityTracker {
   background(chatId: string): number;
   forget(drop?: (chatId: string) => boolean): void;
 }
-export function createActivityTracker(options?: { maxChats?: number }): ActivityTracker;
+export function createActivityTracker(options?: { maxChats?: number; holdsTask?: (task: BackgroundTask) => boolean }): ActivityTracker;

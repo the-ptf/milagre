@@ -51,7 +51,8 @@ function createAdvisorDelivery({ store, contextFor, isBlocked, send }) {
           } catch {
             accepted = null;
           }
-          await updateResult(chatId, result.id, accepted?.turnId && allowed() ? "delivered" : "uncertain");
+          // Stop holds an accepted queue entry; it does not undo delivery to the Chat or replay it on resume.
+          await updateResult(chatId, result.id, accepted?.queued || (accepted?.turnId && allowed()) ? "delivered" : "uncertain");
         }
       }
     })();

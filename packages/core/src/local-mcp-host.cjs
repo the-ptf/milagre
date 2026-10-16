@@ -356,7 +356,9 @@ function createLocalMcpHost({
       }
       if (operation === "chat_start") {
         const message = await scopeStates.findMessage(args.projectPath, "operationId", operationId);
-        return message ? { chatId: `${args.projectPath}#${message.session_id}`, accepted: true } : null;
+        const queued = Object.values(state.sessions).find((session) => session.queued?.some((entry) => entry.operationId === operationId));
+        const sessionId = message?.session_id ?? queued?.id;
+        return sessionId != null ? { chatId: `${args.projectPath}#${sessionId}`, accepted: true } : null;
       }
       return null;
     },
