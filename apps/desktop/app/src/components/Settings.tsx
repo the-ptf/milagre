@@ -58,7 +58,7 @@ import { updateSettings, useSettings } from "../lib/settings";
 import type { ClaudeReplies, UsageDisplay } from "../lib/settings";
 import type { ChatOrder } from "../lib/chat-list";
 import { useEditors } from "../lib/editors";
-import { bridgeFor, bridgeForKey } from "../lib/computer-bridge";
+import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { cloudflarePhonesNote, pairingWindow, phoneLanLine, phoneQrSrc, phoneStatusLine } from "../lib/phone";
 import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQuestion } from "../lib/devices";
 import { GlideGroup, RailButton } from "./SidebarNav";
@@ -1837,7 +1837,8 @@ function ProjectSettings({ project, onManageAccounts }: { project: SettingsProje
       <Group title="Sidebar">
         <ShowInSidebarSetting project={project} />
       </Group>
-      <ProjectAccountsGroup projectPath={project.path} onManageAccounts={onManageAccounts} />
+      {/* Accounts belong to the computer that runs the Project; only that Mac chooses them. */}
+      {!isRemoteKey(project.path) && <ProjectAccountsGroup projectPath={project.path} onManageAccounts={onManageAccounts} />}
       <Group title="Main branch">
         <MainSyncSetting projectPath={project.path} />
       </Group>
