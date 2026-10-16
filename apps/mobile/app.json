@@ -17,7 +17,8 @@
             "buildReactNativeFromSource": true
           },
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": true,
+            "extraProguardRules": "-keepnames class com.swmansion.rnscreens.Screen\n-keepnames class com.facebook.react.ReactRootView"
           }
         }
       ],
