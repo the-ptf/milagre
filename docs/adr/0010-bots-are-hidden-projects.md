@@ -1,0 +1,10 @@
+# Bots are hidden Projects in the daemon
+
+A bot (Settings › Experimental › Bots; spec `docs/superpowers/specs/2026-10-16-angelo-design.md`) is a module of the runtime the daemon already hosts, not a second host. Each bot's home is a folder in the data directory, `<dataDir>/bots/<id>/`, made a Git repository with one empty commit, and the runtime opens it as a Project. The bot's thread is one ordinary Chat in that Project. Sessions, resume, `chats.db` (ADR-0007), idle unloading (ADR-0009), account routing, approvals and the windows' Chat views all work there unchanged.
+
+- **Hidden.** A home is opened without joining the Project registry or the recent list, and every Project list filters homes out: `project:registry`, `project:recent`, the runtime snapshot the daemon sends and the Milagre MCP `project_list`. The canvas and the account scopes read the registry, so they never see one either. A home is a Project only to the runtime.
+- **One writer.** The runtime still writes each home's state (ADR-0001, ADR-0003); what a bot keeps that isn't a Chat (sign-offs, grants, the Chats it opened, the Bots switch) is in `<dataDir>/angelo.db`.
+- **Bot rules.** Bot threads and the Chats a bot opens run in the `bot` permission mode, which the runtime forces on any send into a thread. The bots module answers their permission requests through a policy in `PendingPermissions`: allow, unless a gate matches and no grant covers it.
+- **Instructions.** `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` in the home are written from the brief, memory and roster when the thread's agent session starts, and stay as they are until the next one, so the provider's prompt cache holds.
+- **Deleting a bot** closes its home's state and ownership, then moves the folder to `<dataDir>/bots/.trash/`.
+- **Considered and rejected:** a second host process for bots (a second writer of Chats, its own sessions, accounts and approvals to keep in step with the daemon's, and a second socket for every client), and bot threads as rows in `angelo.db` with an agent loop of their own (everything a Chat already does, written again).

@@ -73,6 +73,45 @@ A summary of what the receiving agent did for a **Delegation**, posted to the re
 A back-and-forth of **Delegations** between two **Chats** across a **Link**, where each **Delegation report** starts a turn on the other side, until one agent concludes it with a summary of the agreement. The requesting agent decides on its own that a request needs a **Negotiation**, and only it can; the user never has to ask for one, and the receiving side can't turn a **Delegation** into one. It stops after at most 10 rounds, when the user stops it, and pauses while either side waits on the user.
 _Avoid_: consensus mode, auto-chat
 
+### Bots
+
+**Bot**:
+A persistent named teammate on one **Computer**: name, role, brief, mascot, model, memory, routines and one **Bot thread**. Its home is a hidden **Project** in the daemon's data folder (ADR-0010). Behind Settings › Experimental › Bots.
+_Avoid_: agent (the provider process behind any **Chat**), assistant
+
+**Bot thread**:
+The **Bot**'s one ongoing conversation with the user, an ordinary **Chat** in its home. It never ends; old context is compacted.
+
+**Group**:
+A thread with the user and two to six **Bots**. A **Group** has no agent of its own.
+
+**Starter bot**:
+A template (Ops, Release, Chief) that ships with Milagre, filled in once from a short setup card.
+
+**Routine**:
+A saved prompt plus one or more triggers (schedule, interval, once, Linear event, webhook). Owned by a **Chat** (Milagre face) or a **Bot** (Angelo face).
+
+**Run**:
+One firing of a **Routine**. A **Bot**'s run is its own session; its result lands in the **Bot thread**.
+
+**Gate**:
+An action class that always needs the user's **Sign-off**: merge, publish, post as the user, delete, spend. A **Chat** a **Bot** opened runs under that **Bot**'s **Gates**.
+
+**Sign-off**:
+The user's answer to a **Gate**: Allow once, Always for the **Bot**, or Deny. One left unanswered for an hour expires and counts as denied.
+
+**Grant**:
+A standing "Always for this bot" answer for one **Gate** and target, revocable.
+
+**Assignment**:
+One **Bot** asking another to do something, tracked by the daemon until it is answered or expires.
+
+**Digest**:
+The Chief's daily summary, the only scheduled push.
+
+**Mascot**:
+A **Bot**'s avatar: a body shape, a color and a face whose expression follows the **Bot**'s state.
+
 ### Computers and devices
 
 **Computer**:

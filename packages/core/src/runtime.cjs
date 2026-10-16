@@ -80,6 +80,8 @@ const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsa
 const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 
 const { createFileSearch } = require("./project-files.cjs");
+const { createBots } = require("./bots/index.cjs");
+const { createBotStore } = require("./bots/store.cjs");
 const git = createGit().read;
 
 // The composition root shared by Electron and the local daemon. Storage paths and
@@ -99,6 +101,8 @@ function createRuntime(options) {
   let closed;
   let advisors;
   let advisorDelivery;
+  // Set up at the end with what it needs; hidden homes are filtered out of every Project list (ADR-0010).
+  let bots;
   function track(work, set = active) {
     const task = Promise.resolve().then(work);
     set.add(task);
@@ -1160,6 +1164,11 @@ function createRuntime(options) {
 
   commands.handle("chat:send", async (_event, request) => {
     if (isLinkScopeKey(request?.projectPath) || !scopeStates.has(request?.projectPath)) throw new Error("Open the project before sending to its chats.");
+    // A bot's thread always runs in Bot rules, whatever mode the composer sent.
+    if (bots.isHome(request.projectPath)) {
+      await bots.beforeThreadSend(request.projectPath, request.sessionId);
+      request = { ...request, permissionMode: "bot" };
+    }
     // Only Milagre marks a message as coming from another Chat. A PR-blocker pill and a Chat started from a Linear issue
     // are the contexts a renderer can ask for, and Milagre checks them and writes their message and prompt itself.
     const { prAction, linearIssue, compact, ...rest } = request;
@@ -1659,7 +1668,7 @@ function createRuntime(options) {
   });
   commands.handle("limits:auto-switch:read", () => ({ autoSwitch: limitSwitch.autoSwitch() }));
   commands.handle("limits:auto-switch:save", (_event, value) => ({ autoSwitch: limitSwitch.setAutoSwitch(value === true) }));
-  commands.handle("project:registry", () => projectRegistry().list());
+  commands.handle("project:registry", async () => withoutHomes(await projectRegistry().list()));
   commands.handle("project:position", (_event, id, position) => projectRegistry().setPosition(id, position));
   commands.handle("canvas:snapshot", async () => {
     const projects = await projectRegistry().list();
@@ -1709,12 +1718,14 @@ function createRuntime(options) {
     if (!(await projectRegistry().list()).some((project) => project.path === requested)) throw new Error("Project is not in the registry.");
     return openProject(requested);
   });
+  // Bots' homes are Projects only to the runtime: no list shows them.
+  const withoutHomes = (list) => list.filter((project) => !bots.isHome(project.path));
   // Each recent Project says whether the user hid it from the sidebar and the phone's list.
   async function withHidden(list) {
     const hidden = await projectSettings().hiddenPaths();
     return list.map((project) => (hidden.has(project.path) ? { ...project, hidden: true } : project));
   }
-  commands.handle("project:recent", async () => withHidden(await recentProjects().list()));
+  commands.handle("project:recent", async () => withoutHomes(await withHidden(await recentProjects().list())));
   commands.handle("project:set-hidden", async (_event, projectPath, hidden) => {
     await knownFolder(projectPath);
     await projectSettings().setHidden(projectPath, hidden === true);
@@ -1807,7 +1818,7 @@ function createRuntime(options) {
       };
     },
     host: require("./local-mcp-host.cjs").createLocalMcpHost({
-      projects: () => projectRegistry().list(),
+      projects: async () => withoutHomes(await projectRegistry().list()),
       readProject,
       scopeStates,
       chats,
@@ -1827,6 +1838,51 @@ function createRuntime(options) {
     commands.handle(`local-mcp:${method}`, (_context, ...args) => localMcp[method](...args));
   // No runtime is started by MCP. This listener belongs to the runtime holding the profile lock.
   void localMcp.resume().catch(() => console.warn("Local MCP could not resume its loopback listener. Open Settings > Milagre MCP to retry."));
+
+  // Bots (Settings › Experimental › Bots; docs/adr/0010-bots-are-hidden-projects.md). A bot's home opens like a Project
+  // but never joins the registry or the recent list, and closes again when the bot is deleted.
+  async function closeHome(home) {
+    if (states.has(home)) {
+      for (const id of Object.keys((await states.get(home)).sessions)) {
+        const chatId = chatKey(home, Number(id));
+        terminals.closeChat(chatId);
+        await stopChat(chatId).catch(() => {});
+        await agents.closeChat(chatId);
+      }
+      await states.forget(home);
+    }
+    const common = await git.commonDir(home).catch(() => null);
+    projectOwners.get(home)?.owner.release();
+    projectOwners.delete(home);
+    if (common) {
+      repositoryOwners.get(common)?.release();
+      repositoryOwners.delete(common);
+    }
+  }
+  bots = createBots({
+    dataDir: realpathSync(dataDir),
+    store: createBotStore(path.join(dataDir, "angelo.db")),
+    chats,
+    agents,
+    cachedState: (projectPath) => states.states.get(projectPath),
+    openHome: readProject,
+    closeHome,
+    projects: async () => withoutHomes(await projectRegistry().list()),
+    emit,
+    owner: options.botOwner,
+  });
+  commands.handle("bots:enabled:read", () => ({ enabled: bots.enabled() }));
+  commands.handle("bots:enabled:save", (_event, value) => bots.setEnabled(value));
+  commands.handle("bots:list", () => bots.snapshot());
+  commands.handle("bots:templates", () => bots.templates());
+  commands.handle("bots:create", (_event, input) => bots.create(input ?? {}));
+  commands.handle("bots:update", (_event, id, patch) => bots.update(String(id), patch ?? {}));
+  commands.handle("bots:remove", (_event, id) => bots.remove(String(id)));
+  // A client sends text only: the contexts that mark a message as Milagre's are written here.
+  commands.handle("bots:send", (_event, id, text) => bots.send(String(id), text));
+  commands.handle("bots:memory:read", (_event, id) => bots.readMemory(String(id)));
+  commands.handle("bots:memory:save", (_event, id, text) => bots.saveMemory(String(id), String(text ?? "")));
+  void track(() => bots.start(), background).catch((error) => console.warn("Milagre couldn't start its bots:", error.message));
 
   function close() {
     closing = true;
@@ -1859,6 +1915,7 @@ function createRuntime(options) {
       await states.close();
       await linkStore.close();
       await linked.close();
+      bots.close();
       await Promise.all([usageStore.idle(), ...[...accountUsage.values()].map((item) => item.store.idle())]);
       for (const { owner } of projectOwners.values()) owner.release();
       for (const owner of repositoryOwners.values()) owner.release();
@@ -1890,7 +1947,10 @@ function createRuntime(options) {
     // mutate state, so its event watermark and run sequence describe one instant.
     snapshot: () => ({
       links: linkStore.ids().map((linkId) => ({ linkId, state: linkStore.has(linkId) ? linkStore.cached(linkId) : undefined })),
-      projects: states.projects().map((projectPath) => ({ path: projectPath, name: projectName(projectPath), state: states.states.get(projectPath) })),
+      projects: states
+        .projects()
+        .filter((projectPath) => !bots.isHome(projectPath))
+        .map((projectPath) => ({ path: projectPath, name: projectName(projectPath), state: states.states.get(projectPath) })),
       runs: chats.snapshot(),
       ports: ports.snapshot(),
     }),
