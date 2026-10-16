@@ -1,16 +1,20 @@
 import { useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { Archive02Icon, Cancel01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
-import { advisorAction } from "@milagre/shared/agent-activity";
+import { Archive02Icon, ArrowLeft01Icon, Cancel01Icon, RefreshIcon, SquareIcon } from "@hugeicons/core-free-icons";
+import { advisorAction, subagentActivityLabel } from "@milagre/shared/agent-activity";
 import { subagentFinished } from "@milagre/shared/project-edits";
+import type { Subagent } from "@milagre/shared/model";
 import { useSession } from "../session";
-import { SubagentItem } from "../subagent-item";
+import { SubagentDetail, SubagentRow, elapsed, subagentRunning, useClock, useWholeSubagent } from "../subagent-glance";
 import { Icon } from "../icons";
 import { CircleButton, ErrorNotice, IconButton, ListRow, PageScroll, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
-/** The Chat's subagents, like desktop's subagent popover: status, latest activity and the end of each transcript. */
+/**
+ * The Chat's subagents, like desktop's subagent popover: each row says what the subagent does now and how far it got;
+ * tapping one shows its plan, task and outcome in the same sheet.
+ */
 export default function AgentsSheet() {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -18,12 +22,18 @@ export default function AgentsSheet() {
   const session = useSession();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
   const pending = useRef(false);
   const project = session.snapshot?.project;
   const chat = project?.state.sessions[Number(id)];
   const agents = chat?.subagents || [];
   const visible = agents.filter((agent) => !agent.archived);
+  const child = visible.find((agent) => agent.id === selected);
   const disabled = busy || !session.client || !chat;
+  const provider = chat?.provider ?? "claude";
+  const running = visible.filter(subagentRunning).length;
+  const done = visible.filter(subagentFinished).length;
+  const now = useClock(visible.some(subagentRunning));
 
   async function control(action: "stop" | "retry", agentId: string) {
     if (pending.current || !session.client || !project || !chat) return;
@@ -58,6 +68,7 @@ export default function AgentsSheet() {
       setBusy(false);
     }
   }
+  const action = child ? advisorAction(child) : undefined;
   return (
     <PageScroll style={styles.screen} contentContainerStyle={{ padding: 0, gap: 0, paddingBottom: 40 }}>
       <View
@@ -65,52 +76,88 @@ export default function AgentsSheet() {
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
+          gap: 12,
           paddingHorizontal: 16,
           paddingTop: 16,
           paddingBottom: 8,
           backgroundColor: colors.page,
         }}
       >
-        <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
-        <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-          Subagents
-        </Text>
-        <View style={{ width: 40 }} />
+        {child ? (
+          <CircleButton label="Back to subagents" icon={ArrowLeft01Icon} onPress={() => setSelected(null)} />
+        ) : (
+          <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
+        )}
+        <View style={{ flex: 1, alignItems: "center", gap: 1 }}>
+          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
+            {child ? child.title : "Subagents"}
+          </Text>
+          <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 13 }}>
+            {child
+              ? [subagentActivityLabel(child), elapsed(child, now), child.model].filter(Boolean).join(" · ")
+              : [running && `${running} running`, done && `${done} done`].filter(Boolean).join(" · ")}
+          </Text>
+        </View>
+        {child && action ? (
+          <CircleButton
+            label={`${action === "stop" ? "Stop" : "Retry"} ${child.title}`}
+            icon={action === "stop" ? SquareIcon : RefreshIcon}
+            onPress={disabled ? undefined : () => control(action, child.id)}
+          />
+        ) : (
+          <View style={{ width: 40 }} />
+        )}
       </View>
-      <View style={{ paddingHorizontal: 20, paddingTop: 4, gap: 2 }}>
-        <ListRow
-          title="Archive finished subagents"
-          leading={<Icon icon={Archive02Icon} tone="ink2" size={20} />}
-          trailing={<View />}
-          disabled={disabled || !visible.some(subagentFinished)}
-          onPress={() => archive()}
-        />
-        {error ? <ErrorNotice message={error} /> : null}
-        {!visible.length && <Text style={[styles.muted, { paddingVertical: 16 }]}>No subagents to show.</Text>}
-        {visible.map((agent) => (
-          <View key={agent.id} style={{ flexDirection: "row", alignItems: "flex-start", gap: 4 }}>
-            <View style={{ flex: 1, paddingTop: 4 }}>
-              <SubagentItem agent={agent} />
+      {error ? (
+        <View style={{ paddingHorizontal: 20 }}>
+          <ErrorNotice message={error} />
+        </View>
+      ) : null}
+      {child ? (
+        <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
+          <WholeSubagentDetail agent={child} read={() => session.client!.call("chat:subagent", [project!.path, chat!.id, child.id]) as Promise<Subagent>} />
+          <ListRow
+            title="Archive subagent"
+            leading={<Icon icon={Archive02Icon} tone="ink2" size={20} />}
+            trailing={<View />}
+            disabled={disabled || action === "stop"}
+            onPress={() => {
+              setSelected(null);
+              void archive(child.id);
+            }}
+          />
+        </View>
+      ) : (
+        <View style={{ paddingHorizontal: 20, paddingTop: 4 }}>
+          {!visible.length && <Text style={[styles.muted, { paddingVertical: 16 }]}>No subagents to show.</Text>}
+          {visible.map((agent, index) => (
+            <View key={agent.id} style={{ flexDirection: "row", alignItems: "flex-start", gap: 4, borderTopWidth: index ? 1 : 0, borderTopColor: colors.line }}>
+              <SubagentRow agent={agent} provider={provider} now={now} onPress={() => setSelected(agent.id)} />
+              {/* As on desktop, an advisor's Stop or Retry stays on its row. */}
+              {advisorAction(agent) && (
+                <IconButton
+                  label={`${advisorAction(agent) === "stop" ? "Stop" : "Retry"} ${agent.title}`}
+                  icon={advisorAction(agent) === "stop" ? Cancel01Icon : RefreshIcon}
+                  size={44}
+                  disabled={disabled}
+                  onPress={() => control(advisorAction(agent)!, agent.id)}
+                />
+              )}
             </View>
-            {advisorAction(agent) && (
-              <IconButton
-                label={`${advisorAction(agent) === "stop" ? "Stop" : "Retry"} ${agent.title}`}
-                icon={advisorAction(agent) === "stop" ? Cancel01Icon : RefreshIcon}
-                size={44}
-                disabled={disabled}
-                onPress={() => control(advisorAction(agent)!, agent.id)}
-              />
-            )}
-            <IconButton
-              label={`Archive ${agent.title}`}
-              icon={Archive02Icon}
-              size={44}
-              disabled={disabled || advisorAction(agent) === "stop"}
-              onPress={() => archive(agent.id)}
-            />
-          </View>
-        ))}
-      </View>
+          ))}
+          <ListRow
+            title="Archive finished"
+            leading={<Icon icon={Archive02Icon} tone="ink2" size={20} />}
+            trailing={<View />}
+            disabled={disabled || !visible.some(subagentFinished)}
+            onPress={() => archive()}
+          />
+        </View>
+      )}
     </PageScroll>
   );
+}
+
+function WholeSubagentDetail({ agent, read }: { agent: Subagent; read: () => Promise<Subagent> }) {
+  return <SubagentDetail agent={useWholeSubagent(agent, read)} />;
 }
