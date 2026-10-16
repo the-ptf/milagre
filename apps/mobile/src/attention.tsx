@@ -90,7 +90,8 @@ export function AttentionPill({ projectPath, bottom }: { projectPath: string; bo
   const insets = useSafeAreaInsets();
   const [enabled] = useAttentionButton();
   const [floatingInbox] = useFloatingInbox();
-  const waiting = useAttention().filter((key) => projectOfKey(key) !== projectPath);
+  // Not the open Project's, nor a Project hidden from the list.
+  const waiting = useAttention().filter((key) => projectOfKey(key) !== projectPath && !recent.find((item) => item.path === projectOfKey(key))?.hidden);
   if (floatingInbox && client) return <FloatingInboxChip bottom={bottom} />;
   if (!enabled || !waiting.length || !client) return null;
   const name = (path: string) => recent.find((item) => item.path === path)?.name || path.split("/").at(-1) || "Project";

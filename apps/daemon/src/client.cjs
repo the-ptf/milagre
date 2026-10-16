@@ -45,13 +45,20 @@ async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = pro
   }
   const client = /** @type {EventEmitter & { call: (method: string, args?: unknown[]) => Promise<any>; close: () => void }} */ (new EventEmitter());
   const pending = new Map();
+  // Calls past MAX_PENDING wait here for a free slot (the daemon drops a connection that sends more); a burst of
+  // reads on a busy Mac used to reject the next send with "Too many pending daemon requests".
+  const queued = [];
   let nextId = 0;
   function fail(error) {
-    for (const { reject, timeout } of pending.values()) {
+    for (const { reject, timeout } of [...pending.values(), ...queued]) {
       clearTimeout(timeout);
       reject(error);
     }
     pending.clear();
+    queued.length = 0;
+  }
+  function drain() {
+    while (queued.length > 0 && pending.size < MAX_PENDING) start(queued.shift());
   }
   const connection = wire(socket, {
     onInvalid(error) {
@@ -72,6 +79,7 @@ async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = pro
       if (!request) return;
       pending.delete(message.id);
       clearTimeout(request.timeout);
+      drain();
       if (message.error) request.reject(Object.assign(new Error(message.error.message), { code: message.error.code }));
       else if (message.pages) request.resolve(readPages(message.pages));
       else request.resolve(message.result);
@@ -89,32 +97,39 @@ async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = pro
     fail(new Error("Daemon connection closed"));
     client.emit("close");
   });
+  function start(request) {
+    const id = ++nextId;
+    request.id = id;
+    pending.set(id, request);
+    try {
+      if (!connection.send({ v: VERSION, id, method: request.method, args: request.args, pages: true })) throw new Error("Daemon connection closed");
+    } catch (error) {
+      pending.delete(id);
+      clearTimeout(request.timeout);
+      request.reject(error);
+    }
+  }
   client.call = (method, args = []) =>
     new Promise((resolve, reject) => {
       if (socket.destroyed) {
         reject(new Error("Daemon connection closed"));
         return;
       }
-      if (pending.size >= MAX_PENDING) {
-        reject(new Error("Too many pending daemon requests"));
-        return;
-      }
-      const id = ++nextId;
-      const timeout = setTimeout(
+      // The deadline counts time spent queued, so a call never waits longer than it would have unqueued.
+      /** @type {{ id: number; method: string; args: unknown[]; resolve: (value: any) => void; reject: (error: Error) => void; timeout?: ReturnType<typeof setTimeout> }} */
+      const request = { id: 0, method, args, resolve, reject };
+      request.timeout = setTimeout(
         () => {
-          pending.delete(id);
+          pending.delete(request.id);
+          const index = queued.indexOf(request);
+          if (index >= 0) queued.splice(index, 1);
           reject(new Error(`Timed out: ${method}. It may still be running; do not retry a mutation without checking state.`));
+          drain();
         },
         deadlineFor(method, timeoutMs),
       );
-      pending.set(id, { resolve, reject, timeout });
-      try {
-        if (!connection.send({ v: VERSION, id, method, args, pages: true })) throw new Error("Daemon connection closed");
-      } catch (error) {
-        pending.delete(id);
-        clearTimeout(timeout);
-        reject(error);
-      }
+      if (pending.size >= MAX_PENDING) queued.push(request);
+      else start(request);
     });
   client.close = () => socket.destroy();
   if (requireAuthentication) {

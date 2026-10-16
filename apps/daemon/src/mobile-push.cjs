@@ -104,6 +104,7 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
     const eventId = randomUUID();
     const task = (async () => {
       const metadata = await context(chatId);
+      if (!metadata) return;
       const notice = requestId
         ? attentionNotice(event, metadata)
         : completionNotice(metadata.chatTitle, { failed: event.type === "turn-failed", body: event.type === "turn-failed" ? event.message : run.preview });

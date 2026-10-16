@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -43,7 +43,7 @@ jobs:
               - '.github/actions/**'
   # The JavaScript checks run as three parallel jobs; the `javascript` job below is the required check that gathers them.
   static:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Check out repository
@@ -69,7 +69,7 @@ jobs:
       - name: Build renderer
         run: npm run build:renderer --workspace milagre
   supply-chain:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Check out repository
@@ -82,7 +82,7 @@ jobs:
         run: npm audit signatures
   unit:
     name: unit (${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -99,7 +99,7 @@ jobs:
     # The required check: green only when every JavaScript job passed.
     if: always()
     needs: [static, supply-chain, unit]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require every JavaScript job to have passed
@@ -118,7 +118,7 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -151,10 +151,10 @@ jobs:
         timeout-minutes: 15
         run: node --test --test-reporter=tap --test-timeout=180000 packages/core/src/windows-runtime.test.cjs apps/daemon/src/windows-transport.test.cjs packages/core/src/agents/process-tree.test.cjs packages/core/src/ownership.test.cjs
       - name: Install Linux repository tools
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-24.04'
         run: sudo apt-get update && sudo apt-get install -y rpm createrepo-c gnupg
       - name: Test real Linux repository signing
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-24.04'
         run: |-
           export GNUPGHOME="$RUNNER_TEMP/milagre-test-key"
           mkdir -m 700 "$GNUPGHOME"
@@ -170,7 +170,7 @@ jobs:
     # job always runs: green when native-tests passed or was skipped, red when it failed or was cancelled.
     if: always()
     needs: [native-tests]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require native tests to have passed or been skipped
@@ -185,7 +185,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.desktop == 'true'
     timeout-minutes: 10
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -252,7 +252,7 @@ jobs:
     # The "Publish" workflow ships a candidate to beta or stable.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'the-ptf/milagre'
     needs: [javascript, native-gate, macos-desktop-smoke]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write

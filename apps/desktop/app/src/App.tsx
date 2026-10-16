@@ -114,6 +114,7 @@ import type { Command } from "./lib/commands";
 import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
 import { useChatMessages } from "./lib/chat-messages";
 import { RECENT_PROJECTS_CHANGED, type RecentProject } from "./lib/project-list";
+import { useHiddenProjects } from "./lib/hidden-projects";
 import { useProjectImages } from "./lib/project-images";
 import { isModalOpen } from "./lib/modal";
 import { createDraftStore, draftKey } from "./lib/draft-store";
@@ -727,8 +728,10 @@ function App() {
     useMemo(() => chatsRunning(agentRuns.runs, project?.path ?? "", state?.sessions), [agentRuns.runs, project?.path, state?.sessions]),
   );
   const linkedWork = useLinkedWork();
-  // Chats in other projects that wait on an approval or question. Joined, so a streamed batch that changes nothing keeps the arrays.
-  const attentionKey = chatsNeedingAttention(agentRuns.runs, project?.path ?? "").join("\n");
+  // Chats in other projects that wait on an approval or question, but not in Projects hidden from the sidebar. Joined, so a
+  // streamed batch that changes nothing keeps the arrays.
+  const hiddenProjects = useHiddenProjects();
+  const attentionKey = chatsNeedingAttention(agentRuns.runs, project?.path ?? "", hiddenProjects).join("\n");
   const attentionChats = useMemo(() => (attentionKey ? attentionKey.split("\n") : []), [attentionKey]);
   const attentionPaths = useMemo(() => [...new Set(attentionChats.map(projectOfKey))], [attentionChats]);
   const projectName = useCallback(
