@@ -32,9 +32,12 @@ export function artifactDocument(html) {
 
 /** What a design posts its embedder when Escape is pressed in it: a key the design has the focus for is the design's. */
 export const ARTIFACT_ESCAPE = "milagre:artifact-escape";
+/** ⌘Enter (Ctrl+Enter) pressed in an artifact or design, which keeps the key: the page beneath sends the feedback waiting. */
+export const ARTIFACT_SEND = "milagre:artifact-send";
 // Escape with the focus in a design still leaves it, then closes the canvas, as it does outside: the design tells its
-// embedder. Captured first, so a design that stops the key's propagation still lets go of it.
-export const ARTIFACT_ESCAPE_SCRIPT = `addEventListener("keydown",function(e){if(e.key==="Escape")parent.postMessage("${ARTIFACT_ESCAPE}","*")},true)`;
+// embedder, and so does ⌘Enter, which sends the feedback. Captured first, so a design that stops the key's
+// propagation still lets go of it.
+export const ARTIFACT_ESCAPE_SCRIPT = `addEventListener("keydown",function(e){if(e.key==="Escape")parent.postMessage("${ARTIFACT_ESCAPE}","*");else if(e.key==="Enter"&&(e.metaKey||e.ctrlKey))parent.postMessage("${ARTIFACT_SEND}","*")},true)`;
 const ESCAPE_OUT = `<script>${ARTIFACT_ESCAPE_SCRIPT}</script>`;
 
 /** Escapes text for an HTML attribute value in double quotes. */

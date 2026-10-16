@@ -196,6 +196,7 @@ export function chosenDesign(bodies: string[]): { id: string; version: number } 
 export {
   ARTIFACT_CSP,
   ARTIFACT_ESCAPE,
+  ARTIFACT_SEND,
   ARTIFACT_ESCAPE_SCRIPT,
   DESIGN_CANVAS_SCRIPT,
   artifactDocument,

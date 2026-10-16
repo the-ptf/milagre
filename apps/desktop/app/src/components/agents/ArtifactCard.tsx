@@ -1,4 +1,4 @@
-import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, useReducedMotion } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -13,6 +13,7 @@ import {
   Share08Icon,
 } from "@hugeicons/core-free-icons";
 import {
+  ARTIFACT_SEND,
   chosenDesign,
   designActivity,
   designFeedbackMessage,
@@ -22,6 +23,7 @@ import {
   resolutionNotes,
   type DesignComment,
 } from "@milagre/shared/artifact";
+import { isModalOpen } from "../../lib/modal";
 import type { ArtifactRef, ChatStep, Subagent } from "../../model";
 import Tooltip from "../primitives/Tooltip";
 import { DESIGNS_EXPANDED, dockLayer, useDockArea, useSidePanelRoom } from "./dock-area";
@@ -889,6 +891,38 @@ function ArtifactDock({
     },
     onSend: () => void send(),
   };
+  // ⌘Enter anywhere in the dock sends the comments and the choice waiting, as Send does. The dock has the focus when an
+  // element in it does, or when the last click landed in it and nothing took the focus since (a comment box that
+  // closes leaves it on the page). A design or artifact with the focus keeps its keys, so it forwards the press.
+  const sendFromDock = useEffectEvent(() => void send());
+  useEffect(() => {
+    if (!onSend) return;
+    const ownDock = (element: Element | null) => element?.closest("[data-slot=artifact-dock]")?.getAttribute("aria-label") === label;
+    let clickedIn = false;
+    const onPointer = (event: PointerEvent) => {
+      clickedIn = ownDock(event.target instanceof Element ? event.target : null);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || event.defaultPrevented || event.isComposing) return;
+      const focused = document.activeElement;
+      if (!(ownDock(focused) || ((!focused || focused === document.body) && clickedIn)) || isModalOpen()) return;
+      event.preventDefault();
+      sendFromDock();
+    };
+    const onMessage = (event: MessageEvent) => {
+      if (event.data !== ARTIFACT_SEND || !event.source || isModalOpen()) return;
+      const frame = [...document.querySelectorAll("iframe")].find((element) => element.contentWindow === event.source);
+      if (frame && ownDock(frame)) sendFromDock();
+    };
+    window.addEventListener("pointerdown", onPointer, true);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("pointerdown", onPointer, true);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("message", onMessage);
+    };
+  }, [onSend, label]);
   const icon = "rounded p-1 text-ink-2 hover:bg-hover disabled:opacity-40";
   return createPortal(
     <ResizableDockSlide

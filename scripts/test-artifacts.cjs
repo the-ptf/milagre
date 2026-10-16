@@ -972,6 +972,27 @@ async function browserChecks() {
     await waitFor(`!${dock}.querySelector("[data-slot=artifact-send]") && ${frame("login")}.querySelectorAll("[data-slot=artifact-sent-pin]").length === 2`);
     await waitFor(`!${dock}.dataset.full`);
     await screenshot("sent-with-shortcut");
+    // ⌘Enter anywhere in the Designs sends what waits there, not only from a comment box: keep a comment with Enter
+    // (its box closes and the focus leaves it), then press ⌘Enter on the canvas.
+    await evaluate(`${dock}.querySelector("[aria-label='Comment on a design']")?.click()`);
+    await waitFor(`!!${frame("login")}.querySelector("[data-slot=artifact-comment-layer]")`);
+    const third = await evaluate(
+      `(() => { const r = ${frame("login")}.querySelector("[data-slot=artifact-comment-layer]").getBoundingClientRect(); return { x: Math.round(r.left + r.width / 4), y: Math.round(r.top + r.height / 4) }; })()`,
+    );
+    for (const type of ["mouseDown", "mouseUp"]) window.webContents.sendInputEvent({ type, x: third.x, y: third.y, button: "left", clickCount: 1 });
+    await waitFor(`document.activeElement?.tagName === "TEXTAREA"`);
+    await evaluate(`(() => {
+      const box = document.activeElement;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(box, "Tighter spacing");
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    })()`);
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+    await waitFor(`!${frame("login")}.querySelector("[data-slot=artifact-comment-bubble]") && !!${dock}.querySelector("[data-slot=artifact-send]")`);
+    assert.notEqual(await evaluate("document.activeElement?.tagName"), "TEXTAREA");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter", modifiers: [process.platform === "darwin" ? "meta" : "control"] });
+    await waitFor("window.sent.length === 3");
+    assert.match(await evaluate("window.sent[2]"), /Tighter spacing/);
+    await waitFor(`!${dock}.querySelector("[data-slot=artifact-send]")`);
 
     // The corner button shows while the Chat has designs, and closes and reopens the canvas.
     const toggle = 'document.querySelector("[data-panel-toggle=designs]")';
