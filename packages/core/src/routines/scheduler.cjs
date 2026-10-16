@@ -148,7 +148,11 @@ function createRoutineScheduler({
       ({ started, unread: entry.unread = false } = await chats.send(chatId, message));
     } catch (error) {
       if (pending.get(chatId) === entry) pending.delete(chatId);
-      finish({ id: entry.runId }, chatId, { status: "failed", error: errorText(error) });
+      // The Chat got busy as the message was about to go (the adapter checks again as it is saved): a comment waits as
+      // it does for a busy Chat, and a beat is skipped, uncounted, as it would have been a moment earlier.
+      if (error?.busy && entry.comment) store.deferRun(entry.runId, now() + COMMENT_RETRY_MS);
+      else if (error?.busy && !entry.newChat) finish({ id: entry.runId }, chatId, { status: "skipped-busy" });
+      else finish({ id: entry.runId }, chatId, { status: "failed", error: errorText(error) });
       return;
     }
     // No turn of the Run's own will end it: a start that failed or was stopped resolves without a turn id, and a message
@@ -226,7 +230,7 @@ function createRoutineScheduler({
     }
     const author = authorName(comment.author);
     const text = linearPrompt(routine.prompt, issue, comment, author);
-    const entry = { runId: run.id, sent: false, turnStarted: false };
+    const entry = { runId: run.id, sent: false, turnStarted: false, comment: true };
     pending.set(chatId, entry);
     const label = author ? `Linear comment · ${author}` : "Linear comment";
     const context = { kind: "routine-run", routineId: routine.id, runId: run.id, name: routine.name, at: now(), label };

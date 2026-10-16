@@ -61,6 +61,97 @@ test("busy covers a running turn and an approval or question waiting", () => {
   assert.equal(fixture({ runs: { [chatId]: { approvals: [], questions: [{}] } } }).adapter.busy(chatId), true);
 });
 
+// A Chat the adapter sees through `cachedState`, with what ChatHost knows about it in memory.
+function idleFixture({ session = {}, startingTurns = new Map(), runs = {}, send } = {}) {
+  const sent = [];
+  const chatState = {
+    sessions: { 2: { id: 2, worktree_id: 1, provider: "claude", ...session } },
+    messages: [{ id: 1, session_id: 2, role: "user", body: "Watch CI", context: null, model: "opus" }],
+  };
+  const chats = {
+    runs,
+    startingTurns,
+    isBusy: () => false,
+    turnSettings: () => null,
+    send:
+      send ??
+      (async (request) => {
+        sent.push(request);
+        return { sessionId: 2, started: Promise.resolve({ turnId: "t" }) };
+      }),
+  };
+  const adapter = routineChats({
+    chats,
+    store: { get: () => null },
+    cachedState: (scope) => (scope === "/project" ? chatState : undefined),
+    openState: async () => chatState,
+    isClosing: () => false,
+  });
+  return { adapter, sent, chats };
+}
+const running = (id, background = true) => ({ id, background, status: "running" });
+
+test("busy also covers a turn starting, a message waiting in the queue, and background work that comes back to the Chat", () => {
+  assert.equal(idleFixture().adapter.busy(chatId), false);
+  assert.equal(idleFixture({ startingTurns: new Map([[chatId, "antigravity"]]) }).adapter.busy(chatId), true);
+  assert.equal(idleFixture({ session: { queued: [{ id: "q1", body: "next" }] } }).adapter.busy(chatId), true);
+  // #491: a turn's end isn't the end of its work while its background agents run; their results wake the Chat.
+  assert.equal(idleFixture({ session: { subagents: [running("a1")] } }).adapter.busy(chatId), true);
+  assert.equal(idleFixture({ session: { subagents: [{ ...running("a1"), status: "completed" }] } }).adapter.busy(chatId), false);
+  assert.equal(idleFixture({ session: { subagents: [{ id: "adv", source: "milagre-advisor", status: "running" }] } }).adapter.busy(chatId), true);
+  // A command left running in the background (a dev server) never ends: it doesn't hold the heartbeat back.
+  assert.equal(
+    idleFixture({ session: { backgroundTasks: [{ id: "b1", kind: "local_bash", title: "npm run dev", startedAt: 1 }] } }).adapter.busy(chatId),
+    false,
+  );
+  assert.equal(idleFixture({ session: { backgroundTasks: [{ id: "m1", kind: "mcp", title: "build", startedAt: 1 }] } }).adapter.busy(chatId), true);
+});
+
+test("a beat checks the Chat again as its message is saved, and never waits in the Chat's queue", async () => {
+  const { adapter, sent } = idleFixture();
+  await adapter.send(chatId, { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r1", runId: "run-9" } });
+  // ChatHost never queues a send that carries canStart (see ChatHost.send).
+  assert.equal(typeof sent[0].canStart, "function");
+  assert.equal(sent[0].canStart(), true);
+});
+
+test("a beat whose Chat got busy while it was being sent rejects as busy, not as a failure", async () => {
+  const fixtureState = {};
+  const { adapter, chats } = idleFixture({
+    send: async (request) => {
+      // The user's turn started while the beat waited on the Project: ChatHost asks canStart as it saves.
+      chats.runs[chatId] = { approvals: [], questions: [] };
+      if (!request.canStart()) throw new Error("Advisor delivery is deferred.");
+      fixtureState.saved = true;
+      return { sessionId: 2, started: Promise.resolve({ turnId: "t" }) };
+    },
+  });
+  chats.isBusy = (id) => Boolean(chats.runs[id]);
+  await assert.rejects(
+    adapter.send(chatId, { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r1", runId: "run-9" } }),
+    (error) => error.busy === true,
+  );
+  assert.equal(fixtureState.saved, undefined);
+});
+
+test("a beat into a Chat whose turn started as its Project opened rejects as busy before anything is saved", async () => {
+  const sent = [];
+  const startingTurns = new Map();
+  const { adapter } = idleFixture({
+    startingTurns,
+    send: async (request) => {
+      sent.push(request);
+      return { sessionId: 2, started: Promise.resolve({ turnId: "t" }) };
+    },
+  });
+  startingTurns.set(chatId, "claude");
+  await assert.rejects(
+    adapter.send(chatId, { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r1", runId: "run-9" } }),
+    (error) => error.busy === true,
+  );
+  assert.equal(sent.length, 0);
+});
+
 test("after a restart a beat runs on the Chat's own provider and last model, with the routine's stored permission mode", async () => {
   const { adapter, sent } = fixture();
   const context = { kind: "routine-run", routineId: "r1", runId: "run-2" };

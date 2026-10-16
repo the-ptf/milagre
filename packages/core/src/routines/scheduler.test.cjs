@@ -189,6 +189,21 @@ test("a send that throws finishes the Run failed", async () => {
   assert.equal(lastRun(ctx).status, "failed");
 });
 
+test("a beat whose Chat got busy as it was about to be sent is skipped-busy, uncounted, and the next one is sent", async () => {
+  const ctx = setup();
+  ctx.state.sendError = Object.assign(new Error("chat was busy"), { busy: true });
+  due(ctx);
+  await ctx.scheduler.tick();
+  assert.equal(lastRun(ctx).status, "skipped-busy");
+  assert.equal(ctx.store.get(ctx.routine.id).runCount, 0);
+  assert.equal(ctx.store.get(ctx.routine.id).failedStreak ?? 0, 0);
+  ctx.state.sendError = null;
+  nextBeat(ctx);
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.send.length, 2);
+  assert.equal(lastRun(ctx).status, "running");
+});
+
 test("a send whose turn never starts finishes failed", async () => {
   const ctx = setup();
   ctx.state.startResult = null;
@@ -821,6 +836,31 @@ test("a comment for a busy Chat waits 15 s, uncounted, and is sent once the Chat
   await ctx.scheduler.tick();
   assert.equal(ctx.calls.send.length, 1);
   assert.equal(ctx.calls.send[0].chatId, "c1");
+  assert.equal(ctx.store.runs(routine.id)[0].status, "running");
+});
+
+test("a comment whose Chat got busy as it was about to be sent waits 15 s, uncounted, like one for a busy Chat", async () => {
+  let refuse = true;
+  const ctx = triggers({
+    chatOptions: {
+      async send(chatId, message) {
+        ctx.calls.send.push({ chatId, ...message });
+        if (refuse) throw Object.assign(new Error("chat was busy"), { busy: true });
+        return { started: Promise.resolve({ turnId: "t" }), unread: false };
+      },
+    },
+  });
+  const routine = createComments(ctx);
+  ctx.scheduler.enqueueEvent(routine.id, commentEvent("k1"));
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.defer.length, 1);
+  assert.equal(ctx.calls.defer[0].notBefore, START + 15_000);
+  assert.deepEqual(ctx.store.runs(routine.id), []);
+  assert.equal(ctx.store.get(routine.id).runCount, 0);
+  refuse = false;
+  ctx.clock.t = START + 15_000;
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.send.length, 2);
   assert.equal(ctx.store.runs(routine.id)[0].status, "running");
 });
 

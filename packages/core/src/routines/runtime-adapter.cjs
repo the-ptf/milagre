@@ -1,4 +1,5 @@
 const { chatKey, lastUserModel, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { backgroundWork, holdsAnnouncement } = require("@milagre/shared/chat-activity");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 const { clock } = require("@milagre/shared/routines");
 const { renderRoutinePrompt } = require("@milagre/shared/routine-prompt");
@@ -10,6 +11,9 @@ const { createLinearPoller } = require("./linear-poller.cjs");
 const OFF = "Routines are off. Turn them on in Settings › Experimental.";
 const TOOLS_OFF = "Routines are turned off in Settings › Experimental.";
 const WEBHOOK_LATER = "Webhook Routines arrive in a later update.";
+// What the scheduler records when a Chat got busy as a Run's message was about to go (scheduler.cjs BUSY).
+const BUSY = "chat was busy";
+const busyError = () => Object.assign(new Error(BUSY), { busy: true });
 // A hung git (a fetch, a setup step) fails the Run instead of holding its slot until the daemon restarts.
 const START_TIMEOUT_MS = 2 * 60 * 1000;
 // What a Chat a Routine started can't do: make Routines or start their Runs, so a Run never sets off another.
@@ -63,6 +67,21 @@ function routineReply(state, sessionId) {
  */
 function routineChats({ chats, store, cachedState, openState, isClosing, worktrees, archiveChat, now = Date.now, timeoutMs = START_TIMEOUT_MS }) {
   const session = (chatId) => cachedState(projectOfKey(chatId))?.sessions?.[sessionIdFromKey(chatId)];
+  // What makes a Run's message wait, other than a turn starting: a turn running or preparing, an approval or a question,
+  // a message waiting in the Chat's queue for the next turn, or background work whose result comes back to the Chat (a
+  // turn's end isn't the end of its work then, see chat-activity.mjs). A command left running in the background, such
+  // as a dev server, may never end, so it holds nothing back, as it holds back no announcement.
+  function occupied(chatId) {
+    const run = chats.runs[chatId];
+    const target = session(chatId);
+    return (
+      chats.isBusy(chatId) ||
+      Boolean(run?.approvals?.length || run?.questions?.length) ||
+      Boolean(target?.queued?.length) ||
+      backgroundWork(target).some(holdsAnnouncement)
+    );
+  }
+  const busy = (chatId) => occupied(chatId) || Boolean(chats.startingTurns?.has(chatId));
   // The Worktree a Run's Chat goes in: a new one (a Linear issue's carries its branch name), or the Project folder.
   async function workspaceFor(routine, issue) {
     const { projectPath, workspace } = routine.target;
@@ -143,10 +162,7 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
     // A Project not open yet is unknown, not gone: send opens it, and a Chat missing then fails its Run.
     exists: (chatId) => cachedState(projectOfKey(chatId)) === undefined || Boolean(session(chatId)),
     archived: (chatId) => session(chatId)?.archived === true,
-    busy(chatId) {
-      const run = chats.runs[chatId];
-      return chats.isBusy(chatId) || Boolean(run?.approvals?.length || run?.questions?.length);
-    },
+    busy: (chatId) => busy(chatId),
     // A beat runs on the Chat's latest turn settings, its permission mode included, so a mode the user changed since
     // the heartbeat was set holds. After a restart: the Chat's own provider and last model, and the mode the Chat had
     // when the heartbeat was set.
@@ -157,24 +173,46 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
       const state = await openState(projectPath, sessionId);
       const target = state?.sessions?.[sessionId];
       if (!target) throw new Error("That Chat is no longer in its Project.");
+      // Opening the Project can resume a turn a quit stopped, and the user may have sent meanwhile.
+      if (busy(chatId)) throw busyError();
       const routine = store.get(context.routineId);
       const latest = chats.turnSettings(chatId);
       const settings = latest ?? {
         provider: target.provider ?? routine?.provider ?? "claude",
         model: lastUserModel(state, sessionId) || routine?.model,
       };
-      const { started } = await chats.send({
-        ...settings,
-        permissionMode: latest?.permissionMode ?? routine?.permissionMode ?? "auto",
-        body,
-        prompt,
-        context,
-        images: [],
-        files: [],
-        projectPath,
-        sessionId,
-        worktreeId: target.worktree_id,
-      });
+      let waited = false;
+      let asks = 0;
+      let sending;
+      try {
+        sending = await chats.send({
+          ...settings,
+          permissionMode: latest?.permissionMode ?? routine?.permissionMode ?? "auto",
+          body,
+          prompt,
+          context,
+          images: [],
+          files: [],
+          projectPath,
+          sessionId,
+          worktreeId: target.worktree_id,
+          // A send that carries canStart never waits in the Chat's queue (ChatHost.send). ChatHost asks before it saves
+          // the message and again as it saves it, so a turn that started meanwhile makes the beat wait instead of
+          // steering into it. It asks once more just before the turn starts, when the beat's own run already holds the
+          // Chat: from that third ask on, the beat goes ahead. A turn starting is checked above, not here, since the
+          // beat's own turn counts as starting as soon as its message is saved.
+          canStart: () => {
+            asks += 1;
+            if (asks > 2 || !occupied(chatId)) return true;
+            waited = true;
+            return false;
+          },
+        });
+      } catch (error) {
+        if (waited) throw busyError();
+        throw error;
+      }
+      const { started } = sending;
       // Whether the Chat was unread before the beat, so a quiet one can leave it that way.
       return { started, unread: target.unread === true };
     },
