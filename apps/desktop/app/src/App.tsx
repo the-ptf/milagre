@@ -334,9 +334,14 @@ function App() {
     setStoredSidebarMode(mode);
     localStorage.setItem(SIDEBAR_MODE_KEY, mode);
   };
+  // Opening a Project's Chat any other way (a notification, ⌘N, the palette) shows it, not the bot thread over it.
+  const leaveBots = () => {
+    if (storedSidebarMode === "bots") setSidebarMode("projects");
+  };
+  // Only a successful read that says Bots are off resets the sidebar: a daemon still starting keeps it on Bots.
   useEffect(() => {
-    if (bots.ready && !bots.enabled && storedSidebarMode === "bots") setSidebarMode("projects");
-  }, [bots.ready, bots.enabled, storedSidebarMode]);
+    if (bots.ready && !bots.error && !bots.enabled && storedSidebarMode === "bots") setSidebarMode("projects");
+  }, [bots.ready, bots.error, bots.enabled, storedSidebarMode]);
   const [pickedBotId, setSelectedBotId] = useState<string | null>(null);
   // The bot picked last, or the first one while that one is gone.
   const selectedBotId = bots.snapshot?.bots.some((bot) => bot.id === pickedBotId) ? pickedBotId : (bots.snapshot?.bots[0]?.id ?? null);
@@ -1225,6 +1230,7 @@ function App() {
   const pendingNotificationChat = useRef<string | null>(null);
   // Opens a chat by its key, in another project too: a notification's, or the one the attention button points at.
   const openChatByKey = useEvent((chatId: string) => {
+    leaveBots();
     const owner = projectOfKey(chatId);
     if (isLinkScopeKey(owner)) {
       // oxlint-disable-next-line react/immutability -- React Compiler heuristic: the ref or handler is assigned or called after render, not during it
@@ -1256,6 +1262,7 @@ function App() {
   );
 
   function startNewChat(draftText = "") {
+    leaveBots();
     advanceChatView();
     const latest = openState();
     if (latest && projectRef.current) restoreProjectChoices(latest, projectRef.current.path);
@@ -1675,6 +1682,7 @@ function App() {
     openFind(pending.term);
   }, [selectedSession?.id, view, messages.length]);
   function openMessage(sessionId: number, term: string) {
+    leaveBots();
     if (view === "chat" && selectedSession?.id === sessionId) {
       openFind(term);
       return;
@@ -1825,6 +1833,7 @@ function App() {
   const switchProjectFromSidebar = useEvent((path: string) => void switchProject(path));
   // "+" on another Project's header switches to it (from its last copy, so at once) and starts a chat there.
   const newChatInScope = useEvent((key: string) => {
+    leaveBots();
     if (isLinkScopeKey(key)) {
       void selectLink(key.slice("milagre-link:".length));
       return;
