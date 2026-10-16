@@ -153,6 +153,23 @@ test("a profile save marks the lines the user changed", async (t) => {
   assert.match(text, /^# Memory\n\n## Rules\n/);
 });
 
+test("a profile save from a stale read is refused", async (t) => {
+  const home = await makeHome(t);
+  const opened = (await readMemory(home)).text;
+  // The bot notes something while the profile is open.
+  await writeMemory(home, { section: "Flaky tests", text: "- shard 2 times out", mode: "append" }, { now: 1 });
+  const latest = (await readMemory(home)).text;
+  await assert.rejects(saveMemoryByUser(home, "# Memory\n- mine\n", { now: 2, base: opened }), {
+    message: "MEMORY.md changed since you opened it. Reopen it to see the latest.",
+  });
+  assert.equal((await readMemory(home)).text, latest);
+  // From the latest read it saves, and without a read to compare it saves as before.
+  await saveMemoryByUser(home, `${latest}- mine\n`, { now: 3, base: latest });
+  assert.match((await readMemory(home)).text, /- shard 2 times out\n- mine <!-- user -->\n$/);
+  await saveMemoryByUser(home, "# Memory\n", { now: 4 });
+  assert.equal((await readMemory(home)).text, "# Memory\n");
+});
+
 test("a profile save may pass the caps", async (t) => {
   const home = await makeHome(t);
   const text = `# Memory\n${Array.from({ length: 210 }, (_, index) => `- note ${index}`).join("\n")}\n`;

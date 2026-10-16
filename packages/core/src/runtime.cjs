@@ -1981,7 +1981,8 @@ function createRuntime(options) {
   commands.handle("bots:revoke-grant", (_event, id) => bots.revokeGrant(String(id)));
   commands.handle("bots:brief:read", (_event, id) => bots.readBrief(String(id)));
   commands.handle("bots:memory:read", (_event, id) => bots.readMemory(String(id)));
-  commands.handle("bots:memory:save", (_event, id, text) => bots.saveMemory(String(id), String(text ?? "")));
+  // `base`, the text the profile opened, is optional: without it the save goes through as before.
+  commands.handle("bots:memory:save", (_event, id, text, base) => bots.saveMemory(String(id), String(text ?? ""), base == null ? undefined : String(base)));
   void track(() => bots.start(), background).catch((error) => console.warn("Milagre couldn't start its bots:", error.message));
 
   function close() {

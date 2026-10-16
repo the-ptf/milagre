@@ -145,10 +145,14 @@ function writeMemory(home, { section, text, mode }, { now, by = "bot" }) {
   });
 }
 
-/** The user's whole-file save from the profile: every line that isn't in the stored text becomes theirs. */
-function saveMemoryByUser(home, text, { now }) {
+/**
+ * The user's whole-file save from the profile: every line that isn't in the stored text becomes theirs. With `base`,
+ * the text the profile opened, a file that changed since (the bot wrote a note) is refused, so the save drops nothing.
+ */
+function saveMemoryByUser(home, text, { now, base }) {
   return serial(home, async () => {
     const previous = await readText(home);
+    if (base !== undefined && previous !== base) throw new Error("MEMORY.md changed since you opened it. Reopen it to see the latest.");
     const stored = new Set(previous.split("\n").map((line) => unmarked(line).trimEnd()));
     const next = redactSecrets(String(text ?? ""))
       .replace(/\r\n?/g, "\n")

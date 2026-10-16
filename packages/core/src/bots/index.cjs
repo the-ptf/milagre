@@ -656,8 +656,9 @@ function createBots({
     /** BRIEF.md, as the profile shows it. */
     readBrief: async (id) => ({ text: await readBrief(requireBot(id).homePath) }),
     readMemory: (id) => readMemory(requireBot(id).homePath),
-    saveMemory: async (id, text) => {
-      const result = await saveMemoryByUser(requireBot(id).homePath, text, { now: now() });
+    /** The profile's save; `base`, the text it opened, refuses it when MEMORY.md changed since. */
+    saveMemory: async (id, text, base) => {
+      const result = await saveMemoryByUser(requireBot(id).homePath, text, { now: now(), base });
       changed();
       return result;
     },

@@ -294,7 +294,8 @@ export type MilagreBridge = {
   revokeBotGrant: (id: string) => Promise<void>;
   readBotBrief: (id: string) => Promise<{ text: string }>;
   readBotMemory: (id: string) => Promise<{ text: string; lines: number; bytes: number }>;
-  saveBotMemory: (id: string, text: string) => Promise<unknown>;
+  /** `base`: the text read when the profile opened MEMORY.md; the save is refused when the file changed since. */
+  saveBotMemory: (id: string, text: string, base?: string) => Promise<unknown>;
   readLinearStatus: () => Promise<LinearStatus>;
   /** Opens Linear in the browser and resolves once the Mac is connected. A second call replaces a waiting one. */
   /** `window`: sign in from a window of its own with an empty session (Add workspace), not the browser. */

@@ -350,7 +350,12 @@ test("the profile edits the brief and the memory", async (t) => {
   assert.deepEqual(await runtime.invoke("bots:brief:read", ["ops"]), { text: "Watch main only." });
   assert.equal((await runtime.invoke("bots:list")).bots[0].role, "Keeps main green");
   await runtime.invoke("bots:memory:save", ["ops", "# Memory\n\n## Rules\n- never merge on Fridays\n"]);
-  assert.match((await runtime.invoke("bots:memory:read", ["ops"])).text, /- never merge on Fridays <!-- user -->/);
+  const { text } = await runtime.invoke("bots:memory:read", ["ops"]);
+  assert.match(text, /- never merge on Fridays <!-- user -->/);
+  // A save from what the profile read: refused once the file changed since.
+  await runtime.invoke("bots:memory:save", ["ops", `${text}- ship on Mondays\n`, text]);
+  await assert.rejects(runtime.invoke("bots:memory:save", ["ops", `${text}- ship on Tuesdays\n`, text]), /MEMORY\.md changed since you opened it\./);
+  assert.match((await runtime.invoke("bots:memory:read", ["ops"])).text, /- ship on Mondays <!-- user -->\n$/);
 });
 
 test("bots come back after a restart", async (t) => {

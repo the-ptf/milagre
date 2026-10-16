@@ -110,7 +110,7 @@ function makeBridge(invoke, listen, send) {
     revokeBotGrant: (id) => invoke("bots:revoke-grant", id),
     readBotBrief: (id) => invoke("bots:brief:read", id),
     readBotMemory: (id) => invoke("bots:memory:read", id),
-    saveBotMemory: (id, text) => invoke("bots:memory:save", id, text),
+    saveBotMemory: (id, text, base) => (base === undefined ? invoke("bots:memory:save", id, text) : invoke("bots:memory:save", id, text, base)),
     createArtifactPreview: (html) => invoke("artifact-preview:register", html),
     releaseArtifactPreview: (url) => invoke("artifact-preview:release", url),
     artifacts: {
