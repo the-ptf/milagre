@@ -2582,6 +2582,73 @@ test("mobile list PR lookups combine branch and historical statuses and stop whi
   react.cleanup();
 });
 
+test("the phone reads the Chat on screen: on opening, on coming back to it, and when a reply lands there", () => {
+  const react = hookHost({ effects: true });
+  let changed;
+  let focus;
+  const app = { currentState: "active", addEventListener: (_event, fn) => ((changed = fn), { remove() {} }) };
+  const patches = [];
+  // Arguments come from the module's own realm: compared as JSON.
+  const client = { call: async (method, args) => patches.push(JSON.parse(JSON.stringify([method, args]))) };
+  const { useReadOpenChat } = load("read-open-chat.ts", {
+    react,
+    "expo-router": { useFocusEffect: (fn) => (focus = fn) },
+    "react-native": { AppState: app },
+  });
+  const read = [["chat:patch", ["/p", 4, { unread: false }]]];
+  let chat = { id: 4, unread: true };
+  let covered = false;
+  const render = () => {
+    react.begin();
+    useReadOpenChat(client, "/p", chat, covered);
+  };
+  render();
+  assert.deepEqual(patches, [], "nothing is read before the screen has focus");
+  const blur = focus();
+  render();
+  assert.deepEqual(patches, read, "opening the Chat reads it");
+  chat = { id: 4, unread: false };
+  render();
+  // Mark as unread from the sidebar, which covers the Chat: it sticks until the Chat shows again.
+  covered = true;
+  render();
+  chat = { id: 4, unread: true };
+  render();
+  assert.equal(patches.length, 1);
+  covered = false;
+  render();
+  assert.deepEqual(patches, [...read, ...read], "closing the sidebar over it reads it again");
+  chat = { id: 4, unread: false };
+  render();
+  // A turn that ends while the Chat shows sets the mark on the host; the phone clears it.
+  chat = { id: 4, unread: true };
+  render();
+  assert.equal(patches.length, 3);
+  chat = { id: 4, unread: false };
+  render();
+  // In the background, or with another screen on top, nothing is read until the Chat shows again.
+  app.currentState = "background";
+  changed("background");
+  render();
+  chat = { id: 4, unread: true };
+  render();
+  assert.equal(patches.length, 3);
+  changed("active");
+  render();
+  assert.equal(patches.length, 4, "coming back to the foreground over the Chat reads it");
+  chat = { id: 4, unread: false };
+  render();
+  blur();
+  render();
+  chat = { id: 4, unread: true };
+  render();
+  assert.equal(patches.length, 4);
+  focus();
+  render();
+  assert.equal(patches.length, 5);
+  react.cleanup();
+});
+
 test("a sidebar Chat opens at once, leaving its Project to load in the Chat", () => {
   const nav = navigationHost(deferred().promise);
   nav.open(nav.row("chat")).props.onPress();
