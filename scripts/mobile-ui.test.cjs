@@ -121,6 +121,7 @@ function load(file, modules, extra = "") {
     require: (id) => {
       // Image assets are opaque sources; any value stands in.
       if (id.endsWith(".png") && !(id in modules)) return { uri: id };
+      if (id === "@milagre/shared/model-copy" && !(id in modules)) return require("../packages/shared/src/model-copy.ts");
       const base = id.replace(/^\.\.?\//, "");
       if (base === "theme" || base === "ui") {
         // Themed code reads colors through hooks; a test's own fake wins over these defaults.
@@ -144,6 +145,7 @@ function load(file, modules, extra = "") {
     clearTimeout,
     setInterval,
     clearInterval,
+    queueMicrotask,
   });
   return exports;
 }
@@ -709,6 +711,49 @@ test("inbox approval shows the entire action inline, including folders, files an
   );
   find(tree, (n) => n.props?.title === "Allow once").props.onPress();
   assert.deepEqual(decisions, ["allow"]);
+});
+
+test("setup approval shows full setup context and emits each setup decision", () => {
+  const react = hookHost();
+  const { Approval } = load("questions.tsx", {
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager" },
+    "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
+    "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", TextInput: "TextInput", View: "View" },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_t, k) => k }),
+    "@milagre/shared/limits": require("@milagre/shared/limits"),
+    "@milagre/shared/model-copy": require("../packages/shared/src/model-copy.ts"),
+    "./activity-drafts": { takeActivityDraft() {} },
+    "./icons": { Icon: "Icon" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
+  });
+  const command = "prepare-project --flag='full value'\necho finished";
+  const decisions = [];
+  react.begin();
+  const tree = Approval({
+    approval: {
+      kind: "setup",
+      title: "Run setup?",
+      tool: "Setup",
+      command,
+      cwd: "/worktree",
+      setup: { projectPath: "/projects/sample", source: "package.json scripts.setup", computer: "MacBook Pro" },
+      allowForChat: true,
+    },
+    busy: false,
+    respond: (decision) => decisions.push(decision),
+  });
+  for (const value of [command, "/projects/sample", "package.json scripts.setup", "MacBook Pro"])
+    assert.ok(
+      find(tree, (node) => node.type === "Text" && node.props.children === value),
+      `missing setup approval value: ${value}`,
+    );
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Run once").props.onPress();
+  find(tree, (node) => node.type === "Pressable" && node.props.accessibilityRole === "button").props.onPress();
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Skip setup").props.onPress();
+  assert.deepEqual(decisions, ["allow", "allow-for-chat", "deny"]);
 });
 
 test("phone inbox pages keep one Chat visible and retain a draft when paging back", () => {
@@ -3903,20 +3948,30 @@ test("a cancelled notification target ignores a later network failure", async ()
   assert.equal(await opening, false);
 });
 
+// Router 58's stack reducer, the one the app's navigators run.
+function expoRouters() {
+  return require(require.resolve("expo-router/build/react-navigation/routers/index", { paths: [path.join(__dirname, "../apps/mobile")] }));
+}
+
+// Router 58 has no initial-state helper and rejects partial states, so tests seed a complete one.
+function stackState(routeNames, routes) {
+  return { stale: false, type: "stack", key: "root", index: routes.length - 1, routeKeySeq: 0, routeNames, routes, preloadedRoutes: [] };
+}
+
 function pushHost(t, initial = "index") {
   const react = hookHost();
   react.useEffect = react.effect;
   react.useLayoutEffect = react.effect;
-  const { StackRouter, StackActions } = require(
-    require.resolve("expo-router/build/react-navigation/routers", { paths: [path.join(__dirname, "../apps/mobile")] }),
-  );
+  const { StackRouter, StackActions } = expoRouters();
   const stack = StackRouter({ initialRouteName: initial });
   const options = { routeNames: ["index", "projects", "project", "chat"], routeParamList: {}, routeGetIdList: {} };
-  let navigation = stack.getInitialState(options);
+  let navigation = stackState(options.routeNames, [{ key: `${initial}-root`, name: initial }]);
   let pathname = initial === "index" ? "/" : "/chat";
   let params = initial === "chat" ? { id: "1" } : {};
   const apply = (action) => {
-    navigation = stack.getStateForAction(navigation, action, options) || navigation;
+    const result = stack.getStateForAction(navigation, action, options);
+    // An unhandled action, like popping the last route, leaves the stack as it was.
+    if (typeof result === "object") navigation = result.state;
   };
   const router = {
     dismissAll: () => apply(StackActions.popToTop()),
@@ -4406,10 +4461,13 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
     },
     dispatch: (action) => {
       assert.equal(action.target, "root");
+      const result = stack.getStateForAction(navigation, action, { routeNames: navigation.routeNames, routeParamList: {}, routeGetIdList: {} });
+      assert.equal(typeof result, "object", "Router accepts the reset as a complete navigation state");
       resets.push(action.payload);
-      navigation = action.payload;
+      navigation = result.state;
     },
   };
+  const stack = expoRouters().StackRouter({ initialRouteName: "index" });
   const state = { status: "ready", error: "" };
   const shell = load(
     "update-sheet.tsx",
@@ -4445,7 +4503,7 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
     react.flush();
     if (!navigation) {
       assert.deepEqual(routes, []);
-      navigation = { key: "root", routeNames: ["index", "update-sheet", "projects"], index: 0, routes: [{ key: "computers", name: "index" }] };
+      navigation = stackState(["index", "update-sheet", "projects"], [{ key: "computers", name: "index" }]);
       navigationListener();
     }
   }
@@ -4460,8 +4518,10 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
   react.flush();
   assert.equal(resets.length, 1);
   assert.equal(navigation.index, 2);
-  assert.equal(navigation.routes[1], destination, "late navigation retains the destination and its params");
+  assert.equal(navigation.routes[1].key, destination.key, "late navigation retains the destination");
+  assert.deepEqual(navigation.routes[1].params, destination.params, "and its params");
   assert.equal(navigation.routes[2].name, "update-sheet");
+  assert.ok(navigation.routes[2].key, "Router keys the moved prompt");
   assert.equal(navigation.routes.filter((route) => route.name === "update-sheet").length, 1, "late navigation retains one prompt");
   react.begin();
   shell({ children: jsx("Stack", {}) });
@@ -4478,19 +4538,21 @@ test("the global shell waits for navigation, pushes once, and preserves each cur
   assert.equal(navigationListener, undefined);
 });
 
-test("Close, swipe and Android back defer; notification reset and route replacement do not", () => {
+test("Close, swipe and Android back defer; notification reset and route replacement do not", async () => {
   const react = hookHost();
   let dismissals = 0,
     backs = 0,
-    beforeRemove;
+    event,
+    removed;
   const dismiss = () => {
     dismissals++;
   };
   const navigation = {
-    addListener: (_, listener) => {
-      beforeRemove = listener;
+    addListener: (name, listener) => {
+      event = name;
+      removed = listener;
       return () => {
-        beforeRemove = undefined;
+        removed = undefined;
       };
     },
   };
@@ -4511,9 +4573,10 @@ test("Close, swipe and Android back defer; notification reset and route replacem
   react.begin();
   const tree = route();
   react.flush();
-  for (const type of ["RESET", "POP_TO"]) beforeRemove({ data: { action: { type } } });
+  assert.equal(event, "removed");
+  for (const type of ["RESET", "POP_TO"]) removed({ data: { action: { type } } });
   assert.equal(dismissals, 0, "programmatic navigation keeps the prompt pending");
-  for (const type of ["GO_BACK", "POP"]) beforeRemove({ data: { action: { type } } });
+  for (const type of ["GO_BACK", "POP"]) removed({ data: { action: { type } } });
   assert.equal(dismissals, 2);
   tree.props.onDismiss();
   assert.equal(backs, 1);
@@ -4525,7 +4588,11 @@ test("Close, swipe and Android back defer; notification reset and route replacem
   assert.equal(dismissals, 3);
   react.cleanup();
   assert.equal(dismissals, 3, "replacing a native sheet route does not defer the prompt");
-  assert.equal(beforeRemove, undefined);
+  // Router 58 reports the removal after the screen's effect cleanup, so the listener outlives it by a microtask.
+  removed({ data: { action: { type: "POP" } } });
+  assert.equal(dismissals, 4, "a swipe reported after unmount still defers");
+  await Promise.resolve();
+  assert.equal(removed, undefined);
 });
 
 test("a live turn's step whose output the phone left out does not expand, while saved and clipped steps do", () => {
@@ -4850,7 +4917,7 @@ function simulatorHost(client, file = "simulator.tsx") {
     constructor(_cache, name) {
       this.uri = "file:///cache/" + name;
     }
-    write(value) {
+    writeSync(value) {
       if (writeError) throw writeError;
       files.set(this.uri, value);
     }
@@ -5186,7 +5253,7 @@ function browserHost(client) {
     constructor(_cache, name) {
       this.uri = "file:///cache/" + name;
     }
-    write(value, options) {
+    writeSync(value, options) {
       files.set(this.uri, value);
       writes.push([this.uri, options?.encoding ?? "utf8"]);
     }
@@ -6223,7 +6290,7 @@ test("mobile picked files preview locally before sending", async () => {
         open(mode) {
           assert.equal(mode, "readOnly");
           return {
-            readBytes(length) {
+            readBytesSync(length) {
               assert.equal(length, bytes.length);
               return bytes;
             },
@@ -6505,22 +6572,7 @@ test("mobile provider discovery uses the selected scope and ignores late respons
 
 test("mobile Project Accounts opens from Settings as a native stack screen", () => {
   const opened = [];
-  const { SettingsView } = load("app/settings.tsx", {
-    react: { useState: (value) => [value, () => {}], useCallback: (fn) => fn },
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/main-sync": { MAIN_SYNC_TITLE: "Sync main branch before new Worktrees", MAIN_SYNC_HINT: "" },
-    "react-native": { View: "View" },
-    "expo-router": { Stack: { Screen: "Screen" }, router: { push() {} }, useFocusEffect() {} },
-    "@hugeicons/core-free-icons": {},
-    "../session": { useSession: () => ({ recent: [], client: null }) },
-    "../project-icon": { ProjectIcon: "ProjectIcon" },
-    "../live-activity-native": { nativeActivity: null },
-    "../push": { usePush: () => ({}) },
-    "../update-sheet": { useAppUpdates: () => ({ state: { status: "disabled" } }) },
-    "../icons": { Icon: "Icon" },
-    "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", Toggle: "Toggle", styles: {} },
-    "../attention": { useAttentionButton: () => [true, () => {}] },
-  });
+  const { SettingsView } = loadSettings({ client: { url: "http://mac", call: async () => null } });
   find(SettingsView({ onOpen: (page) => opened.push(page) }), (n) => n.props.title === "Project Accounts").props.onPress();
   assert.deepEqual(opened, ["project-accounts"]);
   const { default: Screen } = load("app/project-accounts.tsx", {
@@ -6788,7 +6840,7 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
     constructor(_cache, name) {
       this.uri = "file:///cache/" + name;
     }
-    write(value) {
+    writeSync(value) {
       files.set(this.uri, value);
     }
     get exists() {
@@ -7398,6 +7450,7 @@ test("mobile subagent detail reads the whole transcript when the host sent only 
 test("mobile main sync switch re-reads the Mac's default on focus and shows a refused save", async () => {
   const react = hookHost();
   const focused = [];
+  const pushed = [];
   let saved = false;
   const client = {
     async call(method) {
@@ -7405,29 +7458,25 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
       throw new Error("This demo computer only opens its demo project.");
     },
   };
-  const { SettingsView } = load("app/settings.tsx", {
+  const { GeneralSection } = load("general-section.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "@milagre/shared/main-sync": { MAIN_SYNC_TITLE: "Sync main branch before new Worktrees", MAIN_SYNC_HINT: "" },
     "react-native": { View: "View", Text: "Text" },
-    "expo-router": { Stack: { Screen: "Screen" }, router: { push() {} }, useFocusEffect: (fn) => focused.push(fn) },
+    "expo-router": { router: { push: (path) => pushed.push(path) }, useFocusEffect: (fn) => focused.push(fn) },
     "@hugeicons/core-free-icons": {},
-    "../session": { useSession: () => ({ recent: [], client }) },
-    "../project-icon": { ProjectIcon: "ProjectIcon" },
-    "../live-activity-native": { nativeActivity: null },
-    "../push": { usePush: () => ({}) },
-    "../update-sheet": { useAppUpdates: () => ({ state: { status: "disabled" } }) },
-    "../icons": { Icon: "Icon" },
-    "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", Toggle: "Toggle", styles: {} },
-    "../attention": { useAttentionButton: () => [true, () => {}] },
+    "./session": { useSession: () => ({ client }) },
+    "./icons": { Icon: "Icon" },
+    "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
   });
   const render = () => {
     react.begin();
-    return SettingsView({ onOpen() {} });
+    return GeneralSection();
   };
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   const toggle = () => find(render(), (n) => n.props?.title === "Sync main branch before new Worktrees");
-  render();
+  find(render(), (n) => n.type === "ListRow" && n.props.title === "Plan usage").props.onPress();
+  assert.deepEqual(pushed, ["/usage"]);
   focused.at(-1)();
   await settle();
   assert.equal(toggle().props.selected, false);
@@ -7442,54 +7491,158 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
   assert.equal(find(render(), (n) => n.type === "ErrorNotice").props.message, "This demo computer only opens its demo project.");
 });
 
-test("mobile Settings opens Experimental as its own page, like desktop's section", () => {
-  const opened = [];
-  const { SettingsView } = load("app/settings.tsx", {
-    react: { useState: (value) => [value, () => {}], useCallback: (fn) => fn },
+// Settings with every import faked; `state` is read on each render, so a test can change the Mac or the Linear answer.
+function loadSettings(state) {
+  return load("app/settings.tsx", {
+    react: { useState: () => [state.linear ?? null, (value) => (state.set ??= []).push(value)], useCallback: (fn) => fn },
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/main-sync": { MAIN_SYNC_TITLE: "Sync main branch before new Worktrees", MAIN_SYNC_HINT: "" },
-    "react-native": { View: "View", Text: "Text" },
-    "expo-router": { Stack: { Screen: "Screen" }, router: { push() {} }, useFocusEffect() {} },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable" },
+    "expo-router": {
+      Stack: { Screen: "Screen" },
+      router: { push: (target) => (state.pushed ??= []).push(target), navigate: (target) => (state.pushed ??= []).push(target) },
+      useFocusEffect: (fn) => (state.focus ??= []).push(fn),
+    },
     "@hugeicons/core-free-icons": {},
-    "../session": { useSession: () => ({ recent: [], client: null }) },
+    "@milagre/shared/chat-display": { TOOL_CALL_DISPLAYS: [{ id: "compact", label: "Compact" }] },
+    "../session": {
+      useSession: () => ({
+        recent: state.recent ?? [],
+        client: state.client ?? null,
+        hosts: state.client ? [{ id: state.client.url, name: "Studio", address: "http://192.168.0.2:8797" }] : (state.hosts ?? []),
+        hostName: "Studio",
+      }),
+    },
     "../project-icon": { ProjectIcon: "ProjectIcon" },
-    "../live-activity-native": { nativeActivity: null },
-    "../push": { usePush: () => ({}) },
-    "../update-sheet": { useAppUpdates: () => ({ state: { status: "disabled" } }) },
+    "../push": { usePush: () => ({ state: { enabled: true } }) },
+    "../update-sheet": { useAppUpdates: () => ({ state: { status: "up-to-date" }, check: async () => {} }) },
     "../icons": { Icon: "Icon" },
-    "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", Toggle: "Toggle", styles: {} },
-    "../attention": { useAttentionButton: () => [true, () => {}] },
+    "../routes-native": { lanRoutes: { kind: () => "lan" } },
+    "../chat-display-setting": { useToolCallDisplay: () => ["compact"] },
+    "../app-version": { appVersionLine: () => "0.1.0 · 31 · d3dac403 · 5f83390" },
+    "../theme": { useTheme: () => ({ colors: {}, settings: { mode: "system" } }) },
+    "../ui": { PageScroll: "PageScroll", useStyles: () => ({ card: {}, separator: {} }) },
   });
-  const tree = SettingsView({ onOpen: (page) => opened.push(page) });
-  assert.equal(
-    find(tree, (n) => n.props?.title === "Linear"),
-    undefined,
-    "the Linear switch lives on the Experimental page",
+}
+
+// The groups Settings renders, each with its rows' titles and values.
+function settingsGroups(tree) {
+  const groups = [];
+  const visit = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (typeof node.type === "function" && node.type.name === "Group") {
+      const rows = [node.props.children].flat(Infinity).filter((row) => row && typeof row === "object");
+      groups.push({ title: node.props.title, rows: rows.map((row) => [row.props.title, row.props.value ?? ""]), elements: rows });
+      return;
+    }
+    for (const child of [node.props?.children].flat(Infinity)) visit(child);
+  };
+  visit(tree);
+  return groups;
+}
+
+test("mobile Settings splits this iPhone from the connected Mac, lists Connections only when the Mac can change Linear, and ends with the version", async () => {
+  const state = {};
+  const { SettingsView } = loadSettings(state);
+  // No Mac: the phone's own settings and About only, and the card offers pairing.
+  const alone = SettingsView({ onOpen() {} });
+  assert.deepEqual(
+    settingsGroups(alone).map((group) => group.title),
+    ["This iPhone", "About"],
   );
-  find(tree, (n) => n.type === "ListRow" && n.props.title === "Experimental").props.onPress();
-  find(tree, (n) => n.type === "ListRow" && n.props.title === "Milagre MCP").props.onPress();
-  assert.deepEqual(opened, ["experimental", "local-mcp"]);
-  const { default: LocalScreen } = load("app/local-mcp.tsx", {
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "expo-router": { Stack: { Screen: "Screen" } },
-    "../ui": { PageScroll: "PageScroll" },
-    "../local-mcp-section": { LocalMcpSection: "LocalMcpSection" },
-  });
-  const localPage = LocalScreen();
-  assert.equal(find(localPage, (n) => n.type === "Screen").props.options.title, "Milagre MCP");
-  assert.ok(find(localPage, (n) => n.type === "LocalMcpSection"));
-  const { default: Screen } = load("app/experimental.tsx", {
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "expo-router": { Stack: { Screen: "Screen" } },
-    "../ui": { PageScroll: "PageScroll" },
-    "../experimental-section": { ExperimentalSection: "ExperimentalSection" },
-  });
-  const page = Screen();
-  assert.equal(find(page, (n) => n.type === "Screen").props.options.title, "Experimental");
-  assert.ok(find(page, (n) => n.type === "ExperimentalSection"));
+  assert.ok(find(alone, (n) => n.type === "Text" && n.props.children === "Pair a computer"));
+  find(alone, (n) => n.type === "Pressable" && n.props.accessibilityLabel === "Pair a computer").props.onPress();
+  assert.deepEqual(state.pushed, ["/add-computer"]);
+  // A Mac that answers for Linear lists Connections; an older Mac that answers null keeps it hidden.
+  state.client = { url: "http://studio", call: async () => ({ enabled: false }) };
+  state.focus = [];
+  SettingsView({ onOpen() {} });
+  state.focus.at(-1)();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(state.set.at(-1).client, state.client);
+  assert.equal(state.set.at(-1).enabled, false);
+  state.client = { url: "http://studio", call: async () => null };
+  SettingsView({ onOpen() {} });
+  state.focus.at(-1)();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(state.set.at(-1), null);
+  assert.ok(!settingsGroups(SettingsView({ onOpen() {} })).some((group) => group.rows.some(([title]) => title === "Connections")));
+  state.client = { url: "http://studio", call: async () => ({ enabled: true }) };
+  state.linear = { client: state.client, enabled: true };
+  state.recent = [{ path: "/work/milagre", name: "milagre" }];
+  const opened = [];
+  const tree = SettingsView({ onOpen: (page) => opened.push(page) });
+  const groups = settingsGroups(tree);
+  assert.deepEqual(
+    groups.map(({ title, rows }) => [title, rows]),
+    [
+      [
+        "This iPhone",
+        [
+          ["Notifications", "On"],
+          ["Appearance", "System"],
+          ["Chat", "Compact"],
+          ["Experimental", ""],
+        ],
+      ],
+      [
+        "Studio",
+        [
+          ["General", ""],
+          ["Accounts", ""],
+          ["Project Accounts", ""],
+          ["Connections", "Linear"],
+          ["Skills", ""],
+          ["MCP", ""],
+          ["Milagre MCP", ""],
+        ],
+      ],
+      ["Projects", [["milagre", ""]]],
+      [
+        "About",
+        [
+          ["Privacy & AI", ""],
+          ["App update", "Up to date"],
+        ],
+      ],
+    ],
+  );
+  for (const row of [...groups[0].elements, ...groups[1].elements, groups[3].elements[0]]) row.props.onPress();
+  assert.deepEqual(opened, [
+    "notifications",
+    "appearance",
+    "chat-display",
+    "experimental",
+    "general",
+    "accounts",
+    "project-accounts",
+    "connections",
+    "skills",
+    "mcp",
+    "local-mcp",
+    "privacy",
+  ]);
+  // The card names the Mac and its route; the version line closes the page.
+  assert.ok(find(tree, (n) => n.type === "Pressable" && n.props.accessibilityLabel === "Studio. Connected, Local network"));
+  assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "0.1.0 · 31 · d3dac403 · 5f83390"));
+  const page = (file, title, section, name) => {
+    const { default: Screen } = load(file, {
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "expo-router": { Stack: { Screen: "Screen" } },
+      "react-native": { Text: "Text", View: "View" },
+      "../ui": { PageScroll: "PageScroll", useStyles: () => ({}) },
+      [`../${section}`]: { [name]: name },
+    });
+    const rendered = Screen();
+    assert.equal(find(rendered, (n) => n.type === "Screen").props.options.title, title);
+    assert.ok(find(rendered, (n) => n.type === name));
+  };
+  page("app/general.tsx", "General", "general-section", "GeneralSection");
+  page("app/connections.tsx", "Connections", "linear-section", "LinearSection");
+  page("app/local-mcp.tsx", "Milagre MCP", "local-mcp-section", "LocalMcpSection");
+  page("app/experimental.tsx", "Experimental", "experimental-section", "ExperimentalSection");
 });
 
-test("mobile Experimental page shows the Mac's Linear switch and status, re-read on focus", async () => {
+test("mobile Linear page shows the Mac's Linear switch and status, re-read on focus", async () => {
   const react = hookHost();
   const focused = [];
   let status = { connected: false };
@@ -7511,26 +7664,13 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
     "@milagre/shared/linear": require("../packages/shared/src/linear.ts"),
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
-    "@milagre/shared/themes": {
-      DEFAULT_THEME_ID: "milagre-blue",
-      seedsFrom: (id) => ({ from: id }),
-    },
-    "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./ultracode-fatality-setting": {
-      useUltracodeFatality: () => [false, () => {}],
-    },
-    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
-    "./push": { usePush: () => ({ state: null }) },
-    "./icons": { Icon: "Icon" },
-    "@hugeicons/core-free-icons": {},
-    "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
-    "./session": { useSession: () => ({ designs: designsOn, ...session }) },
+    "./session": { useSession: () => session },
     "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
   });
-  const { ExperimentalSection } = load("experimental-section.tsx", modules({ client }));
+  const { LinearSection } = load("linear-section.tsx", modules({ client }));
   const render = () => {
     react.begin();
-    return ExperimentalSection();
+    return LinearSection();
   };
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   const text = (tree, value) => find(tree, (n) => n.type === "Text" && n.props.children === value);
@@ -7567,21 +7707,37 @@ test("mobile Experimental page shows the Mac's Linear switch and status, re-read
   assert.deepEqual(saves, [false]);
   assert.equal(text(render(), "Connected to Acme, as Victor"), undefined, "the status hides while the switch is off");
 
-  const offline = load("experimental-section.tsx", modules({ client: null })).ExperimentalSection;
+  const offline = load("linear-section.tsx", modules({ client: null })).LinearSection;
   react.begin();
   const empty = offline();
-  assert.ok(text(empty, "Connect to a Mac to change its experimental features."));
-  assert.ok(
-    find(empty, (n) => n.props?.title === "Ultracode Fatality"),
-    "Ultracode Fatality is this phone's own switch and shows without a Mac",
-  );
+  assert.ok(text(empty, "Connect to a Mac to change its Linear connection."));
   assert.equal(
     find(empty, (n) => n.props?.title === "Linear"),
     undefined,
   );
+  // The Linear switch no longer lives on the Experimental page.
+  const experimental = load("experimental-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./icons": { Icon: "Icon" },
+    "@hugeicons/core-free-icons": {},
+    "./session": { useSession: () => ({ designs: designsOn, client }) },
+    "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
+  }).ExperimentalSection;
+  react.begin();
+  const experimentalTree = experimental();
+  assert.ok(find(experimentalTree, (n) => n.props?.title === "Ultracode Fatality"));
+  assert.equal(
+    find(experimentalTree, (n) => n.props?.title === "Linear"),
+    undefined,
+  );
 });
 
-test("mobile Experimental page shows the Mac's usage-limit auto-switch, saved on the Mac and rolled back when refused", async () => {
+test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the Mac and rolled back when refused", async () => {
   const react = hookHost();
   const focused = [];
   const saves = [];
@@ -7600,24 +7756,15 @@ test("mobile Experimental page shows the Mac's usage-limit auto-switch, saved on
   const modules = (session) => ({
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/linear": require("../packages/shared/src/linear.ts"),
     "react-native": { View: "View", Text: "Text" },
-    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
-    "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue", seedsFrom: (id) => ({ from: id }) },
-    "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
-    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
-    "./push": { usePush: () => ({ state: null }) },
-    "./icons": { Icon: "Icon" },
-    "@hugeicons/core-free-icons": {},
-    "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
-    "./session": { useSession: () => ({ designs: { ...designsOn }, ...session }) },
-    "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PillButton: "PillButton", Toggle: "Toggle", styles: {} },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+    "./session": { useSession: () => session },
+    "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
   });
-  const { ExperimentalSection } = load("experimental-section.tsx", modules({ client }));
+  const { LimitAutoSwitchSection } = load("limit-switch-section.tsx", modules({ client }));
   const render = () => {
     react.begin();
-    return ExperimentalSection();
+    return LimitAutoSwitchSection();
   };
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   const title = "Switch accounts at usage limits";
@@ -7642,7 +7789,7 @@ test("mobile Experimental page shows the Mac's usage-limit auto-switch, saved on
   assert.deepEqual(saves, [true, false]);
   assert.equal(find(tree, (n) => n.props?.title === title).props.selected, true, "a refused save puts the switch back");
   assert.match(find(tree, (n) => n.type === "ErrorNotice").props.message, /does not allow/);
-  const older = load("experimental-section.tsx", modules({ client: { call: async () => null } })).ExperimentalSection;
+  const older = load("limit-switch-section.tsx", modules({ client: { call: async () => null } })).LimitAutoSwitchSection;
   react.begin();
   older();
   for (const effect of focused.splice(0)) effect();
@@ -7821,7 +7968,7 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
   }
 });
 
-test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue off, and shows the editor only while on", () => {
+test("mobile Appearance Custom theme switch selects Custom on, Milagre Blue off, and shows the editor only while on", () => {
   const react = hookHost();
   const saved = [];
   let settings = {
@@ -7829,30 +7976,18 @@ test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue of
     customThemeEnabled: false,
     customTheme: null,
   };
-  const { ExperimentalSection } = load("experimental-section.tsx", {
+  const { AppearanceSection } = load("appearance-section.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/linear": {
-      LINEAR_TITLE: "Linear",
-      LINEAR_HINT: "hint",
-      linearStatusLine: () => "",
-    },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", Platform: { OS: "ios" } },
+    "expo-haptics": {},
     "@milagre/shared/themes": {
       DEFAULT_THEME_ID: "milagre-blue",
       seedsFrom: (id) => ({ from: id }),
+      themes: [],
+      themeSwatch: () => ({}),
     },
-    "react-native": { View: "View", Text: "Text" },
-    "expo-router": { useFocusEffect() {} },
     "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-    "./ultracode-fatality-setting": {
-      useUltracodeFatality: () => [false, () => {}],
-    },
-    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
-    "./push": { usePush: () => ({ state: null }) },
-    "./icons": { Icon: "Icon" },
-    "@hugeicons/core-free-icons": {},
-    "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
-    "./session": { useSession: () => ({ client: null }) },
     "./theme": {
       useTheme: () => ({
         colors: fakePalette,
@@ -7864,11 +7999,11 @@ test("mobile Experimental Custom theme switch selects Custom on, Milagre Blue of
         },
       }),
     },
-    "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
+    "./ui": { Segmented: "Segmented", Toggle: "Toggle", styles: {} },
   });
   const render = () => {
     react.begin();
-    return ExperimentalSection();
+    return AppearanceSection();
   };
   let tree = render();
   assert.equal(

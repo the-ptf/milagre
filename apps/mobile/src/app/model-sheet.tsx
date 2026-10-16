@@ -4,7 +4,7 @@ import { formatTokens } from "@milagre/shared/usage";
 import { effortCopy } from "@milagre/shared/model-copy";
 import { useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { router, useLocalSearchParams, useNavigation } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
 import { Cancel01Icon, FlashIcon, Tick02Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import type { ModelProvider } from "@milagre/shared/model";
@@ -32,7 +32,6 @@ export default function ModelSheet() {
   const params = useLocalSearchParams<{ chatId: string; model?: string; provider?: string; on?: string; busy?: string }>();
   const session = useSession();
   const composer = useComposer();
-  const navigation = useNavigation();
   const saved = composer.preferences[params.chatId] || composer.defaults;
   const initial: TurnPreferences = { ...saved, provider: (params.provider as ModelProvider | undefined) || saved.provider, model: params.model || saved.model };
   const [draft, setDraft] = useState<TurnPreferences>(initial);
@@ -50,10 +49,18 @@ export default function ModelSheet() {
   const [panelHeight, setPanelHeight] = useState(0);
   const hasSettings = model.efforts.length > 0 || model.fastMode || model.ultracode;
   const [fatalityOn] = useUltracodeFatality();
-  usePreventRemove(dirty && !closing, ({ data }) =>
+  usePreventRemove(dirty && !closing, ({ repeat }) =>
     Alert.alert("Discard changes?", "Your model and effort picks will not be applied.", [
       { text: "Keep editing", style: "cancel" },
-      { text: "Discard", style: "destructive", onPress: () => navigation.dispatch(data.action) },
+      {
+        text: "Discard",
+        style: "destructive",
+        // repeat() lifts the prevention before dispatching; dispatching the action again would be blocked again.
+        onPress: () => {
+          setClosing(true);
+          repeat();
+        },
+      },
     ]),
   );
   const close = (apply: boolean) => {

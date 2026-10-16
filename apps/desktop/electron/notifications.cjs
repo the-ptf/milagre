@@ -19,7 +19,7 @@ const keyOf = (chatId, requestId) => `${chatId}\n${requestId}`;
 // The end of a chat's work is announced too (notifyCompletion): the chat leaving working or background for idle or
 // failed, as the shared activity tracker (chat-activity.mjs) tells it. A turn that ends while the chat's background
 // subagents work is not that end: the window's call is kept, and announced once the work ends.
-// A chat's notification plays the chime picked in Settings > Experimental: the system notice goes silent and playChime
+// A chat's notification plays the chime picked in Settings > Notifications: the system notice goes silent and playChime
 // plays the clip in the window. With no window to play it (playChime returns false), the system sound stays.
 class AttentionNotifier {
   /** @param {{ createNotification: (notice: {title: string; subtitle: string; body: string; silent?: boolean}) => Electron.Notification; isAppFocused: () => boolean; openChat: (chatId: string) => void; openPhoneSettings?: () => void; setBadge?: (badge: string) => void; canPlayChime?: () => boolean; playChime?: (chime: string) => void }} options */

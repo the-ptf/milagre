@@ -77,7 +77,7 @@ test("Windows and Linux native tests run on PRs without building an installer", 
   const job = ci.jobs["native-tests"];
   assert.deepEqual(
     job.strategy.matrix.include.map((item) => item.os),
-    ["windows-latest", "ubuntu-latest"],
+    ["windows-latest", "ubuntu-24.04"],
   );
   const runs = JSON.stringify(job.steps);
   assert.ok(
@@ -120,7 +120,7 @@ test("installers build on main, on dispatch, and on PRs only with the preview:in
 
 test("Electron checks run on Ubuntu under xvfb, one shard per matrix leg, with screenshots kept per shard", () => {
   const job = ci.jobs["desktop-checks"];
-  assert.equal(job["runs-on"], "ubuntu-latest");
+  assert.equal(job["runs-on"], "ubuntu-24.04");
   // The shard count in the command must match the matrix, or checks are silently dropped or run twice.
   const shards = job.strategy.matrix.shard;
   assert.deepEqual(

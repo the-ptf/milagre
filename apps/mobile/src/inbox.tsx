@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppState, Pressable, Text, View, Keyboard, type ScrollView } from "react-native";
+import { AppState, Pressable, Text, View, Keyboard, type ScrollViewInstance } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaFrame, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
@@ -189,7 +189,7 @@ function PhoneInboxPages({
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { height } = useSafeAreaFrame();
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollViewInstance>(null);
   const index = Math.max(
     0,
     items.findIndex((item) => item.key === selectedKey),

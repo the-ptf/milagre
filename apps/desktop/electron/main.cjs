@@ -237,7 +237,7 @@ async function startDesktop() {
     notifyWhenWaiting = on === true;
   });
 
-  // The window reports the Experimental notification chime too, and plays it when a chat's notification asks.
+  // The window reports the notification chime too, and plays it when a chat's notification asks.
   ipcMain.handle("settings:notification-chime", (_event, chime) => notifier.setChime(chime));
 
   ipcMain.handle("notification:state", (_event, state) => notifier.sync(state));
@@ -345,7 +345,7 @@ async function startDesktop() {
   registerHostMethods();
   ipcMain.handle("app:version", () => app.getVersion());
 
-  // Other Macs this window drives (Settings › Experimental › Other computers): nothing connects until the window turns
+  // Other Macs this window drives (Settings › Devices › Other computers): nothing connects until the window turns
   // the switch on (computers:set-enabled), which it does at launch when it is on.
   const { createComputers } = require("./computers.cjs");
   const { registerComputers } = require("./computers-ipc.cjs");

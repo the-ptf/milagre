@@ -10,6 +10,8 @@ This preview connects an Expo mobile app to the Node daemon on your Mac. It grou
 
 Your Mac runs the agents and must stay awake and online. Desktop and phone share the same daemon, Chats and Worktrees. By default, the daemon uses the public encrypted relay at `relay.milagre.cloud`; no Cloudflare account or tunnel is needed. A configured named Cloudflare tunnel remains supported.
 
+Repository-provided Worktree setup commands pause for review on desktop or phone, even with Full permissions. **Run once**, **Trust this version** and **Skip setup** have the same [scope and behavior on both clients](desktop-guide.md#permission-modes). Reconnecting the phone restores a pending review.
+
 For the Ultracode announcer, enable **Settings > Experimental > Ultracode Fatality**, then turn on **Ultracode** in a Chat's model sheet. The phone plays the same clip as desktop at the same volume. It respects the phone's silent switch and stops when the overlay closes.
 
 The pairing code grants access to your agents. Keep it private. New phones can pair for 10 minutes after the code is shown; existing paired phones continue to work. **Reset access** forgets paired phones and creates a new token.
@@ -160,7 +162,7 @@ CI=1 npx expo prebuild --platform ios --clean
 CI=1 npx expo run:ios --configuration Release --device generic --output /tmp/milagre-mobile-release --no-bundler
 ```
 
-The clean prebuild regenerates only the ignored iOS project. App config enables the [Expo 57 scene lifecycle](https://github.com/expo/fyi/blob/main/ios-scene-lifecycle.md#staying-on-sdk-57-with-xcode-27) needed to launch Xcode 27 builds on iOS 27. Keep native configuration in app config so it survives regeneration.
+The clean prebuild regenerates only the ignored iOS project. Expo 58 generates the `SceneDelegate` that Xcode 27 builds need to launch on iOS 27, so app config no longer opts into it. Keep native configuration in app config so it survives regeneration.
 
 This generates the ignored native project and produces `/tmp/milagre-mobile-release/MilagreLocal.app`. Install that app on the chosen iOS simulator and launch **Milagre Local**. Metro and Expo Go are not needed. Run `mobile:host`, enter its connection, and keep that host running. A physical-device build needs signing and a reachable HTTPS host; this simulator artifact cannot be installed on a phone.
 

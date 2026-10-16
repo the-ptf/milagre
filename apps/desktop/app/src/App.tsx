@@ -94,7 +94,7 @@ import { activeChatKeys, gridChats, readChatLayout, saveChatLayout, type ChatLay
 import { ChatGrid } from "./components/ChatGrid";
 import { chatRevealPath } from "./lib/reveal";
 import type { SettingsSection } from "./components/Settings";
-import { createPendingChat, isListedChat, pendingChatSessionId, withPendingChat, type PendingChat } from "@milagre/shared/chats";
+import { createPendingChat, createResendMemory, isListedChat, pendingChatSessionId, withPendingChat, type PendingChat } from "@milagre/shared/chats";
 import { getSettings, toggleTheme, updateSettings, useApplyTheme, useSettings } from "./lib/settings";
 import { EditorLinks, Notice } from "./components/editor-links";
 // Notice above is editor-links' toast; this is the dismissable notice card.
@@ -116,6 +116,7 @@ import type { Command } from "./lib/commands";
 import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
 import { useChatMessages } from "./lib/chat-messages";
 import { RECENT_PROJECTS_CHANGED, type RecentProject } from "./lib/project-list";
+import { useHiddenProjects } from "./lib/hidden-projects";
 import { useProjectImages } from "./lib/project-images";
 import { isModalOpen } from "./lib/modal";
 import { createDraftStore, draftKey } from "./lib/draft-store";
@@ -398,6 +399,8 @@ function App() {
     setChatView(chatView.current);
   }
   const sendInFlight = useRef(false);
+  // The id of a send that failed before the host answered: it may have been saved, so the same text resent reuses it.
+  const failedSendIds = useRef(createResendMemory());
   const [preparingView, setPreparingView] = useState<number | null>(null);
   const preparing = preparingView !== null;
   const preparingHere = preparingView === chatView.current;
@@ -738,8 +741,10 @@ function App() {
     [backgroundKey],
   );
   const linkedWork = useLinkedWork();
-  // Chats in other projects that wait on an approval or question. Joined, so a streamed batch that changes nothing keeps the arrays.
-  const attentionKey = chatsNeedingAttention(agentRuns.runs, project?.path ?? "").join("\n");
+  // Chats in other projects that wait on an approval or question, but not in Projects hidden from the sidebar. Joined, so a
+  // streamed batch that changes nothing keeps the arrays.
+  const hiddenProjects = useHiddenProjects();
+  const attentionKey = chatsNeedingAttention(agentRuns.runs, project?.path ?? "", hiddenProjects).join("\n");
   const attentionChats = useMemo(() => (attentionKey ? attentionKey.split("\n") : []), [attentionKey]);
   const attentionPaths = useMemo(() => [...new Set(attentionChats.map(projectOfKey))], [attentionChats]);
   const projectName = useCallback(
@@ -1123,7 +1128,7 @@ function App() {
     void window.milagre.setNotifyWhenWaiting(notifyWhenWaiting).catch(() => {});
   }, [notifyWhenWaiting]);
 
-  // A chat's notification goes silent and this window plays the Experimental chime instead.
+  // A chat's notification goes silent and this window plays the chosen chime instead.
   useEffect(() => {
     void window.milagre.setNotificationChime?.(notificationChime).catch(() => {});
   }, [notificationChime]);
@@ -1425,7 +1430,10 @@ function App() {
     // A chat bound for a worktree that doesn't exist yet shows no worktree (and none of its PRs) until it does.
     const prepared = preparedTarget.current?.view === view && preparedTarget.current.projectPath === project.path ? preparedTarget.current : null;
     const previewWorktreeId = prepared?.worktreeId ?? (selectedSession || (isolation === "local" && !issue) ? selectedWorktree.id : NO_WORKTREE);
+    const resendKey = `${project.path}#${selectedSession?.id ?? `new${view}`}`;
+    const resendParts = [...images.map((image) => image.id), ...files];
     const preview = createPendingChat({
+      clientMessageId: failedSendIds.current.reuse(resendKey, body, resendParts),
       state,
       sessionId: selectedSession?.id,
       worktreeId: previewWorktreeId,
@@ -1485,6 +1493,7 @@ function App() {
       });
       if (preparedTarget.current?.view === view) preparedTarget.current = null;
       sent = true;
+      failedSendIds.current.forget(resendKey);
       setPendingSend((pending) =>
         pending && pending.message.clientMessageId === preview.message.clientMessageId
           ? { ...pending, sent: true, originSessionId: sessionId, originWorktreeId: target!.worktreeId }
@@ -1500,6 +1509,8 @@ function App() {
       }
       return true;
     } catch (error) {
+      // The host may have saved the message and lost only its answer: a resend of this text carries the same id.
+      failedSendIds.current.remember(resendKey, preview.message.clientMessageId!, body, resendParts);
       const message = `${target ? "Could not send the message" : "Could not create the worktree"}: ${ipcErrorMessage(error)}`;
       if (stillHere()) {
         setNewChatError(message);

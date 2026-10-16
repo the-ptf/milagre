@@ -56,6 +56,7 @@ const { removeWorktree, worktreeStatus } = require("./worktree-cleanup.cjs");
 const { previewFilesToCopy } = require("./worktree-files.cjs");
 const { createProjectSettings } = require("./project-settings.cjs");
 const { WorktreeSetups, resolveSetupCommand } = require("./worktree-setup.cjs");
+const { SetupReview } = require("./setup-review.cjs");
 const { readDiffStat } = require("./diffstat.cjs");
 const { registerGitHandlers } = require("./git-ipc.cjs");
 const { createPullRequestReader, readPullRequestState, readPullRequests } = require("./pull-request.cjs");
@@ -611,7 +612,7 @@ function createRuntime(options) {
         }
         if (typeof chatId === "string") {
           await worktreeSetups.cancel(chatId);
-          worktreeSetups.forget(worktreePath);
+          await worktreeSetups.forget(worktreePath);
           await agents.closeChat(chatId);
         }
         inUse(await states.get(projectPath));
@@ -696,7 +697,7 @@ function createRuntime(options) {
   // `workspace` is the one the picker showed it from; without it, the workspace that has the key.
   async function readLinearIssue(key, workspace) {
     // Checked before any query, so a Chat that can't reach Linear never creates a Worktree.
-    if (!linear.enabled()) throw new Error("Linear is off in Settings › Experimental.");
+    if (!linear.enabled()) throw new Error("Linear is off in Settings › Connections › Linear.");
     if (!linear.workspaces().length) throw new Error("Linear isn't connected.");
     const issue = await linearIssues.readIssue(key, workspace);
     if (!issue) throw new Error(`${key} no longer exists in Linear.`);
@@ -950,15 +951,23 @@ function createRuntime(options) {
     }
     // A new worktree's first turn waits for its setup command; one that failed tells the agent, one that was stopped stops the turn.
     if (closing) return { turnId: null, steered: false, cancelled: true };
-    const setup = await worktreeSetups.beforeTurn(request.chatId, request.cwd);
-    if (closing || setup.cancelled) {
-      await chats.receive(request.chatId, { type: "turn-cancelled" });
-      return { turnId: null, steered: false, cancelled: true };
+    const setupNotes = [];
+    for (const cwd of request.workspaceRoots ?? [request.cwd]) {
+      const setup = await worktreeSetups.beforeTurn(request.chatId, cwd);
+      if (closing || setup.cancelled) {
+        await chats.receive(request.chatId, { type: "turn-cancelled" });
+        return { turnId: null, steered: false, cancelled: true };
+      }
+      if (setup.failed) {
+        await chats.receive(request.chatId, failedWith(setup.note || "Worktree setup did not finish."));
+        return { turnId: null, steered: false };
+      }
+      if (setup.note) setupNotes.push(setup.note);
     }
     // A new turn carries the summary of the Chat's linked Worktrees after its message (a leading slash command
     // stays first); a message steering a turn doesn't repeat it.
     const context = agents.isTurnActive(request.chatId) ? "" : await linkedContext;
-    const text = [prompt, setup.note, context].filter(Boolean).join("\n\n");
+    const text = [prompt, ...setupNotes, context].filter(Boolean).join("\n\n");
     try {
       return await agents.startTurn({
         ...request,
@@ -1033,7 +1042,13 @@ function createRuntime(options) {
   busyChat = (chatId) => chats.isBusy(chatId) || Boolean(options.isChatFocused?.(chatId));
 
   // A setup's steps show in the chat's turn like the agent's own.
-  const worktreeSetups = new WorktreeSetups({ send: (chatId, event) => void chats.receive(chatId, event), keepAwake });
+  const setupReview = new SetupReview({ read: readSetupCommand, settings: projectSettings, send: (chatId, event) => chats.receive(chatId, event) });
+  const worktreeSetups = new WorktreeSetups({
+    send: (chatId, event) => void chats.receive(chatId, event),
+    keepAwake,
+    file: path.join(dataDir, "worktree-setups.json"),
+    review: (request) => setupReview.review(request),
+  });
 
   // Each CLI is found and its version checked once per run; a missing or outdated one is checked again on the next message.
   // Antigravity is downloaded by Milagre into the data directory, not found on PATH.
@@ -1302,7 +1317,11 @@ function createRuntime(options) {
     await agents.interrupt(chatId);
   }
 
-  commands.handle("agent:respond-permission", (_event, { chatId, requestId, decision }) => agents.respondToPermission(chatId, requestId, decision));
+  commands.handle("agent:respond-permission", (_event, { chatId, requestId, decision }) =>
+    typeof requestId === "string" && requestId.startsWith("setup-review-")
+      ? setupReview.respond(chatId, requestId, decision)
+      : agents.respondToPermission(chatId, requestId, decision),
+  );
 
   // The answers show in the chat as the user's message (`summary`), and are taken back if they don't reach the agent.
   commands.handle("agent:answer-question", async (_event, { chatId, requestId, answers, summary } = {}) => {
@@ -1325,6 +1344,8 @@ function createRuntime(options) {
   async function notifyIfWaiting(chatId, event) {
     const projectPath = projectOfKey(chatId);
     if (!options.notifyWaiting || !scopeStates.has(projectPath) || !("requestId" in event)) return;
+    // A Project hidden from the sidebar stays quiet: its chats aren't in any list to answer from.
+    if ((await projectSettings().hiddenPaths()).has(projectPath)) return;
     const notice = attentionNotice(
       event,
       attentionContext(
@@ -1550,6 +1571,7 @@ function createRuntime(options) {
     ownProject,
     root: options.worktreeRoot ?? DEFAULT_WORKTREE_ROOT,
     getSettings: (projectPath) => projectSettings().get(projectPath),
+    deferSetup: (request) => worktreeSetups.prepare(request),
   });
   const linkRuntime = registerLinkRuntime({
     commands,
