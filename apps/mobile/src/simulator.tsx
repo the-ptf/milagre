@@ -376,7 +376,7 @@ function SimulatorWebView({
     void Promise.resolve()
       .then(() => {
         if (cancelled) return;
-        file.write(
+        file.writeSync(
           createSimulatorReceiverHtml({
             ...receiverConfig,
             theme: latestTheme.current,

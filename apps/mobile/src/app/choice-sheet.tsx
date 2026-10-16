@@ -118,7 +118,7 @@ export default function ChoiceSheet() {
           </View>
         }
         ItemSeparatorComponent={ChoiceSeparator}
-        ListEmptyComponent={switching ? null : <Text style={[styles.muted, { paddingVertical: 24, textAlign: "center" }]}>{entry.emptyLabel}</Text>}
+        ListEmptyComponent={switching ? undefined : <Text style={[styles.muted, { paddingVertical: 24, textAlign: "center" }]}>{entry.emptyLabel}</Text>}
         renderItem={({ item }) => (
           <Pressable
             accessibilityRole="radio"
