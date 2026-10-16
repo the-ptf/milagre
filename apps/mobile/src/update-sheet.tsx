@@ -4,7 +4,7 @@ import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { router, useNavigationContainerRef } from "expo-router";
 import * as Updates from "expo-updates";
 import type { NavigationState, PartialState } from "expo-router/react-navigation";
-import { createUpdateController, watchUpdates, type UpdateState } from "./update-controller";
+import { createUpdateController, promptPopped, watchUpdates, type UpdateState } from "./update-controller";
 import { useTheme } from "./theme";
 import { IconButton, PillButton } from "./ui";
 
@@ -53,6 +53,8 @@ export function UpdateShell({ children }: { children: ReactNode }) {
   const navigationRef = useNavigationContainerRef();
   const pushed = useRef(false);
   const showing = useRef(presented);
+  // The stack the prompt last sat on, so a swipe or back away from it defers it instead of pushing it again.
+  const shown = useRef<{ keys: string[]; prompt: string } | null>(null);
   const defer = useCallback(() => {
     showing.current = false;
     dismiss();
@@ -61,6 +63,7 @@ export function UpdateShell({ children }: { children: ReactNode }) {
     showing.current = presented;
     if (!presented) {
       pushed.current = false;
+      shown.current = null;
       return;
     }
     const present = () => {
@@ -68,8 +71,15 @@ export function UpdateShell({ children }: { children: ReactNode }) {
       const navigation = updateNavigator(navigationRef.getRootState());
       if (!navigation?.key) return;
       const sheetIndex = navigation.routes.findIndex((route) => route.name === "update-sheet");
+      const keys = navigation.routes.map((route) => route.key ?? route.name);
+      if (sheetIndex < 0 && shown.current && promptPopped(shown.current.keys, shown.current.prompt, keys)) {
+        shown.current = null;
+        defer();
+        return;
+      }
       if (sheetIndex >= 0) {
         pushed.current = false;
+        shown.current = { keys: [...keys.filter((_, index) => index !== sheetIndex), keys[sheetIndex]], prompt: keys[sheetIndex] };
         // An in-flight connection or notification can navigate after the prompt opens.
         // Keep that destination underneath one prompt, preserving its page state.
         if (sheetIndex !== navigation.index) {
@@ -84,7 +94,7 @@ export function UpdateShell({ children }: { children: ReactNode }) {
     const unsubscribe = navigationRef.addListener("state", present);
     present();
     return unsubscribe;
-  }, [presented, navigationRef]);
+  }, [presented, navigationRef, defer]);
   return <AppUpdates.Provider value={{ state, check: controller.check, install: controller.install, dismiss: defer }}>{children}</AppUpdates.Provider>;
 }
 

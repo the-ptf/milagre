@@ -150,3 +150,10 @@ export function watchUpdates(
     unschedule();
   };
 }
+
+/** True when the update prompt was swiped or backed away: the stack is the one it sat on, minus the prompt.
+ * A notification or connection reset replaces the stack instead, and leaves the prompt pending. */
+export function promptPopped(withPrompt: readonly string[], promptKey: string, now: readonly string[]) {
+  const below = withPrompt.filter((key) => key !== promptKey);
+  return below.length === withPrompt.length - 1 && below.length === now.length && below.every((key, index) => key === now[index]);
+}
