@@ -14,6 +14,7 @@ const {
 const { archiveFinishedSubagents, patchSession } = require("@milagre/shared/project-edits");
 const { catchUpStart, handoffKind, isHandoff, lastTurnProvider } = require("@milagre/shared/handoff");
 const { renderTranscript } = require("./handover.cjs");
+const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
 const { accountSwitchText } = require("@milagre/shared/usage-limit");
 
 // A chat stopped longer ago than this waits for the user instead of continuing by itself.
@@ -56,11 +57,11 @@ function revertSwitch(session, from, to) {
   return withNativeSessions({ ...session, provider: from }, resumeId, parked);
 }
 
-// Only Claude Code takes /compact, and only between turns: steered into a running turn it would be read as text.
+// Only a provider with native /compact takes it, and only between turns: steered into a running turn it would be read as text.
 function compactionProvider(session, run) {
   if (run) throw new Error("Wait for the agent to finish before compacting.");
   const provider = session.provider ?? "claude";
-  if (provider !== "claude") throw new Error("Only Claude chats can be compacted from here.");
+  if (!providerCapabilities(provider).compact) throw new Error("Only Claude chats can be compacted from here.");
   return provider;
 }
 
@@ -203,7 +204,7 @@ class ChatHost {
       const saved = await this.states.get(projectPath);
       const session = saved.sessions[sessionId];
       const cwd = session?.workspacePath ?? saved.worktrees?.[session?.worktree_id]?.path;
-      if (!cwd || !["codex", "antigravity"].includes(session?.provider) || !session.native_session_id || session.archived) return;
+      if (!cwd || !providerCapabilities(session?.provider).subagentRecovery || !session.native_session_id || session.archived) return;
       const unknown = (session.subagents ?? []).filter(
         (agent) => agent.status === "unknown" && agent.source !== "milagre-advisor" && !agent.archived && agent.id !== session.native_session_id,
       );

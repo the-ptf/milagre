@@ -1,4 +1,5 @@
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ComponentProps, KeyboardEvent } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -520,7 +521,7 @@ export function PromptComposer({
                   </p>
                   {onUpdateCli &&
                     (cliStatus?.[provider]?.state === "outdated" ||
-                      (provider === "antigravity" && ["missing", "broken"].includes(cliStatus?.[provider]?.state ?? ""))) && (
+                      (providerCapabilities(provider).managedInstall && ["missing", "broken"].includes(cliStatus?.[provider]?.state ?? ""))) && (
                       <div className="flex items-center justify-end pt-0.5">
                         <button
                           type="button"
@@ -658,10 +659,10 @@ export function PromptComposer({
                 disabled={Boolean(offlineName)}
                 placeholder={
                   (running
-                    ? // Antigravity can't be steered mid-turn (ACP has no steering); a message waits for the next turn.
-                      provider === "antigravity"
-                      ? "Queue a message for the next turn…"
-                      : "Steer the agent…"
+                    ? // A provider that can't steer mid-turn takes the message at the start of the next turn.
+                      providerCapabilities(provider).steer
+                      ? "Steer the agent…"
+                      : "Queue a message for the next turn…"
                     : "Prompt or mention a file with @") + (offlineName ? offlinePlaceholder(offlineName) : "")
                 }
                 aria-label="Prompt"
