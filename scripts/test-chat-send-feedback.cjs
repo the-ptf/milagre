@@ -20,8 +20,8 @@ async function browserChecks() {
     }
   });
   const evaluate = (source) => window.webContents.executeJavaScript(source);
-  async function waitFor(source) {
-    for (let i = 0; i < 200; i++) {
+  async function waitFor(source, tries = 200) {
+    for (let i = 0; i < tries; i++) {
       if (await evaluate(source)) return;
       await delay(25);
     }
@@ -80,6 +80,28 @@ async function browserChecks() {
   }
   const occurrences = (body) => evaluate(`(${transcript}?.textContent.match(new RegExp(${JSON.stringify(body)}, 'g')) ?? []).length`);
   try {
+    // A chat on an agent that can't steer: its held queue sits above the composer, each message with Send now and Remove.
+    await window.loadURL(process.argv[2] + "?queue=1");
+    // The first page of the run waits on Vite's cold transforms.
+    await waitFor(`[...document.querySelectorAll('aside [data-row]')].some(row => row.textContent.includes('Previous chat'))`, 1200);
+    await evaluate(`[...document.querySelectorAll('aside [data-row]')].find(row => row.textContent.includes('Previous chat')).click()`);
+    await waitFor(`!!document.querySelector('[data-queued-messages]')`);
+    assert.equal(
+      await evaluate(`document.querySelector('[data-queued-messages]').textContent.includes('Queued · on hold since the last turn stopped')`),
+      true,
+      "the queue says Stop held it",
+    );
+    assert.equal(await evaluate(`document.querySelectorAll('[data-queued-message]').length`), 2);
+    assert.equal(await evaluate(`document.querySelector('[data-queued-message="q2"]').textContent.includes('1 file')`), true);
+    await waitFor(`${transcript}?.textContent.includes('Previous chat')`);
+    assert.equal(await occurrences("Then add tests for the checkout page"), 0, "a queued message is not in the transcript");
+    await screenshot("queued-held");
+    await evaluate(`document.querySelector('[data-queued-send="q1"]').click()`);
+    await waitFor("window.calls.queueSent?.length === 1");
+    assert.deepEqual(await evaluate("window.calls.queueSent"), [["/fixture#2", "q1"]]);
+    await evaluate(`document.querySelector('[data-queued-remove="q2"]').click()`);
+    await waitFor(`document.querySelectorAll('[data-queued-message]').length === 1`);
+    assert.deepEqual(await evaluate("window.calls.queueRemoved"), [["/fixture#2", "q2"]]);
     await window.loadURL(process.argv[2]);
     await waitFor(`!!document.querySelector('[aria-label="New chat"]')`);
     await newChat("New worktree");
@@ -433,6 +455,7 @@ async function browserChecks() {
       await waitFor(`document.body.textContent.includes('1 of 1')`);
       await screenshot("long-chat-search-history");
     }
+
     assert.deepEqual(consoleErrors, []);
     console.log(
       "PASS: immediate first messages and follow-ups, steering, acknowledgement without remounting, next drafts, attachment recovery, retries, background navigation and memoized long-chat history during sends and streaming",
