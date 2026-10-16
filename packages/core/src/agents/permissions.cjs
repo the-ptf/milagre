@@ -172,8 +172,11 @@ function codexMcpRequest(id, params) {
 }
 
 // Milagre's own task and phase tools only write the Chat's own plan, so every permission mode lets them run
-// without a card. Codex names the tool only in the message: `Allow the milagre MCP server to run tool "tasks_set"?`.
-const PLAN_TOOLS = new Set(PLAN_TOOL_NAMES);
+// without a card. The self-gated tools ask on Milagre's own card when they widen access (local-mcp-host.cjs), with
+// what they would do; the provider's bare "run tool?" card in front of it would make the user approve twice.
+// Codex names the tool only in the message: `Allow the milagre MCP server to run tool "tasks_set"?`.
+const SELF_GATED_TOOLS = ["worktree_link", "chat_set_mode", "chat_respond"];
+const PLAN_TOOLS = new Set([...PLAN_TOOL_NAMES, ...SELF_GATED_TOOLS]);
 
 function isCodexPlanToolApproval(params = {}) {
   if (params.serverName !== "milagre" || !isCodexMcpApproval(params)) return false;

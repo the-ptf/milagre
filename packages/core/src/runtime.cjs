@@ -1212,7 +1212,7 @@ function createRuntime(options) {
     if (!scopeStates.has(projectPath)) throw new Error("Open the project before continuing its chats.");
     return chats.resumeChat(projectPath, Number(sessionId));
   });
-  commands.handle("chat:patch", async (_event, projectPath, sessionId, patch) => {
+  async function patchChat(projectPath, sessionId, patch) {
     if (!scopeStates.has(projectPath)) return;
     if (patch?.archived) {
       terminals.closeChat(`${projectPath}#${sessionId}`);
@@ -1220,7 +1220,8 @@ function createRuntime(options) {
       await advisors.stopChat(`${projectPath}#${sessionId}`);
     }
     await editProject(projectPath, (state) => patchSession(state, sessionId, patch ?? {}), { chats: [] });
-  });
+  }
+  commands.handle("chat:patch", (_event, projectPath, sessionId, patch) => patchChat(projectPath, sessionId, patch));
   // Opening a chat reads it. Only on opening: "Mark as unread" on the open chat sticks until it's opened again.
   commands.handle("chat:archive-subagent", (_event, projectPath, sessionId, id, archived) =>
     scopeStates.has(projectPath)
@@ -1701,7 +1702,7 @@ function createRuntime(options) {
     const statesByPath = await Promise.all(registry.projects.map(async (project) => ({ path: project.path, state: (await readProject(project.path)).state })));
     return { ...registry, states: statesByPath };
   });
-  commands.handle("canvas:link-add", async (_event, a, b) => {
+  async function addLink(a, b) {
     const active = await canvasActiveWorktrees();
     const before = new Set((await projectRegistry().snapshot()).links.map((link) => link.id));
     await projectRegistry().addLink(a, b, active);
@@ -1710,12 +1711,14 @@ function createRuntime(options) {
     const added = links.find((link) => !before.has(link.id));
     if (added) void linked.linkAdded(added, active).catch((error) => console.warn("Milagre couldn't mark the linked Chats:", error.message));
     return links;
-  });
-  commands.handle("canvas:link-remove", async (_event, id) => {
+  }
+  async function removeLink(id) {
     await projectRegistry().removeLink(id);
     await linked.linkRemoved(id);
     return linksChanged();
-  });
+  }
+  commands.handle("canvas:link-add", (_event, a, b) => addLink(a, b));
+  commands.handle("canvas:link-remove", (_event, id) => removeLink(id));
   commands.handle("canvas:link-restore", async (_event, link) => {
     await projectRegistry().restoreLink(link, await canvasActiveWorktrees());
     return linksChanged();
@@ -1835,6 +1838,16 @@ function createRuntime(options) {
       chats,
       permissionMode: (chatId, fallback) => agents.permissionMode(chatId, fallback),
       createWorktree: (context, request) => handlers.get("worktree:create")(context, request),
+      stopChat,
+      setPermissionMode: (chatId, mode) => agents.setPermissionMode(chatId, mode),
+      respondPermission: (chatId, requestId, decision) => handlers.get("agent:respond-permission")(null, { chatId, requestId, decision }),
+      answerQuestion: (chatId, requestId, answers, summary) => handlers.get("agent:answer-question")(null, { chatId, requestId, answers, summary }),
+      patchChat,
+      searchChats: async (projectPath, query, limit) => await handlers.get("chat:search")(null, projectPath, query, { limit }),
+      links: { list: async () => (await projectRegistry().snapshot()).links, add: addLink, remove: removeLink },
+      activeWorktrees: async (projectPath) => (await activeWorktrees(projectPath)).map((worktree) => worktree.path),
+      approve: (chatId, request) => agents.askApproval(chatId, request),
+      models: (projectPath) => handlers.get("agent:models")(null, projectPath),
       validateDesignChat: async (chatId) => {
         const scope = projectOfKey(chatId);
         if (!isLinkScopeKey(scope)) {

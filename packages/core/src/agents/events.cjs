@@ -14,7 +14,7 @@ const SUBAGENT_ARTIFACT_TOOLS = /^mcp__milagre__(design_show|design_apply|artifa
 const { BUNDLED_SKILLS_DIRECTORY, bundledWritingInstructions } = require("../bundled-skills.cjs");
 const TLDR_INSTRUCTIONS = bundledWritingInstructions();
 const LINKS_INSTRUCTIONS = [
-  "Links: the user can link this Chat's Worktree to Worktrees of other Projects on Milagre's canvas. When a turn's input starts with a <linked_worktrees> block, that is Milagre's summary of the linked side, not a message from the user.",
+  "Links: the user can link this Chat's Worktree to Worktrees of other Projects on Milagre's canvas, and you can with the milagre worktree_link tool (worktree_unlink removes it). When a turn's input starts with a <linked_worktrees> block, that is Milagre's summary of the linked side, not a message from the user.",
   "Read the linked side with the milagre tools: linked_overview, read_linked_chat, linked_git, read_linked_file and search_linked_files. They are read-only and need no approval.",
   'Never edit a linked Worktree\'s files yourself. Ask for changes with delegate: the agent of the Chat you pick there carries them out, and its Delegation report comes back to this Chat later, so end your turn instead of waiting. A message that starts with "Delegation from" comes from another Chat, not the user; your final reply goes back to it as the report.',
   "When both sides must agree on something first (an API shape, a contract), open a Negotiation with delegate(negotiation: true). Each report then starts the other side's next turn, for up to 10 rounds; call conclude_negotiation(summary) once you agree. A turn handling a Delegation can't delegate, except inside a Negotiation.",
