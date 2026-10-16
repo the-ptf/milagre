@@ -1,9 +1,11 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { GATE_EXPIRY_MS, botIdFromName } = require("@milagre/shared/bots");
+const { randomUUID } = require("node:crypto");
+const { BOT_RUNNING_CHAT_CAP, GATE_EXPIRY_MS, botIdFromName } = require("@milagre/shared/bots");
 const { PROVIDERS } = require("@milagre/shared/providers");
-const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { isTurnEnd, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { matchGate } = require("./gates.cjs");
+const { createBotTools } = require("./tools.cjs");
 const { createBotHome, readBrief, writeBrief, writeInstructions } = require("./home.cjs");
 const { readMemory, saveMemoryByVictor } = require("./memory.cjs");
 const { TEMPLATES, renderBrief, setupFields } = require("./templates.cjs");
@@ -12,6 +14,7 @@ const { TEMPLATES, renderBrief, setupFields } = require("./templates.cjs");
 // by the runtime without entering the registry or the recent list; its thread is one ordinary Chat there. Everything
 // else a bot keeps is in angelo.db (store.cjs). The runtime hands this service the few things it needs: opening and
 // closing a home, the Chats (`chats.send`, `chats.emptyChat`), the agent sessions and the cached state of a Project.
+// A bot opens Milagre Chats for code work through `host`, the Milagre MCP host's Worktree and Chat ports.
 
 const OFF = "Bots are off. Turn them on in Settings › Experimental.";
 const NAME_MAX = 40;
@@ -21,6 +24,9 @@ const SWEEP_MS = 60_000;
 // Answered and expired sign-offs stay in the snapshot this long, so their cards show how they ended.
 const GATE_HISTORY_MS = 24 * 60 * 60 * 1000;
 const SIGN_OFF_CHOICES = new Set(["once", "always", "deny"]);
+const REPLY_MAX = 1000;
+const FINISHED = { "turn-completed": "done", "turn-failed": "failed", "turn-cancelled": "failed" };
+const OUTCOME = { "turn-completed": "finished", "turn-failed": "failed", "turn-cancelled": "was stopped" };
 
 const threadKey = (bot) => `${bot.homePath}#${bot.threadSessionId}`;
 
@@ -41,6 +47,12 @@ function createBots({
   openHome,
   closeHome = async () => {},
   projects = async () => [],
+  host,
+  // The Project's main branch, where a bot's Chat starts by default.
+  mainBranch = async () => "main",
+  // What chat_status reports beyond the record: { lastReply, outcome?, branch?, pullRequests, changedFiles, running }.
+  chatDetails = async () => null,
+  titleChat = async () => {},
   emit = () => {},
   now = Date.now,
   // Whose bots these are, as the instructions and the copy name them.
@@ -207,6 +219,120 @@ function createBots({
     await deliver(bot, body, context).catch((error) => console.warn(`Milagre couldn't reach ${bot.name}:`, error.message));
   }
 
+  const nameOf = (projectPath) => path.basename(projectPath) || projectPath;
+  function requireOwnChat(bot, chatKey) {
+    const chat = store.chat(String(chatKey ?? ""));
+    if (!chat || chat.botId !== bot.id) throw new Error(`${bot.name} didn't open that Chat. chat_list_mine lists the ones it did.`);
+    if (chat.status === "taken-over") throw new Error(`${owner} took over this Chat.`);
+    return chat;
+  }
+  // A Chat Milagre starts or steers for a bot: the bot's provider and model, under its gates.
+  const sendToChat = (bot, chatKey, text, operationId) =>
+    chats.send({
+      projectPath: projectOfKey(chatKey),
+      sessionId: sessionIdFromKey(chatKey),
+      body: text,
+      prompt: text,
+      images: [],
+      files: [],
+      provider: bot.provider,
+      model: bot.model,
+      permissionMode: "bot",
+      context: { kind: "bot-message", botId: bot.id, botName: bot.name },
+      ...(operationId ? { operationId } : {}),
+    });
+
+  /** chat_open: a new Worktree from `base` (the main branch) in one of the bot's Projects, and a Chat started there. */
+  async function chatOpen(botId, { project, title, prompt, base } = {}) {
+    const bot = requireBot(botId);
+    requireActive(bot);
+    const projectPath = bot.projects.find((item) => item === project || nameOf(item) === project);
+    if (!projectPath) throw new Error(`${bot.name} may open Chats only in: ${bot.projects.map(nameOf).join(", ")}.`);
+    const running = store.chatsFor(bot.id).filter((chat) => chat.status === "running").length;
+    if (running >= BOT_RUNNING_CHAT_CAP) throw new Error(`${bot.name} already has ${BOT_RUNNING_CHAT_CAP} Chats running. Wait for one to finish or close one.`);
+    const name = String(title ?? "").trim();
+    const text = String(prompt ?? "").trim();
+    if (!name || !text) throw new Error("A Chat needs a title and a prompt.");
+    const operationId = `bot:${bot.id}:${randomUUID()}`;
+    const assertActive = () => requireActive(requireBot(bot.id));
+    const baseBranch = typeof base === "string" && base.trim() ? base.trim() : await mainBranch(projectPath);
+    const { worktreeId } = await host.createWorktree({ projectPath, baseBranch, prompt: text }, operationId, assertActive);
+    const { chatId } = await host.createChat({ projectPath, worktreeId }, operationId, assertActive);
+    store.linkChat({ chatKey: chatId, botId: bot.id, title: name, projectPath, status: "running", createdAt: now() });
+    changed();
+    await titleChat(chatId, name);
+    await sendToChat(bot, chatId, text, operationId);
+    return { chatKey: chatId, title: name, project: nameOf(projectPath), baseBranch };
+  }
+
+  /** chat_status: one Chat the bot opened, as it stands now. */
+  async function chatStatus(botId, chatKey) {
+    const bot = requireBot(botId);
+    const chat = store.chat(String(chatKey ?? ""));
+    if (!chat || chat.botId !== bot.id) throw new Error(`${bot.name} didn't open that Chat. chat_list_mine lists the ones it did.`);
+    const details = (await chatDetails(chat.chatKey)) ?? {};
+    const pending = store.pendingGates().filter((gate) => gate.chatKey === chat.chatKey);
+    return {
+      ...chat,
+      project: nameOf(chat.projectPath),
+      ...details,
+      lastReply: String(details.lastReply ?? "").slice(0, REPLY_MAX),
+      waitingForSignOff: pending.map((gate) => gate.meta.title),
+    };
+  }
+
+  /** chat_send: steers or continues a Chat the bot opened, until the user takes it over. */
+  async function chatSend(botId, chatKey, text) {
+    const bot = requireBot(botId);
+    const chat = requireOwnChat(bot, chatKey);
+    requireActive(bot);
+    const body = String(text ?? "").trim();
+    if (!body) throw new Error("Write a message first.");
+    if (chat.status !== "running") {
+      store.setChatStatus(chat.chatKey, "running");
+      changed();
+    }
+    await sendToChat(bot, chat.chatKey, body);
+  }
+
+  /**
+   * The user sent a message in a Chat a bot opened: it is theirs now. Bot rules and the bot's grants stop there (its
+   * policy no longer answers), and the bot is told.
+   */
+  async function takeOver(chatKey) {
+    const chat = store.chat(chatKey);
+    if (!chat || chat.status === "taken-over") return;
+    store.setChatStatus(chatKey, "taken-over");
+    changed();
+    await notify(chat.botId, `${owner} took over this Chat: ${chat.title} (${chatKey}). Don't steer it any more.`, {
+      kind: "bot-chat-taken-over",
+      chatKey,
+    });
+  }
+
+  // A turn ended in a Chat a bot opened: the bot's thread gets a turn to act on it, like a Delegation report.
+  async function chatFinished(chat, event) {
+    store.setChatStatus(chat.chatKey, FINISHED[event.type]);
+    changed();
+    const details = (await chatDetails(chat.chatKey).catch(() => null)) ?? {};
+    const reply = String(details.lastReply ?? "").trim();
+    const body = [
+      `Chat ${OUTCOME[event.type]}: ${chat.title} (${chat.chatKey}, in ${nameOf(chat.projectPath)}).`,
+      reply ? `Its last reply:\n\n${reply.slice(0, REPLY_MAX)}${reply.length > REPLY_MAX ? "…" : ""}` : "It ended without a reply.",
+    ].join("\n\n");
+    await notify(chat.botId, body, { kind: "bot-chat-finished", chatKey: chat.chatKey, status: FINISHED[event.type] });
+  }
+
+  const tools = createBotTools({
+    now,
+    bots: {
+      chatOpen,
+      chatStatus,
+      chatSend,
+      chatsMine: (botId) => store.chatsFor(botId),
+    },
+  });
+
   return {
     owner,
     enabled,
@@ -316,9 +442,17 @@ function createBots({
       return updated;
     },
 
-    /** Deletes the bot. Its home goes to <dataDir>/bots/.trash/, so nothing it wrote is lost at once. */
+    /**
+     * Deletes the bot. The Chats it opened stay in Milagre as the user's, and nothing waits on its sign-offs any more:
+     * they are denied. Its home goes to <dataDir>/bots/.trash/, so nothing it wrote is lost at once.
+     */
     async remove(id) {
       const bot = requireBot(id);
+      for (const chat of store.chatsFor(id)) if (chat.status !== "taken-over") store.setChatStatus(chat.chatKey, "taken-over");
+      for (const gate of store.pendingGates().filter((item) => item.botId === id)) {
+        store.setGateStatus(gate.requestId, "denied");
+        agents.respondToPermission(gate.chatKey, gate.requestId, "deny");
+      }
       await closeHome(bot.homePath);
       store.deleteBot(id);
       refresh();
@@ -354,6 +488,16 @@ function createBots({
     botForChat,
     policyFor,
     sweep,
+    chatOpen,
+    chatStatus,
+    chatSend,
+    chatsMine: (botId) => store.chatsFor(requireBot(botId).id),
+    takeOver,
+    /** Milagre's tools for a bot's thread session: its memory and the Chats it opens. Other Chats get none. */
+    toolsFor(chatKey) {
+      const owned = botForChat(chatKey);
+      return owned?.role === "thread" ? tools.definitions(chatKey, owned.bot) : [];
+    },
 
     /** Follows the agent events of every Chat: the sign-off cards bots' sessions publish and how they end. */
     async observe(chatKey, event) {
@@ -369,6 +513,12 @@ function createBots({
         if (!gate || gate.chatKey !== chatKey || gate.status !== "pending") return;
         store.setGateStatus(event.requestId, event.decision === "allow" || event.decision === "allow-for-chat" ? "allowed" : "denied");
         changed();
+        return;
+      }
+      if (isTurnEnd(event)) {
+        const chat = store.chat(chatKey);
+        if (chat?.status === "running" && records.some((bot) => bot.id === chat.botId)) await chatFinished(chat, event);
+        else if (records.some((bot) => threadKey(bot) === chatKey)) changed();
       }
     },
 

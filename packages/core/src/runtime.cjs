@@ -1168,11 +1168,13 @@ function createRuntime(options) {
 
   commands.handle("chat:send", async (_event, request) => {
     if (isLinkScopeKey(request?.projectPath) || !scopeStates.has(request?.projectPath)) throw new Error("Open the project before sending to its chats.");
-    // A bot's thread always runs in Bot rules, whatever mode the composer sent.
+    // A bot's thread always runs in Bot rules, whatever mode the composer sent. The user's message in a Chat a bot
+    // opened makes it theirs: it runs in the mode they sent and the bot stops steering it.
     if (bots.isHome(request.projectPath)) {
       await bots.beforeThreadSend(request.projectPath, request.sessionId);
       request = { ...request, permissionMode: "bot" };
-    }
+    } else if (request.sessionId != null && bots.botForChat(chatKey(request.projectPath, request.sessionId))?.role === "chat")
+      await bots.takeOver(chatKey(request.projectPath, request.sessionId));
     // Only Milagre marks a message as coming from another Chat. A PR-blocker pill and a Chat started from a Linear issue
     // are the contexts a renderer can ask for, and Milagre checks them and writes their message and prompt itself.
     const { prAction, linearIssue, compact, ...rest } = request;
@@ -1423,6 +1425,8 @@ function createRuntime(options) {
       ...require("./advisor-tools.cjs").advisorToolDefinitions(chatId, advisors),
       // Milagre's own Linear sign-in, so agents don't reach for a Linear MCP or connector.
       ...(linear.enabled() ? linearToolDefinitions(linearTools) : []),
+      // A bot's thread: its memory and the Chats it opens.
+      ...(bots ? bots.toolsFor(chatId) : []),
     ],
     createMcpServer: ({ toolsFor }) => ({ url: (chatId) => localMcp.chatUrl(chatId, toolsFor), close: async () => {} }),
   });
@@ -1801,6 +1805,23 @@ function createRuntime(options) {
 
   // The Designs branch supplies this adapter. An absent adapter grants no design tools.
   const designAdapter = path.join(__dirname, "design-mcp-tools.cjs");
+  // The Milagre MCP host's ports; bots open their Chats through the same Worktree and Chat ones.
+  const localMcpHost = require("./local-mcp-host.cjs").createLocalMcpHost({
+    projects: async () => withoutHomes(await projectRegistry().list()),
+    readProject,
+    scopeStates,
+    chats,
+    permissionMode: (chatId, fallback) => agents.permissionMode(chatId, fallback),
+    createWorktree: (context, request) => handlers.get("worktree:create")(context, request),
+    validateDesignChat: async (chatId) => {
+      const scope = projectOfKey(chatId);
+      if (!isLinkScopeKey(scope)) {
+        if (!(await projectRegistry().list()).some((project) => project.path === scope)) throw Error("Open this Project in Milagre first");
+        await readProject(scope);
+      }
+      await existingChat("connecting Designs")(chatId);
+    },
+  });
   const localMcp = require("./local-mcp.cjs").createLocalMcp({
     dataDir,
     emit,
@@ -1821,22 +1842,7 @@ function createRuntime(options) {
         chats: { projectPaths: [projectPath], capabilities: ["read", "create", "start"] },
       };
     },
-    host: require("./local-mcp-host.cjs").createLocalMcpHost({
-      projects: async () => withoutHomes(await projectRegistry().list()),
-      readProject,
-      scopeStates,
-      chats,
-      permissionMode: (chatId, fallback) => agents.permissionMode(chatId, fallback),
-      createWorktree: (context, request) => handlers.get("worktree:create")(context, request),
-      validateDesignChat: async (chatId) => {
-        const scope = projectOfKey(chatId);
-        if (!isLinkScopeKey(scope)) {
-          if (!(await projectRegistry().list()).some((project) => project.path === scope)) throw Error("Open this Project in Milagre first");
-          await readProject(scope);
-        }
-        await existingChat("connecting Designs")(chatId);
-      },
-    }),
+    host: localMcpHost,
   });
   for (const method of ["status", "create", "update", "rotate", "revoke", "enableClient", "disableClient"])
     commands.handle(`local-mcp:${method}`, (_context, ...args) => localMcp[method](...args));
@@ -1863,6 +1869,29 @@ function createRuntime(options) {
       repositoryOwners.delete(common);
     }
   }
+  // What chat_status tells a bot about a Chat it opened, read from the Chat and its Worktree.
+  async function botChatDetails(chatId) {
+    const scope = projectOfKey(chatId);
+    const id = sessionIdFromKey(chatId);
+    if (!states.has(scope)) return null;
+    const state = await scopeStates.load(scope, [id]);
+    const session = state.sessions[id];
+    if (!session) return null;
+    const worktree = state.worktrees?.[session.worktree_id];
+    const reply = state.messages.findLast((message) => message.session_id === id && message.role === "assistant" && message.body && !message.context);
+    const status = worktree?.path ? await git.text(worktree.path, ["status", "--porcelain"]).catch(() => "") : "";
+    return {
+      running: Boolean(chats.runs[chatId]),
+      lastReply: reply?.body ?? "",
+      ...(reply?.outcome ? { outcome: reply.outcome } : {}),
+      ...(worktree ? { branch: worktree.name } : {}),
+      pullRequests: session.summary?.pullRequests ?? [],
+      changedFiles: status
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.slice(3)),
+    };
+  }
   bots = createBots({
     dataDir: realpathSync(dataDir),
     store: createBotStore(path.join(dataDir, "angelo.db")),
@@ -1872,6 +1901,14 @@ function createRuntime(options) {
     openHome: readProject,
     closeHome,
     projects: async () => withoutHomes(await projectRegistry().list()),
+    host: localMcpHost,
+    mainBranch: (projectPath) =>
+      git.resolveBase(projectPath).then(
+        (base) => base.name,
+        () => "main",
+      ),
+    chatDetails: botChatDetails,
+    titleChat: (chatId, title) => editProject(projectOfKey(chatId), (state) => patchSession(state, sessionIdFromKey(chatId), { title }), { chats: [] }),
     emit,
     owner: options.botOwner,
   });
