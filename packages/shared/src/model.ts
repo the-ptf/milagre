@@ -441,6 +441,8 @@ export interface PermissionRequest {
   kind: "command" | "edit" | "other" | "delegation";
   /** Short name of the tool, e.g. "Bash", "Shell" or "Edit files". */
   tool: string;
+  /** The agent's own name for the tool, when `tool` shows another (Claude's MCP tools: "Send Message"). */
+  toolName?: string;
   title: string;
   description?: string;
   command?: string;

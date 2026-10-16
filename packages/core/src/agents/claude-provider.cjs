@@ -144,6 +144,9 @@ class ClaudeSession {
     this.cancelRequested = false;
     this.closed = false;
     this.permissions = new PendingPermissions((event) => this.emit(event), { policy: permissionPolicy });
+    // Bot rules: the tool calls the PreToolUse hook asked about (toolUseID -> its gate, or null when the policy
+    // failed), so canUseTool can't let one through on a second look.
+    this.hookAsked = new Map();
     this.questions = new PendingQuestions((event) => this.emit(event));
     // Settles once the running turn's own message is in Claude Code's input (or the turn failed to start).
     this.turnReady = Promise.resolve();
@@ -171,6 +174,7 @@ class ClaudeSession {
     }
     this.turnActive = true;
     this.implicitTurn = false;
+    this.hookAsked.clear();
     // Whether this turn's init announced a session id (session-started); see readMessages.
     this.announcedId = false;
     this.cancelRequested = false;
@@ -385,15 +389,23 @@ class ClaudeSession {
     const output = (permissionDecision, permissionDecisionReason) => ({
       hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision, permissionDecisionReason },
     });
+    const id = toolUseID ?? input.tool_use_id;
+    const asked = (gate) => {
+      if (id) this.hookAsked.set(id, gate);
+    };
     let verdict;
     try {
-      verdict = this.permissionPolicy(claudeRequest(input.tool_name, input.tool_input ?? {}, { toolUseID: toolUseID ?? input.tool_use_id }));
+      verdict = this.permissionPolicy(claudeRequest(input.tool_name, input.tool_input ?? {}, { toolUseID: id }));
     } catch (error) {
       // A policy that fails can't tell a gate from the rest, so the user decides on a card.
       console.warn("Bot permission policy failed:", error.message);
+      asked(null);
       return output("ask", "Bot rules");
     }
-    if (verdict?.gate) return output("ask", verdict.gate.title);
+    if (verdict?.gate) {
+      asked(verdict.gate);
+      return output("ask", verdict.gate.title);
+    }
     if (verdict === "deny") return output("deny", DENIED_MESSAGE);
     return {};
   }
@@ -404,6 +416,8 @@ class ClaudeSession {
     // A request that arrives once its turn has stopped has nobody to ask.
     if (!this.turnActive || this.cancelRequested || this.closed) return Promise.resolve(claudeResult("cancelled", input));
     const request = claudeRequest(toolName, input, options);
+    const flagged = this.hookAsked.has(options.toolUseID) ? { gate: this.hookAsked.get(options.toolUseID) ?? undefined } : undefined;
+    this.hookAsked.delete(options.toolUseID);
     return new Promise((resolve) => {
       const abort = () => this.permissions.resolve(request.requestId, "cancelled");
       const inWorkspace =
@@ -416,7 +430,7 @@ class ClaudeSession {
           options.signal?.removeEventListener("abort", abort);
           resolve(claudeResult(decision, input, options.suggestions));
         },
-        { inWorkspace },
+        { inWorkspace, flagged },
       );
       if (options.signal?.aborted) abort();
       else options.signal?.addEventListener("abort", abort, { once: true });

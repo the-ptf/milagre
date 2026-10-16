@@ -214,8 +214,10 @@ function segmentGate(words, cwd, extra) {
   return added ? { kind: added.kind, segment } : null;
 }
 
-// Codex names an MCP tool only in its card's title: `Allow the slack MCP server to run tool "send_message"?`.
+// Claude's card shows an MCP tool by its display name ("Send Message"): its own name is `toolName`. Codex names an MCP
+// tool only in its card's title: `Allow the slack MCP server to run tool "send_message"?`.
 function mcpToolName(request) {
+  if (request.toolName?.startsWith("mcp__")) return request.toolName;
   if (request.tool?.startsWith("mcp__")) return request.tool;
   const server = /^MCP: (.+)$/.exec(request.tool ?? "")?.[1];
   const tool = /run tool "([^"]+)"/.exec(request.title ?? "")?.[1];

@@ -93,6 +93,11 @@ test("merge and delete MCP tools; Milagre's own tools never gate", () => {
   assert.equal(matchGate({ tool: "mcp__github__get_pull_request" }), null);
 });
 
+test("Claude's display name doesn't hide the MCP tool", () => {
+  assert.equal(matchGate({ tool: "Send Message", toolName: "mcp__slack__send_message" })?.kind, "post");
+  assert.equal(matchGate({ tool: "Merge Pull Request", toolName: "mcp__github__merge_pull_request" })?.kind, "merge");
+});
+
 test("Codex names the MCP tool only in the card's title", () => {
   const request = { tool: "MCP: slack", title: 'Allow the slack MCP server to run tool "send_message"?' };
   assert.equal(matchGate(request)?.kind, "post");

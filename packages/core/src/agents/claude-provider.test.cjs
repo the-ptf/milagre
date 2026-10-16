@@ -150,6 +150,26 @@ const scripts = {
     };
     yield success;
   },
+  // Claude Code runs the PreToolUse hook, then asks canUseTool with the tool's display name.
+  async *sendsMessage({ options, signal }) {
+    yield init;
+    const input = { channel: "#ops", text: "Merged." };
+    await options.hooks.PreToolUse[0].hooks[0](
+      { hook_event_name: "PreToolUse", tool_name: "mcp__slack__send_message", tool_input: input, tool_use_id: "tool-m" },
+      "tool-m",
+      {
+        signal,
+      },
+    );
+    const result = await options.canUseTool("mcp__slack__send_message", input, {
+      signal,
+      requestId: "req-m",
+      toolUseID: "tool-m",
+      displayName: "Send Message",
+    });
+    yield delta(JSON.stringify(result));
+    yield success;
+  },
   async *sdkAbortsAlready({ options }) {
     yield init;
     const controller = new AbortController();
@@ -1314,6 +1334,41 @@ test("the gate hook hands the policy the same request canUseTool would", async (
   assert.deepEqual(seen, [
     { requestId: "t4", kind: "command", tool: "Bash", title: "Run this command?", command: "npm test", allowForChat: false, stepId: "t4" },
   ]);
+});
+
+test("an MCP tool shown by its display name still gates on its own name", async (t) => {
+  const { matchGate } = require("../bots/gates.cjs");
+  const seen = [];
+  const policy = (request) => {
+    seen.push(request);
+    const gate = matchGate(request);
+    return gate ? { gate } : "allow";
+  };
+  const { session, events } = claude(t, { script: scripts.sendsMessage, permissionPolicy: policy });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await asked(events);
+  const request = events.find((event) => event.type === "permission-request");
+  assert.equal(request.tool, "Send Message");
+  assert.equal(request.toolName, "mcp__slack__send_message");
+  assert.equal(request.gate.kind, "post");
+  session.respondToPermission("req-m", "deny");
+  await ended(events);
+  assert.equal(JSON.parse(replyText(events)).behavior, "deny");
+});
+
+test("canUseTool never lets through what the PreToolUse hook asked about", async (t) => {
+  const gate = { kind: "post", title: "Post as you: mcp__slack__send_message" };
+  // A policy that sees the gate in the hook and misses it in canUseTool.
+  const { session, events } = claude(t, {
+    script: scripts.sendsMessage,
+    permissionPolicy: (request) => (request.tool === "Send Message" ? "allow" : { gate }),
+  });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await asked(events);
+  assert.deepEqual(events.find((event) => event.type === "permission-request").gate, gate);
+  session.respondToPermission("req-m", "allow");
+  await ended(events);
+  assert.equal(JSON.parse(replyText(events)).behavior, "allow");
 });
 
 test("other modes have no PreToolUse hook", async (t) => {
