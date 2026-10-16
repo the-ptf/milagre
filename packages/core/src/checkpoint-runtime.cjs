@@ -1,7 +1,9 @@
 const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { createCheckpoints } = require("./checkpoints.cjs");
+const { checkpointRestoreText } = require("@milagre/shared/checkpoint-restore");
 
-function registerCheckpoints(commands, { directory, states, busy, ready }) {
+/** `note` writes a line in the Chat after a restore wrote files, so its Redo stays in the transcript across restarts. */
+function registerCheckpoints(commands, { directory, states, busy, ready, note = async () => {} }) {
   const preparing = new Set();
   async function rootsFor(chatId) {
     const scope = projectOfKey(chatId),
@@ -34,14 +36,32 @@ function registerCheckpoints(commands, { directory, states, busy, ready }) {
       await rootsFor(request.chatId);
       if (method === "list") return store.list(request.chatId);
       if (method === "preview") return store.preview(request.chatId, request.id);
-      return store.restore(request.chatId, request);
+      const result = await store.restore(request.chatId, request);
+      if (result.restored > 0 && result.recoveryId) {
+        const context = {
+          kind: "checkpoint-restore",
+          checkpointId: result.checkpointId,
+          recoveryId: result.recoveryId,
+          restored: result.restored,
+          kept: result.kept,
+          redo: result.redo,
+        };
+        await note(request.chatId, { body: checkpointRestoreText(context), context }).catch((error) => console.warn("Checkpoint note failed:", error.message));
+      }
+      return result;
     });
   return {
     begin: async (request) => {
       preparing.add(request.chatId);
       try {
         await ready();
-        return await store.begin({ chatId: request.chatId, roots: await rootsFor(request.chatId), permissionMode: request.permissionMode });
+        return await store.begin({
+          chatId: request.chatId,
+          roots: await rootsFor(request.chatId),
+          permissionMode: request.permissionMode,
+          messageId: request.messageId,
+          prompt: request.body,
+        });
       } finally {
         preparing.delete(request.chatId);
       }

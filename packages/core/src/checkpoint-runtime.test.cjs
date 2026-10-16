@@ -61,6 +61,17 @@ test("tasks capture once before execution; steering reuses the checkpoint; resto
   assert.equal(preview.files[0].path, "work.txt");
   await assert.rejects(runtime.invoke("checkpoint:preview", [{ chatId: `${project}#999`, id: items[0].id }]), /Chat/i);
   await assert.rejects(runtime.invoke("checkpoint:restore", [{ chatId, token: preview.token, decisions: { [preview.files[0].key]: "restore" } }]), /confirm/i);
-  await runtime.invoke("checkpoint:restore", [{ chatId, token: preview.token, decisions: { [preview.files[0].key]: "restore" }, approved: true }]);
+  assert.equal(items[0].prompt, "edit");
+  const messages = () => runtime.snapshot().projects.find((entry) => entry.path === project).state.messages;
+  assert.equal(items[0].messageId, messages().find((message) => message.role === "user" && message.body === "edit").id);
+  const restored = await runtime.invoke("checkpoint:restore", [
+    { chatId, token: preview.token, decisions: { [preview.files[0].key]: "restore" }, approved: true },
+  ]);
+  assert.equal(restored.restored, 1);
   assert.equal(await fs.readFile(path.join(project, "work.txt"), "utf8"), "manual");
+  // The Chat records the undo, with the recovery checkpoint its Redo previews.
+  await waitUntil(() => messages().some((message) => message.context?.kind === "checkpoint-restore"));
+  const note = messages().find((message) => message.context?.kind === "checkpoint-restore");
+  assert.equal(note.body, "Undid 1 file");
+  assert.deepEqual(note.context, { kind: "checkpoint-restore", checkpointId: items[0].id, recoveryId: restored.recoveryId, restored: 1, kept: 0, redo: false });
 });

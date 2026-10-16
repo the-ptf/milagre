@@ -549,7 +549,7 @@ class ChatHost {
     );
     try {
       await this.states.flush(projectPath);
-      if (newTask) await this.beforeTask({ ...request, ...target });
+      if (newTask) await this.beforeTask({ ...request, ...target, messageId: pendingId });
     } catch (error) {
       if (preparation) {
         this.release(target.chatId, preparation);

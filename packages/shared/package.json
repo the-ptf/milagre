@@ -127,6 +127,10 @@
       "types": "./src/chat-reload.d.mts",
       "default": "./src/chat-reload.mjs"
     },
+    "./checkpoint-restore": {
+      "types": "./src/checkpoint-restore.d.mts",
+      "default": "./src/checkpoint-restore.mjs"
+    },
     "./worktree-link": {
       "types": "./src/worktree-link.d.mts",
       "default": "./src/worktree-link.mjs"

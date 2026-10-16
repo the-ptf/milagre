@@ -14,7 +14,21 @@ const summary = (item) => ({
   kind: item.kind,
   permissionMode: item.permissionMode,
   excluded: item.excluded,
+  // The message that started the task, its text, and how many files the task changed (once it ended).
+  ...(item.messageId !== undefined ? { messageId: item.messageId } : {}),
+  ...(item.prompt ? { prompt: item.prompt } : {}),
+  ...(item.changed !== undefined ? { changed: item.changed } : {}),
 });
+/** Files whose content differs between two captures of the same Worktrees, excluded files left out. */
+function changedCount(before, after) {
+  let count = 0;
+  for (const [index, start] of before.entries()) {
+    const end = after[index];
+    for (const name of new Set([...Object.keys(start.files), ...Object.keys(end?.files ?? {})]))
+      if (!start.blocked.includes(name) && !end?.blocked.includes(name) && !same(entryAt(start.files, name), entryAt(end?.files, name))) count++;
+  }
+  return count;
+}
 async function atomic(file, data) {
   await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   const temp = file + "." + randomUUID();
@@ -162,6 +176,8 @@ function createCheckpoints({ directory, assertIdle = async () => {}, validateRoo
           createdAt: Date.now(),
           before: captured.roots,
           excluded: captured.excluded,
+          ...(Number.isSafeInteger(request.messageId) ? { messageId: request.messageId } : {}),
+          ...(typeof request.prompt === "string" && request.prompt.trim() ? { prompt: request.prompt.trim().slice(0, 300) } : {}),
         };
         await save(item);
         running.set(request.chatId, { id: item.id, roots });
@@ -177,6 +193,7 @@ function createCheckpoints({ directory, assertIdle = async () => {}, validateRoo
           item.after = captured.roots;
           item.completedAt = Date.now();
           item.excluded = Math.max(item.excluded, captured.excluded);
+          item.changed = changedCount(item.before, item.after);
           await save(item);
         } finally {
           running.delete(chatId);
@@ -225,7 +242,9 @@ function createCheckpoints({ directory, assertIdle = async () => {}, validateRoo
           throw new Error("Resolve every file with a keep or restore decision");
         previews.delete(request.token);
         const selected = current.files.filter((file) => choices[file.key] === "restore");
-        if (!selected.length) return { restored: 0, recoveryId: null };
+        // `redo` marks restoring a recovery checkpoint: putting back the files an earlier restore replaced.
+        const outcome = { checkpointId: item.id, kept: current.files.length - selected.length, redo: item.kind === "recovery" };
+        if (!selected.length) return { ...outcome, restored: 0, recoveryId: null };
         const captured = await snapshot(item.before.map((s) => s.identity.root));
         const recovery = {
           version: 1,
@@ -238,6 +257,9 @@ function createCheckpoints({ directory, assertIdle = async () => {}, validateRoo
           excluded: captured.excluded,
           before: captured.roots,
           after: structuredClone(captured.roots),
+          changed: selected.length,
+          ...(item.messageId !== undefined ? { messageId: item.messageId } : {}),
+          ...(item.prompt ? { prompt: item.prompt } : {}),
         };
         for (const file of selected) {
           const index = Number(file.key.slice(0, file.key.indexOf(":"))),
@@ -275,7 +297,7 @@ function createCheckpoints({ directory, assertIdle = async () => {}, validateRoo
             },
           );
         }
-        return { restored, recoveryId: recovery.id };
+        return { ...outcome, restored, recoveryId: recovery.id };
       }),
   };
 }

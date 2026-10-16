@@ -1167,6 +1167,7 @@ function createRuntime(options) {
     states: scopeStates,
     ready: () => environmentReady,
     busy: (chatId) => chats.isBusy(chatId) || agents.isTurnActive(chatId) || Boolean(agents.sessions.get(chatId)?.activeChildren?.size),
+    note: (chatId, message) => chats.addNote(chatId, message),
   });
 
   commands.handle("chat:send", async (_event, request) => {
