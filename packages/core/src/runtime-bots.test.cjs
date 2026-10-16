@@ -380,6 +380,47 @@ for (const [name, before] of [
     assert.equal(turns.length, started);
   });
 
+// A Chat Ops opened whose turn is still running when the first runtime quits.
+async function botChatMidTurn(t) {
+  const f = await withOps(t);
+  await f.runtime.invoke("bots:send", ["ops", "Fix the flaky test"]);
+  await waitUntil(() => f.sessions.some((item) => item.options.cwd === f.bot.homePath));
+  const thread = f.sessions.find((item) => item.options.cwd === f.bot.homePath);
+  const opened = await runTool(
+    thread.options.linked.tools.find((item) => item.name === "chat_open"),
+    { project: "project", title: "Fix flaky terminal-perf test", prompt: "Keep working" },
+  );
+  assert.equal(opened.isError, false, opened.text);
+  const chatKey = /^Opened (\S+):/.exec(opened.text)[1];
+  await waitUntil(() => f.turns.some((turn) => turn.cwd.startsWith(path.join(f.dir, "worktrees"))));
+  await f.runtime.close();
+  return { ...f, chatKey, sessionId: Number(chatKey.split("#").at(-1)) };
+}
+const chatStatus = async (runtime, chatKey) => (await runtime.invoke("bots:list")).chats.find((chat) => chat.chatKey === chatKey)?.status;
+
+test("a bot Chat the quit stopped still runs after the restart", async (t) => {
+  const { make, chatKey } = await botChatMidTurn(t);
+  const second = make();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(await chatStatus(second, chatKey), "running");
+});
+
+test("a bot Chat that won't resume after the restart is failed", async (t) => {
+  const { make, chatKey, sessionId, project, turns, bot } = await botChatMidTurn(t);
+  // Stopped longer ago than a resume waits for.
+  const file = path.join(project, ".milagre", "coordination.json");
+  const saved = JSON.parse(await fs.readFile(file, "utf8"));
+  assert.ok(saved.sessions[sessionId].resumeTurn);
+  saved.sessions[sessionId].resumeTurn.stoppedAt = 0;
+  await fs.writeFile(file, JSON.stringify(saved));
+  const threadTurns = turns.filter((turn) => turn.cwd === bot.homePath).length;
+  const second = make();
+  await eventually(async () => (await chatStatus(second, chatKey)) === "failed");
+  // Nothing is said in the bot's thread at boot.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(turns.filter((turn) => turn.cwd === bot.homePath).length, threadTurns);
+});
+
 test("deleting a bot moves its home to the trash", async (t) => {
   const { runtime, bot, dataDir } = await withOps(t);
   await runtime.invoke("bots:remove", ["ops"]);

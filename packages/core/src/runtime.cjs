@@ -1904,6 +1904,16 @@ function createRuntime(options) {
         .map((line) => line.slice(3)),
     };
   }
+  // Whether a Chat a bot opened runs a turn now, or will when its Project opens (a quit's resume still in its window).
+  // A Project not open yet is read from its saved file, without opening it.
+  async function botChatContinues(chatId) {
+    if (chats.isBusy(chatId)) return true;
+    const projectPath = projectOfKey(chatId);
+    const sessions = states.has(projectPath)
+      ? (await states.get(projectPath)).sessions
+      : JSON.parse(await fs.readFile(stateFile(projectPath), "utf8").catch(() => "{}")).sessions;
+    return chats.willResume(sessions?.[sessionIdFromKey(chatId)]);
+  }
   bots = createBots({
     dataDir: realpathSync(dataDir),
     store: createBotStore(path.join(dataDir, "angelo.db")),
@@ -1920,6 +1930,7 @@ function createRuntime(options) {
         () => "main",
       ),
     chatDetails: botChatDetails,
+    chatContinues: botChatContinues,
     titleChat: (chatId, title) => editProject(projectOfKey(chatId), (state) => patchSession(state, sessionIdFromKey(chatId), { title }), { chats: [] }),
     emit,
     closing: () => closing,

@@ -175,6 +175,25 @@ test("nothing reaches a bot's thread while Milagre closes", async (t) => {
   assert.equal(chats.sent.length, sent);
 });
 
+test("at start, a bot Chat that runs no turn and won't resume is failed without a message", async (t) => {
+  const { bots, store, chats } = await harness(t, { chatContinues: async (chatKey) => chatKey === `${PROJECT}#5` });
+  for (const [id, status] of [
+    [4, "running"],
+    [5, "running"],
+    [6, "done"],
+  ])
+    store.linkChat({ chatKey: `${PROJECT}#${id}`, botId: "ops", title: `Chat ${id}`, projectPath: PROJECT, status, createdAt: NOW });
+  await bots.start();
+  assert.deepEqual(
+    store.chatsFor("ops").map((chat) => chat.status),
+    ["failed", "running", "done"],
+  );
+  assert.deepEqual(chats.sent, []);
+  // A turn that starts in it after all (a resume racing the check) makes it run again.
+  await bots.observe(`${PROJECT}#4`, { type: "turn-started", turnId: "t" });
+  assert.equal(store.chat(`${PROJECT}#4`).status, "running");
+});
+
 test("chat_status reports the Chat and what it waits for", async (t) => {
   const { bots, open } = await harness(t);
   const { chatKey } = await open();

@@ -52,6 +52,8 @@ function createBots({
   mainBranch = async () => "main",
   // What chat_status reports beyond the record: { lastReply, outcome?, branch?, pullRequests, changedFiles, running }.
   chatDetails = async () => null,
+  // Whether a Chat runs a turn now or will continue one when its Project opens (see start).
+  chatContinues = async () => true,
   titleChat = async () => {},
   emit = () => {},
   now = Date.now,
@@ -374,7 +376,9 @@ function createBots({
 
     /**
      * Opens every bot's home, so its thread is there for the windows and its interrupted turn continues. A sign-off
-     * still pending from before a restart can't be answered any more (its session is gone): it expires now.
+     * still pending from before a restart can't be answered any more (its session is gone): it expires now. A Chat a
+     * bot opened that runs no turn and won't continue one (a crash, or a quit too long ago) is failed, quietly: it would
+     * otherwise run forever and hold a slot of the cap.
      */
     async start() {
       const stale = store.pendingGates();
@@ -390,6 +394,13 @@ function createBots({
           console.warn(`Milagre couldn't open ${bot.name}'s home:`, error.message);
         }
       }
+      let stopped = false;
+      for (const chat of records.flatMap((bot) => store.chatsFor(bot.id)))
+        if (chat.status === "running" && !(await chatContinues(chat.chatKey).catch(() => true))) {
+          store.setChatStatus(chat.chatKey, "failed");
+          stopped = true;
+        }
+      if (stopped) changed();
     },
 
     async create(input) {
@@ -534,6 +545,15 @@ function createBots({
         if (!gate || gate.status !== "pending") return;
         store.setGateStatus(chatKey, event.requestId, event.decision === "allow" || event.decision === "allow-for-chat" ? "allowed" : "denied");
         changed();
+        return;
+      }
+      // A turn starting in a Chat a bot opened that was ended (a resume that raced start's check) runs it again.
+      if (event.type === "turn-started") {
+        const chat = store.chat(chatKey);
+        if (chat && (chat.status === "done" || chat.status === "failed") && records.some((bot) => bot.id === chat.botId)) {
+          store.setChatStatus(chatKey, "running");
+          changed();
+        }
         return;
       }
       if (isTurnEnd(event)) {
