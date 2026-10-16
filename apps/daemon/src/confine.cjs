@@ -176,6 +176,7 @@ const PATHS = Object.freeze({
   "chat:patch": ([projectPath]) => [projectPath],
   "chat:archive-subagent": ([projectPath]) => [projectPath],
   "chat:archive-finished-subagents": ([projectPath]) => [projectPath],
+  "chat:subagent": ([projectPath]) => [projectPath],
   "worktree:pull-request": ([worktreePath]) => [worktreePath],
   "worktree:pull-requests": ([worktreePath]) => [worktreePath],
   "project:branches": ([projectPath]) => [projectPath],
