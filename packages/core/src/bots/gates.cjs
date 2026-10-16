@@ -8,25 +8,29 @@ const { insideRoot } = require("../agents/permissions.cjs");
 const KIND_LABEL = { merge: "Merge", publish: "Publish", post: "Post as you", delete: "Delete", spend: "Spend" };
 
 // Each segment of a command (see splitCommand) is tested from its start, so `echo gh pr merge 1` is not a merge.
-// `gh`, `git push` and `rm` need their arguments read, so they are matched in code below; gh's patterns see its
-// command words first (`gh -R x pr merge 1` as `gh pr merge 1 -R x`).
+// `gh api`, `git push`, `rm -r` and `find -delete` need their arguments read, so they are matched in code below.
+// The patterns see a command's own words first: `gh -R x pr merge 1` as `gh pr merge 1 -R x`, `npm -w x publish` as
+// `npm publish`, `node --env-file=.env scripts/asc.mjs submit` as `asc.mjs submit`.
 // `spend` is reserved: no purchase or payment tools exist yet.
 const DEFAULT_GATE_PATTERNS = Object.freeze([
   { kind: "merge", pattern: /^gh pr merge\b/ },
-  { kind: "merge", pattern: /^gh api\b.*\bpulls\/\d+\/merge\b/ },
   { kind: "publish", pattern: /^eas (update|submit)\b/ },
   { kind: "publish", pattern: /^eas build\b.*\s--auto-submit\b/ },
-  { kind: "publish", pattern: /^node (\.\/)?scripts\/asc\.mjs (submit|release|beta)\b/ },
+  { kind: "publish", pattern: /^eas deploy\b.*\s--prod(uction)?\b/ },
+  { kind: "publish", pattern: /^asc\.mjs (submit|release|beta)\b/ },
   { kind: "publish", pattern: /^(npm|pnpm|bun|yarn( npm)?) publish\b/ },
   { kind: "publish", pattern: /^gh release create\b/ },
-  { kind: "publish", pattern: /^vercel\b.*\s--prod(uction)?\b/ },
-  { kind: "publish", pattern: /^wrangler (pages )?(deploy|publish)\b/ },
-  { kind: "publish", pattern: /^gh workflow run \S*(publish|release|deploy)/ },
+  { kind: "publish", pattern: /^gh release edit\b.*\s--draft(=| )false\b/ },
+  { kind: "publish", pattern: /^vercel\b.*\s(--prod(uction)?\b|--target(=| )production\b)/ },
+  { kind: "publish", pattern: /^vercel promote\b/ },
+  { kind: "publish", pattern: /^wrangler ((pages )?(deploy|publish)|versions deploy|rollback)\b/ },
+  // A workflow by any name that says it ships (`Release.yml`, "Deploy to stores"); one by number can't be told.
+  { kind: "publish", pattern: /^gh workflow run\b.*(publish|release|deploy|submit)/i },
   { kind: "post", pattern: /^gh (pr|issue) comment\b/ },
   { kind: "post", pattern: /^gh pr review\b/ },
   { kind: "post", pattern: /^curl\b.*(hooks\.slack\.com|discord(app)?\.com\/api\/webhooks)/ },
-  { kind: "delete", pattern: /^gh repo delete\b/ },
-  { kind: "delete", pattern: /^gh api\b.*\s(-X|--method)[ =]?DELETE\b/ },
+  { kind: "delete", pattern: /^gh (repo|release|issue) delete\b/ },
+  { kind: "delete", pattern: /^rsync\b.*\s--(del\b|delete|remove-source-files\b)/ },
 ]);
 
 // MCP tools, by name (`mcp__<server>__<tool>`). Milagre's own tools only touch the Chat and never gate.
@@ -644,13 +648,28 @@ function gitArgs(words) {
 
 const DEFAULT_BRANCHES = new Set(["main", "master"]);
 
-// `git push`: a force push or a branch deletion is a delete, a push to main or master is a merge.
+const GIT_PUSH_VALUES = new Set(["-o", "--push-option", "--repo", "--receive-pack", "--exec", "--recurse-submodules"]);
+
+// `git push`: a force push, a mirror, a prune or a branch deletion is a delete, a push to main or master is a merge.
 function gitPushGate(args) {
   if (args[0] !== "push") return null;
-  const flags = args.slice(1).filter((word) => word.startsWith("-"));
-  const positional = args.slice(1).filter((word) => !word.startsWith("-"));
-  const refspecs = positional.slice(1);
-  const force = flags.some((flag) => /^(--force(-with-lease)?(=.*)?|--delete|-[a-zA-Z]*[fd][a-zA-Z]*)$/.test(flag));
+  const flags = [];
+  const positional = [];
+  let repo = false;
+  for (let index = 1; index < args.length; index++) {
+    const word = args[index];
+    if (word === "--") {
+      positional.push(...args.slice(index + 1));
+      break;
+    }
+    if (word === "--repo" || word.startsWith("--repo=")) repo = true;
+    if (GIT_PUSH_VALUES.has(word)) index++;
+    else if (word.startsWith("-")) flags.push(word);
+    else positional.push(word);
+  }
+  // Given --repo, git still reads the first word as the repository when there is one: any word may be a refspec.
+  const refspecs = repo ? positional : positional.slice(1);
+  const force = flags.some((flag) => /^(--force(-with-lease)?(=.*)?|--delete|--mirror|--prune|-[a-zA-Z]*[fd][a-zA-Z]*)$/.test(flag));
   if (force || refspecs.some((spec) => spec.startsWith("+") || spec.startsWith(":"))) return { kind: "delete" };
   const branch = refspecs
     .map((spec) =>
@@ -663,18 +682,141 @@ function gitPushGate(args) {
   return branch ? { kind: "merge", title: `Push to ${branch}` } : null;
 }
 
-// `rm -r` on anything that isn't strictly inside the working folder. The folder itself counts as outside.
-function rmGate(words, cwd) {
+// Whether a path a command deletes is outside the working folder. The folder itself counts as outside, and so does
+// any relative path once the command changed folder (`cd`, `pushd`, `-C`), or one only known when it runs.
+function outsideFolder(target, { cwd, moved }) {
+  if (target.includes(DYN) || target.startsWith("~") || target.includes("$")) return true;
+  if (moved && !path.isAbsolute(target)) return true;
+  if (!cwd) return path.isAbsolute(target) || target.split("/").includes("..");
+  return !insideRoot(cwd, [path.resolve(cwd, target)]);
+}
+
+// `rm -r` on anything that isn't strictly inside the working folder.
+function rmGate(words, options) {
   if (words[0] !== "rm") return null;
-  const flags = words.slice(1).filter((word) => word.startsWith("-"));
+  const end = words.indexOf("--");
+  const flags = words.slice(1, end < 0 ? undefined : end).filter((word) => word.startsWith("-"));
   if (!flags.some((flag) => flag === "--recursive" || /^-[a-zA-Z]*[rR]/.test(flag))) return null;
-  const targets = words.slice(1).filter((word) => !word.startsWith("-"));
-  const outside = targets.some((target) => {
-    if (target.startsWith("~") || target.startsWith("$")) return true;
-    if (!cwd) return path.isAbsolute(target) || target.split("/").includes("..");
-    return !insideRoot(cwd, [path.resolve(cwd, target)]);
-  });
-  return outside ? { kind: "delete" } : null;
+  const targets = words.slice(1).filter((word, index) => (end >= 0 && index + 1 > end) || !word.startsWith("-"));
+  return targets.some((target) => outsideFolder(target, options)) ? { kind: "delete" } : null;
+}
+
+// `find … -delete` under a start path outside the working folder (its commands are matched on their own).
+function findGate(words, options) {
+  if (words[0] !== "find") return null;
+  const { found, deletes } = findParts(words);
+  return deletes && found.some((target) => outsideFolder(target, options)) ? { kind: "delete" } : null;
+}
+
+const UNCHECKED = Object.freeze({ kind: "delete", title: UNCHECKED_TITLE, uncoverable: true });
+const API_VALUES = new Set([
+  "-X",
+  "--method",
+  "-f",
+  "--raw-field",
+  "-F",
+  "--field",
+  "-H",
+  "--header",
+  "--input",
+  "-q",
+  "--jq",
+  "-t",
+  "--template",
+  "--hostname",
+  "--cache",
+  "-p",
+  "--preview",
+]);
+const API_FIELDS = new Set(["-f", "--raw-field", "-F", "--field"]);
+const SHIPS = /publish|release|deploy|submit/i;
+
+// GraphQL through `gh api graphql`: queries read, mutations gate by what they do. A query Milagre can't see (from a
+// file, a variable) or a mutation it doesn't know asks as one it can't check.
+function graphqlGate(fields) {
+  const query = fields.find((field) => field.startsWith("query="))?.slice("query=".length);
+  if (query === undefined || query.startsWith("@") || query.includes(DYN) || query.includes("${") || !query.includes("{")) return UNCHECKED;
+  if (!/\bmutation\b/.test(query)) return null;
+  // The repository is named by node ids, not in the command: no grant can cover these.
+  if (/\b(mergePullRequest|enablePullRequestAutoMerge|mergeBranch)\b/.test(query)) return { kind: "merge", uncoverable: true };
+  if (/\bdelete[A-Z]\w*\s*\(/.test(query)) return { kind: "delete", uncoverable: true };
+  if (
+    /\b(add(Comment|DiscussionComment|PullRequestReview\w*)|submitPullRequestReview|update(IssueComment|PullRequestReviewComment|DiscussionComment)|create(Issue|Discussion))\b/.test(
+      query,
+    )
+  )
+    return { kind: "post", uncoverable: true };
+  return UNCHECKED;
+}
+
+// `gh api [flags] endpoint`: reads pass. Writes gate by what they reach; one Milagre doesn't know asks as one it
+// can't check. The endpoint's `repos/owner/name` is the target.
+function ghApiGate(args) {
+  let method = null;
+  let endpoint = null;
+  let input = false;
+  let host = false;
+  const fields = [];
+  for (let index = 0; index < args.length; index++) {
+    const word = args[index];
+    if (!word.startsWith("-") || word === "-") {
+      endpoint ??= word;
+      continue;
+    }
+    let flag = word;
+    let value = "";
+    if (word.startsWith("--") && word.includes("=")) {
+      flag = word.slice(0, word.indexOf("="));
+      value = word.slice(word.indexOf("=") + 1);
+    } else if (!word.startsWith("--") && word.length > 2 && API_VALUES.has(word.slice(0, 2))) {
+      flag = word.slice(0, 2);
+      value = word.slice(2);
+    } else if (API_VALUES.has(word)) value = args[++index] ?? "";
+    if (flag === "-X" || flag === "--method") method = value.toUpperCase();
+    else if (API_FIELDS.has(flag)) fields.push(value);
+    else if (flag === "--input") input = true;
+    else if (flag === "--hostname") host = true;
+  }
+  // gh sends fields with POST unless told otherwise.
+  method ??= fields.length || input ? "POST" : "GET";
+  const route = String(endpoint ?? "")
+    .replace(/^\//, "")
+    .replace(/[?#].*$/, "");
+  const repo = /^repos\/([^/{}]+)\/([^/{}]+)/.exec(route);
+  const where = host ? { uncoverable: true } : repo ? { target: `${repo[1]}/${repo[2]}` } : {};
+  const gate = (kind, title) => ({ kind, ...(title ? { title } : {}), ...where });
+  if (route === "graphql") return input && !fields.some((field) => field.startsWith("query=")) ? UNCHECKED : graphqlGate(fields);
+  if (method === "GET" || method === "HEAD") return null;
+  if (method === "DELETE") return gate("delete");
+  if (/(^|\/)(pulls\/\d+\/merge|merges)$/.test(route))
+    return gate("merge", /pulls\/(\d+)\/merge$/.test(route) ? `Merge PR #${/pulls\/(\d+)/.exec(route)[1]}` : null);
+  const ref = /\/git\/refs\/heads\/(main|master)$/.exec(route);
+  if (ref) return gate("merge", `Push to ${ref[1]}`);
+  if (/\/(comments|reviews)(\/|$)/.test(route)) return gate("post");
+  if (/\/releases(\/\d+)?$/.test(route)) return gate("publish");
+  const workflow = /\/actions\/workflows\/([^/]+)\/dispatches$/.exec(route);
+  if (workflow && SHIPS.test(workflow[1])) return gate("publish");
+  return UNCHECKED;
+}
+
+// What gh's own commands need read: `api`, an alias that runs a gated command, a workflow known only by number.
+function ghGate(gh, options) {
+  const [group, action] = gh.command;
+  if (group === "api") return ghApiGate(gh.words.slice(2));
+  const positional = gh.args.filter((word) => !word.startsWith("-"));
+  if (group === "workflow" && action === "run" && /^\d+$/.test(positional[0] ?? "")) return UNCHECKED;
+  if (group === "alias" && action === "import") return UNCHECKED;
+  if (group === "alias" && action === "set") {
+    const expansion = positional[1];
+    if (expansion === undefined || expansion === "-") return UNCHECKED;
+    const shell = gh.args.includes("--shell") || gh.args.includes("-s") || expansion.startsWith("!");
+    const command = shell ? expansion.replace(/^!/, "") : `gh ${expansion}`;
+    for (const words of parse(command).flatMap((segment) => normalize(segment))) {
+      const gate = segmentGate(words, options);
+      if (gate) return { kind: gate.kind, uncoverable: true };
+    }
+  }
+  return null;
 }
 
 // `gh … --repo owner/name` (or `-R`, `--repo=`): the grant target.
@@ -697,33 +839,74 @@ function prTitle(words) {
   return null;
 }
 
-function segmentGate(words, cwd, extra) {
-  if (words.unchecked) return { kind: "delete", title: UNCHECKED_TITLE };
-  // A program named with spaces is a quoted argument read as one (`time git commit -m "gh pr merge 1"`).
-  if (/\s/.test(words[0])) return null;
-  const segment = readable(words);
+const RUNTIMES = new Set(["node", "bun", "deno", "tsx"]);
+const RUNTIME_VALUES = new Set([
+  "-r",
+  "--require",
+  "--import",
+  "--loader",
+  "--experimental-loader",
+  "-C",
+  "--conditions",
+  "--env-file",
+  "--input-type",
+  "--title",
+]);
+const WRANGLER_VALUES = new Set(["-c", "--config", "-e", "--env", "--env-file", "--cwd"]);
+
+// A command as the patterns read it: its program, then its own command words (see DEFAULT_GATE_PATTERNS).
+function readWords(words) {
   let read = words;
-  if (words[0] === "gh") {
-    const gh = ghCommand(words);
-    if (gh.command.some(dynamic) || (!gh.command.length && gh.args.some(dynamic))) return { kind: "delete", title: UNCHECKED_TITLE };
-    read = gh.words;
-  }
-  if (words[0] === "git") {
-    const git = gitArgs(words);
-    if (git.alias || (git.args[0] !== undefined && dynamic(git.args[0]))) return { kind: "delete", title: UNCHECKED_TITLE };
-    const push = gitPushGate(git.args);
-    if (push) return { ...push, segment };
-  }
-  const special = rmGate(words, cwd);
-  if (special) return { ...special, segment };
+  if (words[0] === "gh") read = ghCommand(words).words;
   if (PACKAGE_MANAGERS.has(words[0])) {
     const { sub, args } = packageArgs(words);
     if (sub !== undefined) read = [words[0], sub, ...args];
   }
+  if (words[0] === "wrangler") {
+    let index = 1;
+    while (index < words.length && words[index].startsWith("-")) index += WRANGLER_VALUES.has(words[index]) ? 2 : 1;
+    read = ["wrangler", ...words.slice(index)];
+  }
+  if (RUNTIMES.has(read[0])) {
+    let index = (read[0] === "bun" || read[0] === "deno") && read[1] === "run" ? 2 : 1;
+    while (index < read.length && read[index].startsWith("-")) index += RUNTIME_VALUES.has(read[index]) ? 2 : 1;
+    if (read[index] !== undefined && path.basename(read[index]) === "asc.mjs") read = ["asc.mjs", ...read.slice(index + 1)];
+  }
+  return read;
+}
+
+// Whether a command moves to another folder, so what it does later is no longer about the Chat's own.
+function changesFolder(words) {
+  if (["cd", "pushd", "popd"].includes(words[0])) return true;
+  if (words[0] === "git") return gitArgs(words).moved;
+  if (PACKAGE_MANAGERS.has(words[0])) return packageArgs(words).moved;
+  return false;
+}
+
+function segmentGate(words, options) {
+  if (words.unchecked) return UNCHECKED;
+  // A program named with spaces is a quoted argument read as one (`time git commit -m "gh pr merge 1"`).
+  if (/\s/.test(words[0])) return null;
+  const segment = readable(words);
+  if (words[0] === "gh") {
+    const gh = ghCommand(words);
+    if (gh.command.some(dynamic) || (!gh.command.length && gh.args.some(dynamic))) return UNCHECKED;
+    const special = ghGate(gh, options);
+    if (special) return { ...special, segment };
+  }
+  if (words[0] === "git") {
+    const git = gitArgs(words);
+    if (git.alias || (git.args[0] !== undefined && dynamic(git.args[0]))) return UNCHECKED;
+    const push = gitPushGate(git.args);
+    if (push) return { ...push, segment };
+  }
+  const special = rmGate(words, options) ?? findGate(words, options);
+  if (special) return { ...special, segment };
+  const read = readWords(words);
   const text = read.join(" ");
   const found = DEFAULT_GATE_PATTERNS.find(({ pattern }) => pattern.test(text));
   if (found) return { kind: found.kind, title: found.kind === "merge" && read[1] === "pr" ? prTitle(read) : null, segment };
-  const added = extra.find(({ prefix }) => {
+  const added = (options.extra ?? []).find(({ prefix }) => {
     const wanted = splitCommand(prefix)[0];
     return wanted && (segment === wanted || segment.startsWith(`${wanted} `));
   });
@@ -751,8 +934,11 @@ function matchGate(request, { extra = [] } = {}) {
     return found ? { kind: found.kind, title: `${KIND_LABEL[found.kind]}: ${mcp}`, command: mcp, target: null } : null;
   }
   if (typeof request.command !== "string") return null;
-  for (const words of parse(request.command).flatMap((segment) => normalize(segment))) {
-    const gate = segmentGate(words, request.cwd, extra);
+  const context = { moved: /\bGIT_(DIR|WORK_TREE)=/.test(request.command) };
+  const segments = parse(request.command).flatMap((segment) => normalize(segment, context));
+  const options = { cwd: request.cwd, moved: context.moved || segments.some(changesFolder), extra };
+  for (const words of segments) {
+    const gate = segmentGate(words, options);
     if (gate)
       return {
         kind: gate.kind,

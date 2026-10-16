@@ -88,6 +88,59 @@ const GATED = [
   ["cat <<EOF > notes.md\nDon't merge yet\nEOF\ngh pr merge 1", "merge"],
   ["cat <<EOF\n$(gh pr merge 1)\nEOF", "merge"],
   ["((x<<2))\ngh pr merge 1", "merge"],
+  // Deletes, publishes and merges in other forms.
+  ["rsync -a --delete src/ host:dst/", "delete"],
+  ["rsync -a --delete-after a/ b/", "delete"],
+  ["rsync -a --del a/ b/", "delete"],
+  ["git push --mirror origin", "delete"],
+  ["git push --prune origin", "delete"],
+  ["git push --repo=origin main", "merge", "Push to main"],
+  ["git push -o ci.skip origin main", "merge", "Push to main"],
+  ["git --git-dir=.git push origin main", "merge", "Push to main"],
+  ["npm -w packages/x publish", "publish"],
+  ["npm --workspace packages/x publish", "publish"],
+  ["npm --workspace=packages/x publish --access public", "publish"],
+  ["pnpm -r publish", "publish"],
+  ["pnpm --filter @milagre/shared publish", "publish"],
+  ["yarn workspace @milagre/shared npm publish", "publish"],
+  ["yarn workspaces foreach -A npm publish", "publish"],
+  ["npm exec -- eas update --branch production", "publish"],
+  ["npm exec --package=eas-cli -- eas submit", "publish"],
+  ["pnpm exec eas update", "publish"],
+  ["pnpm eas update", "publish"],
+  ["yarn eas submit", "publish"],
+  ["pnpm dlx vercel --prod", "publish"],
+  ["eas deploy --prod", "publish"],
+  ["vercel deploy --prod", "publish"],
+  ["vercel deploy --target=production", "publish"],
+  ["vercel --target production", "publish"],
+  ["vercel promote https://x.vercel.app", "publish"],
+  ["wrangler versions deploy", "publish"],
+  ["wrangler --config wrangler.toml deploy", "publish"],
+  ["gh workflow run Release.yml", "publish"],
+  ["gh workflow run -R the-ptf/x publish.yml", "publish"],
+  ["gh workflow run 'Deploy to stores'", "publish"],
+  ["gh workflow run eas-submit.yml", "publish"],
+  ["gh release edit v1 --draft=false", "publish"],
+  ["node --env-file=.env scripts/asc.mjs submit", "publish"],
+  ["node -r dotenv/config scripts/asc.mjs submit", "publish"],
+  ["node /Users/victor/Code/milagre/scripts/asc.mjs release", "publish"],
+  ["./scripts/asc.mjs beta", "publish"],
+  ["bun scripts/asc.mjs submit", "publish"],
+  ["gh api --method put repos/o/r/merges", "merge"],
+  ["gh api -X POST repos/o/r/merges -f base=main -f head=x", "merge"],
+  ["gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=abc", "merge"],
+  ["gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'", "merge"],
+  ['gh api graphql -f query=\'mutation { addComment(input: {subjectId: "x", body: "hi"}) { clientMutationId } }\'', "post"],
+  ["gh api graphql -f query='mutation { deleteRef(input: {refId: \"x\"}) { clientMutationId } }'", "delete"],
+  ["gh api repos/o/r/issues/1/comments -f body=hi", "post"],
+  ["gh api -X POST repos/o/r/pulls/1/reviews -f event=APPROVE", "post"],
+  ["gh api repos/o/r/releases -f tag_name=v1", "publish"],
+  ["gh api -X delete repos/o/r/git/refs/heads/x", "delete"],
+  ["gh api --method=DELETE repos/o/r", "delete"],
+  ["gh api -Xdelete repos/o/r", "delete"],
+  ["gh release delete v1 --yes", "delete"],
+  ["gh issue delete 12 --yes", "delete"],
 ];
 // Commands whose program or subcommand only shows when they run: Milagre can't tell, so it asks.
 const UNCHECKED = [
@@ -107,6 +160,14 @@ const UNCHECKED = [
   "echo merge 1 | xargs gh pr",
   "source /dev/stdin",
   "git -c alias.p='!gh pr merge 1' p",
+  "gh workflow run 123456",
+  "gh api -X PATCH repos/o/r -f visibility=public",
+  "gh api -X PUT repos/o/r/collaborators/someone",
+  "gh api repos/o/r/dispatches -f event_type=x",
+  "gh api graphql -f query='mutation { updateRepository(input: {}) { clientMutationId } }'",
+  "gh api graphql -F query=@mutation.graphql",
+  'gh api graphql -f query="$Q"',
+  "gh api graphql --input body.json",
 ];
 const SAFE = [
   "gh pr view 474",
@@ -142,6 +203,20 @@ const SAFE = [
   "bash scripts/check.sh",
   "bash --version",
   "watch -n 5 git status",
+  "rsync -a src/ dst/",
+  "vercel deploy",
+  "eas deploy",
+  "wrangler dev",
+  "npm -w x test",
+  "pnpm --filter x build",
+  "yarn workspace x build",
+  "gh workflow run ci.yml",
+  "gh workflow list",
+  "gh api repos/o/r/pulls/1",
+  "gh api repos/o/r/pulls/1/merge",
+  "gh api repos/o/r/pulls --paginate",
+  "gh api -X GET search/issues -f q=x",
+  "gh api graphql -f query='query { viewer { login } }'",
 ];
 
 test("gated shell commands", () => {
@@ -174,6 +249,24 @@ test("rm -rf outside the working folder is a delete", () => {
   assert.equal(matchGate({ tool: "Bash", command: "rm -rf node_modules", cwd: "/tmp/w" }), null);
   assert.equal(matchGate({ tool: "Bash", command: "rm -rf /tmp/w/dist 2>/dev/null", cwd: "/tmp/w" }), null);
   assert.equal(matchGate({ tool: "Bash", command: "rm /etc/hosts", cwd: "/tmp/w" }), null);
+  assert.equal(matchGate({ tool: "Bash", command: "rm -rf -- /etc", cwd: "/tmp/w" })?.kind, "delete");
+  assert.equal(matchGate({ tool: "Bash", command: "ls | xargs rm -rf", cwd: "/tmp/w" })?.kind, "delete");
+});
+
+test("after cd, pushd or -C a relative rm -r target counts as outside", () => {
+  for (const command of ["cd /tmp && rm -rf w2", "pushd .. && rm -rf x", "git -C ../other clean -n && rm -rf build", "env -C /tmp rm -rf w"])
+    assert.equal(matchGate({ tool: "Bash", command, cwd: "/tmp/w" })?.kind, "delete", command);
+  assert.equal(matchGate({ tool: "Bash", command: "cd sub && rm -rf /tmp/w/dist", cwd: "/tmp/w" }), null);
+});
+
+test("find deletes and runs commands under its start paths", () => {
+  const gate = (command) => matchGate({ tool: "Bash", command, cwd: "/tmp/w" })?.kind ?? null;
+  assert.equal(gate("find / -name x -exec rm -rf {} \\;"), "delete");
+  assert.equal(gate("find .. -delete"), "delete");
+  assert.equal(gate("find /etc -name '*.conf' -delete"), "delete");
+  assert.equal(gate("find . -name node_modules -exec rm -rf {} +"), null);
+  assert.equal(gate("find . -name '*.tmp' -delete"), null);
+  assert.equal(gate("find /tmp/w/dist -delete"), null);
 });
 
 test("posting MCP tools", () => {
