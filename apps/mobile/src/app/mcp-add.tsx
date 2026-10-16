@@ -6,7 +6,7 @@ import { MCP_SECRET_MASK, validateMcpServer, type McpServerDefinition, type McpT
 import { Icon } from "../icons";
 import { mcpHeadersPayload, renameHeader, type McpHeaderRow } from "../mcp-headers";
 import { useMcp } from "../use-mcp";
-import { Button, CircleButton, Field, PageScroll, useStyles } from "../ui";
+import { CircleButton, Field, PageScroll, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 const TARGETS: { value: McpTarget; title: string }[] = [
@@ -81,18 +81,39 @@ export default function McpAddSheet() {
     }
   }
 
-  // A form sheet sizes its first scroll view to the sheet, so the header scrolls with the content.
+  const canSave = !saving && !loading && !(editing && !url);
+  // A form sheet sizes its first scroll view to the sheet, so the header lives inside it. It sticks to the top and holds
+  // Save (the iOS form place, as in the model sheet): the keyboard rises from the bottom of the sheet, so Save stays
+  // reachable however the scroll view's keyboard inset works out inside the sheet.
   return (
-    <PageScroll style={styles.screen} contentContainerStyle={{ padding: 0, gap: 0 }} automaticallyAdjustKeyboardInsets>
-      <Stack.Screen options={{ headerShown: false }} />
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6 }}>
+    <PageScroll style={styles.screen} contentContainerStyle={{ padding: 0, gap: 0 }} stickyHeaderIndices={[0]} automaticallyAdjustKeyboardInsets>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingHorizontal: 16,
+          paddingTop: 14,
+          paddingBottom: 6,
+          backgroundColor: colors.page,
+        }}
+      >
         <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
         <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
           {editing ? "Edit MCP server" : "Add MCP server"}
         </Text>
-        <View style={{ width: 40 }} />
+        <View style={{ opacity: canSave ? 1 : 0.4 }}>
+          <CircleButton label={saving ? "Saving" : "Save"} icon={Tick02Icon} filled onPress={canSave ? () => void save() : undefined} />
+        </View>
       </View>
+      <Stack.Screen options={{ headerShown: false }} />
       <View style={{ padding: 20, paddingTop: 8, gap: 18 }}>
+        {/* Next to Save, so a refused save is seen without scrolling. */}
+        {error ? (
+          <Text accessibilityRole="alert" selectable style={[styles.text, { color: colors.error }]}>
+            {error}
+          </Text>
+        ) : null}
         {loading ? (
           <Text style={styles.muted}>Loading…</Text>
         ) : (
@@ -166,12 +187,6 @@ export default function McpAddSheet() {
             </View>
           </>
         )}
-        {error ? (
-          <Text accessibilityRole="alert" selectable style={[styles.text, { color: colors.error }]}>
-            {error}
-          </Text>
-        ) : null}
-        <Button title="Save" loading={saving} disabled={loading || (editing && !url)} onPress={() => void save()} />
       </View>
     </PageScroll>
   );

@@ -1,4 +1,4 @@
-import type { McpAccount, McpAccountCheck, McpChip, McpServerDefinition, McpTarget } from "@milagre/shared/mcp";
+import { mcpTargetPlaces, type McpAccount, type McpAccountCheck, type McpChip, type McpServerDefinition, type McpTarget } from "@milagre/shared/mcp";
 import type { Live, LiveOptions } from "./live.ts";
 
 export type McpEntry = { account: McpAccount; check: McpAccountCheck | null };
@@ -62,6 +62,15 @@ export function createMcpStore(initial: McpClient, appState?: McpAppState) {
       }),
     );
     if (id === run) set({ busy: false });
+  }
+
+  /** One account checked again (after its switch), unless a full refresh has started since. */
+  async function recheck(account: Pick<McpAccount, "provider" | "accountId">) {
+    const id = run;
+    if (!state.entries?.some((entry) => keyOf(entry.account) === keyOf(account))) return;
+    const check = await client.call<McpAccountCheck>("mcp:check", [account.provider, account.accountId]).catch(() => null);
+    if (!check || id !== run) return;
+    set({ entries: state.entries?.map((entry) => (keyOf(entry.account) === keyOf(account) ? { ...entry, check } : entry)) ?? null });
   }
 
   function open() {
@@ -147,7 +156,7 @@ export function createMcpStore(initial: McpClient, appState?: McpAppState) {
       };
     },
     refresh,
-    /** Resolves once the Mac took the write; the re-check runs on (and the Mac's mcp signal starts one too). */
+    /** Resolves once the Mac took the write; only the toggled account is checked again (the Mac's mcp signal refreshes the rest). */
     async toggle(chip: McpChip, name: string, on: boolean) {
       const key = mcpPendingKey(chip, name);
       if (key in state.pending) return;
@@ -155,18 +164,25 @@ export function createMcpStore(initial: McpClient, appState?: McpAppState) {
       try {
         await client.call("mcp:toggle", [chip.provider, chip.accountId, name, on]);
         applyToggle(chip, name, on);
-        void refresh();
+        void recheck(chip);
       } finally {
         unpend(key);
       }
     },
-    /** Removes the server from every config that holds it, in turn; the list re-checks even after a partial failure. */
+    /** Removes the server from every config that holds it, trying each even after one fails; the failures come back as
+     * one error, by place. The list re-checks either way. */
     async remove(name: string, targets: McpTarget[]) {
-      try {
-        for (const target of targets) await client.call("mcp:remove", [name, target]);
-      } finally {
-        void refresh();
+      const failed: { target: McpTarget; message: string }[] = [];
+      for (const target of targets) {
+        try {
+          await client.call("mcp:remove", [name, target]);
+        } catch (cause) {
+          failed.push({ target, message: cause instanceof Error ? cause.message : "Could not reach the computer." });
+        }
       }
+      void refresh();
+      if (failed.length)
+        throw new Error(`Couldn’t remove ${name} from ${mcpTargetPlaces(failed.map((item) => item.target))}. ${failed.map((item) => item.message).join(" ")}`);
     },
     definition: (name: string, target: McpTarget) => client.call<McpServerDefinition | null>("mcp:definition", [name, target]),
     async saveUrl(def: McpServerDefinition, target: McpTarget, previous?: { name: string; target: McpTarget }) {

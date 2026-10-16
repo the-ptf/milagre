@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View, type StyleProp, type TextStyle } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
-import { mcpChipLine, mcpEditTarget, mcpRemoveTargets, mcpTransportLine } from "@milagre/shared/mcp";
+import { mcpChipLine, mcpEditTarget, mcpRemoveTargets, mcpTargetPlaces, mcpTransportLine } from "@milagre/shared/mcp";
 import { providerName } from "@milagre/shared/providers";
 import { useMcp } from "../use-mcp";
 import { Button, PageScroll, Toggle, useStyles } from "../ui";
@@ -33,8 +33,9 @@ export default function McpServerScreen() {
     setRemoving(true);
     setError("");
     try {
-      if (!(await confirm(`Remove ${row.name}?`, "Chats stop loading it.", "Remove"))) return;
-      await mcp.remove(row.name, mcpRemoveTargets(row));
+      const targets = mcpRemoveTargets(row);
+      if (!(await confirm(`Remove ${row.name}?`, `Removes it from ${mcpTargetPlaces(targets)}. Chats stop loading it.`, "Remove"))) return;
+      await mcp.remove(row.name, targets);
       router.back();
     } catch (cause) {
       fail(cause);
@@ -59,16 +60,20 @@ export default function McpServerScreen() {
                 <Toggle
                   title={`${providerName(chip.provider)} · ${chip.label}`}
                   selected={on}
-                  disabled={pending !== undefined}
+                  // Off in the provider's own config: Milagre's switch can't turn it on.
+                  disabled={pending !== undefined || chip.disabledBy === "provider"}
                   tint={colors.ink}
                   onPress={() => {
                     setError("");
                     void mcp.toggle(chip, row.name, !on)?.catch(fail);
                   }}
                 />
-                <Text style={[styles.muted, { color: chip.state === "failed" ? colors.red : colors.ink2, paddingBottom: 6 }]} selectable>
-                  {chip.state === "needs-sign-in" ? "Needs sign-in. Sign in on the Mac." : mcpChipLine(chip)}
-                </Text>
+                <View style={{ paddingBottom: 6 }}>
+                  <ChipLine
+                    text={chip.state === "needs-sign-in" ? "Needs sign-in. Sign in on the Mac." : mcpChipLine(chip)}
+                    style={[styles.muted, { color: chip.state === "failed" ? colors.red : colors.ink2 }]}
+                  />
+                </View>
               </View>
             );
           })}
@@ -90,5 +95,40 @@ export default function McpServerScreen() {
         )}
       </PageScroll>
     </>
+  );
+}
+
+/** An account's line, cut at three lines (Codex errors run long) with Show more / Show less. A hidden copy without the
+ * limit measures the full text, so the button only appears when three lines really cut it. */
+function ChipLine({ text, style }: { text: string; style: StyleProp<TextStyle> }) {
+  const { colors } = useTheme();
+  const [lines, setLines] = useState(0);
+  const [open, setOpen] = useState(false);
+  return (
+    <View>
+      <Text selectable numberOfLines={open ? undefined : 3} style={style}>
+        {text}
+      </Text>
+      <Text
+        aria-hidden
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        pointerEvents="none"
+        onTextLayout={(event) => setLines(event.nativeEvent.lines.length)}
+        style={[style, { position: "absolute", top: 0, left: 0, right: 0, opacity: 0 }]}
+      >
+        {text}
+      </Text>
+      {lines > 3 ? (
+        <Pressable
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => setOpen(!open)}
+          style={({ pressed }) => ({ alignSelf: "flex-start", minHeight: 32, justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
+        >
+          <Text style={{ color: colors.ink, fontSize: 15, fontWeight: "600" }}>{open ? "Show less" : "Show more"}</Text>
+        </Pressable>
+      ) : null}
+    </View>
   );
 }

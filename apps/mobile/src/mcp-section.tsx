@@ -21,6 +21,7 @@ export function McpSection() {
   const [open, setOpen] = useState(false);
   const { attention, user, other } = mcp.groups;
   // Sign-in rows from a project or plugin sit with their source; the top list is for the servers you add yourself.
+  // Your own servers that need sign-in are listed in Your servers too (user holds every editable row).
   const signIn = attention.filter((row) => !row.source);
   const groups = new Map<string, McpRow[]>();
   for (const group of other) groups.set(group.source, [...group.rows]);
@@ -59,11 +60,13 @@ export function McpSection() {
       {signIn.length ? (
         <Group title="Needs sign-in">
           {signIn.map((row) => (
-            <View
+            // Tappable like any row: the detail screen has the switches, and Edit and Remove for your own servers.
+            <Pressable
               key={row.name}
-              accessible
+              accessibilityRole="button"
               accessibilityLabel={`${row.name}, needs sign-in on the Mac`}
-              style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 60, paddingVertical: 10 }}
+              onPress={() => openServer(row)}
+              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 60, paddingVertical: 10, opacity: pressed ? 0.5 : 1 })}
             >
               <View
                 style={{
@@ -87,7 +90,8 @@ export function McpSection() {
                 </Text>
               </View>
               <Text style={[styles.caption, { fontSize: 13 }]}>On the Mac</Text>
-            </View>
+              <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
+            </Pressable>
           ))}
         </Group>
       ) : null}
