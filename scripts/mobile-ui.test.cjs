@@ -7436,21 +7436,53 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
   assert.equal(find(render(), (n) => n.type === "ErrorNotice").props.message, "This demo computer only opens its demo project.");
 });
 
-test("mobile Settings lists desktop's sections in desktop's order", () => {
+test("mobile Settings lists desktop's sections in desktop's order, Connections only when the Mac can change Linear", async () => {
   const opened = [];
+  let linearState = null;
+  let client = null;
+  const focus = [];
+  const set = [];
   const { SettingsView } = load("app/settings.tsx", {
-    react: { useState: (value) => [value, () => {}], useCallback: (fn) => fn },
+    react: { useState: () => [linearState, (value) => set.push(value)], useCallback: (fn) => fn },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": { View: "View", Text: "Text" },
-    "expo-router": { Stack: { Screen: "Screen" }, router: { push() {} }, useFocusEffect() {} },
+    "expo-router": { Stack: { Screen: "Screen" }, router: { push() {} }, useFocusEffect: (fn) => focus.push(fn) },
     "@hugeicons/core-free-icons": {},
-    "../session": { useSession: () => ({ recent: [], client: null }) },
+    "../session": { useSession: () => ({ recent: [], client }) },
     "../project-icon": { ProjectIcon: "ProjectIcon" },
     "../push": { usePush: () => ({}) },
     "../update-sheet": { useAppUpdates: () => ({ state: { status: "disabled" } }) },
     "../icons": { Icon: "Icon" },
     "../ui": { ListRow: "ListRow", PageScroll: "PageScroll", useStyles: () => ({}) },
   });
+  const titles = (tree) => {
+    const found = [];
+    const visit = (node) => {
+      if (!node || typeof node !== "object") return;
+      if (node.type === "ListRow") found.push(node.props.title);
+      const children = node.props?.children;
+      for (const child of Array.isArray(children) ? children.flat(Infinity) : [children]) visit(child);
+    };
+    visit(tree);
+    return found;
+  };
+  // No Mac: nothing on Connections can be changed, so it isn't listed.
+  assert.ok(!titles(SettingsView({ onOpen() {} })).includes("Connections"));
+  // A Mac that answers for Linear lists it; an older Mac that answers null keeps it hidden.
+  client = { call: async () => ({ enabled: false }) };
+  focus.length = 0;
+  SettingsView({ onOpen() {} });
+  focus.at(-1)();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(set.at(-1), client);
+  const older = { call: async () => null };
+  client = older;
+  SettingsView({ onOpen() {} });
+  focus.at(-1)();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(set.at(-1), null);
+  client = { call: async () => ({ enabled: true }) };
+  linearState = client;
   const tree = SettingsView({ onOpen: (page) => opened.push(page) });
   const rows = [];
   const walk = (node) => {

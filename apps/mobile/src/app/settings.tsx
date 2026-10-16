@@ -1,5 +1,6 @@
+import { useCallback, useState } from "react";
 import { Text, View } from "react-native";
-import { Stack, router } from "expo-router";
+import { Stack, router, useFocusEffect } from "expo-router";
 import {
   BookOpen01Icon,
   BubbleChatIcon,
@@ -73,6 +74,25 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
   const updates = useAppUpdates();
   const session = useSession();
   const projects = session.recent.filter((project) => !project.link);
+  // Connections only lists what the phone can change: a connected Mac that answers for Linear. Re-read on focus, since
+  // the Mac can turn it on or connect while the phone is elsewhere; an older Mac answers null and keeps it hidden.
+  const [linear, setLinear] = useState<typeof session.client>(null);
+  useFocusEffect(
+    useCallback(() => {
+      const client = session.client;
+      setLinear(null);
+      if (!client) return;
+      let live = true;
+      client.call<{ enabled: boolean } | null>("linear:enabled:read", []).then(
+        (value) => live && setLinear(value ? client : null),
+        () => live && setLinear(null),
+      );
+      return () => {
+        live = false;
+      };
+    }, [session.client]),
+  );
+  const pages = PAGES.filter((item) => item.page !== "connections" || (session.client && linear === session.client));
   const status = updates.state.status;
   const update =
     status === "disabled"
@@ -93,7 +113,7 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
   return (
     <View style={{ gap: 8 }}>
       <View style={[styles.card, { paddingVertical: 4, gap: 0 }]}>
-        {PAGES.map((item) => (
+        {pages.map((item) => (
           <View key={item.page}>
             <ListRow
               compact
