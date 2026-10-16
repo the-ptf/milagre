@@ -57,7 +57,9 @@ function useChatPorts(client: Client | null, chatId?: string) {
       };
     }, [client, chatId]),
   );
-  return { ports, error, refresh: () => reload.current?.() };
+  // A server Stop ended leaves the list at once; the refresh after it has the host's word.
+  const drop = useCallback((pids: number[]) => setPorts((current) => current.filter((port) => !pids.includes(port.pid))), []);
+  return { ports, error, refresh: () => reload.current?.(), drop };
 }
 
 export function PortsChip({ chatId }: { chatId: string }) {
@@ -80,7 +82,7 @@ export function PortsSheet({ hostId, chatId }: { hostId?: string; chatId?: strin
   const styles = useStyles();
   const { client } = useSession();
   const source = client && chatId && hostId === client.url ? client : null;
-  const { ports, error, refresh } = useChatPorts(source, chatId);
+  const { ports, error, refresh, drop } = useChatPorts(source, chatId);
   const insets = useSafeAreaInsets();
   const [stopping, setStopping] = useState<number[]>([]);
   const [actionError, setActionError] = useState("");
@@ -94,7 +96,8 @@ export function PortsSheet({ hostId, chatId }: { hostId?: string; chatId?: strin
     setStopping([...pending.current]);
     setActionError("");
     try {
-      const results = await Promise.allSettled(targets.map((pid) => source.call("agent:stop-port", [chatId, pid])));
+      const results = await Promise.allSettled(targets.map((pid) => source.call<boolean>("agent:stop-port", [chatId, pid])));
+      drop(targets.filter((_, index) => results[index].status === "fulfilled" && results[index].value === true));
       await refresh();
       const failure = results.find((result) => result.status === "rejected");
       if (failure?.status === "rejected") throw failure.reason;

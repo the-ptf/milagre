@@ -6922,6 +6922,51 @@ test("mobile Ports sheet stops only this Chat's process and refuses another host
   assert.deepEqual(calls, []);
 });
 
+test("mobile Ports sheet drops a server Stop ended before the host's list comes back", async (t) => {
+  let refetch = null;
+  let stopped = false;
+  const ports = [
+    { port: 3000, pid: 22, command: "node", address: "127.0.0.1" },
+    { port: 8081, pid: 23, command: "node", address: "*" },
+  ];
+  const client = {
+    url: "mac",
+    call: async (method) => {
+      if (method === "agent:stop-port") {
+        stopped = true;
+        return true;
+      }
+      // The list after Stop hasn't come back yet.
+      if (stopped) return new Promise((resolve) => (refetch = resolve));
+      return { chatId: "/p#7", ports };
+    },
+  };
+  const h = simulatorHost(client, "ports.tsx");
+  t.after(() => h.cleanup());
+  const render = () => h.render("PortsSheet", { hostId: "mac", chatId: "/p#7" });
+  render();
+  await settle();
+  void find(render(), (n) => n.props.accessibilityLabel === "Stop port 3000").props.onPress();
+  await settle();
+  assert.equal(
+    find(render(), (n) => n.props.accessibilityLabel === "Stop port 3000"),
+    undefined,
+    "the stopped row leaves at once",
+  );
+  assert.ok(
+    find(render(), (n) => n.props.accessibilityLabel === "Stop port 8081"),
+    "the other server stays",
+  );
+  assert.equal(typeof refetch, "function", "the list is read again right after Stop");
+  // The host's list has the last word.
+  refetch({ chatId: "/p#7", ports: [ports[1]] });
+  await settle();
+  assert.equal(
+    find(render(), (n) => n.props.accessibilityLabel === "Stop port 3000"),
+    undefined,
+  );
+});
+
 function artifactHost(client, pushes = [], router = { back() {} }, feature = designsOn) {
   const react = hookHost({ effects: true }),
     files = new Map();
