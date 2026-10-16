@@ -993,6 +993,15 @@ function createRuntime(options) {
     onUnblocked: (chatId) => {
       void advisorDelivery?.drain(chatId).catch((error) => console.warn("Advisor delivery failed:", error.message));
     },
+    // A Delegation queued before a restart keeps its Delegation open: it is followed again once its turn starts.
+    onQueuedStart: (chatId, entry, started) => {
+      if (!["delegation", "delegation-report"].includes(entry.context?.kind) || isLinkScopeKey(projectOfKey(chatId))) return;
+      void linked.queuedStarted(chatId, entry.context, started).catch((error) => console.warn("Milagre couldn't follow a Delegation:", error.message));
+    },
+    onQueuedRemoved: (chatId, entry) => {
+      if (!["delegation", "delegation-report"].includes(entry?.context?.kind) || isLinkScopeKey(projectOfKey(chatId))) return;
+      void linked.queuedRemoved(chatId, entry.context).catch((error) => console.warn("Milagre couldn't follow a Delegation:", error.message));
+    },
     states: scopeStates,
     startTurn: (request) => track(() => startAgentTurn(request), starting),
     readSubagents: async ({ cwd, agents, projectPath, provider = "codex", nativeSessionId }) => {
@@ -1287,6 +1296,20 @@ function createRuntime(options) {
   commands.handle("agent:interrupt", async (_event, chatId) => {
     await existingChat("stopping advisors")(chatId);
     await stopChat(chatId);
+  });
+
+  // A message queued behind a turn its provider can't steer (chat-host.cjs): Send now starts it; while a turn runs it
+  // is Stop and send, so that turn stops as Stop stops it; Remove drops it unsent.
+  commands.handle("chat:queue-send", async (_event, chatId, id) => {
+    await existingChat("sending a queued message")(chatId);
+    if (typeof id !== "string") throw new Error("That queued message isn't valid.");
+    const { interrupt } = await chats.sendQueuedNow(chatId, id);
+    if (interrupt) await stopChat(chatId);
+  });
+  commands.handle("chat:queue-remove", async (_event, chatId, id) => {
+    await existingChat("removing a queued message")(chatId);
+    if (typeof id !== "string") throw new Error("That queued message isn't valid.");
+    return chats.removeQueued(chatId, id);
   });
 
   // Reload: a running turn stops, as Stop does, and the agent's process ends. The Chat's next message starts a new one
@@ -1611,7 +1634,7 @@ function createRuntime(options) {
         resolved.add(projectPath);
         // The raw JSON is enough to find a pending turn; only a project that has one is loaded (and hydrated) in full.
         const stored = states.has(projectPath) ? null : await readRawState(projectPath);
-        if (!Object.values(stored?.sessions ?? {}).some((session) => session.resumeTurn)) continue;
+        if (!Object.values(stored?.sessions ?? {}).some((session) => session.resumeTurn || (session.queued?.length && !session.queueHeld))) continue;
         await readProject(projectPath);
       } catch (error) {
         console.warn(`Milagre couldn't resume the chats of ${projectPath}:`, error.message);

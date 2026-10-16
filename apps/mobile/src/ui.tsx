@@ -101,7 +101,7 @@ export type Styles = ReturnType<typeof makeStyles>;
 /** The shared styles for the current theme, built once per palette. */
 export const useStyles = createStylesHook(makeStyles);
 
-const tap = () => {
+export const tap = () => {
   if (Platform.OS === "ios") void Haptics.selectionAsync().catch(() => {});
 };
 

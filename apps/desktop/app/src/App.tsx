@@ -124,6 +124,7 @@ import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
 import { DraftChatComposer } from "./components/DraftChatComposer";
+import { queueControls } from "./components/QueuedMessages";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
 import { busyTerminals, newTerminal, useTerminalSync } from "./lib/terminal-actions";
 import { playNotificationChime } from "./lib/notification-chime";
@@ -2505,6 +2506,11 @@ function App() {
                                   .resumeChat(project.path, selectedSession.id)
                                   .catch((error) => setNotice(`Couldn't continue the chat: ${error instanceof Error ? error.message : String(error)}`)),
                             }
+                          : undefined
+                      }
+                      queue={
+                        project && selectedSession
+                          ? queueControls(bridgeForKey(project.path), chatKey(project.path, selectedSession.id), selectedSession, Boolean(run), setNotice)
                           : undefined
                       }
                       onOpenLinkedChat={openLinkedChat}

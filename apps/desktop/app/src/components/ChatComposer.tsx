@@ -41,6 +41,8 @@ import { Notice } from "./Notice";
 import { Attachments } from "./Attachments";
 import type { ImageDraft } from "./usePastedImages";
 import { PromptComposer } from "./PromptComposer";
+import { QueuedMessages } from "./QueuedMessages";
+import type { QueueControls } from "./QueuedMessages";
 import { PickerPanel, PickerRow } from "./primitives/Picker";
 import { LinearIssuePicker } from "./LinearIssuePicker";
 import Tooltip from "./primitives/Tooltip";
@@ -522,6 +524,8 @@ interface ChatComposerProps {
   onOpenAccounts?: () => void;
   /** A chat a quit stopped longer ago than Milagre resumes by itself: Continue starts its turn again. */
   resume?: { onContinue: () => void };
+  /** Messages waiting for the running turn of an agent that can't be steered, shown above the composer. */
+  queue?: QueueControls;
   /** The models the picker offers (see mergeModels). */
   models: ModelOption[];
   /** How each agent's CLI stands, flagged in the model picker; null until it's known. */
@@ -803,6 +807,7 @@ export function ChatComposer({
   onOpenLinkedChat,
   onOpenAccounts,
   resume,
+  queue,
   models,
   cliStatus,
   onModelPickerOpen,
@@ -1056,6 +1061,7 @@ export function ChatComposer({
               />
             )}
             {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
+            {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
             {approval && <div className="mb-2 w-full">{approval}</div>}
             <div className={offlineName ? "pointer-events-none opacity-60" : undefined}>
               <PromptComposer
