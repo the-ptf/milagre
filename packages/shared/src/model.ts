@@ -158,6 +158,30 @@ export interface AgentSession {
   resumeTurn?: { stoppedAt?: number };
   /** How full the agent's context window was when its last turn ended. */
   contextUsage?: ContextUsage;
+  /**
+   * Messages sent while a turn ran on a provider that can't steer (provider-capabilities `steer`), oldest first. Each
+   * starts a turn of its own when the one before it completes; Send now and Remove act on one (chat-host.cjs).
+   */
+  queued?: QueuedMessage[];
+  /** Stop, or a turn that failed, ended the turn the queue waited on: the queue waits for Send now instead of starting. */
+  queueHeld?: boolean;
+}
+
+/**
+ * A message waiting for the running turn to end (AgentSession.queued). It becomes a ChatMessage when its turn starts.
+ * The host also keeps the send's prompt and turn options on it, which clients don't read.
+ */
+export interface QueuedMessage {
+  id: string;
+  body: string;
+  images?: ImageAttachment[];
+  files?: string[];
+  context?: ChatContext;
+  /** The model and provider picked when it was sent; its turn hands off like any send if the chat is on another. */
+  model: string;
+  provider: ModelProvider;
+  queuedAt: number;
+  clientMessageId?: string;
 }
 
 /**

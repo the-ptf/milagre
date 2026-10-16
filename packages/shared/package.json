@@ -151,6 +151,10 @@
       "types": "./src/chat-activity.d.mts",
       "default": "./src/chat-activity.mjs"
     },
+    "./queued-messages": {
+      "types": "./src/queued-messages.d.mts",
+      "default": "./src/queued-messages.mjs"
+    },
     "./provider-capabilities": {
       "types": "./src/provider-capabilities.d.mts",
       "default": "./src/provider-capabilities.mjs"
