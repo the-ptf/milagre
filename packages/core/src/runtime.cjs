@@ -1172,12 +1172,16 @@ function createRuntime(options) {
   commands.handle("chat:send", async (_event, request) => {
     if (isLinkScopeKey(request?.projectPath) || !scopeStates.has(request?.projectPath)) throw new Error("Open the project before sending to its chats.");
     // A bot's thread always runs in Bot rules, whatever mode the composer sent. The user's message in a Chat a bot
-    // opened makes it theirs: it runs in the mode they sent and the bot stops steering it.
+    // opened makes it theirs: it runs in the mode they sent and the bot stops steering it. Bot rules are the bots' own:
+    // a message the user sends anywhere else that asks for them (the composer sends the run's mode) asks instead.
     if (bots.isHome(request.projectPath)) {
       await bots.beforeThreadSend(request.projectPath, request.sessionId);
       request = { ...request, permissionMode: "bot" };
-    } else if (request.sessionId != null && bots.botForChat(chatKey(request.projectPath, request.sessionId))?.role === "chat")
-      await bots.takeOver(chatKey(request.projectPath, request.sessionId));
+    } else {
+      if (request.sessionId != null && bots.botForChat(chatKey(request.projectPath, request.sessionId))?.role === "chat")
+        await bots.takeOver(chatKey(request.projectPath, request.sessionId));
+      if (request.permissionMode === "bot") request = { ...request, permissionMode: "ask" };
+    }
     // Only Milagre marks a message as coming from another Chat. A PR-blocker pill and a Chat started from a Linear issue
     // are the contexts a renderer can ask for, and Milagre checks them and writes their message and prompt itself.
     const { prAction, linearIssue, compact, ...rest } = request;
@@ -1931,6 +1935,10 @@ function createRuntime(options) {
       ),
     chatDetails: botChatDetails,
     chatContinues: botChatContinues,
+    leaveBotRules: async (chatId) => {
+      chats.leaveBotRules(chatId);
+      if (agents.permissionMode(chatId, null) === "bot") await agents.setPermissionMode(chatId, "ask");
+    },
     titleChat: (chatId, title) => editProject(projectOfKey(chatId), (state) => patchSession(state, sessionIdFromKey(chatId), { title }), { chats: [] }),
     emit,
     closing: () => closing,

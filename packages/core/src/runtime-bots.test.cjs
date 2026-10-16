@@ -65,6 +65,9 @@ async function fixture(t) {
             session.answers.push([requestId, decision]);
             return true;
           },
+          setPermissionMode: async (mode) => {
+            session.permissions.mode = mode;
+          },
           interrupt: async () => {},
           close: async () => {
             session.closed = true;
@@ -396,6 +399,44 @@ async function botChatMidTurn(t) {
   await f.runtime.close();
   return { ...f, chatKey, sessionId: Number(chatKey.split("#").at(-1)) };
 }
+// A Chat Ops opened whose turn still runs, in Bot rules, in the first runtime.
+async function runningBotChat(t) {
+  const f = await withOps(t);
+  await f.runtime.invoke("bots:send", ["ops", "Fix the flaky test"]);
+  await waitUntil(() => f.sessions.some((item) => item.options.cwd === f.bot.homePath));
+  const thread = f.sessions.find((item) => item.options.cwd === f.bot.homePath);
+  const tool = (name) => thread.options.linked.tools.find((item) => item.name === name);
+  const opened = await runTool(tool("chat_open"), { project: "project", title: "Fix flaky terminal-perf test", prompt: "Keep working" });
+  assert.equal(opened.isError, false, opened.text);
+  const chatKey = /^Opened (\S+):/.exec(opened.text)[1];
+  const inWorktree = (item) => item.options.cwd.startsWith(path.join(f.dir, "worktrees"));
+  await waitUntil(() => f.sessions.some(inWorktree));
+  const session = f.sessions.find(inWorktree);
+  assert.equal(session.permissions.mode, "bot");
+  return { ...f, chatKey, session, tool, sessionId: Number(chatKey.split("#").at(-1)) };
+}
+
+test("deleting a bot takes its running Chats out of Bot rules", async (t) => {
+  const { runtime, session } = await runningBotChat(t);
+  await runtime.invoke("bots:remove", ["ops"]);
+  assert.equal(session.permissions.mode, "ask");
+});
+
+test("the user's message in a bot Chat never runs in Bot rules", async (t) => {
+  const { runtime, project, sessionId, session, turns, dir } = await runningBotChat(t);
+  // The composer sends the run's mode, Bot rules.
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId, body: "I'll take it", provider: "claude", model: "m", permissionMode: "bot" }]);
+  assert.equal(session.permissions.mode, "ask");
+  await waitUntil(() => turns.filter((turn) => turn.cwd.startsWith(path.join(dir, "worktrees"))).length === 2);
+  assert.equal(turns.at(-1).permissionMode, "ask");
+  // Nor does any Chat that isn't a bot's.
+  const { state } = await runtime.invoke("project:snapshot", [project]);
+  const worktreeId = Object.values(state.worktrees).find((worktree) => worktree.path === project).id;
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: null, worktreeId, body: "hi", provider: "claude", model: "m", permissionMode: "bot" }]);
+  await waitUntil(() => turns.at(-1).cwd === project);
+  assert.equal(turns.at(-1).permissionMode, "ask");
+});
+
 const chatStatus = async (runtime, chatKey) => (await runtime.invoke("bots:list")).chats.find((chat) => chat.chatKey === chatKey)?.status;
 
 test("a bot Chat the quit stopped still runs after the restart", async (t) => {

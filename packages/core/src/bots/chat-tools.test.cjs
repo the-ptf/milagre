@@ -73,6 +73,7 @@ async function harness(t, overrides = {}) {
   };
   const titles = [];
   const closed = [];
+  const released = [];
   const bots = createBots({
     dataDir: dir,
     store,
@@ -83,12 +84,13 @@ async function harness(t, overrides = {}) {
     closeHome: async (projectPath) => closed.push(projectPath),
     chatDetails: async () => ({ lastReply: "Fixed the flaky terminal-perf test; PR #475 is open.", pullRequests: ["https://github.com/o/r/pull/475"] }),
     titleChat: async (chatKey, title) => titles.push([chatKey, title]),
+    leaveBotRules: async (chatKey) => released.push(chatKey),
     now: () => NOW,
     ...overrides,
   });
   t.after(() => bots.close());
   const open = (title = "Fix flaky terminal-perf test") => bots.chatOpen("ops", { project: PROJECT, title, prompt: "Fix it" });
-  return { bots, store, host, agents, chats, titles, closed, open, OPS, THREAD: `${home}#1` };
+  return { bots, store, host, agents, chats, titles, closed, released, open, OPS, THREAD: `${home}#1` };
 }
 
 test("chat_open only reaches the bot's projects", async (t) => {
@@ -256,6 +258,32 @@ test("the user taking over a bot Chat ends the bot's hold on it", async (t) => {
   const sent = chats.sent.length;
   await bots.observe(chatKey, { type: "turn-completed" });
   assert.equal(chats.sent.length, sent);
+});
+
+test("taking over a bot Chat denies its sign-offs and takes it out of Bot rules", async (t) => {
+  const { bots, store, agents, released, open } = await harness(t);
+  const { chatKey } = await open("one");
+  const other = (await open("two")).chatKey;
+  await bots.observe(chatKey, { type: "permission-request", requestId: "r1", gate: META });
+  await bots.observe(other, { type: "permission-request", requestId: "r1", gate: META });
+  await bots.takeOver(chatKey);
+  assert.equal(store.gate(chatKey, "r1").status, "denied");
+  assert.deepEqual(agents.responses, [[chatKey, "r1", "deny"]]);
+  assert.equal(store.gate(other, "r1").status, "pending");
+  assert.deepEqual(released, [chatKey]);
+});
+
+test("deleting a bot takes its running Chats out of Bot rules", async (t) => {
+  const { bots, store, released, open } = await harness(t);
+  const { chatKey } = await open("one");
+  const done = (await open("two")).chatKey;
+  await bots.observe(done, { type: "turn-completed" });
+  const taken = (await open("three")).chatKey;
+  await bots.takeOver(taken);
+  released.length = 0;
+  await bots.remove("ops");
+  assert.deepEqual(released.toSorted(), [chatKey, done].toSorted());
+  assert.equal(store.chat(chatKey).status, "taken-over");
 });
 
 test("deleting a bot hands its running Chats to the user and denies its sign-offs", async (t) => {

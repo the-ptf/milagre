@@ -55,6 +55,8 @@ function createBots({
   // Whether a Chat runs a turn now or will continue one when its Project opens (see start).
   chatContinues = async () => true,
   titleChat = async () => {},
+  // Takes a Chat out of Bot rules: its session and its next turns ask the user, as any Chat's do.
+  leaveBotRules = async () => {},
   emit = () => {},
   now = Date.now,
   // True once Milagre is quitting: what it would tell a bot then could only start a turn the quit cuts off.
@@ -339,14 +341,25 @@ function createBots({
     await sendToChat(bot, chat.chatKey, body);
   }
 
+  // A Chat a bot opened that is the user's now: nothing waits on its sign-offs any more (they are denied), and it
+  // leaves Bot rules, so it asks the user for what it does.
+  async function release(chatKey) {
+    store.setChatStatus(chatKey, "taken-over");
+    for (const gate of store.pendingGates().filter((item) => item.chatKey === chatKey)) {
+      store.setGateStatus(gate.chatKey, gate.requestId, "denied");
+      agents.respondToPermission(gate.chatKey, gate.requestId, "deny");
+    }
+    await leaveBotRules(chatKey).catch((error) => console.warn(`Milagre couldn't take ${chatKey} out of Bot rules:`, error.message));
+  }
+
   /**
    * The user sent a message in a Chat a bot opened: it is theirs now. Bot rules and the bot's grants stop there (its
-   * policy no longer answers), and the bot is told.
+   * policy no longer answers, its sign-offs are denied), and the bot is told.
    */
   async function takeOver(chatKey) {
     const chat = store.chat(chatKey);
     if (!chat || chat.status === "taken-over") return;
-    store.setChatStatus(chatKey, "taken-over");
+    await release(chatKey);
     changed();
     await notify(chat.botId, `${Owner} took over this Chat: ${chat.title} (${chatKey}). Don't steer it any more.`, {
       kind: "bot-chat-taken-over",
@@ -501,7 +514,7 @@ function createBots({
      */
     async remove(id) {
       const bot = requireBot(id);
-      for (const chat of store.chatsFor(id)) if (chat.status !== "taken-over") store.setChatStatus(chat.chatKey, "taken-over");
+      for (const chat of store.chatsFor(id)) if (chat.status !== "taken-over") await release(chat.chatKey);
       for (const gate of store.pendingGates().filter((item) => item.botId === id)) {
         store.setGateStatus(gate.chatKey, gate.requestId, "denied");
         agents.respondToPermission(gate.chatKey, gate.requestId, "deny");
