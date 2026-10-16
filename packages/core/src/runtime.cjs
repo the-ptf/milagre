@@ -1321,6 +1321,8 @@ function createRuntime(options) {
   async function notifyIfWaiting(chatId, event) {
     const projectPath = projectOfKey(chatId);
     if (!options.notifyWaiting || !scopeStates.has(projectPath) || !("requestId" in event)) return;
+    // A Project hidden from the sidebar stays quiet: its chats aren't in any list to answer from.
+    if ((await projectSettings().hiddenPaths()).has(projectPath)) return;
     const notice = attentionNotice(
       event,
       attentionContext(

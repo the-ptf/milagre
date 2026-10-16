@@ -353,6 +353,8 @@ async function startDaemon({
     onError,
     context: async (chatId) => {
       const owner = projectOfKey(chatId);
+      // A Project hidden from the sidebar and the phone's list sends no pushes.
+      if (!isLinkScopeKey(owner) && (await runtime.invoke("project:recent", [])).some((project) => project.path === owner && project.hidden)) return null;
       const project = await runtime.invoke(isLinkScopeKey(owner) ? "link:snapshot" : "project:snapshot", [
         isLinkScopeKey(owner) ? scopeFromKey(owner).linkId : owner,
       ]);

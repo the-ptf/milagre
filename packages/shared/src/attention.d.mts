@@ -24,8 +24,8 @@ export function completionNotice(title: string | undefined, result: { failed: bo
 /** The notification for an approval or question a turn waits on, or null for any other event. */
 export function attentionNotice(event: AgentEvent, context: AttentionContext): AttentionNotice | null;
 export function attentionContext(state: CoordinatorState, projectName: string, sessionId: number): AttentionContext;
-/** Chat keys outside `currentPath` whose turn waits on an approval or question. Link Chats are left out. */
-export function chatsNeedingAttention(runs: AgentRuns | undefined, currentPath?: string): string[];
+/** Chat keys outside `currentPath` whose turn waits on an approval or question. Link Chats and `hidden` Projects are left out. */
+export function chatsNeedingAttention(runs: AgentRuns | undefined, currentPath?: string, hidden?: ReadonlySet<string>): string[];
 /** The attention button's words for the projects waiting, by name. */
 export function attentionLabel(names: string[]): string;
 /** What a waiting run asks for, in one line: the approval's command or title, or its first question. */
