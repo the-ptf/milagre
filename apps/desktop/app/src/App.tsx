@@ -129,6 +129,9 @@ import { playNotificationChime } from "./lib/notification-chime";
 import type { ChatRowActions, SidebarRecent } from "./components/sidebar/ChatRow";
 import { shouldNotifyCompletion, useBots } from "./lib/bots-store";
 import type { SidebarMode } from "./components/bots/SidebarModeSwitch";
+import { BotThread } from "./components/bots/BotThread";
+import { BotProfilePanel } from "./components/bots/BotProfilePanel";
+import { BotProfileSlot } from "./components/bots/BotProfileSlot";
 
 const SIDEBAR_MODE_KEY = "milagre.sidebarMode";
 
@@ -327,6 +330,7 @@ function App() {
   const [storedSidebarMode, setStoredSidebarMode] = useState<SidebarMode>(() => (localStorage.getItem(SIDEBAR_MODE_KEY) === "bots" ? "bots" : "projects"));
   const sidebarMode: SidebarMode = bots.enabled ? storedSidebarMode : "projects";
   const setSidebarMode = (mode: SidebarMode) => {
+    if (mode === "bots") changes.closeDiff();
     setStoredSidebarMode(mode);
     localStorage.setItem(SIDEBAR_MODE_KEY, mode);
   };
@@ -336,6 +340,15 @@ function App() {
   const [pickedBotId, setSelectedBotId] = useState<string | null>(null);
   // The bot picked last, or the first one while that one is gone.
   const selectedBotId = bots.snapshot?.bots.some((bot) => bot.id === pickedBotId) ? pickedBotId : (bots.snapshot?.bots[0]?.id ?? null);
+  const selectedBot = bots.snapshot?.bots.find((bot) => bot.id === selectedBotId);
+  const botsShown = view === "chat" && sidebarMode === "bots";
+  const [botProfileOpen, setBotProfileOpen] = useState(true);
+  // "Open Chat" on a bot's card: back to Projects, in that Chat.
+  const openChatKey = (key: string) => {
+    setSidebarMode("projects");
+    setView("chat");
+    openChatByKey(key);
+  };
   const [layout, setLayout] = useState<ChatLayout>(() => readChatLayout(localStorage));
   const toggleLayout = () =>
     setLayout((current) => {
@@ -2301,12 +2314,12 @@ function App() {
             </div>
           )}
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
-          {changesAvailable && <ChangesToggle open={changes.open} onToggle={changes.toggle} />}
-          <PanelToggles right={changesAvailable ? 12 + CORNER_PITCH : 12} />
-          {view === "chat" && (
+          {changesAvailable && !botsShown && <ChangesToggle open={changes.open} onToggle={changes.toggle} />}
+          {!botsShown && <PanelToggles right={changesAvailable ? 12 + CORNER_PITCH : 12} />}
+          {view === "chat" && !botsShown && (
             <LayoutToggle grid={layout === "grid"} offset={(changesAvailable ? 1 : 0) + sidePanelCount(sidePanels)} onToggle={toggleLayout} />
           )}
-          {showAttentionButton && !floatingInbox && attentionChats[0] && (
+          {showAttentionButton && !floatingInbox && !botsShown && attentionChats[0] && (
             <AttentionButton
               label={attentionLabel(attentionPaths.map(projectName))}
               items={attentionTitles.map((item) => ({
@@ -2433,7 +2446,7 @@ function App() {
               {/* Fades back in when the diff has gone: a display:none element restarts its animation when shown. */}
               <div
                 data-chat-pane
-                className={`min-h-0 flex-1 flex-col overflow-hidden ${view === "chat" && !diffPresence.occupied ? "flex" : "hidden"}`}
+                className={`min-h-0 flex-1 flex-col overflow-hidden ${view === "chat" && !botsShown && !diffPresence.occupied ? "flex" : "hidden"}`}
                 style={{ animation: "fade-in 160ms ease-out" }}
               >
                 {awayBanner && (
@@ -2593,8 +2606,23 @@ function App() {
                 </ChatGrid>
                 <TerminalPanel chatId={terminalChatId} notify={setNotice} />
               </div>
+              {botsShown && selectedBot && bots.snapshot && (
+                <BotThread
+                  key={selectedBot.id}
+                  bot={selectedBot}
+                  snapshot={bots.snapshot}
+                  agents={agentRuns}
+                  preferences={{ models, cliStatus, onModelPickerOpen: refreshCliStatus, onUpdateCli: handleUpdateCli, updatingCli }}
+                  onOpenChat={openChatKey}
+                  profileOpen={botProfileOpen}
+                  onToggleProfile={() => setBotProfileOpen((open) => !open)}
+                />
+              )}
             </main>
-            <ChangesPanelSlot open={changes.open}>
+            <BotProfileSlot open={botsShown && botProfileOpen && Boolean(selectedBot)}>
+              {selectedBot && bots.snapshot && <BotProfilePanel key={selectedBot.id} bot={selectedBot} snapshot={bots.snapshot} onOpenChat={openChatKey} />}
+            </BotProfileSlot>
+            <ChangesPanelSlot open={changes.open && !botsShown}>
               <ChangesPanel
                 list={changes.list}
                 mode={changes.mode}

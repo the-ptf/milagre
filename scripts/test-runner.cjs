@@ -21,6 +21,7 @@ const MANIFEST = {
   "test-chat-titles.cjs": { seconds: 27 },
   "test-sidebar-rail.cjs": { seconds: 12 },
   "test-bots-sidebar.cjs": { seconds: 10 },
+  "test-bots-thread.cjs": { seconds: 10 },
   "test-windows-cli.cjs": { platforms: ["win32"] },
   "test-ports.cjs": { needs: ["zsh", "ps", "lsof"] },
   "test-desktop.cjs": { needsBuild: true },
