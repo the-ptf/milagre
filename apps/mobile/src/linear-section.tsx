@@ -15,7 +15,7 @@ import { useFocusEffect } from "expo-router";
 import { useSession } from "./session";
 import { ErrorNotice, Toggle, useStyles } from "./ui";
 
-/** Settings › Linear: the connected Mac's Linear switch and workspaces, like desktop's Linear section. Only the Mac connects. */
+/** Settings › Connections › Linear: the connected Mac's Linear switch and workspaces, like desktop's Connections section. Only the Mac connects. */
 export function LinearSection() {
   const styles = useStyles();
   const session = useSession();

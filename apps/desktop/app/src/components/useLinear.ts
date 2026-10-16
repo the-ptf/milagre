@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 /**
- * Whether Linear is on for this Mac (Settings › Linear) and connected. Both reads start inside a promise,
+ * Whether Linear is on for this Mac (Settings › Connections › Linear) and connected. Both reads start inside a promise,
  * so a bridge without the command (an older host) reads as off instead of throwing.
  */
 export function useLinear(): { ready: boolean; active: boolean } {

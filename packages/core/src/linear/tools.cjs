@@ -83,9 +83,9 @@ function formatIssue(issue) {
 /** `linear` holds the Mac's connections, `issues` reads issues through them (see linear/index.cjs and linear/issues.cjs). */
 function createLinearTools({ linear, issues, dir = path.join(os.tmpdir(), "milagre-linear") }) {
   function connected() {
-    if (!linear.enabled()) throw new Error("Linear is off in Milagre (Settings › Linear).");
+    if (!linear.enabled()) throw new Error("Linear is off in Milagre (Settings › Connections › Linear).");
     const ids = linear.workspaces().map((workspace) => workspace.id);
-    if (!ids.length) throw new Error("Milagre isn't connected to Linear. The user can connect it in Settings › Linear.");
+    if (!ids.length) throw new Error("Milagre isn't connected to Linear. The user can connect it in Settings › Connections › Linear.");
     return ids;
   }
   function checkWorkspace(workspace, ids) {
@@ -93,7 +93,7 @@ function createLinearTools({ linear, issues, dir = path.join(os.tmpdir(), "milag
     const id = workspace.toLowerCase();
     if (!ids.includes(id))
       throw new Error(
-        `Milagre isn't connected to the "${workspace}" Linear workspace (connected: ${ids.join(", ")}). The user can add it in Settings › Linear › Add workspace.`,
+        `Milagre isn't connected to the "${workspace}" Linear workspace (connected: ${ids.join(", ")}). The user can add it in Settings › Connections › Linear › Add workspace.`,
       );
     return id;
   }

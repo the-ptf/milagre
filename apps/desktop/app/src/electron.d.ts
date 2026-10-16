@@ -286,7 +286,7 @@ export type MilagreBridge = {
     onChanged: (callback: (event: McpChangedEvent) => void) => () => void;
   };
   localMcp: LocalMcpApi;
-  /** The Linear switch (Settings › Linear) changed, on this Mac or from a phone. */
+  /** The Linear switch (Settings › Connections › Linear) changed, on this Mac or from a phone. */
   onLinearEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   /** Assigned issues when query is empty, otherwise workspace matches (a key also finds that issue first). Never rejects. */
   listLinearIssues: (query?: string, options?: { fresh?: boolean; workspace?: string }) => Promise<LinearIssuesResult>;

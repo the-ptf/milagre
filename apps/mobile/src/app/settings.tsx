@@ -3,6 +3,7 @@ import { Stack, router } from "expo-router";
 import {
   BookOpen01Icon,
   BubbleChatIcon,
+  ConnectIcon,
   Download04Icon,
   FlaskConicalIcon,
   FolderKeyIcon,
@@ -16,7 +17,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { usePush } from "../push";
 import { useAppUpdates } from "../update-sheet";
-import { Icon, LinearLogo } from "../icons";
+import { Icon } from "../icons";
 import { useSession } from "../session";
 import { ProjectIcon } from "../project-icon";
 import { ListRow, PageScroll, useStyles } from "../ui";
@@ -28,7 +29,7 @@ type SettingsPage =
   | "appearance"
   | "chat-display"
   | "notifications"
-  | "linear"
+  | "connections"
   | "skills"
   | "mcp"
   | "local-mcp"
@@ -39,14 +40,14 @@ type IconData = Parameters<typeof Icon>[0]["icon"];
 
 /** The pages in desktop's Settings order, with its icons. Devices and About live elsewhere on the phone: the Computers
  * screen pairs and lists computers, and App update closes the list. */
-const PAGES: Array<{ page: SettingsPage; title: string; icon: IconData | "linear" }> = [
+const PAGES: Array<{ page: SettingsPage; title: string; icon: IconData }> = [
   { page: "general", title: "General", icon: Settings01Icon },
   { page: "accounts", title: "Accounts", icon: UserCircleIcon },
   { page: "project-accounts", title: "Project Accounts", icon: FolderKeyIcon },
   { page: "appearance", title: "Appearance", icon: PaintBoardIcon },
   { page: "chat-display", title: "Chat", icon: BubbleChatIcon },
   { page: "notifications", title: "Notifications", icon: Notification01Icon },
-  { page: "linear", title: "Linear", icon: "linear" },
+  { page: "connections", title: "Connections", icon: ConnectIcon },
   { page: "skills", title: "Skills", icon: BookOpen01Icon },
   { page: "mcp", title: "MCP", icon: Plug01Icon },
   { page: "local-mcp", title: "Milagre MCP", icon: ServerIcon },
@@ -98,15 +99,7 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
               compact
               title={item.title}
               subtitle={item.page === "notifications" && push.state ? (push.state.enabled ? "On" : "Off") : undefined}
-              leading={
-                item.icon === "linear" ? (
-                  <View style={{ width: 20, height: 20, alignItems: "center", justifyContent: "center" }}>
-                    <LinearLogo size={16} tone="ink" />
-                  </View>
-                ) : (
-                  <Icon icon={item.icon} tone="ink" size={20} />
-                )
-              }
+              leading={<Icon icon={item.icon} tone="ink" size={20} />}
               onPress={() => onOpen(item.page)}
             />
             <View style={styles.separator} />

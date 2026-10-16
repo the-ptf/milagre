@@ -16,7 +16,7 @@ function authorizeUrl({ clientId, redirectUri, state, challenge }) {
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    // write: moving an issue to its team's started status when a Chat starts from it (Settings › Linear).
+    // write: moving an issue to its team's started status when a Chat starts from it (Settings › Connections › Linear).
     scope: "read,write",
     state,
     code_challenge: challenge,

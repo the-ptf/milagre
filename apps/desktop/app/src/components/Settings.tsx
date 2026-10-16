@@ -34,6 +34,7 @@ import {
   ArrowLeft02Icon,
   BookOpen01Icon,
   BubbleChatIcon,
+  ConnectIcon,
   FlaskConicalIcon,
   FolderKeyIcon,
   InformationCircleIcon,
@@ -78,7 +79,7 @@ import {
   type ToolCallDisplay,
 } from "@milagre/shared/chat-display";
 import { playNotificationChime } from "../lib/notification-chime";
-import { LinearLogo, ProviderLogo } from "./ProviderLogo";
+import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { WorkspaceIcon } from "./WorkspaceIcon";
 import { RECENT_PROJECTS_CHANGED, projectInitial, projectRows } from "../lib/project-list";
@@ -100,7 +101,7 @@ export type SettingsSection =
   | "appearance"
   | "chat"
   | "notifications"
-  | "linear"
+  | "connections"
   | "skills"
   | "mcp"
   | "local-mcp"
@@ -118,7 +119,7 @@ const SECTIONS: Array<{ key: SettingsSection; label: string; icon: ReactNode }> 
   { key: "appearance", label: "Appearance", icon: <Icon icon={PaintBoardIcon} /> },
   { key: "chat", label: "Chat", icon: <Icon icon={BubbleChatIcon} /> },
   { key: "notifications", label: "Notifications", icon: <Icon icon={Notification01Icon} /> },
-  { key: "linear", label: "Linear", icon: <LinearLogo size={15} /> },
+  { key: "connections", label: "Connections", icon: <Icon icon={ConnectIcon} /> },
   { key: "skills", label: "Skills", icon: <Icon icon={BookOpen01Icon} /> },
   { key: "mcp", label: "MCP", icon: <Icon icon={Plug01Icon} /> },
   { key: "local-mcp", label: "Milagre MCP", icon: <Icon icon={ServerIcon} /> },
@@ -1655,7 +1656,7 @@ function LimitAutoSwitchSetting() {
   );
 }
 
-// Settings › Linear: the daemon keeps the switch (phones share it) and the Mac's connections, one per workspace.
+// Settings › Connections › Linear: the daemon keeps the switch (phones share it) and the Mac's connections, one per workspace.
 function LinearSettings() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   // null until read; a Mac that predates the switch sends none and has it on.
@@ -1913,10 +1914,13 @@ export function SettingsPanel({
         {section === "appearance" && <AppearanceSettings />}
         {section === "chat" && <ChatSettings />}
         {section === "notifications" && <NotificationsSettings />}
-        {section === "linear" && (
-          <Group title="Connection">
-            <LinearSettings />
-          </Group>
+        {section === "connections" && (
+          <>
+            <p className="mt-1 text-[13px] text-ink-2">Services Milagre signs in to, so Chats can start from their issues.</p>
+            <Group title="Issue trackers">
+              <LinearSettings />
+            </Group>
+          </>
         )}
         {section === "skills" &&
           (project ? (

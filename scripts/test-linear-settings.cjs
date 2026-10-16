@@ -1,4 +1,4 @@
-// Settings > Linear in Electron: the switch reveals the connections, one row per workspace; Connect adds
+// Settings > Connections > Linear in Electron: the switch reveals the connections, one row per workspace; Connect adds
 // the first, Add another, and each workspace disconnects on its own. Moving issues to In Progress is on by default, and a
 // workspace signed in before write access says it can't move them yet.
 const assert = require("node:assert/strict");
@@ -88,8 +88,8 @@ async function browserChecks() {
   const text = `document.querySelector('[data-linear-settings]').textContent`;
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Linear')`);
-    await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Linear').click()`);
+    await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Connections')`);
+    await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Connections').click()`);
     await waitFor(`!!${toggle}`);
     assert.equal(await evaluate(`!!${button("Connect")}`), false, "Connection hidden while the switch is off");
     await screenshot("off");
@@ -179,7 +179,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector('[data-linear-settings] .text-red')`), false, "no error shown");
     await screenshot("connected-elsewhere");
     assert.deepEqual(errors, []);
-    console.log("PASS: Settings > Linear shows the connections only when on, adds workspaces through the browser and disconnects each");
+    console.log("PASS: Settings > Connections > Linear shows the connections only when on, adds workspaces through the browser and disconnects each");
     app.exit(0);
   } catch (error) {
     console.error(error);

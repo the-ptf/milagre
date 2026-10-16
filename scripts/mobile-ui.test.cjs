@@ -7448,7 +7448,7 @@ test("mobile Settings lists desktop's sections in desktop's order", () => {
     "../project-icon": { ProjectIcon: "ProjectIcon" },
     "../push": { usePush: () => ({}) },
     "../update-sheet": { useAppUpdates: () => ({ state: { status: "disabled" } }) },
-    "../icons": { Icon: "Icon", LinearLogo: "LinearLogo" },
+    "../icons": { Icon: "Icon" },
     "../ui": { ListRow: "ListRow", PageScroll: "PageScroll", useStyles: () => ({}) },
   });
   const tree = SettingsView({ onOpen: (page) => opened.push(page) });
@@ -7469,7 +7469,7 @@ test("mobile Settings lists desktop's sections in desktop's order", () => {
       "Appearance",
       "Chat",
       "Notifications",
-      "Linear",
+      "Connections",
       "Skills",
       "MCP",
       "Milagre MCP",
@@ -7486,7 +7486,7 @@ test("mobile Settings lists desktop's sections in desktop's order", () => {
     "appearance",
     "chat-display",
     "notifications",
-    "linear",
+    "connections",
     "skills",
     "mcp",
     "local-mcp",
@@ -7497,7 +7497,8 @@ test("mobile Settings lists desktop's sections in desktop's order", () => {
     const { default: Screen } = load(file, {
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "expo-router": { Stack: { Screen: "Screen" } },
-      "../ui": { PageScroll: "PageScroll" },
+      "react-native": { Text: "Text", View: "View" },
+      "../ui": { PageScroll: "PageScroll", useStyles: () => ({}) },
       [`../${section}`]: { [name]: name },
     });
     const rendered = Screen();
@@ -7505,7 +7506,7 @@ test("mobile Settings lists desktop's sections in desktop's order", () => {
     assert.ok(find(rendered, (n) => n.type === name));
   };
   page("app/general.tsx", "General", "general-section", "GeneralSection");
-  page("app/linear.tsx", "Linear", "linear-section", "LinearSection");
+  page("app/connections.tsx", "Connections", "linear-section", "LinearSection");
   page("app/local-mcp.tsx", "Milagre MCP", "local-mcp-section", "LocalMcpSection");
   page("app/experimental.tsx", "Experimental", "experimental-section", "ExperimentalSection");
 });
