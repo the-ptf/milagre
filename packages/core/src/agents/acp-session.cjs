@@ -207,9 +207,11 @@ class AcpSession {
     return this.beginTurn(request);
   }
 
-  // ACP can't steer: the message waits for the running turn to end and starts the next one. An open
-  // question is dismissed, since the message is the user's reply to it. Stop drops the messages sent
-  // before it, as it stops a steered message on Claude and Codex; one sent after Stop starts the next turn.
+  // ACP can't steer: the message waits for the running turn to end and starts the next one. The user's messages
+  // never get here: ChatHost queues them where the chat shows them (see its afterTurn). What does is a send that
+  // checks `canStart` (an advisor's result, the local MCP's chat_start) or one racing the turn's end. An open
+  // question is dismissed, since the message is the user's reply to it. Stop drops what waits here, as it stops a
+  // steered message on Claude and Codex (and stops advisor delivery); one sent after Stop starts the next turn.
   async queue(request) {
     this.questions.dismissAll();
     const stops = this.stops;

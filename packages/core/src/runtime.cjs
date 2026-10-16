@@ -1274,6 +1274,20 @@ function createRuntime(options) {
     await stopChat(chatId);
   });
 
+  // A message queued behind a turn its provider can't steer (chat-host.cjs): Send now starts it, stopping the turn
+  // that runs first if there is one; Remove drops it unsent.
+  commands.handle("chat:queue-send", async (_event, chatId, id) => {
+    await existingChat("sending a queued message")(chatId);
+    if (typeof id !== "string") throw new Error("That queued message isn't valid.");
+    const { interrupt } = await chats.sendQueuedNow(chatId, id);
+    if (interrupt && !(await chats.cancelHandoff(chatId))) await agents.interrupt(chatId);
+  });
+  commands.handle("chat:queue-remove", async (_event, chatId, id) => {
+    await existingChat("removing a queued message")(chatId);
+    if (typeof id !== "string") throw new Error("That queued message isn't valid.");
+    return chats.removeQueued(chatId, id);
+  });
+
   // Reload: a running turn stops, as Stop does, and the agent's process ends. The Chat's next message starts a new one
   // on the same session, which reads its MCP servers, skills and sign-in again.
   commands.handle("chat:reload", async (_event, chatId) => {
@@ -1589,7 +1603,7 @@ function createRuntime(options) {
         resolved.add(projectPath);
         // The raw JSON is enough to find a pending turn; only a project that has one is loaded (and hydrated) in full.
         const stored = states.has(projectPath) ? null : await readRawState(projectPath);
-        if (!Object.values(stored?.sessions ?? {}).some((session) => session.resumeTurn)) continue;
+        if (!Object.values(stored?.sessions ?? {}).some((session) => session.resumeTurn || (session.queued?.length && !session.queueHeld))) continue;
         await readProject(projectPath);
       } catch (error) {
         console.warn(`Milagre couldn't resume the chats of ${projectPath}:`, error.message);

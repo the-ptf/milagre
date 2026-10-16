@@ -1726,6 +1726,7 @@ function chatHost({
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
     "@milagre/shared/provider-capabilities": require("@milagre/shared/provider-capabilities"),
     "../message-navigation": { MessageNavigation: "MessageNavigation" },
+    "../queued-messages": { QueuedMessages: "QueuedMessages" },
     "../prompt-field": { PromptField: "PromptField" },
     "../context-ring": { ContextRing: "ContextRing" },
     "../theme": { hex: () => ({ surface: "#ffffff" }) },
@@ -6104,6 +6105,32 @@ test("pending snapshot acknowledgement does not disable mobile Stop", async () =
   stop.props.onPress();
   await settle();
   assert.ok(screen.calls.some((call) => call.method === "agent:interrupt"));
+});
+
+test("a phone Chat on a provider that can't steer shows its queue over the composer, with Send now and Remove", async () => {
+  const screen = ongoingChatHost();
+  const state = screen.session.snapshot.project.state;
+  state.sessions[7] = {
+    ...state.sessions[7],
+    provider: "antigravity",
+    queued: [{ id: "q1", body: "then add tests", model: "gemini-3-pro", provider: "antigravity", queuedAt: 1 }],
+  };
+  screen.session.snapshot.runs.runs["/p#7"] = { startedAt: Date.now(), questions: [], approvals: [], steps: [] };
+  const tree = screen.render();
+  const queue = find(tree, (node) => node.type === "QueuedMessages");
+  assert.deepEqual([queue.props.items.map((item) => item.body), queue.props.held, queue.props.running], [["then add tests"], false, true]);
+  assert.equal(find(tree, (node) => node.type === "PromptField").props.placeholder, "Queue a message for the next turn");
+  queue.props.onSendNow("q1");
+  await settle();
+  queue.props.onRemove("q1");
+  await settle();
+  assert.deepEqual(
+    screen.calls.filter((call) => call.method.startsWith("chat:queue")).map((call) => [call.method, [...call.args]]),
+    [
+      ["chat:queue-send", ["/p#7", "q1"]],
+      ["chat:queue-remove", ["/p#7", "q1"]],
+    ],
+  );
 });
 
 test("mobile file attachment chips open their contents", () => {

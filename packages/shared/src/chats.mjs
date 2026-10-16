@@ -88,6 +88,9 @@ export function pendingChatSessionId(state, pending) {
   if (!pending) return null;
   const canonical = state.messages.find((message) => message.clientMessageId === pending.message.clientMessageId);
   if (canonical) return canonical.session_id;
+  // A message sent while a turn that can't be steered runs waits in its Chat's queue.
+  const queued = Object.values(state.sessions).find((session) => session.queued?.some((item) => item.clientMessageId === pending.message.clientMessageId));
+  if (queued) return queued.id;
   // A window that holds no messages (chat-pages-v1) has each Chat's last sends in its summary.
   const summarized = Object.values(state.sessions).find((session) => session.summary?.clientMessageIds?.includes(pending.message.clientMessageId));
   if (summarized) return summarized.id;
