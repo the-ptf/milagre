@@ -91,10 +91,24 @@ test("a read the host rejects is asked again", async () => {
   }
 });
 
+test("a bridge without the bot methods is a failed read, not a throw", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const store = botsStore({} as MilagreBridge);
+    let stop = () => {};
+    assert.doesNotThrow(() => (stop = store.subscribe(() => {})));
+    await settle();
+    assert.deepEqual({ ready: store.snapshot().ready, enabled: store.snapshot().enabled }, { ready: true, enabled: false });
+    stop();
+  } finally {
+    mock.timers.reset();
+  }
+});
+
 test("completions of quiet chats are not notified", () => {
   assert.equal(shouldNotifyCompletion(SNAPSHOT, "/d/bots/ops#1"), false);
   assert.equal(shouldNotifyCompletion(SNAPSHOT, "/p#4"), false);
-  assert.equal(shouldNotifyCompletion(SNAPSHOT, "/p#6"), true, "a Chat Victor took over is his again");
+  assert.equal(shouldNotifyCompletion(SNAPSHOT, "/p#6"), true, "a Chat the user took over is theirs again");
   assert.equal(shouldNotifyCompletion(SNAPSHOT, "/p#5"), true);
   assert.equal(shouldNotifyCompletion(null, "/p#5"), true);
 });

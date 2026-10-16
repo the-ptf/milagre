@@ -33,18 +33,21 @@ export function botsStore(bridge: MilagreBridge): Store {
   const read = () => {
     retry = undefined;
     const reading = ++revision;
-    Promise.all([bridge.readBotsEnabled(), bridge.listBots()]).then(
-      ([flag, snapshot]) => {
-        if (reading !== revision) return;
-        failures = 0;
-        update({ enabled: flag?.enabled === true, snapshot: snapshot ?? null, ready: true, error: null });
-      },
-      () => {
-        if (reading !== revision) return;
-        update({ ready: true, error: "Could not read your bots." });
-        retry = setTimeout(read, RETRY_MS[Math.min(failures++, RETRY_MS.length - 1)]);
-      },
-    );
+    // Inside the promise, so a bridge without the bot methods (an older preload, a check's stub) is a failed read, not a throw.
+    Promise.resolve()
+      .then(() => Promise.all([bridge.readBotsEnabled(), bridge.listBots()]))
+      .then(
+        ([flag, snapshot]) => {
+          if (reading !== revision) return;
+          failures = 0;
+          update({ enabled: flag?.enabled === true, snapshot: snapshot ?? null, ready: true, error: null });
+        },
+        () => {
+          if (reading !== revision) return;
+          update({ ready: true, error: "Could not read your bots." });
+          retry = setTimeout(read, RETRY_MS[Math.min(failures++, RETRY_MS.length - 1)]);
+        },
+      );
   };
   const store: Store = {
     snapshot: () => state,
