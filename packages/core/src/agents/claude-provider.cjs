@@ -15,15 +15,16 @@ const {
   mapClaudeMessage,
   missingCliMessage,
 } = require("./events.cjs");
-const { PendingPermissions, claudeRequest, claudeResult, insideRoot, insideWorkspace } = require("./permissions.cjs");
+const { DENIED_MESSAGE, PendingPermissions, claudeRequest, claudeResult, insideRoot, insideWorkspace } = require("./permissions.cjs");
 const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = require("./questions.cjs");
 const { mcpContent, runTool } = require("../linked-tools.cjs");
 const { advisorPolicy, ANALYSIS_INSTRUCTIONS } = require("./advisor-policy.cjs");
 const { toClaudeConfig } = require("../mcp/definitions.cjs");
 
 // Milagre permission mode -> Claude Code permission mode. In Ask (`default`) Claude Code checks with
-// the user, through canUseTool, before edits and commands its rules don't already allow.
-const CLAUDE_MODES = { ask: "default", auto: "acceptEdits", full: "bypassPermissions" };
+// the user, through canUseTool, before edits and commands its rules don't already allow. Bot rules runs
+// ask-style too; the bot's policy answers instead of the user.
+const CLAUDE_MODES = { ask: "default", auto: "acceptEdits", full: "bypassPermissions", bot: "default" };
 
 // Claude Code's built-in terse output style. Unlike text appended to the system prompt, which the SDK
 // records with a conversation and ignores on later turns and resumes, the style applies to new chats, to
@@ -113,6 +114,8 @@ class ClaudeSession {
     loadSdk = () => import("@anthropic-ai/claude-agent-sdk"),
     spawnImpl = spawn,
     interruptGraceMs = 3000,
+    // Bot rules only: the bot's answer to each permission request (see PendingPermissions).
+    permissionPolicy,
   }) {
     Object.assign(this, {
       cwd,
@@ -130,6 +133,7 @@ class ClaudeSession {
       loadSdk,
       spawnImpl,
       interruptGraceMs,
+      permissionPolicy,
     });
     this.state = { sessionId: resumeId ?? null, turnId: null, hasText: false };
     this.query = null;
@@ -139,7 +143,10 @@ class ClaudeSession {
     this.turnActive = false;
     this.cancelRequested = false;
     this.closed = false;
-    this.permissions = new PendingPermissions((event) => this.emit(event));
+    this.permissions = new PendingPermissions((event) => this.emit(event), { policy: permissionPolicy });
+    // Bot rules: the tool calls the PreToolUse hook asked about (toolUseID -> its gate, or null when the policy
+    // failed), so canUseTool can't let one through on a second look.
+    this.hookAsked = new Map();
     this.questions = new PendingQuestions((event) => this.emit(event));
     // Settles once the running turn's own message is in Claude Code's input (or the turn failed to start).
     this.turnReady = Promise.resolve();
@@ -167,6 +174,7 @@ class ClaudeSession {
     }
     this.turnActive = true;
     this.implicitTurn = false;
+    this.hookAsked.clear();
     // Whether this turn's init announced a session id (session-started); see readMessages.
     this.announcedId = false;
     this.cancelRequested = false;
@@ -299,6 +307,29 @@ class ClaudeSession {
     this.mcpOff = extras?.off ?? [];
     const linked = this.linked?.tools.length ? linkedOptions(this.linked.tools, sdk) : {};
     const extraServers = Object.fromEntries((extras?.servers ?? []).map((def) => [def.name, toClaudeConfig(def)]));
+    const hooks = {};
+    // Subagents don't get the system prompt above: they are told to keep a to-do list for the Subagents panel, and to
+    // design on the Chat's canvas when they have Milagre's tools.
+    if (!this.analysisOnly)
+      hooks.SubagentStart = [
+        {
+          hooks: [
+            async () => ({
+              hookSpecificOutput: {
+                hookEventName: "SubagentStart",
+                additionalContext: [
+                  SUBAGENT_PLAN_INSTRUCTIONS,
+                  this.designsEnabled && this.linked?.tools.some((tool) => tool.name === "design_show") ? SUBAGENT_DESIGN_INSTRUCTIONS : "",
+                ]
+                  .filter(Boolean)
+                  .join("\n\n"),
+              },
+            }),
+          ],
+        },
+      ];
+    if (!this.analysisOnly && this.permissions.mode === "bot" && this.permissionPolicy)
+      hooks.PreToolUse = [{ hooks: [(input, toolUseID) => this.gateHook(input, toolUseID)] }];
     this.query = sdk.query({
       prompt: this.inbox,
       options: {
@@ -324,31 +355,7 @@ class ClaudeSession {
         },
         ...linked,
         ...(Object.keys(extraServers).length ? { mcpServers: { ...extraServers, ...linked.mcpServers } } : {}),
-        // Subagents don't get the system prompt above: they are told to keep a to-do list for the Subagents panel, and to
-        // design on the Chat's canvas when they have Milagre's tools.
-        ...(!this.analysisOnly
-          ? {
-              hooks: {
-                SubagentStart: [
-                  {
-                    hooks: [
-                      async () => ({
-                        hookSpecificOutput: {
-                          hookEventName: "SubagentStart",
-                          additionalContext: [
-                            SUBAGENT_PLAN_INSTRUCTIONS,
-                            this.designsEnabled && this.linked?.tools.some((tool) => tool.name === "design_show") ? SUBAGENT_DESIGN_INSTRUCTIONS : "",
-                          ]
-                            .filter(Boolean)
-                            .join("\n\n"),
-                        },
-                      }),
-                    ],
-                  },
-                ],
-              },
-            }
-          : {}),
+        ...(Object.keys(hooks).length ? { hooks } : {}),
         canUseTool: (toolName, input, options) =>
           toolName === "AskUserQuestion" ? this.askQuestion(input, options) : this.askPermission(toolName, input, options),
         ...(this.analysisOnly ? advisorPolicy("claude", this.linked?.tools ?? []) : {}),
@@ -373,12 +380,44 @@ class ClaudeSession {
     await this.query.setMaxThinkingTokens?.(null, "summarized").catch(() => {});
   }
 
+  // Bot rules: Claude Code runs PreToolUse hooks before its permission rules, and a hook's "ask" is
+  // settled by canUseTool even when the user's Claude settings allow the tool (only their deny and ask
+  // rules are checked), so an allow rule such as `Bash(gh pr merge:*)` can't skip a gate. Anything
+  // else goes on to Claude Code's own rules and then canUseTool, where the policy answers again.
+  async gateHook(input, toolUseID) {
+    if (this.permissions.mode !== "bot") return {};
+    const output = (permissionDecision, permissionDecisionReason) => ({
+      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision, permissionDecisionReason },
+    });
+    const id = toolUseID ?? input.tool_use_id;
+    const asked = (gate) => {
+      if (id) this.hookAsked.set(id, gate);
+    };
+    let verdict;
+    try {
+      verdict = this.permissionPolicy(claudeRequest(input.tool_name, input.tool_input ?? {}, { toolUseID: id }));
+    } catch (error) {
+      // A policy that fails can't tell a gate from the rest, so the user decides on a card.
+      console.warn("Bot permission policy failed:", error.message);
+      asked(null);
+      return output("ask", "Bot rules");
+    }
+    if (verdict?.gate) {
+      asked(verdict.gate);
+      return output("ask", verdict.gate.title);
+    }
+    if (verdict === "deny") return output("deny", DENIED_MESSAGE);
+    return {};
+  }
+
   // Claude Code waits on this promise until the user answers in Milagre, the turn stops, or the SDK
   // aborts the request.
   askPermission(toolName, input, options = {}) {
     // A request that arrives once its turn has stopped has nobody to ask.
     if (!this.turnActive || this.cancelRequested || this.closed) return Promise.resolve(claudeResult("cancelled", input));
     const request = claudeRequest(toolName, input, options);
+    const flagged = this.hookAsked.has(options.toolUseID) ? { gate: this.hookAsked.get(options.toolUseID) ?? undefined } : undefined;
+    this.hookAsked.delete(options.toolUseID);
     return new Promise((resolve) => {
       const abort = () => this.permissions.resolve(request.requestId, "cancelled");
       const inWorkspace =
@@ -391,7 +430,7 @@ class ClaudeSession {
           options.signal?.removeEventListener("abort", abort);
           resolve(claudeResult(decision, input, options.suggestions));
         },
-        { inWorkspace },
+        { inWorkspace, flagged },
       );
       if (options.signal?.aborted) abort();
       else options.signal?.addEventListener("abort", abort, { once: true });

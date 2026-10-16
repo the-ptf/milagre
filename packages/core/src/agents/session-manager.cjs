@@ -23,8 +23,17 @@ function streamKey(event) {
 // session run one at a time per chat, and onSessionClosed(chatId) runs once a chat's session is gone. Events from a session that is no longer the chat's
 // current one are dropped. A turn's session steers it when the chat sends again while it runs.
 class SessionManager {
-  constructor({ createSession, send, linkedFor = () => null, onSessionClosed = () => {}, onTurnStarted = () => {}, idleMs = IDLE_MS, batchMs = BATCH_MS }) {
-    Object.assign(this, { createSession, send, linkedFor, onSessionClosed, onTurnStarted, idleMs, batchMs });
+  constructor({
+    createSession,
+    send,
+    linkedFor = () => null,
+    permissionPolicy = () => undefined,
+    onSessionClosed = () => {},
+    onTurnStarted = () => {},
+    idleMs = IDLE_MS,
+    batchMs = BATCH_MS,
+  }) {
+    Object.assign(this, { createSession, send, linkedFor, permissionPolicy, onSessionClosed, onTurnStarted, idleMs, batchMs });
     this.sessions = new Map();
     this.buffers = new Map();
     this.queues = new Map();
@@ -115,6 +124,8 @@ class SessionManager {
       ...(request.harness ? { harness: request.harness } : {}),
       ...(request.args ? { args: request.args } : {}),
       linked: this.linkedFor(chatId),
+      // A bot's thread or a Chat a bot opened gets the bot's answers for Bot rules mode.
+      permissionPolicy: this.permissionPolicy(chatId),
       emit: (event) => this.forward(chatId, entry, event),
     });
     this.sessions.set(chatId, entry);
@@ -217,6 +228,10 @@ class SessionManager {
     const entry = this.sessions.get(chatId);
     if (!entry || (provider && entry.provider !== provider) || entry.session.closed || (!entry.session.turnActive && !entry.activeChildren?.size)) return null;
     return { accountId: entry.accountId, command: entry.command, env: entry.env, harness: entry.harness, args: entry.args };
+  }
+
+  hasSession(chatId) {
+    return this.sessions.has(chatId);
   }
 
   isTurnActive(chatId) {

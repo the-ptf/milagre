@@ -57,8 +57,10 @@ function registration(value) {
 /**
  * The daemon owns registrations and event policy. Neither desktop nor a live phone connection is needed to deliver.
  * A Chat open in a focused desktop window (isChatFocused) is already being read, so no phone hears about it.
+ * A quiet Chat (isQuietChat: a bot's thread, or a Chat a bot opened) never announces its completion; its approvals and
+ * questions still reach the phone.
  */
-function createMobilePush({ dataDir, send, context, isChatFocused = () => false, now = Date.now, onError = () => {} }) {
+function createMobilePush({ dataDir, send, context, isChatFocused = () => false, isQuietChat = () => false, now = Date.now, onError = () => {} }) {
   const file = path.join(dataDir, "mobile-push.json");
   let devices = new Map();
   const focus = new Map();
@@ -99,7 +101,7 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
     return !closed && devices.get(device.deviceId) === device && !(view?.chatId === chatId && view.until > now()) && !isChatFocused(chatId);
   }
   function deliver(chatId, run, event, requestId) {
-    if (!devices.size) return;
+    if (!devices.size || (!requestId && isQuietChat(chatId))) return;
     const version = epoch;
     const eventId = randomUUID();
     const task = (async () => {

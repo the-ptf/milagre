@@ -119,6 +119,8 @@ class AcpSession {
     mcpExtras = null,
     clientVersion = "0.0.0",
     interruptGraceMs = 3000,
+    // Bot rules only: the bot's answer to each permission request (see PendingPermissions).
+    permissionPolicy,
     config = antigravityAcp,
     createRpc = (options) => new AcpRpc(options),
   }) {
@@ -138,6 +140,7 @@ class AcpSession {
       mcpExtras,
       clientVersion,
       interruptGraceMs,
+      permissionPolicy,
       config,
       createRpc,
     });
@@ -168,7 +171,7 @@ class AcpSession {
         forward: (update) => this.mapUpdate(update),
         turnActive: () => this.turnActive && !this.cancelRequested,
       }) ?? null;
-    this.permissions = new PendingPermissions((event) => this.emit(event));
+    this.permissions = new PendingPermissions((event) => this.emit(event), { policy: permissionPolicy });
     this.questions = new PendingQuestions((event) => this.emit(event));
   }
 

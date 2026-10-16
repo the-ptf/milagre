@@ -150,6 +150,26 @@ const scripts = {
     };
     yield success;
   },
+  // Claude Code runs the PreToolUse hook, then asks canUseTool with the tool's display name.
+  async *sendsMessage({ options, signal }) {
+    yield init;
+    const input = { channel: "#ops", text: "Merged." };
+    await options.hooks.PreToolUse[0].hooks[0](
+      { hook_event_name: "PreToolUse", tool_name: "mcp__slack__send_message", tool_input: input, tool_use_id: "tool-m" },
+      "tool-m",
+      {
+        signal,
+      },
+    );
+    const result = await options.canUseTool("mcp__slack__send_message", input, {
+      signal,
+      requestId: "req-m",
+      toolUseID: "tool-m",
+      displayName: "Send Message",
+    });
+    yield delta(JSON.stringify(result));
+    yield success;
+  },
   async *sdkAbortsAlready({ options }) {
     yield init;
     const controller = new AbortController();
@@ -223,7 +243,10 @@ function fakeSdk(script) {
   return { calls, loadSdk: async () => ({ query }) };
 }
 
-function claude(t, { script = scripts.reply, resumeId, tldrEnabled, designsEnabled, analysisOnly, command = "/usr/local/bin/claude", interruptGraceMs } = {}) {
+function claude(
+  t,
+  { script = scripts.reply, resumeId, tldrEnabled, designsEnabled, analysisOnly, command = "/usr/local/bin/claude", interruptGraceMs, permissionPolicy } = {},
+) {
   const sdk = fakeSdk(script);
   const events = [];
   const session = new ClaudeSession({
@@ -236,6 +259,7 @@ function claude(t, { script = scripts.reply, resumeId, tldrEnabled, designsEnabl
     emit: (event) => events.push(event),
     loadSdk: sdk.loadSdk,
     interruptGraceMs,
+    permissionPolicy,
   });
   t.after(() => session.close());
   return { session, events, calls: sdk.calls };
@@ -558,6 +582,13 @@ test("Ask mode lets Claude Code check with the user", async (t) => {
   assert.equal(calls.options.permissionMode, "default");
 });
 
+test("bot mode runs Claude in default mode", async (t) => {
+  const { session, events, calls } = claude(t);
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  assert.equal(calls.options.permissionMode, "default");
+});
+
 test("asks before a tool runs and passes the answer back", async (t) => {
   const { session, events } = claude(t, { script: scripts.asks });
   await session.startTurn({ ...TURN, permissionMode: "ask" });
@@ -585,6 +616,37 @@ test("asks before a tool runs and passes the answer back", async (t) => {
     events.find((event) => event.type === "permission-resolved"),
     { type: "permission-resolved", requestId: "req-1", decision: "allow" },
   );
+});
+
+test("canUseTool in bot mode resolves allow when the policy allows", async (t) => {
+  const seen = [];
+  const { session, events } = claude(t, {
+    script: scripts.asks,
+    permissionPolicy: (request) => {
+      seen.push(request);
+      return "allow";
+    },
+  });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  const answer = JSON.parse(replyText(events));
+  assert.equal(answer.behavior, "allow");
+  assert.equal(seen[0].tool, "Write");
+  assert.equal(
+    events.some((event) => event.type === "permission-request"),
+    false,
+  );
+});
+
+test("canUseTool in bot mode shows a gate card when the policy gates", async (t) => {
+  const gate = { kind: "delete", title: "Delete: hello.txt" };
+  const { session, events } = claude(t, { script: scripts.asks, permissionPolicy: () => ({ gate }) });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await asked(events);
+  assert.deepEqual(events.find((event) => event.type === "permission-request").gate, gate);
+  session.respondToPermission("req-1", "deny");
+  await ended(events);
+  assert.equal(JSON.parse(replyText(events)).behavior, "deny");
 });
 
 test("switching to Full mid-turn reaches Claude Code and approves the waiting card", async (t) => {
@@ -1219,4 +1281,147 @@ test("Claude's subagents are told to keep a to-do list as they start, and to des
   }
   assert.match(SUBAGENT_DESIGN_INSTRUCTIONS, /design_show.*Never write HTML or image files/s);
   assert.match(SUBAGENT_PLAN_INSTRUCTIONS, /TodoWrite.*Never use the milagre tasks_set/s);
+});
+
+const mergePolicy = (request) => (request.command?.startsWith("gh pr merge") ? { gate: { kind: "merge", title: "Merge PR #1" } } : "allow");
+
+test("bot mode adds a PreToolUse hook that asks for gated tools", async (t) => {
+  const { session, events, calls } = claude(t, { permissionPolicy: mergePolicy });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  const hook = calls.options.hooks.PreToolUse[0].hooks[0];
+  const signal = new AbortController().signal;
+  assert.deepEqual(
+    await hook({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr merge 1" }, tool_use_id: "t1" }, "t1", { signal }),
+    {
+      hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: "Merge PR #1" },
+    },
+  );
+  assert.deepEqual(await hook({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" }, tool_use_id: "t2" }, "t2", { signal }), {});
+});
+
+test("the gate hook denies what the policy denies, asks when the policy fails, and stands down outside Bot rules", async (t) => {
+  let verdict = () => "deny";
+  const { session, events, calls } = claude(t, { permissionPolicy: (request) => verdict(request) });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  const hook = calls.options.hooks.PreToolUse[0].hooks[0];
+  const input = { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" }, tool_use_id: "t3" };
+  assert.equal((await hook(input, "t3")).hookSpecificOutput.permissionDecision, "deny");
+  verdict = () => {
+    throw new Error("broken");
+  };
+  assert.equal((await hook(input, "t3")).hookSpecificOutput.permissionDecision, "ask");
+  // The user took the Chat over: Bot rules no longer applies, and neither does the bot's policy.
+  await session.setPermissionMode("ask");
+  assert.deepEqual(await hook(input, "t3"), {});
+});
+
+test("the gate hook hands the policy the same request canUseTool would", async (t) => {
+  const seen = [];
+  const { session, events, calls } = claude(t, {
+    permissionPolicy: (request) => {
+      seen.push(request);
+      return "allow";
+    },
+  });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  await calls.options.hooks.PreToolUse[0].hooks[0](
+    { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "npm test" }, tool_use_id: "t4" },
+    "t4",
+  );
+  assert.deepEqual(seen, [
+    { requestId: "t4", kind: "command", tool: "Bash", title: "Run this command?", command: "npm test", allowForChat: false, stepId: "t4" },
+  ]);
+});
+
+test("an MCP tool shown by its display name still gates on its own name", async (t) => {
+  const { matchGate } = require("../bots/gates.cjs");
+  const seen = [];
+  const policy = (request) => {
+    seen.push(request);
+    const gate = matchGate(request);
+    return gate ? { gate } : "allow";
+  };
+  const { session, events } = claude(t, { script: scripts.sendsMessage, permissionPolicy: policy });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await asked(events);
+  const request = events.find((event) => event.type === "permission-request");
+  assert.equal(request.tool, "Send Message");
+  assert.equal(request.toolName, "mcp__slack__send_message");
+  assert.equal(request.gate.kind, "post");
+  session.respondToPermission("req-m", "deny");
+  await ended(events);
+  assert.equal(JSON.parse(replyText(events)).behavior, "deny");
+});
+
+test("canUseTool never lets through what the PreToolUse hook asked about", async (t) => {
+  const gate = { kind: "post", title: "Post as you: mcp__slack__send_message" };
+  // A policy that sees the gate in the hook and misses it in canUseTool.
+  const { session, events } = claude(t, {
+    script: scripts.sendsMessage,
+    permissionPolicy: (request) => (request.tool === "Send Message" ? "allow" : { gate }),
+  });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await asked(events);
+  assert.deepEqual(events.find((event) => event.type === "permission-request").gate, gate);
+  session.respondToPermission("req-m", "allow");
+  await ended(events);
+  assert.equal(JSON.parse(replyText(events)).behavior, "allow");
+});
+
+test("other modes have no PreToolUse hook", async (t) => {
+  for (const permissionMode of ["ask", "auto", "full"]) {
+    const { session, events, calls } = claude(t, { permissionPolicy: mergePolicy });
+    await session.startTurn({ ...TURN, permissionMode });
+    await ended(events);
+    assert.equal(calls.options.hooks?.PreToolUse, undefined, permissionMode);
+  }
+  // Bot rules without a policy has nothing to gate with.
+  const { session, events, calls } = claude(t);
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  assert.equal(calls.options.hooks?.PreToolUse, undefined);
+});
+
+test("analysis-only Claude gets no hooks at all, even in Bot rules", async (t) => {
+  const { session, events, calls } = claude(t, { analysisOnly: true, permissionPolicy: mergePolicy });
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  assert.equal("hooks" in calls.options, false);
+});
+
+test("the design SubagentStart hook and the gate hook coexist", async (t) => {
+  const { SUBAGENT_DESIGN_INSTRUCTIONS, SUBAGENT_PLAN_INSTRUCTIONS } = require("./events.cjs");
+  const design = { name: "design_show", description: "Show", input: {}, readOnly: false, run: async () => "" };
+  const sdk = fakeSdk(scripts.reply);
+  const loadSdk = async () => ({
+    ...(await sdk.loadSdk()),
+    tool: (name, description, input, handler, extras) => ({ name, description, input, handler, extras }),
+    createSdkMcpServer: (options) => ({ type: "sdk", name: options.name, instance: {} }),
+  });
+  const events = [];
+  const session = new ClaudeSession({
+    cwd: "/repo",
+    command: "/usr/local/bin/claude",
+    designsEnabled: true,
+    linked: { tools: [design] },
+    permissionPolicy: mergePolicy,
+    emit: (event) => events.push(event),
+    loadSdk,
+  });
+  t.after(() => session.close());
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  const { hooks } = sdk.calls.options;
+  assert.equal(
+    (await hooks.SubagentStart[0].hooks[0]()).hookSpecificOutput.additionalContext,
+    `${SUBAGENT_PLAN_INSTRUCTIONS}\n\n${SUBAGENT_DESIGN_INSTRUCTIONS}`,
+  );
+  assert.equal(
+    (await hooks.PreToolUse[0].hooks[0]({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr merge 1" } }, "t5"))
+      .hookSpecificOutput.permissionDecision,
+    "ask",
+  );
 });

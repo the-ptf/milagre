@@ -39,7 +39,9 @@ const { PendingQuestions, codexQuestionRequest, codexQuestionResponse } = requir
 const THREAD_CONFIG = { features: { default_mode_request_user_input: true } };
 
 // Milagre permission mode -> Codex policy. Ask asks before any command Codex doesn't already trust,
-// Auto only when Codex wants to go beyond the workspace sandbox, and Full never asks.
+// Auto only when Codex wants to go beyond the workspace sandbox, and Full never asks. Bot rules asks
+// like Ask, so every untrusted command reaches the bot's policy (under on-request a sandboxed
+// `gh pr merge` would run unasked), with network on because a bot's work needs it.
 function codexPolicy(permissionMode, cwd, workspaceRoots = []) {
   if (permissionMode === "full") return { approvalPolicy: "never", sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" } };
   return {
@@ -48,7 +50,7 @@ function codexPolicy(permissionMode, cwd, workspaceRoots = []) {
     sandboxPolicy: {
       type: "workspaceWrite",
       writableRoots: [...new Set([cwd, ...workspaceRoots])],
-      networkAccess: false,
+      networkAccess: permissionMode === "bot",
       excludeTmpdirEnvVar: false,
       excludeSlashTmp: false,
     },
@@ -147,6 +149,8 @@ class CodexSession {
     mcpExtras = null,
     clientVersion = "0.0.0",
     interruptGraceMs = 3000,
+    // Bot rules only: the bot's answer to each permission request (see PendingPermissions).
+    permissionPolicy,
     createRpc = (options) => new CodexRpc(options),
   }) {
     Object.assign(this, {
@@ -164,6 +168,7 @@ class CodexSession {
       mcpExtras,
       clientVersion,
       interruptGraceMs,
+      permissionPolicy,
       createRpc,
     });
     // steps: ids of the tool steps started in this turn and not yet completed.
@@ -179,7 +184,7 @@ class CodexSession {
     this.turnEnded = Promise.resolve();
     this.ready = false;
     this.closed = false;
-    this.permissions = new PendingPermissions((event) => this.emit(event));
+    this.permissions = new PendingPermissions((event) => this.emit(event), { policy: permissionPolicy });
     this.questions = new PendingQuestions((event) => this.emit(event));
     // fileChange items by id, from item/started: their approval requests carry no diff of their own.
     this.fileChanges = new Map();

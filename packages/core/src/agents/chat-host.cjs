@@ -160,6 +160,12 @@ class ChatHost {
     return settings;
   }
 
+  /** A Chat a bot no longer runs: the turns it starts again (a resume, a continue after a limit) ask the user instead of running in Bot rules. */
+  leaveBotRules(chatId) {
+    const turn = this.turns.get(chatId);
+    if (turn?.permissionMode === "bot") this.turns.set(chatId, { ...turn, permissionMode: "ask" });
+  }
+
   /** A worktree's chat with no messages yet, made when it has none: where a message Milagre sends opens a new chat. Resolves with its id. */
   async emptyChat(projectPath, worktreeId, { operationId, assertActive } = {}) {
     let sessionId;
@@ -809,9 +815,14 @@ class ChatHost {
    */
   async resumeInterrupted(projectPath, state) {
     for (const session of Object.values(state.sessions)) {
-      if (!session.resumeTurn || this.now() - (session.resumeTurn.stoppedAt ?? 0) > RESUME_WINDOW_MS) continue;
+      if (!this.willResume(session)) continue;
       await this.resumeChat(projectPath, session.id).catch((error) => console.warn(`Milagre couldn't resume a chat in ${projectPath}:`, error.message));
     }
+  }
+
+  /** Whether the saved chat `session` has a turn a quit stopped that continues when its project opens. */
+  willResume(session) {
+    return Boolean(session?.resumeTurn) && this.now() - (session.resumeTurn.stoppedAt ?? 0) <= RESUME_WINDOW_MS;
   }
 
   /** Continues one chat a quit stopped, on the turn's saved options. Resolves false when it has nothing to continue. */

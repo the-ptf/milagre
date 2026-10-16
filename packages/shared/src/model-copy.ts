@@ -6,6 +6,9 @@ export const PERMISSION_MODES: Array<{ id: PermissionMode; name: string; descrip
   { id: "full", name: "Full permission", description: "Remove filesystem and network limits" },
 ];
 
+/** The composer chip's word for each mode. Bot rules is only ever set by a bot, so the picker above never offers it. */
+export const PERMISSION_MODE_LABEL: Record<PermissionMode, string> = { ask: "Ask", auto: "Auto", full: "Full", bot: "Bot rules" };
+
 export const EFFORT_COPY: Record<string, { name: string; description: string }> = {
   minimal: { name: "Minimal", description: "Fastest replies with little reasoning" },
   low: { name: "Low", description: "Quick answers for small, clear tasks" },

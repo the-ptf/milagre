@@ -1,6 +1,8 @@
+import type { GateMeta } from "./bots.mjs";
+
 export type SessionStatus = "Created" | "Running" | "Stopped";
 export type ModelProvider = "codex" | "claude" | "antigravity";
-export type PermissionMode = "ask" | "auto" | "full";
+export type PermissionMode = "ask" | "auto" | "full" | "bot";
 /** Where a new chat runs: the selected checkout, or a fresh git worktree. */
 export type Isolation = "local" | "worktree";
 
@@ -305,6 +307,16 @@ export type WorktreeLinkedContext = {
 /** Where the user reloaded the Chat's agent: its process ended, and the next turn resumes the session in a new one. */
 export type ChatReloadContext = { kind: "reload" };
 
+/**
+ * What Milagre writes into a bot's thread (packages/core/src/bots): a sign-off that expired, a Chat the bot opened that
+ * finished a turn or that the user took over. `bot-message` marks a prompt a bot sent into a Chat it opened.
+ */
+export type BotContext =
+  | { kind: "bot-gate-expired"; requestId: string; chatKey: string }
+  | { kind: "bot-chat-finished"; chatKey: string; status: "done" | "failed" }
+  | { kind: "bot-chat-taken-over"; chatKey: string }
+  | { kind: "bot-message"; botId: string; botName: string };
+
 export type ChatContext =
   | AdvisorResultContext
   | WorktreeLinkedContext
@@ -317,6 +329,7 @@ export type ChatContext =
   | UsageLimitContext
   | AccountSwitchContext
   | ChatReloadContext
+  | BotContext
   | "handover"
   | null;
 
@@ -428,6 +441,8 @@ export interface PermissionRequest {
   kind: "command" | "edit" | "other" | "delegation";
   /** Short name of the tool, e.g. "Bash", "Shell" or "Edit files". */
   tool: string;
+  /** The agent's own name for the tool, when `tool` shows another (Claude's MCP tools: "Send Message"). */
+  toolName?: string;
   title: string;
   description?: string;
   command?: string;
@@ -444,6 +459,8 @@ export interface PermissionRequest {
   stepId?: string;
   /** On a Delegation's card: where it goes ("Project / branch / Chat"), what it says, and whether it opens a Negotiation. */
   delegation?: { target: string; message: string; negotiation: boolean };
+  /** On a bot's sign-off card: the gated action and the bot that wants it. */
+  gate?: GateMeta;
 }
 
 export type PermissionDecision = "allow" | "allow-for-chat" | "deny";

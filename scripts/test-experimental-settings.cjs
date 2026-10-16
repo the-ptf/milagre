@@ -18,6 +18,7 @@ window.played = [];
 HTMLMediaElement.prototype.play = function () { window.played.push(this.src.split('/').pop().split('?')[0]); return Promise.resolve(); };
 window.savedShare = { id: "orphan", url: "https://share.milagre.cloud/s/orphan", title: "Deleted Chat page", createdAt: 1780000000000, designCount: 2 };
 window.shareCalls = [];
+window.botsSaves = [];
 window.milagre = {
   listEditors: async () => [],
   listRecentProjects: async () => [],
@@ -25,6 +26,11 @@ window.milagre = {
   readDesignsEnabled: async () => ({ enabled: true }),
   saveDesignsEnabled: async (enabled) => ({ enabled }),
   onDesignsEnabledChanged: () => () => {},
+  readBotsEnabled: async () => ({ enabled: false }),
+  saveBotsEnabled: async (enabled) => { window.botsSaves.push(enabled); return { enabled }; },
+  onBotsEnabledChanged: () => () => {},
+  listBots: async () => ({ enabled: false, bots: [], gates: [], grants: [], chats: [] }),
+  onBotsChanged: () => () => {},
   artifacts: {
     allPageShares: async () => { window.shareCalls.push(["all"]); return [window.savedShare]; },
     revokeSavedPageShare: async ({ id }) => { window.shareCalls.push(["revoke", id]); window.savedShare = { ...window.savedShare, revoked: true }; },
@@ -107,6 +113,24 @@ async function browserChecks() {
     await waitFor(`!${shareDialog}`);
     await evaluate(`${designsSetting}.querySelector('[role="switch"][aria-label="Designs"]').click()`);
     await waitFor(`${designsSetting}.textContent.includes("Published pages")`);
+    const botsSwitch = 'document.querySelector("[data-slot=bots-setting] [role=switch][aria-label=Bots]")';
+    await waitFor(`${botsSwitch} && !${botsSwitch}.disabled`);
+    assert.equal(
+      await evaluate(`[...document.querySelectorAll("h2, h3")].find((h) => h.textContent.trim() === "Beta")?.parentElement.contains(${botsSwitch})`),
+      true,
+      "Bots sits in the Beta group",
+    );
+    assert.equal(await evaluate(`${botsSwitch}.getAttribute("aria-checked")`), "false", "Bots is off by default");
+    assert.equal(
+      await evaluate(
+        'document.querySelector("[data-slot=bots-setting]").textContent.includes("Named bots that work for you and ask before anything irreversible.")',
+      ),
+      true,
+    );
+    await evaluate(`${botsSwitch}.click()`);
+    await waitFor(`${botsSwitch}.getAttribute("aria-checked") === "true"`);
+    assert.deepEqual(await evaluate("window.botsSaves"), [true]);
+    await screenshot("bots-on");
     await evaluate(`${toggle}.click()`);
     await waitFor(`document.querySelector('[data-legacy-sidebar]').dataset.legacySidebar === 'true'`);
     await screenshot("on");
@@ -146,7 +170,7 @@ async function browserChecks() {
     assert.match(await evaluate("window.played[2]"), /^chime_bombastic_side_eye/);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Settings lists an Experimental section whose switch turns the every-Project sidebar on and off, off by default, with no Murilo mode; Other computers is off by default and tells main each time it flips; the notification chime starts on the system sound, and picking one saves and plays it",
+      "PASS: Settings lists an Experimental section with a Bots switch, off by default, that saves on the host, and a switch that turns the every-Project sidebar on and off, off by default, with no Murilo mode; Other computers is off by default and tells main each time it flips; the notification chime starts on the system sound, and picking one saves and plays it",
     );
     app.exit(0);
   } catch (error) {

@@ -127,6 +127,13 @@ import { TerminalPanel } from "./components/terminal/TerminalPanel";
 import { busyTerminals, newTerminal, useTerminalSync } from "./lib/terminal-actions";
 import { playNotificationChime } from "./lib/notification-chime";
 import type { ChatRowActions, SidebarRecent } from "./components/sidebar/ChatRow";
+import { shouldNotifyCompletion, useBots } from "./lib/bots-store";
+import type { SidebarMode } from "./components/bots/SidebarModeSwitch";
+import { BotThread } from "./components/bots/BotThread";
+import { BotProfilePanel } from "./components/bots/BotProfilePanel";
+import { BotProfileSlot } from "./components/bots/BotProfileSlot";
+
+const SIDEBAR_MODE_KEY = "milagre.sidebarMode";
 
 // Not on screen at first paint, so each loads as its own chunk; the effect in App fetches them once the window is idle.
 const DiffView = lazyView(() => import("./components/changes/DiffView").then((module) => module.DiffView));
@@ -316,6 +323,37 @@ function App() {
   };
   const selectedCapability = capabilityFor(selectedModel, capabilities);
   const [view, setView] = useState<"chat" | "canvas" | "settings">("chat");
+  const bots = useBots();
+  const botsRef = useRef(bots.snapshot);
+  botsRef.current = bots.snapshot;
+  // Projects | Bots in the sidebar. Bots off (Settings › Experimental), the sidebar is back on Projects.
+  const [storedSidebarMode, setStoredSidebarMode] = useState<SidebarMode>(() => (localStorage.getItem(SIDEBAR_MODE_KEY) === "bots" ? "bots" : "projects"));
+  const sidebarMode: SidebarMode = bots.enabled ? storedSidebarMode : "projects";
+  const setSidebarMode = (mode: SidebarMode) => {
+    if (mode === "bots") changes.closeDiff();
+    setStoredSidebarMode(mode);
+    localStorage.setItem(SIDEBAR_MODE_KEY, mode);
+  };
+  // Opening a Project's Chat any other way (a notification, ⌘N, the palette) shows it, not the bot thread over it.
+  const leaveBots = () => {
+    if (storedSidebarMode === "bots") setSidebarMode("projects");
+  };
+  // Only a successful read that says Bots are off resets the sidebar: a daemon still starting keeps it on Bots.
+  useEffect(() => {
+    if (bots.ready && !bots.error && !bots.enabled && storedSidebarMode === "bots") setSidebarMode("projects");
+  }, [bots.ready, bots.error, bots.enabled, storedSidebarMode]);
+  const [pickedBotId, setSelectedBotId] = useState<string | null>(null);
+  // The bot picked last, or the first one while that one is gone.
+  const selectedBotId = bots.snapshot?.bots.some((bot) => bot.id === pickedBotId) ? pickedBotId : (bots.snapshot?.bots[0]?.id ?? null);
+  const selectedBot = bots.snapshot?.bots.find((bot) => bot.id === selectedBotId);
+  const botsShown = view === "chat" && sidebarMode === "bots";
+  const [botProfileOpen, setBotProfileOpen] = useState(true);
+  // "Open Chat" on a bot's card: back to Projects, in that Chat.
+  const openChatKey = (key: string) => {
+    setSidebarMode("projects");
+    setView("chat");
+    openChatByKey(key);
+  };
   const [layout, setLayout] = useState<ChatLayout>(() => readChatLayout(localStorage));
   const toggleLayout = () =>
     setLayout((current) => {
@@ -1115,7 +1153,7 @@ function App() {
   }, [notificationChime]);
   useEffect(() => window.milagre.onPlayChime?.(playNotificationChime), []);
 
-  // A turn that ends in the open project while Milagre is in the background gets a completion alert.
+  // A turn that ends in the open project while Milagre is in the background gets a completion alert, unless a bot runs it.
   useEffect(
     () =>
       onAnyAgentEvent(({ chatId, event }) => {
@@ -1134,7 +1172,12 @@ function App() {
         if (link && chatInProject(scopeKey({ kind: "link", linkId: link.link.id }), chatId)) {
           const latest = linkStatesRef.current[link.link.id] ?? link.state;
           const session = latest.sessions[sessionIdFromKey(chatId)];
-          if (session && !session.archived && (event.type === "turn-completed" || event.type === "turn-failed"))
+          if (
+            session &&
+            !session.archived &&
+            (event.type === "turn-completed" || event.type === "turn-failed") &&
+            shouldNotifyCompletion(botsRef.current, chatId)
+          )
             void window.milagre
               .notifyCompletion({
                 chatId,
@@ -1151,7 +1194,7 @@ function App() {
         if (!current || !latest || !chatInProject(current.path, chatId)) return;
         const session = latest.sessions[sessionIdFromKey(chatId)];
         if (!session || session.archived) return;
-        if (event.type === "turn-completed" || event.type === "turn-failed") {
+        if ((event.type === "turn-completed" || event.type === "turn-failed") && shouldNotifyCompletion(botsRef.current, chatId)) {
           void window.milagre
             .notifyCompletion({
               chatId,
@@ -1187,6 +1230,7 @@ function App() {
   const pendingNotificationChat = useRef<string | null>(null);
   // Opens a chat by its key, in another project too: a notification's, or the one the attention button points at.
   const openChatByKey = useEvent((chatId: string) => {
+    leaveBots();
     const owner = projectOfKey(chatId);
     if (isLinkScopeKey(owner)) {
       // oxlint-disable-next-line react/immutability -- React Compiler heuristic: the ref or handler is assigned or called after render, not during it
@@ -1218,6 +1262,7 @@ function App() {
   );
 
   function startNewChat(draftText = "") {
+    leaveBots();
     advanceChatView();
     const latest = openState();
     if (latest && projectRef.current) restoreProjectChoices(latest, projectRef.current.path);
@@ -1637,6 +1682,7 @@ function App() {
     openFind(pending.term);
   }, [selectedSession?.id, view, messages.length]);
   function openMessage(sessionId: number, term: string) {
+    leaveBots();
     if (view === "chat" && selectedSession?.id === sessionId) {
       openFind(term);
       return;
@@ -1787,6 +1833,7 @@ function App() {
   const switchProjectFromSidebar = useEvent((path: string) => void switchProject(path));
   // "+" on another Project's header switches to it (from its last copy, so at once) and starts a chat there.
   const newChatInScope = useEvent((key: string) => {
+    leaveBots();
     if (isLinkScopeKey(key)) {
       void selectLink(key.slice("milagre-link:".length));
       return;
@@ -2276,12 +2323,12 @@ function App() {
             </div>
           )}
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
-          {changesAvailable && <ChangesToggle open={changes.open} onToggle={changes.toggle} />}
-          <PanelToggles right={changesAvailable ? 12 + CORNER_PITCH : 12} />
-          {view === "chat" && (
+          {changesAvailable && !botsShown && <ChangesToggle open={changes.open} onToggle={changes.toggle} />}
+          {!botsShown && <PanelToggles right={changesAvailable ? 12 + CORNER_PITCH : 12} />}
+          {view === "chat" && !botsShown && (
             <LayoutToggle grid={layout === "grid"} offset={(changesAvailable ? 1 : 0) + sidePanelCount(sidePanels)} onToggle={toggleLayout} />
           )}
-          {showAttentionButton && !floatingInbox && attentionChats[0] && (
+          {showAttentionButton && !floatingInbox && !botsShown && attentionChats[0] && (
             <AttentionButton
               label={attentionLabel(attentionPaths.map(projectName))}
               items={attentionTitles.map((item) => ({
@@ -2339,6 +2386,12 @@ function App() {
                 askingKeys={sidebarRunKeys.asking}
                 onOpenScopeChat={openScopeChat}
                 onAskChat={askLinkedChat}
+                sidebarMode={sidebarMode}
+                onSidebarMode={setSidebarMode}
+                selectedBotId={selectedBotId}
+                onPickBot={setSelectedBotId}
+                models={models}
+                defaultModel={selectedModel}
               />
             </div>
             {view === "settings" && (
@@ -2402,7 +2455,7 @@ function App() {
               {/* Fades back in when the diff has gone: a display:none element restarts its animation when shown. */}
               <div
                 data-chat-pane
-                className={`min-h-0 flex-1 flex-col overflow-hidden ${view === "chat" && !diffPresence.occupied ? "flex" : "hidden"}`}
+                className={`min-h-0 flex-1 flex-col overflow-hidden ${view === "chat" && !botsShown && !diffPresence.occupied ? "flex" : "hidden"}`}
                 style={{ animation: "fade-in 160ms ease-out" }}
               >
                 {awayBanner && (
@@ -2562,8 +2615,23 @@ function App() {
                 </ChatGrid>
                 <TerminalPanel chatId={terminalChatId} notify={setNotice} />
               </div>
+              {botsShown && selectedBot && bots.snapshot && (
+                <BotThread
+                  key={selectedBot.id}
+                  bot={selectedBot}
+                  snapshot={bots.snapshot}
+                  agents={agentRuns}
+                  preferences={{ models, cliStatus, onModelPickerOpen: refreshCliStatus, onUpdateCli: handleUpdateCli, updatingCli }}
+                  onOpenChat={openChatKey}
+                  profileOpen={botProfileOpen}
+                  onToggleProfile={() => setBotProfileOpen((open) => !open)}
+                />
+              )}
             </main>
-            <ChangesPanelSlot open={changes.open}>
+            <BotProfileSlot open={botsShown && botProfileOpen && Boolean(selectedBot)}>
+              {selectedBot && bots.snapshot && <BotProfilePanel key={selectedBot.id} bot={selectedBot} snapshot={bots.snapshot} onOpenChat={openChatKey} />}
+            </BotProfileSlot>
+            <ChangesPanelSlot open={changes.open && !botsShown}>
               <ChangesPanel
                 list={changes.list}
                 mode={changes.mode}

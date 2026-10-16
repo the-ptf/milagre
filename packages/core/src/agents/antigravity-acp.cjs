@@ -13,8 +13,8 @@ const { ANTIGRAVITY_AGENT_OPTIONS, antigravityFamilies, resolveAntigravityModel 
 // browser on the agent's own; the account's own GEMINI_HOME is set again after the scrub.
 const SCRUBBED_ENV = AMBIENT_ENV;
 
-// Milagre permission mode -> the agent's session mode.
-const MODES = { ask: "default", auto: "auto_edit", full: "yolo" };
+// Milagre permission mode -> the agent's session mode. Bot rules asks like Ask; the bot's policy answers.
+const MODES = { ask: "default", auto: "auto_edit", full: "yolo", bot: "default" };
 
 // The agent's environment: the account's (or the process's) environment without ambient Google
 // credentials, with the account's profile, file token storage (profiles never share a keychain entry)

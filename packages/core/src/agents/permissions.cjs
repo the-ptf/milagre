@@ -3,7 +3,7 @@ const { PLAN_TOOL_NAMES } = require("../chat-plan-tools.cjs");
 
 // Approval requests from both agents, in the shape of the `permission-request` event, and the
 // replies each agent expects for the user's answer. A request is
-//   { requestId, kind: "command"|"edit"|"other", tool, title, description?, command?, cwd?,
+//   { requestId, kind: "command"|"edit"|"other", tool, toolName?, title, description?, command?, cwd?,
 //     diff?, files?, detail?, reason?, allowForChat, stepId? }
 // where stepId names the tool step (see steps.cjs) the request is about,
 // and a decision is "allow" | "allow-for-chat" | "deny", or "cancelled" when the turn stops first.
@@ -38,11 +38,13 @@ function claudeEditDiff(toolName, input) {
   return capText(prefixLines(input.new_source, "+"));
 }
 
-// canUseTool(toolName, input, options) -> request. The SDK's own title, displayName and description win.
+// canUseTool(toolName, input, options) -> request. The SDK's own title, displayName and description win; `toolName`
+// keeps the tool's own name when the card shows another, for what matches on it (bots/gates.cjs).
 function claudeRequest(toolName, input, options = {}) {
   const base = {
     requestId: String(options.requestId ?? options.toolUseID),
     tool: options.displayName || toolName,
+    toolName: options.displayName && options.displayName !== toolName ? toolName : undefined,
     description: options.description || undefined,
     reason: options.decisionReason || (options.blockedPath ? `Reaches outside this chat's folder: ${options.blockedPath}` : undefined),
     allowForChat: Boolean(options.suggestions?.length) && !options.suppressAlwaysAllowRule,
@@ -199,8 +201,8 @@ function codexDecision(decision) {
   return CODEX_DECISIONS[decision] ?? "decline";
 }
 
-// Milagre permission modes the user can switch a running turn to.
-const PERMISSION_MODES = new Set(["ask", "auto", "full"]);
+// Milagre permission modes a running turn can switch to. Bot rules is set by a bot, never offered to the user.
+const PERMISSION_MODES = new Set(["ask", "auto", "full", "bot"]);
 
 // True when every path is inside root.
 function insideRoot(root, files) {
@@ -245,9 +247,14 @@ function insideWorkspace(roots, files, cwd = roots[0]) {
 // The mode follows the user's switch mid-turn. Full answers every request without a card. Switching
 // to Auto answers the waiting edits Auto wouldn't have asked about (`inWorkspace`); later ones are left
 // to the agent's own Auto rules, which still ask before anything leaves the worktree.
+// In Bot rules the bot's `policy(request)` answers first: "allow" or "deny" without a card, `{ gate }`
+// for a sign-off card that carries the gate, nothing (or a throw) for an ordinary card. `flagged` is what an
+// earlier check of the same tool call found (Claude's PreToolUse hook): `{ gate }`, or `{}` when it couldn't
+// tell. A flagged request is never allowed without a card.
 class PendingPermissions {
-  constructor(emit) {
+  constructor(emit, { policy } = {}) {
     this.emit = emit;
+    this.policy = policy;
     this.mode = "ask";
     // requestId -> { answer, allowForChat, inWorkspace }
     this.answers = new Map();
@@ -257,13 +264,34 @@ class PendingPermissions {
     return this.answers.size;
   }
 
-  add(request, answer, { inWorkspace = false } = {}) {
+  add(request, answer, { inWorkspace = false, flagged } = {}) {
     if (this.mode === "full") {
       answer("allow");
       return;
     }
-    this.answers.set(request.requestId, { answer, allowForChat: Boolean(request.allowForChat), inWorkspace: request.kind === "edit" && inWorkspace });
-    this.emit({ type: "permission-request", ...request });
+    let published = request;
+    if (this.mode === "bot" && this.policy) {
+      let verdict = this.decide(request);
+      if (flagged && verdict !== "deny" && !verdict?.gate) verdict = flagged.gate ? { gate: flagged.gate } : undefined;
+      if (verdict === "allow" || verdict === "deny") {
+        answer(verdict);
+        return;
+      }
+      // A sign-off is for this one action: "Always allow in this chat" would let the agent skip the gate next time.
+      if (verdict?.gate) published = { ...request, gate: verdict.gate, allowForChat: false };
+    }
+    this.answers.set(published.requestId, { answer, allowForChat: Boolean(published.allowForChat), inWorkspace: published.kind === "edit" && inWorkspace });
+    this.emit({ type: "permission-request", ...published });
+  }
+
+  // A policy that fails leaves the request to the user's card.
+  decide(request) {
+    try {
+      return this.policy(request);
+    } catch (error) {
+      console.warn("Bot permission policy failed:", error.message);
+      return undefined;
+    }
   }
 
   setMode(mode) {
