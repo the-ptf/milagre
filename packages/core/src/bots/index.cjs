@@ -55,6 +55,8 @@ function createBots({
   titleChat = async () => {},
   emit = () => {},
   now = Date.now,
+  // True once Milagre is quitting: what it would tell a bot then could only start a turn the quit cuts off.
+  closing = () => false,
   // Whose bots these are, as the instructions and the copy name them.
   owner = "Victor",
 }) {
@@ -226,10 +228,10 @@ function createBots({
   }
 
   // What Milagre tells a bot (a sign-off expired, a Chat finished) starts a turn in its thread, unless the bot can't
-  // take one now: paused, deleted, or Bots switched off.
+  // take one now: paused, deleted, Bots switched off, or Milagre quitting.
   async function notify(botId, body, context) {
     const bot = records.find((record) => record.id === botId);
-    if (!bot || bot.paused || !enabled()) return;
+    if (!bot || bot.paused || !enabled() || closing()) return;
     await deliver(bot, body, context).catch((error) => console.warn(`Milagre couldn't reach ${bot.name}:`, error.message));
   }
 
@@ -530,6 +532,8 @@ function createBots({
         return;
       }
       if (isTurnEnd(event)) {
+        // A turn a quit stopped continues when Milagre starts again (chats.resumeInterrupted): its Chat still runs.
+        if (event.type === "turn-cancelled" && event.quit) return;
         const chat = store.chat(chatKey);
         if (chat?.status === "running" && records.some((bot) => bot.id === chat.botId)) await chatFinished(chat, event);
         else if (records.some((bot) => threadKey(bot) === chatKey)) changed();

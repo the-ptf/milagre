@@ -22,7 +22,7 @@ const META = Object.freeze({
 
 // The service on a real store and home, with a fake Milagre MCP host (it records the Worktrees and Chats it makes),
 // fake agent sessions and fake Chats.
-async function harness(t) {
+async function harness(t, overrides = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-bots-chats-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const home = await createBotHome(path.join(dir, "bots"), "ops");
@@ -84,6 +84,7 @@ async function harness(t) {
     chatDetails: async () => ({ lastReply: "Fixed the flaky terminal-perf test; PR #475 is open.", pullRequests: ["https://github.com/o/r/pull/475"] }),
     titleChat: async (chatKey, title) => titles.push([chatKey, title]),
     now: () => NOW,
+    ...overrides,
   });
   t.after(() => bots.close());
   const open = (title = "Fix flaky terminal-perf test") => bots.chatOpen("ops", { project: PROJECT, title, prompt: "Fix it" });
@@ -148,6 +149,30 @@ test("when a Chat finishes, the bot thread gets a turn", async (t) => {
   assert.equal(store.chat(chatKey).status, "running");
   await bots.observe(chatKey, { type: "turn-failed" });
   assert.equal(store.chat(chatKey).status, "failed");
+});
+
+test("a quit leaves a bot Chat running, so it continues after the restart", async (t) => {
+  const { bots, store, chats, open } = await harness(t);
+  const { chatKey } = await open();
+  const sent = chats.sent.length;
+  await bots.observe(chatKey, { type: "turn-cancelled", quit: true });
+  assert.equal(store.chat(chatKey).status, "running");
+  assert.equal(chats.sent.length, sent);
+  // Stop is not a quit: the Chat was stopped, and the bot hears it.
+  await bots.observe(chatKey, { type: "turn-cancelled" });
+  assert.equal(store.chat(chatKey).status, "failed");
+  assert.match(chats.sent.at(-1).body, /^Chat was stopped:/);
+});
+
+test("nothing reaches a bot's thread while Milagre closes", async (t) => {
+  let closing = false;
+  const { bots, store, chats, open } = await harness(t, { closing: () => closing });
+  const { chatKey } = await open();
+  const sent = chats.sent.length;
+  closing = true;
+  await bots.observe(chatKey, { type: "turn-completed" });
+  assert.equal(store.chat(chatKey).status, "done");
+  assert.equal(chats.sent.length, sent);
 });
 
 test("chat_status reports the Chat and what it waits for", async (t) => {

@@ -1918,6 +1918,7 @@ function createRuntime(options) {
     chatDetails: botChatDetails,
     titleChat: (chatId, title) => editProject(projectOfKey(chatId), (state) => patchSession(state, sessionIdFromKey(chatId), { title }), { chats: [] }),
     emit,
+    closing: () => closing,
     owner: options.botOwner,
   });
   commands.handle("bots:enabled:read", () => ({ enabled: bots.enabled() }));
