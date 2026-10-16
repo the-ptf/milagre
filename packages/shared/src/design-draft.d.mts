@@ -1,5 +1,8 @@
 import type { DesignDocument } from "./design.mjs";
 
+/** The live design frame's script, which the desktop's CSP pins by hash. */
+export const DESIGN_LIVE_RECEIVER_SCRIPT: string;
+
 /** The start of a JSON text still being written: whole members and items, and the container being written, partial. */
 export function parsePartialJson(text: string): unknown;
 
