@@ -1,6 +1,8 @@
+import type { GateMeta } from "./bots.mjs";
+
 export type SessionStatus = "Created" | "Running" | "Stopped";
 export type ModelProvider = "codex" | "claude" | "antigravity";
-export type PermissionMode = "ask" | "auto" | "full";
+export type PermissionMode = "ask" | "auto" | "full" | "bot";
 /** Where a new chat runs: the selected checkout, or a fresh git worktree. */
 export type Isolation = "local" | "worktree";
 
@@ -444,6 +446,8 @@ export interface PermissionRequest {
   stepId?: string;
   /** On a Delegation's card: where it goes ("Project / branch / Chat"), what it says, and whether it opens a Negotiation. */
   delegation?: { target: string; message: string; negotiation: boolean };
+  /** On a bot's sign-off card: the gated action and the bot that wants it. */
+  gate?: GateMeta;
 }
 
 export type PermissionDecision = "allow" | "allow-for-chat" | "deny";

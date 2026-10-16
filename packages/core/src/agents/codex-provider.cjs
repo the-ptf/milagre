@@ -39,7 +39,9 @@ const { PendingQuestions, codexQuestionRequest, codexQuestionResponse } = requir
 const THREAD_CONFIG = { features: { default_mode_request_user_input: true } };
 
 // Milagre permission mode -> Codex policy. Ask asks before any command Codex doesn't already trust,
-// Auto only when Codex wants to go beyond the workspace sandbox, and Full never asks.
+// Auto only when Codex wants to go beyond the workspace sandbox, and Full never asks. Bot rules asks
+// like Ask, so every untrusted command reaches the bot's policy (under on-request a sandboxed
+// `gh pr merge` would run unasked), with network on because a bot's work needs it.
 function codexPolicy(permissionMode, cwd, workspaceRoots = []) {
   if (permissionMode === "full") return { approvalPolicy: "never", sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" } };
   return {
@@ -48,7 +50,7 @@ function codexPolicy(permissionMode, cwd, workspaceRoots = []) {
     sandboxPolicy: {
       type: "workspaceWrite",
       writableRoots: [...new Set([cwd, ...workspaceRoots])],
-      networkAccess: false,
+      networkAccess: permissionMode === "bot",
       excludeTmpdirEnvVar: false,
       excludeSlashTmp: false,
     },

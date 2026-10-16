@@ -199,8 +199,8 @@ function codexDecision(decision) {
   return CODEX_DECISIONS[decision] ?? "decline";
 }
 
-// Milagre permission modes the user can switch a running turn to.
-const PERMISSION_MODES = new Set(["ask", "auto", "full"]);
+// Milagre permission modes a running turn can switch to. Bot rules is set by a bot, never offered to the user.
+const PERMISSION_MODES = new Set(["ask", "auto", "full", "bot"]);
 
 // True when every path is inside root.
 function insideRoot(root, files) {

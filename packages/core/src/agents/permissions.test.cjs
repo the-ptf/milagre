@@ -3,6 +3,7 @@ const test = require("node:test");
 const {
   CANCELLED_MESSAGE,
   DENIED_MESSAGE,
+  PERMISSION_MODES,
   PendingPermissions,
   capText,
   claudeRequest,
@@ -181,6 +182,16 @@ test("in Full a request is answered without a card; in Auto the agent's own rule
   permissions.setMode("auto");
   add("edit", "edit");
   assert.equal(permissions.size, 1);
+});
+
+test("bot is a known mode and publishes a card when no policy answers", () => {
+  const { permissions, events, answers } = pending();
+  assert.equal(PERMISSION_MODES.has("bot"), true);
+  permissions.setMode("bot");
+  permissions.add({ requestId: "command", kind: "command", tool: "T", title: "Allow?", allowForChat: false }, (decision) => answers.push(decision));
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, "permission-request");
+  assert.deepEqual(answers, []);
 });
 
 test("insideRoot", () => {

@@ -22,8 +22,9 @@ const { advisorPolicy, ANALYSIS_INSTRUCTIONS } = require("./advisor-policy.cjs")
 const { toClaudeConfig } = require("../mcp/definitions.cjs");
 
 // Milagre permission mode -> Claude Code permission mode. In Ask (`default`) Claude Code checks with
-// the user, through canUseTool, before edits and commands its rules don't already allow.
-const CLAUDE_MODES = { ask: "default", auto: "acceptEdits", full: "bypassPermissions" };
+// the user, through canUseTool, before edits and commands its rules don't already allow. Bot rules runs
+// ask-style too; the bot's policy answers instead of the user.
+const CLAUDE_MODES = { ask: "default", auto: "acceptEdits", full: "bypassPermissions", bot: "default" };
 
 // Claude Code's built-in terse output style. Unlike text appended to the system prompt, which the SDK
 // records with a conversation and ignores on later turns and resumes, the style applies to new chats, to

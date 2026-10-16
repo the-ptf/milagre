@@ -626,6 +626,19 @@ test("a command still running when the turn is stopped gets no step-completed", 
   assert.equal(session.state.steps.size, 0);
 });
 
+test("bot mode asks for every command with network on", async (t) => {
+  const { session, events } = codex(t);
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  const messages = await received(session);
+  const find = (method) => messages.find((message) => message.method === method).params;
+  assert.equal(find("turn/start").approvalPolicy, "untrusted");
+  assert.equal(find("turn/start").sandboxPolicy.type, "workspaceWrite");
+  assert.equal(find("turn/start").sandboxPolicy.networkAccess, true);
+  assert.deepEqual(find("turn/start").sandboxPolicy.writableRoots, [os.tmpdir()]);
+  assert.equal(find("thread/start").sandbox, "workspace-write");
+});
+
 test("an unknown permission mode uses Ask's policy", async (t) => {
   const { session, events } = codex(t);
   await session.startTurn({ ...TURN, permissionMode: "something-else" });

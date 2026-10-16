@@ -6,7 +6,7 @@ const path = require("node:path");
 const { AcpRpc } = require("./acp-rpc.cjs");
 const { AcpSession } = require("./acp-session.cjs");
 const { acpDiff } = require("./acp-events.cjs");
-const { antigravityAcp, antigravityEnv, crashDetail } = require("./antigravity-acp.cjs");
+const { ANTIGRAVITY_MODES, antigravityAcp, antigravityEnv, crashDetail } = require("./antigravity-acp.cjs");
 const { MILAGRE_INSTRUCTIONS, RESUME_FAILED_MESSAGE, crashMessage, failedWith, isTerminal, loginMessage, missingCliMessage } = require("./events.cjs");
 const { waitUntil } = require("./test-helpers.cjs");
 
@@ -277,6 +277,10 @@ test("Auto answers a waiting edit inside the workspace when the mode switches", 
   assert.equal(replyText(events), "picked:allow");
   const modes = (await sent(session, "session/set_config_option")).filter((params) => params.configId === "mode").map((params) => params.value);
   assert.deepEqual(modes, ["auto_edit"]);
+});
+
+test("bot mode maps to Antigravity's default mode", () => {
+  assert.equal(ANTIGRAVITY_MODES.bot, "default");
 });
 
 test("acpDiff marks a new file as added lines", () => {

@@ -558,6 +558,13 @@ test("Ask mode lets Claude Code check with the user", async (t) => {
   assert.equal(calls.options.permissionMode, "default");
 });
 
+test("bot mode runs Claude in default mode", async (t) => {
+  const { session, events, calls } = claude(t);
+  await session.startTurn({ ...TURN, permissionMode: "bot" });
+  await ended(events);
+  assert.equal(calls.options.permissionMode, "default");
+});
+
 test("asks before a tool runs and passes the answer back", async (t) => {
   const { session, events } = claude(t, { script: scripts.asks });
   await session.startTurn({ ...TURN, permissionMode: "ask" });

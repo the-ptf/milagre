@@ -135,6 +135,10 @@
       "types": "./src/archive.d.mts",
       "default": "./src/archive.mjs"
     },
+    "./bots": {
+      "types": "./src/bots.d.mts",
+      "default": "./src/bots.mjs"
+    },
     "./attention": {
       "types": "./src/attention.d.mts",
       "default": "./src/attention.mjs"
