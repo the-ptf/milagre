@@ -1,12 +1,16 @@
 // Linear triggers: one poll per signed-in workspace that has an enabled Linear Routine, about every minute, whose changes
 // are matched against each of its Routines and queued through the scheduler (see global decision D4 of the Routines plan).
-const { POLL_ISSUES, POLL_COMMENTS } = require("../linear/issues.cjs");
+const { POLL_ISSUES, POLL_COMMENTS, ISSUE_HISTORY } = require("../linear/issues.cjs");
 
 const POLL_MS = 60_000;
 const MAX_DELAY_MS = 15 * 60_000;
 // Each query reaches back this far behind the cursor; the store's per-Routine dedupe drops what was already seen.
 const OVERLAP_MS = 5_000;
 const MAX_PAGES = 5;
+// However long polling was off (the switch, a pause, a sleeping Mac), a poll never reaches back further than this.
+const MAX_BACKFILL_MS = 24 * 60 * 60_000;
+// A comment window is never narrowed below this; one this short is read as far as the page cap allows.
+const MIN_WINDOW_MS = 1_000;
 const SIGN_IN = "Linear sign-in needed";
 const SIGNED_OUT = new Set(["revoked", "not-connected"]);
 // Snapshots are stored on queue items and Runs, so the text Linear sends is bounded.
@@ -58,17 +62,17 @@ function signInOf(api, workspace) {
   return entry ? JSON.stringify(entry) : "";
 }
 
-// A connection's nodes, up to MAX_PAGES pages of them.
-async function pages(api, workspace, document, since, pick) {
+// A connection's nodes, up to MAX_PAGES pages of them. `complete` is false when the cap cut it short.
+async function pages(api, workspace, document, variables, pick) {
   const nodes = [];
   let after = null;
   for (let page = 0; page < MAX_PAGES; page += 1) {
-    const connection = pick(await api.query(workspace, document, { since, after }));
+    const connection = pick(await api.query(workspace, document, { ...variables, after }));
     nodes.push(...(connection?.nodes ?? []));
-    if (!connection?.pageInfo?.hasNextPage || !connection.pageInfo.endCursor) break;
+    if (!connection?.pageInfo?.hasNextPage || !connection.pageInfo.endCursor) return { nodes, complete: true };
     after = connection.pageInfo.endCursor;
   }
-  return nodes;
+  return { nodes, complete: false };
 }
 
 const teamMatches = (trigger, issue) => !trigger.team || lower(issue?.team?.key) === lower(trigger.team);
@@ -76,8 +80,7 @@ const teamMatches = (trigger, issue) => !trigger.team || lower(issue?.team?.key)
 /**
  * `linear` is the Mac's Linear connections ({ enabled, workspaces, query }) or a function returning them (the runtime makes
  * them after the Routines). `linkedIssue({ key, workspace })` resolves true when a Chat is linked to the issue: only those
- * issues' comments are queued. `onChange` runs when a Routine's lastError changed. Timers are injected for tests; every
- * time compared comes from Linear or the store, so no clock is needed.
+ * issues' comments are queued. `onChange` runs when a Routine's lastError changed. `now` and the timers are injected for tests.
  */
 function createLinearPoller({
   linear,
@@ -85,6 +88,7 @@ function createLinearPoller({
   scheduler,
   linkedIssue = async () => false,
   onChange = () => {},
+  now = Date.now,
   setTimeout: setTimer = setTimeout,
   clearTimeout: clearTimer = clearTimeout,
 }) {
@@ -96,7 +100,7 @@ function createLinearPoller({
       return null;
     }
   };
-  const states = new Map(); // workspace -> { timer, delay, polling }
+  const states = new Map(); // workspace -> { timer, delay, polling, commentsUntil (a narrowed comment window's end) }
   // Workspaces whose sign-in is gone -> how the sign-in looked then ("" when it was missing). A different one resumes.
   const stopped = new Map();
   let running = false;
@@ -155,32 +159,39 @@ function createLinearPoller({
         signOut(api, workspace);
         continue;
       }
-      const state = { timer: null, delay: POLL_MS, polling: false };
+      const state = { timer: null, delay: POLL_MS, polling: false, commentsUntil: undefined };
       states.set(workspace, state);
       schedule(workspace, state, 0);
     }
   }
 
-  async function pollOnce(api, workspace) {
-    const routines = routinesOf(workspace);
-    if (!routines.length) return;
-    const start = Math.min(...routines.map((routine) => routine.createdAt)) - OVERLAP_MS;
-    const cursor = store.linearCursor(workspace);
-    const since = cursor === undefined ? start : cursor - OVERLAP_MS;
-    const sinceText = new Date(since).toISOString();
-    const issues = await pages(api, workspace, POLL_ISSUES, sinceText, (data) => data?.issues);
-    const comments = await pages(api, workspace, POLL_COMMENTS, sinceText, (data) => data?.comments);
-    let seen = cursor ?? start;
-    const events = []; // { at, routineId, event }, queued oldest first
+  // An issue's history changes after `since`. The poll's page of it is enough when it was the whole history; otherwise the
+  // whole history is read, so what is kept doesn't depend on the order Linear lists it in.
+  async function historyOf(api, workspace, issue, since) {
+    let nodes = issue.history?.nodes ?? [];
+    if (issue.history?.pageInfo?.hasNextPage) {
+      ({ nodes } = await pages(api, workspace, ISSUE_HISTORY, { id: issue.id }, (data) => data?.issue?.history));
+    }
+    return nodes.filter((node) => node?.id && time(node.createdAt) > since).sort((a, b) => time(a.createdAt) - time(b.createdAt));
+  }
 
+  // Issues changed since the issue cursor, oldest change first. A read the page cap cut short moves the cursor only as far
+  // as the last issue read, so the next poll picks up from there.
+  async function pollIssues(api, workspace, routines, start, floor, events) {
+    const key = workspace;
+    const cursor = store.linearCursor(key);
+    const since = Math.max(cursor === undefined ? start : cursor - OVERLAP_MS, floor);
+    const { nodes: issues, complete } = await pages(api, workspace, POLL_ISSUES, { since: new Date(since).toISOString() }, (data) => data?.issues);
+    let seen = cursor ?? start;
+    let last = since;
     for (const issue of issues) {
       const updated = time(issue?.updatedAt);
       if (updated > seen) seen = updated;
+      if (updated > last) last = updated;
       if (!issue?.id || !issue.identifier) continue;
       let snapshot = null;
-      for (const node of issue.history?.nodes ?? []) {
-        const at = time(node?.createdAt);
-        if (!(at > since) || !node.id) continue;
+      for (const node of await historyOf(api, workspace, issue, since)) {
+        const at = time(node.createdAt);
         for (const routine of routines) {
           if (!(at > routine.createdAt) || !teamMatches(routine.trigger, issue)) continue;
           const change = changeOf(routine.trigger, node);
@@ -190,19 +201,34 @@ function createLinearPoller({
         }
       }
     }
+    return { key, at: complete ? seen : Math.max(cursor ?? start, last) };
+  }
 
+  // Comments made in (since, until]. Comments can't be sorted, so a window the page cap cuts short queues nothing and is
+  // halved for the next poll; the cursor only moves to a window's end once all of it was read.
+  async function pollComments(api, workspace, routines, start, floor, state, events) {
+    const key = `${workspace}:comments`;
+    const cursor = store.linearCursor(key);
+    const since = Math.max(cursor === undefined ? start : cursor - OVERLAP_MS, floor);
+    const until = Math.max(state.commentsUntil ?? now(), since + MIN_WINDOW_MS);
+    const variables = { since: new Date(since).toISOString(), until: new Date(until).toISOString() };
+    const { nodes: comments, complete } = await pages(api, workspace, POLL_COMMENTS, variables, (data) => data?.comments);
+    if (!complete && until - since > MIN_WINDOW_MS) {
+      state.commentsUntil = Math.floor(since + (until - since) / 2);
+      return null;
+    }
+    state.commentsUntil = undefined;
     const commentRoutines = routines.filter((routine) => routine.trigger.event === "comment");
     const linked = new Map(); // issue key -> whether a Chat is linked to it
     for (const comment of comments) {
       const at = time(comment?.createdAt);
-      if (at > seen) seen = at;
       // Comments from an app (Milagre's own included) are a bot actor's; the user's own go through.
       if (!(at > since) || !comment.id || comment.botActor || !comment.issue?.identifier) continue;
       const targets = commentRoutines.filter((routine) => at > routine.createdAt && teamMatches(routine.trigger, comment.issue));
       if (!targets.length) continue;
-      const key = comment.issue.identifier;
-      if (!linked.has(key)) linked.set(key, await Promise.resolve(linkedIssue({ key, workspace })).then(Boolean, () => false));
-      if (!linked.get(key)) continue;
+      const issueKey = comment.issue.identifier;
+      if (!linked.has(issueKey)) linked.set(issueKey, await Promise.resolve(linkedIssue({ key: issueKey, workspace })).then(Boolean, () => false));
+      if (!linked.get(issueKey)) continue;
       const issue = issueSnapshot(workspace, comment.issue);
       const author = cap(comment.user?.displayName || comment.user?.name || "", TITLE_MAX);
       const snapshot = { id: String(comment.id), body: cap(comment.body, TEXT_MAX), author, createdAt: at };
@@ -210,10 +236,22 @@ function createLinearPoller({
         events.push({ at, routineId: routine.id, event: { kind: "linear", key: `linear-comment:${comment.id}`, change: "comment", issue, comment: snapshot } });
       }
     }
+    return { key, at: Math.max(cursor ?? start, until) };
+  }
 
+  // `live()` says the poll still counts: one that finishes after stop() changes nothing.
+  async function pollOnce(api, workspace, state, live) {
+    const routines = routinesOf(workspace);
+    if (!routines.length) return;
+    const start = Math.min(...routines.map((routine) => routine.createdAt)) - OVERLAP_MS;
+    const floor = now() - MAX_BACKFILL_MS;
+    const events = []; // { at, routineId, event }, queued oldest first
+    const issues = await pollIssues(api, workspace, routines, start, floor, events);
+    const comments = await pollComments(api, workspace, routines, start, floor, state, events);
+    if (!live()) return;
     events.sort((a, b) => a.at - b.at);
     for (const { routineId, event } of events) scheduler.enqueueEvent(routineId, event);
-    if (Number.isFinite(seen)) store.setLinearCursor(workspace, seen);
+    for (const cursor of [issues, comments]) if (cursor && Number.isFinite(cursor.at)) store.setLinearCursor(cursor.key, cursor.at);
   }
 
   /** Polls one workspace now, then sets its next poll. Resolves when done; never throws. */
@@ -227,10 +265,13 @@ function createLinearPoller({
     const api = source();
     try {
       if (!api) throw Object.assign(new Error("Linear isn't ready."), { code: "offline" });
-      await pollOnce(api, id);
+      const live = () => running && states.get(id) === state;
+      await pollOnce(api, id, state, live);
+      if (!live()) return;
       state.delay = POLL_MS;
       setErrors(id, null);
     } catch (error) {
+      if (!running || states.get(id) !== state) return;
       if (SIGNED_OUT.has(error?.code)) {
         states.delete(id);
         signOut(api, id);

@@ -441,3 +441,10 @@ test("routine options say why when Linear is off or a read fails, and never thro
   assert.deepEqual(result.workspaces, [{ id: "acme", name: "Acme" }]);
   assert.match(result.error, /limiting/);
 });
+
+test("routine options for a workspace that isn't connected say so instead of answering with another one", async () => {
+  const linear = fakeLinear({ workspaces: [acme] });
+  const result = await createLinearIssues({ linear }).routineOptions({ workspace: "beta", team: "ENG" });
+  assert.deepEqual(result, { workspaces: [{ id: "acme", name: "Acme" }], teams: [], labels: [], states: [], error: "That Linear workspace isn't connected." });
+  assert.equal(linear.calls.length, 0);
+});

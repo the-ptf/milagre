@@ -25,16 +25,25 @@ const NOT_STARTED = new Set(["triage", "backlog", "unstarted"]);
 
 // Routines' Linear polling (routines/linear-poller.cjs). Every field is checked against the schema @linear/sdk publishes:
 // Issue.history (IssueHistory.toAssignee.isMe, addedLabels.name, toState.name), IssueFilter.updatedAt and
-// CommentFilter.createdAt (DateComparator.gt, a DateTimeOrDuration), Comment.botActor (ActorBot.type) and Comment.user.
-const ROUTINE_ISSUE_FIELDS = "id identifier title description url state { name } team { key } assignee { name } labels(first: 20) { nodes { name } }";
+// CommentFilter.createdAt (DateComparator.gt/lte, a DateTimeOrDuration), QueryIssuesArgs.sort (IssueSortInput.updatedAt
+// with PaginationSortOrder Ascending), Comment.botActor (ActorBot.type) and Comment.user. Sizes keep each query well under
+// Linear's 10 000-point complexity cap (linear-poller.test.cjs estimates them).
+const ROUTINE_ISSUE_FIELDS = "id identifier title description url state { name } team { key } assignee { name } labels(first: 10) { nodes { name } }";
+const HISTORY_FIELDS = "id createdAt toAssignee { isMe } addedLabels { name } toState { name }";
+// Oldest change first, so a poll cut short by the page cap can resume where it stopped.
 const POLL_ISSUES = `query PollIssues($since: DateTimeOrDuration!, $after: String) {
-  issues(first: 50, after: $after, orderBy: updatedAt, filter: { updatedAt: { gt: $since } }) {
-    nodes { ${ROUTINE_ISSUE_FIELDS} updatedAt history(first: 50) { nodes { id createdAt toAssignee { isMe } addedLabels { name } toState { name } } } }
+  issues(first: 25, after: $after, sort: [{ updatedAt: { order: Ascending } }], filter: { updatedAt: { gt: $since } }) {
+    nodes { ${ROUTINE_ISSUE_FIELDS} updatedAt history(first: 10) { nodes { ${HISTORY_FIELDS} } pageInfo { hasNextPage endCursor } } }
     pageInfo { hasNextPage endCursor }
   }
 }`;
-const POLL_COMMENTS = `query PollComments($since: DateTimeOrDuration!, $after: String) {
-  comments(first: 50, after: $after, orderBy: createdAt, filter: { createdAt: { gt: $since } }) {
+// One issue's whole history, when the poll's first page of it wasn't all of it.
+const ISSUE_HISTORY = `query IssueHistory($id: String!, $after: String) {
+  issue(id: $id) { history(first: 50, after: $after) { nodes { ${HISTORY_FIELDS} } pageInfo { hasNextPage endCursor } } }
+}`;
+// Comments have no sort: a window bounded on both sides, which the poller narrows until it fits in the page cap.
+const POLL_COMMENTS = `query PollComments($since: DateTimeOrDuration!, $until: DateTimeOrDuration!, $after: String) {
+  comments(first: 50, after: $after, filter: { createdAt: { gt: $since, lte: $until } }) {
     nodes { id body createdAt botActor { type } user { name displayName } issue { ${ROUTINE_ISSUE_FIELDS} } }
     pageInfo { hasNextPage endCursor }
   }
@@ -256,7 +265,10 @@ function createLinearIssues({ linear, now = Date.now }) {
     if (unready) return { ...empty, error: unready.error };
     const connected = linear.workspaces();
     const result = { ...empty, workspaces: connected.map((item) => ({ id: item.id, name: item.organization?.name ?? item.id })) };
-    const chosen = connected.find((item) => item.id === String(workspace ?? "").toLowerCase()) ?? connected[0];
+    const named = typeof workspace === "string" && workspace !== "";
+    const chosen = named ? connected.find((item) => item.id === workspace.toLowerCase()) : connected[0];
+    // A named workspace that isn't connected says so, rather than answer with another workspace's teams.
+    if (!chosen) return { ...result, error: "That Linear workspace isn't connected." };
     try {
       const data = await linear.query(chosen.id, ROUTINE_TEAMS);
       result.teams = (data?.teams?.nodes ?? []).map((node) => ({ key: node.key, name: node.name })).toSorted((a, b) => a.name.localeCompare(b.name));
@@ -276,4 +288,4 @@ function createLinearIssues({ linear, now = Date.now }) {
   return { list, readIssue, worktreeIssues, markStarted, routineOptions };
 }
 
-module.exports = { createLinearIssues, POLL_ISSUES, POLL_COMMENTS, ROUTINE_TEAMS, ROUTINE_TEAM_OPTIONS };
+module.exports = { createLinearIssues, POLL_ISSUES, POLL_COMMENTS, ISSUE_HISTORY, ROUTINE_TEAMS, ROUTINE_TEAM_OPTIONS };

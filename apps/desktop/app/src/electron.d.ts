@@ -81,7 +81,7 @@ export type RoutineUpdate = Partial<Pick<Routine, "name" | "prompt" | "enabled">
 export type RoutineCreate = Pick<Routine, "name" | "prompt" | "trigger" | "target"> &
   Partial<Pick<Routine, "provider" | "model" | "permissionMode" | "maxRuns" | "expiresAt">>;
 
-/** Where a Routine can run: each Project Milagre lists, with up to 50 of its unarchived Chats, newest first. */
+/** The Routines form's Linear choices. `error` says why a read failed. */
 export type RoutineLinearOptions = {
   workspaces: Array<{ id: string; name: string }>;
   teams: Array<{ key: string; name: string }>;
@@ -89,6 +89,7 @@ export type RoutineLinearOptions = {
   states: Array<{ name: string; type: string }>;
   error?: string;
 };
+/** Where a Routine can run: each Project Milagre lists, with up to 50 of its unarchived Chats, newest first. */
 export type RoutineTargets = { projects: Array<{ path: string; name: string; chats: Array<{ chatId: string; title: string; lastAt: number }> }> };
 
 /** Which patterns apply to new worktrees, and the files they match in the main checkout. */

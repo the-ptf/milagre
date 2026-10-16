@@ -6,24 +6,47 @@ const test = require("node:test");
 const { LinearError } = require("../linear/errors.cjs");
 const { createRoutineStore } = require("./store.cjs");
 const { createLinearPoller } = require("./linear-poller.cjs");
+const { POLL_ISSUES, POLL_COMMENTS, ISSUE_HISTORY } = require("../linear/issues.cjs");
 
 const START = Date.UTC(2026, 0, 5, 10, 0, 0);
 const iso = (ms) => new Date(ms).toISOString();
 const target = { kind: "new-chat", projectPath: "/p", workspace: "worktree" };
 
-// A fake Linear: `issues` and `comments` per workspace, `errors` per workspace (thrown once each), every query recorded.
+// A fake Linear that filters and pages as Linear does: issues by updatedAt > since, oldest first when sorted so; comments by
+// since < createdAt <= until, in the order given (Linear can't sort them); an issue's whole history from `histories`.
+// `errors` per workspace are thrown once each; `pageSize` is the fake's page length. Every query is recorded.
 function fakeLinear() {
-  const data = { issues: {}, comments: {}, errors: {}, workspaces: ["a", "b"], calls: [] };
+  const data = { issues: {}, comments: {}, histories: {}, errors: {}, workspaces: ["a", "b"], calls: [], pageSize: 50, hold: null };
+  const page = (list, after) => {
+    const from = after ? Number(after) : 0;
+    const nodes = list.slice(from, from + data.pageSize);
+    const hasNextPage = from + data.pageSize < list.length;
+    return { nodes, pageInfo: { hasNextPage, endCursor: hasNextPage ? String(from + data.pageSize) : null } };
+  };
   return {
     data,
     enabled: () => true,
     workspaces: () => data.workspaces.map((id) => ({ id, viewer: { name: "Me", email: "me@x" }, organization: { name: id.toUpperCase() }, canWrite: true })),
     async query(workspace, document, variables) {
       data.calls.push({ workspace, document, variables });
+      if (data.hold) await data.hold;
       const error = data.errors[workspace]?.shift();
       if (error) throw new LinearError(error, error);
-      if (document.includes("PollIssues")) return { issues: { nodes: data.issues[workspace] ?? [], pageInfo: { hasNextPage: false, endCursor: null } } };
-      if (document.includes("PollComments")) return { comments: { nodes: data.comments[workspace] ?? [], pageInfo: { hasNextPage: false, endCursor: null } } };
+      if (document.includes("PollIssues")) {
+        const since = Date.parse(variables.since);
+        const list = (data.issues[workspace] ?? [])
+          .filter((item) => Date.parse(item.updatedAt) > since)
+          .sort((x, y) => Date.parse(x.updatedAt) - Date.parse(y.updatedAt));
+        // Without the ascending sort Linear lists the newest first.
+        if (!document.includes("updatedAt: { order: Ascending }")) list.reverse();
+        return { issues: page(list, variables.after) };
+      }
+      if (document.includes("IssueHistory")) return { issue: { history: page(data.histories[variables.id] ?? [], variables.after) } };
+      if (document.includes("PollComments")) {
+        const [since, until] = [Date.parse(variables.since), Date.parse(variables.until)];
+        const list = (data.comments[workspace] ?? []).filter((item) => Date.parse(item.createdAt) > since && Date.parse(item.createdAt) <= until);
+        return { comments: page(list, variables.after) };
+      }
       throw new Error(`unexpected query ${document}`);
     },
   };
@@ -131,7 +154,7 @@ test("one poll gives a label Routine and an assigned Routine one event each, and
   await ctx.poller.pollNow("a");
   assert.equal(ctx.enqueued.length, 2);
   // The next query overlaps the cursor by 5 s.
-  assert.equal(ctx.linear.data.calls.at(-1).variables.since, iso(START + 15_000));
+  assert.equal(ctx.linear.data.calls.findLast((call) => call.document.includes("PollIssues")).variables.since, iso(START + 15_000));
   ctx.poller.stop();
 });
 
@@ -154,6 +177,7 @@ test("a team filter skips another team's issue", async () => {
 test("a bot's comment is skipped, my comment on a linked issue is queued, and one on an unlinked issue is dropped", async () => {
   const ctx = setup({ linked: ({ key }) => key === "MIL-1" });
   const comments = ctx.routine({ event: "comment" });
+  ctx.clock.t = START + 60_000;
   const body = "x".repeat(9_000);
   ctx.linear.data.comments.a = [
     { id: "c1", body: "Deployed", createdAt: iso(START + 10_000), botActor: { type: "oauthClient" }, user: null, issue: issue() },
@@ -281,4 +305,183 @@ test("a state Routine matches the new state by name, case-insensitively", async 
     ["linear:issue-1:h2"],
   );
   ctx.poller.stop();
+});
+
+// Linear's documented query complexity (linear.app/developers/rate-limiting): an object costs 1, a property 0.1, and a
+// connection multiplies its children's cost by its `first`. Arguments, braces and all, are skipped.
+function complexity(document) {
+  let i = document.indexOf("{");
+  const space = () => {
+    while (/\s/.test(document[i] ?? "")) i += 1;
+  };
+  function args() {
+    const from = i;
+    let depth = 0;
+    do {
+      if (document[i] === "(") depth += 1;
+      else if (document[i] === ")") depth -= 1;
+      i += 1;
+    } while (depth > 0);
+    return document.slice(from, i);
+  }
+  function selection() {
+    i += 1; // {
+    let cost = 0;
+    for (;;) {
+      space();
+      if (document[i] === "}") {
+        i += 1;
+        return cost;
+      }
+      const name = /^[A-Za-z_]\w*/.exec(document.slice(i))[0];
+      i += name.length;
+      space();
+      const given = document[i] === "(" ? args() : "";
+      space();
+      if (document[i] === "{") {
+        const first = /first:\s*(\d+)/.exec(given);
+        cost += (1 + selection()) * (first ? Number(first[1]) : 1);
+      } else cost += 0.1;
+    }
+  }
+  return selection();
+}
+
+test("each poll query stays well under Linear's 10 000-point complexity cap", (t) => {
+  assert.equal(Math.round(complexity("{ a { b c } d(first: 2) { e } }") * 10) / 10, 3.4); // 1 + 0.2 + (1 + 0.1) × 2
+  for (const [name, document] of Object.entries({ POLL_ISSUES, POLL_COMMENTS, ISSUE_HISTORY })) {
+    const cost = complexity(document);
+    t.diagnostic(`${name}: ${cost.toFixed(1)}`);
+    assert.ok(cost < 5_000, `${name} costs ${cost}`);
+  }
+});
+
+// `count` issues updated 10 s apart from START + 10 s, each with one change assigning me.
+const assignedIssues = (count) =>
+  Array.from({ length: count }, (_, index) => {
+    const at = START + (index + 1) * 10_000;
+    return issue({
+      id: `i${index}`,
+      identifier: `MIL-${index}`,
+      updatedAt: iso(at),
+      history: { nodes: [assignedToMe(`h${index}`, at)], pageInfo: { hasNextPage: false } },
+    });
+  });
+
+test("issues past the page cap aren't lost: the cursor stops at the last issue read and the next poll goes on from there", async () => {
+  const ctx = setup();
+  ctx.routine({ event: "assigned" });
+  ctx.linear.data.pageSize = 2;
+  ctx.linear.data.issues.a = assignedIssues(13);
+  ctx.clock.t = START + 600_000;
+  ctx.poller.start();
+  await ctx.poller.pollNow("a");
+  // Five pages of two.
+  assert.equal(ctx.enqueued.length, 10);
+  assert.equal(ctx.store.linearCursor("a"), START + 100_000);
+  await ctx.poller.pollNow("a");
+  assert.deepEqual(
+    ctx.enqueued.map(({ event }) => event.key),
+    Array.from({ length: 13 }, (_, index) => `linear:i${index}:h${index}`),
+  );
+  assert.equal(ctx.store.linearCursor("a"), START + 130_000);
+  ctx.poller.stop();
+});
+
+test("comments past the page cap aren't lost: the window narrows until it fits, and the comment cursor moves on", async () => {
+  const ctx = setup({ linked: () => true });
+  ctx.routine({ event: "comment" });
+  ctx.linear.data.pageSize = 2;
+  // Listed newest first: Linear's comment order isn't one the poller can rely on.
+  ctx.linear.data.comments.a = Array.from({ length: 12 }, (_, index) => ({
+    id: `c${index}`,
+    body: "Hi",
+    createdAt: iso(START + (index + 1) * 1_000),
+    botActor: null,
+    user: { name: "Victor" },
+    issue: issue(),
+  })).reverse();
+  ctx.clock.t = START + 60_000;
+  ctx.poller.start();
+  await ctx.poller.pollNow("a");
+  assert.equal(ctx.enqueued.length, 0, "a window cut short queues nothing");
+  assert.equal(ctx.store.linearCursor("a:comments"), undefined);
+  for (let poll = 0; poll < 30 && ctx.enqueued.length < 12; poll += 1) await ctx.poller.pollNow("a");
+  assert.deepEqual(new Set(ctx.enqueued.map(({ event }) => event.key)), new Set(Array.from({ length: 12 }, (_, index) => `linear-comment:c${index}`)));
+  assert.equal(ctx.enqueued.length, 12);
+  // Each queued window was fully read, so they come in order.
+  assert.deepEqual(
+    ctx.enqueued.map(({ event }) => event.comment.createdAt),
+    ctx.enqueued.map(({ event }) => event.comment.createdAt).toSorted((x, y) => x - y),
+  );
+  // The issue cursor is its own.
+  assert.equal(ctx.store.linearCursor("a"), START - 5_000);
+  ctx.poller.stop();
+});
+
+for (const order of ["newest first", "oldest first"]) {
+  test(`an issue whose history is longer than one page is read whole (${order}), changes before the window left out`, async () => {
+    const ctx = setup();
+    ctx.clock.t = START + 100_000;
+    ctx.routine({ event: "assigned" });
+    ctx.routine({ event: "label-added", label: "agent" }, "label");
+    const whole = [
+      assignedToMe("old", START + 50_000), // before the Routines
+      ...Array.from({ length: 12 }, (_, index) => ({
+        id: `n${index}`,
+        createdAt: iso(START + 101_000 + index),
+        addedLabels: [],
+        toAssignee: null,
+        toState: null,
+      })),
+      labelAdded("label", START + 120_000),
+      assignedToMe("mine", START + 121_000),
+    ];
+    const listed = order === "newest first" ? whole.toReversed() : whole;
+    ctx.linear.data.pageSize = 5;
+    ctx.linear.data.histories["issue-1"] = listed;
+    ctx.linear.data.issues.a = [
+      issue({ updatedAt: iso(START + 121_000), history: { nodes: listed.slice(0, 5), pageInfo: { hasNextPage: true, endCursor: "5" } } }),
+    ];
+    ctx.clock.t = START + 200_000;
+    ctx.poller.start();
+    await ctx.poller.pollNow("a");
+    assert.deepEqual(
+      ctx.enqueued.map(({ event }) => event.key),
+      ["linear:issue-1:label", "linear:issue-1:mine"],
+    );
+    ctx.poller.stop();
+  });
+}
+
+test("a poll never reaches back more than 24 hours", async () => {
+  const ctx = setup();
+  ctx.routine({ event: "assigned" });
+  ctx.store.setLinearCursor("a", START + 1_000);
+  ctx.clock.t = START + 3 * 24 * 60 * 60_000;
+  ctx.poller.start();
+  await ctx.poller.pollNow("a");
+  const dayAgo = iso(ctx.clock.t - 24 * 60 * 60_000);
+  assert.equal(ctx.linear.data.calls.find((call) => call.document.includes("PollIssues")).variables.since, dayAgo);
+  assert.equal(ctx.linear.data.calls.find((call) => call.document.includes("PollComments")).variables.since, dayAgo);
+  ctx.poller.stop();
+});
+
+test("a poll still under way when polling stops queues nothing and moves no cursor", async () => {
+  const ctx = setup();
+  const routine = ctx.routine({ event: "assigned" });
+  ctx.linear.data.issues.a = [issue({ history: { nodes: [assignedToMe("h1", START + 10_000)] } })];
+  ctx.store.setLastError(routine.id, "Linear sign-in needed");
+  let release;
+  ctx.linear.data.hold = new Promise((resolve) => (release = resolve));
+  ctx.clock.t = START + 60_000;
+  ctx.poller.start();
+  const polling = ctx.poller.pollNow("a");
+  ctx.poller.stop();
+  release();
+  await polling;
+  assert.deepEqual(ctx.enqueued, []);
+  assert.equal(ctx.store.linearCursor("a"), undefined);
+  assert.equal(ctx.store.get(routine.id).lastError, "Linear sign-in needed");
+  assert.deepEqual(ctx.timers.pending(), []);
 });
