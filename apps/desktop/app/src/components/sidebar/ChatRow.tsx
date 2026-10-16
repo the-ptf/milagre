@@ -59,6 +59,8 @@ import { useDismiss } from "../../lib/use-dismiss";
 import { chatMarkTone } from "@milagre/shared/chats";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { activityAgo, DESKTOP_CHAT_ROW_SHOW, type ChatRowShow } from "@milagre/shared/chat-row";
+import type { BotMark } from "@/lib/bot-marks";
+import { BotAvatar } from "../bots/BotAvatar";
 
 // One clock for every row's last activity, so "5m" moves on without each row keeping a timer. A read refreshes a stale
 // value, so a row mounted long after the last tick starts right.
@@ -262,6 +264,7 @@ export const ChatRow = memo(function ChatRow({
   dimOffline = false,
   dragging = false,
   linked = NO_LINKS,
+  bot,
 }: {
   item: SidebarRecent;
   active: boolean;
@@ -278,6 +281,8 @@ export const ChatRow = memo(function ChatRow({
   dragging?: boolean;
   /** The canvas Links that reach the chat's Worktree: a Link icon on the row, one line each in the hover card. */
   linked?: LinkedEnd[];
+  /** The bot that opened the chat and still runs it: "from <Bot name>" leads the second line. */
+  bot?: BotMark;
 }) {
   const [archiving, setArchiving] = useState(false);
   const archivePending = useRef(false);
@@ -296,6 +301,13 @@ export const ChatRow = memo(function ChatRow({
   const now = useMinute(lastAt !== undefined);
   // Each shown fact, in order, joined by dots; the chips follow.
   const facts: ReactNode[] = [];
+  if (bot && !collapsed)
+    facts.push(
+      <span key="bot" data-bot-mark={bot.id} className="flex shrink-0 items-center gap-1">
+        <BotAvatar color={bot.color} body={bot.body} size={14} />
+        from {bot.name}
+      </span>,
+    );
   if (rowComputer)
     facts.push(
       <span key="computer" data-chat-computer className="flex min-w-0 shrink items-center gap-1 truncate">

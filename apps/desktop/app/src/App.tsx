@@ -128,6 +128,9 @@ import { busyTerminals, newTerminal, useTerminalSync } from "./lib/terminal-acti
 import { playNotificationChime } from "./lib/notification-chime";
 import type { ChatRowActions, SidebarRecent } from "./components/sidebar/ChatRow";
 import { shouldNotifyCompletion, useBots } from "./lib/bots-store";
+import type { SidebarMode } from "./components/bots/SidebarModeSwitch";
+
+const SIDEBAR_MODE_KEY = "milagre.sidebarMode";
 
 // Not on screen at first paint, so each loads as its own chunk; the effect in App fetches them once the window is idle.
 const DiffView = lazyView(() => import("./components/changes/DiffView").then((module) => module.DiffView));
@@ -320,6 +323,19 @@ function App() {
   const bots = useBots();
   const botsRef = useRef(bots.snapshot);
   botsRef.current = bots.snapshot;
+  // Projects | Bots in the sidebar. Bots off (Settings › Experimental), the sidebar is back on Projects.
+  const [storedSidebarMode, setStoredSidebarMode] = useState<SidebarMode>(() => (localStorage.getItem(SIDEBAR_MODE_KEY) === "bots" ? "bots" : "projects"));
+  const sidebarMode: SidebarMode = bots.enabled ? storedSidebarMode : "projects";
+  const setSidebarMode = (mode: SidebarMode) => {
+    setStoredSidebarMode(mode);
+    localStorage.setItem(SIDEBAR_MODE_KEY, mode);
+  };
+  useEffect(() => {
+    if (bots.ready && !bots.enabled && storedSidebarMode === "bots") setSidebarMode("projects");
+  }, [bots.ready, bots.enabled, storedSidebarMode]);
+  const [pickedBotId, setSelectedBotId] = useState<string | null>(null);
+  // The bot picked last, or the first one while that one is gone.
+  const selectedBotId = bots.snapshot?.bots.some((bot) => bot.id === pickedBotId) ? pickedBotId : (bots.snapshot?.bots[0]?.id ?? null);
   const [layout, setLayout] = useState<ChatLayout>(() => readChatLayout(localStorage));
   const toggleLayout = () =>
     setLayout((current) => {
@@ -2348,6 +2364,12 @@ function App() {
                 askingKeys={sidebarRunKeys.asking}
                 onOpenScopeChat={openScopeChat}
                 onAskChat={askLinkedChat}
+                sidebarMode={sidebarMode}
+                onSidebarMode={setSidebarMode}
+                selectedBotId={selectedBotId}
+                onPickBot={setSelectedBotId}
+                models={models}
+                defaultModel={selectedModel}
               />
             </div>
             {view === "settings" && (
