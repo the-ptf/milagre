@@ -64,7 +64,7 @@ window.milagre = {
   },
 };
 localStorage.removeItem("milagre.sidebarClosedScopes");
-updateSettings({ legacySidebar: false, chatRowShow: DESKTOP_CHAT_ROW_SHOW });
+updateSettings({ chatRowShow: DESKTOP_CHAT_ROW_SHOW });
 const recents = [
   { id: "1", label: "Alpha login fix", details: { path: "/work/api/.w/alpha", branch: "alpha" } },
   { id: "2", label: "Bravo endpoint", details: { path: "/work/api/.w/bravo", branch: "bravo" } },

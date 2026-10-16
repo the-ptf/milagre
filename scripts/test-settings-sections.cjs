@@ -1,5 +1,6 @@
-// Settings > Experimental in Electron: the section is listed and its switch turns the every-Project sidebar on and off.
-// Picking a notification chime saves it and plays it; the replay button plays it again.
+// Settings sections in Electron: Experimental lists only Designs, Floating inbox, Ultracode Fatality and Routines; Notifications holds the
+// chime picker (picking one saves and plays it; the replay button plays it again); Devices holds Drive other computers, which
+// tells main each time it flips. The legacy sidebar switch is gone everywhere.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -9,7 +10,6 @@ const fixture = `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SettingsNav, SettingsPanel } from '/src/components/Settings';
-import { useSettings } from '/src/lib/settings';
 import { useApplyOtherComputers } from '/src/lib/computers';
 import '/src/styles.css';
 window.enabledCalls = [];
@@ -20,11 +20,17 @@ window.savedShare = { id: "orphan", url: "https://share.milagre.cloud/s/orphan",
 window.shareCalls = [];
 window.milagre = {
   listEditors: async () => [],
+  getPhoneStatus: async () => ({ enabled: false, state: "off", remote: "none" }),
+  onPhoneStatus: () => () => {},
+  listDevices: async () => [],
+  acknowledgeDevices: async () => {},
   listRecentProjects: async () => [],
   listProjects: async () => [],
   readDesignsEnabled: async () => ({ enabled: true }),
   saveDesignsEnabled: async (enabled) => ({ enabled }),
   onDesignsEnabledChanged: () => () => {},
+  readRoutinesEnabled: async () => ({ enabled: false }),
+  saveRoutinesEnabled: async (enabled) => ({ enabled }),
   artifacts: {
     allPageShares: async () => { window.shareCalls.push(["all"]); return [window.savedShare]; },
     revokeSavedPageShare: async ({ id }) => { window.shareCalls.push(["revoke", id]); window.savedShare = { ...window.savedShare, revoked: true }; },
@@ -34,10 +40,9 @@ window.milagre = {
 };
 function Fixture() {
   const [section, setSection] = useState('appearance');
-  const { legacySidebar, otherComputers } = useSettings();
   useApplyOtherComputers();
   return (
-    <div data-legacy-sidebar={String(legacySidebar)} data-other-computers={String(otherComputers)} style={{ display: 'flex', gap: 12, height: '100vh', padding: 12 }}>
+    <div style={{ display: 'flex', gap: 12, height: '100vh', padding: 12 }}>
       <SettingsNav section={section} onSelect={setSection} onSelectProject={() => {}} onBack={() => {}} showProjectSettings={false} />
       <main style={{ flex: 1, minWidth: 0 }}><SettingsPanel section={section} models={[]} update={null} /></main>
     </div>
@@ -48,7 +53,7 @@ createRoot(document.getElementById('root')).render(<Fixture />);
 
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
-  app.setPath("userData", fs.mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-experimental-settings-")));
+  app.setPath("userData", fs.mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-settings-sections-")));
   await app.whenReady();
   const window = new BrowserWindow({ width: 1100, height: 700, show: false, webPreferences: { backgroundThrottling: false } });
   const evaluate = (source) => window.webContents.executeJavaScript(source);
@@ -70,18 +75,29 @@ async function browserChecks() {
     await delay(250);
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await window.webContents.capturePage()).toPNG());
   };
-  const toggle = `document.querySelector('[role="switch"][aria-label="Use legacy sidebar"], button[aria-label="Use legacy sidebar"], input[aria-label="Use legacy sidebar"]')`;
+  const openSection = async (label) => {
+    await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === ${JSON.stringify(label)})`);
+    await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(label)}).click()`);
+    await waitFor(`document.querySelector('main h1')?.textContent.trim() === ${JSON.stringify(label)}`);
+  };
+  const switches = () => evaluate(`[...document.querySelectorAll('main [role="switch"]')].map((s) => s.getAttribute("aria-label"))`);
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Experimental')`);
-    await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Experimental').click()`);
-    await waitFor(`!!${toggle}`);
-    assert.equal(
-      await evaluate(`document.querySelector('[data-legacy-sidebar]').dataset.legacySidebar`),
-      "false",
-      "Off by default: every project in the sidebar",
+    await openSection("Experimental");
+    await waitFor(`!!document.querySelector("[data-slot=designs-setting]")`);
+    // The Routines switch shows once the Mac's setting is read.
+    await waitFor(`!!document.querySelector('main [role="switch"][aria-label="Routines"]')`);
+    assert.deepEqual(
+      await switches(),
+      ["Designs", "Floating inbox", "Ultracode Fatality", "Routines"],
+      "Experimental lists only Designs, Floating inbox, Ultracode Fatality and Routines",
     );
-    await screenshot("off");
+    assert.equal(
+      await evaluate(`/legacy sidebar|Other computers|Notification chime|Custom theme|usage limits|Linear/i.test(document.querySelector("main").textContent)`),
+      false,
+      "settings that graduated are not in Experimental",
+    );
+    await screenshot("experimental");
     const designsSetting = 'document.querySelector("[data-slot=designs-setting]")';
     await waitFor(`${designsSetting}.textContent.includes("Published pages")`);
     await evaluate(`[...${designsSetting}.querySelectorAll("button")].find((b) => b.textContent === "Manage").click()`);
@@ -107,21 +123,33 @@ async function browserChecks() {
     await waitFor(`!${shareDialog}`);
     await evaluate(`${designsSetting}.querySelector('[role="switch"][aria-label="Designs"]').click()`);
     await waitFor(`${designsSetting}.textContent.includes("Published pages")`);
-    await evaluate(`${toggle}.click()`);
-    await waitFor(`document.querySelector('[data-legacy-sidebar]').dataset.legacySidebar === 'true'`);
-    await screenshot("on");
-    await evaluate(`${toggle}.click()`);
-    await waitFor(`document.querySelector('[data-legacy-sidebar]').dataset.legacySidebar === 'false'`);
     assert.equal(await evaluate(`!!document.querySelector('[aria-label="Murilo mode"]')`), false, "Murilo mode moved to Settings › Chat");
-    const other = `document.querySelector('[role="switch"][aria-label="Other computers"]')`;
-    assert.equal(await evaluate(`document.querySelector('[data-other-computers]').dataset.otherComputers`), "false", "Other computers is off by default");
+    for (const label of ["Appearance", "Notifications", "Devices"]) {
+      await openSection(label);
+      assert.equal(
+        await evaluate(`!!document.querySelector('[aria-label="Use legacy sidebar"]') || /legacy sidebar/i.test(document.querySelector("main").textContent)`),
+        false,
+        "no legacy sidebar switch in " + label,
+      );
+    }
+    await openSection("Devices");
+    const other = `document.querySelector('main [role="switch"][aria-label="Drive other computers"]')`;
+    await waitFor(`!!${other}`);
+    assert.equal(await evaluate(`${other}.getAttribute("aria-checked")`), "false", "Drive other computers is off by default");
     await waitFor(`JSON.stringify(window.enabledCalls) === '[false]'`);
+    await screenshot("devices-other-computers");
     await evaluate(`${other}.click()`);
-    await waitFor(`document.querySelector('[data-other-computers]').dataset.otherComputers === 'true'`);
+    await waitFor(`${other}.getAttribute("aria-checked") === "true"`);
     await waitFor(`JSON.stringify(window.enabledCalls) === '[false,true]'`);
     await screenshot("other-computers-on");
     await evaluate(`${other}.click()`);
     await waitFor(`JSON.stringify(window.enabledCalls) === '[false,true,false]'`);
+    await openSection("Notifications");
+    assert.deepEqual(
+      await switches(),
+      ["Notify when finished", "Dock badge", "Notify when waiting", "Attention button"],
+      "Notifications lists the four alerts, then the chime picker",
+    );
     const chimeTrigger = `document.querySelector('button[aria-label="Notification chime"]')`;
     assert.equal(await evaluate(`${chimeTrigger}.textContent.trim()`), "System default", "the system sound by default");
     assert.equal(await evaluate(`!!document.querySelector("[data-chime-play]")`), false, "nothing to replay for the system sound");
@@ -145,8 +173,9 @@ async function browserChecks() {
     assert.equal(await evaluate("window.played.length"), 3, "the replay button plays it again, and each pick plays");
     assert.match(await evaluate("window.played[2]"), /^chime_bombastic_side_eye/);
     assert.deepEqual(errors, []);
+    await screenshot("notifications");
     console.log(
-      "PASS: Settings lists an Experimental section whose switch turns the every-Project sidebar on and off, off by default, with no Murilo mode; Other computers is off by default and tells main each time it flips; the notification chime starts on the system sound, and picking one saves and plays it",
+      "PASS: Experimental lists only Designs, Floating inbox, Ultracode Fatality and Routines, with no legacy sidebar switch or Murilo mode; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips",
     );
     app.exit(0);
   } catch (error) {
@@ -160,25 +189,25 @@ async function main() {
   const { createServer } = await import("vite");
   const server = await createServer({
     configFile: path.resolve(__dirname, "../apps/desktop/vite.config.ts"),
-    cacheDir: path.resolve(__dirname, "../node_modules/.vite-experimental-settings"),
+    cacheDir: path.resolve(__dirname, "../node_modules/.vite-settings-sections"),
     server: { host: "127.0.0.1", port: 0 },
     plugins: [
       {
-        name: "experimental-settings-fixture",
+        name: "settings-sections-fixture",
         resolveId(id) {
-          if (id === "/__experimental-settings.tsx") return id;
+          if (id === "/__settings-sections.tsx") return id;
         },
         load(id) {
-          if (id === "/__experimental-settings.tsx") return fixture;
+          if (id === "/__settings-sections.tsx") return fixture;
         },
         configureServer(server) {
           server.middlewares.use(async (request, response, next) => {
-            if (request.url !== "/__experimental-settings") return next();
+            if (request.url !== "/__settings-sections") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(
               await server.transformIndexHtml(
                 request.url,
-                '<html><body><div id="root"></div><script type="module" src="/__experimental-settings.tsx"></script></body></html>',
+                '<html><body><div id="root"></div><script type="module" src="/__settings-sections.tsx"></script></body></html>',
               ),
             );
           });
@@ -190,14 +219,10 @@ async function main() {
     await server.listen();
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
-    const child = require("node:child_process").spawn(
-      require("electron"),
-      [path.resolve(__filename), `${server.resolvedUrls.local[0]}__experimental-settings`],
-      {
-        env,
-        stdio: "inherit",
-      },
-    );
+    const child = require("node:child_process").spawn(require("electron"), [path.resolve(__filename), `${server.resolvedUrls.local[0]}__settings-sections`], {
+      env,
+      stdio: "inherit",
+    });
     process.exitCode = await new Promise((resolve, reject) => {
       child.on("error", reject);
       child.on("exit", (code) => resolve(code ?? 1));

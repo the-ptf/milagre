@@ -93,9 +93,9 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 24 }}
-        ListHeaderComponent={path ? <Row title={`Open ${shortPath(path)}`} detail="Full path" onPress={() => onOpen(path)} /> : null}
+        ListHeaderComponent={path ? <Row title={`Open ${shortPath(path)}`} detail="Full path" onPress={() => onOpen(path)} /> : undefined}
         ListEmptyComponent={
-          path ? null : (
+          path ? undefined : (
             <Text style={[styles.muted, { padding: 16 }]}>
               {!current
                 ? "Searching your computer…"

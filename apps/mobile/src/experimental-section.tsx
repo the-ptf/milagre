@@ -1,63 +1,18 @@
 import { useCallback, useState } from "react";
-import {
-  LINEAR_HINT,
-  LINEAR_MOVE_TO_STARTED_HINT,
-  LINEAR_MOVE_TO_STARTED_TITLE,
-  LINEAR_TITLE,
-  linearReadOnlyHint,
-  linearStatusLine,
-  linearWorkspaceLine,
-  linearWorkspaces,
-  type LinearStatus,
-} from "@milagre/shared/linear";
 import { Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
-import { CustomThemeSection } from "./custom-theme-section";
 import { useFloatingInbox, useFloatingInboxActivity } from "./floating-inbox-setting";
 import { useUltracodeFatality } from "./ultracode-fatality-setting";
 import { useSession } from "./session";
-import { usePush } from "./push";
-import { Icon } from "./icons";
-import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
-import { notificationChimeLabel } from "@milagre/shared/notification-chimes";
-import { useTheme } from "./theme";
 import { ErrorNotice, ListRow, PillButton, Toggle, useStyles } from "./ui";
 
-/** Settings › Experimental: this phone's and the connected Mac's experimental switches, like desktop's Experimental section. */
+/** Settings › Experimental: this phone's and the connected Mac's experimental features, like desktop's Experimental section. */
 export function ExperimentalSection() {
   const styles = useStyles();
   const session = useSession();
   const [floatingInbox, setFloatingInbox] = useFloatingInbox();
   const [inboxActivity, setInboxActivity] = useFloatingInboxActivity();
   const [fatality, setFatality] = useUltracodeFatality();
-  const { settings, set, colors } = useTheme();
-  const push = usePush();
-  // On: start from the current theme's colors and select Custom. Off while Custom is selected: back to Milagre Blue, seeds kept.
-  function changeCustomTheme(enabled: boolean) {
-    if (!enabled) {
-      set({
-        customThemeEnabled: false,
-        ...(settings.colorTheme === "custom" ? { colorTheme: DEFAULT_THEME_ID } : {}),
-      });
-      return;
-    }
-    const from = settings.colorTheme === "custom" ? DEFAULT_THEME_ID : settings.colorTheme;
-    set({
-      customThemeEnabled: true,
-      customTheme: settings.customTheme ?? seedsFrom(from),
-      colorTheme: "custom",
-    });
-  }
-  // The Mac's Linear switch and connection; null until the Mac answers (an older Mac never does). Re-read on focus:
-  // the phone gets no event when the Mac connects or disconnects.
-  // `moveToStarted` is on when a Mac that predates the switch sends none.
-  const [linear, setLinear] = useState<{
-    enabled: boolean;
-    moveToStarted: boolean;
-    status: LinearStatus;
-  } | null>(null);
-  const [linearError, setLinearError] = useState("");
   const [sharingOwner, setSharingOwner] = useState<typeof session.client>(null);
   useFocusEffect(
     useCallback(() => {
@@ -76,36 +31,6 @@ export function ExperimentalSection() {
       };
     }, [session.client]),
   );
-  // The Mac's limit auto-switch; null until the Mac answers (an older Mac never does).
-  const [autoSwitch, setAutoSwitch] = useState<boolean | null>(null);
-  const [autoSwitchError, setAutoSwitchError] = useState("");
-  useFocusEffect(
-    useCallback(() => {
-      const client = session.client;
-      if (!client) return;
-      let live = true;
-      client.call<{ autoSwitch: boolean } | null>("limits:auto-switch:read", []).then(
-        (value) => live && setAutoSwitch(value ? value.autoSwitch === true : null),
-        () => live && setAutoSwitch(null),
-      );
-      return () => {
-        live = false;
-      };
-    }, [session.client]),
-  );
-  async function changeAutoSwitch(next: boolean) {
-    const client = session.client;
-    if (!client || autoSwitch === null) return;
-    setAutoSwitchError("");
-    setAutoSwitch(next);
-    try {
-      const value = await client.call<{ autoSwitch: boolean }>("limits:auto-switch:save", [next]);
-      setAutoSwitch(value.autoSwitch === true);
-    } catch (failure) {
-      setAutoSwitch(!next);
-      setAutoSwitchError(failure instanceof Error ? failure.message : "Could not change this setting.");
-    }
-  }
   // The Mac's Routines switch; null until the Mac answers (an older Mac rejects the read).
   const [routines, setRoutines] = useState<boolean | null>(null);
   const [routinesError, setRoutinesError] = useState("");
@@ -136,57 +61,6 @@ export function ExperimentalSection() {
       setRoutinesError(failure instanceof Error ? failure.message : "Could not change this setting.");
     }
   }
-  useFocusEffect(
-    useCallback(() => {
-      const client = session.client;
-      if (!client) return;
-      let live = true;
-      Promise.all([client.call<{ enabled: boolean; moveToStarted?: boolean }>("linear:enabled:read", []), client.call<LinearStatus>("linear:status", [])]).then(
-        // An older Mac answers null for commands it lacks: no Linear card.
-        ([value, status]) =>
-          live &&
-          setLinear(
-            value && status
-              ? {
-                  enabled: value.enabled === true,
-                  moveToStarted: value.moveToStarted !== false,
-                  status,
-                }
-              : null,
-          ),
-        () => live && setLinear(null),
-      );
-      return () => {
-        live = false;
-      };
-    }, [session.client]),
-  );
-  async function changeLinear(next: boolean) {
-    const client = session.client;
-    if (!client || !linear) return;
-    setLinearError("");
-    setLinear({ ...linear, enabled: next });
-    try {
-      const { enabled } = await client.call<{ enabled: boolean }>("linear:enabled:save", [next]);
-      setLinear((current) => current && { ...current, enabled });
-    } catch (failure) {
-      setLinear((current) => current && { ...current, enabled: !next });
-      setLinearError(failure instanceof Error ? failure.message : "Could not change this setting.");
-    }
-  }
-  async function changeMoveToStarted(next: boolean) {
-    const client = session.client;
-    if (!client || !linear) return;
-    setLinearError("");
-    setLinear({ ...linear, moveToStarted: next });
-    try {
-      const { moveToStarted } = await client.call<{ moveToStarted: boolean }>("linear:move-to-started:save", [next]);
-      setLinear((current) => current && { ...current, moveToStarted });
-    } catch (failure) {
-      setLinear((current) => current && { ...current, moveToStarted: !next });
-      setLinearError(failure instanceof Error ? failure.message : "Could not change this setting.");
-    }
-  }
   return (
     <View style={{ gap: 8 }}>
       {/* This phone's own switches, kept on the phone. */}
@@ -208,24 +82,6 @@ export function ExperimentalSection() {
           Turning Ultracode on darkens the screen, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud.
         </Text>
       </View>
-      <View style={[styles.card, { gap: 4 }]}>
-        <ListRow
-          title="Notification chime"
-          onPress={() => router.push("/chime-sheet")}
-          trailing={
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-              <Text style={{ color: colors.ink3, fontSize: 17 }}>{notificationChimeLabel(push.state?.chime)}</Text>
-              <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
-            </View>
-          }
-        />
-        <Text style={styles.caption}>Plays when a Chat finishes or needs you, on this phone. Picking one plays it.</Text>
-      </View>
-      <View style={[styles.card, { gap: 4 }]}>
-        <Toggle title="Custom theme" selected={settings.customThemeEnabled} onPress={() => changeCustomTheme(!settings.customThemeEnabled)} />
-        <Text style={styles.caption}>Build a theme from a few colors. It shows up as &quot;Custom&quot; in Appearance.</Text>
-      </View>
-      {settings.customThemeEnabled && <CustomThemeSection />}
       {!session.client && <Text style={styles.caption}>Connect to a Mac to change its experimental features.</Text>}
       {session.client && (
         <View style={[styles.card, { gap: 4 }]}>
@@ -258,42 +114,11 @@ export function ExperimentalSection() {
           ) : null}
         </View>
       )}
-      {session.client && autoSwitch !== null && (
-        <View style={[styles.card, { gap: 4 }]}>
-          <Toggle title="Switch accounts at usage limits" selected={autoSwitch} onPress={() => void changeAutoSwitch(!autoSwitch)} />
-          <Text style={styles.caption}>When a Chat hits its plan&apos;s usage limit, move its Project to the next signed-in account and continue.</Text>
-          {autoSwitchError ? <ErrorNotice message={autoSwitchError} /> : null}
-        </View>
-      )}
       {session.client && routines !== null && (
         <View style={[styles.card, { gap: 4 }]}>
           <Toggle title="Routines" selected={routines} onPress={() => void changeRoutines(!routines)} />
           <Text style={styles.caption}>Let agents set heartbeats that check back on a Chat on a schedule. Open Chats get it after Reload chat.</Text>
           {routinesError ? <ErrorNotice message={routinesError} /> : null}
-        </View>
-      )}
-      {session.client && linear !== null && (
-        <View style={[styles.card, { gap: 4 }]}>
-          <Toggle title={LINEAR_TITLE} selected={linear.enabled} onPress={() => void changeLinear(!linear.enabled)} />
-          <Text style={styles.caption}>{LINEAR_HINT}</Text>
-          {linear.enabled &&
-            (linearWorkspaces(linear.status).length ? (
-              linearWorkspaces(linear.status).map((workspace) => (
-                <Text key={workspace.id} style={styles.caption}>
-                  {`Connected to ${linearWorkspaceLine(workspace)}` +
-                    (linear.moveToStarted && workspace.canWrite === false ? `. ${linearReadOnlyHint("phone")}` : "")}
-                </Text>
-              ))
-            ) : (
-              <Text style={styles.caption}>{linearStatusLine(linear.status, "phone")}</Text>
-            ))}
-          {linear.enabled && linear.status.connected && (
-            <>
-              <Toggle title={LINEAR_MOVE_TO_STARTED_TITLE} selected={linear.moveToStarted} onPress={() => void changeMoveToStarted(!linear.moveToStarted)} />
-              <Text style={styles.caption}>{LINEAR_MOVE_TO_STARTED_HINT}</Text>
-            </>
-          )}
-          {linearError ? <ErrorNotice message={linearError} /> : null}
         </View>
       )}
     </View>

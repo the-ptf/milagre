@@ -303,6 +303,28 @@ test("a held completion shows once its last background subagent ends with no tur
   assert.equal(shown.length, 3);
 });
 
+test("a command left running in the background (a dev server) doesn't hold the turn's announcement", () => {
+  const { notifier, shown } = setup();
+  notifier.sync({ projectPath: "/shop", activeChatId: null, unread: [], notifyOnCompletion: true });
+  notifier.observe("/shop#2", { type: "turn-started", turnId: "t1" });
+  notifier.observe("/shop#2", { type: "background-tasks", tasks: [{ id: "srv", kind: "local_bash", title: "npm run dev", startedAt: 1 }] });
+  notifier.observe("/shop#2", { type: "text-delta", text: "The dev server is up." });
+  notifier.observe("/shop#2", { type: "turn-completed" });
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" }), true);
+  assert.equal(shown[0].options.body, "The dev server is up.");
+});
+
+test("a stopped turn is never announced, even once its background subagent ends", () => {
+  const { notifier, shown } = setup();
+  notifier.sync({ projectPath: "/shop", activeChatId: null, unread: [], notifyOnCompletion: true });
+  notifier.observe("/shop#2", { type: "turn-started", turnId: "t1" });
+  notifier.observe("/shop#2", backgroundAgent("a", "running"));
+  notifier.observe("/shop#2", { type: "turn-cancelled" });
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" }), false);
+  notifier.observe("/shop#2", backgroundAgent("a", "cancelled"));
+  assert.equal(shown.length, 0);
+});
+
 test("completion previews keep the start of the latest reply, without markdown or a cut-off first word", () => {
   const { notifier, shown } = setup();
   notifier.observe("/shop#2", { type: "turn-started" });

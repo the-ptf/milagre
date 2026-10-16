@@ -39,7 +39,7 @@ import type { AgentRuns } from "@/lib/agent-runs";
 import type { CanvasSnapshot, LinkEndpoint } from "@/electron";
 import type { CoordinatorState, LinkedWork, NamedProjectLink } from "@/model";
 import { chatMark } from "@/lib/chat-list";
-import { chatKey, chatsAskingUser, chatsRunning, chatsWaitingForUser } from "@/lib/agent-runs";
+import { chatKey, chatsAskingUser, chatsInBackground, chatsRunning, chatsWaitingForUser } from "@/lib/agent-runs";
 import { delegatedChats } from "@/lib/linked-work";
 import { useProjectImages } from "@/lib/project-images";
 import { NEGOTIATION_ROUNDS } from "@milagre/shared/limits";
@@ -47,6 +47,7 @@ import { DiffBar } from "./changes/ChangesChrome";
 import { ProviderLogo } from "./ProviderLogo";
 import { WorkspaceIcon } from "./WorkspaceIcon";
 import { SpinnerRing } from "./primitives/SpinnerRing";
+import { ChatMarkDotInline } from "./sidebar/ChatRow";
 import Tooltip from "./primitives/Tooltip";
 
 /* ─────────────────────────────────────────────────────────
@@ -245,6 +246,8 @@ function Mark({ mark, failed }: { mark: CanvasMark; failed: boolean }) {
     <span data-canvas-mark={mark} className="flex size-3.5 shrink-0 items-center justify-center">
       {mark === "running" ? (
         <SpinnerRing size={12} color="var(--accent)" />
+      ) : mark === "background" ? (
+        <ChatMarkDotInline mark="background" failed={false} />
       ) : mark in MARK_ICON ? (
         <span className={`flex ${mark === "waiting" ? "text-orange" : "text-accent"}`}>
           <HugeiconsIcon icon={MARK_ICON[mark as keyof typeof MARK_ICON]} size={13} strokeWidth={2} color="currentColor" />
@@ -383,10 +386,18 @@ function buildNodes(
     const state = states[project.path] ?? snapshot.states.find((entry) => entry.path === project.path)?.state;
     const asking = chatsAskingUser(runs, project.path);
     const waiting = chatsWaitingForUser(runs, project.path);
-    const running = chatsRunning(runs, project.path, state?.sessions);
+    const running = chatsRunning(runs, project.path);
+    const background = chatsInBackground(runs, project.path, state?.sessions);
     const delegated = delegatedChats(work, project.path);
     const worktrees = canvasWorktrees(state, (id, unread) =>
-      chatMark({ asking: asking.has(id), waiting: waiting.has(id), delegated: delegated.has(id), running: running.has(id), unread }),
+      chatMark({
+        asking: asking.has(id),
+        waiting: waiting.has(id),
+        delegated: delegated.has(id),
+        running: running.has(id),
+        background: background.has(id),
+        unread,
+      }),
     );
     // A Project with nothing active stays off the canvas, unless a Link or a named group needs it there.
     if (!worktrees.length && !keep.has(project.id)) continue;

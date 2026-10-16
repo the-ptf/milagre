@@ -396,7 +396,7 @@ test("routines:linear-options answers with empty choices and the reason while Li
     teams: [],
     labels: [],
     states: [],
-    error: "Linear is off in Settings › Experimental.",
+    error: "Linear is off in Settings › Connections › Linear.",
   });
 });
 

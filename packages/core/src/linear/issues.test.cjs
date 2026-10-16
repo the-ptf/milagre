@@ -37,7 +37,7 @@ const batch = (document, has) =>
 test("issues say why they can't load when the switch is off or Linear isn't connected", async () => {
   const off = fakeLinear({ enabled: false });
   assert.deepEqual(await createLinearIssues({ linear: off }).list(), {
-    error: "Linear is off in Settings › Experimental.",
+    error: "Linear is off in Settings › Connections › Linear.",
     notConnected: true,
   });
   const disconnected = fakeLinear({ connected: false });
@@ -431,7 +431,7 @@ test("routine options list the workspaces, the chosen one's teams, and the named
 
 test("routine options say why when Linear is off or a read fails, and never throw", async () => {
   const off = await createLinearIssues({ linear: fakeLinear({ enabled: false }) }).routineOptions({});
-  assert.deepEqual(off, { workspaces: [], teams: [], labels: [], states: [], error: "Linear is off in Settings › Experimental." });
+  assert.deepEqual(off, { workspaces: [], teams: [], labels: [], states: [], error: "Linear is off in Settings › Connections › Linear." });
   const failing = fakeLinear({
     answer: () => {
       throw new LinearError("Linear is limiting requests. Try again in a minute.", "rate-limited");

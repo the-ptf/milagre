@@ -115,6 +115,8 @@ const METHODS = new Set([
   "chat:resume",
   "chat:limit-switch",
   "chat:reload",
+  "chat:queue-send",
+  "chat:queue-remove",
   "agent:interrupt",
   "advisor:stop",
   "advisor:retry",

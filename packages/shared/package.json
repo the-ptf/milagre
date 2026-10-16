@@ -155,6 +155,18 @@
       "types": "./src/providers.d.mts",
       "default": "./src/providers.mjs"
     },
+    "./chat-activity": {
+      "types": "./src/chat-activity.d.mts",
+      "default": "./src/chat-activity.mjs"
+    },
+    "./queued-messages": {
+      "types": "./src/queued-messages.d.mts",
+      "default": "./src/queued-messages.mjs"
+    },
+    "./provider-capabilities": {
+      "types": "./src/provider-capabilities.d.mts",
+      "default": "./src/provider-capabilities.mjs"
+    },
     "./stable-order": {
       "types": "./src/stable-order.d.mts",
       "default": "./src/stable-order.mjs"

@@ -1,8 +1,9 @@
 import { Platform, Pressable, Text, View } from "react-native";
 import * as Haptics from "expo-haptics";
-import { themes, themeSwatch, type ThemeChoice, type ThemeGroup } from "@milagre/shared/themes";
+import { DEFAULT_THEME_ID, seedsFrom, themes, themeSwatch, type ThemeChoice, type ThemeGroup } from "@milagre/shared/themes";
+import { CustomThemeSection } from "./custom-theme-section";
 import { useTheme } from "./theme";
-import { Segmented, useStyles } from "./ui";
+import { Segmented, Toggle, useStyles } from "./ui";
 
 const GROUPS: ThemeGroup[] = ["Milagre", "Catppuccin", "Popular"];
 const MODES = [
@@ -57,6 +58,22 @@ function Tile({ id, label, name, detail }: { id: ThemeChoice; label: string; nam
 export function AppearanceSection() {
   const styles = useStyles();
   const { settings, set } = useTheme();
+  // On: start from the current theme's colors and select Custom. Off while Custom is selected: back to Milagre Blue, seeds kept.
+  function changeCustomTheme(enabled: boolean) {
+    if (!enabled) {
+      set({
+        customThemeEnabled: false,
+        ...(settings.colorTheme === "custom" ? { colorTheme: DEFAULT_THEME_ID } : {}),
+      });
+      return;
+    }
+    const from = settings.colorTheme === "custom" ? DEFAULT_THEME_ID : settings.colorTheme;
+    set({
+      customThemeEnabled: true,
+      customTheme: settings.customTheme ?? seedsFrom(from),
+      colorTheme: "custom",
+    });
+  }
   return (
     <View style={{ gap: 20 }}>
       <View style={styles.card}>
@@ -79,11 +96,19 @@ export function AppearanceSection() {
                 />
               ))}
             {group === "Milagre" && settings.customThemeEnabled && settings.customTheme ? (
-              <Tile id="custom" label="Custom" name="Custom" detail="From Experimental" />
+              <Tile id="custom" label="Custom" name="Custom" detail="Your colors" />
             ) : null}
           </View>
         </View>
       ))}
+      <View style={{ gap: 8 }}>
+        <Text style={styles.section}>Custom theme</Text>
+        <View style={[styles.card, { gap: 4 }]}>
+          <Toggle title="Custom theme" selected={settings.customThemeEnabled} onPress={() => changeCustomTheme(!settings.customThemeEnabled)} />
+          <Text style={styles.caption}>Build a theme from a few colors. It shows up as &quot;Custom&quot; with the Milagre themes.</Text>
+        </View>
+        {settings.customThemeEnabled && <CustomThemeSection />}
+      </View>
     </View>
   );
 }

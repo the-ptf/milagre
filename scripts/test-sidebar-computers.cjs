@@ -1,7 +1,7 @@
 // Run with npm test -- --only test-sidebar-computers. The footer's computers popover in the real App against a stand-in for
 // main: the laptop button opens a popover of This Mac and each computer with its route line, a gear with its tooltip
 // opens that computer's settings (This Mac's opens Settings › Devices), Add computer opens its dialog, and nothing about
-// computers shows while Settings › Experimental › Other computers is off. Set MILAGRE_SCREENSHOT_DIR to save screenshots.
+// computers shows while Settings › Devices › Other computers is off. Set MILAGRE_SCREENSHOT_DIR to save screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");

@@ -175,6 +175,8 @@ function claudeSubagents(message, state) {
       }
     }
   }
+  if (message.type === "system" && message.subtype === "background_tasks_changed" && Array.isArray(message.tasks))
+    events.push(...backgroundTasks(state, message.tasks));
   if (message.type === "system" && message.subtype?.startsWith("task_")) {
     state.taskAgents ??= new Map();
     let id = state.taskAgents.get(message.task_id) ?? message.tool_use_id;
@@ -190,6 +192,8 @@ function claudeSubagents(message, state) {
       patch.latestActivity = message.summary;
     }
     if (message.subtype === "task_updated") {
+      // The chat's own agent moved to the background: its result wakes the chat later, as a background Agent's does.
+      if (message.patch.is_backgrounded && !state.subagents?.get(id)?.parentId) patch.background = true;
       if (message.patch.status)
         patch.status =
           { pending: "initializing", running: "running", completed: "completed", failed: "failed", killed: "cancelled", paused: "waiting" }[
@@ -327,7 +331,35 @@ function codexSubagents(method, params, state) {
     );
   return events;
 }
+/**
+ * Claude Code's set of live background tasks, sent whole on every change (background_tasks_changed), so a missed start
+ * or end can't leave one stuck. Agents are followed as subagents; this keeps the rest: commands run in the background,
+ * MCP tasks, workflows. Ambient watchers aren't work. An event only when the set changed.
+ */
+function backgroundTasks(state, tasks) {
+  const seen = state.backgroundTaskStarts ?? new Map();
+  const time = Date.now();
+  const next = tasks
+    .filter((task) => task && typeof task.task_id === "string" && !task.ambient && task.task_type !== "local_agent")
+    .slice(0, 50)
+    .map((task) => ({
+      id: task.task_id,
+      kind: typeof task.task_type === "string" ? task.task_type : "task",
+      title: (typeof task.description === "string" && task.description.trim().slice(0, 200)) || "Background task",
+      startedAt: seen.get(task.task_id) ?? time,
+    }))
+    // In a steady order, so the same set in another order is no change.
+    .sort((a, b) => a.startedAt - b.startedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  state.backgroundTaskStarts = new Map(next.map((task) => [task.id, task.startedAt]));
+  const key = JSON.stringify(next);
+  if (key === (state.backgroundTasksKey ?? "[]")) return [];
+  state.backgroundTasksKey = key;
+  return [{ type: "background-tasks", tasks: next }];
+}
+
+/** A session that ends leaves no subagent running and no background task: its process took them with it. */
 function settleSubagents(state, status) {
-  return [...(state.subagents?.values() ?? [])].filter(active).map((agent) => update(state, agent.id, { status }));
+  const events = [...(state.subagents?.values() ?? [])].filter(active).map((agent) => update(state, agent.id, { status }));
+  return [...events, ...backgroundTasks(state, [])];
 }
 module.exports = { claudeSubagents, codexSubagents, settleSubagents, active, update, communicate };

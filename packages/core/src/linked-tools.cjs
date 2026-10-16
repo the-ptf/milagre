@@ -5,7 +5,14 @@ const { z } = require("zod");
 const { chatTitle } = require("@milagre/shared/chats");
 const { isNote } = require("@milagre/shared/chat-summary");
 const { providerName } = require("@milagre/shared/providers");
-const { projectOfKey, runStatus, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { chatActivity } = require("@milagre/shared/chat-activity");
+
+/** A linked Chat's status, the same activity its sidebar row shows (chat-activity.mjs), with its background work. */
+function linkedStatus(session, run) {
+  const { activity, background } = chatActivity(session, run);
+  return { status: activity, ...(background ? { backgroundWork: background } : {}) };
+}
 const { NEGOTIATION_ROUNDS } = require("@milagre/shared/limits");
 const { createGit } = require("./git/client.cjs");
 const { buildLinkedSummary } = require("./linked-summary.cjs");
@@ -102,7 +109,7 @@ function createLinkedReads(view) {
             ref,
             title: chatTitle(session, messages),
             provider: session.provider ? providerName(session.provider) : undefined,
-            status: runStatus(runs[ref]),
+            ...linkedStatus(session, runs[ref]),
             archived: session.archived,
             activity: runs[ref] ? Number.MAX_SAFE_INTEGER : (messages.at(-1)?.id ?? 0),
             lastReply: lastReply(messages, session.id),
@@ -122,7 +129,7 @@ function createLinkedReads(view) {
                 ref,
                 title: chatTitle(session, messages),
                 provider: session.provider ? providerName(session.provider) : undefined,
-                status: runStatus(runs[ref]),
+                ...linkedStatus(session, runs[ref]),
                 archived: session.archived,
                 activity: runs[ref] ? Number.MAX_SAFE_INTEGER : (messages.at(-1)?.id ?? 0),
                 lastReply: lastReply(messages, session.id),

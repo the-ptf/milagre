@@ -6,6 +6,7 @@ import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { isListedChat } from "@milagre/shared/chats";
 import { stateEvents } from "./state-events.ts";
 import { chatSummary } from "@milagre/shared/chat-summary";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
 import { chatMark, chatTitle, orderChats, type ChatOrder } from "./chat-list.ts";
 
@@ -65,7 +66,9 @@ export type RailStatus = "attention" | "running" | "idle";
 
 /** The chats with a turn under way or waiting on the user, and what the scope's icon shows for them. */
 export function railLive(rows: readonly SidebarRecent[]): { status: RailStatus; chats: SidebarRecent[] } {
-  const chats = rows.filter((row) => row.mark === "question" || row.mark === "waiting" || row.mark === "delegated" || row.mark === "running");
+  const chats = rows.filter(
+    (row) => row.mark === "question" || row.mark === "waiting" || row.mark === "delegated" || row.mark === "running" || row.mark === "background",
+  );
   const attention = chats.some((row) => row.mark === "question" || row.mark === "waiting");
   return { status: attention ? "attention" : chats.length ? "running" : "idle", chats };
 }
@@ -95,13 +98,23 @@ export function scopeChats(
   return orderChats(listed, order).map(({ session, sessionMessages }) => {
     const worktree = "worktree_id" in session && "worktrees" in state ? state.worktrees[session.worktree_id] : undefined;
     const chatKey = `${key}#${session.id}`;
+    // A Chat with no run here can still have background agents at work (chat-activity.mjs); its last outcome decides first.
+    const { activity, background } = chatActivity(session, undefined, chatSummary(session, sessionMessages).lastOutcome);
+    const inBackground = !running.has(chatKey) && activity === "background";
     return {
       id: String(session.id),
       label: chatTitle(session, sessionMessages),
       pinned: Boolean(session.pinned),
       pinOrder: session.pin_order,
       unread: Boolean(session.unread),
-      mark: chatMark({ asking: asking.has(chatKey), waiting: waiting.has(chatKey), running: running.has(chatKey), unread: Boolean(session.unread) }),
+      mark: chatMark({
+        asking: asking.has(chatKey),
+        waiting: waiting.has(chatKey),
+        running: running.has(chatKey),
+        background: inBackground,
+        unread: Boolean(session.unread),
+      }),
+      ...(inBackground ? { background } : {}),
       ...("worktrees" in session ? { worktreeCount: session.worktrees.length } : {}),
       details: {
         ...rememberedFor(key, String(session.id), worktree?.path),

@@ -371,6 +371,33 @@ test("a turn that ends while a background subagent runs is held; the turn its re
   assert.equal(messages.length, 3);
 });
 
+test("a stopped turn announces nothing, even once its background subagent ends; a running advisor holds a completion too", async (t) => {
+  const { push, messages } = await fixture(t);
+  await push.register(registration());
+  const agent = (id, status, extra = { background: true }) => ({
+    type: "subagent-update",
+    agent: { id, title: "Review", status, ...extra, startedAt: 1, updatedAt: 1, transcript: [] },
+  });
+  push.observe(chatId, { type: "turn-started", turnId: "t1" });
+  push.observe(chatId, agent("a", "running"));
+  push.observe(chatId, { type: "turn-cancelled" });
+  push.observe(chatId, agent("a", "cancelled"));
+  await push.settled();
+  assert.equal(messages.length, 0);
+  push.observe(chatId, { type: "turn-started", turnId: "t2" });
+  push.observe(chatId, agent("advisor", "running", { source: "milagre-advisor" }));
+  push.observe(chatId, { type: "text-delta", text: "Asked an advisor." });
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages.length, 0);
+  push.observe(chatId, agent("advisor", "completed", { source: "milagre-advisor" }));
+  await push.settled();
+  assert.deepEqual(
+    messages.map((message) => message.body),
+    ["Asked an advisor."],
+  );
+});
+
 test("phone completion notifications summarize the latest reply without project or branch labels", async (t) => {
   const { push, messages } = await fixture(t);
   await push.register(registration());

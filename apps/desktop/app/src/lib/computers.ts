@@ -4,7 +4,7 @@ import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 import { useSettings } from "./settings.ts";
 
 /**
- * Tells main whether to connect the saved computers: at launch, and each time Settings › Experimental › Other computers
+ * Tells main whether to connect the saved computers: at launch, and each time Settings › Devices › Other computers
  * flips. A window without the API (a check's fixture) is left alone.
  */
 export function useApplyOtherComputers() {
@@ -110,7 +110,7 @@ function subscribe(listener: () => void) {
   return () => void listeners.delete(listener);
 }
 
-/** This Mac's name and its computers; none while Settings › Experimental › Other computers is off. */
+/** This Mac's name and its computers; none while Settings › Devices › Other computers is off. */
 export function useComputers(): ComputersSnapshot {
   const { otherComputers } = useSettings();
   const current = useSyncExternalStore(subscribe, () => snapshot);

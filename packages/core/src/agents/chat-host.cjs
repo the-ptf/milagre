@@ -1,3 +1,6 @@
+const fs = require("node:fs/promises");
+const path = require("node:path");
+const { randomUUID } = require("node:crypto");
 const { ChatImages } = require("../chat-images.cjs");
 const { storeImages } = require("../project-content.cjs");
 const { ipcErrorMessage } = require("@milagre/shared/result");
@@ -14,10 +17,18 @@ const {
 const { archiveFinishedSubagents, patchSession } = require("@milagre/shared/project-edits");
 const { catchUpStart, handoffKind, isHandoff, lastTurnProvider } = require("@milagre/shared/handoff");
 const { renderTranscript } = require("./handover.cjs");
+const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
+const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
+const { providerName } = require("@milagre/shared/providers");
 const { accountSwitchText } = require("@milagre/shared/usage-limit");
 
 // A chat stopped longer ago than this waits for the user instead of continuing by itself.
 const RESUME_WINDOW_MS = 24 * 60 * 60 * 1000;
+/** The answer to a send that was already saved: its Chat, and no turn to start. */
+function duplicateSend(message) {
+  return { sessionId: message.session_id, started: Promise.resolve(null), duplicate: true };
+}
+
 const RESUME_BODY = "Milagre restarted. Continue where you left off.";
 const RESUME_PROMPT =
   "Milagre, the app running you, closed while you were working and has just opened again, so your last turn was cut off. Continue where you left off. Check what is already done before repeating any of it.";
@@ -56,11 +67,11 @@ function revertSwitch(session, from, to) {
   return withNativeSessions({ ...session, provider: from }, resumeId, parked);
 }
 
-// Only Claude Code takes /compact, and only between turns: steered into a running turn it would be read as text.
+// Only a provider with native /compact takes it, and only between turns: steered into a running turn it would be read as text.
 function compactionProvider(session, run) {
   if (run) throw new Error("Wait for the agent to finish before compacting.");
   const provider = session.provider ?? "claude";
-  if (provider !== "claude") throw new Error("Only Claude chats can be compacted from here.");
+  if (!providerCapabilities(provider).compact) throw new Error("Only Claude chats can be compacted from here.");
   return provider;
 }
 
@@ -72,6 +83,29 @@ function failHandoff(latest, divider, sessionId, from, to) {
     sessions: session && from !== to && session.provider === to ? { ...latest.sessions, [sessionId]: revertSwitch(session, from, to) } : latest.sessions,
     messages: latest.messages.map((item) => (item === divider ? { ...item, context: { ...item.context, status: "failed" } } : item)),
   };
+}
+
+// The session without one queued message; the hold goes with the last one.
+function withoutQueued(session, id) {
+  const { queued = [], queueHeld: _held, ...rest } = session;
+  const left = queued.filter((item) => item.id !== id);
+  if (!left.length) return rest;
+  return { ...rest, queued: left, ...(session.queueHeld ? { queueHeld: true } : {}) };
+}
+
+const IMAGE_TYPES = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
+
+// A queued message's images were stored when it was sent; its turn takes them as the data a send carries.
+async function queuedImages(images = []) {
+  const read = await Promise.all(
+    images.map(async (image) => {
+      const mime = IMAGE_TYPES[path.extname(image.path ?? "").toLowerCase()];
+      if (!mime) return image.dataUrl ? image : null;
+      const bytes = await fs.readFile(image.path).catch(() => null);
+      return bytes ? { id: image.id, name: image.name, dataUrl: `data:${mime};base64,${bytes.toString("base64")}` } : null;
+    }),
+  );
+  return read.filter(Boolean);
 }
 
 function withNativeSessions(session, current, parked) {
@@ -105,6 +139,8 @@ class ChatHost {
    * event changed it, and its number when it was folded into the runs; `broadcast(projectPath, state)` tells
    * them of a change no agent event made. `isFocused()` says whether a Milagre
    * window has focus: a turn that ends in the open chat while it hasn't leaves the chat unread too.
+   * `onQueuedStart(chatId, entry, started)` and `onQueuedRemoved(chatId, entry)` tell the runtime about a queued message
+   * (AgentSession.queued) whose sender is gone because Milagre restarted since it was queued, such as a Delegation.
    */
   constructor({
     states,
@@ -118,6 +154,8 @@ class ChatHost {
     handoverTools,
     beforeSend = async () => {},
     onUnblocked = () => {},
+    onQueuedStart = () => {},
+    onQueuedRemoved = () => {},
     now = Date.now,
   }) {
     Object.assign(this, {
@@ -132,6 +170,8 @@ class ChatHost {
       handoverTools,
       beforeSend,
       onUnblocked,
+      onQueuedStart,
+      onQueuedRemoved,
       now,
     });
     // Chats whose handoff is staged or its brief being written, by chat key: { controller, done, settle, ... }.
@@ -146,6 +186,13 @@ class ChatHost {
     // The options of each chat's latest turn, so a turn a quit stops can start again the same way.
     this.turns = new Map();
     this.quitting = false;
+    // Chats whose message was saved and whose turn is about to start, by chat key: the provider it starts on. A message
+    // sent meanwhile to one that can't steer queues behind it, as it would behind the running turn.
+    this.startingTurns = new Map();
+    // What took each queued message, by its id, for the caller that sent it (a Delegation follows its turn).
+    this.queueWaiters = new Map();
+    // A queued message Send now picked while a turn ran, by chat key: it starts once that turn's Stop lands.
+    this.sendNext = new Map();
   }
 
   /** Whether a chat's turn runs, prepares or has work waiting on it: its messages stay in memory (see ProjectStates). */
@@ -211,7 +258,7 @@ class ChatHost {
       const saved = await this.states.get(projectPath);
       const session = saved.sessions[sessionId];
       const cwd = session?.workspacePath ?? saved.worktrees?.[session?.worktree_id]?.path;
-      if (!cwd || !["codex", "antigravity"].includes(session?.provider) || !session.native_session_id || session.archived) return;
+      if (!cwd || !providerCapabilities(session?.provider).subagentRecovery || !session.native_session_id || session.archived) return;
       const unknown = (session.subagents ?? []).filter(
         (agent) => agent.status === "unknown" && agent.source !== "milagre-advisor" && !agent.archived && agent.id !== session.native_session_id,
       );
@@ -262,6 +309,132 @@ class ChatHost {
         this.publish(chatId, event);
       },
     );
+  }
+
+  /**
+   * Once a turn ends, the chat's queue moves on: the message Send now picked starts first; otherwise a completed turn
+   * starts the oldest queued message, one turn per message. Stop and failures hold the queue instead, since the user
+   * may not want what they queued any more: it waits, each message with Send now and Remove. A quit leaves it as it is.
+   */
+  async afterTurn(chatId, event) {
+    if (this.quitting || event.quit) return void this.sendNext.delete(chatId);
+    const projectPath = projectOfKey(chatId);
+    const session = (await this.states.get(projectPath)).sessions[sessionIdFromKey(chatId)];
+    // Another turn took the chat meanwhile: the queue moves on when that one ends, Send now's pick still first.
+    if (this.runs[chatId] || this.preparing.has(chatId) || this.startingTurns.has(chatId)) return;
+    const next = this.sendNext.get(chatId);
+    this.sendNext.delete(chatId);
+    const queued = session?.queued ?? [];
+    if (!queued.length) return;
+    // A message that can't start (its save failed) stays queued, and the queue waits for Send now.
+    const start = (id) =>
+      this.startQueued(chatId, id).catch(async (error) => {
+        await this.holdQueue(chatId);
+        throw error;
+      });
+    if (next && queued.some((item) => item.id === next)) return void (await start(next));
+    if (session.queueHeld) return;
+    if (event.type === "turn-completed") return void (await start(queued[0].id));
+    await this.holdQueue(chatId);
+  }
+
+  /** Marks the chat's queue held, so it waits for Send now. */
+  async holdQueue(chatId) {
+    const projectPath = projectOfKey(chatId);
+    const sessionId = sessionIdFromKey(chatId);
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        const current = latest.sessions[sessionId];
+        return current?.queued?.length && !current.queueHeld
+          ? { ...latest, sessions: { ...latest.sessions, [sessionId]: { ...current, queueHeld: true } } }
+          : latest;
+      },
+      { chats: [] },
+    );
+    if (changed) this.broadcast(projectPath, state);
+  }
+
+  /**
+   * Starts one queued message as the chat's next turn, through `send`, which takes it out of the queue in the same
+   * save that adds it to the chat, so it runs once. Resolves false when it is gone or another turn took the chat first:
+   * then it stays queued, and the end of that turn moves the queue on.
+   */
+  async startQueued(chatId, id) {
+    const projectPath = projectOfKey(chatId);
+    const sessionId = sessionIdFromKey(chatId);
+    if (this.runs[chatId] || this.preparing.has(chatId) || this.startingTurns.has(chatId)) return false;
+    const entry = (await this.states.get(projectPath)).sessions[sessionId]?.queued?.find((item) => item.id === id);
+    if (!entry) return false;
+    const { body, images, files = [], context, turn, prompt, clientMessageId, operationId } = entry;
+    let sent;
+    try {
+      sent = await this.send({
+        ...turn,
+        provider: entry.provider,
+        model: entry.model,
+        projectPath,
+        sessionId,
+        body,
+        images: await queuedImages(images),
+        files,
+        context: context ?? undefined,
+        ...(prompt !== undefined ? { prompt } : {}),
+        ...(clientMessageId ? { clientMessageId } : {}),
+        ...(operationId ? { operationId } : {}),
+        fromQueue: id,
+      });
+    } catch (error) {
+      if (error.queueBusy) return false;
+      throw error;
+    }
+    const waiter = this.queueWaiters.get(id);
+    this.queueWaiters.delete(id);
+    if (waiter) void sent.started.then(waiter, () => waiter(null));
+    // Queued before Milagre restarted, nobody waits on it here: the runtime tells its sender (a Delegation) it started.
+    else this.onQueuedStart(chatId, entry, sent.started);
+    return true;
+  }
+
+  /**
+   * Send now on a queued message. With no turn running it starts at once, and the rest of the queue follows it. While a
+   * turn runs, it is marked to start next and `{ interrupt: true }` asks the caller to stop that turn (see afterTurn).
+   */
+  async sendQueuedNow(chatId, id) {
+    const session = (await this.states.get(projectOfKey(chatId))).sessions[sessionIdFromKey(chatId)];
+    if (!session?.queued?.some((item) => item.id === id)) throw new Error("That queued message was already sent or removed.");
+    if (this.runs[chatId] || this.preparing.has(chatId) || this.startingTurns.has(chatId)) {
+      this.sendNext.set(chatId, id);
+      return { interrupt: true };
+    }
+    await this.startQueued(chatId, id);
+    return { interrupt: false };
+  }
+
+  /** Takes a message out of the chat's queue without sending it. Resolves false when it was already gone. */
+  async removeQueued(chatId, id) {
+    const projectPath = projectOfKey(chatId);
+    const sessionId = sessionIdFromKey(chatId);
+    let removed = null;
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        const session = latest.sessions[sessionId];
+        removed = session?.queued?.find((item) => item.id === id) ?? null;
+        if (!removed) return latest;
+        return { ...latest, sessions: { ...latest.sessions, [sessionId]: withoutQueued(session, id) } };
+      },
+      { chats: [] },
+    );
+    if (!changed) return false;
+    await this.states.flush(projectPath);
+    this.broadcast(projectPath, state);
+    if (this.sendNext.get(chatId) === id) this.sendNext.delete(chatId);
+    const waiter = this.queueWaiters.get(id);
+    this.queueWaiters.delete(id);
+    if (waiter) waiter({ turnId: null, steered: false, cancelled: true, removed: true });
+    else this.onQueuedRemoved(chatId, removed);
+    return true;
   }
 
   /**
@@ -318,6 +491,8 @@ class ChatHost {
       changed && event.type !== "subagent-update" ? state : undefined,
       seq,
     );
+    // The end of a turn moves the chat's queue on, without holding up the event's caller.
+    if (isTurnEnd(event)) void this.afterTurn(chatId, event).catch((error) => console.warn(`Milagre couldn't start the queue of ${chatId}:`, error.message));
     await this.captureImages(projectOfKey(chatId), state, added);
   }
 
@@ -433,6 +608,12 @@ class ChatHost {
     await this.beforeSend(request);
     if (request.canStart && !request.canStart()) throw new Error("Advisor delivery is deferred.");
     const { projectPath, body, images = [], files = [], model } = request;
+    // A resend whose first answer was lost carries the same clientMessageId: the message is already saved, so nothing runs twice.
+    const clientMessageId = typeof request.clientMessageId === "string" && request.clientMessageId ? request.clientMessageId : null;
+    if (clientMessageId) {
+      const earlier = await this.states.findMessage(projectPath, "clientMessageId", clientMessageId);
+      if (earlier) return duplicateSend(earlier);
+    }
     // A /compact runs on the chat's own provider, whatever the picker says: it never hands off.
     const compaction = request.context?.kind === "compaction";
     let provider = request.provider;
@@ -453,10 +634,28 @@ class ChatHost {
     let pendingId;
     let originalSession;
     let stagedSession;
-    await this.states.update(
+    // A message for a running turn its provider can't steer waits in the chat's queue instead (see afterTurn).
+    let queuedEntry = null;
+    let duplicate = null;
+    const saving = this.states.update(
       projectPath,
       (latest) => {
         if (request.canStart && !request.canStart()) throw new Error("Advisor delivery is deferred.");
+        // A concurrent send with the same id may have saved it since the lookup above.
+        const twin = clientMessageId && latest.messages.find((item) => item.clientMessageId === clientMessageId);
+        if (twin) {
+          duplicate = twin;
+          return latest;
+        }
+        // A resend of a message still waiting in a queue: it runs once, when its turn comes.
+        const queuedTwin =
+          clientMessageId && request.fromQueue === undefined
+            ? Object.values(latest.sessions).find((item) => item.queued?.some((entry) => entry.clientMessageId === clientMessageId))
+            : undefined;
+        if (queuedTwin) {
+          duplicate = { session_id: queuedTwin.id };
+          return latest;
+        }
         let session = request.sessionId == null ? undefined : latest.sessions[request.sessionId];
         if (request.sessionId != null && !session) throw new Error("That chat is no longer in the project.");
         // A chat runs in its own worktree; a new one goes to the worktree asked for.
@@ -477,8 +676,48 @@ class ChatHost {
         }
         // A message that steers a running turn, or one whose handoff is still preparing, never hands off.
         waitFor = this.preparing.get(chatId) ?? null;
+        const beforeQueue = session;
+        if (request.fromQueue !== undefined) {
+          // A queued message starts only once, and only into an idle chat; otherwise it stays queued. Sending one
+          // releases a held queue: the rest follow it.
+          if (!session.queued?.some((item) => item.id === request.fromQueue)) throw new Error("That queued message was already sent or removed.");
+          if (this.runs[chatId] || waitFor || this.startingTurns.has(chatId)) throw Object.assign(new Error("The chat is busy."), { queueBusy: true });
+          const { queueHeld: _held, ...rest } = withoutQueued(session, request.fromQueue);
+          session = rest;
+        }
+        // The provider of the turn running or about to start: a handoff still preparing starts on its target.
+        const runningProvider = this.runs[chatId] ? (session.provider ?? provider) : waitFor ? waitFor.to : this.startingTurns.get(chatId);
+        // Programmatic sends that check `canStart` (advisor results, the local MCP) and compactions never queue.
+        if (runningProvider && request.fromQueue === undefined && !request.canStart && !compaction && !providerCapabilities(runningProvider).steer) {
+          queuedEntry = {
+            id: randomUUID(),
+            body,
+            ...(storedImages.length ? { images: storedImages } : {}),
+            ...(files.length ? { files } : {}),
+            ...(request.context ? { context: request.context } : {}),
+            model,
+            provider,
+            queuedAt: this.now(),
+            ...(typeof request.clientMessageId === "string" ? { clientMessageId: request.clientMessageId } : {}),
+            ...(request.operationId ? { operationId: request.operationId } : {}),
+            ...(request.prompt !== undefined && request.prompt !== body ? { prompt: request.prompt } : {}),
+            turn: {
+              permissionMode: request.permissionMode,
+              effort: request.effort,
+              ultracode: request.ultracode,
+              fastMode: request.fastMode,
+              replies: request.replies,
+              tldrEnabled: request.tldrEnabled,
+            },
+          };
+          target = { chatId, sessionId: session.id };
+          return { ...withSession, sessions: { ...withSession.sessions, [session.id]: { ...session, queued: [...(session.queued ?? []), queuedEntry] } } };
+        }
         const steering = Boolean(this.runs[chatId]) || Boolean(waitFor);
         handoff = steering ? null : handoffKind(withSession, session.id, provider);
+        // A switch ends the agent process the Chat's background work runs in, so it waits for that work (T3 #16000).
+        const background = handoff === "switch" ? processWork(session).length : 0;
+        if (background) throw new Error(backgroundBusyMessage("switch", background, providerName(provider)));
         if (steering) {
           runProvider = session.provider ?? provider;
           runModel = this.runs[chatId]?.model || lastUserModel(withSession, session.id) || model;
@@ -486,7 +725,7 @@ class ChatHost {
         // Persist the input before splitting or starting its run. Tokens keep flowing
         // while this save is pending; rejected input never changes a live run.
         const next = withSession;
-        originalSession = session;
+        originalSession = beforeQueue;
         // `context` marks a message no person typed, such as a Delegation from another Chat.
         if (handoff) dividerId = next.next_id;
         const message = {
@@ -541,6 +780,7 @@ class ChatHost {
           preparation = { controller: new AbortController(), done, settle, dividerId, catchUp, from: handoffFrom, to: provider, sessionId: session.id };
           this.preparing.set(chatId, preparation);
         }
+        if (!steering) this.startingTurns.set(chatId, runProvider);
         return {
           ...next,
           next_id: message.id + 1,
@@ -551,9 +791,17 @@ class ChatHost {
       },
       { chats: request.sessionId == null ? [] : [request.sessionId] },
     );
+    await saving.catch((error) => {
+      // A message saved nowhere starts no turn: nothing may queue behind it.
+      if (target) this.doneStarting(target.chatId);
+      throw error;
+    });
+    if (duplicate) return duplicateSend(duplicate);
+    if (queuedEntry) return this.queueSaved(projectPath, target, queuedEntry);
     try {
       await this.states.flush(projectPath);
     } catch (error) {
+      this.doneStarting(target.chatId);
       if (preparation) {
         this.release(target.chatId, preparation);
         preparation.settle(null);
@@ -562,7 +810,7 @@ class ChatHost {
         projectPath,
         (latest) => {
           const session = { ...latest.sessions[target.sessionId] };
-          for (const field of ["provider", "titlePending", "handoverDraft", "resumeTurn", "native_session_id", "native_sessions"]) {
+          for (const field of ["provider", "titlePending", "handoverDraft", "resumeTurn", "native_session_id", "native_sessions", "queued", "queueHeld"]) {
             if (session[field] !== stagedSession[field]) continue;
             if (Object.hasOwn(originalSession, field)) session[field] = originalSession[field];
             else delete session[field];
@@ -594,12 +842,15 @@ class ChatHost {
           });
           added = sent.state.messages.slice(withoutPending.messages.length).filter((message) => message.role === "assistant");
           this.runs = sent.runs;
+          // The run holds the chat now: a message for it queues behind the run itself.
+          this.doneStarting(target.chatId);
           seq = ++this.seq;
           return { ...sent.state, messages: [...sent.state.messages, ...(divider ? [divider] : []), message] };
         },
         { chats: [target.sessionId] },
       )
       .catch((error) => {
+        this.doneStarting(target.chatId);
         // The handoff never prepares: nothing may wait on it.
         if (preparation) {
           this.release(target.chatId, preparation);
@@ -647,6 +898,37 @@ class ChatHost {
     if (preparation) void started.then((result) => preparation.settle(result));
     await this.captureImages(projectPath, state, added);
     return { sessionId: target.sessionId, started };
+  }
+
+  doneStarting(chatId) {
+    this.startingTurns.delete(chatId);
+  }
+
+  /**
+   * A message saved to the chat's queue: it is written to disk before the windows see it, and `started` resolves
+   * with what took it once its turn starts (or cancelled, when it is removed; null when Milagre restarts first).
+   */
+  async queueSaved(projectPath, target, entry) {
+    try {
+      await this.states.flush(projectPath);
+    } catch (error) {
+      const { state } = await this.states.update(
+        projectPath,
+        (latest) => {
+          const session = latest.sessions[target.sessionId];
+          return session ? { ...latest, sessions: { ...latest.sessions, [target.sessionId]: withoutQueued(session, entry.id) } } : latest;
+        },
+        { chats: [] },
+      );
+      this.broadcast(projectPath, state);
+      throw error;
+    }
+    this.broadcast(projectPath, await this.states.get(projectPath));
+    const started = new Promise((resolve) => this.queueWaiters.set(entry.id, resolve));
+    // The turn it waited on may have ended while it was saved.
+    if (!this.runs[target.chatId] && !this.startingTurns.has(target.chatId) && !this.preparing.has(target.chatId))
+      void this.afterTurn(target.chatId, { type: "turn-completed" }).catch(() => {});
+    return { sessionId: target.sessionId, started, queued: true };
   }
 
   /**
@@ -784,6 +1066,8 @@ class ChatHost {
       this.release(chatId, preparation);
       preparation.settle(null);
     }
+    // The queue moves on now that nothing prepares: Send now's pick starts, anything else is held.
+    void this.afterTurn(chatId, { type: "turn-cancelled" }).catch(() => {});
     return true;
   }
 
@@ -839,6 +1123,13 @@ class ChatHost {
    */
   async resumeInterrupted(projectPath, state) {
     for (const session of Object.values(state.sessions)) {
+      // A queue whose turn had ended moves on; one behind a stopped turn waits for that turn to resume and finish.
+      if (!session.resumeTurn && session.queued?.length && !session.queueHeld && !session.archived) {
+        await this.startQueued(chatKey(projectPath, session.id), session.queued[0].id).catch((error) =>
+          console.warn(`Milagre couldn't start the queue of a chat in ${projectPath}:`, error.message),
+        );
+        continue;
+      }
       if (!session.resumeTurn || this.now() - (session.resumeTurn.stoppedAt ?? 0) > RESUME_WINDOW_MS) continue;
       await this.resumeChat(projectPath, session.id).catch((error) => console.warn(`Milagre couldn't resume a chat in ${projectPath}:`, error.message));
     }

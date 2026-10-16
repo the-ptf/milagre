@@ -12,6 +12,7 @@ import { EditorLinks } from "./editor-links";
 import { ScrollArea } from "./primitives/ScrollArea";
 import Tooltip from "./primitives/Tooltip";
 import { ChatMarkDot } from "./sidebar/ChatRow";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import { ChatTranscript } from "./ChatComposer";
 
 const NO_MESSAGES: ChatMessage[] = [];
@@ -89,11 +90,13 @@ function ChatTile({
     [focused, state, lean, page.messages, id],
   );
   const run = runs[chatKey];
+  const activity = chatActivity(session, run);
   const mark: ChatMark = chatMark({
     asking: Boolean(run && !run.approvals.length && run.questions.length),
     waiting: Boolean(run && (run.approvals.length || run.questions.length)),
     delegated,
     running: Boolean(run),
+    background: activity.activity === "background",
     unread: Boolean(session?.unread),
   });
   const needsYou = mark === "question" || mark === "waiting";
@@ -123,7 +126,7 @@ function ChatTile({
       }`}
     >
       <header className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-3 text-[12.5px]">
-        <ChatMarkDot mark={mark} />
+        <ChatMarkDot mark={mark} background={activity.background} />
         <span className="min-w-0 truncate font-medium text-ink">{title}</span>
         <span className="min-w-0 flex-1 truncate text-ink-3">
           {scope.split("/").pop()}

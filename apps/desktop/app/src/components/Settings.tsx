@@ -34,11 +34,13 @@ import {
   ArrowLeft02Icon,
   BookOpen01Icon,
   BubbleChatIcon,
+  ConnectIcon,
   FlaskConicalIcon,
   FolderKeyIcon,
   InformationCircleIcon,
   LaptopIcon,
   LaptopPhoneSyncIcon,
+  Notification01Icon,
   PaintBoardIcon,
   Plug01Icon,
   SecurityCheckIcon,
@@ -58,7 +60,7 @@ import { updateSettings, useSettings } from "../lib/settings";
 import type { ClaudeReplies, UsageDisplay } from "../lib/settings";
 import type { ChatOrder } from "../lib/chat-list";
 import { useEditors } from "../lib/editors";
-import { bridgeFor, bridgeForKey } from "../lib/computer-bridge";
+import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { cloudflarePhonesNote, pairingWindow, phoneLanLine, phoneQrSrc, phoneStatusLine } from "../lib/phone";
 import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQuestion } from "../lib/devices";
 import { GlideGroup, RailButton } from "./SidebarNav";
@@ -98,6 +100,8 @@ export type SettingsSection =
   | "accounts"
   | "appearance"
   | "chat"
+  | "notifications"
+  | "connections"
   | "skills"
   | "mcp"
   | "local-mcp"
@@ -108,19 +112,21 @@ export type SettingsSection =
   | "project"
   | "computer";
 
-const SECTIONS: Array<{ key: SettingsSection; label: string; icon: IconData }> = [
-  { key: "general", label: "General", icon: Settings01Icon },
-  { key: "accounts", label: "Accounts", icon: UserCircleIcon },
-  { key: "project-accounts", label: "Project Accounts", icon: FolderKeyIcon },
-  { key: "appearance", label: "Appearance", icon: PaintBoardIcon },
-  { key: "chat", label: "Chat", icon: BubbleChatIcon },
-  { key: "skills", label: "Skills", icon: BookOpen01Icon },
-  { key: "mcp", label: "MCP", icon: Plug01Icon },
-  { key: "local-mcp", label: "Milagre MCP", icon: ServerIcon },
-  { key: "devices", label: "Devices", icon: LaptopPhoneSyncIcon },
-  { key: "experimental", label: "Experimental", icon: FlaskConicalIcon },
-  { key: "privacy", label: "Privacy & AI", icon: SecurityCheckIcon },
-  { key: "about", label: "About", icon: InformationCircleIcon },
+const SECTIONS: Array<{ key: SettingsSection; label: string; icon: ReactNode }> = [
+  { key: "general", label: "General", icon: <Icon icon={Settings01Icon} /> },
+  { key: "accounts", label: "Accounts", icon: <Icon icon={UserCircleIcon} /> },
+  { key: "project-accounts", label: "Project Accounts", icon: <Icon icon={FolderKeyIcon} /> },
+  { key: "appearance", label: "Appearance", icon: <Icon icon={PaintBoardIcon} /> },
+  { key: "chat", label: "Chat", icon: <Icon icon={BubbleChatIcon} /> },
+  { key: "notifications", label: "Notifications", icon: <Icon icon={Notification01Icon} /> },
+  { key: "connections", label: "Connections", icon: <Icon icon={ConnectIcon} /> },
+  { key: "skills", label: "Skills", icon: <Icon icon={BookOpen01Icon} /> },
+  { key: "mcp", label: "MCP", icon: <Icon icon={Plug01Icon} /> },
+  { key: "local-mcp", label: "Milagre MCP", icon: <Icon icon={ServerIcon} /> },
+  { key: "devices", label: "Devices", icon: <Icon icon={LaptopPhoneSyncIcon} /> },
+  { key: "experimental", label: "Experimental", icon: <Icon icon={FlaskConicalIcon} /> },
+  { key: "privacy", label: "Privacy & AI", icon: <Icon icon={SecurityCheckIcon} /> },
+  { key: "about", label: "About", icon: <Icon icon={InformationCircleIcon} /> },
 ];
 
 export type SettingsProject = { path: string; name: string };
@@ -172,7 +178,7 @@ export function SettingsNav({
       </div>
       <GlideGroup>
         {SECTIONS.map((item) => (
-          <RailButton key={item.key} icon={<Icon icon={item.icon} />} label={item.label} active={section === item.key} onClick={() => onSelect(item.key)} />
+          <RailButton key={item.key} icon={item.icon} label={item.label} active={section === item.key} onClick={() => onSelect(item.key)} />
         ))}
       </GlideGroup>
       {computers.length > 0 && (
@@ -479,20 +485,41 @@ export function DesignsSettings() {
 function ChatSettings() {
   const settings = useSettings();
   return (
-    <Group title={DETAIL_LEVEL_TITLE}>
-      <Row label={EXPAND_REASONING_TITLE} description={EXPAND_REASONING_HINT}>
-        <Switch label={EXPAND_REASONING_TITLE} checked={settings.expandReasoning} onChange={(expandReasoning) => updateSettings({ expandReasoning })} />
-      </Row>
-      <Row label={TOOL_CALL_DISPLAY_TITLE} description={TOOL_CALL_DISPLAY_HINT}>
-        <Select<ToolCallDisplay>
-          label={TOOL_CALL_DISPLAY_TITLE}
-          width={300}
-          value={settings.toolCallDisplay}
-          onChange={(toolCallDisplay) => updateSettings({ toolCallDisplay })}
-          options={TOOL_CALL_DISPLAYS.map((display) => ({ value: display.id, label: display.label, description: display.description }))}
-        />
-      </Row>
-    </Group>
+    <>
+      <Group title="Replies">
+        <Row
+          label="TLDR writing"
+          description="Shape Claude, Codex and Antigravity updates and replies with /tldr. Applies on the next turn after the current reply finishes."
+        >
+          <Switch label="TLDR writing" checked={settings.tldrEnabled} onChange={(tldrEnabled) => updateSettings({ tldrEnabled })} />
+        </Row>
+        <Row label="Claude replies">
+          <Select<ClaudeReplies>
+            label="Claude replies"
+            value={settings.claudeReplies}
+            onChange={(claudeReplies) => updateSettings({ claudeReplies })}
+            options={[
+              { value: "concise", label: "Concise" },
+              { value: "normal", label: "Normal" },
+            ]}
+          />
+        </Row>
+      </Group>
+      <Group title={DETAIL_LEVEL_TITLE}>
+        <Row label={EXPAND_REASONING_TITLE} description={EXPAND_REASONING_HINT}>
+          <Switch label={EXPAND_REASONING_TITLE} checked={settings.expandReasoning} onChange={(expandReasoning) => updateSettings({ expandReasoning })} />
+        </Row>
+        <Row label={TOOL_CALL_DISPLAY_TITLE} description={TOOL_CALL_DISPLAY_HINT}>
+          <Select<ToolCallDisplay>
+            label={TOOL_CALL_DISPLAY_TITLE}
+            width={300}
+            value={settings.toolCallDisplay}
+            onChange={(toolCallDisplay) => updateSettings({ toolCallDisplay })}
+            options={TOOL_CALL_DISPLAYS.map((display) => ({ value: display.id, label: display.label, description: display.description }))}
+          />
+        </Row>
+      </Group>
+    </>
   );
 }
 
@@ -523,47 +550,13 @@ function ExperimentalSettings() {
           </div>
         )}
         <Row
-          label="Use legacy sidebar"
-          description="Brings back the project menu at the top of the sidebar, listing only the open project's chats. Off, the sidebar lists each project and Link with its chats, and Filters chooses which projects show. With other computers paired, every project shows either way."
-        >
-          <Switch label="Use legacy sidebar" checked={settings.legacySidebar} onChange={(legacySidebar) => updateSettings({ legacySidebar })} />
-        </Row>
-        <Row
-          label="Other computers"
-          description="Drive the chats of other Macs running Milagre from this window. Add one from the laptop button at the bottom of the sidebar; their Projects join the sidebar."
-        >
-          <Switch label="Other computers" checked={settings.otherComputers} onChange={(otherComputers) => updateSettings({ otherComputers })} />
-        </Row>
-        <Row
           label="Ultracode Fatality"
           description="Turning Ultracode on darkens the window, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud."
         >
           <Switch label="Ultracode Fatality" checked={settings.ultracodeFatality} onChange={(ultracodeFatality) => updateSettings({ ultracodeFatality })} />
         </Row>
-        <NotificationChimeSetting />
-        <Row label="Custom theme" description={'Build a theme from a few colors. It shows up as "Custom" in Appearance.'}>
-          <Switch
-            label="Custom theme"
-            checked={settings.customThemeEnabled}
-            onChange={(customThemeEnabled) => {
-              if (!customThemeEnabled) {
-                updateSettings({ customThemeEnabled, ...(settings.colorTheme === "custom" ? { colorTheme: DEFAULT_THEME_ID } : {}) });
-              } else {
-                const from = settings.colorTheme === "custom" ? DEFAULT_THEME_ID : settings.colorTheme;
-                updateSettings({ customThemeEnabled, customTheme: settings.customTheme ?? seedsFrom(from), colorTheme: "custom" });
-              }
-            }}
-          />
-        </Row>
-        <LimitAutoSwitchSetting />
         <RoutinesSetting />
-        <LinearSettings />
       </Group>
-      {settings.customThemeEnabled && (
-        <Group title="Custom theme">
-          <CustomThemeEditor />
-        </Group>
-      )}
     </>
   );
 }
@@ -609,39 +602,6 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
               ),
             }))}
           />
-        </Row>
-        <Row
-          label="TLDR writing"
-          description="Shape Claude, Codex and Antigravity updates and replies with /tldr. Applies on the next turn after the current reply finishes."
-        >
-          <Switch label="TLDR writing" checked={settings.tldrEnabled} onChange={(tldrEnabled) => updateSettings({ tldrEnabled })} />
-        </Row>
-        <Row label="Claude replies">
-          <Select<ClaudeReplies>
-            label="Claude replies"
-            value={settings.claudeReplies}
-            onChange={(claudeReplies) => updateSettings({ claudeReplies })}
-            options={[
-              { value: "concise", label: "Concise" },
-              { value: "normal", label: "Normal" },
-            ]}
-          />
-        </Row>
-        <Row label="Notify when finished" description="When a turn finishes or fails while you are outside the chat">
-          <Switch
-            label="Notify when finished"
-            checked={settings.notifyOnCompletion}
-            onChange={(notifyOnCompletion) => updateSettings({ notifyOnCompletion })}
-          />
-        </Row>
-        <Row label="Dock badge" description="Count chats with unread replies or waiting for your input">
-          <Switch label="Dock badge" checked={settings.showDockBadge} onChange={(showDockBadge) => updateSettings({ showDockBadge })} />
-        </Row>
-        <Row label="Notify when waiting" description="When a chat needs an approval or an answer and Milagre is in the background">
-          <Switch label="Notify when waiting" checked={settings.notifyWhenWaiting} onChange={(notifyWhenWaiting) => updateSettings({ notifyWhenWaiting })} />
-        </Row>
-        <Row label="Attention button" description="Top right, when a chat in another project needs an approval or an answer">
-          <Switch label="Attention button" checked={settings.showAttentionButton} onChange={(showAttentionButton) => updateSettings({ showAttentionButton })} />
         </Row>
       </Group>
       <Group title="Sidebar">
@@ -710,6 +670,35 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
   );
 }
 
+function NotificationsSettings() {
+  const settings = useSettings();
+  return (
+    <>
+      <Group title="Alerts">
+        <Row label="Notify when finished" description="When a turn finishes or fails while you are outside the chat">
+          <Switch
+            label="Notify when finished"
+            checked={settings.notifyOnCompletion}
+            onChange={(notifyOnCompletion) => updateSettings({ notifyOnCompletion })}
+          />
+        </Row>
+        <Row label="Dock badge" description="Count chats with unread replies or waiting for your input">
+          <Switch label="Dock badge" checked={settings.showDockBadge} onChange={(showDockBadge) => updateSettings({ showDockBadge })} />
+        </Row>
+        <Row label="Notify when waiting" description="When a chat needs an approval or an answer and Milagre is in the background">
+          <Switch label="Notify when waiting" checked={settings.notifyWhenWaiting} onChange={(notifyWhenWaiting) => updateSettings({ notifyWhenWaiting })} />
+        </Row>
+        <Row label="Attention button" description="Top right, when a chat in another project needs an approval or an answer">
+          <Switch label="Attention button" checked={settings.showAttentionButton} onChange={(showAttentionButton) => updateSettings({ showAttentionButton })} />
+        </Row>
+      </Group>
+      <Group title="Sound">
+        <NotificationChimeSetting />
+      </Group>
+    </>
+  );
+}
+
 function AppearanceSettings() {
   const settings = useSettings();
   return (
@@ -722,7 +711,38 @@ function AppearanceSettings() {
       <section className="mt-6">
         <ThemePicker />
       </section>
+      <Group title="Custom theme">
+        <Row label="Custom theme" description={'Build a theme from a few colors. It shows up as "Custom" with the Milagre themes.'}>
+          <Switch
+            label="Custom theme"
+            checked={settings.customThemeEnabled}
+            onChange={(customThemeEnabled) => {
+              if (!customThemeEnabled) {
+                updateSettings({ customThemeEnabled, ...(settings.colorTheme === "custom" ? { colorTheme: DEFAULT_THEME_ID } : {}) });
+              } else {
+                const from = settings.colorTheme === "custom" ? DEFAULT_THEME_ID : settings.colorTheme;
+                updateSettings({ customThemeEnabled, customTheme: settings.customTheme ?? seedsFrom(from), colorTheme: "custom" });
+              }
+            }}
+          />
+        </Row>
+        {settings.customThemeEnabled && <CustomThemeEditor />}
+      </Group>
     </>
+  );
+}
+
+function OtherComputersSetting() {
+  const { otherComputers } = useSettings();
+  return (
+    <Group title="Other computers">
+      <Row
+        label="Drive other computers"
+        description="Drive the chats of other Macs running Milagre from this window. Add one from the laptop button at the bottom of the sidebar; their Projects join the sidebar."
+      >
+        <Switch label="Drive other computers" checked={otherComputers} onChange={(next) => updateSettings({ otherComputers: next })} />
+      </Row>
+    </Group>
   );
 }
 
@@ -1084,6 +1104,7 @@ function DevicesSettings() {
           </div>
         </Group>
       )}
+      <OtherComputersSetting />
       {computers.length > 0 && <DeviceGroup title="Computers" devices={computers} fresh={paired.fresh} now={paired.now} busy={busy} onRemove={removeDevice} />}
       <DeviceGroup
         title="Phones"
@@ -1594,7 +1615,7 @@ export function MainSyncDefaultSetting() {
   );
 }
 
-// Experimental > Switch accounts at usage limits: Mac-owned (core), so a Chat can switch while no window is open.
+// Accounts > Switch accounts at usage limits: Mac-owned (core), so a Chat can switch while no window is open.
 function LimitAutoSwitchSetting() {
   // null until read.
   const [autoSwitch, setAutoSwitch] = useState<boolean | null>(null);
@@ -1623,18 +1644,20 @@ function LimitAutoSwitchSetting() {
   }
   if (autoSwitch === null) return null;
   return (
-    <Row
-      label="Switch accounts at usage limits"
-      description={
-        "When a Chat hits its plan's usage limit, move its Project to the next signed-in account and continue." + (error ? ` Could not save: ${error}` : "")
-      }
-    >
-      <Switch label="Switch accounts at usage limits" checked={autoSwitch} onChange={(next) => void change(next)} />
-    </Row>
+    <Group title="Usage limits">
+      <Row
+        label="Switch accounts at usage limits"
+        description={
+          "When a Chat hits its plan's usage limit, move its Project to the next signed-in account and continue." + (error ? ` Could not save: ${error}` : "")
+        }
+      >
+        <Switch label="Switch accounts at usage limits" checked={autoSwitch} onChange={(next) => void change(next)} />
+      </Row>
+    </Group>
   );
 }
 
-// Experimental > Routines: Mac-owned (core), so heartbeats keep running while no window is open.
+// Settings › Experimental › Routines: Mac-owned (core), so heartbeats keep running while no window is open.
 function RoutinesSetting() {
   // null until read.
   const [enabled, setEnabled] = useState<boolean | null>(null);
@@ -1674,7 +1697,7 @@ function RoutinesSetting() {
   );
 }
 
-// Experimental > Linear: the daemon keeps the switch (phones share it) and the Mac's connections, one per workspace.
+// Settings › Connections › Linear: the daemon keeps the switch (phones share it) and the Mac's connections, one per workspace.
 function LinearSettings() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   // null until read; a Mac that predates the switch sends none and has it on.
@@ -1878,7 +1901,8 @@ function ProjectSettings({ project, onManageAccounts }: { project: SettingsProje
       <Group title="Sidebar">
         <ShowInSidebarSetting project={project} />
       </Group>
-      <ProjectAccountsGroup projectPath={project.path} onManageAccounts={onManageAccounts} />
+      {/* Accounts belong to the computer that runs the Project; only that Mac chooses them. */}
+      {!isRemoteKey(project.path) && <ProjectAccountsGroup projectPath={project.path} onManageAccounts={onManageAccounts} />}
       <Group title="Main branch">
         <MainSyncSetting projectPath={project.path} />
       </Group>
@@ -1920,12 +1944,26 @@ export function SettingsPanel({
         {/* MCP draws its own title row, with Refresh and Add server beside it. */}
         {section !== "mcp" && <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{title}</h1>}
         {section === "general" && <GeneralSettings models={models} />}
-        {section === "accounts" && <AccountsSettings />}
+        {section === "accounts" && (
+          <>
+            <AccountsSettings />
+            <LimitAutoSwitchSetting />
+          </>
+        )}
         {section === "project-accounts" && (
           <ProjectAccountsSettings projectPath={accountScope ?? project?.path} onManageAccounts={() => onSectionChange?.("accounts")} />
         )}
         {section === "appearance" && <AppearanceSettings />}
         {section === "chat" && <ChatSettings />}
+        {section === "notifications" && <NotificationsSettings />}
+        {section === "connections" && (
+          <>
+            <p className="mt-1 text-[13px] text-ink-2">Services Milagre signs in to, so Chats can start from their issues.</p>
+            <Group title="Issue trackers">
+              <LinearSettings />
+            </Group>
+          </>
+        )}
         {section === "skills" &&
           (project ? (
             <SkillsSettings key={project.path} projectPath={project.path} />

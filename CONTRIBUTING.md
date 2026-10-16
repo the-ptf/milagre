@@ -32,7 +32,7 @@ Install dependencies from the repository root with `npm ci`. Add package depende
 
 Run `npm run format` before pushing; CI fails on unformatted files. After cloning, run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so `git blame` skips the repository-wide formatting commit.
 
-When changing the UI, include a short description of the interaction and, when practical, a screenshot or recording in the pull request.
+When changing the UI, include a short description of the interaction and a screenshot or recording taken from the real app (the dev app or a packaged build), not from a test harness, mockup or fake provider.
 
 ## Pull requests
 

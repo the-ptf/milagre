@@ -65,13 +65,23 @@ export function createAiConsent({ read, write, ask }) {
 export function requiresAiConsent(method, args = []) {
   if (method === "agent:respond-permission") return args[0]?.decision !== "deny";
   if (method === "agent:set-permission-mode") return args[0]?.mode !== "ask";
-  return ["chat:send", "link:send", "chat:resume", "chat:limit-switch", "advisor:retry", "agent:answer-question", "live-activity:answer"].includes(method);
+  return [
+    "chat:send",
+    "link:send",
+    "chat:resume",
+    "chat:queue-send",
+    "chat:limit-switch",
+    "advisor:retry",
+    "agent:answer-question",
+    "live-activity:answer",
+  ].includes(method);
 }
 
 const methods = {
   sendMessage: "chat:send",
   sendLinkMessage: "link:send",
   resumeChat: "chat:resume",
+  sendQueuedNow: "chat:queue-send",
   switchAccountAfterLimit: "chat:limit-switch",
   retryAdvisor: "advisor:retry",
   answerQuestion: "agent:answer-question",
