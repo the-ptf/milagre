@@ -1312,7 +1312,7 @@ test("the gate hook denies what the policy denies, asks when the policy fails, a
     throw new Error("broken");
   };
   assert.equal((await hook(input, "t3")).hookSpecificOutput.permissionDecision, "ask");
-  // Victor took the Chat over: Bot rules no longer applies, and neither does the bot's policy.
+  // The user took the Chat over: Bot rules no longer applies, and neither does the bot's policy.
   await session.setPermissionMode("ask");
   assert.deepEqual(await hook(input, "t3"), {});
 });

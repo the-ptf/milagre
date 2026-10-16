@@ -31,7 +31,7 @@ test("quiet chats are bot threads and bot-opened Chats", () => {
   assert.equal(isQuietChat(snapshot, "/d/bots/ops#1"), true);
   assert.equal(isQuietChat(snapshot, "/p#4"), true);
   assert.equal(isQuietChat(snapshot, "/p#5"), false);
-  // A Chat Victor took over is his again, and tells him when it finishes.
+  // A Chat the user took over is theirs again, and tells them when it finishes.
   assert.equal(isQuietChat(snapshot, "/p#6"), false);
   assert.equal(isQuietChat(undefined, "/p#4"), false);
 });

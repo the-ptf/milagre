@@ -59,9 +59,13 @@ function createBots({
   now = Date.now,
   // True once Milagre is quitting: what it would tell a bot then could only start a turn the quit cuts off.
   closing = () => false,
-  // Whose bots these are, as the instructions and the copy name them.
-  owner = "Victor",
+  // The name of the person these bots work for, when the host knows it. Without one, the instructions and the copy
+  // say "the user".
+  owner,
 }) {
+  const ownerName = typeof owner === "string" && owner.trim() ? owner.trim() : null;
+  // How a sentence that starts with the owner names them.
+  const Owner = ownerName ?? "The user";
   const botsDir = path.join(dataDir, "bots");
   let records = store.listBots();
   const refresh = () => (records = store.listBots());
@@ -145,7 +149,7 @@ function createBots({
       brief: await readBrief(bot.homePath),
       memory: (await readMemory(bot.homePath)).text,
       roster: records.map(({ name, role }) => ({ name, role })),
-      owner,
+      owner: ownerName,
     });
   }
 
@@ -206,7 +210,7 @@ function createBots({
     for (const gate of expired)
       await notify(
         gate.botId,
-        `Sign-off for ${gate.meta.title} expired. ${owner} didn't answer within an hour, so it counts as denied. Ask again if it's still needed.`,
+        `Sign-off for ${gate.meta.title} expired. ${Owner} didn't answer within an hour, so it counts as denied. Ask again if it's still needed.`,
         { kind: "bot-gate-expired", requestId: gate.requestId, chatKey: gate.chatKey },
       );
   }
@@ -241,7 +245,7 @@ function createBots({
   function requireOwnChat(bot, chatKey) {
     const chat = store.chat(String(chatKey ?? ""));
     if (!chat || chat.botId !== bot.id) throw new Error(`${bot.name} didn't open that Chat. chat_list_mine lists the ones it did.`);
-    if (chat.status === "taken-over") throw new Error(`${owner} took over this Chat.`);
+    if (chat.status === "taken-over") throw new Error(`${Owner} took over this Chat.`);
     return chat;
   }
   // A Chat Milagre starts or steers for a bot: the bot's provider and model, under its gates.
@@ -344,7 +348,7 @@ function createBots({
     if (!chat || chat.status === "taken-over") return;
     store.setChatStatus(chatKey, "taken-over");
     changed();
-    await notify(chat.botId, `${owner} took over this Chat: ${chat.title} (${chatKey}). Don't steer it any more.`, {
+    await notify(chat.botId, `${Owner} took over this Chat: ${chat.title} (${chatKey}). Don't steer it any more.`, {
       kind: "bot-chat-taken-over",
       chatKey,
     });
@@ -374,7 +378,7 @@ function createBots({
   });
 
   return {
-    owner,
+    owner: ownerName,
     enabled,
     setEnabled(value) {
       if (typeof value !== "boolean") throw new Error("Bots on or off is a boolean.");

@@ -241,23 +241,24 @@ test("chat_status reports the Chat and what it waits for", async (t) => {
   await assert.rejects(bots.chatStatus("ops", "/Code/other#2"), /Ops didn't open that Chat\./);
 });
 
-test("Victor taking over a bot Chat ends the bot's hold on it", async (t) => {
+test("the user taking over a bot Chat ends the bot's hold on it", async (t) => {
   const { bots, store, chats, OPS, open } = await harness(t);
   const { chatKey } = await open();
   assert.ok(bots.policyFor(chatKey));
   await bots.takeOver(chatKey);
   assert.equal(store.chat(chatKey).status, "taken-over");
-  await assert.rejects(bots.chatSend("ops", chatKey, "continue"), /Victor took over this Chat\./);
+  await assert.rejects(bots.chatSend("ops", chatKey, "continue"), { message: "The user took over this Chat." });
   assert.equal(bots.policyFor(chatKey), undefined);
   assert.equal(chats.sent.at(-1).projectPath, OPS.homePath);
   assert.equal(chats.sent.at(-1).context.kind, "bot-chat-taken-over");
+  assert.match(chats.sent.at(-1).body, /^The user took over this Chat: Fix flaky terminal-perf test /);
   // Its turns end without telling the bot.
   const sent = chats.sent.length;
   await bots.observe(chatKey, { type: "turn-completed" });
   assert.equal(chats.sent.length, sent);
 });
 
-test("deleting a bot hands its running Chats to Victor and denies its sign-offs", async (t) => {
+test("deleting a bot hands its running Chats to the user and denies its sign-offs", async (t) => {
   const { bots, store, agents, closed, OPS, open } = await harness(t);
   const { chatKey } = await open();
   await bots.observe(chatKey, { type: "permission-request", requestId: "r1", gate: META });

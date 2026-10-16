@@ -220,7 +220,7 @@ test("an hour later the gate expires, is denied and the bot is told", async (t) 
   assert.equal(chats.sent.at(-1).projectPath, OPS.homePath);
   assert.equal(chats.sent.at(-1).permissionMode, "bot");
   assert.equal(chats.sent.at(-1).context.kind, "bot-gate-expired");
-  assert.match(chats.sent.at(-1).body, /Sign-off for Merge PR #474 expired\./);
+  assert.match(chats.sent.at(-1).body, /^Sign-off for Merge PR #474 expired\. The user didn't answer within an hour, so it counts as denied\./);
   assert.equal(bots.snapshot().gates[0].status, "expired");
 });
 

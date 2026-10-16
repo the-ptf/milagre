@@ -234,7 +234,7 @@ test("a bot's thread session asks for sign-offs through the bots policy", async 
   );
 });
 
-test("Victor sending in a bot Chat takes it over", async (t) => {
+test("the user sending in a bot Chat takes it over", async (t) => {
   const { runtime, bot, project, sessions, turns, dir } = await withOps(t);
   await runtime.invoke("bots:send", ["ops", "Fix the flaky test"]);
   await waitUntil(() => sessions.some((item) => item.options.cwd === bot.homePath));
@@ -265,7 +265,7 @@ test("Victor sending in a bot Chat takes it over", async (t) => {
   assert.equal(turns.findLast(inWorktree).permissionMode, "auto");
   const refused = await runTool(tool("chat_send"), { chat: chatKey, text: "continue" });
   assert.equal(refused.isError, true);
-  assert.equal(refused.text, "Victor took over this Chat.");
+  assert.equal(refused.text, "The user took over this Chat.");
   // The bot's thread stays quiet; the Chat is the user's now and announces its ends again.
   assert.equal(runtime.isQuietChat(`${bot.homePath}#${bot.threadSessionId}`), true);
   assert.equal(runtime.isQuietChat(chatKey), false);

@@ -35,7 +35,7 @@ export interface RuntimeOptions {
    * turn isn't busy is unloaded by a sweep every `sweepMs` (a minute; 0 for none). false keeps every message in memory.
    */
   lazyMessages?: false | { idleMs?: number; sweepMs?: number };
-  /** Whose bots these are, as their instructions and copy name the owner. Default "Victor". */
+  /** The name of the person the bots work for, as their instructions and copy name them. Without it they say "the user". */
   botOwner?: string;
   /** The Linear connection; tests point it at a fake Linear and a fake browser. */
   linear?: {
