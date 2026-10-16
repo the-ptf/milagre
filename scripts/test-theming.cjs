@@ -114,8 +114,7 @@ async function browserChecks() {
     assert.notEqual(blueDark, "#17181a", "Milagre Blue dark is not Gray dark");
     assert.equal(await evaluate(`document.querySelectorAll('#milagre-theme').length`), 1, "one theme stylesheet is reused");
     await screenshot("gray-light");
-    // Custom theme editor in Experimental
-    await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Experimental').click()`);
+    // Custom theme editor in Appearance
     const custom = `document.querySelector('[role="switch"][aria-label="Custom theme"]')`;
     await waitFor(`!!${custom}`);
     await evaluate(`${custom}.click()`);

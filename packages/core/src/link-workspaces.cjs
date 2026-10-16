@@ -18,9 +18,12 @@ function createLinkWorkspaces({
   getSettings = async () => ({}),
   createWorktree = create,
   runSetup = runSetupCommand,
+  deferSetup,
   git = createGit(),
 }) {
   const queues = new Map();
+  // A member is the Chat's once its Worktree exists and its setup ran, or waits for its review (deferSetup).
+  const isReady = (member) => Boolean(member.setupDone || member.setupDeferred);
   // One preparation at a time per Link, so a new Chat and a new member never race on the same state.
   function queued(key, task) {
     const run = (queues.get(key) ?? Promise.resolve()).catch(() => {}).then(task);
@@ -34,7 +37,7 @@ function createLinkWorkspaces({
   }
   // The Chat's Worktrees follow its preparation: a member reaches the session once its setup is done.
   async function save(id, preparation) {
-    const ready = preparation.members.filter((member) => member.setupDone);
+    const ready = preparation.members.filter(isReady);
     await store.update(
       id,
       (state) => ({
@@ -56,10 +59,10 @@ function createLinkWorkspaces({
       if (!members[i]) throw new Error(`Link Project ${path.basename(path.dirname(link.projectIds[i]))} is unavailable. Restore its folder before sending.`);
     return members;
   }
-  const result = (prep) => ({ workspacePath: prep.workspacePath, worktrees: prep.members.filter((member) => member.setupDone) });
+  const result = (prep) => ({ workspacePath: prep.workspacePath, worktrees: prep.members.filter(isReady) });
   async function writeManifest(link, prep) {
     await fs.mkdir(prep.workspacePath, { recursive: true });
-    for (const member of prep.members.filter((item) => item.setupDone)) {
+    for (const member of prep.members.filter(isReady)) {
       const alias = path.join(prep.workspacePath, member.alias);
       try {
         await fs.symlink(member.worktreePath, alias, process.platform === "win32" ? "junction" : "dir");
@@ -69,7 +72,7 @@ function createLinkWorkspaces({
     }
     await fs.writeFile(
       path.join(prep.workspacePath, "milagre-workspace.json"),
-      JSON.stringify({ linkId: link.id, chatId: prep.chatId, projects: prep.members.filter((member) => member.setupDone) }, null, 2),
+      JSON.stringify({ linkId: link.id, chatId: prep.chatId, projects: prep.members.filter(isReady) }, null, 2),
     );
   }
   // The branch, folder and setup a member will get, checked free before anything is made. `index` is the Project's
@@ -100,6 +103,7 @@ function createLinkWorkspaces({
       alias: `${slugify(project.name) || "project"}-${index + 1}`,
       ...(settings.filesToCopy !== undefined ? { copyPatterns: settings.filesToCopy } : {}),
       setupCommand: resolved.command,
+      setupSource: resolved.source,
     };
   }
   // Creates (or, after a restart, verifies) one member's Worktree and runs its setup. On failure an untouched Worktree
@@ -127,14 +131,25 @@ function createLinkWorkspaces({
         member.created = true;
         await save(link.id, prep);
       }
-      if (member.setupCommand && !member.setupDone) {
+      if (member.setupCommand && !member.setupDone && !member.setupDeferred) {
         if (member.setupStarted) throw new Error("Setup was interrupted. Its Worktree has been retained for inspection");
-        member.setupStarted = true;
-        await save(link.id, prep);
-        const result = await runSetup({ cwd: member.worktreePath, command: member.setupCommand });
-        if (result.status !== "done") throw new Error(`Setup ${result.status}: ${result.output || result.error || "command did not complete"}`);
+        if (deferSetup) {
+          // The setup waits for the same review as an ordinary Worktree's, before the agent works in this one.
+          await deferSetup({
+            worktreePath: member.worktreePath,
+            projectPath: member.projectPath,
+            resolved: { command: member.setupCommand, source: member.setupSource ?? "repo" },
+            strict: true,
+          });
+          member.setupDeferred = true;
+        } else {
+          member.setupStarted = true;
+          await save(link.id, prep);
+          const result = await runSetup({ cwd: member.worktreePath, command: member.setupCommand });
+          if (result.status !== "done") throw new Error(`Setup ${result.status}: ${result.output || result.error || "command did not complete"}`);
+        }
       }
-      member.setupDone = true;
+      if (!member.setupDeferred) member.setupDone = true;
       await writeManifest(link, prep);
       await save(link.id, prep);
       return member;
@@ -160,7 +175,7 @@ function createLinkWorkspaces({
         }
       }
       const message = `Project ${member.projectName}: ${error.message}${retained ? `\nRetained Worktree: ${member.worktreePath}` : ""}`;
-      if (retained) Object.assign(member, { setupDone: false, retained: true, error: message });
+      if (retained) Object.assign(member, { setupDone: false, setupDeferred: false, retained: true, error: message });
       else prep.members = prep.members.filter((item) => item !== member);
       await save(link.id, prep);
       throw new Error(message);
@@ -168,10 +183,10 @@ function createLinkWorkspaces({
   }
   // Members reserved but not finished: a quit interrupted them, or the preparation was saved before Worktrees were made
   // on demand. A retained member stays as it is, for inspection.
-  const unfinished = (prep) => prep.status !== "ready" || prep.members.some((member) => !member.setupDone && !member.retained);
+  const unfinished = (prep) => prep.status !== "ready" || prep.members.some((member) => !isReady(member) && !member.retained);
   async function finishMembers(link, prep) {
     for (const member of prep.members) {
-      if (member.setupDone || member.retained) continue;
+      if (isReady(member) || member.retained) continue;
       await ownProject(member.projectPath);
       await materialize(link, prep, member);
     }
@@ -219,7 +234,7 @@ function createLinkWorkspaces({
     const index = find(projects, prep, wanted);
     const project = projects[index];
     let member = prep.members.find((item) => item.projectId === project.id);
-    if (member?.setupDone) return { member, created: false };
+    if (member && isReady(member)) return { member, created: false };
     if (member?.retained) throw new Error(member.error);
     await ownProject(project.path);
     if (!member) {

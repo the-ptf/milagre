@@ -96,6 +96,55 @@ test("Codex native activity records expose children even without a collab tool c
   assert.equal(child(events).status, "running");
   assert.equal(child(mapCodexNotification("thread/status/changed", { threadId: "native-child", status: { type: "systemError" } }, state)).status, "failed");
 });
+test("Claude's set of live background tasks keeps commands and MCP tasks, not agents or ambient watchers, and only on change", () => {
+  const state = {};
+  const changed = (tasks) => ({ type: "system", subtype: "background_tasks_changed", tasks });
+  const tasksOf = (events) => events.find((event) => event.type === "background-tasks")?.tasks;
+  const first = tasksOf(
+    mapClaudeMessage(
+      changed([
+        { task_id: "b1", task_type: "local_bash", description: "sleep 75 && echo done" },
+        { task_id: "a1", task_type: "local_agent", description: "Review auth" },
+        { task_id: "w1", task_type: "monitor", description: "Watch logs", ambient: true },
+        { task_id: "m1", task_type: "mcp_task", description: "" },
+      ]),
+      state,
+    ),
+  );
+  assert.deepEqual(
+    first.map(({ id, kind, title }) => ({ id, kind, title })),
+    [
+      { id: "b1", kind: "local_bash", title: "sleep 75 && echo done" },
+      { id: "m1", kind: "mcp_task", title: "Background task" },
+    ],
+  );
+  // The same set again is no change; a task keeps the time it was first seen.
+  assert.equal(
+    tasksOf(
+      mapClaudeMessage(
+        changed([
+          { task_id: "m1", task_type: "mcp_task" },
+          { task_id: "b1", task_type: "local_bash", description: "sleep 75 && echo done" },
+        ]),
+        state,
+      ),
+    ),
+    undefined,
+  );
+  const later = tasksOf(mapClaudeMessage(changed([{ task_id: "b1", task_type: "local_bash", description: "sleep 75 && echo done" }]), state));
+  assert.deepEqual(later, [first[0]]);
+  // A session that ends takes its tasks with it.
+  const { settleSubagents } = require("./subagents.cjs");
+  assert.deepEqual(settleSubagents(state, "cancelled"), [{ type: "background-tasks", tasks: [] }]);
+  assert.deepEqual(settleSubagents(state, "cancelled"), []);
+});
+test("an agent of the chat's own moved to the background is a background subagent", () => {
+  const state = {};
+  mapClaudeMessage(launch, state);
+  mapClaudeMessage({ type: "system", subtype: "task_started", task_id: "task", tool_use_id: "spawn", task_type: "local_agent", is_backgrounded: false }, state);
+  const moved = child(mapClaudeMessage({ type: "system", subtype: "task_updated", task_id: "task", patch: { is_backgrounded: true } }, state));
+  assert.equal(moved.background, true);
+});
 test("canceling the parent settles children without claiming successful completion", () => {
   const { settleSubagents } = require("./subagents.cjs");
   const state = {};

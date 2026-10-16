@@ -136,18 +136,28 @@ async function main() {
       evaluate(
         `(() => {const input = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', {bubbles:true})); })()`,
       );
-    // This check drives the legacy sidebar's project menu.
-    await evaluate(
-      `localStorage.setItem("milagre-settings", JSON.stringify({ ...JSON.parse(localStorage.getItem("milagre-settings") ?? "{}"), legacySidebar: true })); location.reload(); true`,
-    );
-    const selector = () => evaluate(`document.querySelector('[data-workspace-trigger]').click()`);
-    await waitFor(() => evaluate(`!!document.querySelector('[data-workspace-trigger]') && !document.querySelector('.startup-splash-screen')`), "desktop ready");
-    await selector();
-    await waitFor(() => evaluate(`document.body.textContent.includes('Link projects')`), "Project selector actions");
-    assert.ok(await evaluate(`document.body.textContent.includes('Copy project path')`));
+    const linkProjects = () => evaluate(`document.querySelector('[data-link-projects]').click()`);
+    const scopeOf = (name) => `[data-sidebar-scope][aria-label=${JSON.stringify(name)}]`;
+    const linkScope = `[data-sidebar-scope^="milagre-link:"]`;
+    const isCurrent = (selector) => evaluate(`!!document.querySelector(${JSON.stringify(selector + "[data-current]")})`);
+    // "New chat in <name>" on a group switches the sidebar to that Project or Link, restoring its unsent draft.
+    const openScope = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector + " [data-scope-action]")}).click()`);
+    const scopeMenu = async (selector) => {
+      await evaluate(`document.querySelector(${JSON.stringify(selector + " [data-scope-menu]")}).click()`);
+      await waitFor(() => evaluate(`!!document.querySelector('[data-scope-menu-panel]')`), "scope menu");
+    };
+    const closeScopeMenu = async () => {
+      await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      await waitFor(() => evaluate(`!document.querySelector('[data-scope-menu-panel]')`), "scope menu closed");
+    };
+    await waitFor(() => evaluate(`!!document.querySelector('[data-link-projects]') && !document.querySelector('.startup-splash-screen')`), "desktop ready");
+    await waitFor(() => evaluate(`!!document.querySelector('[data-sidebar-scope][data-current] [data-scope-menu]')`), "Project group");
+    await scopeMenu("[data-sidebar-scope][data-current]");
+    assert.ok(await evaluate(`!!document.querySelector('[data-scope-menu-item="copy-path"]')`));
     assert.equal(await evaluate(`document.body.textContent.includes('Import project')`), false);
+    await closeScopeMenu();
     await shot("project-selector");
-    await click("Link projects…");
+    await linkProjects();
     await waitFor(
       () => evaluate(`!!document.querySelector('#link-name') && document.querySelectorAll('dialog input[type=checkbox]').length === 2`),
       "Link creation dialog",
@@ -168,8 +178,7 @@ async function main() {
     await click("Cancel");
     await waitFor(() => evaluate(`!document.querySelector('#link-name')`), "Link dialog closed");
     await connection.call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
-    await selector();
-    await click("Link projects…");
+    await linkProjects();
     await waitFor(
       () => evaluate(`!!document.querySelector('#link-name') && document.querySelectorAll('dialog input[type=checkbox]').length === 2`),
       "reduced-motion Link dialog",
@@ -186,8 +195,7 @@ async function main() {
     await click("Cancel");
     await waitFor(() => evaluate(`!document.querySelector('#link-name')`), "reduced-motion Link dialog closed");
     await connection.call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
-    await selector();
-    await click("Link projects…");
+    await linkProjects();
     await waitFor(
       () => evaluate(`!!document.querySelector('#link-name') && document.querySelectorAll('dialog input[type=checkbox]').length === 2`),
       "Link dialog reopened",
@@ -210,25 +218,17 @@ async function main() {
     await input('input[aria-label="Search projects"]', "");
     await shot("create-link");
     await click("Create Link");
-    await waitFor(
-      () => evaluate(`document.querySelector('[data-workspace-trigger]')?.textContent.includes('RDFood') && !document.querySelector('#link-name')`),
-      "selected Link",
-    );
+    await waitFor(() => evaluate(`!!document.querySelector('${linkScope}[data-current]') && !document.querySelector('#link-name')`), "selected Link");
     assert.equal(providerCalls, 0);
     const links = await client.call("link:list");
     const link = links[0];
     assert.equal(links.length, 1);
     assert.equal(Object.keys((await client.call("link:snapshot", [link.id])).state.sessions).length, 0, "Draft allocates no Worktrees");
-    await selector();
-    await waitFor(() => evaluate(`document.body.textContent.includes('Links')`), "Links selector section");
-    assert.equal(
-      await evaluate(
-        `document.body.textContent.includes('Copy project path') || document.body.textContent.includes('Reveal in Finder') || document.body.textContent.includes('Project settings')`,
-      ),
-      false,
-    );
+    await waitFor(() => evaluate(`document.body.textContent.includes('Links')`), "Links sidebar section");
+    await scopeMenu(linkScope);
+    assert.equal(await evaluate(`['reveal', 'copy-path', 'settings'].some((key) => !!document.querySelector('[data-scope-menu-item="' + key + '"]'))`), false);
     await shot("link-selector");
-    await selector();
+    await closeScopeMenu();
     await input('textarea[aria-label="Prompt"]', "Update status.txt across both Projects.");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
     await waitFor(() => evaluate(`!!document.querySelector('dialog[open] #ai-consent-title')`), "AI sharing decision before Link send");
@@ -249,7 +249,7 @@ async function main() {
     await input('textarea[aria-label="Prompt"]', "Keep my draft while viewing the linked Projects");
     await click("Canvas");
     await waitFor(() => evaluate(`!!document.querySelector('[data-canvas]')`), "Link canvas");
-    assert.ok(await evaluate(`document.querySelector('[data-workspace-trigger]').textContent.includes('RDFood')`), "Canvas keeps the selected Link");
+    assert.ok(await isCurrent(linkScope), "Canvas keeps the selected Link");
     await waitFor(
       () => evaluate(`document.querySelectorAll('[data-canvas-project]').length === 2 && !!document.querySelector('[data-named-link]')`),
       "both Link members and membership connection",
@@ -456,14 +456,10 @@ async function main() {
     await shot("choose-git-project");
     await click("Cancel");
     await input('textarea[aria-label="Prompt"]', "Keep this Link draft");
-    await selector();
-    await waitFor(() => evaluate(`!!document.querySelector('[data-project-item]')`), "Project menu rows");
-    await evaluate(`[...document.querySelectorAll('[data-project-item] [data-menu-row]')].find(button => button.textContent.includes('food-api')).click()`);
-    await waitFor(() => evaluate(`document.querySelector('[data-workspace-trigger]')?.textContent.includes('food-api')`), "ordinary Project restored");
+    await openScope(scopeOf("food-api"));
+    await waitFor(() => isCurrent(scopeOf("food-api")), "ordinary Project restored");
     await input('textarea[aria-label="Prompt"]', "Keep this Project draft");
-    await selector();
-    await waitFor(() => evaluate(`!!document.querySelector('[data-link-row]')`), "Link menu row");
-    await evaluate(`document.querySelector('[data-link-row]').click()`);
+    await openScope(linkScope);
     await waitFor(() => evaluate(`document.querySelector('textarea[aria-label="Prompt"]')?.value === 'Keep this Link draft'`), "independent Link draft");
     await input('textarea[aria-label="Prompt"]', "Follow up in both Worktrees");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
@@ -471,14 +467,10 @@ async function main() {
     assert.deepEqual((await client.call("link:snapshot", [link.id])).state.sessions[session.id].worktrees, session.worktrees);
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
     await input('textarea[aria-label="Prompt"]', "An independent new Chat draft");
-    await selector();
-    await waitFor(() => evaluate(`!!document.querySelector('[data-project-item]')`), "Project rows");
-    await evaluate(`[...document.querySelectorAll('[data-project-item] [data-menu-row]')].find(button => button.textContent.includes('food-api')).click()`);
-    await waitFor(() => evaluate(`document.querySelector('[data-workspace-trigger]')?.textContent.includes('food-api')`), "Project switch");
+    await openScope(scopeOf("food-api"));
+    await waitFor(() => isCurrent(scopeOf("food-api")), "Project switch");
     assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "Keep this Project draft");
-    await selector();
-    await waitFor(() => evaluate(`!!document.querySelector('[data-link-row]')`), "Link row");
-    await evaluate(`document.querySelector('[data-link-row]').click()`);
+    await openScope(linkScope);
     await waitFor(
       () => evaluate(`document.querySelector('textarea[aria-label="Prompt"]')?.value === 'An independent new Chat draft'`),
       "new Chat draft restored",
@@ -488,22 +480,31 @@ async function main() {
       false,
       "Explicit new Chat selection must survive a scope switch",
     );
-    // A Project's setup runs when the agent makes its Worktree, during the turn.
-    const setupGate = path.join(dir, "setup-ready");
-    await client.call("worktree-setup:save", [projects[0], `while test ! -f '${setupGate}'; do sleep 0.1; done`]);
+    // A shared Chat's agent makes its Worktrees during the turn. Hold that creation, through the real
+    // Git/daemon/IPC path, so these checks run while the earlier send's turn is still busy.
+    const worktreeGate = path.join(dir, "worktree-ready");
+    const worktreeStarted = path.join(dir, "worktree-started");
+    const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+    await fs.writeFile(
+      path.join(projects[0], ".git/hooks/post-checkout"),
+      `#!/bin/sh\nprintf started > ${quote(worktreeStarted)}\nwhile test ! -f ${quote(worktreeGate)}; do sleep 0.1; done\n`,
+      { mode: 0o755 },
+    );
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
     await input('textarea[aria-label="Prompt"]', "Slow new shared Chat");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
     await waitFor(
-      async () =>
-        Object.values((await client.call("link:snapshot", [link.id])).state.preparations).some((prep) =>
-          prep.members.some((member) => member.setupStarted && !member.setupDone),
+      () =>
+        fs.access(worktreeStarted).then(
+          () => true,
+          () => false,
         ),
-      "slow preparation started",
+      "slow Worktree creation started",
     );
+    assert.equal(providerCalls, 3, "The send's turn started; its agent's Worktree creation is what waits");
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
     await input('textarea[aria-label="Prompt"]', "Slow new shared Chat");
-    await fs.writeFile(setupGate, "ready");
+    await fs.writeFile(worktreeGate, "ready");
     await waitFor(() => providerCalls === 3, "earlier send finishes");
     await delay(500);
     assert.equal(
@@ -512,28 +513,27 @@ async function main() {
       "A late send must not select its Chat or clear the new draft",
     );
     await evaluate(`[...document.querySelectorAll('button[data-row]')].find(button => button.textContent.includes('Update status.txt')).click()`);
-    await fs.unlink(setupGate);
+    await fs.unlink(worktreeGate);
+    await fs.unlink(worktreeStarted);
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
     await input('textarea[aria-label="Prompt"]', "Send then switch scope");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
     await waitFor(
-      async () =>
-        Object.values((await client.call("link:snapshot", [link.id])).state.preparations).some((prep) =>
-          prep.members.some((member) => member.setupStarted && !member.setupDone),
+      () =>
+        fs.access(worktreeStarted).then(
+          () => true,
+          () => false,
         ),
-      "scope-switch preparation",
+      "scope-switch Worktree creation started",
     );
-    await selector();
-    await waitFor(() => evaluate(`!!document.querySelector('[data-project-item]')`), "switch-away Project rows");
-    await evaluate(`[...document.querySelectorAll('[data-project-item] [data-menu-row]')].find(button => button.textContent.includes('food-api')).click()`);
-    await waitFor(() => evaluate(`document.querySelector('[data-workspace-trigger]')?.textContent.includes('food-api')`), "switched away during setup");
-    await fs.writeFile(setupGate, "ready");
+    assert.equal(providerCalls, 4, "The background send's turn started; its agent's Worktree creation is what waits");
+    await openScope(scopeOf("food-api"));
+    await waitFor(() => isCurrent(scopeOf("food-api")), "switched away during creation");
+    await fs.writeFile(worktreeGate, "ready");
     await waitFor(() => providerCalls === 4, "background send acknowledgement");
     await delay(500);
-    await selector();
-    await waitFor(() => evaluate(`!!document.querySelector('[data-link-row]')`), "return Link row");
-    await evaluate(`document.querySelector('[data-link-row]').click()`);
-    await waitFor(() => evaluate(`document.querySelector('[data-workspace-trigger]')?.textContent.includes('RDFood')`), "returned Link");
+    await openScope(linkScope);
+    await waitFor(() => isCurrent(linkScope), "returned Link");
     assert.equal(
       await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`),
       "",
@@ -571,7 +571,7 @@ async function main() {
     console.error(output);
     throw error;
   } finally {
-    await fs.writeFile(path.join(dir, "setup-ready"), "ready").catch(() => {});
+    await fs.writeFile(path.join(dir, "worktree-ready"), "ready").catch(() => {});
     connection?.close();
     if (child && child.exitCode === null) {
       const exit = once(child, "exit");

@@ -389,6 +389,10 @@ async function browserChecks() {
     await screenshot("subagent-delta");
     await click('[aria-label="Collapse subagents"]');
     await key(",", { metaKey: true });
+    // Settings opens on General; the notification switches live in their own section.
+    const notificationsNav = `[...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Notifications")`;
+    await waitFor(`!!${notificationsNav}`);
+    await evaluate(`${notificationsNav}.click()`);
     await waitFor(String.raw`!!document.querySelector('[role=switch][aria-label="Notify when finished"]')`);
     await screenshot("notification-settings");
     await click('[role=switch][aria-label="Notify when finished"]');

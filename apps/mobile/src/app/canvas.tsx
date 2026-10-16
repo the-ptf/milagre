@@ -20,6 +20,7 @@ import { useLinks } from "../use-links";
 import { useAttention } from "../attention";
 import { endNamer } from "../chat-links";
 import { ChatMarkIcon } from "../status-indicators";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import { Icon, ProviderLogo } from "../icons";
 import { ProjectIcon } from "../project-icon";
 import { ErrorNotice, PageScroll, useStyles } from "../ui";
@@ -119,6 +120,7 @@ export default function CanvasScreen() {
         if (run?.questions.length) return "question";
         if (run?.approvals.length || waitingKeys.has(`${item.path}#${id}`)) return "waiting";
         if (run) return "running";
+        if (chatActivity(copy.project.state.sessions[id], run).activity === "background") return "background";
         return unread ? "unread" : "idle";
       };
       const projectId = links.available ? links.projectIdOf(item.path) : undefined;

@@ -58,6 +58,7 @@ import { BLOCKERS, pullRequestBlockers, pullRequestPresentation } from "@/lib/pr
 import { ScrollArea } from "../primitives/ScrollArea";
 import { useDismiss } from "../../lib/use-dismiss";
 import { chatMarkTone } from "@milagre/shared/chats";
+import { backgroundLabel } from "@milagre/shared/chat-activity";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { activityAgo, DESKTOP_CHAT_ROW_SHOW, type ChatRowShow } from "@milagre/shared/chat-row";
 
@@ -134,6 +135,8 @@ export type SidebarRecent = {
   prompt?: string;
   /** The mark at the left of the row; idle when absent. */
   mark?: ChatMark;
+  /** With a background mark: how many background agents still work (chat-activity.mjs). */
+  background?: number;
   /** Whether the chat is unread, whatever its mark shows. */
   unread?: boolean;
   /** In the Pinned section, at `pinOrder` among the pinned chats. */
@@ -178,8 +181,22 @@ const MARK_LABEL: Record<Exclude<ChatMark, "idle">, string> = {
   waiting: "Waiting for you",
   delegated: "Working on a Delegation",
   running: "Running",
+  background: "Working in the background",
   unread: "Unread",
 };
+
+/** The mark's words, a background mark with its count: "2 background tasks running". */
+const markLabel = (mark: Exclude<ChatMark, "idle">, background = 0) =>
+  mark === "background" && background ? `${backgroundLabel(background)} running` : MARK_LABEL[mark];
+
+/** Work going on with no turn: a still ring around how many background tasks run, so it reads apart from running. */
+function BackgroundMark({ count = 0 }: { count?: number }) {
+  return (
+    <span className="flex size-3 items-center justify-center rounded-full border-[1.5px] border-accent text-[7px] font-bold leading-none tabular-nums text-accent">
+      {count > 9 ? "9+" : count || ""}
+    </span>
+  );
+}
 
 const HOVER_CARD_DELAY = 500;
 /** Time to cross from the row to the card before it closes, so its PR links can be clicked. */
@@ -226,17 +243,18 @@ function MarkIcon({ mark }: { mark: keyof typeof MARK_ICON }) {
   );
 }
 
-export function ChatMarkDot({ mark, topAligned = false }: { mark: ChatMark; topAligned?: boolean }) {
+export function ChatMarkDot({ mark, background, topAligned = false }: { mark: ChatMark; background?: number; topAligned?: boolean }) {
   const dot = mark === "unread" ? "size-2 bg-accent" : "size-1.5 bg-ink-3 opacity-40";
   return (
     <span className={`sidebar-copy mr-2 flex size-3 shrink-0 items-center justify-center ${topAligned ? "mt-1" : ""}`}>
       <span
         data-slot="chat-mark"
         data-mark={mark}
-        {...(mark === "idle" ? { "aria-hidden": true } : { role: "img", "aria-label": MARK_LABEL[mark], title: MARK_LABEL[mark] })}
-        className={mark === "running" ? "flex" : mark in MARK_ICON ? "flex" : `rounded-full ${dot}`}
+        {...(mark === "idle" ? { "aria-hidden": true } : { role: "img", "aria-label": markLabel(mark, background), title: markLabel(mark, background) })}
+        className={mark === "running" || mark === "background" ? "flex" : mark in MARK_ICON ? "flex" : `rounded-full ${dot}`}
       >
         {mark === "running" && <SpinnerRing size={12} color="var(--accent)" />}
+        {mark === "background" && <BackgroundMark count={background} />}
         {mark in MARK_ICON && <MarkIcon mark={mark as keyof typeof MARK_ICON} />}
       </span>
     </span>
@@ -395,7 +413,7 @@ export const ChatRow = memo(function ChatRow({
       >
         {renaming ? (
           <div data-row className="sidebar-row relative z-10 mx-2 flex h-8 items-center rounded-[8px] bg-hover-2 px-2">
-            <ChatMarkDot mark={mark} />
+            <ChatMarkDot mark={mark} background={item.background} />
             <RenameField
               initial={item.label}
               onDone={(title) => {
@@ -427,7 +445,7 @@ export const ChatRow = memo(function ChatRow({
                 mark !== "idle" && <span aria-hidden className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-accent ring-2 ring-surface" />
               )}
             </span>
-            <ChatMarkDot mark={mark} topAligned={twoLines} />
+            <ChatMarkDot mark={mark} background={item.background} topAligned={twoLines} />
             <span
               className={`sidebar-copy min-w-0 flex-1 truncate text-[14px] ${prLines ? "leading-5" : ""} transition-[padding] duration-150 ${shortcutHint ? "pr-12" : "group-hover/row:pr-6"} ${menu ? "pr-6" : ""} ${
                 item.unread ? "font-semibold text-ink" : active ? "font-medium text-ink" : "font-medium text-ink-2"
@@ -719,7 +737,7 @@ function ChatHoverCard({
   const mark = item.mark ?? "idle";
   const status =
     mark !== "idle"
-      ? { label: MARK_LABEL[mark], tone: markToneClass[chatMarkTone(mark)] }
+      ? { label: markLabel(mark, item.background), tone: markToneClass[chatMarkTone(mark)] }
       : details.failed
         ? { label: "Last turn failed", tone: "text-red" }
         : null;
@@ -744,7 +762,7 @@ function ChatHoverCard({
           <CardLine
             icon={
               <span className="flex size-4 items-center justify-center">
-                <ChatMarkDotInline mark={mark} failed={Boolean(details.failed)} />
+                <ChatMarkDotInline mark={mark} failed={Boolean(details.failed)} background={item.background} />
               </span>
             }
           >
@@ -876,8 +894,9 @@ function ChatHoverCard({
 }
 
 /** A mark without its row: the hover card's status line, and the collapsed rail's list of live chats. */
-export function ChatMarkDotInline({ mark, failed }: { mark: ChatMark; failed: boolean }) {
+export function ChatMarkDotInline({ mark, failed, background }: { mark: ChatMark; failed: boolean; background?: number }) {
   if (mark === "running") return <SpinnerRing size={12} color="var(--accent)" />;
+  if (mark === "background") return <BackgroundMark count={background} />;
   if (mark in MARK_ICON) return <MarkIcon mark={mark as keyof typeof MARK_ICON} />;
   return <span aria-hidden className={`size-2 rounded-full ${mark === "idle" && failed ? "bg-red" : "bg-accent"}`} />;
 }

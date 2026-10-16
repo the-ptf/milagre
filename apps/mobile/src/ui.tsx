@@ -10,8 +10,10 @@ import {
   TextInput,
   View,
   type ColorValue,
+  type ScrollViewInstance,
   type ScrollViewProps,
   type StyleProp,
+  type TextInputInstance,
   type TextInputProps,
   type ViewStyle,
 } from "react-native";
@@ -99,12 +101,12 @@ export type Styles = ReturnType<typeof makeStyles>;
 /** The shared styles for the current theme, built once per palette. */
 export const useStyles = createStylesHook(makeStyles);
 
-const tap = () => {
+export const tap = () => {
   if (Platform.OS === "ios") void Haptics.selectionAsync().catch(() => {});
 };
 
 // Native scrolling and choice controls have one shared entry point.
-export const PageScroll = React.forwardRef<ScrollView, ScrollViewProps>(function PageScroll({ children, contentContainerStyle, ...props }, ref) {
+export const PageScroll = React.forwardRef<ScrollViewInstance, ScrollViewProps>(function PageScroll({ children, contentContainerStyle, ...props }, ref) {
   const styles = useStyles();
   return (
     <ScrollView
@@ -231,7 +233,7 @@ export function Toggle({
     </Host>
   );
 }
-export function Field({ label, hideLabel = false, ...props }: TextInputProps & { label: string; hideLabel?: boolean; ref?: React.Ref<TextInput> }) {
+export function Field({ label, hideLabel = false, ...props }: TextInputProps & { label: string; hideLabel?: boolean; ref?: React.Ref<TextInputInstance> }) {
   const { colors } = useTheme();
   const styles = useStyles();
   return (

@@ -217,3 +217,23 @@ test("a Chat's agent reads the Projects it hasn't changed and owns the ones it h
   assert.deepEqual(after.readOnlyRoots, [projects[0].path]);
   assert.match(after.workspaceInstructions, new RegExp(`web-2: ${member.worktreePath}`));
 });
+test("a deferred setup leaves its review for later and the Worktree is the Chat's at once", async (t) => {
+  const deferred = [];
+  const { link, store, workspaces } = await fixture(t, {
+    getSettings: async () => ({ setupCommand: "setup" }),
+    runSetup: async () => assert.fail("A deferred setup must not run here"),
+    deferSetup: async (request) => deferred.push(request),
+  });
+  await readyChat(link, store, workspaces, { link, chatId: 1, prompt: "", operationId: randomUUID() });
+  const { member } = await workspaces.addLinkWorktree({ link, chatId: 1, project: "api" });
+  assert.equal(member.setupDeferred, true);
+  assert.deepEqual(
+    deferred.map((request) => [request.worktreePath, request.resolved.command, request.strict]),
+    [[member.worktreePath, "setup", true]],
+  );
+  assert.deepEqual(
+    (await store.get(link.id)).sessions[1].worktrees.map((item) => item.worktreePath),
+    [member.worktreePath],
+  );
+  assert.equal((await workspaces.addLinkWorktree({ link, chatId: 1, project: "api" })).created, false);
+});

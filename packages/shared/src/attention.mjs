@@ -2,7 +2,8 @@ import { providerName } from "./providers.mjs";
 // System notifications for chats that wait on the user, built by the main process, which sees every
 // project's chats (see notifications.cjs). Types: attention.d.mts.
 import { chatTitle } from "./chats.mjs";
-import { chatInProject, projectOfKey, subagentActive } from "./agent-runs.mjs";
+import { chatInProject, projectOfKey } from "./agent-runs.mjs";
+import { activityBusy, chatActivity } from "./chat-activity.mjs";
 import { isLinkScopeKey } from "./chat-scopes.mjs";
 
 /** A compact plain-text preview for desktop and phone notifications. */
@@ -24,10 +25,7 @@ export function notificationText(value, { markdown = true } = {}) {
   return `${space > 120 ? start.slice(0, space) : start}…`;
 }
 
-/** Keep the beginning of the latest reply; ordinary paragraph breaks stay in the preview. */
-export function notificationPreview(previous, text, startsMessage = false) {
-  return ((startsMessage ? "" : previous || "") + (text || "")).slice(0, 4096);
-}
+export { notificationPreview } from "./chat-activity.mjs";
 
 /** The same chat-only title and result preview on desktop and phones. */
 export function completionNotice(title, { failed, body }) {
@@ -67,10 +65,19 @@ export function attentionContext(state, projectName, sessionId) {
   };
 }
 
-/** Chat keys outside `currentPath` whose turn waits on an approval or question, oldest key first. Link Chats are left out. */
-export function chatsNeedingAttention(runs, currentPath = "") {
+const NO_HIDDEN = new Set();
+
+/** Chat keys outside `currentPath` whose turn waits on an approval or question, oldest key first. Link Chats and the
+ * Projects in `hidden` (hidden from the sidebar and the phone's list) are left out. */
+export function chatsNeedingAttention(runs, currentPath = "", hidden = NO_HIDDEN) {
   return Object.entries(runs ?? {})
-    .filter(([key, run]) => (run?.approvals?.length || run?.questions?.length) && !isLinkScopeKey(projectOfKey(key)) && !chatInProject(currentPath, key))
+    .filter(
+      ([key, run]) =>
+        (run?.approvals?.length || run?.questions?.length) &&
+        !isLinkScopeKey(projectOfKey(key)) &&
+        !hidden.has(projectOfKey(key)) &&
+        !chatInProject(currentPath, key),
+    )
     .map(([key]) => key);
 }
 
@@ -100,13 +107,15 @@ export function inboxSnapshot(scopes, runs = {}) {
       const run = runs[key];
       const permission = run?.approvals?.find((request) => !run.answered?.[request.requestId]);
       const question = permission ? undefined : run?.questions?.find((request) => !run.answered?.[request.requestId]);
-      const background = session.subagents?.some((agent) => agent.background && subagentActive(agent));
+      // A failed turn is never shown as work still going, even with background subagents at work (chat-activity.mjs).
+      const { activity } = chatActivity(session, run);
+      const background = activity === "background";
       const outcome = session.summary?.lastOutcome;
       const status = permission
         ? "approval"
         : question
           ? "question"
-          : run || background
+          : activityBusy(activity)
             ? "working"
             : session.unread && (outcome === "completed" || outcome === "failed")
               ? outcome

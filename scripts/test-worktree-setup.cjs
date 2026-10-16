@@ -1,5 +1,5 @@
 // Run with npm test -- --only worktree-setup. Exercises the real App with an isolated project and mocked Electron IPC:
-// the Setup command field in Settings, and the setup step in the chat of a new worktree, which starts without asking.
+// the Setup command field in Settings, repository setup review, and setup progress in a new Worktree's Chat.
 // Set MILAGRE_SCREENSHOT_DIR to save screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -22,7 +22,7 @@ state.worktrees = { 1: { id: 1, name: "main", path: "/fixture", project_id: 1 } 
 state.sessions = { 2: { id: 2, worktree_id: 1, agent_name: "Claude", provider: "claude", status: "Idle" } };
 state.messages = [{ id: 3, session_id: 2, role: "user", body: "Previous chat", context: null }];
 state.next_id = 4;
-window.calls = { saved: [], turns: [] };
+window.calls = { saved: [], turns: [], permissions: [] };
 window.setupSettings = { setupCommand: "", source: "none", command: null };
 const listeners = new Set();
 let runs = {};
@@ -67,6 +67,11 @@ window.milagre = new Proxy({
     return { sessionId: request.sessionId };
   },
   onAgentEvent: (callback) => { listeners.add(callback); return () => listeners.delete(callback); },
+  respondToPermission: async (chatId, requestId, decision) => {
+    window.calls.permissions.push({ chatId, requestId, decision });
+    window.emitAgent({ chatId, event: { type: "permission-resolved", requestId } });
+    return true;
+  },
   listEditors: async () => [],
   listRecentProjects: async () => [{ path: "/fixture", name: "shop", openedAt: "" }, { path: "/blog", name: "blog", openedAt: "" }],
   getProjectImage: async (projectPath) => window.icons?.[projectPath] ?? null,
@@ -209,13 +214,40 @@ async function browserChecks() {
     console.log("PASS: every Project is listed in Settings, and its icon can be chosen and reset");
     await evaluate(`document.querySelector('[aria-label="Settings navigation"] button[aria-label="Back"]').click()`);
 
-    // A new worktree's setup starts with the first message: no dialog, and the reply shows the setup running.
+    // Repository setup uses the same approval controls on desktop and phone, with explicit trust scope.
     await sendInNewWorktree("Add a checkout page");
     await waitFor(`window.calls.turns.length === 1`);
-    assert.equal(await evaluate(`document.body.textContent.includes('Run the setup command?')`), false);
-    console.log("PASS: the first message in a new worktree starts the turn without asking");
-
     const chatId = await evaluate(`window.calls.turns[0].chatId`);
+    for (const [index, [label, decision]] of [
+      ["Run once", "allow"],
+      ["Trust this version", "allow-for-chat"],
+      ["Skip setup", "deny"],
+    ].entries()) {
+      const requestId = `setup-review-fixture-${index}`;
+      await emit(chatId, {
+        type: "permission-request",
+        requestId,
+        kind: "setup",
+        tool: "Worktree setup",
+        title: "Run this setup command?",
+        command: "npm ci\nnpm run prepare",
+        cwd: "/worktrees/shop/chat-4",
+        allowForChat: true,
+        setup: { projectPath: "/fixture", source: "/fixture/.milagre/worktree.json", computer: "Test Mac" },
+        description: "Trust this version allows this exact command for this Project on this Computer. Skip setup continues the Chat without running it.",
+      });
+      await waitFor(`document.body.textContent.includes('Trust this version')`);
+      for (const text of ["npm ci", "npm run prepare", "/fixture/.milagre/worktree.json", "Test Mac", "Run once", "Trust this version", "Skip setup"]) {
+        assert.equal(await evaluate(`document.body.textContent.includes(${JSON.stringify(text)})`), true, text);
+      }
+      if (index === 0) await screenshot("setup-review");
+      await click(label);
+      await waitFor(`window.calls.permissions.length === ${index + 1}`);
+      assert.deepEqual(await evaluate(`window.calls.permissions.at(-1)`), { chatId, requestId, decision });
+      await waitFor(`!document.body.textContent.includes('Trust this version')`);
+    }
+    console.log("PASS: setup review shows the full command, source, Computer and all three decisions");
+
     await emit(chatId, { type: "step-started", step: { id: "setup-1", kind: "setup", title: "Running setup `npm ci`", detail: "$ npm ci\n" } });
     await emit(chatId, { type: "step-output", id: "setup-1", text: "npm warn deprecated inflight@1.0.6\n" });
     await waitFor(`document.querySelector('[data-slot="step"][data-status="running"]')?.textContent.includes('Running setup')`);

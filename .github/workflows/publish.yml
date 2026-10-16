@@ -31,7 +31,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       channel: ${{ steps.channel.outputs.channel }}
@@ -82,7 +82,7 @@ jobs:
   linux:
     needs: prepare
     if: needs.prepare.outputs.changed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       CHANNEL: ${{ needs.prepare.outputs.channel }}
@@ -256,7 +256,7 @@ jobs:
     if: >-
       always() && needs.prepare.outputs.changed == 'true' && needs.macos.result == 'success' &&
       (needs.prepare.outputs.channel == 'beta' || (needs.linux.result == 'success' && (needs.windows.result == 'success' || needs.windows.result == 'skipped')))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}

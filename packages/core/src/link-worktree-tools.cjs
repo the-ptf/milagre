@@ -18,7 +18,7 @@ function linkWorktreeToolDefinitions(chatId, create) {
       readOnly: false,
       strict: true,
       run: async ({ project }) => {
-        const { member, created } = await create({
+        const { member, created, setupNote } = await create({
           chatId,
           linkId: scopeFromKey(projectOfKey(chatId)).linkId,
           sessionId: sessionIdFromKey(chatId),
@@ -31,6 +31,7 @@ function linkWorktreeToolDefinitions(chatId, create) {
           base: member.base,
           alias: member.alias,
           created,
+          ...(setupNote ? { setup: setupNote } : {}),
           note: "Make every change in this Project under worktreePath, and run its Git commands there.",
         });
       },

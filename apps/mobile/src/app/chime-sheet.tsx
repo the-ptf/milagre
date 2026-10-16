@@ -9,7 +9,7 @@ import { useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 /**
- * Settings > Experimental > Notification chime. A tap picks the chime and plays it; the sheet stays open so the next
+ * Settings > Notifications > Notification chime. A tap picks the chime and plays it; the sheet stays open so the next
  * one can be tried. The choice rides along with this phone's push registration, so each Mac sends it as the sound.
  */
 export default function ChimeSheet() {

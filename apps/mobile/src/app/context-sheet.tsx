@@ -3,6 +3,7 @@ import { Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { contextHint, contextSummary } from "@milagre/shared/usage";
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { useComposer, useSession } from "../session";
 import { PillButton, useStyles } from "../ui";
 import { useTheme } from "../theme";
@@ -31,7 +32,7 @@ export default function ContextSheet() {
   if (missing) return null;
   const { percent, tokens } = contextSummary(usage);
   const hint = contextHint(percent);
-  const canCompact = Boolean(chat) && (chat?.provider ?? "claude") === "claude";
+  const canCompact = Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact;
   const blocked = run ? "Wait for the agent to finish." : null;
   return (
     <View style={{ paddingTop: 28, paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 16) + 4, gap: 16 }}>
