@@ -548,7 +548,7 @@ function createBots({
         agents.respondToPermission(gate.chatKey, gate.requestId, "deny");
       }
       await closeHome(bot.homePath);
-      store.deleteBot(id);
+      store.deleteBot(id, now());
       refresh();
       try {
         const trash = path.join(path.dirname(bot.homePath), ".trash");

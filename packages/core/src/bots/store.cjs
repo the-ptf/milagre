@@ -92,13 +92,18 @@ function createBotStore(file) {
       sql("UPDATE bots SET record = ? WHERE id = ?").run(JSON.stringify(next), id);
       return next;
     },
-    /** Removes the bot with its sign-offs and grants. Its Chat rows stay: the Chats are the user's now. */
-    deleteBot(id) {
+    /**
+     * Removes the bot with its sign-offs and grants. Its Chat rows stay, the Chats being the user's now, under the
+     * deleted bot (`<id>#deleted-<deletedAt>`): a new bot with the same name starts with none of them.
+     */
+    deleteBot(id, deletedAt = Date.now()) {
       db.exec("BEGIN");
       try {
         sql("DELETE FROM bots WHERE id = ?").run(id);
         sql("DELETE FROM gates WHERE bot_id = ?").run(id);
         sql("DELETE FROM grants WHERE bot_id = ?").run(id);
+        const tombstone = `${id}#deleted-${deletedAt}`;
+        sql("UPDATE bot_chats SET bot_id = ?, record = json_set(record, '$.botId', ?) WHERE bot_id = ?").run(tombstone, tombstone, id);
         db.exec("COMMIT");
       } catch (error) {
         db.exec("ROLLBACK");

@@ -88,17 +88,20 @@ test("updating a bot that does not exist throws", (t) => {
   assert.throws(() => open(t).updateBot("ghost", { paused: true }), /No bot ghost\./);
 });
 
-test("deleting a bot removes its gates and grants but keeps its chat rows", (t) => {
+test("deleting a bot removes its gates and grants, and keeps its chat rows apart from a new bot's", (t) => {
   const store = open(t);
   store.insertBot(OPS);
   store.recordGate({ requestId: "r1", botId: "ops", chatKey: "/p#4", meta: META, status: "pending", createdAt: 1 });
   store.addGrant({ botId: "ops", gate: "merge", target: "/p", createdAt: 1 });
   store.linkChat(CHAT);
-  store.deleteBot("ops");
+  store.deleteBot("ops", 5);
   assert.equal(store.getBot("ops"), null);
   assert.equal(store.pendingGates().length, 0);
   assert.equal(store.grants("ops").length, 0);
-  assert.equal(store.chat("/p#4").botId, "ops");
+  // The row stays, under the deleted bot: a new bot with the same name doesn't inherit it.
+  assert.deepEqual(store.chat("/p#4"), { ...CHAT, botId: "ops#deleted-5" });
+  store.insertBot(OPS);
+  assert.deepEqual(store.chatsFor("ops"), []);
 });
 
 test("the store survives reopening and its file is private", (t) => {
