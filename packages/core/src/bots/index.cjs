@@ -1,7 +1,9 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { botIdFromName } = require("@milagre/shared/bots");
+const { GATE_EXPIRY_MS, botIdFromName } = require("@milagre/shared/bots");
 const { PROVIDERS } = require("@milagre/shared/providers");
+const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { matchGate } = require("./gates.cjs");
 const { createBotHome, readBrief, writeBrief, writeInstructions } = require("./home.cjs");
 const { readMemory, saveMemoryByVictor } = require("./memory.cjs");
 const { TEMPLATES, renderBrief, setupFields } = require("./templates.cjs");
@@ -15,6 +17,10 @@ const OFF = "Bots are off. Turn them on in Settings › Experimental.";
 const NAME_MAX = 40;
 const ROLE_MAX = 120;
 const PREVIEW_MAX = 120;
+const SWEEP_MS = 60_000;
+// Answered and expired sign-offs stay in the snapshot this long, so their cards show how they ended.
+const GATE_HISTORY_MS = 24 * 60 * 60 * 1000;
+const SIGN_OFF_CHOICES = new Set(["once", "always", "deny"]);
 
 const threadKey = (bot) => `${bot.homePath}#${bot.threadSessionId}`;
 
@@ -95,7 +101,7 @@ function createBots({
     return {
       enabled: enabled(),
       bots: records.map(summary),
-      gates: store.pendingGates(),
+      gates: store.gatesSince(now() - GATE_HISTORY_MS),
       grants: store.grants(),
       chats: records.flatMap((bot) => store.chatsFor(bot.id)),
     };
@@ -127,6 +133,55 @@ function createBots({
     });
   }
 
+  // The folder a Chat's commands run in, for gates that read paths (`rm -r`): Claude's requests don't carry it.
+  function cwdOf(chatKey) {
+    const state = cachedState(projectOfKey(chatKey));
+    const session = state?.sessions?.[sessionIdFromKey(chatKey)];
+    return session?.workspacePath ?? state?.worktrees?.[session?.worktree_id]?.path;
+  }
+
+  /**
+   * The Bot rules answer for a bot's thread or a Chat it opened (permissions.cjs): "allow", unless a gate matches and no
+   * grant covers it, then the gate for a sign-off card. It runs on every request, twice for Claude's (its PreToolUse
+   * hook and canUseTool), so it records nothing: the card's gate is recorded when it is published (`observe`). A Chat
+   * the user took over, or whose bot is gone, gets no answer and asks the user as any Chat does.
+   */
+  function policyFor(chatKey) {
+    if (!botForChat(chatKey)) return undefined;
+    return (request) => {
+      const owned = botForChat(chatKey);
+      if (!owned) return undefined;
+      const gate = matchGate({ ...request, cwd: request.cwd ?? cwdOf(chatKey) });
+      if (!gate) return "allow";
+      const target = gate.target ?? projectOfKey(chatKey);
+      if (store.hasGrant(owned.bot.id, gate.kind, target)) return "allow";
+      return { gate: { ...gate, target, botId: owned.bot.id, botName: owned.bot.name, expiresAt: now() + GATE_EXPIRY_MS } };
+    };
+  }
+
+  // A sign-off's answer reaches the session that asked. One that is gone can't take it: the card expires instead.
+  function answer(gate, decision, status) {
+    const reached = agents.respondToPermission(gate.chatKey, gate.requestId, decision);
+    store.setGateStatus(gate.requestId, reached ? status : "expired");
+  }
+
+  /** Ends the sign-offs whose hour is up: each is denied, shows Expired, and its bot is told it may ask again. */
+  async function sweep(at = now()) {
+    const expired = store.expiredGates(at);
+    for (const gate of expired) {
+      store.setGateStatus(gate.requestId, "expired");
+      agents.respondToPermission(gate.chatKey, gate.requestId, "deny");
+    }
+    if (expired.length) changed();
+    for (const gate of expired)
+      await notify(
+        gate.botId,
+        `Sign-off for ${gate.meta.title} expired. ${owner} didn't answer within an hour, so it counts as denied. Ask again if it's still needed.`,
+        { kind: "bot-gate-expired", requestId: gate.requestId, chatKey: gate.chatKey },
+      );
+  }
+  let sweeper = null;
+
   /** A message into the bot's thread, in Bot rules: from the user, or (with `context`) one Milagre writes. */
   async function deliver(bot, body, context) {
     await refreshInstructions(bot);
@@ -142,6 +197,14 @@ function createBots({
       permissionMode: "bot",
       ...(context ? { context } : {}),
     });
+  }
+
+  // What Milagre tells a bot (a sign-off expired, a Chat finished) starts a turn in its thread, unless the bot can't
+  // take one now: paused, deleted, or Bots switched off.
+  async function notify(botId, body, context) {
+    const bot = records.find((record) => record.id === botId);
+    if (!bot || bot.paused || !enabled()) return;
+    await deliver(bot, body, context).catch((error) => console.warn(`Milagre couldn't reach ${bot.name}:`, error.message));
   }
 
   return {
@@ -167,8 +230,17 @@ function createBots({
       }));
     },
 
-    /** Opens every bot's home, so its thread is there for the windows and its interrupted turn continues. */
+    /**
+     * Opens every bot's home, so its thread is there for the windows and its interrupted turn continues. A sign-off
+     * still pending from before a restart can't be answered any more (its session is gone): it expires now.
+     */
     async start() {
+      const stale = store.pendingGates();
+      for (const gate of stale) store.setGateStatus(gate.requestId, "expired");
+      if (stale.length) changed();
+      // Every minute, on or off: the Chats a bot opened keep their gates when Bots is switched off.
+      sweeper ??= setInterval(() => void sweep().catch((error) => console.warn("Milagre couldn't expire sign-offs:", error.message)), SWEEP_MS);
+      sweeper.unref?.();
       for (const bot of records) {
         try {
           await openHome(bot.homePath);
@@ -280,6 +352,47 @@ function createBots({
 
     isHome: (projectPath) => botOfHome(projectPath) !== null,
     botForChat,
+    policyFor,
+    sweep,
+
+    /** Follows the agent events of every Chat: the sign-off cards bots' sessions publish and how they end. */
+    async observe(chatKey, event) {
+      if (event.type === "permission-request" && event.gate) {
+        if (!botForChat(chatKey) || !records.some((bot) => bot.id === event.gate.botId)) return;
+        store.recordGate({ requestId: event.requestId, botId: event.gate.botId, chatKey, meta: event.gate, status: "pending", createdAt: now() });
+        changed();
+        return;
+      }
+      if (event.type === "permission-resolved") {
+        const gate = store.gate(event.requestId);
+        // Answered here first, or expired: the card already says how it ended.
+        if (!gate || gate.chatKey !== chatKey || gate.status !== "pending") return;
+        store.setGateStatus(event.requestId, event.decision === "allow" || event.decision === "allow-for-chat" ? "allowed" : "denied");
+        changed();
+      }
+    },
+
+    /** The user's sign-off. A card answered or expired already stays as it is. */
+    async answerGate(requestId, choice) {
+      if (!SIGN_OFF_CHOICES.has(choice)) throw new Error(`Unknown sign-off: ${choice}`);
+      const gate = store.gate(String(requestId));
+      if (!gate) throw new Error("That sign-off is no longer there.");
+      if (gate.status !== "pending") return gate;
+      if (gate.meta.expiresAt <= now()) {
+        await sweep();
+        return store.gate(gate.requestId);
+      }
+      if (choice === "always") store.addGrant({ botId: gate.botId, gate: gate.meta.kind, target: gate.meta.target, createdAt: now() });
+      answer(gate, choice === "deny" ? "deny" : "allow", choice === "deny" ? "denied" : "allowed");
+      changed();
+      return store.gate(gate.requestId);
+    },
+
+    /** Revoke on a grant: that gate asks again from the next request. */
+    async revokeGrant(id) {
+      store.revokeGrant(String(id), now());
+      changed();
+    },
 
     readMemory: (id) => readMemory(requireBot(id).homePath),
     saveMemory: async (id, text) => {
@@ -289,6 +402,7 @@ function createBots({
     },
 
     close() {
+      clearInterval(sweeper);
       store.close();
     },
   };

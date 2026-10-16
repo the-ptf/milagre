@@ -892,6 +892,8 @@ function createRuntime(options) {
     }
     if (["turn-completed", "turn-failed", "turn-cancelled", "permission-resolved", "question-resolved"].includes(event.type))
       void advisorDelivery?.drain(chatId).catch((error) => console.warn("Advisor delivery failed:", error.message));
+    if (bots && !isLinkScopeKey(projectOfKey(chatId)))
+      void track(() => bots.observe(chatId, event), background).catch((error) => console.warn("Milagre couldn't follow a bot:", error.message));
     emit("agent:event", { chatId, event, ...(state ? { state } : {}), ...(seq ? { seq } : {}) });
   }
 
@@ -908,6 +910,8 @@ function createRuntime(options) {
             : new ClaudeSession(withMcp);
       }),
     linkedFor: (chatId) => linked.forChat(chatId),
+    // Bot rules answers for a bot's thread and the Chats it opened (bots is created further down).
+    permissionPolicy: (chatId) => bots?.policyFor(chatId),
     onSessionClosed: (chatId) => keepAwake.chatClosed(chatId),
     onTurnStarted: () => ports.wake(),
     send: (chatId, event) => void chats.receive(chatId, event),
@@ -1880,6 +1884,8 @@ function createRuntime(options) {
   commands.handle("bots:remove", (_event, id) => bots.remove(String(id)));
   // A client sends text only: the contexts that mark a message as Milagre's are written here.
   commands.handle("bots:send", (_event, id, text) => bots.send(String(id), text));
+  commands.handle("bots:answer-gate", (_event, requestId, choice) => bots.answerGate(String(requestId), choice));
+  commands.handle("bots:revoke-grant", (_event, id) => bots.revokeGrant(String(id)));
   commands.handle("bots:memory:read", (_event, id) => bots.readMemory(String(id)));
   commands.handle("bots:memory:save", (_event, id, text) => bots.saveMemory(String(id), String(text ?? "")));
   void track(() => bots.start(), background).catch((error) => console.warn("Milagre couldn't start its bots:", error.message));

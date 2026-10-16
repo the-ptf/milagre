@@ -120,6 +120,8 @@ function createBotStore(file) {
       sql("UPDATE gates SET status = ? WHERE request_id = ?").run(status, requestId);
     },
     pendingGates: () => sql("SELECT record, status FROM gates WHERE status = 'pending' ORDER BY rowid").all().map(gateFrom),
+    /** Pending sign-offs, and the ones that ended (answered or expired) with an expiry after `since`: what cards show. */
+    gatesSince: (since) => sql("SELECT record, status FROM gates WHERE status = 'pending' OR expires_at > ? ORDER BY rowid").all(since).map(gateFrom),
     /** Pending sign-offs whose hour is up at `now`. */
     expiredGates: (now) => sql("SELECT record, status FROM gates WHERE status = 'pending' AND expires_at <= ? ORDER BY rowid").all(now).map(gateFrom),
 

@@ -307,6 +307,9 @@ export type WorktreeLinkedContext = {
 /** Where the user reloaded the Chat's agent: its process ended, and the next turn resumes the session in a new one. */
 export type ChatReloadContext = { kind: "reload" };
 
+/** What Milagre writes into a bot's thread (packages/core/src/bots): a sign-off that expired. */
+export type BotContext = { kind: "bot-gate-expired"; requestId: string; chatKey: string };
+
 export type ChatContext =
   | AdvisorResultContext
   | WorktreeLinkedContext
@@ -319,6 +322,7 @@ export type ChatContext =
   | UsageLimitContext
   | AccountSwitchContext
   | ChatReloadContext
+  | BotContext
   | "handover"
   | null;
 

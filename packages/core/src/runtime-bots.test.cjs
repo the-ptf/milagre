@@ -58,6 +58,11 @@ async function fixture(t) {
             options.emit({ type: "turn-completed" });
             return { turnId: "t" };
           },
+          answers: [],
+          respondToPermission: (requestId, decision) => {
+            session.answers.push([requestId, decision]);
+            return true;
+          },
           interrupt: async () => {},
           close: async () => {
             session.closed = true;
@@ -178,6 +183,30 @@ test("chat:send into a bot thread is forced to Bot rules", async (t) => {
       { projectPath: bot.homePath, sessionId: null, worktreeId: bot.homeWorktreeId, body: "a second thread", provider: "claude", model: "m" },
     ]),
     /Ops has one thread\./,
+  );
+});
+
+test("a bot's thread session asks for sign-offs through the bots policy", async (t) => {
+  const { runtime, bot, sessions } = await withOps(t);
+  await runtime.invoke("bots:send", ["ops", "Merge 1 when green"]);
+  await waitUntil(() => sessions.some((item) => item.options.cwd === bot.homePath));
+  const session = sessions.find((item) => item.options.cwd === bot.homePath);
+  assert.equal(session.options.permissionPolicy({ tool: "Bash", command: "ls" }), "allow");
+  const { gate } = session.options.permissionPolicy({ tool: "Bash", command: "gh pr merge 1" });
+  assert.equal(gate.title, "Merge PR #1");
+  session.options.emit({ type: "permission-request", requestId: "r1", kind: "command", tool: "Bash", command: "gh pr merge 1", title: "x", gate });
+  let gates = [];
+  for (let i = 0; i < 100 && !gates.length; i++) {
+    gates = (await runtime.invoke("bots:list")).gates;
+    if (!gates.length) await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(gates[0].requestId, "r1");
+  assert.equal((await runtime.invoke("bots:answer-gate", ["r1", "once"])).status, "allowed");
+  assert.deepEqual(session.answers, [["r1", "allow"]]);
+  // Projects' own Chats get no policy.
+  assert.equal(
+    sessions.filter((item) => item.options.cwd !== bot.homePath).every((item) => item.options.permissionPolicy === undefined),
+    true,
   );
 });
 
