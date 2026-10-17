@@ -386,8 +386,8 @@ test("a quiet Run keeps a Worktree with uncommitted work", async (t) => {
   await fs.writeFile(path.join(worktree.path, "notes.md"), "keep me\n");
   agent.finish("(pass) nothing to do");
   await eventually(async () => (await snapshot(f)).sessions[session.id]?.archived === true);
-  // The archive's removal check has run by the time the Chat shows archived plus a beat.
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  // The archive and its removal check are the scheduler's work off the tick: idle once they are done.
+  await f.runtime.routines.idle();
   const latest = await snapshot(f);
   assert.ok(latest.worktrees[session.worktree_id], "the Worktree stays");
   await fs.access(path.join(worktree.path, "notes.md"));
@@ -481,9 +481,10 @@ test("a beat a quit cut off never resumes on restart: its Run shows interrupted 
 
   const g = await fixture(t, { restart: { dir: f.dir, clock: f.clock() } });
   try {
-    // Opening the Project is when a quit's stopped turns continue; give a resume the time it takes.
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    assert.equal(g.sessions.length, 0, "nothing resumes the beat");
+    // Opening the Project is when a quit's stopped turns continue, and the fixture opened it: a resume's message (and the
+    // run it starts) is saved before openProject answers.
+    assert.equal(g.runtime.snapshot().runs.runs[g.chatId], undefined, "nothing resumes the beat");
+    assert.equal(g.sessions.length, 0, "no agent started");
     assert.equal((await g.runtime.invoke("project:snapshot", [g.project])).state.sessions[g.id].resumeTurn, undefined);
     const run = await latestRun(g);
     assert.deepEqual([run.status, run.error], ["failed", "daemon restarted"]);
@@ -689,8 +690,9 @@ test("a webhook Routine gets a URL; a delivery starts a Run whose first message 
   // A redelivery of the same delivery starts nothing new, and its copy goes at once.
   f.runtime.routines.receiveHook({ ...sent });
   assert.deepEqual(await storedDeliveries(f), []);
-  f.tick();
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  // A whole tick and whatever it set going: then nothing new has started.
+  await f.runtime.routines.tick();
+  await f.runtime.routines.idle();
   assert.equal((await f.list())[0].runs.length, 1);
 });
 
@@ -708,8 +710,8 @@ test("a signed webhook with a wrong signature records a failed Run and starts no
   assert.equal(failed.error, "signature mismatch");
   assert.equal(failed.event.deliveryId, wrong.id);
   assert.deepEqual(await storedDeliveries(f), []);
-  f.tick();
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await f.runtime.routines.tick();
+  await f.runtime.routines.idle();
   assert.equal(f.sessions.length, 1, "no Chat");
   // A failed signature doesn't count toward pausing the Routine: anyone with the URL could send three.
   assert.equal((await f.list())[0].failedStreak ?? 0, 0);
@@ -778,8 +780,8 @@ test("a delivery for a deleted or paused Routine is acked, dropped and starts no
   assert.deepEqual(f.runtime.routines.receiveHook(delivery(routine.trigger.hookId)), { ack: true });
   assert.deepEqual(f.runtime.routines.receiveHook(delivery(paused.trigger.hookId)), { ack: true });
   assert.deepEqual(await storedDeliveries(f), []);
-  f.tick();
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await f.runtime.routines.tick();
+  await f.runtime.routines.idle();
   assert.deepEqual((await f.list()).find((item) => item.id === paused.id).runs, []);
   assert.equal(f.sessions.length, 1);
 });

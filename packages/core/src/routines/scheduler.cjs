@@ -116,6 +116,12 @@ function createRoutineScheduler({
   let ticking = false;
   let swept = false;
   let recovered = false;
+  // Work going on off the tick (a Run's Chat being made, a quiet Run's Chat being archived), so idle() can wait for it.
+  const background = new Set();
+  const track = (work) => {
+    background.add(work);
+    void work.finally(() => background.delete(work));
+  };
   // The comments going out, one after another (see dispatchAll), and whether the scheduler was stopped since.
   let comments = Promise.resolve();
   let stopped = false;
@@ -353,9 +359,11 @@ function createRoutineScheduler({
       if (startsChat(routine, run)) {
         // Making a Chat can take a while (a Worktree, a fetch), so it holds up neither the tick nor the other Routines. It
         // says when it's done: the Run has its Chat, or failed.
-        void dispatchSafely(routine, run)
-          .then(changed)
-          .catch((error) => console.warn("[routines] dispatch failed", error));
+        track(
+          dispatchSafely(routine, run)
+            .then(changed)
+            .catch((error) => console.warn("[routines] dispatch failed", error)),
+        );
         continue;
       }
       try {
@@ -437,7 +445,7 @@ function createRoutineScheduler({
   // Archives a Chat a Run started, once `after` settles; its Worktree goes too when the Run made it (and, the adapter
   // checks, nothing in it is worth keeping).
   function archive(chatId, removeWorktree, after = Promise.resolve()) {
-    void after.then(() => chats.archive(chatId, { removeWorktree })).catch((error) => console.warn("[routines] archive failed", error));
+    track(after.then(() => chats.archive(chatId, { removeWorktree })).catch((error) => console.warn("[routines] archive failed", error)));
   }
 
   // Runs synchronously: it marks the event quiet before the runtime broadcasts it.
@@ -537,8 +545,13 @@ function createRoutineScheduler({
 
   return {
     recover,
-    // Resolves once the comments claimed so far have gone out (or waited); for tests and an orderly stop.
-    idle: () => comments,
+    // Resolves once the comments claimed so far have gone out (or waited) and, unless `background` is false, the Chats
+    // being made or archived are done; for tests and an orderly stop.
+    idle: async ({ background: andBackground = true } = {}) => {
+      await comments;
+      if (!andBackground) return;
+      while (background.size) await Promise.allSettled([...background]);
+    },
     start,
     stop,
     tick,

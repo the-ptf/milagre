@@ -673,7 +673,7 @@ function triggers({ chatOptions = {} } = {}) {
     ...raw,
     async tick() {
       await raw.tick();
-      await raw.idle();
+      await raw.idle({ background: false });
     },
   };
   return { store, clock, state, calls, scheduler, raw, changes: () => changes };

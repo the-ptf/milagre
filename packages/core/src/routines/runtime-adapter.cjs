@@ -551,6 +551,9 @@ function createRoutines({
       scheduler.start();
       poller.start();
     },
+    // One tick now, and what the scheduler still has going off the tick (for tests that wait for a positive signal).
+    tick: () => scheduler.tick(),
+    idle: () => scheduler.idle(),
     // Resolves once a comment already on its way has gone back to its queue.
     stop() {
       scheduler.stop();

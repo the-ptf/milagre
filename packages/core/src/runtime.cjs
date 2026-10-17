@@ -2143,6 +2143,9 @@ function createRuntime(options) {
       receiveHooks: (deliveries) => routines.receiveHooks(deliveries),
       hooksRefused: (ids) => routines.hooksRefused(ids),
       hookOwners: (ids) => routines.hookOwners(ids),
+      // One tick now, and what it set going off the tick: a positive signal for checks that nothing started.
+      tick: () => routines.tick(),
+      idle: () => routines.idle(),
     },
     // Synchronous capture: the socket serializes this before another event can
     // mutate state, so its event watermark and run sequence describe one instant.
