@@ -91,10 +91,13 @@ jobs:
               MILAGRE_LINUX_REPOSITORY_INTEGRATION=1 node --test scripts/linux-repository.test.cjs
               gpgconf --kill gpg-agent || true
               rm -rf "$GNUPGHOME"
-      # node --test runs the files on every core, so the suite runs after the group rather than fighting it for them:
-      # inside the group it took 164 s and its timing-sensitive tests failed; alone, both shards took 58 s each.
-      - name: Unit tests
-        run: npm test -- --unit
+      # The unit suite runs after the quick checks rather than among them: inside that group it took 164 s and its
+      # timing-sensitive tests failed. As one process it took 124 s; two shards side by side share the cores better.
+      - parallel:
+          - name: Unit tests (1/2)
+            run: npm test -- --unit --shard 1/2
+          - name: Unit tests (2/2)
+            run: npm test -- --unit --shard 2/2
   native-tests:
     # The Windows tests. The Linux repository signing test is a parallel step of the javascript job.
     name: native-tests (windows-latest)
