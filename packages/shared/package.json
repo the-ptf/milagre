@@ -135,6 +135,10 @@
       "types": "./src/worktree-link.d.mts",
       "default": "./src/worktree-link.mjs"
     },
+    "./linked-message": {
+      "types": "./src/linked-message.d.mts",
+      "default": "./src/linked-message.mjs"
+    },
     "./handoff": {
       "types": "./src/handoff.d.mts",
       "default": "./src/handoff.mjs"

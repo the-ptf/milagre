@@ -421,6 +421,11 @@ export default function ChatScreen() {
     router.push("/handoff-brief");
   }, []);
   const openActivity = useCallback((message: string) => router.push({ pathname: "/activity", params: { id: String(params.id), message } }), [params.id]);
+  // The Chat a Delegation came from or went to, on the same computer, as the attention pill opens one.
+  const openOtherChat = useCallback(
+    (key: string) => router.replace({ pathname: "/chat", params: { projectPath: projectOfKey(key), hostId: targetHost, id: String(sessionIdFromKey(key)) } }),
+    [targetHost],
+  );
   const { rememberChat } = session;
   const canRemember = !!params.id && !!session.snapshot?.project.state.sessions[Number(params.id)] && targetMatches;
   useFocusEffect(
@@ -1251,6 +1256,7 @@ export default function ChatScreen() {
                     limitProjectPath={!run && !pending && message === messages[messages.length - 1] ? project.path : undefined}
                     onActivity={openActivity}
                     highlighted={message.id === undoHighlight}
+                    onOpenChat={openOtherChat}
                   />
                 )}
               </View>,
