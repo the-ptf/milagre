@@ -120,6 +120,11 @@ export default function Layout() {
                         options={{ presentation: "fullScreenModal", headerShown: false, contentStyle: { backgroundColor: palette.page } }}
                       />
                       <Stack.Screen name="design-share-sheet" options={{ ...sheet, sheetAllowedDetents: [0.6, 1] }} />
+                      {/* Full screen too: the diagram pinches and pans. */}
+                      <Stack.Screen
+                        name="diagram-sheet"
+                        options={{ presentation: "fullScreenModal", headerShown: false, contentStyle: { backgroundColor: palette.surface } }}
+                      />
                       <Stack.Screen name="activity" options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }} />
                       <Stack.Screen name="handoff-brief" options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }} />
                       <Stack.Screen

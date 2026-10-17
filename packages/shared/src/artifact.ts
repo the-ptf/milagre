@@ -64,8 +64,30 @@ export function designGroups<T extends { group?: string }>(designs: readonly T[]
   return [...rows].map(([group, members]) => ({ group, designs: members }));
 }
 
-/** A comment on a design: where on it (fractions of its screen) when it was pinned, and what the user wrote. */
-export type DesignComment = { design: ArtifactRef; x?: number; y?: number; nodeId?: string; text: string; id?: string };
+/**
+ * A comment on a design: where on it (fractions of its screen) when it was pinned, and what the user wrote. On an
+ * Artifact page the fractions are of the whole page; `anchor` is the element it was pinned on and the point in it
+ * (ARTIFACT_PAGE_SCRIPT finds it again after the page reflows), and `near` the text there, for the agent to find it by.
+ */
+export type DesignComment = { design: ArtifactRef; x?: number; y?: number; nodeId?: string; near?: string; anchor?: string; text: string; id?: string };
+
+/** The text near a pin as a comment carries it: one line, no double quotes (the message quotes it), at most 80 characters. */
+export function nearText(text: string | undefined | null): string {
+  const line = (text ?? "").replace(/["\s]+/g, " ").trim();
+  return line.length > 80 ? `${line.slice(0, 80).replace(/\s+\S*$/, "")}\u2026` : line;
+}
+
+/** Sent comments are numbered within the message that carried them (the comments the host recorded at once). */
+export function sentNumbers(comments: { id: string; createdAt: number }[]): Map<string, number> {
+  const numbers = new Map<string, number>();
+  const batches = new Map<number, number>();
+  for (const comment of comments) {
+    const next = (batches.get(comment.createdAt) ?? 0) + 1;
+    batches.set(comment.createdAt, next);
+    numbers.set(comment.id, next);
+  }
+  return numbers;
+}
 
 /**
  * A new comment's id, named by the app so the message that carries it can be sent before the host records it: a send
@@ -93,8 +115,9 @@ export function designFeedbackMessage({ choice, comments }: { choice?: ArtifactR
     const lines = comments.map((comment, index) => {
       const at = comment.x === undefined || comment.y === undefined ? "" : `, ${Math.round(comment.x * 100)}% across and ${Math.round(comment.y * 100)}% down`;
       const layer = comment.nodeId ? `, layer "${comment.nodeId}"` : "";
+      const near = comment.design.format === "html" && nearText(comment.near) ? `, near "${nearText(comment.near)}"` : "";
       // The id lets the agent resolve the comment; a message from before ids has none.
-      return `${index + 1}. ${comment.id ? `(comment ${comment.id}) ` : ""}On ${designName(comment.design)}${at}${layer}: ${comment.text.trim()}`;
+      return `${index + 1}. ${comment.id ? `(comment ${comment.id}) ` : ""}On ${designName(comment.design)}${at}${layer}${near}: ${comment.text.trim()}`;
     });
     const htmlOnly = comments.every((comment) => comment.design.format === "html");
     const mixed = !htmlOnly && comments.some((comment) => comment.design.format === "html");
@@ -139,7 +162,8 @@ const FEEDBACK_ENDINGS = [
 ];
 const COMMENT =
   /^(\d+)\. (?:\(comment ([a-f0-9]{8})\) )?On the design "(.*)" \(([a-z0-9-]+), version (\d+)\)(?:, (\d+)% across and (\d+)% down)?(?:, layer "([a-zA-Z][a-zA-Z0-9_.-]{0,95})")?: (.*)$/;
-const ARTIFACT_COMMENT = /^(\d+)\. (?:\(comment ([a-f0-9]{8})\) )?On the artifact "(.*)" \(([a-z0-9-]+)\)(?:, (\d+)% across and (\d+)% down)?: (.*)$/;
+const ARTIFACT_COMMENT =
+  /^(\d+)\. (?:\(comment ([a-f0-9]{8})\) )?On the artifact "(.*)" \(([a-z0-9-]+)\)(?:, (\d+)% across and (\d+)% down)?(?:, near "([^"]*)")?: (.*)$/;
 
 /**
  * The feedback a message designFeedbackMessage wrote carries, read back to show it as a card instead of its text; null
@@ -161,12 +185,13 @@ export function parseDesignFeedback(body: string): { choice: ArtifactRef | null;
   for (const line of (list ?? "").split("\n")) {
     const artifact = ARTIFACT_COMMENT.exec(line);
     if (artifact) {
-      const [, , commentId, title, id, x, y, text] = artifact;
+      const [, , commentId, title, id, x, y, near, text] = artifact;
       comments.push({
         design: { id: id!, title: title!, version: 1, format: "html" },
         text: text!,
         ...(commentId ? { id: commentId } : {}),
         ...(x === undefined || y === undefined ? {} : { x: Number(x) / 100, y: Number(y) / 100 }),
+        ...(near ? { near } : {}),
       });
       continue;
     }
@@ -198,10 +223,14 @@ export {
   ARTIFACT_ESCAPE,
   ARTIFACT_SEND,
   ARTIFACT_ESCAPE_SCRIPT,
+  ARTIFACT_PAGE,
+  ARTIFACT_PAGE_SCRIPT,
+  ARTIFACT_SHELL_SCRIPT,
   DESIGNS_CANVAS_SCRIPT,
   artifactDocument,
   artifactShell,
   designsCanvasShell,
+  hasDiagrams,
 } from "./artifact-document.mjs";
 
 /** The step the transcript shows for the agent resolving a design comment (core's agents/steps.cjs names it). */
@@ -218,4 +247,70 @@ export function resolutionNotes(comments: ArtifactComment[]): Map<string, string
  */
 export function designActivity(steps: { title: string; status?: string }[], userBodies: string[]): number {
   return steps.filter((step) => step.title === RESOLVED_STEP && step.status === "done").length + userBodies.filter((body) => parseDesignFeedback(body)).length;
+}
+
+/** A pin an Artifact page draws (ARTIFACT_PAGE_SCRIPT): its key, its spot, the number on it and its colours. */
+export type PagePin = { k: string; x: number; y: number; a?: string; n: number | string; fill: string; ink: string; label: string; hide?: boolean };
+
+/** What an Artifact page's helper tells its viewer (ARTIFACT_PAGE_SCRIPT); screen points are in the page's pixels. */
+export type ArtifactPageMessage =
+  | { t: "ready" }
+  | { t: "size"; sw: number; cw: number }
+  | { t: "press"; x: number; y: number; a: string; near: string; sx: number; sy: number }
+  | { t: "pin"; k: string; sx: number; sy: number }
+  | { t: "anchor"; k: string; sx: number; sy: number; shown: boolean }
+  | { t: "zoom"; dy: number; cx: number; cy: number }
+  | { t: "fit" }
+  | { t: "key"; key: string };
+
+/**
+ * A message from an Artifact page's helper, by its shape, or null. The page runs the agent's code too, so anything
+ * else it posts (or a message that only looks like the helper's) gets no further than this.
+ */
+export function readPageMessage(data: unknown): ArtifactPageMessage | null {
+  if (!data || typeof data !== "object") return null;
+  const value = data as Record<string, unknown>;
+  const number = (key: string) => (typeof value[key] === "number" && Number.isFinite(value[key]) ? (value[key] as number) : null);
+  const text = (key: string, limit = 600) => (typeof value[key] === "string" ? (value[key] as string).slice(0, limit) : null);
+  const unit = (key: string) => {
+    const found = number(key);
+    return found === null ? null : Math.min(1, Math.max(0, found));
+  };
+  switch (value.t) {
+    case "ready":
+    case "fit":
+      return { t: value.t };
+    case "size": {
+      const sw = number("sw"),
+        cw = number("cw");
+      return sw === null || cw === null ? null : { t: "size", sw, cw };
+    }
+    case "press": {
+      const x = unit("x"),
+        y = unit("y"),
+        sx = number("sx"),
+        sy = number("sy");
+      if (x === null || y === null || sx === null || sy === null) return null;
+      return { t: "press", x, y, a: text("a") ?? "", near: nearText(text("near")), sx, sy };
+    }
+    case "pin":
+    case "anchor": {
+      const k = text("k", 64),
+        sx = number("sx"),
+        sy = number("sy");
+      if (!k || sx === null || sy === null) return null;
+      return value.t === "pin" ? { t: "pin", k, sx, sy } : { t: "anchor", k, sx, sy, shown: value.shown !== false };
+    }
+    case "zoom": {
+      const dy = number("dy"),
+        cx = number("cx"),
+        cy = number("cy");
+      return dy === null || cx === null || cy === null ? null : { t: "zoom", dy, cx, cy };
+    }
+    case "key": {
+      const key = text("key", 8);
+      return key ? { t: "key", key } : null;
+    }
+  }
+  return null;
 }
