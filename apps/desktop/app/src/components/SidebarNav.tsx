@@ -58,7 +58,7 @@ import { SidebarLinksProvider, useSidebarLinks, type LinkListHandle, type LinkSc
 import { updateSettings, useSettings } from "../lib/settings";
 import { UpdateSettingsBadge } from "./UpdateNotice";
 import { RECENT_PROJECTS_CHANGED } from "../lib/project-list";
-import { cachedProjectCopy, railLive, rememberScopeRows, scopeChats, useScopeStates } from "../lib/sidebar-scopes";
+import { cachedProjectCopy, heartbeatLines, railLive, rememberScopeRows, scopeChats, useScopeStates, withHeartbeats } from "../lib/sidebar-scopes";
 import { ScopeRail, type RailScope } from "./sidebar/ScopeRail";
 import { bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 
@@ -152,6 +152,8 @@ type SidebarNavProps = {
   variant?: string;
   /** Chat keys with a turn streaming, and with one waiting on the user, joined by newlines (one string keeps memo cheap). */
   runningKeys?: string;
+  /** heartbeatKeys (lib/sidebar-scopes): the Chats enabled heartbeats check back on, with each row's hover line. */
+  heartbeatKeys?: string;
   waitingKeys?: string;
   /** Of those waiting, the chats whose next card is a question. */
   askingKeys?: string;
@@ -509,6 +511,7 @@ export default memo(function SidebarNav({
   chatActions = NO_CHAT_ACTIONS,
   usage,
   runningKeys = "",
+  heartbeatKeys = "",
   waitingKeys = "",
   askingKeys = "",
   onOpenScopeChat,
@@ -662,6 +665,7 @@ export default memo(function SidebarNav({
     }),
     [runningKeys, waitingKeys, askingKeys],
   );
+  const beats = useMemo(() => heartbeatLines(heartbeatKeys), [heartbeatKeys]);
   // Another Project's or Link's chats can be pinned from here; the row menu's other actions stay with the open one.
   // One object per scope, so its rows keep their memo.
   const scopeActions = useRef(new Map<string, ChatRowActions>());
@@ -698,7 +702,7 @@ export default memo(function SidebarNav({
         const current = scope.key === currentKey;
         // The Project just left has no read of its own yet; the copy it was shown from fills in until one arrives.
         const state = scopeStates[scope.key] ?? (scope.link ? undefined : cachedProjectCopy(scope.key)?.state);
-        const rows = current ? recents : state ? scopeChats(scope.key, state, chatOrder, marks) : [];
+        const rows = withHeartbeats(scope.key, current ? recents : state ? scopeChats(scope.key, state, chatOrder, marks) : [], beats);
         const list = current
           ? {
               isActive: (item: SidebarRecent) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle),

@@ -1,6 +1,7 @@
 import { bridgeForKey } from "./computer-bridge.ts";
 import { useCallback, useEffect, useState } from "react";
-import type { CoordinatorState, LinkState, OpenProject } from "@milagre/shared/model";
+import type { CoordinatorState, LinkState, OpenProject, Routine } from "@milagre/shared/model";
+import { clock, triggerText } from "@milagre/shared/routines";
 import type { AgentRuns } from "@milagre/shared/agent-runs";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { isListedChat } from "@milagre/shared/chats";
@@ -39,6 +40,46 @@ export function runKeys(runs: AgentRuns) {
 }
 
 /** The facts only the open Project's rows learn (its PRs, Linear issues and ports are read for it alone). */
+/**
+ * The Chats enabled heartbeats check back on, one line each: the chat key, a tab, then the row's hover-card line
+ * ("Heartbeat · every 15 min · next 10:45"). A string, like runKeys, so the sidebar's memo sees a change only when it changes.
+ */
+export function heartbeatKeys(routines: readonly Routine[]): string {
+  return routines
+    .flatMap((routine) => {
+      if (!routine.enabled || routine.target.kind !== "chat") return [];
+      const next = typeof routine.nextRunAt === "number" ? ` · next ${clock(routine.nextRunAt)}` : "";
+      return [`${routine.target.chatId}\tHeartbeat · ${triggerText(routine.trigger)}${next}`];
+    })
+    .join("\n");
+}
+
+/** heartbeatKeys read back: chat key to its hover-card line. */
+export function heartbeatLines(keys: string): Map<string, string> {
+  return new Map(
+    keys
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const tab = line.indexOf("\t");
+        return tab === -1 ? [line, "Heartbeat"] : [line.slice(0, tab), line.slice(tab + 1)];
+      }),
+  );
+}
+
+/** A scope's rows with the heartbeat line on each Chat that has one; the rest (and the list, when none has) stay as they are. */
+export function withHeartbeats<T extends SidebarRecent>(scopeKey: string, rows: T[], lines: Map<string, string>): T[] {
+  if (lines.size === 0) return rows;
+  let changed = false;
+  const marked = rows.map((row) => {
+    const heartbeat = lines.get(`${scopeKey}#${row.id}`);
+    if (heartbeat === row.heartbeat) return row;
+    changed = true;
+    return { ...row, heartbeat };
+  });
+  return changed ? marked : rows;
+}
+
 type RememberedDetails = Pick<NonNullable<SidebarRecent["details"]>, "pullRequests" | "linearIssue" | "linearKey" | "linkable" | "ports">;
 // The last of those facts each chat showed while its Project was open, by scope key then chat id. A Project left
 // behind keeps showing them until it is opened again: its rows don't shrink on a switch.

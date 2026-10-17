@@ -89,7 +89,8 @@ import { REMOTE_FILES_NOTICE, usePastedImages } from "./components/usePastedImag
 import { DotBackground } from "./components/DotBackground";
 import { StartupSplash } from "./components/StartupSplash";
 import SidebarNav from "./components/SidebarNav";
-import { cachedProjectCopy, rememberProjectCopy, runKeys, useScopeStates } from "./lib/sidebar-scopes";
+import { cachedProjectCopy, heartbeatKeys, rememberProjectCopy, runKeys, useScopeStates } from "./lib/sidebar-scopes";
+import { useRoutines } from "./lib/routines";
 import { activeChatKeys, gridChats, readChatLayout, saveChatLayout, type ChatLayout } from "./lib/chat-grid";
 import { ChatGrid } from "./components/ChatGrid";
 import { chatRevealPath } from "./lib/reveal";
@@ -1833,6 +1834,9 @@ function App() {
       });
   });
   const sidebarRunKeys = runKeys(agentRuns.runs);
+  // Chats an enabled heartbeat checks back on carry a pulse mark in the sidebar.
+  const { routines } = useRoutines();
+  const sidebarHeartbeats = useMemo(() => heartbeatKeys(routines), [routines]);
   const openScopeChat = useEvent((scopeKey: string, id: string) => void openCanvasChat(scopeKey, Number(id)));
   // "Link and ask A…" from the sidebar's Link popover: a plain user message to chat A on its own model, as its composer
   // would pick it, and the permission mode new turns get. A's agent decides whether to make a Delegation. Then A opens,
@@ -2391,6 +2395,7 @@ function App() {
                 onNewChatInScope={newChatInScope}
                 usage={sidebarUsage}
                 runningKeys={sidebarRunKeys.running}
+                heartbeatKeys={sidebarHeartbeats}
                 waitingKeys={sidebarRunKeys.waiting}
                 askingKeys={sidebarRunKeys.asking}
                 onOpenScopeChat={openScopeChat}

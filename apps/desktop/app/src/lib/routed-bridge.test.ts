@@ -133,6 +133,7 @@ const ALLOWED: Record<string, string[]> = {
   "lib/routines.ts": ["readRoutinesEnabled", "listRoutines", "onRoutinesChanged"],
   "components/routines/RoutinesPage.tsx": ["routineTargets", "updateRoutine", "runRoutineNow", "deleteRoutine"],
   "components/routines/RoutineForm.tsx": ["routineTargets", "routineLinearOptions", "createRoutine", "updateRoutine"],
+  "components/routines/HeartbeatCard.tsx": ["deleteRoutine"],
 };
 
 function sources(folder: string): string[] {

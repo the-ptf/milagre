@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useSyncExternalStore } from "react";
 import type { Routine, RoutineRun } from "@milagre/shared/model";
 import { PERMISSION_MODES } from "@milagre/shared/model-copy";
 import { clock, triggerText } from "@milagre/shared/routines";
@@ -98,39 +98,56 @@ export function routineStatus(routine: RoutineWithRuns, now: number): string {
   return when === "yesterday" ? `Yesterday ${clock(run.startedAt)}` : capitalized(when);
 }
 
+type RoutinesSnapshot = { enabled: boolean | null; routines: RoutineWithRuns[]; error: string | null };
+
+// One read of this Mac's Routines shared by every component that shows them (the page, the sidebar's marks, a Chat's
+// Next check and Heartbeat card), refetched once per routines:changed while anything listens.
+let snapshot: RoutinesSnapshot = { enabled: null, routines: [], error: null };
+const listeners = new Set<() => void>();
+let latestRead = 0;
+let stopListening: (() => void) | undefined;
+
+function publish(next: Partial<RoutinesSnapshot>) {
+  snapshot = { ...snapshot, ...next };
+  for (const listener of listeners) listener();
+}
+
+/** Reads the switch and the list again. Only the newest read lands; one that answers late is dropped. */
+export function refreshRoutines() {
+  const read = ++latestRead;
+  Promise.resolve()
+    .then(async () => {
+      const on = (await window.milagre.readRoutinesEnabled())?.enabled === true;
+      const list = on ? ((await window.milagre.listRoutines())?.routines ?? []) : [];
+      if (read === latestRead) publish({ enabled: on, routines: list, error: null });
+    })
+    .catch((failure: unknown) => {
+      // A failed read is an error, not "Routines are off": the switch keeps what was last read (null at first).
+      if (read === latestRead) publish({ error: ipcErrorMessage(failure) });
+    });
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  if (listeners.size === 1) {
+    refreshRoutines();
+    stopListening = window.milagre.onRoutinesChanged?.(() => refreshRoutines());
+  }
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size > 0) return;
+    // Nothing shows Routines now: drop any read in flight and stop listening.
+    latestRead += 1;
+    stopListening?.();
+    stopListening = undefined;
+  };
+}
+
 /**
  * This Mac's Routines and its Routines switch (`enabled` is null until read), refetched whenever the Mac says they changed.
  * Routines are this Mac's only, so this always asks this Mac's own bridge.
  */
-export function useRoutines(): { enabled: boolean | null; routines: RoutineWithRuns[]; error: string | null; refresh(): void } {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [routines, setRoutines] = useState<RoutineWithRuns[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  // Only the newest read lands: an older one that answers late is dropped, and nothing lands after unmount.
-  const latest = useRef(0);
-  const refresh = useCallback(() => {
-    const read = ++latest.current;
-    Promise.resolve()
-      .then(async () => {
-        const on = (await window.milagre.readRoutinesEnabled())?.enabled === true;
-        const list = on ? ((await window.milagre.listRoutines())?.routines ?? []) : [];
-        if (read !== latest.current) return;
-        setEnabled(on);
-        setRoutines(list);
-        setError(null);
-      })
-      .catch((failure: unknown) => {
-        // A failed read is an error, not "Routines are off": the switch keeps what was last read (null at first).
-        if (read === latest.current) setError(ipcErrorMessage(failure));
-      });
-  }, []);
-  useEffect(() => {
-    refresh();
-    const off = window.milagre.onRoutinesChanged?.(() => refresh());
-    return () => {
-      latest.current += 1;
-      off?.();
-    };
-  }, [refresh]);
-  return { enabled, routines, error, refresh };
+export function useRoutines(): RoutinesSnapshot & { refresh(): void } {
+  const current = useSyncExternalStore(subscribe, () => snapshot);
+  return { ...current, refresh: refreshRoutines };
 }

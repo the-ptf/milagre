@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { CoordinatorState } from "@milagre/shared/model";
 import type { AgentRuns } from "@milagre/shared/agent-runs";
-import { railLive, rememberScopeRows, runKeys, scopeChats } from "./sidebar-scopes.ts";
+import { heartbeatKeys, heartbeatLines, railLive, rememberScopeRows, runKeys, scopeChats, withHeartbeats } from "./sidebar-scopes.ts";
+import { clock } from "@milagre/shared/routines";
 
 const session = (id: number, extra = {}) => ({ id, worktree_id: 1, agent_name: "Claude", status: "Idle", ...extra });
 const message = (id: number, session_id: number, body: string) => ({ id, session_id, role: "user", body });
@@ -88,4 +89,35 @@ test("rail status: asking or waiting beats running, and only live chats are list
   assert.equal(railLive([...rows, { id: "5", label: "e", mark: "waiting" as const }]).status, "attention");
   assert.equal(railLive([{ id: "5", label: "e", mark: "delegated" as const }]).status, "running");
   assert.deepEqual(railLive(rows.slice(1)), { status: "idle", chats: [] });
+});
+
+test("heartbeatKeys holds the Chats of enabled heartbeats only, each with its hover line", () => {
+  const at = Date.UTC(2026, 9, 17, 10, 45);
+  const beat = (id: string, chatId: string, enabled: boolean) => ({
+    id,
+    name: id,
+    prompt: "p",
+    trigger: { kind: "schedule" as const, cron: "*/15 * * * *", timezone: "UTC" },
+    target: { kind: "chat" as const, chatId },
+    enabled,
+    createdBy: { kind: "user" as const },
+    runCount: 0,
+    nextRunAt: at,
+    createdAt: 0,
+    updatedAt: 0,
+  });
+  const trigger = { ...beat("t", "", true), target: { kind: "new-chat" as const, projectPath: "/code/shop", workspace: "worktree" as const } };
+  const keys = heartbeatKeys([beat("on", "/code/shop#1", true), beat("off", "/code/shop#2", false), trigger]);
+  assert.equal(keys, `/code/shop#1\tHeartbeat · every 15 min · next ${clock(at)}`);
+  const lines = heartbeatLines(keys);
+  assert.deepEqual([...lines.keys()], ["/code/shop#1"]);
+  const rows = [
+    { id: "1", label: "a" },
+    { id: "2", label: "b" },
+  ];
+  const marked = withHeartbeats("/code/shop", rows, lines);
+  assert.equal(marked[0]!.heartbeat, `Heartbeat · every 15 min · next ${clock(at)}`);
+  // Rows without a heartbeat keep their object, so memoized rows don't re-render.
+  assert.equal(marked[1], rows[1]);
+  assert.equal(withHeartbeats("/code/shop", rows, new Map()), rows);
 });
