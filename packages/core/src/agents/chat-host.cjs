@@ -16,7 +16,7 @@ const {
 } = require("@milagre/shared/agent-runs");
 const { archiveFinishedSubagents, patchSession } = require("@milagre/shared/project-edits");
 const { catchUpStart, handoffKind, isHandoff, lastTurnProvider } = require("@milagre/shared/handoff");
-const { renderTranscript } = require("./handover.cjs");
+const { framedBrief, renderTranscript } = require("./handover.cjs");
 const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
 const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
 const { providerName } = require("@milagre/shared/providers");
@@ -866,7 +866,7 @@ class ChatHost {
       fastMode: request.fastMode,
       replies: request.replies,
       tldrEnabled: request.tldrEnabled,
-      prompt: brief !== undefined ? withLead(brief, request.prompt || body) : request.prompt || body || "Describe the attached images.",
+      prompt: brief !== undefined ? withLead(framedBrief(brief), request.prompt || body) : request.prompt || body || "Describe the attached images.",
     };
     this.turns.set(target.chatId, turn);
     // A message sent while a handoff prepares waits for its turn to start, then steers it with its own prompt.
@@ -884,7 +884,7 @@ class ChatHost {
       .then((handoffBrief) => {
         // null: the handoff was cancelled or failed (see abandonHandoff), so no agent starts.
         if (handoffBrief === null || (request.canStart && !request.canStart())) return null;
-        const prompt = withLead(handoffBrief, turn.prompt);
+        const prompt = withLead(framedBrief(handoffBrief), turn.prompt);
         this.turns.set(target.chatId, { ...turn, prompt });
         return this.startTurn({ ...turn, prompt, ...execution, chatId: target.chatId, cwd: target.cwd, images, resumeId: target.resumeId });
       })

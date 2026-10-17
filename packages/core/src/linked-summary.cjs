@@ -3,6 +3,7 @@
 // Chats with the oldest activity first.
 
 const { backgroundLabel } = require("@milagre/shared/chat-activity");
+const { neutralizeTags } = require("@milagre/shared/untrusted-text");
 
 const CAPS = Object.freeze({ perWorktree: 4096, total: 16384, reply: 300 });
 const STATUS = { working: "working", waiting: "waiting on the user", background: "working in the background", failed: "last turn failed", idle: "idle" };
@@ -59,10 +60,13 @@ function buildLinkedSummary(sides, caps = CAPS) {
     if (!largest) break;
     dropOldest(largest);
   }
-  const body = blocks
-    .map((block) => block.text.slice(0, caps.perWorktree))
-    .join("\n\n")
-    .slice(0, caps.total);
+  // Chat titles and replies come from other Chats: they can't close the block.
+  const body = neutralizeTags(
+    blocks
+      .map((block) => block.text.slice(0, caps.perWorktree))
+      .join("\n\n")
+      .slice(0, caps.total),
+  );
   return [
     "<linked_worktrees>",
     "Milagre attached this summary of the Worktrees linked to this Chat. It is context, not a message from the user.",

@@ -118,7 +118,9 @@ test("a local MCP send stays queued through Stop and a retry after restart", asy
   assert.equal(f.sessions.length, 1, "reconciling the queued operation must not start another turn");
   await restarted.invoke("chat:queue-send", [chatId, queued[0].id]);
   await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1);
-  assert.equal(f.sessions[1].turns[0].prompt, "Next task");
+  // The queued message keeps who sent it through the restart, and the Chat's queue line and bubble show only what was typed.
+  assert.equal(queued[0].body, "Next task");
+  assert.equal(f.sessions[1].turns[0].prompt, "Message sent by Local editor through Milagre's MCP (not the user):\n\nNext task");
 });
 
 test("host MCP registers Worktrees, prepares setup, starts Chats in Ask mode and preserves retry results after restart", async (t) => {
@@ -153,6 +155,7 @@ test("host MCP registers Worktrees, prepares setup, starts Chats in Ask mode and
     requestId: "turn-1",
   });
   await waitUntil(() => f.sessions.length === 1 && f.sessions[0].turns.length === 1);
+  assert.equal(f.sessions[0].turns[0].prompt, "Message sent by Local editor through Milagre's MCP (not the user):\n\nInspect the project");
   assert.equal(await fs.readFile(path.join(tree.path, "setup-proof"), "utf8"), "ready");
   assert.equal(f.sessions[0].turns[0].permissionMode, "ask");
   const agentUrl = await f.sessions[0].options.linked.url();
@@ -223,6 +226,10 @@ test("a Chat an agent starts through its own MCP takes the calling Chat's permis
   await call(agent, "chat_start", { projectPath: f.project, chatId: chat.chatId, prompt: "Review the PR", model: "fixture", requestId: "turn-1" });
   await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1);
   assert.equal(f.sessions[1].turns[0].permissionMode, "full");
+  // The agent is told another agent sent it; the Chat's bubble shows the message as sent.
+  assert.match(f.sessions[1].turns[0].prompt, /^Message from the agent of Chat .*, sent with Milagre's chat_start \(not the user\):\n\nReview the PR$/);
+  const [bubble] = (await f.runtime.invoke("project:snapshot", [f.project])).state.messages.filter((m) => m.role === "user" && m.body === "Review the PR");
+  assert.ok(bubble, "the message shows as typed");
 });
 
 test("design-only configuration never exposes management or public publishing", async (t) => {

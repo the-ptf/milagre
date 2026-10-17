@@ -111,7 +111,9 @@ test("a Chat started from an issue stores Linear's copy as a card and points the
     workspace: "acme",
     note: "check Safari too",
   });
-  assert.ok(f.turns[0].prompt.startsWith(message.body));
+  // The Chat shows the issue as its first message; the agent gets the user's note first and the issue as data.
+  assert.ok(f.turns[0].prompt.startsWith('The user asks: check Safari too\n\n<linear_issue key="ENG-12">'), f.turns[0].prompt);
+  assert.match(f.turns[0].prompt, /Title: Fix the login redirect\nURL: .*\n\nUsers bounce to \/home\.\n<\/linear_issue>/);
   assert.match(f.turns[0].prompt, /linear_issue tool/);
   assert.match(f.turns[0].prompt, /not a Linear MCP or connector/);
 });
