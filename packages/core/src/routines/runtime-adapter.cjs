@@ -22,6 +22,9 @@ const BUSY = "chat was busy";
 const busyError = () => Object.assign(new Error(BUSY), { busy: true });
 // A mode saved on a Chat, or undefined when it isn't one Milagre knows (a stale or hand-edited value falls back).
 const knownMode = (mode) => (PERMISSION_MODES.has(mode) ? mode : undefined);
+// How long stopping Routines (the switch off, Milagre quitting) waits for what the scheduler still has going. A Run cut
+// off after that is recovered on the next start as "daemon restarted"; the stopped scheduler sends nothing new meanwhile.
+const STOP_WAIT_MS = 5000;
 // A hung git (a fetch, a setup step) fails the Run instead of holding its slot until the daemon restarts.
 const START_TIMEOUT_MS = 2 * 60 * 1000;
 // What a Chat a Routine started can't do: make, change or delete Routines, or start their Runs, so a Run never sets off another.
@@ -413,6 +416,16 @@ function createRoutines({
   timers = {},
 }) {
   const now = timers.now ?? Date.now;
+  // The scheduler's work off the tick, waited for at most STOP_WAIT_MS (a Run whose Worktree hangs would hold a quit for
+  // the whole start timeout).
+  function settleWithin() {
+    let timer;
+    const bound = new Promise((resolve) => {
+      timer = setTimeout(resolve, timers.stopWaitMs ?? STOP_WAIT_MS);
+      timer.unref?.();
+    });
+    return Promise.race([scheduler.idle(), bound]).finally(() => clearTimeout(timer));
+  }
   // Routines purged before the webhooks below exist (on load) have their secrets forgotten once they do.
   let webhooksReady = false;
   const purgedEarly = [];
@@ -554,11 +567,11 @@ function createRoutines({
     // One tick now, and what the scheduler still has going off the tick (for tests that wait for a positive signal).
     tick: () => scheduler.tick(),
     idle: () => scheduler.idle(),
-    // Resolves once a comment already on its way has gone back to its queue.
+    // Resolves once a comment already on its way has gone back to its queue, or after the stop bound at most.
     stop() {
       scheduler.stop();
       poller.stop();
-      return scheduler.idle();
+      return settleWithin();
     },
     read: () => ({ enabled: store.enabled() }),
     async save(value) {
@@ -572,7 +585,7 @@ function createRoutines({
         // already on its way goes back to its queue; this resolves once it has.
         await scheduler.tick();
         scheduler.stop();
-        await scheduler.idle();
+        await settleWithin();
       }
       changed();
       return { enabled };

@@ -1181,3 +1181,42 @@ test("the Routines commands name a Routine with a capital R in their errors", as
   await assert.rejects(routines.update("", {}), { message: "Choose a Routine." });
   await assert.rejects(routines.update("r1", null), { message: "A Routine change must be an object." });
 });
+
+test("stopping Routines waits for a Run that never finishes starting only as long as the bound allows", async (t) => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "routine-stop-bound-")));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const project = path.join(dir, "project");
+  fs.mkdirSync(project);
+  let clock = Date.UTC(2026, 9, 16, 12);
+  let creating = 0;
+  const routines = createRoutines({
+    file: path.join(dir, "routines.json"),
+    chats: { turnSettings: () => null, runs: {}, isBusy: () => false },
+    keepAwake: { setRoutinesActive() {} },
+    emit() {},
+    cachedState: () => undefined,
+    openState: async () => undefined,
+    projects: async () => [{ path: project }],
+    // A Worktree that never finishes: the Run's start would hold its slot until the 2 minute start timeout.
+    worktrees: { base: async () => "main", create: () => ((creating += 1), new Promise(() => {})) },
+    timers: { now: () => clock, setInterval: () => ({ unref() {} }), clearInterval() {}, stopWaitMs: 100 },
+  });
+  await routines.save(true);
+  const routine = await routines.create({
+    name: "Triage",
+    prompt: "Look",
+    trigger: { kind: "schedule", cron: "*/5 * * * *", timezone: "UTC" },
+    target: { kind: "new-chat", projectPath: project, workspace: "worktree" },
+  });
+  clock = routines.list().routines.find((item) => item.id === routine.id).nextRunAt;
+  await routines.tick();
+  await require("../agents/test-helpers.cjs").waitUntil(() => creating === 1);
+  let started = Date.now();
+  await routines.stop();
+  assert.ok(Date.now() - started < 1000, `stop took ${Date.now() - started} ms`);
+  started = Date.now();
+  await routines.save(false);
+  assert.ok(Date.now() - started < 1000, `save(false) took ${Date.now() - started} ms`);
+  // The Run cut off stays running here; the next start recovers it as "daemon restarted" (store.recoverInterrupted).
+  assert.equal(routines.list().routines[0].runs[0].status, "running");
+});
