@@ -97,6 +97,13 @@ function managementToolGroups({ host, operations }) {
             (args) => host.linkWorktrees(args, callerOf(connectionId), (projectPath) => scope.projectPaths.includes(projectPath)),
           ),
           act(
+            "worktree_remove",
+            "Remove a Worktree Milagre created, with its Chats, once its work is safe: nothing uncommitted, no commits off its base or upstream, no Chat running, and its Chats with messages archived (chat_update). Its milagre/ branch goes too when merged. Never the Worktree this Chat runs in. From an agent in Ask mode the user approves first; the call waits for that answer.",
+            "create",
+            { ...projectInput, worktreeId: z.number().int().positive() },
+            (args) => host.removeWorktree(args, callerOf(connectionId)),
+          ),
+          act(
             "worktree_unlink",
             "Remove the Worktree-to-Worktree Link between a Worktree and another Worktree (its absolute path, as linked_overview shows it). Project Links stay on the canvas.",
             "create",

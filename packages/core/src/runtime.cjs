@@ -1904,6 +1904,8 @@ function createRuntime(options) {
       activeWorktrees: async (projectPath) => (await activeWorktrees(projectPath)).map((worktree) => worktree.path),
       approve: (chatId, request) => agents.askApproval(chatId, request),
       models: (projectPath) => handlers.get("agent:models")(null, projectPath),
+      worktreeStatus,
+      removeWorktree: (projectPath, worktreePath) => handlers.get("worktree:remove")(null, worktreePath, { projectPath }),
       validateDesignChat: async (chatId) => {
         const scope = projectOfKey(chatId);
         if (!isLinkScopeKey(scope)) {
