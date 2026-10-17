@@ -34,6 +34,7 @@ import {
   formFromRoutine,
   formToInput,
   formToUpdate,
+  isCommentRoutine,
   withRunIn,
   type RoutineFormField,
   type RoutineFormProblem,
@@ -81,7 +82,7 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKDAYS = [1, 2, 3, 4, 5];
 const ENDS_IN = [1, 3, 7, 14, 30];
 const RUN_IN: { id: RoutineFormState["runIn"]; title: string }[] = [
-  { id: "worktree", title: "New worktree" },
+  { id: "worktree", title: "New Worktree" },
   { id: "project", title: "Project folder" },
   { id: "chat", title: "An existing Chat" },
 ];
@@ -147,10 +148,16 @@ export default function RoutineFormSheet() {
   const hook = useRpc<Hook>(routine?.trigger.kind === "webhook" && client ? client : null, "routines:hook", [routine?.id ?? ""]);
   const url = hookUrl || hook.data?.url || "";
   // The first workspace stands in until one is picked, so a single-workspace Mac never asks.
-  const resolved: RoutineFormState =
+  const withWorkspace: RoutineFormState =
     form.trigger === "linear" && !form.linear.workspace && linearOptions?.workspaces[0]
       ? { ...form, linear: { ...form.linear, workspace: linearOptions.workspaces[0].id } }
       : form;
+  // A comment Routine's Runs go into the Chat linked to the issue, so the form asks for no Project or Each Run. The Mac
+  // still keeps a listed Project on it: the one open on the phone, else the first listed, filled in without showing it.
+  const commentRoutine = isCommentRoutine(form);
+  const currentProject = targets?.projects.find((item) => item.path === session.snapshot?.project.path)?.path ?? targets?.projects[0]?.path ?? "";
+  const resolved: RoutineFormState =
+    commentRoutine && !withWorkspace.projectPath && currentProject ? { ...withWorkspace, projectPath: currentProject } : withWorkspace;
   // The signing header is read with the URL; it fills the form once, so switching signing off doesn't bring it back.
   const [headerFor, setHeaderFor] = useState("");
   if (hook.data && routine && loadedFor === routine.id && headerFor !== routine.id) {
@@ -562,38 +569,43 @@ export default function RoutineFormSheet() {
           <Problem text={problemFor("trigger", "schedule", "timezone", "workspace", "label", "state", "signingSecret")} />
 
           <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Each Run</Text>
+          {commentRoutine ? <Text style={[styles.caption, { paddingHorizontal: 4 }]}>Comments go into the Chat linked to the issue.</Text> : null}
           <Card>
-            <PullDown
-              label="Project"
-              title="Project"
-              searchable={{ placeholder: "Search Projects", emptyLabel: "No matching Projects" }}
-              nativeTrigger={shows(project?.name ?? "Choose", heartbeat && editing)}
-              sections={[{ items: projects.map((item) => ({ id: item.path, title: item.name, subtitle: item.path, checked: item.path === project?.path })) }]}
-              onSelect={(projectPath) => change({ projectPath, chatId: "" })}
-            >
-              <FormRow icon={Folder01Icon} label="Project" value={project?.name ?? "Choose"} />
-            </PullDown>
-            <PullDown
-              label="Works in"
-              title="Each Run works in"
-              sections={[
-                {
-                  items: RUN_IN.map((item) => ({
-                    id: item.id,
-                    title: item.title,
-                    checked: item.id === form.runIn,
-                    // Only a schedule checks back on a Chat; an edit can't move Runs between a Chat and new Chats.
-                    disabled: (item.id === "chat" && form.trigger !== "schedule") || (editing && (item.id === "chat") !== heartbeat),
-                  })),
-                },
-              ]}
-              onSelect={(runIn) => {
-                setProblem(null);
-                setForm((current) => withRunIn(current, runIn as RoutineFormState["runIn"], Date.now()));
-              }}
-            >
-              <FormRow icon={GitBranchIcon} label="Works in" value={RUN_IN.find((item) => item.id === form.runIn)?.title ?? ""} />
-            </PullDown>
+            {commentRoutine ? null : (
+              <PullDown
+                label="Project"
+                title="Project"
+                searchable={{ placeholder: "Search Projects", emptyLabel: "No matching Projects" }}
+                nativeTrigger={shows(project?.name ?? "Choose", heartbeat && editing)}
+                sections={[{ items: projects.map((item) => ({ id: item.path, title: item.name, subtitle: item.path, checked: item.path === project?.path })) }]}
+                onSelect={(projectPath) => change({ projectPath, chatId: "" })}
+              >
+                <FormRow icon={Folder01Icon} label="Project" value={project?.name ?? "Choose"} />
+              </PullDown>
+            )}
+            {commentRoutine ? null : (
+              <PullDown
+                label="Works in"
+                title="Each Run works in"
+                sections={[
+                  {
+                    items: RUN_IN.map((item) => ({
+                      id: item.id,
+                      title: item.title,
+                      checked: item.id === form.runIn,
+                      // Only a schedule checks back on a Chat; an edit can't move Runs between a Chat and new Chats.
+                      disabled: (item.id === "chat" && form.trigger !== "schedule") || (editing && (item.id === "chat") !== heartbeat),
+                    })),
+                  },
+                ]}
+                onSelect={(runIn) => {
+                  setProblem(null);
+                  setForm((current) => withRunIn(current, runIn as RoutineFormState["runIn"], Date.now()));
+                }}
+              >
+                <FormRow icon={GitBranchIcon} label="Works in" value={RUN_IN.find((item) => item.id === form.runIn)?.title ?? ""} />
+              </PullDown>
+            )}
             {heartbeat ? (
               <PullDown
                 label="Chat"

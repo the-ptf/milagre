@@ -117,7 +117,7 @@ export function ExperimentalSection() {
       {session.client && routines !== null && (
         <View style={[styles.card, { gap: 4 }]}>
           <Toggle title="Routines" selected={routines} onPress={() => void changeRoutines(!routines)} />
-          <Text style={styles.caption}>Let agents set heartbeats that check back on a Chat on a schedule. Open Chats get it after Reload chat.</Text>
+          <Text style={styles.caption}>Let agents set Heartbeats that check back on a Chat on a schedule. Open Chats get it after Reload chat.</Text>
           {routinesError ? <ErrorNotice message={routinesError} /> : null}
         </View>
       )}
