@@ -155,13 +155,19 @@ jobs:
       - name: Install core and daemon dependencies
         if: steps.windows-cache.outputs.cache-hit != 'true'
         run: npm ci --workspace @milagre/core --workspace @milagre/daemon --ignore-scripts --omit=optional --no-audit --no-fund
-      - name: Test Windows agent protocol
-        timeout-minutes: 5
-        run: node --test --test-reporter=tap --test-timeout=60000 packages/core/src/agents/codex-provider.test.cjs
-      - name: Test Windows runtime and pipe security
-        shell: pwsh
-        timeout-minutes: 15
-        run: node --test --test-reporter=tap --test-timeout=180000 packages/core/src/windows-runtime.test.cjs apps/daemon/src/windows-transport.test.cjs packages/core/src/agents/process-tree.test.cjs packages/core/src/ownership.test.cjs
+      # Three independent suites side by side: in one step after another they took 44 s and 89 s on a slow runner.
+      - parallel:
+          - name: Test Windows agent protocol
+            timeout-minutes: 5
+            run: node --test --test-reporter=tap --test-timeout=60000 packages/core/src/agents/codex-provider.test.cjs
+          - name: Test Windows runtime and pipe transport
+            shell: pwsh
+            timeout-minutes: 15
+            run: node --test --test-reporter=tap --test-timeout=180000 packages/core/src/windows-runtime.test.cjs apps/daemon/src/windows-transport.test.cjs
+          - name: Test Windows process tree and ownership
+            shell: pwsh
+            timeout-minutes: 15
+            run: node --test --test-reporter=tap --test-timeout=180000 packages/core/src/agents/process-tree.test.cjs packages/core/src/ownership.test.cjs
 
   native-gate:
     # The required check for native tests. A skipped matrix never reports per-leg names, so this
@@ -194,12 +200,11 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
-      # The runner image ships most of these; apt only runs for what is missing, since a slow mirror once took 12 minutes.
-      # ffmpeg, the one the image lacks, is only for chat-titles' GIF, so only the shard that runs it installs it.
+      # The runner image ships all of these; apt only runs for what is missing, since a slow mirror once took 12 minutes.
+      # (ffmpeg is not among them: chat-titles skips its GIF without it, since installing it took that shard 35 s.)
       - name: Install display and Electron libraries
         run: |
           packages="xvfb libgbm1 libgtk-3-0t64 libnss3 libasound2t64 lsof"
-          if node scripts/test.cjs --electron --list --shard ${{ matrix.shard }}/${{ strategy.job-total }} | grep -q test-chat-titles; then packages="$packages ffmpeg"; fi
           missing=$(for package in $packages; do
             dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'install ok installed' || echo "$package"
           done)

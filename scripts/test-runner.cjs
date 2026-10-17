@@ -12,7 +12,8 @@ const SKIP_DIRS = new Set(["node_modules", "dist", "release", ".expo", "ios", "a
  * shard ran 169 s while another ran 71 s. Refresh them from a green main run's PASS lines when a shard stands out.
  */
 const MANIFEST = {
-  "test-artifacts.cjs": { seconds: 85 },
+  // 62 s with 250 ms before each of its 35 screenshots; it was 85 s at 900 ms.
+  "test-artifacts.cjs": { seconds: 62 },
   // Six Lighthouse runs (three mobile, three desktop) on a site build.
   "test-site-lighthouse.cjs": { seconds: 60 },
   "test-theming-gallery.cjs": { seconds: 38 },
@@ -47,8 +48,6 @@ const MANIFEST = {
   "test-permission-chip.cjs": { seconds: 10 },
   "test-chat-drafts.cjs": { seconds: 10 },
   "test-chat-timer.cjs": { seconds: 10 },
-  // 7s for the check plus about 20s for its shard to install ffmpeg (.github/workflows/ci.yml).
-  "test-chat-titles.cjs": { seconds: 27 },
   "test-windows-cli.cjs": { platforms: ["win32"] },
   "test-ports.cjs": { needs: ["zsh", "ps", "lsof"] },
   // needsBuild: loads apps/desktop/dist; test-project-links only passed serially because test-desktop built it first.

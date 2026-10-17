@@ -116,24 +116,31 @@ async function captureTransition(win, evaluate) {
     .join("\n");
   const manifest = path.join(temporary, "frames.txt");
   await fs.writeFile(manifest, concat + `\nfile '${frames.at(-1).name}'\n`);
-  execFileSync("ffmpeg", [
-    "-y",
-    "-v",
-    "error",
-    "-f",
-    "concat",
-    "-safe",
-    "0",
-    "-i",
-    manifest,
-    "-filter_complex",
-    "fps=30,split[a][b];[a]palettegen[p];[b][p]paletteuse",
-    "-loop",
-    "0",
-    path.join(output, "title-transition.gif"),
-  ]);
+  // The GIF is for people reading the screenshots; without ffmpeg (the CI runner image lacks it, and installing it
+  // took that shard 35 s) the before and after frames are kept and the GIF is skipped.
+  try {
+    execFileSync("ffmpeg", [
+      "-y",
+      "-v",
+      "error",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      manifest,
+      "-filter_complex",
+      "fps=30,split[a][b];[a]palettegen[p];[b][p]paletteuse",
+      "-loop",
+      "0",
+      path.join(output, "title-transition.gif"),
+    ]);
+    console.log(`Captured before/after and title-transition.gif in ${output}`);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    console.log(`Captured before/after in ${output}; no ffmpeg, so no title-transition.gif`);
+  }
   await fs.rm(temporary, { recursive: true });
-  console.log(`Captured before/after and title-transition.gif in ${output}`);
 }
 
 async function main() {
