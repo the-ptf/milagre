@@ -49,6 +49,9 @@ const COMMENT_MAX_WAIT_MS = 2 * 3600_000;
 // Runs that never ran are kept apart, so a flood of them can't push out the Runs that did.
 const SKIPPED = new Set(["missed", "skipped-busy"]);
 const SKIPPED_KEPT = 50;
+// Events refused for a bad signature: the newest ones kept as Runs (how many there were is counted apart), so a flood of
+// them neither pushes real Runs out nor fills the seen ledger.
+const REJECTED_KEPT = 50;
 const RUN_STATUSES = new Set(["running", "acted", "quiet", "failed", "skipped-busy", "missed"]);
 // A completed Routine stays this long after it ended, then goes with everything it kept.
 const PURGE_AFTER_MS = 30 * 864e5;
@@ -205,20 +208,26 @@ function finish(state, routine, run, status, extra, at, countsToFailures = true)
 // flight is never dropped, whatever floods in after it: finishing it needs its record.
 function trimRuns(runs) {
   let skippedOver = -SKIPPED_KEPT;
+  let rejectedOver = -REJECTED_KEPT;
   let restOver = -MAX_RUNS_KEPT;
   for (const run of runs) {
-    if (SKIPPED.has(run.status)) skippedOver += 1;
+    if (run.rejected === true) rejectedOver += 1;
+    else if (SKIPPED.has(run.status)) skippedOver += 1;
     else restOver += 1;
   }
-  if (skippedOver <= 0 && restOver <= 0) return runs;
+  if (skippedOver <= 0 && rejectedOver <= 0 && restOver <= 0) return runs;
   return runs.filter((run) => {
+    if (run.rejected === true) return rejectedOver-- <= 0;
     if (SKIPPED.has(run.status)) return skippedOver-- <= 0;
     return run.status === "running" || restOver-- <= 0;
   });
 }
 
+// The keys of the refused events a Routine still lists: a redelivery of one is answered already.
+const rejectedKeys = (state, routineId) => (state.runs[routineId] ?? []).filter((run) => run.rejected === true && run.event).map((run) => run.event.key);
+
 function empty() {
-  return { version: VERSION, enabled: false, routines: [], runs: {}, queues: {}, seen: {}, linear: {} };
+  return { version: VERSION, enabled: false, routines: [], runs: {}, queues: {}, seen: {}, rejections: {}, linear: {} };
 }
 
 // The entries of a saved object that pass `valid`; what a damaged file holds besides that is left out.
@@ -304,6 +313,7 @@ function maintain(state, at) {
       delete state.runs[routine.id];
       delete state.queues[routine.id];
       delete state.seen[routine.id];
+      delete state.rejections[routine.id];
     }
     const read = new Set(state.routines.filter((routine) => routine.trigger.kind === "linear").map((routine) => lower(routine.trigger.workspace)));
     for (const routine of purged) {
@@ -441,6 +451,8 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
         (queue) => queue.length > 0,
       ),
       seen: readSeen(parsed.seen, at),
+      // Files saved before rejections were counted apart have none.
+      rejections: keepValid(parsed.rejections, (count) => Number.isInteger(count) && count > 0),
       linear: keepValid(parsed.linear, Number.isFinite),
     };
     if (invalid.routines.length || invalid.runs.length) {
@@ -706,6 +718,7 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
       delete state.runs[routineId];
       delete state.queues[routineId];
       delete state.seen[routineId];
+      delete state.rejections[routineId];
       tx.changed = true;
       return true;
     });
@@ -775,7 +788,10 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
           if (pruneSeen(state, routineId, at)) tx.changed = true;
           known.set(
             routineId,
-            new Set([...(state.seen[routineId] ?? []), ...(state.queues[routineId] ?? []).map((item) => item.event)].map((entry) => entry.key)),
+            new Set([
+              ...[...(state.seen[routineId] ?? []), ...(state.queues[routineId] ?? []).map((item) => item.event)].map((entry) => entry.key),
+              ...rejectedKeys(state, routineId),
+            ]),
           );
         }
         const keys = known.get(routineId);
@@ -804,8 +820,9 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
   /**
    * Answers an event of a trigger Routine with a failed Run of its own instead of queuing it (a webhook whose signature
    * doesn't match). It never ran, so it doesn't count toward the Routine's runs or its pause: anyone holding the URL could
-   * otherwise switch the Routine off. Its key is remembered, as a queued one's is. Null when the Routine is gone or of
-   * another kind, or the event was seen before.
+   * otherwise switch the Routine off. Nor does it take a place in the seen ledger, which admits real events: the newest
+   * REJECTED_KEPT refusals stay listed (their keys answer a redelivery) and the rest are only counted (`rejections`), so a
+   * flood can't grow the file. Null when the Routine is gone or of another kind, or the event was seen or refused before.
    */
   function rejectEvent(routineId, event, error) {
     assertWritable();
@@ -815,13 +832,11 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
       const routine = find(state, routineId);
       if (!routine || routine.completedAt || routine.trigger.kind !== event.kind) return null;
       const at = now();
-      pruneSeen(state, routineId, at);
-      const seen = state.seen[routineId] ?? (state.seen[routineId] = []);
       // The same delivery again (a redelivery) was answered already.
-      if (seen.some((entry) => entry.key === event.key)) return null;
-      seen.push({ key: event.key, at });
-      const run = { id: id(), routineId, scheduledFor: at, startedAt: at, endedAt: at, status: "failed", error, event: copy(event) };
+      if ((state.seen[routineId] ?? []).some((entry) => entry.key === event.key) || rejectedKeys(state, routineId).includes(event.key)) return null;
+      const run = { id: id(), routineId, scheduledFor: at, startedAt: at, endedAt: at, status: "failed", error, event: copy(event), rejected: true };
       appendRun(state, routineId, run);
+      state.rejections[routineId] = (state.rejections[routineId] ?? 0) + 1;
       tx.changed = true;
       return copy(run);
     });
@@ -832,7 +847,21 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     return enqueueMany([{ routineId, event }])[0];
   }
 
-  const claimable = (routine) => data.queues[routine.id]?.length && routine.enabled && !routine.completedAt;
+  // Whether a claim at `at` would change anything for this Routine, read from the live data so a tick where nothing can
+  // move (every slot taken, every event waiting for its time) copies nothing: an event can start in a free slot, a comment
+  // has waited too long, or a used-up Routine can end.
+  function claimable(routine, at = now(), limit = CONCURRENT_RUNS) {
+    const queue = data.queues[routine.id];
+    if (!queue?.length || !routine.enabled || routine.completedAt) return false;
+    const running = (data.runs[routine.id] ?? []).filter((run) => run.status === "running").length;
+    if (routine.maxRuns !== undefined && routine.runCount >= routine.maxRuns && running === 0) return true;
+    const room = Math.min(limit - running, routine.maxRuns === undefined ? Infinity : routine.maxRuns - routine.runCount - running);
+    return queue.some(
+      (item) =>
+        (item.event.kind === "linear" && item.event.change === "comment" && at - item.enqueuedAt > COMMENT_MAX_WAIT_MS) ||
+        (room > 0 && (item.notBefore ?? 0) <= at),
+    );
+  }
 
   // Moves queued events into running Runs, oldest first. A Routine never has more than `limit` Runs going (or more than its
   // maxRuns leaves), and an event not due yet (`notBefore`) waits without holding back the ones behind it, except the
@@ -841,7 +870,7 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
   // and its queue goes with it.
   function claimQueued(at, limit = CONCURRENT_RUNS) {
     assertWritable();
-    if (!maintenanceDue() && !data.routines.some(claimable)) return [];
+    if (!maintenanceDue() && !data.routines.some((routine) => claimable(routine, at, limit))) return [];
     return transact((state, tx) => {
       const claims = [];
       for (const routine of state.routines) {
@@ -1054,6 +1083,8 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     enqueue,
     enqueueMany,
     rejectEvent,
+    // How many events a Routine refused for a bad signature, the ones no longer listed included.
+    rejections: (routineId) => data.rejections[routineId] ?? 0,
     claimQueued,
     deferRun,
     attachChat,
