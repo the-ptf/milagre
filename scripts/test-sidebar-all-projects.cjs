@@ -324,17 +324,25 @@ async function browserChecks() {
     await waitFor(`!document.querySelector("[data-filters-panel]")`);
 
     // Dragging another Project's chat from its group into Pinned pins it there: the group and its pinned rows are one list.
-    await click('[data-sidebar-scope="/work/shop"] [data-scope-toggle]');
+    const scopeToggle = '[data-sidebar-scope="/work/shop"] [data-scope-toggle]';
     const row8 = '[data-sidebar-scope="/work/shop"] [data-chat-id="8"]';
-    await waitFor(`document.querySelector(${JSON.stringify(row8)})?.getBoundingClientRect().height > 0`);
-    // The group is still unfolding; press only once its rows have stopped moving.
-    const rectOf = (selector) => evaluate(`JSON.stringify(document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect())`);
-    for (let last = await rectOf(row8), i = 0; ; i++) {
-      await delay(100);
-      const next = await rectOf(row8);
-      if (next === last) break;
-      if (i === 50) throw new Error("the unfolded group never settled");
-      last = next;
+    const expanded = () => evaluate(`document.querySelector(${JSON.stringify(scopeToggle)}).getAttribute("aria-expanded")`);
+    const rectOf = (selector) => evaluate(`JSON.stringify(document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect() ?? null)`);
+    // Unfold the group, reading the toggle rather than assuming the fold above has landed (on the CI runner the row
+    // appeared and was gone again 100 ms later), and press only once its rows have stopped moving.
+    for (let attempt = 0; ; attempt++) {
+      if ((await expanded()) !== "true") await click(scopeToggle);
+      await waitFor(`document.querySelector(${JSON.stringify(row8)})?.getBoundingClientRect().height > 0`);
+      let last = await rectOf(row8);
+      let stable = false;
+      for (let i = 0; i < 20 && !stable; i++) {
+        await delay(100);
+        const next = await rectOf(row8);
+        stable = next === last && next !== "null";
+        last = next;
+      }
+      if (stable) break;
+      if (attempt === 3) throw new Error(`the unfolded group never settled: aria-expanded=${await expanded()} row=${last}`);
     }
     const centre = (selector) =>
       evaluate(
