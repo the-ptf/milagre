@@ -63,13 +63,13 @@ const artifactStep = (step, title, tool) => ({ ...step("artifact", artifactTitle
 // Resolving a comment the user left on a design reads as that, not as a tool call.
 const isResolveTool = (server, tool) => server === "milagre" && tool === "artifact_resolve_comment";
 
-// Milagre's routine tools read as what they did to the Project's heartbeats, not as tool calls.
+// Milagre's routine tools read as what they did to the Project's Heartbeats and Routines, not as tool calls.
 const ROUTINE_STEP_TOOLS = new Set(ROUTINE_TOOL_NAMES);
 function routineTitle(server, tool, input = {}) {
   if (server !== "milagre" || !ROUTINE_STEP_TOOLS.has(tool)) return null;
-  if (tool === "heartbeat_create") return typeof input.name === "string" && input.name ? `Set heartbeat "${input.name}"` : "Set a heartbeat";
-  if (tool === "routine_create") return typeof input.name === "string" && input.name ? `Set routine "${input.name}"` : "Set a routine";
-  return tool === "routine_delete" ? "Stopped a routine" : "Checked routines";
+  if (tool === "heartbeat_create") return typeof input.name === "string" && input.name ? `Set Heartbeat "${input.name}"` : "Set a Heartbeat";
+  if (tool === "routine_create") return typeof input.name === "string" && input.name ? `Set Routine "${input.name}"` : "Set a Routine";
+  return tool === "routine_delete" ? "Stopped a Routine" : "Checked Routines";
 }
 
 // The artifact a finished design tool made, from the first line of its result: the JSON summary. Attached images follow it.

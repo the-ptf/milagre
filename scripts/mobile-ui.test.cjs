@@ -11136,7 +11136,7 @@ test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card
   });
   const steps = [
     { id: "s1", kind: "shell", title: "Ran `gh pr view`", status: "done" },
-    { id: "s2", kind: "other", title: 'Set heartbeat "Babysit PR #473"', status: "done", routine: { id: "hb1", name: "Babysit PR #473" } },
+    { id: "s2", kind: "other", title: 'Set Heartbeat "Babysit PR #473"', status: "done", routine: { id: "hb1", name: "Babysit PR #473" } },
   ];
   const message = { id: 9, session_id: 7, role: "assistant", body: "Opened #473. I'll check every 15 minutes.", steps };
   const tree = ChatReply({ message, media: () => null, onActivity() {}, chatId: "/p#7" });
@@ -11186,7 +11186,7 @@ function heartbeatCardHost(routines, { fail } = {}) {
     "./icons": { Icon: "Icon" },
     "./ui": { tap() {}, ErrorNotice: "ErrorNotice" },
   });
-  const step = { id: "s2", kind: "other", title: "Set heartbeat", status: "done", routine: { id: "hb1", name: "Babysit PR #473" } };
+  const step = { id: "s2", kind: "other", title: "Set Heartbeat", status: "done", routine: { id: "hb1", name: "Babysit PR #473" } };
   const render = () => {
     react.begin();
     return HeartbeatCard({ step });

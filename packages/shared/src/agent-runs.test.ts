@@ -349,7 +349,7 @@ test("a step that ends with a file keeps it", () => {
 });
 
 test("a step that ends with a routine keeps it", () => {
-  const set = { id: "h1", kind: "other" as const, title: 'Set heartbeat "watch CI"' };
+  const set = { id: "h1", kind: "other" as const, title: 'Set Heartbeat "watch CI"' };
   const { runs } = fold([
     { type: "step-started", step: set },
     { type: "step-completed", id: "h1", status: "done", routine: { id: "r1", name: "watch CI" } },

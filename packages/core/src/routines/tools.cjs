@@ -20,14 +20,14 @@ const everyField = z
     'A fixed cadence: minutes that divide 60 (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30) with m, or hours that divide 24 (1, 2, 3, 4, 6, 8, 12, 24) with h, e.g. "15m" or "2h". Give this or cron, not both.',
   );
 const timezoneField = z.string().max(64).describe("IANA timezone, e.g. America/Sao_Paulo. Defaults to the computer's timezone.");
-const maxRunsField = z.number().int().min(1).max(1000).describe("End the heartbeat after this many runs.");
-const expiresInField = z.string().max(10).describe('End the heartbeat after this long: a number and m, h or d, e.g. "12h" or "3d". At most 30d.');
+const maxRunsField = z.number().int().min(1).max(1000).describe("End the Heartbeat after this many Runs.");
+const expiresInField = z.string().max(10).describe('End the Heartbeat after this long: a number and m, h or d, e.g. "12h" or "3d". At most 30d.');
 
 function expiresInMs(value) {
   const match = /^(\d+)([mhd])$/.exec(value);
   if (!match || Number(match[1]) < 1) throw new Error(`Invalid expiresIn: ${JSON.stringify(value)} (use e.g. 30m, 6h or 7d)`);
   const ms = Number(match[1]) * UNIT_MS[match[2]];
-  if (ms > MAX_EXPIRY_MS) throw new Error(`expiresIn ${JSON.stringify(value)} is too long: a heartbeat runs for at most 30d`);
+  if (ms > MAX_EXPIRY_MS) throw new Error(`expiresIn ${JSON.stringify(value)} is too long: a Heartbeat runs for at most 30d`);
   return ms;
 }
 
@@ -112,13 +112,13 @@ function createRoutineTools({
             .list()
             .filter(inProject)
             .map((routine) => [routine.id, routine.name, triggerText(routine.trigger), nextText(routine), routine.enabled ? "enabled" : "paused"].join(" · "));
-          return lines.length ? lines.join("\n") : "No routines in this Project.";
+          return lines.length ? lines.join("\n") : "No Routines in this Project.";
         },
       },
       {
         name: HEARTBEAT_CREATE,
         description:
-          'Set a Heartbeat: Milagre sends the prompt into this Chat on a schedule, as a new turn, so you can keep watching something (a PR, a deploy, a long job). Give exactly one of cron or every. A heartbeat always ends: it stops after 7 days unless you set maxRuns or expiresIn (at most 30 days). Setting one with the same name again replaces it. On a beat where nothing needs doing, reply "(pass) <reason>". Delete the heartbeat with routine_delete as soon as the work is done (the PR is merged, the deploy is live).',
+          'Set a Heartbeat: Milagre sends the prompt into this Chat on a schedule, as a new turn, so you can keep watching something (a PR, a deploy, a long job). Give exactly one of cron or every. Give it its end now with expiresIn or maxRuns (at most 30 days; with neither it stops after 7 days), since deleting it later may need the user\'s approval. Setting one with the same name again replaces it. On a beat where nothing needs doing, reply "(pass) <reason>". Once the work is done (the PR is merged, the deploy is live), delete it with routine_delete.',
         input: {
           name: z.string().min(1).max(80).describe("Short name, unique in this Chat."),
           prompt: z.string().min(1).max(4000).describe("What to do on each beat."),
@@ -156,7 +156,7 @@ function createRoutineTools({
       {
         name: ROUTINE_CREATE,
         description:
-          'Set a Routine: Milagre starts a fresh Chat in this Project on a schedule or when something happens in Linear. Each Run starts a new Chat (in a new worktree unless projectWorkspace is "project"), not this one. Use heartbeat_create instead to message this Chat. trigger "schedule" needs exactly one of cron or every. trigger "linear" needs linearEvent (assigned, label-added, state or comment), plus label for label-added and state for state; team and workspace are optional. Webhook Routines can only be set up by the person in the New routine form, because agents cannot create webhooks.',
+          'Set a Routine: Milagre starts a fresh Chat in this Project on a schedule or when something happens in Linear. Each Run starts a new Chat (in a new Worktree unless projectWorkspace is "project"), not this one. Use heartbeat_create instead to message this Chat. trigger "schedule" needs exactly one of cron or every. trigger "linear" needs linearEvent (assigned, label-added, state or comment), plus label for label-added and state for state; team and workspace are optional. Webhook Routines can only be set up by the person in the New Routine form, because agents cannot create webhooks.',
         input: {
           name: z.string().min(1).max(80).describe("Short name."),
           prompt: z.string().min(1).max(4000).describe("What each Run's Chat should do."),
@@ -169,7 +169,7 @@ function createRoutineTools({
           label: z.string().min(1).max(80).optional().describe("For linearEvent label-added: the label."),
           state: z.string().min(1).max(80).optional().describe("For linearEvent state: the state the issue moves to."),
           workspace: z.string().min(1).max(80).optional().describe("The Linear workspace. Needed only when several are connected."),
-          projectWorkspace: z.enum(["worktree", "project"]).optional().describe("Where a Run works: a new worktree (default) or the Project folder."),
+          projectWorkspace: z.enum(["worktree", "project"]).optional().describe("Where a Run works: a new Worktree (default) or the Project folder."),
         },
         readOnly: false,
         run: async ({ name, prompt, trigger, cron, every, timezone, linearEvent, team, label, state, workspace, projectWorkspace }) => {
@@ -211,14 +211,14 @@ function createRoutineTools({
             permissionMode: settings.permissionMode,
             createdBy: { kind: "agent", chatId },
           });
-          const where = mode === "project" ? "in the Project folder" : "in a new worktree";
+          const where = mode === "project" ? "in the Project folder" : "in a new Worktree";
           return `Routine "${routine.name}" set: ${triggerText(routine.trigger)}, runs ${where} in ${path.basename(project)}.`;
         },
       },
       {
         name: ROUTINE_UPDATE,
         description:
-          "Change a routine in this Chat's Project: its name, prompt, schedule (cron or every), timezone, end (maxRuns or expiresIn), a Linear trigger's linearEvent, team, label or state, or pause it with enabled false. A Linear trigger keeps the filters you don't give; label-added needs a label and state needs a state.",
+          "Change a Routine in this Chat's Project: its name, prompt, schedule (cron or every), timezone, end (maxRuns or expiresIn), a Linear trigger's linearEvent, team, label or state, or pause it with enabled false. A Linear trigger keeps the filters you don't give; label-added needs a label and state needs a state.",
         input: {
           id: z.string().min(1).max(64),
           name: z.string().min(1).max(80).optional(),
@@ -250,7 +250,7 @@ function createRoutineTools({
       },
       {
         name: ROUTINE_DELETE,
-        description: "Delete a routine in this Chat's Project. Do this for a heartbeat as soon as its work is done.",
+        description: "Delete a Routine in this Chat's Project, such as a Heartbeat whose work is done. This may need the user's approval.",
         input: { id: z.string().min(1).max(64) },
         readOnly: false,
         run: async ({ id }) => {
@@ -261,7 +261,7 @@ function createRoutineTools({
       },
       {
         name: ROUTINE_RUN_NOW,
-        description: "Run a routine in this Chat's Project now, outside its schedule, and report how the run went.",
+        description: "Run a Routine in this Chat's Project now, outside its schedule, and report how the Run went.",
         input: { id: z.string().min(1).max(64) },
         readOnly: false,
         run: async ({ id }) => {

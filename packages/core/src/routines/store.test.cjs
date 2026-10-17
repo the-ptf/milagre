@@ -413,6 +413,15 @@ test("three failed Runs in a row complete the heartbeat; an acted or quiet Run r
   assert.equal(store.runs(routine.id)[0].error, "no CLI · 3 failed beats in a row");
 });
 
+test("a Heartbeat missing its name, prompt or timezone is refused, in words that name a Heartbeat", () => {
+  const { store } = setup();
+  assert.throws(() => store.upsertHeartbeat({ ...base, name: " " }), { message: "A Heartbeat needs a name" });
+  assert.throws(() => store.upsertHeartbeat({ ...base, prompt: "" }), { message: "A Heartbeat needs a prompt" });
+  assert.throws(() => store.upsertHeartbeat({ ...base, timezone: "" }), { message: "A Heartbeat needs a timezone" });
+  assert.throws(() => store.upsertHeartbeat({ ...base, expiresIn: "31d" }), /a Heartbeat runs for at most 30d/);
+  assert.deepEqual(store.list(), []);
+});
+
 test("expiresIn is capped at 30 days, and nothing is saved past it", () => {
   const { store, options } = setup();
   assert.equal(store.upsertHeartbeat({ ...base, name: "a", expiresIn: "30d" }).expiresAt, START + 30 * DAY);

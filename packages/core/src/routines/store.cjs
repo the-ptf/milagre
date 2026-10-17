@@ -63,7 +63,7 @@ function parseExpiresIn(value) {
   const match = typeof value === "string" ? /^(\d+)([mhd])$/.exec(value) : null;
   if (!match || Number(match[1]) < 1) throw new Error(`Invalid expiresIn: ${JSON.stringify(value)} (use e.g. 30m, 6h or 7d)`);
   const ms = Number(match[1]) * UNIT_MS[match[2]];
-  if (ms > MAX_EXPIRY_MS) throw new Error(`expiresIn ${JSON.stringify(value)} is too long: a heartbeat runs for at most 30d`);
+  if (ms > MAX_EXPIRY_MS) throw new Error(`expiresIn ${JSON.stringify(value)} is too long: a Heartbeat runs for at most 30d`);
   return ms;
 }
 
@@ -585,9 +585,9 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
   function upsertHeartbeat({ chatId, name, prompt, cron, every, timezone, maxRuns, expiresIn, provider, model, permissionMode, createdBy }) {
     assertWritable();
     if ((cron === undefined) === (every === undefined)) throw new Error("Give exactly one of cron or every");
-    if (typeof timezone !== "string" || timezone === "") throw new Error("A heartbeat needs a timezone");
-    if (typeof name !== "string" || name.trim() === "") throw new Error("A heartbeat needs a name");
-    if (typeof prompt !== "string" || prompt.trim() === "") throw new Error("A heartbeat needs a prompt");
+    if (typeof timezone !== "string" || timezone === "") throw new Error("A Heartbeat needs a timezone");
+    if (typeof name !== "string" || name.trim() === "") throw new Error("A Heartbeat needs a name");
+    if (typeof prompt !== "string" || prompt.trim() === "") throw new Error("A Heartbeat needs a prompt");
     const at = now();
     const expression = cron ?? everyToCron(every);
     // Worked out before anything changes: a schedule that never fires is refused here.

@@ -195,7 +195,7 @@ test("replyActivity: generated images come back apart from the activity", () => 
 });
 
 test("a heartbeat_create step that set a Heartbeat comes out of the activity as its own card", () => {
-  const beat: ChatStep = { ...step("hb", 0), kind: "other", title: "Set heartbeat", routine: { id: "r1", name: "Babysit PR #473" } };
+  const beat: ChatStep = { ...step("hb", 0), kind: "other", title: "Set Heartbeat", routine: { id: "r1", name: "Babysit PR #473" } };
   const reply = replyActivity("Opened #473. I'll check back.", [step("a", 0), beat]);
   assert.deepEqual(reply.heartbeats, [beat]);
   assert.deepEqual(reply.activity, [{ type: "step", step: step("a", 0) }]);

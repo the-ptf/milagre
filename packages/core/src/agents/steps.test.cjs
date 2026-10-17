@@ -404,21 +404,23 @@ test("resolving a design comment reads as that, with the agent's note", () => {
   );
 });
 
-test("routine tools read as what they did to the heartbeats, for Claude and Codex", () => {
+test("routine tools read as what they did to the Heartbeats and Routines, for Claude and Codex", () => {
   const claude = (name, input) => claudeStep("t1", `mcp__milagre__${name}`, input);
   const codex = (tool, args) => codexStep({ type: "mcpToolCall", id: "e1", server: "milagre", tool, status: "inProgress", arguments: args });
   assert.deepEqual(claude("heartbeat_create", { name: "watch CI", prompt: "p", every: "15m" }), {
     id: "t1",
     kind: "other",
-    title: 'Set heartbeat "watch CI"',
+    title: 'Set Heartbeat "watch CI"',
   });
-  assert.equal(codex("heartbeat_create", { name: "watch CI" }).title, 'Set heartbeat "watch CI"');
-  assert.equal(claude("heartbeat_create", {}).title, "Set a heartbeat");
-  assert.equal(claude("routine_delete", { id: "a" }).title, "Stopped a routine");
-  assert.equal(codex("routine_delete", { id: "a" }).title, "Stopped a routine");
+  assert.equal(codex("heartbeat_create", { name: "watch CI" }).title, 'Set Heartbeat "watch CI"');
+  assert.equal(claude("heartbeat_create", {}).title, "Set a Heartbeat");
+  assert.equal(claude("routine_create", { name: "triage" }).title, 'Set Routine "triage"');
+  assert.equal(codex("routine_create", {}).title, "Set a Routine");
+  assert.equal(claude("routine_delete", { id: "a" }).title, "Stopped a Routine");
+  assert.equal(codex("routine_delete", { id: "a" }).title, "Stopped a Routine");
   for (const name of ["routine_list", "routine_update", "routine_run_now"]) {
-    assert.equal(claude(name, {}).title, "Checked routines", name);
-    assert.equal(codex(name, {}).title, "Checked routines", name);
+    assert.equal(claude(name, {}).title, "Checked Routines", name);
+    assert.equal(codex(name, {}).title, "Checked Routines", name);
   }
   // Another server's tool with the same name is still a plain tool call.
   assert.equal(

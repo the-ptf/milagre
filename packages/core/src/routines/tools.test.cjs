@@ -43,6 +43,16 @@ function setup({ settings = SETTINGS, timezone = "UTC", workspaces = ["acme"] } 
 
 const create = { name: "watch CI", prompt: "check the PR", every: "15m" };
 
+test("the tool text asks for a Heartbeat's end up front, since deleting it later may need the user's approval", () => {
+  const { tools } = setup();
+  const description = (name) => tools.definitions(CHAT).find((tool) => tool.name === name).description;
+  assert.match(description("heartbeat_create"), /end now with expiresIn or maxRuns/);
+  assert.match(description("heartbeat_create"), /deleting it later may need the user's approval/);
+  assert.match(description("routine_delete"), /may need the user's approval/);
+  // Product nouns as GLOSSARY.md has them.
+  for (const tool of tools.definitions(CHAT)) assert.doesNotMatch(tool.description, /\b(routine|heartbeat|worktree)s?\b/, tool.name);
+});
+
 test("the tool names and definitions line up", () => {
   const { tools } = setup();
   assert.deepEqual(ROUTINE_TOOL_NAMES, ["routine_list", "heartbeat_create", "routine_create", "routine_update", "routine_delete", "routine_run_now"]);
@@ -140,7 +150,7 @@ test("a second heartbeat_create with the same name updates the same Routine", as
 
 test("routine_list shows this Project's heartbeats and nothing else", async () => {
   const { call } = setup();
-  assert.equal((await call("routine_list", {})).text, "No routines in this Project.");
+  assert.equal((await call("routine_list", {})).text, "No Routines in this Project.");
   await call("heartbeat_create", create);
   await call("heartbeat_create", { name: "hourly", prompt: "p", cron: "30 * * * *" });
   await call("heartbeat_create", { name: "elsewhere", prompt: "p", every: "1h" }, OTHER_CHAT);
@@ -281,7 +291,7 @@ test("routine_create with a Linear label trigger stores a new-chat Routine for t
   const { store, call } = setup();
   const result = await call("routine_create", { name: "triage", prompt: "look at it", trigger: "linear", linearEvent: "label-added", label: "agent" });
   assert.equal(result.isError, false);
-  assert.equal(result.text, 'Routine "triage" set: Linear · label agent added, runs in a new worktree in app.');
+  assert.equal(result.text, 'Routine "triage" set: Linear · label agent added, runs in a new Worktree in app.');
   const [routine] = store.list();
   assert.deepEqual(routine.trigger, { kind: "linear", workspace: "acme", event: "label-added", label: "agent" });
   assert.deepEqual(routine.target, { kind: "new-chat", projectPath: "/code/app", workspace: "worktree" });
@@ -303,7 +313,7 @@ test("routine_create schedules, validates and rejects webhooks", async () => {
   assert.equal((await call("routine_create", { name: "x", prompt: "p", trigger: "linear", linearEvent: "assigned", workspace: "b" })).isError, false);
   assert.equal((await call("routine_create", { name: "w", prompt: "p", trigger: "webhook" })).isError, true);
   const tool = tools.definitions(CHAT).find((item) => item.name === "routine_create");
-  assert.match(tool.description, /New routine form/);
+  assert.match(tool.description, /New Routine form/);
   assert.match(tool.description, /fresh Chat/);
   assert.equal(store.list().length, 2);
 });
@@ -316,7 +326,7 @@ test("routines of the Project are found from a sibling Chat, by chat or by proje
   const listed = await call("routine_list", {}, sibling);
   assert.match(listed.text, /triage/);
   assert.match(listed.text, /watch CI/);
-  assert.match((await call("routine_list", {}, OTHER_CHAT)).text, /No routines/);
+  assert.match((await call("routine_list", {}, OTHER_CHAT)).text, /No Routines/);
   const [triage] = store.list();
   assert.equal((await call("routine_update", { id: triage.id, enabled: false }, sibling)).isError, false);
   assert.equal((await call("routine_run_now", { id: triage.id }, sibling)).isError, false);

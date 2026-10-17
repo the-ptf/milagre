@@ -66,7 +66,7 @@ window.milagre = {
   runRoutineNow: async () => undefined,
 };
 const models = [{ id: 'claude-opus-5-5', name: 'Opus 5.5', provider: 'claude', description: '' }];
-const beat = (id, name) => ({ id: 'step-' + id, kind: 'other', title: 'Set heartbeat', status: 'done', routine: { id, name } });
+const beat = (id, name) => ({ id: 'step-' + id, kind: 'other', title: 'Set Heartbeat', status: 'done', routine: { id, name } });
 createRoot(document.getElementById('root')).render(<>
   <aside data-chat-surfaces style={{position:'fixed',left:16,bottom:16,width:380,display:'flex',flexDirection:'column',gap:8}}>
     <HeartbeatCard step={beat('h1', 'Babysit PR #473 until it merges')} />
