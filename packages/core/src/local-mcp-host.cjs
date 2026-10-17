@@ -329,6 +329,7 @@ function createLocalMcpHost({
       const worktree = state.worktrees[worktreeId];
       if (!worktree) throw Error(`Worktree ${worktreeId} isn't in ${projectPath}`);
       if (!worktree.base) throw Error("Milagre didn't create this Worktree, so it is kept.");
+      if (worktree.sharedChat) throw Error("This Worktree belongs to a shared Link Chat. Archive that Chat to hide it.");
       if (caller && projectOfKey(caller) === projectPath && state.sessions[sessionIdFromKey(caller)]?.worktree_id === worktree.id)
         throw Error("A Chat can't remove the Worktree it runs in.");
       const name = (session) => `"${session.title || session.generatedTitle || "Chat"}" (${projectPath}#${session.id})`;

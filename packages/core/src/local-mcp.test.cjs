@@ -319,7 +319,16 @@ function steeringHost(t, overrides = {}) {
       return {
         state: {
           ...base,
-          worktrees: { ...base.worktrees, 2: { id: 2, path: path.join(root, "wt"), name: "milagre/wt", base: "main" } },
+          worktrees: {
+            ...base.worktrees,
+            2: {
+              id: 2,
+              path: path.join(root, "wt"),
+              name: "milagre/wt",
+              base: "main",
+              ...(overrides.sharedWorktree ? { sharedChat: { linkId: "l", sessionId: 1 } } : {}),
+            },
+          },
           sessions: { ...base.sessions, ...overrides.sessions },
         },
       };
@@ -556,6 +565,7 @@ test("worktree_remove keeps a Worktree that isn't safe to remove, and says why",
     return error.message;
   };
   assert.match(await refused({}, 1), /Milagre didn't create this Worktree/);
+  assert.match(await refused({ sharedWorktree: true }), /belongs to a shared Link Chat/);
   assert.match(await refused({ sessions: { 2: { id: 2, worktree_id: 2 } } }, 2, true), /can't remove the Worktree it runs in/);
   const worker = { 5: { id: 5, worktree_id: 2, title: "Worker", summary: { count: 2 } } };
   assert.match(await refused({ sessions: worker, runs: (root) => ({ [`${root}#5`]: {} }) }), /Stop "Worker" .*#5\) first/);
