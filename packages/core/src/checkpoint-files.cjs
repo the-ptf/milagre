@@ -30,6 +30,13 @@ function partsFor(name) {
   return name.split("/");
 }
 const excluded = (name, patterns) => ARTIFACT.test(name) || SECRET_NAME.test(name) || patterns.some((p) => path.matchesGlob(name, p));
+const sizeOf = (name) => {
+  try {
+    return fs.lstatSync(name).size;
+  } catch {
+    return 0;
+  }
+};
 function execute(request) {
   const { root, identity, op } = request;
   const atRoot = () => {
@@ -64,7 +71,11 @@ function execute(request) {
       fd = fs.openSync(leaf, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
       const stat = fs.fstatSync(fd);
       if (!stat.isFile() || stat.nlink > 1 || !sameInode(before, stat)) return { blocked: true };
-      if (stat.size > limit) throw new Error(`Checkpoint file exceeds ${limit === MAX_FILE ? "5 MiB" : "ignore-file limit"}: ${name}`);
+      // A file past 5 MiB stays out of checkpoints, like secrets and artifacts. Only the ignore file's own limit is an error.
+      if (stat.size > limit) {
+        if (limit === MAX_FILE) return { blocked: true };
+        throw new Error(`Checkpoint file exceeds ignore-file limit: ${name}`);
+      }
       // A bounded read prevents a concurrently growing file exhausting host memory.
       const buffer = Buffer.alloc(Math.min(stat.size + 1, limit + 1));
       let offset = 0;
@@ -109,17 +120,22 @@ function execute(request) {
   if (op === "scan" || op === "inspect") {
     const files = Object.create(null),
       blocked = [];
+    // The Worktrees of a shared Chat split one budget (see checkpoints.cjs).
+    const budget = Math.min(request.budget ?? MAX_TOTAL, MAX_TOTAL);
     let total = 0;
     if (op === "scan") fs.mkdirSync(request.blobDirectory, { recursive: true, mode: 0o700 });
-    for (const name of request.names) {
+    // Smallest first: past the budget the largest files stay out, so the source an agent edits stays covered.
+    // A size read here only orders the files; each read below checks its file again.
+    atRoot();
+    const sizes = new Map(request.names.map((name) => [name, sizeOf(name)]));
+    for (const name of request.names.toSorted((a, b) => sizes.get(a) - sizes.get(b))) {
       const found = read(name, patterns);
-      if (found.blocked) {
+      if (found.blocked || (found.entry && total + found.bytes.length > budget)) {
         blocked.push(name);
         continue;
       }
       if (!found.entry) continue;
       total += found.bytes.length;
-      if (total > MAX_TOTAL) throw new Error("Checkpoint exceeds 100 MiB");
       files[name] = found.entry;
       if (op === "scan") {
         const dest = path.join(request.blobDirectory, found.entry.hash);

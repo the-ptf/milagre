@@ -396,6 +396,17 @@ test("Compact now: the /compact runs on the chat's own provider, its divider rec
   assert.deepEqual(saved.get(ALPHA).sessions[sessionId].contextUsage, { used: 42_000, size: 1_000_000 });
 });
 
+test("a /compact changes no files, so it captures no checkpoint", async (t) => {
+  const tasks = [];
+  const { host, manager, saved, session } = harness({ hooks: { beforeTask: async (request) => void tasks.push(request.body) } });
+  t.after(() => manager.closeAll());
+  const sessionId = await chatWithReply(host, session, saved);
+  const { compactionMessage } = require("@milagre/shared/compaction");
+  await host.send(message(ALPHA, "", { sessionId, ...compactionMessage() }));
+  await waitUntil(() => session(ALPHA).turns.length === 2);
+  assert.deepEqual(tasks, ["fix the login redirect"]);
+});
+
 test("automatic compaction saves a divider between the reply before and after it", async (t) => {
   const { host, manager, saved, session } = harness();
   t.after(() => manager.closeAll());

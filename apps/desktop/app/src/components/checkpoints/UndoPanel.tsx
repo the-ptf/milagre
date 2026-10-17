@@ -93,7 +93,7 @@ export function UndoPanel({
       role="group"
       aria-label={review.view === "list" ? "Undo a task's changes" : `${intent} changes`}
       onKeyDown={onKeyDown}
-      className="promptbar-surface mb-1.5 flex max-h-[min(420px,55vh)] flex-col overflow-hidden rounded-[14px] border border-line-strong text-[13px] text-ink outline-none"
+      className="promptbar-surface mb-1.5 flex max-h-[min(420px,55vh)] flex-col overflow-hidden rounded-[14px] border border-line-strong text-[13px] text-ink"
       style={{ animation: "fade-up 200ms cubic-bezier(0.23,1,0.32,1) both" }}
     >
       {review.view === "list" ? (
