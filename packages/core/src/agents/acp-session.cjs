@@ -18,8 +18,8 @@ const {
   readConfigOptions,
   stopReasonEvent,
 } = require("./acp-events.cjs");
-const { milagreInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, loginMessage, missingCliMessage } = require("./events.cjs");
-const { PendingPermissions, capText, insideWorkspace, isAcpPlanToolPermission, unwrapShell } = require("./permissions.cjs");
+const { sessionInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, loginMessage, missingCliMessage } = require("./events.cjs");
+const { PendingPermissions, WorkspaceAccess, capText, insideWorkspace, isAcpPlanToolPermission, unwrapShell } = require("./permissions.cjs");
 const { PendingQuestions } = require("./questions.cjs");
 const { antigravityAcp, makeTempDir } = require("./antigravity-acp.cjs");
 
@@ -112,9 +112,13 @@ class AcpSession {
     args,
     emit,
     workspaceRoots,
+    readOnlyRoots,
+    // The SessionManager's, which follows a shared Link Chat's Worktrees; a session made alone (an advisor) has its own.
+    access = new WorkspaceAccess({ cwd, workspaceRoots, readOnlyRoots }),
     workspaceInstructions,
     tldrEnabled = true,
     designsEnabled = true,
+    sharedLink = false,
     linked = null,
     mcpExtras = null,
     clientVersion = "0.0.0",
@@ -130,10 +134,11 @@ class AcpSession {
       harness,
       args,
       emit,
-      workspaceRoots,
+      access,
       workspaceInstructions,
       tldrEnabled,
       designsEnabled,
+      sharedLink,
       linked,
       mcpExtras,
       clientVersion,
@@ -255,7 +260,7 @@ class AcpSession {
     if (!this.instructionsSent)
       blocks.push({
         type: "text",
-        text: `<milagre_instructions>\n${milagreInstructions(this.tldrEnabled, this.workspaceInstructions, this.designsEnabled)}\n\n${workspaceNote(this.cwd, this.workspaceRoots)}\n</milagre_instructions>`,
+        text: `<milagre_instructions>\n${sessionInstructions(this)}\n\n${workspaceNote(this.cwd, this.access.roots)}\n</milagre_instructions>`,
       });
     blocks.push({ type: "text", text: prompt });
     for (const image of images) blocks.push({ type: "image", mimeType: image.mime, data: image.base64 ?? Buffer.from(image.bytes).toString("base64") });
@@ -466,7 +471,12 @@ class AcpSession {
     const call = { ...known, ...toolCall, rawInput: { ...known.rawInput, ...toolCall.rawInput } };
     if (!toolCall.rawInput && !known.rawInput) delete call.rawInput;
     const request = acpPermissionRequest(requestId, call, options);
-    const roots = [this.cwd, ...(this.workspaceRoots ?? [])];
+    const decided = this.access.answer(request, this.permissions.mode);
+    if (decided) {
+      this.reply(id, outcome(pickOption(options, decided.decision)));
+      return;
+    }
+    const roots = [this.cwd, ...(this.access.roots ?? [])];
     // Resolved through symlinks: the agent names files by their real path (/private/var/… on macOS).
     const inWorkspace = request.kind === "edit" && request.files.length > 0 && insideWorkspace(roots, request.files, this.cwd);
     this.permissions.add(request, (decision) => this.reply(id, outcome(pickOption(options, decision))), { inWorkspace });

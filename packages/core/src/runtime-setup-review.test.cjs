@@ -23,7 +23,10 @@ async function fixture(t) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-setup-review-")));
   const dataDir = path.join(dir, "profile");
   const runtimes = [],
-    turns = [];
+    turns = [],
+    // Each agent session's context, and the turns `hold` keeps open until `finish()`, as an agent still working.
+    contexts = [],
+    held = { hold: false, finish: [] };
   t.after(async () => {
     for (const runtime of runtimes) await runtime.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -37,18 +40,25 @@ async function fixture(t) {
       titleModels: {},
       expandSkills: false,
       agentCli: async () => ({ command: "/fake" }),
-      createSession: (_provider, context) => ({
-        turnActive: false,
-        startTurn(request) {
-          turns.push({ cwd: context.cwd, ...request });
-          context.emit({ type: "turn-started", turnId: randomUUID() });
-          context.emit({ type: "text-delta", messageId: "reply", text: "Done" });
-          context.emit({ type: "turn-completed" });
-          return { turnId: "turn" };
-        },
-        close() {},
-        interrupt() {},
-      }),
+      createSession: (_provider, context) => {
+        contexts.push(context);
+        return {
+          turnActive: false,
+          startTurn(request) {
+            turns.push({ cwd: context.cwd, ...request });
+            context.emit({ type: "turn-started", turnId: randomUUID() });
+            const complete = () => {
+              context.emit({ type: "text-delta", messageId: "reply", text: "Done" });
+              context.emit({ type: "turn-completed" });
+            };
+            if (held.hold) held.finish.push(complete);
+            else complete();
+            return { turnId: "turn" };
+          },
+          close() {},
+          interrupt() {},
+        };
+      },
     });
     runtimes.push(runtime);
     return runtime;
@@ -68,7 +78,7 @@ async function fixture(t) {
     const session = Object.values(made.project.state.sessions).find((s) => s.worktree_id === made.worktreeId);
     return { projectPath, sessionId: session.id, chatId: `${projectPath}#${session.id}`, cwd: made.project.state.worktrees[made.worktreeId].path };
   }
-  return { dir, dataDir, make, project, create, turns };
+  return { dir, dataDir, make, project, create, turns, contexts, held };
 }
 async function config(projectPath, setup) {
   await fs.writeFile(path.join(projectPath, ".milagre/worktree.json"), JSON.stringify({ setup }));
@@ -193,29 +203,37 @@ test("a Worktree created before restart still requires review; Stop runs nothing
   await finished(next, target.chatId);
 });
 
-test("Named Link member setups use the same review before starting its shared agent", async (t) => {
+test("a Named Link member's setup gets the same review when its agent makes the Worktree", async (t) => {
   const f = await fixture(t),
     runtime = f.make();
   for (const name of ["api", "web"]) await runtime.openProject(await f.project(name));
   const projects = await runtime.invoke("project:registry");
   const link = await runtime.invoke("link:create", [{ name: "Both", projectIds: projects.map((p) => p.id) }]);
   await runtime.invoke("link:open", [link.id]);
+  f.held.hold = true;
   const sent = await runtime.invoke("link:send", [{ linkId: link.id, operationId: randomUUID(), body: "Work", provider: "codex", model: "test" }]);
   const chatId = `${scopeKey({ kind: "link", linkId: link.id })}#${sent.sessionId}`;
+  // The shared Chat starts with no Worktree, so nothing waits for a review before its agent.
+  await until(() => f.turns.length === 1);
+  const tool = f.contexts[0].linked.tools.find((item) => item.name === "link_worktree_create");
+  const { runTool } = require("./linked-tools.cjs");
+  const api = runTool(tool, { project: "api" });
   const first = await approval(runtime, chatId);
-  assert.equal(f.turns.length, 0);
   assert.equal(await exists(path.join(first.cwd, "setup-marker")), false);
   await answer(runtime, chatId, first.requestId, "allow");
+  assert.equal((await api).isError, false);
+  assert.equal(await exists(path.join(first.cwd, "setup-marker")), true);
+  const web = runTool(tool, { project: "web" });
   const second = await until(async () =>
     (await runtime.invoke("chat:runs")).runs[chatId]?.approvals.find((r) => r.kind === "setup" && r.requestId !== first.requestId),
   );
   assert.notEqual(second.setup.projectPath, first.setup.projectPath);
-  assert.equal(f.turns.length, 0);
   await answer(runtime, chatId, second.requestId, "deny");
+  assert.match(JSON.parse((await web).text).setup, /skipped the Worktree setup command/);
+  assert.equal(await exists(path.join(second.cwd, "setup-marker")), false);
+  for (const complete of f.held.finish) complete();
   await finished(runtime, chatId);
   assert.equal(f.turns.length, 1);
-  assert.equal(await exists(path.join(first.cwd, "setup-marker")), true);
-  assert.equal(await exists(path.join(second.cwd, "setup-marker")), false);
 });
 
 test("restarting during review keeps setup blocked and rejects the old response", async (t) => {

@@ -109,6 +109,21 @@ test("changed scope rejects further work", async (t) => {
   f.context.scopeIdentity = "scope-v2";
   await assert.rejects(f.manager.followup("chat", row.id, "more"), /scope|worktree/i);
 });
+test("a scope change cancels queued advisor follow-ups and releases their slot", async (t) => {
+  const f = await fixture(t);
+  const row = await f.manager.create("chat", input);
+  await running(f);
+  await f.manager.followup("chat", row.id, "Review again");
+  f.context.scopeIdentity = "scope-v2";
+  await finish(f);
+  await waitUntil(() => f.launched[0].closed === 1);
+  const stopped = await f.manager.read("chat", row.id);
+  assert.deepEqual(stopped.queuedPrompts, []);
+  assert.equal(stopped.status, "failed");
+  assert.match(stopped.transcript.at(-1).text, /scope changed/i);
+  await f.manager.create("chat", input);
+  await f.manager.create("chat", input);
+});
 test("Stop during startup closes the late process and ignores its events", async (t) => {
   let release;
   const waiting = new Promise((r) => (release = r));
@@ -208,6 +223,27 @@ test("Retry keeps the advisor ID, uses the pinned Account and starts a new turn"
   await running(f, 2);
   assert.equal(retried.id, row.id);
   assert.equal((await f.manager.read("chat", row.id)).turnNumber, 2);
+});
+test("the advisor's prompt is the question alone, and Retry after a follow-up asks the original question again", async (t) => {
+  const f = await fixture(t);
+  const row = await f.manager.create("chat", input);
+  await running(f);
+  // The analysis-only rules live in the advisor's system prompt (events.cjs advisorInstructions).
+  assert.equal(f.launched[0].turns[0].prompt, "Assess the code");
+  await finish(f);
+  await f.manager.followup("chat", row.id, "Check the tests too");
+  await waitUntil(() => f.launched[0].turns.length === 2);
+  await f.manager.stop("chat", row.id);
+  await f.manager.retry("chat", row.id);
+  await running(f, 2);
+  assert.equal(
+    f.launched[1].turns[0].prompt,
+    "Assess the code\n\nPrevious saved output:\nRecommendation\n\nFollow-up that was interrupted:\nCheck the tests too",
+  );
+  await f.manager.stop("chat", row.id);
+  await f.manager.retry("chat", row.id);
+  await running(f, 3);
+  assert.equal(f.launched[2].turns[0].prompt, f.launched[1].turns[0].prompt, "a second Retry doesn't nest the first");
 });
 test("Stop fences an admission still resolving the provider", async (t) => {
   let release;

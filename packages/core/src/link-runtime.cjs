@@ -23,7 +23,13 @@ function registerLinkRuntime({ commands, registry, store, workspaces, chats, bro
         let changed = false;
         for (const prep of Object.values(latest.preparations))
           if (prep.status === "ready" && !sessions[prep.chatId]) {
-            sessions[prep.chatId] = { id: prep.chatId, agent_name: link.name, status: "Created", workspacePath: prep.workspacePath, worktrees: prep.members };
+            sessions[prep.chatId] = {
+              id: prep.chatId,
+              agent_name: link.name,
+              status: "Created",
+              workspacePath: prep.workspacePath,
+              worktrees: prep.members.filter((member) => member.setupDone),
+            };
             changed = true;
           }
         return changed ? { ...latest, sessions } : latest;

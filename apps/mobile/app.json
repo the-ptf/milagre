@@ -38,7 +38,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Milagre uses the camera to scan the pairing code your Mac shows.",
+          "cameraPermission": "Milagre uses the camera to scan your Mac's pairing code and to take photos for a Chat.",
           "microphonePermission": "Milagre never records audio. iOS asks because the code scanner shares the camera.",
           "recordAudioAndroid": false
         }
@@ -47,7 +47,7 @@
         "expo-image-picker",
         {
           "photosPermission": "Milagre attaches the photos you pick to a Chat.",
-          "cameraPermission": "Milagre uses the camera to take a photo for a Chat.",
+          "cameraPermission": "Milagre uses the camera to scan your Mac's pairing code and to take photos for a Chat.",
           "microphonePermission": false
         }
       ],

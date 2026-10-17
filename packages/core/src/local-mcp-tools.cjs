@@ -8,7 +8,7 @@ function managementToolGroups({ host, operations }) {
   return ["projects", "worktrees", "chats"].map((id) => ({
     id,
     enabled: () => true,
-    tools: ({ scope, assertActive, connectionId }) => {
+    tools: ({ scope, assertActive, connectionId, connectionLabel }) => {
       const permit = async (projectPath) => {
         assertActive();
         if (!scope.projectPaths.includes(projectPath)) throw Error("Project is outside this connection's scope");
@@ -97,6 +97,13 @@ function managementToolGroups({ host, operations }) {
             (args) => host.linkWorktrees(args, callerOf(connectionId), (projectPath) => scope.projectPaths.includes(projectPath)),
           ),
           act(
+            "worktree_remove",
+            "Remove a Worktree Milagre created, with its Chats, once its work is safe: nothing uncommitted, no commits off its base or upstream, no Chat running, and its Chats with messages archived (chat_update). Its milagre/ branch goes too when merged. Never the Worktree this Chat runs in. From an agent in Ask mode the user approves first; the call waits for that answer.",
+            "create",
+            { ...projectInput, worktreeId: z.number().int().positive() },
+            (args) => host.removeWorktree(args, callerOf(connectionId)),
+          ),
+          act(
             "worktree_unlink",
             "Remove the Worktree-to-Worktree Link between a Worktree and another Worktree (its absolute path, as linked_overview shows it). Project Links stay on the canvas.",
             "create",
@@ -114,7 +121,7 @@ function managementToolGroups({ host, operations }) {
         ),
         read(
           "chat_read",
-          "Read a Chat's recent messages, current progress, and the approvals and questions it waits on (answer them with chat_respond).",
+          "Read a Chat's recent messages, current progress, the approvals and questions it waits on (answer them with chat_respond), and the messages queued behind its running turn.",
           { ...chatInput, limit: z.number().int().min(1).max(100).default(30) },
           (args) => host.readChat(args),
         ),
@@ -133,7 +140,7 @@ function managementToolGroups({ host, operations }) {
         ),
         mutate(
           "chat_start",
-          "Send a task to an existing Chat through Milagre. Nothing comes back from it: an agent that wants the result uses delegate, which reports back. provider, model and effort switch the Chat as its pickers do (a new provider hands off). permissionMode sets its mode; more than the caller's own needs the user's approval, and the call waits for it. Otherwise it keeps its mode, and a Chat with no running agent takes the calling Chat's. files and images are absolute paths inside the Chat's Worktree. Reuse requestId on retry.",
+          "Send a task to an existing Chat through Milagre. Nothing comes back from it: an agent that wants the result uses delegate, which reports back. A Chat whose agent can't take a message mid-turn starts it after its running turn (the answer's note says so). provider, model and effort switch the Chat as its pickers do (a new provider hands off). permissionMode sets its mode; otherwise the prompt runs in the Chat's own mode, and a Chat with no running agent takes the calling Chat's. If that mode is more than yours, the user approves first: the call can wait minutes for that card, so wait for its result, don't end the turn or move on. files and images are absolute paths inside the Chat's Worktree. Reuse requestId on retry.",
           "start",
           {
             ...chatInput,
@@ -145,7 +152,7 @@ function managementToolGroups({ host, operations }) {
             files: z.array(z.string().min(1).max(4096)).max(20).default([]),
             images: z.array(z.string().min(1).max(4096)).max(10).default([]),
           },
-          (args, operationId, assertActive) => host.startChat(args, operationId, assertActive, callerOf(connectionId)),
+          (args, operationId, assertActive) => host.startChat(args, operationId, assertActive, callerOf(connectionId), connectionLabel),
         ),
         act("chat_stop", "Stop a Chat's running turn, as its Stop button does.", "start", chatInput, (args) => host.stopChat(args)),
         act(

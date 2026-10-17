@@ -12,15 +12,20 @@ import { PillMorph } from "../motion/PillMorph";
  * The ports the chat's commands listen on: a "Ports n" pill that grows in place into their list (see PillMorph).
  * A row opens the port in the browser; its stop button ends the command behind it.
  */
-export function PortTrack({ ports, onStop }: { ports?: AgentPort[]; onStop?: (pid: number) => Promise<unknown> }) {
+export function PortTrack({ ports: listed, onStop }: { ports?: AgentPort[]; onStop?: (pid: number) => Promise<unknown> }) {
   const [opened, setOpened] = useState(false);
-  // Pids being stopped; a row leaves the list once the main process sees its server gone.
+  // Pids being stopped, each with a spinner until its stop call returns.
   const [stopping, setStopping] = useState<Set<number>>(new Set());
+  // A server Stop ended leaves the list at once; the next list from the main process has the last word.
+  const [ended, setEnded] = useState<{ list?: AgentPort[]; pids: number[] }>({ pids: [] });
+  const ports = ended.list === listed && ended.pids.length ? listed?.filter((port) => !ended.pids.includes(port.pid)) : listed;
   const stop = (pids: number[]) => {
     if (!onStop) return;
+    const shown = listed;
     setStopping((current) => new Set([...current, ...pids]));
     for (const pid of pids)
       void onStop(pid)
+        .then((done) => done === true && setEnded((current) => ({ list: shown, pids: current.list === shown ? [...current.pids, pid] : [pid] })))
         .catch(() => {})
         .finally(() =>
           setStopping((current) => {

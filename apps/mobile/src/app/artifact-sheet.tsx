@@ -1,5 +1,6 @@
 import { useLocalSearchParams } from "expo-router";
 import { ArtifactSheet } from "../artifact";
+import { DesignsSheet } from "../designs-sheet";
 
 export default function ArtifactScreen() {
   const { hostId, chatId, id, version, chosen, kind } = useLocalSearchParams<{
@@ -10,5 +11,7 @@ export default function ArtifactScreen() {
     chosen?: string;
     kind?: string;
   }>();
-  return <ArtifactSheet key={`${hostId}:${chatId}:${id}`} hostId={hostId} chatId={chatId} id={id} version={version} chosen={chosen} kind={kind} />;
+  // A Chat's designs open on their canvas; its one HTML artifact keeps the page sheet.
+  if (kind === "html") return <ArtifactSheet key={`${hostId}:${chatId}:${id}`} hostId={hostId} chatId={chatId} id={id} kind={kind} />;
+  return <DesignsSheet key={`${hostId}:${chatId}:${id}`} hostId={hostId} chatId={chatId} id={id} version={version} chosen={chosen} />;
 }

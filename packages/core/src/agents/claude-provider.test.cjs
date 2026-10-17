@@ -1,7 +1,16 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { ClaudeSession } = require("./claude-provider.cjs");
-const { MILAGRE_INSTRUCTIONS, RESUME_FAILED_MESSAGE, crashMessage, isTerminal, loginMessage, missingCliMessage, failedWith } = require("./events.cjs");
+const {
+  MILAGRE_INSTRUCTIONS,
+  advisorInstructions,
+  RESUME_FAILED_MESSAGE,
+  crashMessage,
+  isTerminal,
+  loginMessage,
+  missingCliMessage,
+  failedWith,
+} = require("./events.cjs");
 const { DISMISSED_MESSAGE, UNSHOWN_MESSAGE } = require("./questions.cjs");
 const { waitUntil } = require("./test-helpers.cjs");
 
@@ -247,6 +256,8 @@ test("analysis-only Claude denies shell tools and cannot switch to Full", async 
   await session.startTurn({ ...TURN, permissionMode: "full" });
   await ended(events);
   assert.equal(calls.options.permissionMode, "dontAsk");
+  // An advisor's own short prompt, not the Chat's (events.cjs advisorInstructions).
+  assert.equal(calls.options.systemPrompt.append, advisorInstructions());
   assert.deepEqual(calls.options.tools, []);
   assert.deepEqual(calls.options.settingSources, []);
   assert.equal(calls.options.strictMcpConfig, true);
@@ -1100,6 +1111,64 @@ test("Designs can be disabled when starting or resuming Claude", async (t) => {
   }
 });
 
+test("only the read, plan, own-canvas and self-gated Milagre tools skip Claude's approval; the rest follow the Chat's mode", async (t) => {
+  const tool = (name, readOnly) => ({ name, description: name, input: {}, readOnly, run: async () => `${name} ran` });
+  const tools = [
+    tool("linked_overview", true),
+    tool("linear_issue", true),
+    tool("tasks_set", false),
+    tool("phase_set", false),
+    tool("delegate", false),
+    tool("worktree_link", false),
+    tool("chat_set_mode", false),
+    tool("design_show", false),
+    tool("design_apply", false),
+    tool("artifact_show", false),
+    tool("worktree_create", false),
+    tool("chat_stop", false),
+    tool("linear_create_issue", false),
+    tool("design_delete", false),
+  ];
+  const sdk = fakeSdk(async function* ({ options, signal }) {
+    yield init;
+    const result = await options.canUseTool("mcp__milagre__worktree_create", { projectPath: "/repo" }, { signal, requestId: "req-mcp", toolUseID: "tool-mcp" });
+    yield delta(JSON.stringify(result));
+    yield success;
+  });
+  const loadSdk = async () => ({
+    ...(await sdk.loadSdk()),
+    tool: (name, description, input, handler, extras) => ({ name, description, input, handler, extras }),
+    createSdkMcpServer: (options) => ({ type: "sdk", name: options.name, instance: {} }),
+  });
+  const events = [];
+  const session = new ClaudeSession({ cwd: "/repo", command: "/usr/local/bin/claude", linked: { tools }, emit: (event) => events.push(event), loadSdk });
+  t.after(() => session.close());
+  await session.startTurn({ ...TURN, permissionMode: "ask" });
+  assert.deepEqual(
+    sdk.calls.options.allowedTools,
+    [
+      "linked_overview",
+      "linear_issue",
+      "tasks_set",
+      "phase_set",
+      "delegate",
+      "worktree_link",
+      "chat_set_mode",
+      "design_show",
+      "design_apply",
+      "artifact_show",
+    ].map((name) => `mcp__milagre__${name}`),
+  );
+  // A write tool reaches canUseTool and waits on the Chat's card in Ask mode.
+  await waitUntil(() => events.some((event) => event.type === "permission-request"));
+  const card = events.find((event) => event.type === "permission-request");
+  assert.equal(card.requestId, "req-mcp");
+  assert.equal(card.kind, "other");
+  session.respondToPermission("req-mcp", "deny");
+  await ended(events);
+  assert.match(events.findLast((event) => event.type === "text-delta").text, /"behavior":"deny"/);
+});
+
 test("a Chat's linked tools are served in-process and allowed without Claude's own approval", async (t) => {
   const sdk = fakeSdk(scripts.reply);
   const made = [];
@@ -1217,6 +1286,7 @@ test("Claude's subagents are told to keep a to-do list as they start, and to des
       },
     });
   }
-  assert.match(SUBAGENT_DESIGN_INSTRUCTIONS, /design_show.*Never write HTML or image files/s);
-  assert.match(SUBAGENT_PLAN_INSTRUCTIONS, /TodoWrite.*Never use the milagre tasks_set/s);
+  assert.match(SUBAGENT_DESIGN_INSTRUCTIONS, /show a mockup or visual design \(not to implement UI in code\), use the milagre design_show tool/);
+  assert.match(SUBAGENT_DESIGN_INSTRUCTIONS, /Don't write HTML or image files.*names another design tool, use that one/s);
+  assert.match(SUBAGENT_PLAN_INSTRUCTIONS, /TodoWrite, or TaskCreate and TaskUpdate.*Never use the milagre tasks_set/s);
 });

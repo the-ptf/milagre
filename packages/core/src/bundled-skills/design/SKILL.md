@@ -114,7 +114,7 @@ Albert Sans, Anton, Archivo, Barlow, Barlow Condensed, Bebas Neue, Besley, Big S
 
 Mark a frame with `component: true` to make it a main component. Insert another frame with `componentId` set to that main frame's id, plus its own stable id, position and numeric size fallbacks. Milagre expands the instance's children and keeps their ids stable as the main changes. Change the main to update every linked instance. Nested components are not supported.
 
-An instance can change its position, parent, name, visibility and lock state. Its size, appearance and descendants follow the main. In `design_read`, generated children carry `componentSourceId`; edit that source layer in the main. To make an independent copy, replace the document with `componentId` removed from the instance root and `componentSourceId` removed from its descendants. Keep their ids. Detach instances before deleting their main component.
+An instance can change its position, parent, name, visibility and lock state. Its size, appearance and descendants follow the main. In `design_read`, generated children carry `componentSourceId`; edit that source layer in the main. To make an independent copy, send the whole document again with `design_show` (same id, latest `expectedVersion`), with `componentId` removed from the instance root and `componentSourceId` removed from its descendants. Keep their ids. Detach instances before deleting their main component.
 
 ## Editing
 
@@ -131,7 +131,7 @@ An instance can change its position, parent, name, visibility and lock state. It
 }
 ```
 
-Use `insert` with a `node` and optional `index` to add a layer, `delete` with an `id` to remove a layer and its descendants, or `replace` with a `document` to replace the whole screen. Reusing an id with `design_show` also requires the latest `expectedVersion`. Keep ids stable across edits so the user can keep working with the same layers.
+Use `insert` with a `node` (the same fields as a `design_show` node) and optional `index` to add a layer, and `delete` with an `id` to remove a layer and its descendants. To replace the whole screen, call `design_show` with the design's id and the latest `expectedVersion`. Keep ids stable across edits so the user can keep working with the same layers.
 
 ## Export
 

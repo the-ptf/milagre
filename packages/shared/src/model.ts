@@ -229,13 +229,16 @@ export interface WorktreeBinding {
 }
 export interface LinkChatSession extends Omit<AgentSession, "worktree_id"> {
   workspacePath: string;
+  /** Only the Projects the Chat has changed: each gets its Worktree when the agent is about to edit it. */
   worktrees: WorktreeBinding[];
 }
 export interface LinkPreparation {
   operationId: string;
   chatId: number;
+  /** "ready" once the workspace folder exists. The others come from preparations saved before Worktrees were made on demand. */
   status: "reserved" | "creating" | "setup" | "ready" | "failed";
-  members: Array<WorktreeBinding & { created?: boolean; setupDone?: boolean }>;
+  /** The Worktrees made or being made for the Chat. A failed one that kept changes is `retained`, with its `error`. */
+  members: Array<WorktreeBinding & { created?: boolean; setupDone?: boolean; setupDeferred?: boolean; retained?: boolean; error?: string }>;
   workspacePath: string;
   error?: string;
   retainedPaths?: string[];

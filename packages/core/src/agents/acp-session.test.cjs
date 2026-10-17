@@ -233,7 +233,7 @@ test("Milagre's other tools still ask", async (t) => {
   await session.startTurn({ ...TURN, permissionMode: "auto" });
   await waitUntil(() => of(events, "permission-request").length === 1);
   const [request] = of(events, "permission-request");
-  assert.equal(request.tool, "milagre_design_show");
+  assert.equal(request.tool, "milagre_design_delete");
   session.respondToPermission(request.requestId, "deny");
   await ended(events);
   assert.equal(replyText(events), "picked:deny");

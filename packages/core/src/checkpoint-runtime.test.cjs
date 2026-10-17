@@ -15,6 +15,7 @@ test("tasks capture once before execution; steering reuses the checkpoint; resto
   let emit;
   let session;
   let started = 0;
+  const prompts = [];
   const runtime = createRuntime({
     dataDir: path.join(dir, "data"),
     environmentReady: Promise.resolve(),
@@ -24,7 +25,8 @@ test("tasks capture once before execution; steering reuses the checkpoint; resto
       emit = options.emit;
       session = {
         turnActive: false,
-        async startTurn() {
+        async startTurn(request) {
+          prompts.push(request.prompt);
           started++;
           session.turnActive = true;
           options.emit({ type: "turn-started", turnId: "turn" });
@@ -74,4 +76,36 @@ test("tasks capture once before execution; steering reuses the checkpoint; resto
   const note = messages().find((message) => message.context?.kind === "checkpoint-restore");
   assert.equal(note.body, "Undid 1 file");
   assert.deepEqual(note.context, { kind: "checkpoint-restore", checkpointId: items[0].id, recoveryId: restored.recoveryId, restored: 1, kept: 0, redo: false });
+
+  // The line is for the user; the agent hears about the undo with its next turn, once, and the user's bubble stays as typed.
+  assert.deepEqual(prompts, ["edit", "edit"]);
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: id, body: "carry on", provider: "codex", model: "test", permissionMode: "ask" }]);
+  await waitUntil(() => started === 3);
+  // (The fixture's Chat hands off between providers here, so a brief may lead the prompt.)
+  assert.ok(
+    prompts[2].endsWith(
+      "carry on\n\n<milagre_note>The user undid this Chat's changes to 1 file with Undo changes. Re-read files before editing.</milagre_note>",
+    ),
+    prompts[2],
+  );
+  assert.ok(
+    messages().some((message) => message.role === "user" && message.body === "carry on"),
+    "the bubble shows only what the user typed",
+  );
+  session.turnActive = false;
+  emit({ type: "turn-completed" });
+  await waitUntil(() => !runtime.snapshot().projects.find((entry) => entry.path === project).state.sessions[id].running);
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: id, body: "and then", provider: "codex", model: "test", permissionMode: "ask" }]);
+  await waitUntil(() => started === 4);
+  assert.ok(prompts[3].endsWith("and then"), prompts[3]);
+  assert.doesNotMatch(prompts[3], /milagre_note/, "each undo is told once");
+});
+
+test("the agent's note names the files undone, and says so for a Redo", () => {
+  const { agentRestoreNote } = require("./checkpoint-runtime.cjs");
+  assert.equal(
+    agentRestoreNote({ restored: 3, redo: false }),
+    "<milagre_note>The user undid this Chat's changes to 3 files with Undo changes. Re-read files before editing.</milagre_note>",
+  );
+  assert.match(agentRestoreNote({ restored: 1, redo: true }), /redid this Chat's changes to 1 file with Redo/);
 });

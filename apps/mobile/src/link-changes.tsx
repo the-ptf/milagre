@@ -3,6 +3,7 @@ import { Pressable, RefreshControl, Text, View } from "react-native";
 import { router } from "expo-router";
 import { ArrowDown01Icon, ArrowRight01Icon, GitBranchIcon } from "@hugeicons/core-free-icons";
 import type { WorktreeBinding } from "@milagre/shared/model";
+import { LINK_PENDING_WORKTREE_TEXT } from "@milagre/shared/worktree-link";
 import type { DiffFileEntry, DiffFilesResult, DiffMode } from "@milagre/shared/git-diff";
 import { buildDiffTree } from "@milagre/shared/diff-tree";
 import type { DiffTarget } from "./app/diff";
@@ -47,9 +48,7 @@ export function LinkChangesView({ chatId, header, onOpen }: { chatId: number; he
         ]}
         onChange={(value) => setMode(value as DiffMode)}
       />
-      {!members.length && (
-        <Text style={[styles.muted, { paddingVertical: 32, textAlign: "center" }]}>Send a message to create one Worktree in each Project.</Text>
-      )}
+
       {members.map((member) => (
         <MemberChanges
           key={`${member.projectId}:${revision}`}
@@ -60,6 +59,24 @@ export function LinkChangesView({ chatId, header, onOpen }: { chatId: number; he
           onOpen={onOpen}
         />
       ))}
+      {link?.projects
+        .filter((project) => !members.some((member) => member.projectId === project.id))
+        .map((project) => (
+          <View
+            key={project.id}
+            accessible
+            accessibilityLabel={`${project.name}. ${LINK_PENDING_WORKTREE_TEXT}`}
+            style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 12, paddingLeft: 26, paddingRight: 4 }}
+          >
+            <ProjectIcon client={session.client} path={project.path} />
+            <View style={{ flex: 1, gap: 5 }}>
+              <Text numberOfLines={1} style={[styles.text, { fontSize: 16, fontWeight: "500" }]}>
+                {project.name}
+              </Text>
+              <Text style={styles.caption}>{LINK_PENDING_WORKTREE_TEXT}</Text>
+            </View>
+          </View>
+        ))}
     </PageScroll>
   );
 }

@@ -29,3 +29,20 @@ export function linkedSummaryText(summary) {
     .replace(/\s*<\/linked_worktrees>\s*$/, "")
     .trim();
 }
+
+// A shared Link Chat gives a Project its Worktree only when the Chat changes that Project (link_worktree_create).
+
+/** How a shared Link Chat's row counts its Worktrees. */
+export function linkChatWorktreesLabel(count) {
+  if (count === 0) return "No Worktree yet";
+  return count === 1 ? "1 Worktree" : `${count} Worktrees`;
+}
+
+/** What a new shared Link Chat gets, as the Link dialog and an empty Chat say it. */
+export const LINK_CHAT_WORKTREES_TEXT = "One Chat across the linked Projects. A Project gets a Worktree only when the Chat changes it.";
+
+/** The same, for a Link being edited. */
+export const LINK_UPDATE_WORKTREES_TEXT = "New Chats get a Worktree in a Project only when they change it. Chats already started keep theirs.";
+
+/** A Link Project the Chat hasn't changed, in its Changes list. */
+export const LINK_PENDING_WORKTREE_TEXT = "No Worktree yet. The Chat creates one when it changes this Project.";

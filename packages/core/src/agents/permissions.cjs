@@ -61,7 +61,18 @@ function claudeRequest(toolName, input, options = {}) {
       diff: claudeEditDiff(toolName, input),
     });
   }
-  return compact({ ...base, kind: "other", title: options.title || `Use ${toolName}?`, detail: capText(JSON.stringify(input, null, 2)) });
+  // An MCP tool reads as its step row does: `mcp__milagre__chat_stop` -> "chat_stop from milagre".
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(toolName);
+  const name = mcp ? `${mcp[2]} from ${mcp[1]}` : toolName;
+  return compact({ ...base, kind: "other", title: options.title || `Use ${name}?`, detail: capText(JSON.stringify(input, null, 2)) });
+}
+
+// What a Claude tool call reaches, for WorkspaceAccess: a read tool's path (Grep and Glob without one search the cwd),
+// else the permission card's own request.
+const READ_TOOLS = new Set(["Read", "Grep", "Glob"]);
+function claudeAccessRequest(toolName, input, request) {
+  const file = READ_TOOLS.has(toolName) ? (input?.file_path ?? input?.path) : undefined;
+  return typeof file === "string" && file ? { kind: "read", files: [file] } : request;
 }
 
 // The user's answer -> the SDK's PermissionResult. Chat-wide rules are kept in the session only,
@@ -177,8 +188,19 @@ function codexMcpRequest(id, params) {
 // when they widen access (local-mcp-host.cjs), with what they would do; the provider's bare "run tool?" card in front
 // of it would make the user approve twice.
 // Codex names the tool only in the message: `Allow the milagre MCP server to run tool "tasks_set"?`.
-const SELF_GATED_TOOLS = ["worktree_link", "chat_set_mode", "chat_respond", "delegate"];
-const PLAN_TOOLS = new Set([...PLAN_TOOL_NAMES, ...ROUTINE_TOOL_NAMES, ...SELF_GATED_TOOLS]);
+const SELF_GATED_TOOLS = ["worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"];
+// Like the plan tools, these only write the Chat's own canvas, page or Negotiation (design_delete stays gated).
+const OWN_CHAT_TOOLS = ["design_show", "design_apply", "artifact_show", "artifact_resolve_comment", "conclude_negotiation"];
+const PLAN_TOOLS = new Set([...PLAN_TOOL_NAMES, ...ROUTINE_TOOL_NAMES, ...SELF_GATED_TOOLS, ...OWN_CHAT_TOOLS]);
+
+/**
+ * The milagre tools a provider runs without its own card, in every mode: the reads, the plan and Routine tools, the ones that only
+ * write the Chat's own canvas, page or Negotiation, and the self-gated ones. Every other milagre tool (Linear writes,
+ * chat_stop, worktree_create, design_delete…) follows the Chat's permission mode like any tool. Claude takes this list as
+ * allowedTools. Codex skips its own card for readOnlyHint tools, and Milagre answers the card Codex or Antigravity shows
+ * for the rest of the list (isCodexPlanToolApproval, isAcpPlanToolPermission).
+ */
+const isUngatedMilagreTool = (definition) => definition.readOnly === true || PLAN_TOOLS.has(definition.name);
 
 function isCodexPlanToolApproval(params = {}) {
   if (params.serverName !== "milagre" || !isCodexMcpApproval(params)) return false;
@@ -206,6 +228,8 @@ function codexDecision(decision) {
 
 // Milagre permission modes the user can switch a running turn to.
 const PERMISSION_MODES = new Set(["ask", "auto", "full"]);
+// How much a permission mode allows, least first. A tool never gives a Chat more than its caller has without the user's say.
+const MODE_RANK = Object.freeze({ ask: 0, auto: 1, full: 2 });
 
 // True when every path is inside root.
 function insideRoot(root, files) {
@@ -242,6 +266,53 @@ function insideWorkspace(roots, files, cwd = roots[0]) {
     );
   } catch {
     return false;
+  }
+}
+
+const PENDING_WORKTREE_MESSAGE =
+  "This Project has no Worktree in this Chat yet, and its main checkout is read-only. Call the milagre link_worktree_create tool with the Project's name, then make the change in the Worktree it returns.";
+
+/**
+ * The folders a Chat's agent session works in, shared by every provider. `roots` are the Chat's own: unset for a Project
+ * Chat (its cwd alone), a shared Link Chat's Worktrees otherwise. `readOnlyRoots` are the main checkouts of the Link's
+ * Projects the Chat has no Worktree in yet. A Worktree the Chat makes mid-session (`own`) is the Chat's at once, before
+ * the provider's own sandbox has it (`known`, which the provider updates with `learned`).
+ */
+class WorkspaceAccess {
+  constructor({ cwd, workspaceRoots, readOnlyRoots = [] }) {
+    Object.assign(this, { cwd, roots: workspaceRoots, readOnlyRoots, known: [...(workspaceRoots ?? [])] });
+  }
+
+  /** Whether every file is in the Chat's own folders: what Auto edits without asking. */
+  contains(files) {
+    return files.length > 0 && (this.roots ? insideWorkspace([this.cwd, ...this.roots], files, this.cwd) : insideRoot(this.cwd, files));
+  }
+
+  own(workspaceRoots, readOnlyRoots) {
+    Object.assign(this, { roots: workspaceRoots, readOnlyRoots });
+  }
+
+  /** The provider's sandbox now has these roots (every owned one by default). */
+  learned(roots = this.roots ?? []) {
+    this.known = [...new Set([...this.known, ...roots])];
+  }
+
+  /**
+   * A request decided before anyone is asked, or null: an edit in a main checkout is refused with the way to get a
+   * Worktree, a read there is allowed, and in Auto an edit in a Worktree made mid-session is allowed, with the roots
+   * (`learn`) the provider's sandbox should take.
+   */
+  answer({ kind, files = [] }, mode) {
+    if (!files.length) return null;
+    // Root by root: a missing folder only leaves its own requests to the usual cards.
+    const inside = (roots) => roots.some((root) => insideWorkspace([root], files, this.cwd));
+    if (inside(this.readOnlyRoots)) {
+      if (kind === "edit") return { decision: "deny", message: PENDING_WORKTREE_MESSAGE };
+      return kind === "read" ? { decision: "allow", learn: [] } : null;
+    }
+    const late = (this.roots ?? []).filter((root) => !this.known.includes(root));
+    if (kind === "edit" && mode === "auto" && inside(late)) return { decision: "allow", learn: late };
+    return null;
   }
 }
 
@@ -303,6 +374,7 @@ class PendingPermissions {
 module.exports = {
   CANCELLED_MESSAGE,
   DENIED_MESSAGE,
+  MODE_RANK,
   PERMISSION_MODES,
   USER_DECISIONS,
   PendingPermissions,
@@ -312,6 +384,9 @@ module.exports = {
   insideWorkspace,
   isAcpPlanToolPermission,
   isCodexPlanToolApproval,
+  isUngatedMilagreTool,
+  WorkspaceAccess,
+  claudeAccessRequest,
   claudeRequest,
   claudeResult,
   codexChangesDiff,

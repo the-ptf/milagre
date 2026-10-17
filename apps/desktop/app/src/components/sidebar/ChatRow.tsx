@@ -1,3 +1,4 @@
+import { linkChatWorktreesLabel } from "@milagre/shared/worktree-link";
 import { ChatTitle } from "./ChatTitle";
 import { issueChipLabel, LINK_PR_HINT, type LinearIssue } from "@milagre/shared/linear";
 import { LinearLogo } from "../ProviderLogo";
@@ -245,14 +246,26 @@ function MarkIcon({ mark }: { mark: keyof typeof MARK_ICON }) {
   );
 }
 
-export function ChatMarkDot({ mark, background, topAligned = false }: { mark: ChatMark; background?: number; topAligned?: boolean }) {
-  const dot = mark === "unread" ? "size-2 bg-accent" : "size-1.5 bg-ink-3 opacity-40";
+export function ChatMarkDot({
+  mark,
+  failed = false,
+  background,
+  topAligned = false,
+}: {
+  mark: ChatMark;
+  failed?: boolean;
+  background?: number;
+  topAligned?: boolean;
+}) {
+  const failure = mark === "idle" && failed;
+  const label = failure ? "Last turn failed" : mark === "idle" ? "" : markLabel(mark, background);
+  const dot = failure ? "size-2 bg-red" : mark === "unread" ? "size-2 bg-accent" : "size-1.5 bg-ink-3 opacity-40";
   return (
     <span className={`sidebar-copy mr-2 flex size-3 shrink-0 items-center justify-center ${topAligned ? "mt-1" : ""}`}>
       <span
         data-slot="chat-mark"
-        data-mark={mark}
-        {...(mark === "idle" ? { "aria-hidden": true } : { role: "img", "aria-label": markLabel(mark, background), title: markLabel(mark, background) })}
+        data-mark={failure ? "failed" : mark}
+        {...(label ? { role: "img", "aria-label": label, title: label } : { "aria-hidden": true })}
         className={mark === "running" || mark === "background" ? "flex" : mark in MARK_ICON ? "flex" : `rounded-full ${dot}`}
       >
         {mark === "running" && <SpinnerRing size={12} color="var(--accent)" />}
@@ -328,7 +341,7 @@ export const ChatRow = memo(function ChatRow({
   if (item.worktreeCount !== undefined && factLine)
     facts.push(
       <span key="worktrees" className="shrink-0">
-        {item.worktreeCount} Worktrees
+        {linkChatWorktreesLabel(item.worktreeCount)}
       </span>,
     );
   if (branch)
@@ -415,7 +428,7 @@ export const ChatRow = memo(function ChatRow({
       >
         {renaming ? (
           <div data-row className="sidebar-row relative z-10 mx-2 flex h-8 items-center rounded-[8px] bg-hover-2 px-2">
-            <ChatMarkDot mark={mark} background={item.background} />
+            <ChatMarkDot mark={mark} failed={item.details?.failed} background={item.background} />
             <RenameField
               initial={item.label}
               onDone={(title) => {
@@ -444,10 +457,15 @@ export const ChatRow = memo(function ChatRow({
                   <SpinnerRing size={10} stroke={1.75} color="var(--accent)" />
                 </span>
               ) : (
-                mark !== "idle" && <span aria-hidden className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-accent ring-2 ring-surface" />
+                (mark !== "idle" || item.details?.failed) && (
+                  <span
+                    aria-hidden
+                    className={`absolute -right-0.5 -top-0.5 size-2 rounded-full ${mark === "idle" && item.details?.failed ? "bg-red" : "bg-accent"} ring-2 ring-surface`}
+                  />
+                )
               )}
             </span>
-            <ChatMarkDot mark={mark} background={item.background} topAligned={twoLines} />
+            <ChatMarkDot mark={mark} failed={item.details?.failed} background={item.background} topAligned={twoLines} />
             <span
               className={`sidebar-copy min-w-0 flex-1 truncate text-[14px] ${prLines ? "leading-5" : ""} transition-[padding] duration-150 ${shortcutHint ? "pr-12" : "group-hover/row:pr-6"} ${menu ? "pr-6" : ""} ${
                 item.unread ? "font-semibold text-ink" : active ? "font-medium text-ink" : "font-medium text-ink-2"
@@ -480,7 +498,7 @@ export const ChatRow = memo(function ChatRow({
                 <ChatTitle label={item.label} />
               )}
               {item.worktreeCount !== undefined && !factLine && (
-                <span className="block text-[11px] font-normal text-ink-3">{item.worktreeCount} Worktrees</span>
+                <span className="block text-[11px] font-normal text-ink-3">{linkChatWorktreesLabel(item.worktreeCount)}</span>
               )}
             </span>
           </button>

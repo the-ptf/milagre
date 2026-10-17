@@ -5,7 +5,7 @@ const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const { killTree } = require("./process-tree.cjs");
 const {
-  milagreInstructions,
+  sessionInstructions,
   SUBAGENT_DESIGN_INSTRUCTIONS,
   SUBAGENT_PLAN_INSTRUCTIONS,
   RESUME_FAILED_MESSAGE,
@@ -15,10 +15,10 @@ const {
   mapClaudeMessage,
   missingCliMessage,
 } = require("./events.cjs");
-const { PendingPermissions, claudeRequest, claudeResult, insideRoot, insideWorkspace } = require("./permissions.cjs");
+const { PendingPermissions, WorkspaceAccess, claudeAccessRequest, claudeRequest, claudeResult, isUngatedMilagreTool } = require("./permissions.cjs");
 const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = require("./questions.cjs");
 const { mcpContent, runTool } = require("../linked-tools.cjs");
-const { advisorPolicy, ANALYSIS_INSTRUCTIONS } = require("./advisor-policy.cjs");
+const { advisorPolicy } = require("./advisor-policy.cjs");
 const { toClaudeConfig } = require("../mcp/definitions.cjs");
 
 // Milagre permission mode -> Claude Code permission mode. In Ask (`default`) Claude Code checks with
@@ -72,8 +72,9 @@ function userMessage(prompt, images = []) {
   return { type: "user", uuid: randomUUID(), message: { role: "user", content }, parent_tool_use_id: null };
 }
 
-// A Chat's linked tools, served in-process. They are allowed outright: the reads need no approval, and
-// `delegate` asks through Milagre's own card (see Delegations), in every provider the same way.
+// A Chat's linked tools, served in-process. The reads, the plan tools and the self-gated ones (`delegate` asks through
+// Milagre's own card, see Delegations) are allowed outright; every other one reaches canUseTool and follows the Chat's
+// permission mode, as on Codex and Antigravity (isUngatedMilagreTool).
 function linkedOptions(tools, sdk) {
   const server = sdk.createSdkMcpServer({
     name: "milagre",
@@ -91,7 +92,10 @@ function linkedOptions(tools, sdk) {
       ),
     ),
   });
-  return { mcpServers: { milagre: server }, allowedTools: tools.map((definition) => `mcp__milagre__${definition.name}`) };
+  return {
+    mcpServers: { milagre: server },
+    allowedTools: tools.filter(isUngatedMilagreTool).map((definition) => `mcp__milagre__${definition.name}`),
+  };
 }
 
 const sessionClosedError = () => Object.assign(new Error("The agent session closed before this message was sent."), { sessionClosed: true });
@@ -104,9 +108,13 @@ class ClaudeSession {
     env,
     emit,
     workspaceRoots,
+    readOnlyRoots,
+    // The SessionManager's, which follows a shared Link Chat's Worktrees; a session made alone (an advisor) has its own.
+    access = new WorkspaceAccess({ cwd, workspaceRoots, readOnlyRoots }),
     workspaceInstructions,
     tldrEnabled = true,
     designsEnabled = true,
+    sharedLink = false,
     analysisOnly = false,
     linked = null,
     mcpExtras = null,
@@ -120,10 +128,11 @@ class ClaudeSession {
       command,
       env,
       emit,
-      workspaceRoots,
+      access,
       workspaceInstructions,
       tldrEnabled,
       designsEnabled,
+      sharedLink,
       analysisOnly,
       linked,
       mcpExtras,
@@ -292,6 +301,8 @@ class ClaudeSession {
     this.ultracode = ultracode;
     this.fastMode = fastMode;
     this.outputStyle = null;
+    // Claude Code takes every owned root as its own directory; one made later reaches it through askPermission.
+    this.access.learned();
     // Settings › MCP: Everywhere servers join the Chat's servers; off servers are switched off once Claude Code has started.
     // An advisor never gets them, and a failing read never stops the Chat from starting.
     const extras = this.mcpExtras && !this.analysisOnly ? await readMcpExtras(this) : null;
@@ -302,10 +313,11 @@ class ClaudeSession {
     this.query = sdk.query({
       prompt: this.inbox,
       options: {
-        // Headless Claude Code hides TaskCreate / TaskUpdate / TaskList, which feed the Chat's task list.
+        // Headless Claude Code hides TaskCreate / TaskUpdate / TaskList. Subagents keep their to-do lists in them (the
+        // Subagents panel), and the parent falls back to them when Milagre's task tools are missing (the Tasks pill).
         env: { ...(this.env ?? process.env), CLAUDE_CODE_ENABLE_TODO_TOOLS: "1" },
         cwd: this.cwd,
-        ...(this.workspaceRoots ? { additionalDirectories: this.workspaceRoots.filter((root) => root !== this.cwd) } : {}),
+        ...(this.access.roots ? { additionalDirectories: this.access.roots.filter((root) => root !== this.cwd) } : {}),
         model,
         permissionMode: mode,
         ...(effort ? { effort } : {}),
@@ -318,9 +330,7 @@ class ClaudeSession {
         systemPrompt: {
           type: "preset",
           preset: "claude_code",
-          append: [milagreInstructions(this.tldrEnabled, this.workspaceInstructions, this.designsEnabled), this.analysisOnly ? ANALYSIS_INSTRUCTIONS : ""]
-            .filter(Boolean)
-            .join("\n\n"),
+          append: sessionInstructions(this),
         },
         ...linked,
         ...(Object.keys(extraServers).length ? { mcpServers: { ...extraServers, ...linked.mcpServers } } : {}),
@@ -379,12 +389,16 @@ class ClaudeSession {
     // A request that arrives once its turn has stopped has nobody to ask.
     if (!this.turnActive || this.cancelRequested || this.closed) return Promise.resolve(claudeResult("cancelled", input));
     const request = claudeRequest(toolName, input, options);
+    const decided = this.access.answer(claudeAccessRequest(toolName, input, request), this.permissions.mode);
+    if (decided?.decision === "deny") return Promise.resolve({ behavior: "deny", message: decided.message });
+    if (decided) {
+      this.access.learned(decided.learn);
+      const added = decided.learn.length ? { updatedPermissions: [{ type: "addDirectories", directories: decided.learn, destination: "session" }] } : {};
+      return Promise.resolve({ behavior: "allow", updatedInput: input, ...added });
+    }
     return new Promise((resolve) => {
       const abort = () => this.permissions.resolve(request.requestId, "cancelled");
-      const inWorkspace =
-        !options.blockedPath &&
-        Boolean(request.files?.length) &&
-        (this.workspaceRoots ? insideWorkspace([this.cwd, ...this.workspaceRoots], request.files, this.cwd) : insideRoot(this.cwd, request.files));
+      const inWorkspace = !options.blockedPath && this.access.contains(request.files ?? []);
       this.permissions.add(
         request,
         (decision) => {

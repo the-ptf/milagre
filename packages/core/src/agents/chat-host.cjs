@@ -16,7 +16,7 @@ const {
 } = require("@milagre/shared/agent-runs");
 const { archiveFinishedSubagents, patchSession } = require("@milagre/shared/project-edits");
 const { catchUpStart, handoffKind, isHandoff, lastTurnProvider } = require("@milagre/shared/handoff");
-const { renderTranscript } = require("./handover.cjs");
+const { framedBrief, renderTranscript } = require("./handover.cjs");
 const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
 const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
 const { providerName } = require("@milagre/shared/providers");
@@ -745,8 +745,8 @@ class ChatHost {
         }
         // The provider of the turn running or about to start: a handoff still preparing starts on its target.
         const runningProvider = this.runs[chatId] ? (session.provider ?? provider) : waitFor ? waitFor.to : this.startingTurns.get(chatId);
-        // Programmatic sends that check `canStart` (advisor results, the local MCP) and compactions never queue.
-        if (runningProvider && request.fromQueue === undefined && !request.canStart && !compaction && !providerCapabilities(runningProvider).steer) {
+        // canStart gates acceptance above. Once accepted, programmatic messages have the same durable queue as user sends.
+        if (runningProvider && request.fromQueue === undefined && !compaction && !providerCapabilities(runningProvider).steer) {
           queuedEntry = {
             id: randomUUID(),
             body,
@@ -931,7 +931,7 @@ class ChatHost {
       fastMode: request.fastMode,
       replies: request.replies,
       tldrEnabled: request.tldrEnabled,
-      prompt: brief !== undefined ? withLead(brief, request.prompt || body) : request.prompt || body || "Describe the attached images.",
+      prompt: brief !== undefined ? withLead(framedBrief(brief), request.prompt || body) : request.prompt || body || "Describe the attached images.",
     };
     this.turns.set(target.chatId, turn);
     // A person's message steered into a Routine's turn makes it theirs too.
@@ -953,7 +953,7 @@ class ChatHost {
       .then((handoffBrief) => {
         // null: the handoff was cancelled or failed (see abandonHandoff), so no agent starts.
         if (handoffBrief === null || (request.canStart && !request.canStart())) return null;
-        const prompt = withLead(handoffBrief, turn.prompt);
+        const prompt = withLead(framedBrief(handoffBrief), turn.prompt);
         this.turns.set(target.chatId, { ...turn, prompt });
         return this.startTurn({ ...turn, prompt, ...execution, chatId: target.chatId, cwd: target.cwd, images, resumeId: target.resumeId });
       })

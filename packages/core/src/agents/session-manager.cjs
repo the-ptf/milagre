@@ -1,6 +1,6 @@
 const { active: activeSubagent } = require("./subagents.cjs");
 const { isTerminal } = require("./events.cjs");
-const { PERMISSION_MODES, USER_DECISIONS } = require("./permissions.cjs");
+const { PERMISSION_MODES, USER_DECISIONS, WorkspaceAccess } = require("./permissions.cjs");
 const { validAnswers } = require("./questions.cjs");
 const { capOutput } = require("./steps.cjs");
 const { recordAntigravityModels } = require("./models.cjs");
@@ -114,10 +114,14 @@ class SessionManager {
       session: null,
       idleTimer: null,
     };
+    entry.access = new WorkspaceAccess({ cwd, workspaceRoots: request.workspaceRoots, readOnlyRoots: request.readOnlyRoots });
     entry.session = this.createSession(provider, {
       cwd,
       workspaceRoots: request.workspaceRoots,
+      access: entry.access,
       workspaceInstructions: request.workspaceInstructions,
+      // A shared Link Chat's agent can't link or delegate, so its system prompt leaves those out (chat-scopes.cjs).
+      ...(request.sharedLink ? { sharedLink: true } : {}),
       resumeId,
       tldrEnabled,
       designsEnabled,
@@ -208,6 +212,19 @@ class SessionManager {
       void this.serial(chatId, () => (this.sessions.get(chatId) === entry ? this.closeEntry(chatId, entry) : undefined)).catch(() => {});
     }, this.idleMs);
     entry.idleTimer.unref?.();
+  }
+
+  /**
+   * A shared Link Chat's agent made a Worktree (link_worktree_create): its running session owns it at once and keeps its
+   * system prompt, since the tool's reply told the agent the path. The entry takes the new roots and instructions, so the
+   * next turn continues the same session instead of starting another.
+   */
+  updateWorkspace(chatId, { workspaceRoots = [], readOnlyRoots = [], workspaceInstructions }) {
+    const entry = this.sessions.get(chatId);
+    if (!entry) return;
+    entry.workspaceRoots = [...new Set(workspaceRoots)].sort();
+    entry.workspaceInstructions = workspaceInstructions;
+    entry.access.own(workspaceRoots, readOnlyRoots);
   }
 
   async interrupt(chatId) {

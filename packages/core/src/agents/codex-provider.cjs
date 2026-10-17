@@ -10,9 +10,9 @@ const path = require("node:path");
 const { CodexRpc } = require("./codex-rpc.cjs");
 const { toCodexConfig } = require("../mcp/definitions.cjs");
 const { CODEX_FAST_TIER } = require("./models.cjs");
-const { advisorPolicy, advisorCodexConfig, ANALYSIS_INSTRUCTIONS } = require("./advisor-policy.cjs");
+const { advisorPolicy, advisorCodexConfig } = require("./advisor-policy.cjs");
 const {
-  milagreInstructions,
+  sessionInstructions,
   RESUME_FAILED_MESSAGE,
   crashMessage,
   failedWith,
@@ -28,9 +28,8 @@ const {
   codexFileRequest,
   codexMcpRequest,
   codexMcpResponse,
-  insideRoot,
-  insideWorkspace,
   isCodexPlanToolApproval,
+  WorkspaceAccess,
 } = require("./permissions.cjs");
 const { PendingQuestions, codexQuestionRequest, codexQuestionResponse } = require("./questions.cjs");
 
@@ -139,9 +138,13 @@ class CodexSession {
     env,
     emit,
     workspaceRoots,
+    readOnlyRoots,
+    // The SessionManager's, which follows a shared Link Chat's Worktrees; a session made alone (an advisor) has its own.
+    access = new WorkspaceAccess({ cwd, workspaceRoots, readOnlyRoots }),
     workspaceInstructions,
     tldrEnabled = true,
     designsEnabled = true,
+    sharedLink = false,
     analysisOnly = false,
     linked = null,
     mcpExtras = null,
@@ -155,10 +158,11 @@ class CodexSession {
       command,
       env,
       emit,
-      workspaceRoots,
+      access,
       workspaceInstructions,
       tldrEnabled,
       designsEnabled,
+      sharedLink,
       analysisOnly,
       linked,
       mcpExtras,
@@ -219,7 +223,9 @@ class CodexSession {
   }
 
   async beginTurn({ prompt, images = [], model, permissionMode, effort, fastMode = false }) {
-    const policy = this.analysisOnly ? advisorPolicy("codex", this.linked?.tools ?? []) : codexPolicy(permissionMode, this.cwd, this.workspaceRoots);
+    const policy = this.analysisOnly ? advisorPolicy("codex", this.linked?.tools ?? []) : codexPolicy(permissionMode, this.cwd, this.access.roots);
+    // The turn's sandbox writes to every owned root; one made during the turn reaches it through approvals.
+    this.access.learned();
     this.permissions.setMode(permissionMode);
     try {
       this.starting ??= this.start(model, policy);
@@ -344,12 +350,7 @@ class CodexSession {
       model,
       approvalPolicy: policy.approvalPolicy,
       sandbox: policy.sandbox,
-      developerInstructions: [
-        milagreInstructions(this.tldrEnabled, this.workspaceInstructions, this.designsEnabled),
-        this.analysisOnly ? ANALYSIS_INSTRUCTIONS : "",
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
+      developerInstructions: sessionInstructions(this),
       ...(this.analysisOnly ? { environments: [] } : {}),
       config,
     };
@@ -564,12 +565,9 @@ class CodexSession {
     else if (method === "item/commandExecution/requestApproval") this.permissions.add(codexCommandRequest(id, params), answer);
     else if (method === "item/fileChange/requestApproval") {
       const request = codexFileRequest(id, params, this.fileChanges.get(params.itemId));
-      this.permissions.add(request, answer, {
-        inWorkspace:
-          !params.grantRoot &&
-          request.files.length > 0 &&
-          (this.workspaceRoots ? insideWorkspace([this.cwd, ...this.workspaceRoots], request.files, this.cwd) : insideRoot(this.cwd, request.files)),
-      });
+      const decided = params.grantRoot ? null : this.access.answer(request, this.permissions.mode);
+      if (decided) answer(decided.decision);
+      else this.permissions.add(request, answer, { inWorkspace: !params.grantRoot && this.access.contains(request.files) });
     } else if (method === "item/tool/requestUserInput" && this.analysisOnly) this.reply(id, codexQuestionResponse("dismissed"));
     else if (method === "item/tool/requestUserInput") this.askQuestion(id, params);
     // Granting extra sandbox permissions is out of scope: grant none, for this turn only.

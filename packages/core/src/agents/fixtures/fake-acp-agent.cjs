@@ -133,7 +133,7 @@ async function runPrompt(id, sessionId) {
     }
     case "mcp-plan-tool":
     case "mcp-design-tool": {
-      const tool = scenario === "mcp-plan-tool" ? "tasks_set" : "design_show";
+      const tool = scenario === "mcp-plan-tool" ? "tasks_set" : "design_delete";
       const call = {
         toolCallId: "mcp-1",
         kind: "other",

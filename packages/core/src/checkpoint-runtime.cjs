@@ -2,8 +2,20 @@ const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs")
 const { createCheckpoints } = require("./checkpoints.cjs");
 const { checkpointRestoreText } = require("@milagre/shared/checkpoint-restore");
 
-/** `note` writes a line in the Chat after a restore wrote files, so its Redo stays in the transcript across restarts. */
-function registerCheckpoints(commands, { directory, states, busy, ready, note = async () => {} }) {
+/** What the agent is told with its next turn after a restore wrote files: the line in the Chat is only for the user. */
+function agentRestoreNote(context) {
+  const files = `${context.restored} ${context.restored === 1 ? "file" : "files"}`;
+  const what = context.redo
+    ? `redid this Chat's changes to ${files} with Redo (putting back what Undo changes had undone)`
+    : `undid this Chat's changes to ${files} with Undo changes`;
+  return `<milagre_note>The user ${what}. Re-read files before editing.</milagre_note>`;
+}
+
+/**
+ * `note` writes a line in the Chat after a restore wrote files, so its Redo stays in the transcript across restarts.
+ * `tell(chatId, text)` queues the same news for the Chat's agent, which the line alone never reaches.
+ */
+function registerCheckpoints(commands, { directory, states, busy, ready, note = async () => {}, tell = () => {} }) {
   const preparing = new Set();
   async function rootsFor(chatId) {
     const scope = projectOfKey(chatId),
@@ -47,6 +59,7 @@ function registerCheckpoints(commands, { directory, states, busy, ready, note = 
           redo: result.redo,
         };
         await note(request.chatId, { body: checkpointRestoreText(context), context }).catch((error) => console.warn("Checkpoint note failed:", error.message));
+        tell(request.chatId, agentRestoreNote(context));
       }
       return result;
     });
@@ -69,4 +82,4 @@ function registerCheckpoints(commands, { directory, states, busy, ready, note = 
     finish: (chatId) => store.finish(chatId),
   };
 }
-module.exports = { registerCheckpoints };
+module.exports = { agentRestoreNote, registerCheckpoints };

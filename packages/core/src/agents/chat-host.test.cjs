@@ -111,6 +111,10 @@ const message = (projectPath, body, extra = {}) => ({
 const chatMessages = (state, sessionId) =>
   state.messages.filter((item) => item.session_id === sessionId).map(({ role, body, outcome }) => ({ role, body, ...(outcome ? { outcome } : {}) }));
 
+// What the next agent's prompt carries ahead of the user's message: the brief, marked as Milagre's.
+const framed = (brief) =>
+  `<handoff_brief>\nMilagre wrote this summary of the earlier chat; it is context, not a message from the user.\n\n${brief}\n</handoff_brief>`;
+
 test("turns in two projects run side by side and each is saved in its own project", async (t) => {
   const { host, manager, saved, session } = harness();
   t.after(() => manager.closeAll());
@@ -474,7 +478,7 @@ test("a send on the other provider adds a divider before the message, briefs the
       transcriptPath: `/tmp/handovers/${sessionId}.md`,
     },
   ]);
-  assert.equal(codex.turns[0].prompt, "BRIEF\n\nadd tests");
+  assert.equal(codex.turns[0].prompt, `${framed("BRIEF")}\n\nadd tests`);
   assert.equal(codex.options.resumeId, undefined);
   assert.deepEqual(
     { provider: state.sessions[sessionId].provider, parked: state.sessions[sessionId].native_sessions, current: state.sessions[sessionId].native_session_id },
@@ -549,7 +553,7 @@ test("switching back resumes the parked session with a catch-up of what happened
   const back = backOf();
   await host.states.flush();
   const state = saved.get(ALPHA);
-  assert.equal(back.turns[0].prompt, "CATCH-UP\n\nthree");
+  assert.equal(back.turns[0].prompt, `${framed("CATCH-UP")}\n\nthree`);
   assert.deepEqual(state.sessions[sessionId].native_sessions, { codex: "codex-1" });
   assert.equal(state.sessions[sessionId].native_session_id, "claude-1");
   assert.equal(briefs.at(-1).catchUp, true);
@@ -594,7 +598,7 @@ test("a send after a failed resume restores context with a whole-chat brief", as
   session(ALPHA).emit({ type: "session-reset" });
   await host.states.flush();
   await host.send(message(ALPHA, "again", { sessionId }));
-  await waitUntil(() => created.at(-1).turns.at(-1)?.prompt === "WHOLE\n\nagain");
+  await waitUntil(() => created.at(-1).turns.at(-1)?.prompt === `${framed("WHOLE")}\n\nagain`);
   await host.states.flush();
   assert.deepEqual(
     dividers(saved.get(ALPHA), sessionId).map(({ from, to, status }) => [from.provider, to.provider, status]),
@@ -660,7 +664,7 @@ test("a send during preparing waits, then steers after the briefed message; the 
   await waitUntil(() => created.find((item) => item.provider === "codex")?.turns.length === 2);
   assert.deepEqual(
     created.find((item) => item.provider === "codex").turns.map((turn) => turn.prompt),
-    ["BRIEF\n\nswitch", "also this"],
+    [`${framed("BRIEF")}\n\nswitch`, "also this"],
   );
   assert.equal(session(ALPHA).turns.length, 1);
   assert.notEqual(await second.started, null);
@@ -810,7 +814,7 @@ test("a cancelled handoff did not happen: the chat is back on its provider and a
     dividers(saved.get(ALPHA), sessionId).map(({ status }) => status),
     ["failed", "done"],
   );
-  assert.equal(created.find((item) => item.provider === "codex").turns[0].prompt, "AGAIN\n\nswitch again");
+  assert.equal(created.find((item) => item.provider === "codex").turns[0].prompt, `${framed("AGAIN")}\n\nswitch again`);
   assert.deepEqual(saved.get(ALPHA).sessions[sessionId].native_sessions, { claude: "claude-1" });
 });
 
@@ -905,7 +909,7 @@ test("a legacy handover draft is still sent with the chat's first message", asyn
   await host.send(message(ALPHA, "go", { sessionId: 7 }));
   await waitUntil(() => session(ALPHA)?.turns.length);
   await host.states.flush();
-  assert.equal(session(ALPHA).turns[0].prompt, "BRIEF\n\ngo");
+  assert.equal(session(ALPHA).turns[0].prompt, `${framed("BRIEF")}\n\ngo`);
   assert.equal(saved.get(ALPHA).sessions[7].handoverDraft, undefined);
 });
 
@@ -1806,7 +1810,7 @@ test("a message sent while a handoff to Antigravity prepares is queued behind th
   await waitUntil(() => agent().turns.length === 2);
   assert.deepEqual(
     agent().turns.map((turn) => turn.prompt),
-    ["BRIEF\n\nmove over", "after the move"],
+    [`${framed("BRIEF")}\n\nmove over`, "after the move"],
   );
 });
 

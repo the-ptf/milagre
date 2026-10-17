@@ -306,23 +306,43 @@ function steeringHost(t, overrides = {}) {
   let links = overrides.links?.(projectPath, otherPath) ?? [];
   const state = (root) => ({
     worktrees: { 1: { id: 1, path: root, name: "main" } },
-    sessions: { 1: { id: 1, worktree_id: 1, title: "Target" }, 2: { id: 2, worktree_id: 1 } },
+    sessions: { 1: { id: 1, worktree_id: 1, title: "Target", ...overrides.session }, 2: { id: 2, worktree_id: 1 } },
   });
   const host = createLocalMcpHost({
     projects: async () => [
       { id: projectPath, path: projectPath },
       { id: otherPath, path: otherPath },
     ],
-    readProject: async (root) => ({ state: state(root) }),
+    // A second Worktree Milagre made, for worktree_remove, with any Chats a test puts on it.
+    readProject: async (root) => {
+      const base = state(root);
+      return {
+        state: {
+          ...base,
+          worktrees: {
+            ...base.worktrees,
+            2: {
+              id: 2,
+              path: path.join(root, "wt"),
+              name: "milagre/wt",
+              base: "main",
+              ...(overrides.sharedWorktree ? { sharedChat: { linkId: "l", sessionId: 1 } } : {}),
+            },
+          },
+          sessions: { ...base.sessions, ...overrides.sessions },
+        },
+      };
+    },
     scopeStates: { chatMessages: async () => [] },
     permissionMode: (chatId, fallback = "ask") => (chatId in modes ? modes[chatId] : fallback),
     chats: {
       runs: overrides.run ? { [`${projectPath}#1`]: { approvals: [], questions: [], ...overrides.run } } : {},
-      turnSettings: () => ({ provider: "claude", model: "old", effort: "low" }),
+      turnSettings: () => ({ provider: "claude", model: "old", effort: "low", ...overrides.turn }),
       send: async (request) => {
         calls.push(["send", request]);
         return { sessionId: 1 };
       },
+      ...(overrides.runs ? { runs: overrides.runs(projectPath) } : {}),
     },
     stopChat: async (chatId) => calls.push(["stop", chatId]),
     setPermissionMode: async (chatId, mode) => calls.push(["mode", chatId, mode]),
@@ -340,9 +360,11 @@ function steeringHost(t, overrides = {}) {
       claude: [{ id: "old", efforts: ["low", "high"], defaultEffort: "low" }],
       codex: [{ id: "new", efforts: ["medium", "high"], defaultEffort: "medium" }],
     }),
+    worktreeStatus: async () => ({ uncommitted: 0, unpushed: 0, branch: "milagre/wt", removable: true, ...overrides.status }),
+    removeWorktree: async (...args) => (calls.push(["remove", ...args]), { removed: true, branch: "milagre/wt", branchDeleted: true }),
     approve: async (chatId, request) => {
       calls.push(["approve", chatId, request.title]);
-      return overrides.decision ?? "allow";
+      return overrides.approve ? overrides.approve(request) : (overrides.decision ?? "allow");
     },
   });
   return { host, projectPath, otherPath, calls, chatId: `${projectPath}#1`, caller: `${projectPath}#2`, links: () => links };
@@ -374,6 +396,54 @@ test("a permission mode above the caller's needs the user's approval, and an out
     /declined/,
   );
   assert.equal(denied.calls.filter(([kind]) => kind === "send").length, 0);
+});
+
+test("chat_start into a Chat already in more than the caller's mode asks first and waits; a denial sends nothing", async (t) => {
+  let answer;
+  const { host, projectPath, chatId, caller, calls } = steeringHost(t, {
+    modes: (root) => ({ [`${root}#1`]: "full" }),
+    approve: (request) =>
+      new Promise((resolve) => {
+        answer = { request, allow: () => resolve("allow") };
+      }),
+  });
+  const pending = host.startChat({ projectPath, chatId, prompt: "Delete the build" }, "a", () => {}, caller);
+  // The card waits on the user: nothing is sent until they answer.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(calls, [["approve", caller, 'Run a prompt in "Target" in Full permission?']]);
+  assert.deepEqual(JSON.parse(answer.request.detail), { permissionMode: "full", prompt: "Delete the build" });
+  assert.equal(answer.request.kind, "other");
+  answer.allow();
+  await pending;
+  assert.equal(calls.at(-1)[0], "send");
+  assert.equal(calls.at(-1)[1].permissionMode, "full");
+
+  const denied = steeringHost(t, { modes: (root) => ({ [`${root}#1`]: "auto" }), decision: "deny" });
+  await assert.rejects(
+    denied.host.startChat({ projectPath: denied.projectPath, chatId: denied.chatId, prompt: "Go" }, "a", () => {}, denied.caller),
+    /declined/,
+  );
+  assert.equal(denied.calls.filter(([kind]) => kind === "send").length, 0);
+  // An outside client counts as Ask and has nowhere to show the card.
+  await assert.rejects(
+    denied.host.startChat({ projectPath: denied.projectPath, chatId: denied.chatId, prompt: "Go" }, "b", () => {}),
+    /outside client/,
+  );
+});
+
+test("chat_start into a Chat in the caller's mode or less, or with no live agent, sends without a card", async (t) => {
+  for (const [target, callerMode] of [
+    ["ask", "ask"],
+    ["auto", "full"],
+    [undefined, "auto"],
+  ]) {
+    const { host, projectPath, chatId, caller, calls } = steeringHost(t, {
+      modes: (root) => ({ [`${root}#2`]: callerMode, ...(target ? { [`${root}#1`]: target } : {}) }),
+    });
+    await host.startChat({ projectPath, chatId, prompt: "Go" }, "a", () => {}, caller);
+    assert.equal(calls.filter(([kind]) => kind === "approve").length, 0, `${target} from ${callerMode}`);
+    assert.equal(calls.findLast(([kind]) => kind === "send")[1].permissionMode, target ?? callerMode);
+  }
 });
 
 test("chat_set_mode needs a running agent and gates a raise", async (t) => {
@@ -439,6 +509,25 @@ test("chat_update renames and archives, and won't archive a running Chat", async
 test("chat_search returns Chat refs and snippets", async (t) => {
   const { host, projectPath, chatId } = steeringHost(t);
   assert.deepEqual(await host.searchChats({ projectPath, query: "found", limit: 5 }), [{ chatId, title: "Target", messageId: 7, snippet: "found it" }]);
+});
+
+test("chat_start tells the receiving agent who sent it, and leaves the Chat's own bubble as typed", async (t) => {
+  const { host, projectPath, chatId, calls } = steeringHost(t);
+  await host.startChat({ projectPath, chatId, prompt: "Please rebase" }, "a", () => {}, `${projectPath}#2`);
+  const fromChat = calls.at(-1)[1];
+  assert.equal(fromChat.body, "Please rebase", "the Chat shows the message as sent");
+  assert.ok(
+    fromChat.prompt.startsWith(
+      `Message from the agent of Chat ${path.basename(projectPath)} / main / Chat (${projectPath}#2), sent with Milagre's chat_start (not the user):\n\nPlease rebase`,
+    ),
+    fromChat.prompt,
+  );
+  await host.startChat({ projectPath, chatId, prompt: "Please rebase" }, "b", () => {}, undefined, "Local editor");
+  const fromClient = calls.at(-1)[1];
+  assert.equal(fromClient.body, "Please rebase");
+  assert.equal(fromClient.prompt, "Message sent by Local editor through Milagre's MCP (not the user):\n\nPlease rebase");
+  await host.startChat({ projectPath, chatId, prompt: "Hi" }, "c", () => {});
+  assert.match(calls.at(-1)[1].prompt, /^Message sent by an outside client through Milagre's MCP \(not the user\):/);
 });
 
 test("chat_start attaches files and images only from inside the Chat's Worktree", async (t) => {
@@ -511,4 +600,70 @@ test("chat_start refuses an effort the model doesn't take, and drops a carried o
   );
   await host.startChat({ projectPath, chatId, prompt: "Go", provider: "codex", model: "new" }, "b", () => {});
   assert.equal(calls.at(-1)[1].effort, "medium");
+});
+
+test("worktree_remove removes a clean Worktree Milagre made, archiving its empty Chats, after the card in Ask mode", async (t) => {
+  const sessions = { 5: { id: 5, worktree_id: 2, title: "Worker", archived: true, summary: { count: 4 } }, 6: { id: 6, worktree_id: 2 } };
+  const { host, projectPath, caller, calls } = steeringHost(t, { sessions });
+  assert.deepEqual(await host.removeWorktree({ projectPath, worktreeId: 2 }, caller), { removed: true, branch: "milagre/wt", branchDeleted: true });
+  assert.deepEqual(
+    calls.map(([kind]) => kind),
+    ["approve", "patch", "remove"],
+  );
+  assert.deepEqual(calls[1], ["patch", projectPath, 6, { archived: true }], "the empty Chat is archived; the archived one is left alone");
+  assert.deepEqual(calls[2], ["remove", projectPath, path.join(projectPath, "wt")]);
+  // An outside client with the Project in scope, and an agent in Full permission, get no card.
+  const outside = steeringHost(t, { sessions });
+  await outside.host.removeWorktree({ projectPath: outside.projectPath, worktreeId: 2 });
+  assert.equal(outside.calls.filter(([kind]) => kind === "approve").length, 0);
+  const trusted = steeringHost(t, { sessions, modes: (root) => ({ [`${root}#2`]: "full" }) });
+  await trusted.host.removeWorktree({ projectPath: trusted.projectPath, worktreeId: 2 }, trusted.caller);
+  assert.equal(trusted.calls.filter(([kind]) => kind === "approve").length, 0);
+});
+
+test("worktree_remove keeps a Worktree that isn't safe to remove, and says why", async (t) => {
+  const refused = async (overrides, worktreeId = 2, asCaller = false) => {
+    const fixture = steeringHost(t, overrides);
+    const error = await fixture.host
+      .removeWorktree({ projectPath: fixture.projectPath, worktreeId }, asCaller ? fixture.caller : undefined)
+      .catch((caught) => caught);
+    assert.ok(error instanceof Error, "refused");
+    assert.equal(fixture.calls.filter(([kind]) => kind === "remove" || kind === "patch").length, 0, "nothing removed or archived");
+    return error.message;
+  };
+  assert.match(await refused({}, 1), /Milagre didn't create this Worktree/);
+  assert.match(await refused({ sharedWorktree: true }), /belongs to a shared Link Chat/);
+  assert.match(await refused({ sessions: { 2: { id: 2, worktree_id: 2 } } }, 2, true), /can't remove the Worktree it runs in/);
+  const worker = { 5: { id: 5, worktree_id: 2, title: "Worker", summary: { count: 2 } } };
+  assert.match(await refused({ sessions: worker, runs: (root) => ({ [`${root}#5`]: {} }) }), /Stop "Worker" .*#5\) first/);
+  assert.match(await refused({ sessions: worker }), /Archive "Worker" .*#5\) first/);
+  assert.match(await refused({ status: { uncommitted: 3, removable: false } }), /3 uncommitted files/);
+  assert.match(await refused({ status: { unpushed: 1, removable: false } }), /1 commit on neither main nor its upstream/);
+  assert.match(await refused({ status: { branch: null, removable: false } }), /detached HEAD/);
+});
+
+test("chat_read and chat_list show the messages queued behind a running turn, with the line the Chat shows", async (t) => {
+  const queued = [{ id: "q1", body: "Then run the tests", provider: "antigravity", model: "gemini", queuedAt: 5, turn: { permissionMode: "ask" } }];
+  const { host, projectPath, chatId } = steeringHost(t, { run: {}, session: { queued } });
+  const read = await host.readChat({ projectPath, chatId, limit: 5 });
+  assert.deepEqual(read.queue, {
+    status: "sends when this turn ends",
+    messages: [{ id: "q1", body: "Then run the tests", provider: "antigravity", model: "gemini", queuedAt: 5 }],
+  });
+  assert.equal((await host.chats({ projectPath })).find((item) => item.chatId === chatId).queued, 1);
+  const held = steeringHost(t, { session: { queued, queueHeld: true } });
+  assert.equal(
+    (await held.host.readChat({ projectPath: held.projectPath, chatId: held.chatId, limit: 5 })).queue.status,
+    "on hold since the last turn stopped",
+  );
+  const empty = steeringHost(t);
+  assert.equal("queue" in (await empty.host.readChat({ projectPath: empty.projectPath, chatId: empty.chatId, limit: 5 })), false);
+});
+
+test("chat_start into a busy Chat whose agent can't steer says the message waits for the running turn", async (t) => {
+  const busy = steeringHost(t, { run: {}, turn: { provider: "antigravity" } });
+  const waiting = await busy.host.startChat({ projectPath: busy.projectPath, chatId: busy.chatId, prompt: "Go" }, "a", () => {});
+  assert.match(waiting.note, /starts this one after its running turn ends/);
+  const steering = steeringHost(t, { run: {} });
+  assert.equal("note" in (await steering.host.startChat({ projectPath: steering.projectPath, chatId: steering.chatId, prompt: "Go" }, "a", () => {})), false);
 });

@@ -674,7 +674,11 @@ export function LinkWorkspace({
             >
               <div className="p-5" onClick={(event) => event.stopPropagation()}>
                 <h2 className="text-[16px] font-semibold">Choose a Project</h2>
-                <p className="mt-1 mb-4 text-[13px] text-ink-2">Git actions apply to one Worktree.</p>
+                <p className="mt-1 mb-4 text-[13px] text-ink-2">
+                  {state.sessions[gitChoice]?.worktrees.length
+                    ? "Git actions apply to one Worktree."
+                    : "This Chat has no Worktree yet. It creates one when it changes a Project."}
+                </p>
                 <Select
                   label="Project"
                   value={gitMemberId}

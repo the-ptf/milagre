@@ -5,7 +5,16 @@ const os = require("node:os");
 const path = require("node:path");
 const { CodexRpc } = require("./codex-rpc.cjs");
 const { CodexSession, saveGeneratedImage, recoverCodexSubagents } = require("./codex-provider.cjs");
-const { MILAGRE_INSTRUCTIONS, RESUME_FAILED_MESSAGE, crashMessage, isTerminal, loginMessage, missingCliMessage, failedWith } = require("./events.cjs");
+const {
+  MILAGRE_INSTRUCTIONS,
+  advisorInstructions,
+  RESUME_FAILED_MESSAGE,
+  crashMessage,
+  isTerminal,
+  loginMessage,
+  missingCliMessage,
+  failedWith,
+} = require("./events.cjs");
 const { decodeImages } = require("../image-input.cjs");
 const { waitUntil } = require("./test-helpers.cjs");
 
@@ -64,6 +73,8 @@ test("analysis-only Codex pins read-only policy and denies unexpected command ap
   const messages = await received(session);
   const thread = messages.find((message) => message.method === "thread/start").params;
   assert.equal(thread.sandbox, "read-only");
+  // An advisor's own short prompt, not the Chat's (events.cjs advisorInstructions).
+  assert.equal(thread.developerInstructions, advisorInstructions());
   assert.equal(thread.config.features.shell_tool, false);
   assert.equal(thread.config.mcp_servers.personal.enabled, false);
   assert.deepEqual(thread.environments, []);
@@ -250,7 +261,7 @@ test("MCP tool calls in Ask mode reach the permission card and accept once", asy
   const request = events.find((event) => event.type === "permission-request");
   assert.equal(request.kind, "other");
   assert.equal(request.tool, "MCP: milagre");
-  assert.equal(request.title, 'Allow the milagre MCP server to run tool "design_show"?');
+  assert.equal(request.title, 'Allow the milagre MCP server to run tool "design_delete"?');
   assert.deepEqual(JSON.parse(request.detail), { id: "daily-notes" });
   assert.equal(request.allowForChat, false);
   // A stale or forged "always" UI choice cannot make Codex write a settings rule.

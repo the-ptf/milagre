@@ -48,6 +48,8 @@ export const SHEETS_OVER_CHAT = new Set([
   "routine-form",
   "viewer",
 ]);
+// Sheets the layout presents over a full-screen page (the designs), which already hides the Chat: they don't keep it viewed.
+export const SHEETS_OVER_PAGES = new Set(["design-share-sheet"]);
 /** The Chat on screen: the one at /chat (`chat`), or the one a sheet opened over (`previous`), while its computer is connected. */
 export function viewedChat(path: string, chat: PushView, previous: PushView, connected: string | undefined): PushView {
   if (path === "/chat") return chat;

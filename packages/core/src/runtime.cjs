@@ -410,12 +410,21 @@ function createRuntime(options) {
       : null,
   });
 
+  // Each named Link's member Project paths, as its last turn found them: a shared Chat's agent manages Worktrees and
+  // Chats in those Projects through Milagre's MCP, whose grants are read synchronously (agentScope below). Every turn
+  // resolves them before its agent starts (executionContext), so a session's tools always see a current list.
+  const linkMembers = new Map();
   const scopeStates = createChatScopes({
     projects: states,
     links: linkStore,
     validateLink: async (id) => {
       const members = await linkWorkspaces.membersAvailable(await linkRuntime.definition(id));
       for (const member of members) await ownProject(member.path);
+      linkMembers.set(
+        id,
+        members.map((member) => member.path),
+      );
+      return members;
     },
   });
   function broadcastProjectState(projectPath, state) {
@@ -950,6 +959,9 @@ function createRuntime(options) {
 
   // Resolves with what took the message: { turnId, steered }, a null turnId when no turn started, and
   // `cancelled` when quitting or a stopped setup stopped it before it began.
+  // What Milagre tells a Chat's agent with its next message and nobody typed, such as files the user undid (a
+  // <milagre_note> after the message). Kept in memory: a restart before the next message drops it.
+  const agentNotes = new Map();
   async function startAgentTurn(request) {
     if (closing) return { turnId: null, steered: false, cancelled: true };
     // The linked summary is read while the turn gets ready, so a Chat with Links starts no later than one without.
@@ -982,9 +994,16 @@ function createRuntime(options) {
     // A new turn carries the summary of the Chat's linked Worktrees after its message (a leading slash command
     // stays first); a message steering a turn doesn't repeat it.
     const context = agents.isTurnActive(request.chatId) ? "" : await linkedContext;
-    const text = [prompt, ...setupNotes, context].filter(Boolean).join("\n\n");
+    const reports = agents.isTurnActive(request.chatId) ? null : await linked.reportsForTurn(request.chatId);
+    const milagreNotes = agentNotes.get(request.chatId) ?? [];
+    agentNotes.delete(request.chatId);
+    const text = [prompt, ...setupNotes, ...milagreNotes, context, reports?.text].filter(Boolean).join("\n\n");
     try {
-      return await agents.startTurn({
+      if (closing) {
+        await chats.receive(request.chatId, { type: "turn-cancelled" });
+        return { turnId: null, steered: false, cancelled: true };
+      }
+      const started = await agents.startTurn({
         ...request,
         designsEnabled: artifacts.enabled(),
         prompt: text,
@@ -995,10 +1014,17 @@ function createRuntime(options) {
         args: cli.args,
         accountId: cli.accountId,
       });
+      if (started?.turnId) await reports?.delivered();
+      // A start that began no turn didn't tell the agent: the notes wait for the next one.
+      else if (milagreNotes.length) agentNotes.set(request.chatId, [...milagreNotes, ...(agentNotes.get(request.chatId) ?? [])]);
+      return started;
     } catch (error) {
       // A start that throws sends no event, so the hold a setup handed to this turn would never be released.
       keepAwake.turnNotStarted(request.chatId);
+      if (milagreNotes.length) agentNotes.set(request.chatId, [...milagreNotes, ...(agentNotes.get(request.chatId) ?? [])]);
       throw error;
+    } finally {
+      reports?.release();
     }
   }
 
@@ -1287,6 +1313,7 @@ function createRuntime(options) {
     ready: () => environmentReady,
     busy: (chatId) => chats.isBusy(chatId) || agents.isTurnActive(chatId) || Boolean(agents.sessions.get(chatId)?.activeChildren?.size),
     note: (chatId, message) => chats.addNote(chatId, message),
+    tell: (chatId, text) => agentNotes.set(chatId, [...(agentNotes.get(chatId) ?? []), text]),
   });
 
   commands.handle("chat:send", async (_event, request) => {
@@ -1445,12 +1472,13 @@ function createRuntime(options) {
   });
 
   async function stopChat(chatId) {
+    // Stop the report before advisor cancellation can make an idle parent look complete. Provider teardown can be slow.
+    await linked.stop({ chatKey: chatId });
     await advisorDelivery.stop(chatId);
     await advisors.stopChat(chatId);
     // A handoff still writing its brief has no agent to stop: cancelling it is the whole interrupt.
     if (await chats.cancelHandoff(chatId)) return;
     await worktreeSetups.cancel(chatId);
-    await linked.stop({ chatKey: chatId });
     await agents.interrupt(chatId);
   }
 
@@ -1553,6 +1581,12 @@ function createRuntime(options) {
   const linked = createLinkedWorktrees({
     dataDir,
     registry: projectRegistry,
+    // A named Link's member Projects, { id, name, path }, for its shared Chats' Delegations.
+    linkProjects: async (linkId) => {
+      const link = await linkRuntime.definition(linkId);
+      const projects = await projectRegistry().list();
+      return link.projectIds.map((id) => projects.find((project) => project.id === id)).filter(Boolean);
+    },
     project: linkedState,
     messages: linkedMessages,
     bodies: async (projectPath, chatIds) => {
@@ -1562,6 +1596,8 @@ function createRuntime(options) {
     chats,
     agents,
     emit,
+    pendingAdvisorResults: async (chatId) =>
+      (await advisorStore.read(chatId)).some((record) => record.completions?.some((result) => ["pending", "sending"].includes(result.delivery))),
     extraTools: (chatId) => [
       ...planTools.definitions(chatId),
       ...simulatorToolDefinitions(chatId, simulators),
@@ -1573,6 +1609,7 @@ function createRuntime(options) {
       ...htmlArtifactToolDefinitions(chatId, artifacts),
       ...artifactCommentToolDefinitions(chatId, artifacts),
       ...require("./advisor-tools.cjs").advisorToolDefinitions(chatId, advisors),
+      ...require("./link-worktree-tools.cjs").linkWorktreeToolDefinitions(chatId, createLinkWorktree),
       // Milagre's own Linear sign-in, so agents don't reach for a Linear MCP or connector.
       ...(linear.enabled() ? linearToolDefinitions(linearTools) : []),
       // Heartbeats on the agent's own Chat, while the Experimental switch is on (none in a Link's Chats).
@@ -1580,6 +1617,21 @@ function createRuntime(options) {
     ],
     createMcpServer: ({ toolsFor }) => ({ url: (chatId) => localMcp.chatUrl(chatId, toolsFor), close: async () => {} }),
   });
+  // link_worktree_create: a shared Link Chat's Worktree in one Project, made when its agent is about to change it. The
+  // running agent owns it at once, the Link's windows show it, and the Project lists it as the shared Chat's. Its setup
+  // gets the same review as an ordinary Worktree's, now, before the agent works in it.
+  async function createLinkWorktree({ chatId, linkId, sessionId, project }) {
+    const made = await linkWorkspaces.addLinkWorktree({ link: await linkRuntime.definition(linkId), chatId: sessionId, project });
+    if (!made.created) return made;
+    const scope = projectOfKey(chatId);
+    agents.updateWorkspace(chatId, await scopeStates.executionContext(scope, sessionId));
+    broadcastProjectState(scope, await linkStore.get(linkId));
+    if (states.has(made.member.projectPath)) await readProject(made.member.projectPath).catch(() => {});
+    const setup = await worktreeSetups.beforeTurn(chatId, made.member.worktreePath);
+    if (setup.cancelled) throw new Error("The user stopped this Worktree's setup. Ask before working in it.");
+    if (setup.failed) throw new Error(setup.note || "Worktree setup did not finish.");
+    return { ...made, setupNote: setup.note };
+  }
   const advisorStore = require("./advisor-store.cjs").createAdvisorStore({ dataDir });
   const advisorTransports = new Map();
   const advisorMcp = require("./linked-mcp-server.cjs").createLinkedMcpServer({ toolsFor: (id) => advisorTransports.get(id) ?? [] });
@@ -1593,7 +1645,9 @@ function createRuntime(options) {
     if (session.archived) throw new Error("This Chat is archived.");
     const execution = await scopeStates.executionContext(scope, id);
     if (!execution.cwd) throw new Error("This Chat's Worktree is unavailable.");
-    const roots = [...new Set([execution.cwd, ...(execution.workspaceRoots ?? [])])];
+    // Advisors can compare owned Worktrees with their Project checkouts. Keep those checkout identities when a
+    // pending Link Project gains its Worktree, so an in-flight advisor can still deliver its result.
+    const roots = [...new Set([execution.cwd, ...(execution.workspaceRoots ?? []), ...(execution.readOnlyRoots ?? []), ...(execution.projectRoots ?? [])])];
     const identities = await Promise.all(
       roots.map(async (root) => {
         const real = await fs.realpath(root);
@@ -1656,7 +1710,8 @@ function createRuntime(options) {
         permissionMode: ctx.settings.permissionMode ?? "auto",
         ...message,
       });
-      return sent.started;
+      // A queued result already belongs to the Chat. Waiting for its turn would stall later results and shutdown.
+      return sent.queued ? { queued: true } : sent.started;
     },
   });
   advisors = require("./advisors.cjs").createAdvisors({
@@ -1680,7 +1735,8 @@ function createRuntime(options) {
       const sessionOptions = {
         cwd: context.cwd,
         workspaceRoots: context.workspaceRoots,
-        workspaceInstructions: context.workspaceInstructions,
+        // Its system prompt is the advisor's own (events.cjs advisorInstructions): the Chat's writing setting, its read tools.
+        tldrEnabled: context.settings?.tldrEnabled !== false,
         designsEnabled: artifacts.enabled(),
         analysisOnly: true,
         resumeId: record.nativeId,
@@ -1968,12 +2024,14 @@ function createRuntime(options) {
       const session = state?.sessions[sessionIdFromKey(chatId)];
       if (!session || session.archived) throw Error("Chat is unavailable or archived");
       const designGrant = { designs: { chatId, designIds: "*", capabilities: ["read", "write"] } };
-      if (isLinkScopeKey(projectPath)) return designGrant;
+      // A shared Link Chat manages its Link's member Projects as an ordinary Chat manages its own Project.
+      const projectPaths = isLinkScopeKey(projectPath) ? (linkMembers.get(scopeFromKey(projectPath).linkId) ?? []) : [projectPath];
+      if (!projectPaths.length) return designGrant;
       return {
         ...designGrant,
-        projects: { projectPaths: [projectPath], capabilities: ["read"] },
-        worktrees: { projectPaths: [projectPath], capabilities: ["read", "create"] },
-        chats: { projectPaths: [projectPath], capabilities: ["read", "create", "start"] },
+        projects: { projectPaths, capabilities: ["read"] },
+        worktrees: { projectPaths, capabilities: ["read", "create"] },
+        chats: { projectPaths, capabilities: ["read", "create", "start"] },
       };
     },
     host: require("./local-mcp-host.cjs").createLocalMcpHost({
@@ -1993,6 +2051,8 @@ function createRuntime(options) {
       activeWorktrees: async (projectPath) => (await activeWorktrees(projectPath)).map((worktree) => worktree.path),
       approve: (chatId, request) => agents.askApproval(chatId, request),
       models: (projectPath) => handlers.get("agent:models")(null, projectPath),
+      worktreeStatus,
+      removeWorktree: (projectPath, worktreePath) => handlers.get("worktree:remove")(null, worktreePath, { projectPath }),
       validateDesignChat: async (chatId) => {
         const scope = projectOfKey(chatId);
         if (!isLinkScopeKey(scope)) {
@@ -2011,6 +2071,7 @@ function createRuntime(options) {
   function close() {
     closing = true;
     routines.stop();
+    linked.suspend();
     closed ??= (async () => {
       await localMcp.close();
       await advisorDelivery.close();

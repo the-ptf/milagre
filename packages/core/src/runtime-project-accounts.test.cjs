@@ -15,6 +15,15 @@ async function until(check) {
   assert.ok(check(), "Expected runtime event did not arrive");
 }
 
+// A shared Link Chat's agent about to change both Projects: each gets the Chat's Worktree first (link_worktree_create).
+async function createWorktrees(context) {
+  const tool = context.linked.tools.find((item) => item.name === "link_worktree_create");
+  for (const project of ["api", "web"]) {
+    const reply = await require("./linked-tools.cjs").runTool(tool, { project });
+    assert.equal(reply.isError, false, reply.text);
+  }
+}
+
 async function fixture(t) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-account-routing-")));
   const dataDir = path.join(dir, "profile");
@@ -165,7 +174,9 @@ test("a named Link has its own account, independent of members and viewed Projec
   const sent = await runtime.invoke("link:send", [request]);
   await until(() => created.length === 1);
   assert.equal(created[0].context.env.CLAUDE_CONFIG_DIR, profile(ids.shared));
-  assert.equal(created[0].context.workspaceRoots.length, 2);
+  assert.equal(created[0].context.workspaceRoots.length, 0);
+  // Its agent makes a Worktree in each Project before changing it; the session continues with both.
+  await createWorktrees(created[0].context);
   created[0].finish();
   await runtime.flush();
   await runtime.openProject(projects[1]);
@@ -283,13 +294,15 @@ test("advisors inherit a named Link's Account and both owned Worktrees", async (
     { linkId: link.id, operationId: randomUUID(), sessionId: null, body: "Review both", provider: "claude", model: "test", permissionMode: "full" },
   ]);
   await until(() => created.length === 1);
+  await createWorktrees(created[0].context);
   const tool = created[0].context.linked.tools.find((tool) => tool.name === "create_advisor");
   const reply = await require("./linked-tools.cjs").runTool(tool, { title: "Link advisor", prompt: "Assess both", provider: "claude" });
   assert.equal(reply.isError, false);
   await until(() => created.length === 2 && created[1].turns.length === 1);
   assert.equal(created[1].context.analysisOnly, true);
   assert.equal(created[1].context.env.CLAUDE_CONFIG_DIR, profile(ids.shared));
-  assert.deepEqual(created[1].context.workspaceRoots, created[0].context.workspaceRoots);
+  const session = Object.values((await runtime.invoke("link:snapshot", [link.id])).state.sessions)[0];
+  assert.deepEqual(created[1].context.workspaceRoots, session.worktrees.map((member) => member.worktreePath).sort());
   assert.equal(created[1].context.workspaceRoots.length, 2);
 });
 
