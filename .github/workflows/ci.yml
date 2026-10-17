@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The merge queue runs CI on each PR squashed onto current main; a required check that never reports there blocks the queue.
+  merge_group:
+    types: [checks_requested]
 
 env:
   DO_NOT_TRACK: "1"
@@ -27,7 +30,7 @@ jobs:
     steps:
       - name: Detect which parts of the repository changed
         id: filter
-        # Pushes to main always run every job; the filter needs a PR base to compare against.
+        # Pushes to main and merge groups always run every job; the filter needs a PR base to compare against.
         if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
         with:
@@ -244,6 +247,21 @@ jobs:
           path: ${{ runner.temp }}/milagre-dock-diagnostics
           if-no-files-found: ignore
           retention-days: 7
+
+  desktop-gate:
+    # The required check for the Electron checks and the macOS smoke. A skipped matrix never reports per-shard names,
+    # so this job always runs: green when both passed or were skipped (a PR without desktop changes), red otherwise.
+    if: always()
+    needs: [desktop-checks, macos-desktop-smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require the desktop checks to have passed or been skipped
+        env:
+          RESULTS: ${{ needs.desktop-checks.result }} ${{ needs.macos-desktop-smoke.result }}
+        run: |
+          echo "desktop-checks, macos-desktop-smoke: $RESULTS"
+          for result in $RESULTS; do case "$result" in success|skipped) ;; *) exit 1 ;; esac; done
 
   release:
     # Every CI-green push to main becomes a release candidate: a tag and a DRAFT GitHub release.

@@ -2,6 +2,10 @@ name: PR title
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
+  # `conventional` is a required check, so the merge queue waits for it too. The title was already checked to enter
+  # the queue and a merge group carries no PR title, so there every step is skipped and the job reports green.
+  merge_group:
+    types: [checks_requested]
 permissions:
   pull-requests: read
 jobs:
@@ -9,10 +13,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - if: github.event_name == 'pull_request'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
       - name: Require a Conventional Commit title
+        if: github.event_name == 'pull_request'
         env:
           TITLE: ${{ github.event.pull_request.title }}
         run: |
