@@ -261,7 +261,7 @@ function createLinearPoller({
     for (const [id, held] of state.histories) {
       if (budget.left <= 0) break;
       const read = await readHistory(api, workspace, budget, id, held.after);
-      matchHistory(workspace, routines, held.issue, read.nodes, held.since, events);
+      matchHistory(workspace, routines, held.issue, read.nodes, held.from, events);
       if (!read.complete) histories.set(id, { ...held, after: read.after });
       else {
         histories.delete(id);
@@ -269,8 +269,15 @@ function createLinearPoller({
       }
     }
     const base = trusted(state.issueBase ?? store.linearCursor(workspace));
-    const scan = state.issueScan ?? { since: Math.max(base === undefined ? start : base - OVERLAP_MS, floor), after: null, seen: base ?? start, last: null };
+    // `since` is where the issue query starts and `from` where the window starts: changes made after `from` are queued. A
+    // scan that starts over at its cursor issue only moves `since`, so issues it hadn't reached keep the whole window.
+    let scan = state.issueScan;
+    if (!scan) {
+      const since = Math.max(base === undefined ? start : base - OVERLAP_MS, floor);
+      scan = { since, from: since, after: null, seen: base ?? start, last: null };
+    }
     for (const [id, updated] of historiesRead) if (!(updated > scan.since)) historiesRead.delete(id);
+    const { from } = scan;
     let { since, after, seen, last } = scan;
     let done = false;
     // Only the first page of a held scan can be stale: the rest follow it at once.
@@ -304,12 +311,12 @@ function createLinearPoller({
         // read again from the start: now while the budget lasts, else on a later poll.
         const known = historiesRead.get(issue.id) === updated || reading?.updatedAt === updated;
         if (!issue.history?.pageInfo?.hasNextPage || known) {
-          matchHistory(workspace, targets, issue, issue.history?.nodes ?? [], since, events);
+          matchHistory(workspace, targets, issue, issue.history?.nodes ?? [], from, events);
           continue;
         }
         const whole = await readHistory(api, workspace, budget, issue.id, null);
-        matchHistory(workspace, targets, issue, whole.nodes, since, events);
-        if (!whole.complete) histories.set(issue.id, { since, after: whole.after, issue: { ...issue, history: undefined }, updatedAt: updated });
+        matchHistory(workspace, targets, issue, whole.nodes, from, events);
+        if (!whole.complete) histories.set(issue.id, { from, after: whole.after, issue: { ...issue, history: undefined }, updatedAt: updated });
         else {
           histories.delete(issue.id);
           if (!whole.gone) historiesRead.set(issue.id, updated);
@@ -326,7 +333,7 @@ function createLinearPoller({
     later.push(() => {
       state.histories = histories;
       state.historiesRead = historiesRead;
-      state.issueScan = done ? null : { since, after, seen, last };
+      state.issueScan = done ? null : { since, from, after, seen, last };
       if (done) state.issueBase = seen;
     });
     return done && histories.size === 0 ? { key: workspace, at: seen } : null;

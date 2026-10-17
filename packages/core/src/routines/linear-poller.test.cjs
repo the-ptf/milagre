@@ -969,3 +969,32 @@ test("an issue scan held across polls whose cursor issue was deleted starts over
   assert.equal(ctx.store.linearCursor("a"), START + 140_000);
   ctx.poller.stop();
 });
+
+test("an issue scan that starts over at its cursor issue still queues changes from the start of its window", async () => {
+  const ctx = setup({ requestBudget: 1 });
+  ctx.routine({ event: "assigned" });
+  ctx.linear.data.pageSize = 2;
+  ctx.linear.data.cursor = "id";
+  const plain = (n, at) => issue({ id: `i${n}`, identifier: `MIL-${n}`, updatedAt: iso(at), history: { nodes: [] } });
+  const long = { nodes: [assignedToMe("hy", START + 14_000)], pageInfo: { hasNextPage: true, endCursor: "0" } };
+  ctx.linear.data.issues.a = [
+    plain(0, START + 10_000),
+    plain(1, START + 20_000),
+    plain(2, START + 30_000),
+    plain(3, START + 40_000),
+    // Assigned to me inside the first window, then edited again after the cursor issue: one with its history inline, one
+    // whose history is longer than a page and is read whole.
+    issue({ id: "x", identifier: "MIL-9", updatedAt: iso(START + 100_000), history: { nodes: [assignedToMe("hx", START + 12_000)] } }),
+    issue({ id: "y", identifier: "MIL-10", updatedAt: iso(START + 110_000), history: long }),
+  ];
+  ctx.linear.data.histories.y = [assignedToMe("hy", START + 14_000), { id: "hy2", createdAt: iso(START + 110_000), addedLabels: [] }];
+  ctx.clock.t = START + 600_000;
+  ctx.poller.start();
+  // Reads [i0, i1] and runs out of budget; then the cursor issue i1 is edited.
+  await ctx.poll();
+  ctx.linear.data.issues.a[1] = { ...ctx.linear.data.issues.a[1], updatedAt: iso(START + 90_000) };
+  for (let poll = 0; poll < 10; poll += 1) await ctx.poll();
+  assert.deepEqual(ctx.enqueued.map(({ event }) => event.key).sort(), ["linear:x:hx", "linear:y:hy"]);
+  assert.equal(ctx.store.linearCursor("a"), START + 110_000);
+  ctx.poller.stop();
+});
