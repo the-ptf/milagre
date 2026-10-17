@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Pulse01Icon } from "@hugeicons/core-free-icons";
 import { triggerText } from "@milagre/shared/routines";
@@ -16,15 +16,20 @@ const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(
  * only names the Heartbeat.
  */
 export function HeartbeatCard({ step }: { step: HeartbeatStep }) {
-  const { enabled, routines } = useRoutines();
+  const { enabled, routines, error: loadError } = useRoutines();
   const remote = isRemoteKey(useReplyChatId());
   const [stopping, setStopping] = useState(false);
-  // "ends in 3 days" is read when the card shows; the Routine's own updates re-render it.
-  const [shownAt] = useState(() => Date.now());
+  // "ends in 3 days" moves with the clock: read again every minute (and on every Routine update, which re-renders).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const routine = routines.find((entry) => entry.id === step.routine.id);
   const name = routine?.name ?? step.routine.name;
-  const meta = routine ? [capitalized(triggerText(routine.trigger)), routineEnd(routine, shownAt)].filter(Boolean).join(" · ") : null;
+  const failedRead = enabled === null && loadError ? "Couldn’t load Routines" : null;
+  const meta = routine ? [capitalized(triggerText(routine.trigger)), routineEnd(routine, now)].filter(Boolean).join(" · ") : null;
   const stop = () => {
     setStopping(true);
     setError(null);
@@ -38,7 +43,9 @@ export function HeartbeatCard({ step }: { step: HeartbeatStep }) {
       <HugeiconsIcon icon={Pulse01Icon} size={18} strokeWidth={1.8} color="currentColor" className="shrink-0 text-ink" />
       <span className="grid min-w-0 flex-1 gap-0.5">
         <span className="truncate text-[13.5px] font-medium text-ink">Heartbeat set: {name}</span>
-        {(error || meta) && <span className={`truncate text-[12px] ${error ? "text-red" : "text-ink-2"}`}>{error ?? meta}</span>}
+        {(error || failedRead || meta) && (
+          <span className={`truncate text-[12px] ${error || failedRead ? "text-red" : "text-ink-2"}`}>{error ?? failedRead ?? meta}</span>
+        )}
       </span>
       {remote || enabled === null ? null : routine ? (
         <button

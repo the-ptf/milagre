@@ -28,9 +28,9 @@ export function replyParts(body: string, steps: ChatStep[] = []): ReplyPart[] {
 export type ArtifactStep = ChatStep & { artifact: NonNullable<ChatStep["artifact"]> };
 export const isArtifactCard = (step: ChatStep): step is ArtifactStep => step.kind === "artifact" && step.status === "done" && !!step.artifact;
 
-/** A heartbeat_create step that set a Heartbeat (its result named it), which the reply shows as a card. */
+/** A finished heartbeat_create step that set a Heartbeat (its result named it), which the reply shows as a card. */
 export type HeartbeatStep = ChatStep & { routine: NonNullable<ChatStep["routine"]> };
-export const isHeartbeatCard = (step: ChatStep): step is HeartbeatStep => !!step.routine;
+export const isHeartbeatCard = (step: ChatStep): step is HeartbeatStep => step.status === "done" && !!step.routine;
 
 export type ActivityEntry = { type: "text"; text: string } | { type: "step"; step: ChatStep };
 

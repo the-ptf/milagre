@@ -202,3 +202,13 @@ test("a heartbeat_create step that set a Heartbeat comes out of the activity as 
   assert.equal(isHeartbeatCard(beat), true);
   assert.equal(isHeartbeatCard(step("a", 0)), false);
 });
+
+test("only a finished heartbeat_create step is a card; a running or failed one stays in the activity", () => {
+  for (const status of ["running", "failed"] as const) {
+    const beat: ChatStep = { ...step("hb", 0), kind: "other", status, routine: { id: "r1", name: "Babysit" } };
+    assert.equal(isHeartbeatCard(beat), false);
+    const reply = replyActivity("Done.", [beat]);
+    assert.deepEqual(reply.heartbeats, []);
+    assert.deepEqual(reply.activity, [{ type: "step", step: beat }]);
+  }
+});

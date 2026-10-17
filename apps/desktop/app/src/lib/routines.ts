@@ -119,7 +119,10 @@ export function refreshRoutines() {
     .then(async () => {
       const on = (await window.milagre.readRoutinesEnabled())?.enabled === true;
       const list = on ? ((await window.milagre.listRoutines())?.routines ?? []) : [];
-      if (read === latestRead) publish({ enabled: on, routines: list, error: null });
+      if (read !== latestRead) return;
+      // A read that finds what is already shown publishes nothing, so no surface re-renders for it.
+      if (on === snapshot.enabled && snapshot.error === null && JSON.stringify(list) === JSON.stringify(snapshot.routines)) return;
+      publish({ enabled: on, routines: list, error: null });
     })
     .catch((failure: unknown) => {
       // A failed read is an error, not "Routines are off": the switch keeps what was last read (null at first).
@@ -127,7 +130,11 @@ export function refreshRoutines() {
     });
 }
 
-function subscribe(listener: () => void) {
+/** The current read, as useRoutines sees it. */
+export const routinesSnapshot = () => snapshot;
+
+/** Listens for new reads; the first listener starts reading and listening to the Mac, the last one stops it. */
+export function subscribeRoutines(listener: () => void) {
   listeners.add(listener);
   if (listeners.size === 1) {
     refreshRoutines();
@@ -148,6 +155,6 @@ function subscribe(listener: () => void) {
  * Routines are this Mac's only, so this always asks this Mac's own bridge.
  */
 export function useRoutines(): RoutinesSnapshot & { refresh(): void } {
-  const current = useSyncExternalStore(subscribe, () => snapshot);
+  const current = useSyncExternalStore(subscribeRoutines, routinesSnapshot);
   return { ...current, refresh: refreshRoutines };
 }

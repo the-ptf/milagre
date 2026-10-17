@@ -471,8 +471,8 @@ export const ChatRow = memo(function ChatRow({
                     </span>
                   )}
                   {item.heartbeat && (
-                    <span data-chat-heartbeat role="img" aria-label={item.heartbeat} className="flex shrink-0 font-normal text-ink-3">
-                      <HugeiconsIcon icon={Pulse01Icon} size={14} strokeWidth={1.8} color="currentColor" />
+                    <span data-chat-heartbeat role="img" aria-label={item.heartbeat} title="Heartbeat" className="flex shrink-0 font-normal text-ink-3">
+                      <HugeiconsIcon icon={Pulse01Icon} size={12} strokeWidth={2} color="currentColor" />
                     </span>
                   )}
                 </span>

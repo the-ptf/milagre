@@ -58,7 +58,6 @@ export function Select<T extends string>({
   const selected = options.find((option) => option.value === value);
 
   function place() {
-    setQuery("");
     setHost(triggerRef.current?.closest("dialog[open]") ?? null);
     const trigger = triggerRef.current?.getBoundingClientRect();
     if (!trigger) return;
@@ -109,6 +108,7 @@ export function Select<T extends string>({
   function onTriggerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     if (open || (event.key !== "ArrowDown" && event.key !== "ArrowUp")) return;
     event.preventDefault();
+    setQuery("");
     place();
     setOpen(true);
   }
@@ -127,6 +127,8 @@ export function Select<T extends string>({
             close(false);
             return;
           }
+          // A new search each time it opens; place() also runs on resize and scroll, which keep the query.
+          setQuery("");
           place();
           setOpen(true);
         }}

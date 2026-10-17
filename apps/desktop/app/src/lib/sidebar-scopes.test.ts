@@ -121,3 +121,16 @@ test("heartbeatKeys holds the Chats of enabled heartbeats only, each with its ho
   assert.equal(marked[1], rows[1]);
   assert.equal(withHeartbeats("/code/shop", rows, new Map()), rows);
 });
+
+test("no pulse with the Routines switch off (no Routines read) or on an archived Chat", () => {
+  const marks = { running: new Set<string>(), waiting: new Set<string>(), asking: new Set<string>() };
+  const rows = scopeChats("/code/shop", state as unknown as CoordinatorState, "created", marks);
+  // Switched off: the list is empty, so nothing is marked and the rows stay as they were.
+  assert.equal(withHeartbeats("/code/shop", rows, heartbeatLines(heartbeatKeys([]))), rows);
+  // A heartbeat on archived Chat 3: that Chat isn't listed, so no row carries it.
+  const archived = heartbeatLines("/code/shop#3\tHeartbeat · every 15 min");
+  assert.equal(
+    withHeartbeats("/code/shop", rows, archived).some((row) => row.heartbeat),
+    false,
+  );
+});

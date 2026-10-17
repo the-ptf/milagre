@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { clock } from "@milagre/shared/routines";
-import { groupRoutines, routineMeta, routineStatus, type RoutineWithRuns } from "./routines.ts";
+import { groupRoutines, refreshRoutines, routineMeta, routineStatus, routinesSnapshot, subscribeRoutines, type RoutineWithRuns } from "./routines.ts";
 
 // Local noon, so "today" and "yesterday" hold in any time zone.
 const NOW = new Date(2026, 9, 17, 12, 0).getTime();
@@ -93,4 +93,41 @@ test("a paused webhook says Paused, and it has no model to name", () => {
   const ran = { ...webhook, enabled: true, runs: [{ id: "x", routineId: "w1", startedAt: yesterday, status: "acted" as const }] };
   assert.equal(routineStatus(ran, NOW), `Yesterday ${clock(yesterday)}`);
   assert.equal(routineStatus({ ...ran, runs: [{ ...ran.runs[0]!, startedAt: NOW - 3 * HOUR }] }, NOW), "3 h ago");
+});
+
+test("a refresh that reads the same Routines publishes nothing, and a change publishes once", async () => {
+  let list = [heartbeat, linear];
+  const globals = globalThis as unknown as { window?: unknown };
+  globals.window = {
+    milagre: {
+      readRoutinesEnabled: async () => ({ enabled: true }),
+      listRoutines: async () => ({ routines: structuredClone(list) }),
+      onRoutinesChanged: () => () => {},
+    },
+  };
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+  let published = 0;
+  const stop = subscribeRoutines(() => {
+    published += 1;
+  });
+  try {
+    await settle();
+    assert.equal(published, 1);
+    const first = routinesSnapshot();
+    refreshRoutines();
+    await settle();
+    assert.equal(published, 1);
+    assert.equal(routinesSnapshot(), first);
+    list = [heartbeat];
+    refreshRoutines();
+    await settle();
+    assert.equal(published, 2);
+    assert.deepEqual(
+      routinesSnapshot().routines.map((routine) => routine.id),
+      ["h1"],
+    );
+  } finally {
+    stop();
+    delete globals.window;
+  }
 });
