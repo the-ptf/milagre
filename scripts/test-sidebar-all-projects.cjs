@@ -84,7 +84,7 @@ async function browserChecks() {
     try {
       return await window.webContents.executeJavaScript(source);
     } catch (error) {
-      throw new Error(`${error.message}\n  in: ${source.replace(/\s+/g, " ").slice(0, 220)}`);
+      throw new Error(`${error.message}\n  in: ${source.replace(/\s+/g, " ").slice(0, 220)}`, { cause: error });
     }
   };
   const errors = [];
