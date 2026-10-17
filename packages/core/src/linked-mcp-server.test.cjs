@@ -110,7 +110,7 @@ test("MCP accepts maximum-sized design documents encoded as UTF-8 and escaped JS
       jsonrpc: "2.0",
       id: 2,
       method: "tools/call",
-      params: { name: "design_apply", arguments: { id: encoding, expectedVersion: 1, operations: [{ op: "replace", document }] } },
+      params: { name: "design_show", arguments: { id: encoding, title: encoding, expectedVersion: 1, document } },
     });
     if (encoding === "escaped") editBody = editBody.replaceAll("界", "\\u754c");
     const editResponse = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: editBody });

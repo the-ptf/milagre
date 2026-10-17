@@ -72,6 +72,9 @@ export interface DesignBounds {
 }
 export const designDocumentSchema: z.ZodType<DesignDocument>;
 export const designOperationSchema: z.ZodType<DesignOperation>;
+/** The looser shapes design_show and design_apply advertise to agents; the saved document is checked strictly. */
+export const designDocumentInputSchema: z.ZodType<unknown>;
+export const designOperationInputSchema: z.ZodType<unknown>;
 export function validateDesignDocument(value: unknown): DesignDocument;
 export function applyDesignOperations(document: DesignDocument, operations: DesignOperation[]): DesignDocument;
 export function diffDesignDocuments(before: DesignDocument, after: DesignDocument): DesignOperation[];

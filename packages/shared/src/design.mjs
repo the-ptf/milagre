@@ -116,6 +116,35 @@ export const designDocumentSchema = z
   })
   .strict();
 
+// What agents send to design_show and design_apply. Every tool definition is sent with each request, so these leave out
+// what the saved document is checked against anyway: color patterns, the generated componentSourceId, the node fields
+// repeated in design_apply, and its `replace` (design_show with expectedVersion replaces a whole design). Layers are
+// open objects, so a field these don't list still reaches validateDesignDocument and applyDesignOperations, which
+// reject it.
+const plainColor = z.string().max(100);
+const { componentSourceId: _generated, ...wireNodeShape } = { ...nodeSchema.shape, fill: plainColor.optional(), stroke: plainColor.optional() };
+export const designDocumentInputSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    width: z.number().int().min(240).max(3840),
+    height: z.number().int().min(240).max(3840),
+    background: plainColor.optional(),
+    tokens: z.record(z.string(), z.string()).optional().describe("Color tokens by name. A color field takes a CSS color or a $name token reference."),
+    nodes: z.array(z.looseObject(wireNodeShape)).max(1000),
+  })
+  .strict();
+export const designOperationInputSchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("update"), id, patch: z.looseObject({}).describe("The layer fields to change: any design_show node field except id.") }).strict(),
+  z
+    .object({
+      op: z.literal("insert"),
+      node: z.looseObject({}).describe("The new layer, with the fields of a design_show node."),
+      index: z.number().int().min(0).max(1000).optional(),
+    })
+    .strict(),
+  z.object({ op: z.literal("delete"), id }).strict(),
+]);
+
 export const designOperationSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("update"), id, patch: nodeSchema.omit({ id: true }).partial().strict() }).strict(),
   z.object({ op: z.literal("insert"), node: nodeSchema, index: z.number().int().min(0).max(1000).optional() }).strict(),
