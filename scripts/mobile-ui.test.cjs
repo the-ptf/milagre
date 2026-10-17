@@ -8371,7 +8371,7 @@ test("mobile Experimental page shows the Mac's Routines switch, hidden until rea
     find(
       tree,
       (n) =>
-        n.type === "Text" && n.props.children === "Let agents set heartbeats that check back on a Chat on a schedule. Open Chats get it after Reload chat.",
+        n.type === "Text" && n.props.children === "Let agents set Heartbeats that check back on a Chat on a schedule. Open Chats get it after Reload chat.",
     ),
   );
   find(tree, (n) => n.props?.title === title).props.onPress();
@@ -10753,6 +10753,7 @@ function routinesHost({ routines = routineFixtures(), enabled = true, refuse = f
     },
     "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
     "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"),
+    "@milagre/shared/routines": require("@milagre/shared/routines"),
     "../session": { useSession: () => ({ client }) },
     "../use-routines": useRoutines,
     "../routine-rows": load("routine-rows.ts", {
@@ -10795,7 +10796,10 @@ test("the phone Routines screen groups heartbeats and triggers, says why a trigg
   assert.match(textOf(trigger), /Paused: 3 failed runs in a row: no worktree/);
   assert.equal(find(trigger, (node) => node.type === "RowSwitch").props.selected, false);
   const menu = find(trigger, (node) => node.type === "PullDown");
-  assert.deepEqual([...menu.props.sections.flatMap((section) => section.items.map((item) => item.title))], ["Edit", "Run now", "Open last Chat", "Delete"]);
+  // A Linear trigger only runs on its event, so it has no Run now; the heartbeat (a schedule) does.
+  assert.deepEqual([...menu.props.sections.flatMap((section) => section.items.map((item) => item.title))], ["Edit", "Open last Chat", "Delete"]);
+  const heartbeatMenu = find(heartbeat, (node) => node.type === "PullDown");
+  assert.deepEqual([...heartbeatMenu.props.sections.flatMap((section) => section.items.map((item) => item.title))], ["Edit", "Run now", "Open Chat", "Delete"]);
   menu.props.onSelect("open");
   assert.deepEqual(JSON.parse(JSON.stringify(host.routes)), [{ pathname: "/chat", params: { projectPath: "/p", hostId: "ws://mac", id: "9" } }]);
   assert.ok(
@@ -10881,7 +10885,7 @@ function routineFormHost({ params = {}, routines = [], answers = {}, created } =
     "@milagre/shared/routine-prompt": require("@milagre/shared/routine-prompt"),
     "@milagre/shared/model-copy": require("../packages/shared/src/model-copy.ts"),
     "@milagre/shared/providers": require("@milagre/shared/providers"),
-    "../session": { useSession: () => ({ client, models: null, cliStatus: null }) },
+    "../session": { useSession: () => ({ client, models: null, cliStatus: null, snapshot: { project: { path: "/p" } } }) },
     "../use-routines": { useRoutines: () => ({ routines, enabled: true, error: "", loading: false, refresh: async () => {}, update: async () => {} }) },
     "../use-rpc": { useRpc: (caller, method) => ({ data: caller ? (responses[method] ?? null) : null, error: "", loading: false, refresh() {} }) },
     "../turn-options": { modelsFor: (provider) => (provider === "claude" ? [{ id: "claude-opus-5-5", name: "Opus 5.5", provider }] : []) },
@@ -10909,6 +10913,11 @@ test("the phone routine form in Linear mode shows the When, Label and Team rows 
   tree = host.render();
   const labels = host.rowLabels(tree);
   for (const label of ["When", "Label", "Team", "Project", "Works in", "Model", "Stop after"]) assert.ok(labels.includes(label), label);
+  assert.equal(
+    allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "FormRow" && node.props.label === "Works in")[0].props.value,
+    "New Worktree",
+    "Worktree is a product noun",
+  );
   const linear = find(tree, (node) => node.props?.accessibilityLabel === "Linear" && node.props.accessibilityRole === "radio");
   assert.equal(linear.props.accessibilityState.checked, true);
   const names = [...find(tree, (node) => node.type === "PlaceholderField").props.placeholders.map((item) => item.name)];
@@ -11309,4 +11318,23 @@ test("the phone Heartbeat set card says Ended for a Heartbeat that ran out on it
     find(tree, (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473"),
     undefined,
   );
+});
+
+test("a Linear comment Routine on the phone form drops the Each Run rows: comments go into the issue's linked Chat", async () => {
+  const host = routineFormHost();
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Linear" && node.props.accessibilityRole === "radio").props.onPress();
+  host.pick(host.render(), "When").props.onSelect("comment");
+  const tree = host.render();
+  const labels = host.rowLabels(tree);
+  assert.ok(!labels.includes("Project") && !labels.includes("Works in"), labels.join(", "));
+  assert.ok(labels.includes("Model") && labels.includes("Stop after"), "the agent's settings stay");
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Comments go into the Chat linked to the issue."));
+  find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Answer comments");
+  find(host.render(), (node) => node.type === "PlaceholderField").props.onChangeText("Reply to {{comment.body}}");
+  find(host.render(), (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const create = host.calls.find(([method]) => method === "routines:create");
+  assert.ok(create, "a comment Routine saves without the user picking a Project");
+  assert.equal(create[1][0].trigger.event, "comment");
+  assert.deepEqual(create[1][0].target, { kind: "new-chat", projectPath: "/p", workspace: "worktree" }, "it carries the Project open on the phone");
 });

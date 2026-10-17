@@ -3,6 +3,7 @@ import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { Add01Icon, ArrowRight01Icon, Settings01Icon } from "@hugeicons/core-free-icons";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
+import { canRunNow } from "@milagre/shared/routines";
 import { useSession } from "../session";
 import { useRoutines, type RoutineWithRuns } from "../use-routines";
 import { useActivityClock } from "../chat-row-store";
@@ -231,7 +232,8 @@ function RoutineRow({
           {
             items: [
               { id: "edit", title: "Edit", systemImage: "pencil" },
-              { id: "run", title: "Run now", systemImage: "play", disabled: !routine.enabled },
+              // Linear and webhook Routines run only on their event; the scheduler refuses Run now for them.
+              ...(canRunNow(routine) ? [{ id: "run", title: "Run now", systemImage: "play", disabled: !routine.enabled }] : []),
               { id: "open", title: heartbeat ? "Open Chat" : "Open last Chat", systemImage: "bubble.left", disabled: !hasChat },
             ],
           },
