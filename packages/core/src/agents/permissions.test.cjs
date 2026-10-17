@@ -264,6 +264,7 @@ test("Claude: other tools show their input, and the SDK's own wording wins", () 
   assert.equal(fetch.kind, "other");
   assert.equal(fetch.title, "Use WebFetch?");
   assert.equal(fetch.detail, JSON.stringify({ url: "https://example.com" }, null, 2));
+  assert.equal(claudeRequest("mcp__milagre__chat_stop", {}, { requestId: "r3" }).title, "Use chat_stop from milagre?");
   const worded = claudeRequest(
     "Read",
     { file_path: "/etc/hosts" },

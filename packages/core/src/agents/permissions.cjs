@@ -60,7 +60,10 @@ function claudeRequest(toolName, input, options = {}) {
       diff: claudeEditDiff(toolName, input),
     });
   }
-  return compact({ ...base, kind: "other", title: options.title || `Use ${toolName}?`, detail: capText(JSON.stringify(input, null, 2)) });
+  // An MCP tool reads as its step row does: `mcp__milagre__chat_stop` -> "chat_stop from milagre".
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(toolName);
+  const name = mcp ? `${mcp[2]} from ${mcp[1]}` : toolName;
+  return compact({ ...base, kind: "other", title: options.title || `Use ${name}?`, detail: capText(JSON.stringify(input, null, 2)) });
 }
 
 // What a Claude tool call reaches, for WorkspaceAccess: a read tool's path (Grep and Glob without one search the cwd),
