@@ -325,24 +325,42 @@ async function browserChecks() {
 
     // Dragging another Project's chat from its group into Pinned pins it there: the group and its pinned rows are one list.
     await click('[data-sidebar-scope="/work/shop"] [data-scope-toggle]');
-    await waitFor(`document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id="8"]')?.getBoundingClientRect().height > 0`);
-    await delay(250);
+    const row8 = '[data-sidebar-scope="/work/shop"] [data-chat-id="8"]';
+    await waitFor(`document.querySelector(${JSON.stringify(row8)})?.getBoundingClientRect().height > 0`);
+    // The group is still unfolding; press only once its rows have stopped moving.
+    const rectOf = (selector) => evaluate(`JSON.stringify(document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect())`);
+    for (let last = await rectOf(row8), i = 0; ; i++) {
+      await delay(100);
+      const next = await rectOf(row8);
+      if (next === last) break;
+      if (i === 50) throw new Error("the unfolded group never settled");
+      last = next;
+    }
     const centre = (selector) =>
       evaluate(
         `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.left + 60), y: Math.round(r.top + r.height / 2), bottom: r.bottom }; })()`,
       );
     const mouse = (type, x, y) => window.webContents.sendInputEvent({ type, x, y, button: "left", clickCount: 1 });
-    const from = await centre('[data-sidebar-scope="/work/shop"] [data-chat-id="8"]');
-    const to = await centre('[data-all-pinned] [data-pinned-scope="/work/shop"] [data-chat-id="7"]');
-    mouse("mouseMove", from.x, from.y);
-    mouse("mouseDown", from.x, from.y);
-    for (let step = 1; step <= 10; step++) {
-      mouse("mouseMove", from.x, Math.round(from.y + ((to.bottom - 4 - from.y) * step) / 10));
-      await delay(16);
-    }
-    // A slow runner can process those moves before the drag's first render, so none of them set a target (CI timed out
-    // here with no drop line). Nudge at the target, read live, until the line shows.
     const target = () => centre('[data-all-pinned] [data-pinned-scope="/work/shop"] [data-chat-id="7"]');
+    // On the CI runner the press sometimes never became a drag (its timeout dump showed no data-chat-drag with the
+    // pointer resting on the right row), so the press is repeated until the page marks the drag as begun.
+    const dragging = `document.documentElement.hasAttribute("data-chat-drag")`;
+    let from, to;
+    for (let attempt = 0; !(await evaluate(dragging)); attempt++) {
+      if (attempt === 5) throw new Error("Timed out: the drag never began");
+      if (attempt) mouse("mouseUp", from.x, from.y);
+      from = await centre(row8);
+      to = await target();
+      mouse("mouseMove", from.x, from.y);
+      mouse("mouseDown", from.x, from.y);
+      for (let step = 1; step <= 10; step++) {
+        mouse("mouseMove", from.x, Math.round(from.y + ((to.bottom - 4 - from.y) * step) / 10));
+        await delay(16);
+      }
+      for (let i = 0; i < 20 && !(await evaluate(dragging)); i++) await delay(25);
+    }
+    // A slow runner can process those moves before the drag's first render, so none of them set a target. Nudge at the
+    // target, read live, until the drop line shows.
     const dropLine = `!!document.querySelector("[data-drop-line]")`;
     for (let attempt = 0; !(await evaluate(dropLine)); attempt++) {
       if (attempt === 25) {
