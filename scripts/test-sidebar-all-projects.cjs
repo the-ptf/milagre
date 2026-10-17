@@ -79,7 +79,14 @@ async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   await app.whenReady();
   const window = new BrowserWindow({ width: 1280, height: 640, show: false, webPreferences: { backgroundThrottling: false } });
-  const evaluate = (source) => window.webContents.executeJavaScript(source);
+  // A page error names the script that threw it, not only "Script failed to execute".
+  const evaluate = async (source) => {
+    try {
+      return await window.webContents.executeJavaScript(source);
+    } catch (error) {
+      throw new Error(`${error.message}\n  in: ${source.replace(/\s+/g, " ").slice(0, 220)}`);
+    }
+  };
   const errors = [];
   window.webContents.on("console-message", (details) => {
     if (details.level === "error") errors.push(details.message);
