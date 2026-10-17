@@ -2,9 +2,10 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Image, Pressable, Text, View, type ImageSourcePropType, type ViewInstance } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { router } from "expo-router";
-import { Alert02Icon, ArrowRight01Icon, Maximize01Icon } from "@hugeicons/core-free-icons";
+import { Alert02Icon, ArrowRight01Icon, Link04Icon, Maximize01Icon } from "@hugeicons/core-free-icons";
 import type { AgentRun } from "@milagre/shared/agent-runs";
-import type { ChatMessage, ChatStep } from "@milagre/shared/model";
+import type { ChatMessage, ChatStep, LinkedContext } from "@milagre/shared/model";
+import { linkedContext, linkedHeading } from "@milagre/shared/linked-message";
 import { activitySummary, replyActivity, unspokenThought } from "@milagre/shared/reply-parts";
 import { FileChip } from "./file-chip";
 import { Markdown } from "./markdown";
@@ -191,6 +192,27 @@ function ActivityRow({ steps, live, waiting, onPress }: { steps: ChatStep[]; liv
     </Pressable>
   );
 }
+/** The sender line over a message another Chat sent, as on desktop: who it's from, and a tap to open that Chat. */
+function LinkedHeader({ context, onOpenChat }: { context: LinkedContext; onOpenChat?: (chatKey: string) => void }) {
+  const { colors } = useTheme();
+  const { text, chat } = linkedHeading(context);
+  const open = chat && onOpenChat ? () => onOpenChat(chat) : undefined;
+  return (
+    <Pressable
+      accessibilityRole={open ? "link" : undefined}
+      accessibilityHint={open ? "Opens that Chat" : undefined}
+      disabled={!open}
+      onPress={open}
+      style={{ flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", maxWidth: "100%" }}
+    >
+      <Icon icon={Link04Icon} color={open ? colors.accentInk : colors.ink3} size={13} />
+      <Text numberOfLines={1} style={{ flexShrink: 1, color: open ? colors.accentInk : colors.ink3, fontSize: 12, fontWeight: "500" }}>
+        {text}
+      </Text>
+    </Pressable>
+  );
+}
+
 export const ChatReply = memo(function ChatReply({
   message,
   run,
@@ -202,8 +224,11 @@ export const ChatReply = memo(function ChatReply({
   designsMoved,
   limitProjectPath,
   highlighted = false,
+  onOpenChat,
 }: {
   message?: ChatMessage;
+  /** Opens another Chat by its key, from the sender line of a message that Chat sent. */
+  onOpenChat?: (chatKey: string) => void;
   /** The task in Undo changes' view: its message is outlined, as on desktop. */
   highlighted?: boolean;
   run?: AgentRun;
@@ -238,11 +263,35 @@ export const ChatReply = memo(function ChatReply({
   const thought = !run || run.questions.length ? unspokenThought(text, steps) : "";
   const limit = !run && message?.role === "assistant" ? usageLimitOf(message) : null;
   const advisor = typeof message?.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
+  // A message another Chat sent (a Delegation, its report, a Negotiation's agreement) carries its sender, never reads as
+  // the user's own.
+  const linked = linkedContext(message);
   if (advisor)
     return (
       <View style={{ gap: 6, paddingVertical: 8 }}>
         <Text style={styles.caption}>{advisorResultLabel(advisor)}</Text>
         <Markdown text={text} />
+      </View>
+    );
+  if (message?.role === "user" && linked)
+    return (
+      <View style={{ gap: 6, paddingVertical: 4 }}>
+        <LinkedHeader context={linked} onOpenChat={onOpenChat} />
+        <View
+          style={{
+            borderWidth: 1,
+            borderColor: colors.line,
+            borderRadius: 14,
+            borderCurve: "continuous",
+            paddingVertical: 10,
+            paddingHorizontal: 14,
+            ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
+          }}
+        >
+          <Text selectable style={{ color: colors.ink, fontSize: 15, lineHeight: 22 }}>
+            {text}
+          </Text>
+        </View>
       </View>
     );
   if (message?.role === "user")
@@ -284,6 +333,7 @@ export const ChatReply = memo(function ChatReply({
     );
   return (
     <View style={{ gap: 14, paddingVertical: 8 }}>
+      {linked && <LinkedHeader context={linked} onOpenChat={onOpenChat} />}
       {reply.setup.map((step) => (
         <ToolRow key={step.id} step={step} live={!!run} waiting={waiting} onPress={openActivity} />
       ))}

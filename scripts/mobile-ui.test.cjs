@@ -1787,6 +1787,7 @@ function chatHost({
     }),
     "@milagre/shared/message-navigation": require("@milagre/shared/message-navigation"),
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
+    "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
     "@milagre/shared/provider-capabilities": require("@milagre/shared/provider-capabilities"),
     "../message-navigation": { MessageNavigation: "MessageNavigation" },
     "../queued-messages": { QueuedMessages: "QueuedMessages" },
@@ -7510,6 +7511,7 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
   const { ChatReply } = load("chat-reply.tsx", {
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
+    "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
@@ -7616,6 +7618,7 @@ test("mobile Full detail shows each tool call and the notes between them in the 
   const reply = (display) =>
     load("chat-reply.tsx", {
       "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
+      "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
       react,
       "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
       "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
@@ -8208,6 +8211,7 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
   const { ChatReply } = load("chat-reply.tsx", {
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
+    "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
@@ -8254,6 +8258,64 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
     undefined,
   );
   assert.ok(find(failed, (n) => n.type === "Text" && n.props.children === "The turn failed. Review the response before trying again."));
+});
+
+test("mobile ChatReply marks a Delegation and its report with their sender, never as the user's own message", () => {
+  const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
+  const { ChatReply } = load("chat-reply.tsx", {
+    "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
+    "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
+    "react-native-svg": { default: "Svg", Path: "Path" },
+    "expo-router": { router: {} },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "./file-chip": { FileChip: "FileChip" },
+    "./markdown": { Markdown: "Markdown" },
+    "./icons": { Icon: "Icon" },
+    "./activity-item": { ActivityTitle: "ActivityTitle" },
+    "./tool-row": { ToolRow: "ToolRow" },
+    "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
+    "./answer-card": { AnswerCard: "AnswerCard" },
+    "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
+    "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
+    "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
+    "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
+    "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
+    "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+    "./theme": { hex: () => "#000" },
+    "./viewer-store": { showImages() {} },
+    "./ui": { colors: {}, styles: { card: {}, row: {}, muted: {} } },
+  });
+  const header = (tree) => find(tree, (n) => typeof n.type === "function" && n.type.name === "LinkedHeader");
+  const opened = [];
+  const delegation = { kind: "delegation", delegationId: "d", from: "/api#2", fromLabel: "api / main / Plan" };
+  const sent = ChatReply({
+    message: { id: 3, session_id: 4, role: "user", body: "Rename the route", context: delegation },
+    media: () => null,
+    onActivity() {},
+    onOpenChat: (key) => opened.push(key),
+  });
+  assert.deepEqual(header(sent).props.context, delegation);
+  assert.equal(find(sent, (n) => n.type === "Text" && n.props.children === "Rename the route").type, "Text");
+  assert.equal(sent.props.style.alignSelf, undefined, "left-aligned, not the user's right-hand bubble");
+  // The header's text and tap are the shared ones: tapping opens the sending Chat.
+  const line = header(sent).type(header(sent).props);
+  assert.equal(find(line, (n) => n.type === "Text").props.children, "Delegation from api / main / Plan");
+  line.props.onPress();
+  assert.deepEqual(opened, ["/api#2"]);
+  const report = { kind: "delegation-report", delegationId: "d", from: "/web#3", fromLabel: "web / main / Fix", status: "done" };
+  const back = ChatReply({ message: { id: 5, session_id: 2, role: "assistant", body: "Renamed it.", context: report }, media: () => null, onActivity() {} });
+  assert.deepEqual(header(back).props.context, report);
+  // An ordinary message has no sender line.
+  assert.equal(
+    header(ChatReply({ message: { id: 6, session_id: 2, role: "user", body: "Hi", context: null }, media: () => null, onActivity() {} })),
+    undefined,
+  );
 });
 
 test("mobile usage-limit card lists the other accounts, switches on tap, and offers Add or Manage accounts when none can be used", async () => {
