@@ -16,6 +16,8 @@ const {
   codexMcpResponse,
   isAcpPlanToolPermission,
   isCodexPlanToolApproval,
+  isUngatedMilagreTool,
+  MODE_RANK,
   unwrapShell,
 } = require("./permissions.cjs");
 const { PLAN_TOOL_NAMES } = require("../chat-plan-tools.cjs");
@@ -92,6 +94,16 @@ test("ACP: only Milagre's own plan tools are auto-approved", () => {
   assert.equal(isAcpPlanToolPermission(call("other", "tasks_set")), false);
   assert.equal(isAcpPlanToolPermission({ toolCall: { title: "milagre_tasks_set", kind: "other" } }), false);
   assert.equal(isAcpPlanToolPermission({}), false);
+});
+
+test("the Milagre tools every provider runs without its own card: reads, plan tools and self-gated tools", () => {
+  const ungated = (name, readOnly = false) => isUngatedMilagreTool({ name, readOnly });
+  assert.equal(ungated("linear_issue", true), true);
+  for (const name of [...PLAN_TOOL_NAMES, "worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"])
+    assert.equal(ungated(name), true, name);
+  for (const name of ["linear_create_issue", "linear_comment", "chat_stop", "chat_update", "worktree_create", "design_delete", "chat_start"])
+    assert.equal(ungated(name), false, name);
+  assert.ok(MODE_RANK.ask < MODE_RANK.auto && MODE_RANK.auto < MODE_RANK.full);
 });
 
 function pending() {

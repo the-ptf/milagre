@@ -1100,6 +1100,50 @@ test("Designs can be disabled when starting or resuming Claude", async (t) => {
   }
 });
 
+test("only the read, plan and self-gated Milagre tools skip Claude's approval; the rest follow the Chat's mode", async (t) => {
+  const tool = (name, readOnly) => ({ name, description: name, input: {}, readOnly, run: async () => `${name} ran` });
+  const tools = [
+    tool("linked_overview", true),
+    tool("linear_issue", true),
+    tool("tasks_set", false),
+    tool("phase_set", false),
+    tool("delegate", false),
+    tool("worktree_link", false),
+    tool("chat_set_mode", false),
+    tool("worktree_create", false),
+    tool("chat_stop", false),
+    tool("linear_create_issue", false),
+    tool("design_delete", false),
+  ];
+  const sdk = fakeSdk(async function* ({ options, signal }) {
+    yield init;
+    const result = await options.canUseTool("mcp__milagre__worktree_create", { projectPath: "/repo" }, { signal, requestId: "req-mcp", toolUseID: "tool-mcp" });
+    yield delta(JSON.stringify(result));
+    yield success;
+  });
+  const loadSdk = async () => ({
+    ...(await sdk.loadSdk()),
+    tool: (name, description, input, handler, extras) => ({ name, description, input, handler, extras }),
+    createSdkMcpServer: (options) => ({ type: "sdk", name: options.name, instance: {} }),
+  });
+  const events = [];
+  const session = new ClaudeSession({ cwd: "/repo", command: "/usr/local/bin/claude", linked: { tools }, emit: (event) => events.push(event), loadSdk });
+  t.after(() => session.close());
+  await session.startTurn({ ...TURN, permissionMode: "ask" });
+  assert.deepEqual(
+    sdk.calls.options.allowedTools,
+    ["linked_overview", "linear_issue", "tasks_set", "phase_set", "delegate", "worktree_link", "chat_set_mode"].map((name) => `mcp__milagre__${name}`),
+  );
+  // A write tool reaches canUseTool and waits on the Chat's card in Ask mode.
+  await waitUntil(() => events.some((event) => event.type === "permission-request"));
+  const card = events.find((event) => event.type === "permission-request");
+  assert.equal(card.requestId, "req-mcp");
+  assert.equal(card.kind, "other");
+  session.respondToPermission("req-mcp", "deny");
+  await ended(events);
+  assert.match(events.findLast((event) => event.type === "text-delta").text, /"behavior":"deny"/);
+});
+
 test("a Chat's linked tools are served in-process and allowed without Claude's own approval", async (t) => {
   const sdk = fakeSdk(scripts.reply);
   const made = [];

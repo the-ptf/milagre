@@ -300,7 +300,7 @@ function linkedToolDefinitions(chatId, { reads, delegations }) {
     },
     {
       name: "delegate",
-      description: `Hand work to another Chat: in a linked Worktree, or in any Worktree of this Chat's own Project (this one included, no Link needed). That Chat's own agent carries it out in the Chat you pick (a Chat ref, or "new"); its Delegation report comes back to this Chat later and reaches you with your next turn, so don't wait for it. Use it instead of chat_start when you want the result back. Set \`negotiation\` when the two sides must agree on something first: each report then starts the other side's next turn, for up to ${NEGOTIATION_ROUNDS} rounds.`,
+      description: `Hand work to another Chat: in a linked Worktree, or in any Worktree of this Chat's own Project (this one included, no Link needed). That Chat's own agent carries it out in the Chat you pick (a Chat ref, or "new"); its Delegation report comes back to this Chat later and reaches you with your next turn, so don't wait for it. Use it instead of chat_start when you want the result back. The message runs in that Chat's own permission mode (a new Chat takes yours); if that is more than yours, the user approves first: the call can wait minutes for that card, so wait for its result, don't end the turn or move on. Set \`negotiation\` when the two sides must agree on something first: each report then starts the other side's next turn, for up to ${NEGOTIATION_ROUNDS} rounds.`,
       input: {
         worktree: z
           .string()
