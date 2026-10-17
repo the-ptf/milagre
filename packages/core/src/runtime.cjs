@@ -947,6 +947,9 @@ function createRuntime(options) {
 
   // Resolves with what took the message: { turnId, steered }, a null turnId when no turn started, and
   // `cancelled` when quitting or a stopped setup stopped it before it began.
+  // What Milagre tells a Chat's agent with its next message and nobody typed, such as files the user undid (a
+  // <milagre_note> after the message). Kept in memory: a restart before the next message drops it.
+  const agentNotes = new Map();
   async function startAgentTurn(request) {
     if (closing) return { turnId: null, steered: false, cancelled: true };
     // The linked summary is read while the turn gets ready, so a Chat with Links starts no later than one without.
@@ -980,7 +983,9 @@ function createRuntime(options) {
     // stays first); a message steering a turn doesn't repeat it.
     const context = agents.isTurnActive(request.chatId) ? "" : await linkedContext;
     const reports = agents.isTurnActive(request.chatId) ? null : await linked.reportsForTurn(request.chatId);
-    const text = [prompt, ...setupNotes, context, reports?.text].filter(Boolean).join("\n\n");
+    const milagreNotes = agentNotes.get(request.chatId) ?? [];
+    agentNotes.delete(request.chatId);
+    const text = [prompt, ...setupNotes, ...milagreNotes, context, reports?.text].filter(Boolean).join("\n\n");
     try {
       if (closing) {
         await chats.receive(request.chatId, { type: "turn-cancelled" });
@@ -998,10 +1003,13 @@ function createRuntime(options) {
         accountId: cli.accountId,
       });
       if (started?.turnId) await reports?.delivered();
+      // A start that began no turn didn't tell the agent: the notes wait for the next one.
+      else if (milagreNotes.length) agentNotes.set(request.chatId, [...milagreNotes, ...(agentNotes.get(request.chatId) ?? [])]);
       return started;
     } catch (error) {
       // A start that throws sends no event, so the hold a setup handed to this turn would never be released.
       keepAwake.turnNotStarted(request.chatId);
+      if (milagreNotes.length) agentNotes.set(request.chatId, [...milagreNotes, ...(agentNotes.get(request.chatId) ?? [])]);
       throw error;
     } finally {
       reports?.release();
@@ -1211,6 +1219,7 @@ function createRuntime(options) {
     ready: () => environmentReady,
     busy: (chatId) => chats.isBusy(chatId) || agents.isTurnActive(chatId) || Boolean(agents.sessions.get(chatId)?.activeChildren?.size),
     note: (chatId, message) => chats.addNote(chatId, message),
+    tell: (chatId, text) => agentNotes.set(chatId, [...(agentNotes.get(chatId) ?? []), text]),
   });
 
   commands.handle("chat:send", async (_event, request) => {

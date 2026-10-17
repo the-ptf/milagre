@@ -8,7 +8,7 @@ function managementToolGroups({ host, operations }) {
   return ["projects", "worktrees", "chats"].map((id) => ({
     id,
     enabled: () => true,
-    tools: ({ scope, assertActive, connectionId }) => {
+    tools: ({ scope, assertActive, connectionId, connectionLabel }) => {
       const permit = async (projectPath) => {
         assertActive();
         if (!scope.projectPaths.includes(projectPath)) throw Error("Project is outside this connection's scope");
@@ -152,7 +152,7 @@ function managementToolGroups({ host, operations }) {
             files: z.array(z.string().min(1).max(4096)).max(20).default([]),
             images: z.array(z.string().min(1).max(4096)).max(10).default([]),
           },
-          (args, operationId, assertActive) => host.startChat(args, operationId, assertActive, callerOf(connectionId)),
+          (args, operationId, assertActive) => host.startChat(args, operationId, assertActive, callerOf(connectionId), connectionLabel),
         ),
         act("chat_stop", "Stop a Chat's running turn, as its Stop button does.", "start", chatInput, (args) => host.stopChat(args)),
         act(

@@ -71,6 +71,10 @@
       "types": "./src/tokens.d.mts",
       "default": "./src/tokens.mjs"
     },
+    "./untrusted-text": {
+      "types": "./src/untrusted-text.d.mts",
+      "default": "./src/untrusted-text.mjs"
+    },
     "./prompt-skills": {
       "types": "./src/prompt-skills.d.mts",
       "default": "./src/prompt-skills.mjs"

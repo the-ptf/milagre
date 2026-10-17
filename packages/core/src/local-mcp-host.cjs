@@ -19,6 +19,12 @@ function answerSummary(questions, answers) {
   return questions.map((question, index) => `${question.header || `Question ${index + 1}`}: ${shown(question)}`).join("\n");
 }
 
+/** What the receiving agent is told about who sent a chat_start message, which arrives as a plain user turn. */
+function senderLine(from, client) {
+  if (from) return `Message from the agent of Chat ${from}, sent with Milagre's chat_start (not the user):`;
+  return `Message sent by ${client || "an outside client"} through Milagre's MCP (not the user):`;
+}
+
 /** `body` with the attached files listed, as the composer sends it. */
 function attachmentPrompt(body, files) {
   return files.length ? `${body}\n\nAttached files:\n${files.join("\n")}` : body;
@@ -125,6 +131,16 @@ function createLocalMcpHost({
       ...(prompt ? { detail: JSON.stringify({ permissionMode: mode, prompt }, null, 2) } : {}),
     });
   };
+  // "Project / branch / title (ref)": how the receiving agent can tell which Chat sent it, and reach it again.
+  const callerLabel = async (caller) => {
+    try {
+      const { state, session } = await chat(projectOfKey(caller), caller);
+      const branch = state.worktrees?.[session.worktree_id]?.name ?? "unknown branch";
+      return `${path.basename(projectOfKey(caller))} / ${branch} / ${session.title || session.generatedTitle || "Chat"} (${caller})`;
+    } catch {
+      return caller;
+    }
+  };
   const runOf = (chatId) => chats.runs[chatId];
   const pending = (chatId) => {
     const run = runOf(chatId);
@@ -200,6 +216,7 @@ function createLocalMcpHost({
       operationId,
       assertActive,
       caller,
+      client,
     ) {
       const { state, session } = await chat(projectPath, chatId);
       if (session.archived) throw Error("This Chat is archived");
@@ -234,8 +251,9 @@ function createLocalMcpHost({
         ...latest,
         projectPath,
         sessionId: session.id,
+        // The Chat shows `body` as the user's message; the agent is told who really sent it.
         body: prompt,
-        prompt: attachmentPrompt(prompt, attached),
+        prompt: `${senderLine(caller && (await callerLabel(caller)), client)}\n\n${attachmentPrompt(prompt, attached)}`,
         images: pictures,
         files: attached,
         provider: chosenProvider,

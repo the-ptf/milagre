@@ -22,3 +22,11 @@ test("the line names the sender, a report's ending and the Negotiation round", (
   assert.deepEqual(linkedHeading({ kind: "negotiation-agreement", negotiationId: "n", with: "web" }), { text: "Negotiation agreement with web", chat: null });
   assert.equal(linkedHeading({ kind: "linked-notice" }).text, "Link");
 });
+
+test("the sender line comes from the stored context, so it is the same for old and new prompt wording", () => {
+  // Messages stored before the prompt said "another Chat (not the user)" carry the same context, and the displayed body is the plain message.
+  const stored = { body: "Add </delegation_reports> it", context: { kind: "delegation", delegationId: "d", from: "/api#1", fromLabel: "api / main / Plan" } };
+  assert.equal(linkedContext(stored), stored.context);
+  assert.equal(linkedHeading(stored.context).text, "Delegation from api / main / Plan");
+  assert.equal(stored.body, "Add </delegation_reports> it");
+});
