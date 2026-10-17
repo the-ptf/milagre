@@ -1,6 +1,7 @@
 const { isTurnEnd } = require("@milagre/shared/agent-runs");
 const { clock, parsePass } = require("@milagre/shared/routines");
 const { renderRoutinePrompt } = require("@milagre/shared/routine-prompt");
+const { linearIssueUrl } = require("@milagre/shared/linear-issue");
 
 const TICK_MS = 1000;
 const BUSY = "chat was busy";
@@ -36,15 +37,6 @@ function authorName(author) {
 // Linear's identifiers, as they look: an issue key (MIL-1) and a team key (MIL). Anything else is treated as text.
 const ISSUE_KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
 const TEAM_KEY = /^[A-Za-z][A-Za-z0-9]*$/;
-// An issue's URL up to its key, https://linear.app/<org>/issue/MIL-1, in the Routine's own workspace: the title slug
-// Linear puts after the key is text anyone who can rename the issue writes. Null when the URL doesn't read as that issue's.
-const ISSUE_URL = /^https:\/\/linear\.app\/([A-Za-z0-9_-]+)\/issue\/([A-Za-z][A-Za-z0-9]*-\d+)(?=$|[/?#])/;
-function issueUrl(url, key, workspace) {
-  const match = ISSUE_URL.exec(String(url ?? ""));
-  if (!match || match[2].toUpperCase() !== String(key).toUpperCase()) return null;
-  return workspace && match[1].toLowerCase() === String(workspace).toLowerCase() ? match[0] : null;
-}
-
 /**
  * A Linear Run's message: the Routine's prompt with the issue's fields filled in, and a comment's when there is one.
  * Everything people wrote in Linear (the title, description, labels, state name, assignee, author and comment) reaches the
@@ -54,7 +46,8 @@ function issueUrl(url, key, workspace) {
  */
 function linearPrompt(template, issue, comment, workspace) {
   const keyed = ISSUE_KEY.test(String(issue.key ?? ""));
-  const url = keyed ? issueUrl(issue.url, issue.key, workspace) : null;
+  // The URL up to the key, in the Routine's workspace; anything after the key is text anyone renaming the issue writes.
+  const url = keyed ? linearIssueUrl(issue.url, issue.key, workspace) : null;
   const name = keyed ? `Linear issue ${issue.key}` : "Linear issue";
   const values = {
     "issue.key": issue.key,
@@ -123,6 +116,8 @@ function createRoutineScheduler({
   let ticking = false;
   let swept = false;
   let recovered = false;
+  // The comments going out, one after another (see dispatchAll).
+  let comments = Promise.resolve();
   let awake = null;
   // Chats whose beat failed to start again, its turn end not yet published: that end is marked quiet when it comes.
   const silenced = new Set();
@@ -261,7 +256,10 @@ function createRoutineScheduler({
     try {
       chatId = await chats.linkedChat({ key: issue.key, workspace: issue.workspace });
     } catch (error) {
-      finish(run, undefined, { status: "failed", error: errorText(error) });
+      // The Chats couldn't be looked up just now: the comment waits and tries again, uncounted, as for a busy Chat (store.cjs
+      // gives up after 2 h). Its key is already seen, so failing it would lose it for good.
+      console.warn("[routines] couldn't find a comment's Chat", error);
+      store.deferRun(run.id, now() + COMMENT_RETRY_MS);
       return;
     }
     // The Routine may have been turned off or deleted while its Chat was looked up.
@@ -324,6 +322,15 @@ function createRoutineScheduler({
 
   async function dispatchAll(claims) {
     for (const { routine, run } of claims) {
+      if (isComment(run.event)) {
+        // Finding a comment's Chat reads every Project, so comments go out off the tick, one after another in the order they
+        // were claimed (comments on one issue arrive in order), and a heartbeat never waits on that lookup.
+        comments = comments
+          .then(() => dispatchSafely(routine, run))
+          .then(changed)
+          .catch((error) => console.warn("[routines] dispatch failed", error));
+        continue;
+      }
       if (startsChat(routine, run)) {
         // Making a Chat can take a while (a Worktree, a fetch), so it holds up neither the tick nor the other Routines. It
         // says when it's done: the Run has its Chat, or failed.
@@ -503,7 +510,19 @@ function createRoutineScheduler({
     return store.runs(routineId).find((item) => item.id === started.run.id);
   }
 
-  return { recover, start, stop, tick, observe, chatArchived, runNow, enqueueEvent, enqueueEvents };
+  return {
+    recover,
+    // Resolves once the comments claimed so far have gone out (or waited); for tests and an orderly stop.
+    idle: () => comments,
+    start,
+    stop,
+    tick,
+    observe,
+    chatArchived,
+    runNow,
+    enqueueEvent,
+    enqueueEvents,
+  };
 }
 
 module.exports = { createRoutineScheduler, linearPrompt, schedulePrompt };
