@@ -2442,7 +2442,9 @@ function App() {
                   />
                 </div>
               )}
-              {view === "routines" && <RoutinesPage models={models} onOpenChat={openLinkedChat} onOpenExperimental={openExperimental} />}
+              {view === "routines" && (
+                <RoutinesPage models={models} projectPath={project.path} onOpenChat={openLinkedChat} onOpenExperimental={openExperimental} />
+              )}
               {view === "canvas" && (
                 <CanvasView
                   states={states}

@@ -5,6 +5,7 @@ import type { ModelOption } from "@milagre/shared/model";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { RoutineRow } from "./RoutineRow";
+import { RoutineForm } from "./RoutineForm";
 import { groupRoutines, routineMeta, routineStatus, useRoutines, type RoutineWithRuns } from "../../lib/routines";
 
 type Filter = "all" | "heartbeats" | "triggers" | "paused";
@@ -14,10 +15,13 @@ const card = "divide-y divide-line overflow-hidden rounded-xl border border-line
 /** The Routines page: this Mac's heartbeats and triggers, each with its switch and actions, and New routine. */
 export function RoutinesPage({
   models,
+  projectPath,
   onOpenChat,
   onOpenExperimental,
 }: {
   models: ModelOption[];
+  /** The open Project, where a new Routine runs unless another is picked. */
+  projectPath?: string;
   onOpenChat: (chatKey: string) => void;
   onOpenExperimental: () => void;
 }) {
@@ -25,7 +29,7 @@ export function RoutinesPage({
   const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState<string | null>(null);
   // The Routine being edited, or "new"; null while the form is closed.
-  const [, setForm] = useState<RoutineWithRuns | "new" | null>(null);
+  const [form, setForm] = useState<RoutineWithRuns | "new" | null>(null);
   const [chatTitles, setChatTitles] = useState<Map<string, string>>(new Map());
   const [now, setNow] = useState(() => Date.now());
 
@@ -175,6 +179,17 @@ export function RoutinesPage({
           </>
         ) : null}
       </div>
+      {form && (
+        <RoutineForm
+          initial={form === "new" ? undefined : form}
+          models={models}
+          defaultProjectPath={projectPath}
+          onClose={() => {
+            setForm(null);
+            refresh();
+          }}
+        />
+      )}
     </ScrollArea>
   );
 }

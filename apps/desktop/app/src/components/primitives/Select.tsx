@@ -32,6 +32,7 @@ export function Select<T extends string>({
   onChange,
   width = 240,
   disabled = false,
+  triggerClassName = "",
 }: {
   label: string;
   value: T;
@@ -39,14 +40,19 @@ export function Select<T extends string>({
   onChange: (value: T) => void;
   width?: number;
   disabled?: boolean;
+  /** Added to the trigger's classes, e.g. `w-full` in a form. */
+  triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number }>({ left: 0, maxHeight: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  // Inside an open modal <dialog> the panel goes into the dialog: the dialog sits in the top layer, above anything in body.
+  const [host, setHost] = useState<Element | null>(null);
   const selected = options.find((option) => option.value === value);
 
   function place() {
+    setHost(triggerRef.current?.closest("dialog[open]") ?? null);
     const trigger = triggerRef.current?.getBoundingClientRect();
     if (!trigger) return;
     const left = Math.max(INSET, Math.min(trigger.right - width, window.innerWidth - width - INSET));
@@ -117,10 +123,10 @@ export function Select<T extends string>({
           setOpen(true);
         }}
         onKeyDown={onTriggerKeyDown}
-        className={`flex h-8 items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"}`}
+        className={`flex h-8 items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"} ${triggerClassName}`}
       >
         {selected?.icon}
-        {selected?.display ?? <span className="truncate">{selected?.label ?? ""}</span>}
+        {selected?.display ?? <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? ""}</span>}
         <span className="text-ink-3">
           <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={1.8} color="currentColor" />
         </span>
@@ -154,7 +160,7 @@ export function Select<T extends string>({
               ))}
             </PickerPanel>
           </div>,
-          document.body,
+          host ?? document.body,
         )}
     </>
   );
