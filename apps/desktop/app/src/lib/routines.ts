@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Routine, RoutineRun } from "@milagre/shared/model";
 import { PERMISSION_MODES } from "@milagre/shared/model-copy";
 import { clock, triggerText } from "@milagre/shared/routines";
+import { ipcErrorMessage } from "@milagre/shared/result";
 
 /** A Routine as `listRoutines` gives it: with its latest Runs, newest first. */
 export type RoutineWithRuns = Routine & { runs: RoutineRun[] };
@@ -34,19 +35,28 @@ function until(at: number, now: number): string {
   return `${Math.max(1, Math.ceil(left / MINUTE))} min`;
 }
 
-/** How long ago `at` was: "just now", "12 min ago", "2 h ago", "yesterday", "3 days ago". */
+/** Local calendar days from `at` to `now`: 0 the same day, 1 yesterday. */
+function daysBetween(at: number, now: number): number {
+  const midnight = (time: number) => {
+    const date = new Date(time);
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  };
+  return Math.round((midnight(now) - midnight(at)) / DAY);
+}
+
+/** How long ago `at` was: "just now", "12 min ago", "2 h ago" (today), "yesterday", "3 days ago". */
 export function ago(at: number, now: number): string {
   const past = Math.max(0, now - at);
   if (past < MINUTE) return "just now";
   if (past < HOUR) return `${Math.floor(past / MINUTE)} min ago`;
-  if (past < DAY) return `${Math.floor(past / HOUR)} h ago`;
-  if (past < 2 * DAY) return "yesterday";
-  return `${Math.floor(past / DAY)} days ago`;
+  const days = daysBetween(at, now);
+  if (days <= 0) return `${Math.floor(past / HOUR)} h ago`;
+  return days === 1 ? "yesterday" : `${days} days ago`;
 }
 
 /** When the Routine ends: "3 of 20 runs left" or "ends in 2 days"; null when it runs until switched off. */
 export function routineEnd(routine: Routine, now: number): string | null {
-  if (routine.maxRuns !== undefined) return `${Math.max(0, routine.maxRuns - routine.runCount)} of ${plural(routine.maxRuns, "run")} left`;
+  if (routine.maxRuns !== undefined) return `${Math.max(0, routine.maxRuns - routine.runCount)} of ${plural(routine.maxRuns, "Run")} left`;
   if (routine.expiresAt !== undefined) return `ends in ${until(routine.expiresAt, now)}`;
   return null;
 }
@@ -81,9 +91,11 @@ export function routineStatus(routine: RoutineWithRuns, now: number): string {
   if (!routine.enabled) return "Paused";
   if (routine.trigger.kind === "schedule" && typeof routine.nextRunAt === "number") return `Next ${clock(routine.nextRunAt)}`;
   const run = routine.runs[0];
-  if (!run) return "No runs yet";
+  if (!run) return "No Runs yet";
   const key = run.event?.kind === "linear" ? run.event.issue.key : null;
-  return key ? `${key} · ${ago(run.startedAt, now)}` : capitalized(ago(run.startedAt, now));
+  const when = ago(run.startedAt, now);
+  if (key) return `${key} · ${when}`;
+  return when === "yesterday" ? `Yesterday ${clock(run.startedAt)}` : capitalized(when);
 }
 
 /**
@@ -94,23 +106,31 @@ export function useRoutines(): { enabled: boolean | null; routines: RoutineWithR
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [routines, setRoutines] = useState<RoutineWithRuns[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Only the newest read lands: an older one that answers late is dropped, and nothing lands after unmount.
+  const latest = useRef(0);
   const refresh = useCallback(() => {
+    const read = ++latest.current;
     Promise.resolve()
       .then(async () => {
         const on = (await window.milagre.readRoutinesEnabled())?.enabled === true;
         const list = on ? ((await window.milagre.listRoutines())?.routines ?? []) : [];
+        if (read !== latest.current) return;
         setEnabled(on);
         setRoutines(list);
         setError(null);
       })
       .catch((failure: unknown) => {
-        setEnabled((current) => current ?? false);
-        setError(failure instanceof Error ? failure.message : String(failure));
+        // A failed read is an error, not "Routines are off": the switch keeps what was last read (null at first).
+        if (read === latest.current) setError(ipcErrorMessage(failure));
       });
   }, []);
   useEffect(() => {
     refresh();
-    return window.milagre.onRoutinesChanged?.(() => refresh());
+    const off = window.milagre.onRoutinesChanged?.(() => refresh());
+    return () => {
+      latest.current += 1;
+      off?.();
+    };
   }, [refresh]);
   return { enabled, routines, error, refresh };
 }

@@ -25,6 +25,6 @@ export function placeholderQuery(text: string, caret: number, names: string[]): 
 
 /**
  * Replaces the text from `start` (the `{{`) to `caret` with `{{name}}`; the caret goes after the `}}`. The rest of a name
- * and one or two closing braces already following the caret are taken, so nothing is doubled or left behind.
+ * (typed or not) and up to two closing braces right after the caret are taken, so nothing is doubled or left behind.
  */
 export function insertPlaceholder(text: string, start: number, caret: number, name: string): { text: string; caret: number };

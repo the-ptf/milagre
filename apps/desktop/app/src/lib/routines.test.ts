@@ -3,7 +3,8 @@ import test from "node:test";
 import { clock } from "@milagre/shared/routines";
 import { groupRoutines, routineMeta, routineStatus, type RoutineWithRuns } from "./routines.ts";
 
-const NOW = Date.UTC(2026, 9, 17, 10, 30);
+// Local noon, so "today" and "yesterday" hold in any time zone.
+const NOW = new Date(2026, 9, 17, 12, 0).getTime();
 const HOUR = 3_600_000;
 const base = { enabled: true, createdBy: { kind: "user" as const }, runCount: 0, createdAt: NOW - 48 * HOUR, updatedAt: NOW, runs: [] };
 
@@ -73,7 +74,7 @@ test("groupRoutines splits heartbeats from triggers and counts the paused ones i
 
 test("a heartbeat's meta says its cadence, its Chat and how many runs are left", () => {
   const meta = routineMeta(heartbeat, { chatTitle: () => "Notification chimes", now: NOW });
-  assert.equal(meta, "Every 10 min · in Notification chimes · 3 of 20 runs left");
+  assert.equal(meta, "Every 10 min · in Notification chimes · 3 of 20 Runs left");
   assert.equal(routineMeta({ ...heartbeat, maxRuns: undefined, expiresAt: NOW + 50 * HOUR }, { now: NOW }), "Every 10 min · in a Chat · ends in 2 days");
   assert.equal(routineStatus(heartbeat, NOW), `Next ${clock(heartbeat.nextRunAt!)}`);
 });
@@ -87,5 +88,9 @@ test("a Linear trigger's meta names the trigger, where Runs go, and its model an
 test("a paused webhook says Paused, and it has no model to name", () => {
   assert.equal(routineMeta(webhook, { now: NOW }), "Webhook · new Chat in milagre-ade");
   assert.equal(routineStatus(webhook, NOW), "Paused");
-  assert.equal(routineStatus({ ...webhook, enabled: true }, NOW), "No runs yet");
+  assert.equal(routineStatus({ ...webhook, enabled: true }, NOW), "No Runs yet");
+  const yesterday = NOW - 20 * HOUR;
+  const ran = { ...webhook, enabled: true, runs: [{ id: "x", routineId: "w1", startedAt: yesterday, status: "acted" as const }] };
+  assert.equal(routineStatus(ran, NOW), `Yesterday ${clock(yesterday)}`);
+  assert.equal(routineStatus({ ...ran, runs: [{ ...ran.runs[0]!, startedAt: NOW - 3 * HOUR }] }, NOW), "3 h ago");
 });

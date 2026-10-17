@@ -6,6 +6,8 @@ const DAY_MS = 864e5;
 // The store's limits (packages/core/src/routines/store.cjs, cron.cjs), so the form says no before the Mac does.
 const MAX_EXPIRY_MS = 30 * DAY_MS;
 const MAX_RUNS_LIMIT = 1000;
+const NAME_MAX = 80;
+const PROMPT_MAX = 4000;
 const HEARTBEAT_DAYS = 7;
 export const EVERY_MINUTES = [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30];
 export const EVERY_HOURS = [1, 2, 3, 4, 6, 8, 12, 24];
@@ -146,12 +148,14 @@ function endOf(state, now) {
 function common(state, now) {
   const name = text(state.name);
   if (!name) return fail("name", "Give the Routine a name");
+  if (name.length > NAME_MAX) return fail("name", `A name is at most ${NAME_MAX} characters`);
   const trigger = triggerOf(state);
   if (trigger.error) return trigger;
   const target = targetOf(state);
   if (target.error) return target;
   const prompt = text(state.prompt);
   if (!prompt) return fail("prompt", "Write what the agent should do");
+  if (prompt.length > PROMPT_MAX) return fail("prompt", `A prompt is at most ${PROMPT_MAX} characters`);
   const end = endOf(state, now);
   if (end.error) return end;
   return { name, prompt, trigger: trigger.trigger, target: target.target, end };
@@ -201,8 +205,10 @@ export function formFromRoutine(routine, timezone, now = Date.now()) {
     state.runIn = target.workspace;
     state.projectPath = target.projectPath;
   }
-  if (routine.maxRuns !== undefined) state.stop = { ...empty.stop, kind: "runs", runs: routine.maxRuns };
-  else if (routine.expiresAt !== undefined) state.stop = { ...empty.stop, kind: "date", at: routine.expiresAt };
+  // The form shows one end; a Routine with both keeps its expiry in `at`, so an edit doesn't drop it (see formToUpdate).
+  const at = routine.expiresAt ?? empty.stop.at;
+  if (routine.maxRuns !== undefined) state.stop = { ...empty.stop, kind: "runs", runs: routine.maxRuns, at };
+  else if (routine.expiresAt !== undefined) state.stop = { ...empty.stop, kind: "date", at };
   return state;
 }
 
@@ -220,6 +226,8 @@ export function formToUpdate(state, routine, now = Date.now()) {
   if (routine.trigger.kind === "webhook") {
     const secret = text(state.webhook.signingSecret);
     const signed = Boolean(secret) || (state.webhook.signed ?? routine.trigger.signed) === true;
+    // Signing a webhook that had no secret needs one now, or every delivery would fail its check.
+    if (signed && !secret && routine.trigger.signed !== true) return fail("signingSecret", SIGNED_NEEDS_SECRET);
     patch.trigger = { kind: "webhook", hookId: routine.trigger.hookId, signed };
     if (secret) patch.signingSecret = secret;
     if (signed && text(state.webhook.signingHeader)) patch.signingHeader = text(state.webhook.signingHeader);
@@ -227,5 +235,7 @@ export function formToUpdate(state, routine, now = Date.now()) {
   for (const key of ["provider", "model", "permissionMode"]) patch[key] = text(state[key]) || null;
   patch.maxRuns = made.end.maxRuns ?? null;
   patch.expiresAt = made.end.expiresAt ?? null;
+  // A run cap picked over a stored expiry keeps that expiry: the form shows only one end.
+  if (state.stop.kind === "runs" && routine.maxRuns !== undefined && routine.expiresAt !== undefined) patch.expiresAt = routine.expiresAt;
   return { patch };
 }

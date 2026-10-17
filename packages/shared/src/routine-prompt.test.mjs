@@ -394,3 +394,7 @@ test("placeholderQuery accepts spaces after the {{, as the renderer does", () =>
   assert.equal(placeholderQuery("{{ iss more", 11, names), null);
   assert.equal(placeholderQuery("{{\niss", 6, names), null);
 });
+
+test("insertPlaceholder takes the rest of an unclosed name after the caret", () => {
+  assert.deepEqual(insertPlaceholder("{{issue more", 0, 5, "issue.key"), { text: "{{issue.key}} more", caret: 13 });
+});

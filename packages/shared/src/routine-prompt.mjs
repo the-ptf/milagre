@@ -105,9 +105,10 @@ export function renderRoutinePrompt(template, values, untrusted) {
 }
 
 /**
- * The placeholder being typed at `caret`: the last "{{" before it with no whitespace or braces after it (so not one that is
- * closed or has been left behind). `start` is where that "{{" is, `query` what follows it, and `matches` the `names` that begin
- * with it, in the order given and without regard to case. Null when the caret isn't in one.
+ * The placeholder being typed at `caret`: the last "{{" before it, followed by optional spaces (the renderer reads
+ * `{{ issue.key }}`) and a name with no whitespace or braces (so not one that is closed or has been left behind). `start` is
+ * where that "{{" is (the first brace of a longer run, so inserting replaces them all), `query` the name typed, and `matches`
+ * the `names` that begin with it, in the order given and without regard to case. Null when the caret isn't in one.
  */
 export function placeholderQuery(text, caret, names = []) {
   const source = String(text ?? "");
@@ -134,6 +135,7 @@ export function insertPlaceholder(text, start, caret, name) {
   const source = String(text ?? "");
   const placeholder = `{{${name}}}`;
   const tail = source.slice(caret);
-  const closed = /^[^\s{}]*\}{1,2}/.exec(tail);
-  return { text: source.slice(0, start) + placeholder + (closed ? tail.slice(closed[0].length) : tail), caret: start + placeholder.length };
+  // The rest of the name being typed, and the closing braces after it, go: the placeholder replaces them.
+  const rest = /^[^\s{}]*\}{0,2}/.exec(tail)?.[0] ?? "";
+  return { text: source.slice(0, start) + placeholder + tail.slice(rest.length), caret: start + placeholder.length };
 }

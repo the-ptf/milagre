@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { emptyRoutineForm, formFromRoutine, formToInput, formToUpdate, scheduleCron, scheduleFromCron, withRunIn } from "./routine-form.mjs";
+import {
+  EVERY_HOURS,
+  EVERY_MINUTES,
+  emptyRoutineForm,
+  formFromRoutine,
+  formToInput,
+  formToUpdate,
+  scheduleCron,
+  scheduleFromCron,
+  withRunIn,
+} from "./routine-form.mjs";
 
 const NOW = Date.UTC(2026, 9, 17, 12, 0);
 const DAY = 864e5;
@@ -15,7 +25,7 @@ const linearForm = () => ({
   prompt: "Work on {{issue.key}}",
   provider: "claude",
   model: "claude-opus-5-5",
-  permissionMode: "bypassPermissions",
+  permissionMode: "full",
 });
 
 test("a Linear label trigger becomes a routines:create input for a new Chat in a worktree", () => {
@@ -27,7 +37,7 @@ test("a Linear label trigger becomes a routines:create input for a new Chat in a
       target: { kind: "new-chat", projectPath: "/code/milagre", workspace: "worktree" },
       provider: "claude",
       model: "claude-opus-5-5",
-      permissionMode: "bypassPermissions",
+      permissionMode: "full",
     },
   });
 });
@@ -105,7 +115,7 @@ test("a cron the form made reads back into the same schedule, and anything else 
   for (const cron of ["*/15 * * * *", "0 */2 * * *", "30 8 * * 1-5", "30 8 * * *", "0 9 * * 0,6"]) {
     const schedule = scheduleFromCron(cron, "UTC");
     assert.equal(schedule.mode === "cron", false, cron);
-    assert.equal(scheduleCron(schedule).cron, cron === "0 */24 * * *" ? "0 0 * * *" : cron);
+    assert.equal(scheduleCron(schedule).cron, cron);
   }
   assert.equal(scheduleFromCron("0 9 1 * *", "UTC").mode, "cron");
   assert.equal(scheduleFromCron("0 9 1 * *", "UTC").cron, "0 9 1 * *");
@@ -228,4 +238,70 @@ test("the trigger kind and where a Run lands can't change on an edit", () => {
   const form = formFromRoutine(routine, "UTC", NOW);
   assert.equal(formToUpdate({ ...form, trigger: "linear" }, routine, NOW).field, "trigger");
   assert.equal(formToUpdate({ ...form, runIn: "chat", chatId: "c" }, routine, NOW).field, "runIn");
+});
+
+test("an unsigned webhook can't become signed on an edit without a secret", () => {
+  const hook = {
+    id: "w1",
+    name: "n",
+    prompt: "p",
+    trigger: { kind: "webhook", hookId: "b".repeat(64), signed: false },
+    target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+    enabled: true,
+    createdBy: { kind: "user" },
+    runCount: 0,
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+  const form = formFromRoutine(hook, "UTC", NOW);
+  assert.deepEqual(formToUpdate({ ...form, webhook: { signed: true, signingHeader: "", signingSecret: "" } }, hook, NOW), {
+    field: "signingSecret",
+    error: "A signed webhook needs a signing secret",
+  });
+  // An already signed one keeps its stored secret.
+  const signed = { ...hook, trigger: { ...hook.trigger, signed: true } };
+  assert.equal(formToUpdate(formFromRoutine(signed, "UTC", NOW), signed, NOW).patch.trigger.signed, true);
+});
+
+test("an edit keeps an expiry the form doesn't show when the Routine also has a run cap", () => {
+  const routine = {
+    id: "r2",
+    name: "n",
+    prompt: "p",
+    trigger: { kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" },
+    target: { kind: "chat", chatId: "c" },
+    enabled: true,
+    createdBy: { kind: "agent", chatId: "c" },
+    maxRuns: 5,
+    expiresAt: NOW + 2 * DAY,
+    runCount: 0,
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+  const form = formFromRoutine(routine, "UTC", NOW);
+  assert.equal(form.stop.kind, "runs");
+  const { patch } = formToUpdate(form, routine, NOW);
+  assert.equal(patch.maxRuns, 5);
+  assert.equal(patch.expiresAt, NOW + 2 * DAY);
+  // Picking a date instead drops the cap.
+  const dated = formToUpdate({ ...form, stop: { ...form.stop, kind: "date" } }, routine, NOW).patch;
+  assert.equal(dated.maxRuns, null);
+  assert.equal(dated.expiresAt, NOW + 2 * DAY);
+});
+
+test("name and prompt lengths follow the store's limits", () => {
+  assert.deepEqual(formToInput({ ...linearForm(), name: "n".repeat(81) }, NOW), { field: "name", error: "A name is at most 80 characters" });
+  assert.equal(formToInput({ ...linearForm(), name: "n".repeat(80) }, NOW).input.name.length, 80);
+  assert.deepEqual(formToInput({ ...linearForm(), prompt: "p".repeat(4001) }, NOW), { field: "prompt", error: "A prompt is at most 4000 characters" });
+});
+
+test("the form's cadences are the ones the Mac's cron accepts", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const cron = await readFile(new URL("../../core/src/routines/cron.cjs", import.meta.url), "utf8");
+  const list = (name) => JSON.parse(cron.match(new RegExp(`const ${name} = (\\[[^\\]]*\\])`))[1]);
+  assert.deepEqual(EVERY_MINUTES, list("EVERY_MINUTES"));
+  assert.deepEqual(EVERY_HOURS, list("EVERY_HOURS"));
+  const store = await readFile(new URL("../../core/src/routines/store.cjs", import.meta.url), "utf8");
+  assert.match(store, /const NAME_MAX = 80;/);
+  assert.match(store, /const PROMPT_MAX = 4000;/);
 });
