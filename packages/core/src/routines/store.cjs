@@ -103,6 +103,9 @@ function checkTrigger(value) {
       if (!LINEAR_EVENTS.includes(value.event)) throw new Error(`event must be one of ${LINEAR_EVENTS.join(", ")}`);
       const trigger = { kind: "linear", workspace: checkText(value.workspace, "workspace"), event: value.event };
       for (const key of ["team", "label", "state"]) if (value[key] !== undefined) trigger[key] = checkText(value[key], key);
+      // The event's own filter: which label was added, or which state the issue moved to.
+      if (trigger.event === "label-added" && trigger.label === undefined) throw new Error("A label-added trigger needs a label");
+      if (trigger.event === "state" && trigger.state === undefined) throw new Error("A state trigger needs a state");
       return trigger;
     }
     case "webhook": {

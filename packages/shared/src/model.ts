@@ -109,6 +109,9 @@ export interface ChatSummary {
   openHandoff?: number;
   /** The clientMessageId of the Chat's last few sends, so a window without messages finds the Chat its preview became. */
   clientMessageIds?: string[];
+  /** The Linear issue the Chat's first message is the card of (key and workspace), so a comment on it finds the Chat. */
+  linearIssue?: string;
+  linearWorkspace?: string;
 }
 
 export interface AgentSession {
@@ -160,6 +163,8 @@ export interface AgentSession {
   contextUsage?: ContextUsage;
   /** The Routine and Run that started this Chat; set only on a Chat a Run created. */
   routine?: { routineId: string; runId: string };
+  /** The permission mode the Chat's composer last set (a pick, or a person's message); a heartbeat's beat runs in it. */
+  permissionMode?: PermissionMode;
   /**
    * Messages sent while a turn ran on a provider that can't steer (provider-capabilities `steer`), oldest first. Each
    * starts a turn of its own when the one before it completes; Send now and Remove act on one (chat-host.cjs).
@@ -332,7 +337,7 @@ export type LinearIssueContext = {
   state: { name: string; type: "triage" | "backlog" | "unstarted" | "started" | "completed" | "canceled"; color: string };
   workspace?: string;
   note?: string;
-  routine?: { routineId: string; runId: string; name: string; at: number; quiet?: boolean; summary?: string };
+  routine?: { routineId: string; runId: string; name: string; at: number; quiet?: boolean; summary?: string; label?: string };
 };
 
 /**
@@ -374,6 +379,9 @@ export interface LinearIssueSnapshot {
   url: string;
   labels: string[];
   state: string;
+  /** The state's type and color, for the issue card; absent on a snapshot taken before they were kept. */
+  stateType?: string;
+  stateColor?: string;
   team: string;
   assignee?: string;
   workspace: string;

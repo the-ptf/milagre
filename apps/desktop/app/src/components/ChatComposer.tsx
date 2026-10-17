@@ -59,7 +59,7 @@ import { WorktreeLinkDivider } from "./WorktreeLinkDivider";
 import { AccountSwitchDivider } from "./AccountSwitchDivider";
 import { ChatReloadDivider } from "./ChatReloadDivider";
 import { isChatReload } from "@milagre/shared/chat-reload";
-import { groupQuietRuns, isRoutineRun } from "@milagre/shared/routines";
+import { groupQuietRuns, isRoutineRun, routineRunOf } from "@milagre/shared/routines";
 import { RoutineRunDivider } from "./RoutineRunDivider";
 import { CompactionDivider } from "./CompactionDivider";
 import { CheckpointRestoreDivider } from "./CheckpointRestoreDivider";
@@ -506,33 +506,39 @@ const MessageTranscript = memo(function MessageTranscript({
           {historyLoading ? "Loading earlier messages..." : `Show earlier messages (${start + remote})`}
         </button>
       )}
-      {transcript.map(({ message, merged }) => (
-        <MessageSection
-          key={message.clientMessageId ?? message.id}
-          message={message}
-          merged={merged}
-          isUser={message.role === "user"}
-          onRecommendationSelect={onRecommendationSelect}
-          onUpdateCli={onUpdateCli}
-          updatingCli={updatingCli}
-          cliStatus={cliStatus}
-          streaming={message === streamingMessage}
-          asking={message === streamingMessage && asking}
-          waitingStepIds={message === streamingMessage ? waitingStepIds : undefined}
-          animate={!message.clientMessageId && !openingIds.has(message.id)}
-          onOpenChat={onOpenLinkedChat}
-          limitInteractive={message.id === limitMessageId}
-          onOpenAccounts={onOpenAccounts}
-          models={models}
-          // Only the messages that show undo get its props: a send or turn end leaves the rest memoized.
-          undoId={message.role === "user" ? undoable?.get(message.id)?.id : undefined}
-          undoLatest={message.role === "user" && undoable?.get(message.id)?.latest}
-          undoDisabled={message.role === "user" && undoable?.has(message.id) && undoBlocked}
-          onUndo={message.role === "user" && undoable?.has(message.id) ? onUndo : undefined}
-          highlighted={message.id === highlightId}
-          onCheckpointPreview={isCheckpointRestore(message) && !undoBlocked ? onCheckpointPreview : undefined}
-        />
-      ))}
+      {transcript.map(({ message, merged }) => {
+        // A Linear Run's first message is its issue card carrying the Run: the divider comes first, then the card.
+        const issueRun = isRoutineRun(message) ? null : routineRunOf(message);
+        return (
+          <Fragment key={message.clientMessageId ?? message.id}>
+            {issueRun ? <RoutineRunDivider context={issueRun} merged={merged} /> : null}
+            <MessageSection
+              message={message}
+              merged={merged}
+              isUser={message.role === "user"}
+              onRecommendationSelect={onRecommendationSelect}
+              onUpdateCli={onUpdateCli}
+              updatingCli={updatingCli}
+              cliStatus={cliStatus}
+              streaming={message === streamingMessage}
+              asking={message === streamingMessage && asking}
+              waitingStepIds={message === streamingMessage ? waitingStepIds : undefined}
+              animate={!message.clientMessageId && !openingIds.has(message.id)}
+              onOpenChat={onOpenLinkedChat}
+              limitInteractive={message.id === limitMessageId}
+              onOpenAccounts={onOpenAccounts}
+              models={models}
+              // Only the messages that show undo get its props: a send or turn end leaves the rest memoized.
+              undoId={message.role === "user" ? undoable?.get(message.id)?.id : undefined}
+              undoLatest={message.role === "user" && undoable?.get(message.id)?.latest}
+              undoDisabled={message.role === "user" && undoable?.has(message.id) && undoBlocked}
+              onUndo={message.role === "user" && undoable?.has(message.id) ? onUndo : undefined}
+              highlighted={message.id === highlightId}
+              onCheckpointPreview={isCheckpointRestore(message) && !undoBlocked ? onCheckpointPreview : undefined}
+            />
+          </Fragment>
+        );
+      })}
     </>
   );
 });

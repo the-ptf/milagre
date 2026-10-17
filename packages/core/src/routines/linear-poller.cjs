@@ -67,6 +67,9 @@ function issueSnapshot(workspace, node) {
     url: String(node.url ?? ""),
     labels: (node.labels?.nodes ?? []).slice(0, LABELS_MAX).map((label) => cap(label?.name, TITLE_MAX)),
     state: String(node.state?.name ?? ""),
+    // For the issue card a Linear Run opens its Chat with.
+    ...(typeof node.state?.type === "string" ? { stateType: node.state.type } : {}),
+    ...(typeof node.state?.color === "string" ? { stateColor: node.state.color } : {}),
     team: String(node.team?.key ?? ""),
     ...(assignee ? { assignee: cap(assignee, TITLE_MAX) } : {}),
     workspace,

@@ -52,11 +52,42 @@ function summary(routine) {
 
 const LINEAR_EVENTS = ["assigned", "label-added", "state", "comment"];
 
+// A Linear trigger with `changes` applied. What isn't given stays (its workspace, team, event and the event's filter); a
+// label belongs only to label-added and a state only to state, and each of those events needs its own.
+function linearTrigger(trigger, { linearEvent, team, label, state }) {
+  if (trigger.kind !== "linear") throw new Error("Only a Linear trigger has linearEvent, team, label or state.");
+  const event = linearEvent ?? trigger.event;
+  if (label !== undefined && event !== "label-added") throw new Error("A label goes with linearEvent label-added.");
+  if (state !== undefined && event !== "state") throw new Error("A state goes with linearEvent state.");
+  const next = { kind: "linear", workspace: trigger.workspace, event };
+  // null or "" clears the team filter; left out, it stays.
+  const keptTeam = team === undefined ? trigger.team : team || undefined;
+  if (keptTeam !== undefined) next.team = keptTeam;
+  if (event === "label-added") {
+    next.label = label ?? trigger.label;
+    if (next.label === undefined) throw new Error("linearEvent label-added needs a label.");
+  }
+  if (event === "state") {
+    next.state = state ?? trigger.state;
+    if (next.state === undefined) throw new Error("linearEvent state needs a state.");
+  }
+  return next;
+}
+
 /**
  * `chatSettings(chatId)` gives the Chat's provider, model and permission mode (or null) for a new heartbeat to reuse.
  * `defaultTimezone()` is the computer's IANA timezone. `linearWorkspaces()` lists the connected Linear workspace keys. `now` is injected so tests can pin "expiresIn" to a date.
  */
-function createRoutineTools({ store, scheduler, chatSettings, defaultTimezone, linearWorkspaces = () => [], now = Date.now }) {
+function createRoutineTools({
+  store,
+  scheduler,
+  chatSettings,
+  defaultTimezone,
+  linearWorkspaces = () => [],
+  // Where a Routine may run (runtime-adapter's routineTargets): resolves with the target to store, or throws.
+  checkTarget = async (target) => target,
+  now = Date.now,
+}) {
   function definitions(chatId) {
     const project = projectOfKey(chatId);
     const inProject = (routine) =>
@@ -102,8 +133,9 @@ function createRoutineTools({ store, scheduler, chatSettings, defaultTimezone, l
           if (expiresIn !== undefined) expiresInMs(expiresIn);
           checkTimezone(timezone ?? defaultTimezone());
           const settings = chatSettings(chatId) ?? {};
+          const { chatId: target } = await checkTarget({ kind: "chat", chatId });
           const routine = store.upsertHeartbeat({
-            chatId,
+            chatId: target,
             name,
             prompt,
             cron,
@@ -166,11 +198,12 @@ function createRoutineTools({ store, scheduler, chatSettings, defaultTimezone, l
           }
           const settings = chatSettings(chatId) ?? {};
           const mode = projectWorkspace ?? "worktree";
+          const target = await checkTarget({ kind: "new-chat", projectPath: project, workspace: mode });
           const routine = store.create({
             name,
             prompt,
             trigger: built,
-            target: { kind: "new-chat", projectPath: project, workspace: mode },
+            target,
             provider: settings.provider,
             model: settings.model,
             permissionMode: settings.permissionMode,
@@ -183,7 +216,7 @@ function createRoutineTools({ store, scheduler, chatSettings, defaultTimezone, l
       {
         name: ROUTINE_UPDATE,
         description:
-          "Change a routine in this Chat's Project: its name, prompt, schedule (cron or every), timezone, end (maxRuns or expiresIn) or pause it with enabled false.",
+          "Change a routine in this Chat's Project: its name, prompt, schedule (cron or every), timezone, end (maxRuns or expiresIn), a Linear trigger's linearEvent, team, label or state, or pause it with enabled false. A Linear trigger keeps the filters you don't give; label-added needs a label and state needs a state.",
         input: {
           id: z.string().min(1).max(64),
           name: z.string().min(1).max(80).optional(),
@@ -194,15 +227,21 @@ function createRoutineTools({ store, scheduler, chatSettings, defaultTimezone, l
           maxRuns: maxRunsField.optional(),
           expiresIn: expiresInField.optional(),
           enabled: z.boolean().optional(),
+          linearEvent: z.enum(LINEAR_EVENTS).optional().describe("For a linear trigger: what happens to an issue."),
+          team: z.string().max(80).nullable().optional().describe('For a linear trigger: only issues of this team key. null or "" clears it.'),
+          label: z.string().min(1).max(80).optional().describe("For linearEvent label-added: the label."),
+          state: z.string().min(1).max(80).optional().describe("For linearEvent state: the state the issue moves to."),
         },
         readOnly: false,
-        run: async ({ id, every, expiresIn, ...rest }) => {
-          own(id);
+        run: async ({ id, every, expiresIn, linearEvent, team, label, state, ...rest }) => {
+          const current = own(id);
           if (rest.cron !== undefined && every !== undefined) throw new Error("Give cron or every, not both.");
           if (rest.timezone !== undefined) checkTimezone(rest.timezone);
           const patch = Object.fromEntries(Object.entries(rest).filter(([, value]) => value !== undefined));
           if (every !== undefined) patch.cron = everyToCron(every);
           if (expiresIn !== undefined) patch.expiresAt = now() + expiresInMs(expiresIn);
+          if ([linearEvent, team, label, state].some((value) => value !== undefined))
+            patch.trigger = linearTrigger(current.trigger, { linearEvent, team, label, state });
           const routine = store.update(id, patch);
           return `Updated "${routine.name}": ${summary(routine)}.`;
         },

@@ -18,18 +18,22 @@ async function eventually(check, { timeoutMs = 3000 } = {}) {
 }
 
 // A runtime with one Chat on a fake agent, the routine clock and timer in the test's hands.
-async function fixture(t, { enable = true } = {}) {
-  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "runtime-routines-")));
+// `restart` ({ dir, clock }) starts a second runtime on the data an earlier one left, as Milagre does after a quit: it
+// sends nothing of its own.
+async function fixture(t, { enable = true, restart } = {}) {
+  const dir = restart?.dir ?? (await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "runtime-routines-"))));
   const project = path.join(dir, "project");
-  await fs.mkdir(project);
-  execFileSync("git", ["init", "-qb", "main", project]);
-  // A commit to branch Worktrees from.
-  execFileSync("git", ["-C", project, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "--allow-empty", "-m", "init"]);
+  if (!restart) {
+    await fs.mkdir(project);
+    execFileSync("git", ["init", "-qb", "main", project]);
+    // A commit to branch Worktrees from.
+    execFileSync("git", ["-C", project, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "--allow-empty", "-m", "init"]);
+  }
   const sessions = [];
   const emitted = [];
   // What publishAgentEvent hands on, with whether the Chat's run still held its streamed text at that moment.
   const published = [];
-  let clock = Date.UTC(2026, 9, 16, 12, 0);
+  let clock = restart?.clock ?? Date.UTC(2026, 9, 16, 12, 0);
   let tickFn = null;
   let runtime;
   runtime = createRuntime({
@@ -72,6 +76,10 @@ async function fixture(t, { enable = true } = {}) {
           session.turnActive = false;
           options.emit({ type: "turn-cancelled" });
         },
+        setPermissionMode: async (mode) => {
+          if (session.failMode) throw new Error("the agent didn't take the mode");
+          session.mode = mode;
+        },
         close: async () => {},
         // Each string streams as text; a tool step runs between consecutive ones, as an agent's turn reads.
         finish: (...texts) => {
@@ -93,14 +101,16 @@ async function fixture(t, { enable = true } = {}) {
   });
   t.after(async () => {
     await runtime.close();
-    await fs.rm(dir, { recursive: true, force: true });
+    if (!restart) await fs.rm(dir, { recursive: true, force: true });
   });
-  if (enable) assert.deepEqual(await runtime.invoke("routines:enabled:save", [true]), { enabled: true });
+  if (enable && !restart) assert.deepEqual(await runtime.invoke("routines:enabled:save", [true]), { enabled: true });
   const opened = await runtime.openProject(project);
   const id = Object.values(opened.state.sessions)[0].id;
   const chatId = `${project}#${id}`;
-  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: id, body: "Watch CI", provider: "claude", model: "cm", permissionMode: "full" }]);
-  await waitUntil(() => sessions.length === 1 && sessions[0].turns.length === 1);
+  if (!restart) {
+    await runtime.invoke("chat:send", [{ projectPath: project, sessionId: id, body: "Watch CI", provider: "claude", model: "cm", permissionMode: "full" }]);
+    await waitUntil(() => sessions.length === 1 && sessions[0].turns.length === 1);
+  }
   const session = sessions[0];
   const messages = async () => (await runtime.invoke("project:snapshot", [project])).state.messages.filter((m) => m.session_id === id);
   const tool = (name) => session.options.linked.tools.find((item) => item.name === name);
@@ -118,7 +128,25 @@ async function fixture(t, { enable = true } = {}) {
     assert.ok(tickFn, "the scheduler is ticking");
     tickFn();
   };
-  return { runtime, project, id, chatId, session, sessions, emitted, published, messages, tool, list, finish, beat, advance: (ms) => (clock += ms) };
+  return {
+    runtime,
+    dir,
+    project,
+    id,
+    chatId,
+    session,
+    sessions,
+    emitted,
+    published,
+    messages,
+    tool,
+    list,
+    finish,
+    beat,
+    advance: (ms) => (clock += ms),
+    clock: () => clock,
+    ticking: () => tickFn !== null,
+  };
 }
 
 const latestRun = async (f) => (await f.list())[0]?.runs[0];
@@ -435,4 +463,167 @@ test("routines:create refuses webhook triggers for now and a Project that isn't 
     },
   ]);
   assert.deepEqual(routine.createdBy, { kind: "user" });
+});
+
+test("a beat runs in the permission mode the user switched the Chat to after its last turn", async (t) => {
+  const f = await fixture(t);
+  await runTool(f.tool("heartbeat_create"), { name: "Babysit", prompt: "Check CI", every: "5m" });
+  await f.finish("Watching.");
+  assert.equal((await f.list())[0].permissionMode, "full");
+  // The composer's mode picker: Full → Ask with no turn running.
+  await f.runtime.invoke("agent:set-permission-mode", [{ chatId: f.chatId, mode: "ask" }]);
+  await f.beat();
+  await waitUntil(() => f.session.turns.length === 2);
+  assert.equal(f.session.turns[1].permissionMode, "ask");
+  assert.equal(f.session.turns[1].model, "cm");
+});
+
+test("a beat a quit cut off never resumes on restart: its Run shows interrupted and the next slot beats", async (t) => {
+  const f = await fixture(t);
+  await runTool(f.tool("heartbeat_create"), { name: "Babysit", prompt: "Check CI", every: "5m" });
+  await f.finish("Watching.");
+  await f.beat();
+  await waitUntil(() => f.session.turns.length === 2);
+  await eventually(async () => (await latestRun(f))?.status === "running");
+  await f.runtime.close();
+
+  const g = await fixture(t, { restart: { dir: f.dir, clock: f.clock() } });
+  try {
+    // Opening the Project is when a quit's stopped turns continue; give a resume the time it takes.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(g.sessions.length, 0, "nothing resumes the beat");
+    assert.equal((await g.runtime.invoke("project:snapshot", [g.project])).state.sessions[g.id].resumeTurn, undefined);
+    const run = await latestRun(g);
+    assert.deepEqual([run.status, run.error], ["failed", "daemon restarted"]);
+    await g.beat();
+    await waitUntil(() => g.sessions.length === 1 && g.sessions[0].turns.length === 1);
+    assert.match(g.sessions[0].turns[0].prompt, /^Check CI\n\nIf nothing needs doing/);
+    await eventually(async () => (await latestRun(g)).status === "running");
+  } finally {
+    await g.runtime.close();
+  }
+});
+
+test("a quiet beat leaves the Chat read when the user read it during the beat", async (t) => {
+  const f = await fixture(t);
+  await runTool(f.tool("heartbeat_create"), { name: "Babysit", prompt: "Check CI", every: "5m" });
+  await f.finish("Watching.");
+  const unread = async () => (await f.runtime.invoke("project:snapshot", [f.project])).state.sessions[f.id].unread === true;
+  await eventually(unread);
+
+  await f.beat();
+  await waitUntil(() => f.session.turns.length === 2);
+  // Unread when the beat went out; the user reads the Chat while it runs.
+  await f.runtime.invoke("chat:patch", [f.project, f.id, { unread: false }]);
+  await f.finish("(pass) CI green");
+  await eventually(async () => (await f.messages()).findLast((message) => message.context?.kind === "routine-run").context.quiet === true);
+  assert.equal(await unread(), false, "the mark the user cleared stays cleared");
+});
+
+test("a heartbeat and a Chat of its own fill in {{date}} and {{time}} the same way", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const prompt = "Look on {{date}} at {{time}}";
+  const trigger = { kind: "schedule", cron: "*/5 * * * *", timezone: "America/Sao_Paulo" };
+  const { routine: heartbeat } = await f.runtime.invoke("routines:create", [
+    { name: "Beat", prompt, trigger, target: { kind: "chat", chatId: f.chatId }, maxRuns: 5 },
+  ]);
+  await f.beat();
+  await waitUntil(() => f.session.turns.length === 2);
+  const beatAt = f.clock();
+  const divider = (await f.messages()).findLast((message) => message.role === "user");
+  await f.finish("(pass) fine");
+  await eventually(async () => (await latestRun(f)).status === "quiet");
+  await f.runtime.invoke("routines:delete", [heartbeat.id]);
+
+  await f.runtime.invoke("routines:create", [{ name: "Own", prompt, trigger, target: { kind: "new-chat", projectPath: f.project, workspace: "project" } }]);
+  await f.beat();
+  const { state, session } = await runChat(f);
+  const first = state.messages.find((message) => message.session_id === session.id && message.role === "user");
+  const expected = (at) => {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(at);
+    const part = (type) => parts.find((item) => item.type === type).value;
+    return `Look on ${part("year")}-${part("month")}-${part("day")} at ${part("hour")}:${part("minute")}`;
+  };
+  assert.equal(divider.body, expected(beatAt));
+  assert.equal(first.body, expected(f.clock()));
+});
+
+test("the mode the user switched the Chat to holds for its beats after a restart", async (t) => {
+  const f = await fixture(t);
+  await runTool(f.tool("heartbeat_create"), { name: "Babysit", prompt: "Check CI", every: "5m" });
+  await f.finish("Watching.");
+  assert.equal((await f.list())[0].permissionMode, "full");
+  await f.runtime.invoke("agent:set-permission-mode", [{ chatId: f.chatId, mode: "ask" }]);
+  await f.runtime.close();
+
+  const g = await fixture(t, { restart: { dir: f.dir, clock: f.clock() } });
+  try {
+    await g.beat();
+    await waitUntil(() => g.sessions.length === 1 && g.sessions[0].turns.length === 1);
+    assert.equal(g.sessions[0].turns[0].permissionMode, "ask");
+  } finally {
+    await g.runtime.close();
+  }
+});
+
+test("a Routine's target can only change to a Project Milagre lists: an unknown folder or a symlink out is refused and nothing changes", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const routine = await createTriage(f);
+  const elsewhere = path.join(f.dir, "elsewhere");
+  await fs.mkdir(elsewhere);
+  const alias = path.join(f.project, "alias-out");
+  await fs.symlink(elsewhere, alias);
+  for (const projectPath of [elsewhere, alias, path.join(f.dir, "missing")]) {
+    await assert.rejects(
+      f.runtime.invoke("routines:update", [routine.id, { target: { kind: "new-chat", projectPath, workspace: "worktree" } }]),
+      /Project/,
+      projectPath,
+    );
+  }
+  assert.deepEqual((await f.list())[0].target, { kind: "new-chat", projectPath: f.project, workspace: "worktree" });
+  // The same Project by another spelling is stored as Milagre lists it.
+  const updated = await f.runtime.invoke("routines:update", [
+    routine.id,
+    { target: { kind: "new-chat", projectPath: path.join(f.project, "sub", ".."), workspace: "project" } },
+  ]);
+  assert.deepEqual(updated.target, { kind: "new-chat", projectPath: f.project, workspace: "project" });
+});
+
+test("a Heartbeat from the Routines form needs a Chat that exists in a Project Milagre lists", async (t) => {
+  const f = await fixture(t);
+  const heartbeat = (chatId) => ({
+    name: "Beat",
+    prompt: "Look",
+    trigger: { kind: "schedule", cron: "*/5 * * * *", timezone: "UTC" },
+    target: { kind: "chat", chatId },
+    maxRuns: 3,
+  });
+  await assert.rejects(f.runtime.invoke("routines:create", [heartbeat(`${f.project}#999`)]), /Chat/);
+  await assert.rejects(f.runtime.invoke("routines:create", [heartbeat("/nowhere#1")]), /Project|Chat/);
+  const { routine } = await f.runtime.invoke("routines:create", [heartbeat(f.chatId)]);
+  assert.equal(routine.target.chatId, f.chatId);
+  await assert.rejects(f.runtime.invoke("routines:update", [routine.id, { target: { kind: "chat", chatId: `${f.project}#999` } }]), /Chat/);
+  assert.equal((await f.list())[0].target.chatId, f.chatId);
+});
+
+test("a mode the live agent couldn't take is still saved on the Chat for its next beat", async (t) => {
+  const f = await fixture(t);
+  await runTool(f.tool("heartbeat_create"), { name: "Babysit", prompt: "Check CI", every: "5m" });
+  f.session.failMode = true;
+  await assert.rejects(f.runtime.invoke("agent:set-permission-mode", [{ chatId: f.chatId, mode: "ask" }]), /didn't take the mode/);
+  assert.equal((await f.runtime.invoke("project:snapshot", [f.project])).state.sessions[f.id].permissionMode, "ask");
+  await f.finish("Watching.");
+  await f.beat();
+  await waitUntil(() => f.session.turns.length === 2);
+  assert.equal(f.session.turns[1].permissionMode, "ask");
 });

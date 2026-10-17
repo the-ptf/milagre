@@ -21,7 +21,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
-import type { ChatMessage, LinkIssueResult, PullRequestActionContext } from "@milagre/shared/model";
+import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext } from "@milagre/shared/model";
 import { chatPullRequests, chatTitle, createPendingChat, createResendMemory, pendingChatSessionId, pullRequestRefs } from "@milagre/shared/chats";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
@@ -59,7 +59,7 @@ import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import { UndoPanel, type UndoIntent } from "../undo-panel";
 import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
 import { RoutineRunDivider } from "../routine-run-divider";
-import { clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, routineRunText } from "@milagre/shared/routines";
+import { clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, routineRunOf, routineRunText } from "@milagre/shared/routines";
 import { CompactionDivider } from "../compaction-divider";
 import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
@@ -102,6 +102,12 @@ const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
 const PLACE_FALLBACK_MS = 500;
 
 /** A row's id: two workspaces can both have an ENG-1. A Mac that predates workspaces sends the key alone. */
+// A Linear Run's first message is its issue card carrying the Run: its divider shows above the card.
+function issueRunDivider(message: ChatMessage, merged?: { count: number; last: RoutineRunContext }) {
+  const run = isRoutineRun(message) ? null : routineRunOf(message);
+  return run ? <RoutineRunDivider context={run} merged={merged} /> : null;
+}
+
 const issueChoiceId = (issue: LinearIssue) => (issue.workspace ? `${issue.workspace}:${issue.key}` : issue.key);
 /** The choice sheet's rows for a list of Linear issues. */
 function issueChoices(issues: LinearIssue[]) {
@@ -387,6 +393,8 @@ export default function ChatScreen() {
       messageNavigationIndices(shownEntries.length).map((index) => {
         const { message, merged } = shownEntries[index];
         const position = `${index + 1} of ${shownEntries.length}`;
+        // A routine-run divider, or a Linear Run's issue card carrying its Run.
+        const run = routineRunOf(message);
         return {
           index,
           label: isHandoff(message)
@@ -399,8 +407,8 @@ export default function ChatScreen() {
                   ? `Go to ${accountSwitchText(message.context)}, ${position}.`
                   : isChatReload(message)
                     ? `Go to ${RELOAD_TEXT}, ${position}.`
-                    : isRoutineRun(message)
-                      ? `Go to ${merged ? mergedRoutineRunText(merged) : routineRunText(message.context)}, ${position}.`
+                    : run
+                      ? `Go to ${merged ? mergedRoutineRunText(merged) : routineRunText(run)}, ${position}.`
                       : isCheckpointRestore(message)
                         ? `Go to ${message.body}, ${position}.`
                         : `Go to ${messageSender(message)} message ${position}. ${message.body.slice(0, 88)}`,
@@ -1282,18 +1290,22 @@ export default function ChatScreen() {
                           }
                         />
                       ) : (
-                        <ChatReply
-                          message={message}
-                          media={media}
-                          basePath={worktree?.path || project.path}
-                          chatId={chatId}
-                          designChoice={designChoice}
-                          designsMoved={designsMoved}
-                          // A limit card offers other accounts only on the Chat's last message, with no turn running.
-                          limitProjectPath={!run && !pending && message === messages[messages.length - 1] ? project.path : undefined}
-                          onActivity={openActivity}
-                          highlighted={message.id === undoHighlight}
-                        />
+                        <>
+                          {/* A Linear Run's first message is its issue card carrying the Run: the divider, then the card. */}
+                          {issueRunDivider(message, merged)}
+                          <ChatReply
+                            message={message}
+                            media={media}
+                            basePath={worktree?.path || project.path}
+                            chatId={chatId}
+                            designChoice={designChoice}
+                            designsMoved={designsMoved}
+                            // A limit card offers other accounts only on the Chat's last message, with no turn running.
+                            limitProjectPath={!run && !pending && message === messages[messages.length - 1] ? project.path : undefined}
+                            onActivity={openActivity}
+                            highlighted={message.id === undoHighlight}
+                          />
+                        </>
                       )}
                     </View>,
                   ]),

@@ -48,43 +48,42 @@ export function placeholdersFor(trigger) {
 
 // {{name}}, with spaces allowed inside the braces. A name has no braces or spaces; it may carry dots, dashes and <angles>.
 const PLACEHOLDER = /\{\{\s*([^{}\s]+)\s*\}\}/g;
-// A single-line untrusted value this long or shorter goes into the sentence as it is; anything else becomes a block.
+// A single-line untrusted value this long or shorter is fenced on its line; anything else becomes a block.
 const INLINE_LIMIT = 200;
-// Free text from outside: always a block, however short it is, so it can never read as part of the instructions.
+// Free text from outside: always a block, however short it is.
 const BLOCKS = new Set(["issue.description", "comment.body", "body", "request"]);
 // What ends a line: \n, \r and the Unicode line and paragraph separators (U+2028 and U+2029).
 const LINE_BREAKS = ["\n", "\r", String.fromCharCode(0x2028), String.fromCharCode(0x2029)];
 const hasLineBreak = (text) => LINE_BREAKS.some((char) => text.includes(char));
 
-// Remove {{ and }} until none are left: taking one pair out can bring two single braces together.
-function stripBraces(text) {
-  let current = text;
-  let next = current.replace(/\{\{|\}\}/g, "");
-  while (next !== current) {
-    current = next;
-    next = current.replace(/\{\{|\}\}/g, "");
-  }
-  return current;
-}
-
-// Text must not be able to write an <untrusted-data> tag of its own: it could close its block and speak as the prompt. A "<"
-// is replaced when the tag name follows it, however the way there is dressed up: any characters that are not brackets,
-// letters or digits may stand between them (spaces, "/", and characters that show nothing, such as a zero-width space or a
-// soft hyphen). It is one lookahead over one class, which cannot hold the next "<", so the work grows with the length of the
-// text and not with its square: a webhook body may be 256 KiB and the daemon renders the prompt on its main thread.
-const TAG_START = /<(?=[^<>\w]*untrusted-data)/gi;
-const escapeTags = (text) => text.replace(TAG_START, "&lt;");
+// Text must not be able to write an <untrusted-data> tag of its own: it could close its block and speak as the prompt.
+// Characters that show nothing (Unicode's default-ignorable code points: zero-width spaces and joiners, soft hyphens,
+// direction marks, the BOM) go first, so none can hide inside a tag name, and then every "<" and ">" becomes its entity:
+// fenced text has no markup of its own. Two plain passes, so the work grows with the length of the text (a webhook body
+// may be 256 KiB and the daemon renders the prompt on its main thread).
+// Spelled out (equal to /\p{Default_Ignorable_Code_Point}/u as of Unicode 15, checked over every code point) so the
+// phone's engine needs neither property escapes nor the u flag; the astral ranges are their surrogate pairs.
+// The class lists combining characters (U+034F, the variation selectors) on purpose: each is escaped and stands alone.
+/* oxlint-disable no-misleading-character-class */
+const IGNORABLE =
+  /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFF8]|\uD82F[\uDCA0-\uDCA3]|\uD834[\uDD73-\uDD7A]|[\uDB40-\uDB43][\uDC00-\uDFFF]/g;
+/* oxlint-enable no-misleading-character-class */
+const escapeTags = (text) => text.replace(IGNORABLE, "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 // The label goes inside source="...", so it loses what could end the attribute or the tag, and its line breaks.
-const cleanLabel = (label) => String(label).replace(/[<>"]/g, "").replace(/\s+/g, " ").trim();
+const cleanLabel = (label) => String(label).replace(IGNORABLE, "").replace(/[<>"]/g, "").replace(/\s+/g, " ").trim();
 
 const fence = (label, text) => `<untrusted-data source="${cleanLabel(label)}">\n${escapeTags(text)}\n</untrusted-data>`;
+// A short single-line value keeps the sentence readable: its fence sits on the same line.
+const fenceInline = (label, text) => `<untrusted-data source="${cleanLabel(label)}">${escapeTags(text)}</untrusted-data>`;
 
 /**
  * The prompt with its {{placeholders}} filled from `values`. A name `values` doesn't have stays as typed. A value is put in
  * as it is unless its name is in `untrusted` (name to a label for where the text came from): that text is data from outside,
- * so it becomes an <untrusted-data> block, or goes inline when it is one short line (up to 200 characters) and not one of the
- * free-text fields, which are always blocks. When a block was made, UNTRUSTED_NOTE and a blank line come first.
+ * so it is always fenced in <untrusted-data>, whatever its length: on its own line as a block, or on the sentence's line
+ * when it is one short line (up to 200 characters) and not one of the free-text fields, which are always blocks. Only
+ * identifiers (an issue's key and URL, a team key, the date and time) are left out of `untrusted`. When anything was
+ * fenced, UNTRUSTED_NOTE and a blank line come first.
  */
 export function renderRoutinePrompt(template, values, untrusted) {
   const known = values ?? {};
@@ -95,11 +94,9 @@ export function renderRoutinePrompt(template, values, untrusted) {
     const value = String(known[name] ?? "");
     if (!Object.hasOwn(outside, name)) return value;
     if (value.trim() === "") return "";
-    if (BLOCKS.has(name) || value.length > INLINE_LIMIT || hasLineBreak(value)) {
-      fenced = true;
-      return fence(outside[name], value);
-    }
-    return escapeTags(stripBraces(value));
+    fenced = true;
+    if (BLOCKS.has(name) || value.length > INLINE_LIMIT || hasLineBreak(value)) return fence(outside[name], value);
+    return fenceInline(outside[name], value);
   });
   return fenced ? `${UNTRUSTED_NOTE}\n\n${text}` : text;
 }

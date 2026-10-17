@@ -1,19 +1,26 @@
+const fs = require("node:fs/promises");
+const path = require("node:path");
 const { chatKey, lastUserModel, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { backgroundWork, holdsAnnouncement } = require("@milagre/shared/chat-activity");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
-const { clock } = require("@milagre/shared/routines");
-const { renderRoutinePrompt } = require("@milagre/shared/routine-prompt");
+const { routineIssueContext } = require("@milagre/shared/linear-issue");
+const { routineRunOf } = require("@milagre/shared/routines");
+const { PERMISSION_MODES } = require("../agents/permissions.cjs");
 const { createRoutineStore } = require("./store.cjs");
-const { createRoutineScheduler, linearPrompt } = require("./scheduler.cjs");
+const { createRoutineScheduler, linearPrompt, schedulePrompt } = require("./scheduler.cjs");
 const { createRoutineTools } = require("./tools.cjs");
 const { createLinearPoller } = require("./linear-poller.cjs");
 
 const OFF = "Routines are off. Turn them on in Settings › Experimental.";
 const TOOLS_OFF = "Routines are turned off in Settings › Experimental.";
 const WEBHOOK_LATER = "Webhook Routines arrive in a later update.";
+const UNLISTED = "Choose a Project Milagre lists.";
+const NO_CHAT = "That Chat is no longer in its Project.";
 // What the scheduler records when a Chat got busy as a Run's message was about to go (scheduler.cjs BUSY).
 const BUSY = "chat was busy";
 const busyError = () => Object.assign(new Error(BUSY), { busy: true });
+// A mode saved on a Chat, or undefined when it isn't one Milagre knows (a stale or hand-edited value falls back).
+const knownMode = (mode) => (PERMISSION_MODES.has(mode) ? mode : undefined);
 // A hung git (a fetch, a setup step) fails the Run instead of holding its slot until the daemon restarts.
 const START_TIMEOUT_MS = 2 * 60 * 1000;
 // What a Chat a Routine started can't do: make Routines or start their Runs, so a Run never sets off another.
@@ -42,12 +49,13 @@ function withTimeout(work, ms, message, late) {
 /**
  * How a heartbeat's turn ended: the text after its last tool step in its last reply. A beat that reads "Let me check
  * CI." → a tool call → "(pass) CI green" ended with a pass, though the reply saved is the whole turn's text. The replies
- * are the ones saved after the Chat's latest routine-run divider (Milagre's own notes left out), as `delegationReply`
+ * are the ones saved after the Chat's latest divider (a routine-run message, or a Linear Run's issue card carrying its
+ * Run; Milagre's own notes left out), as `delegationReply`
  * reads a Delegation's: the streamed run is folded away before the turn's end is published, so they are all there is.
  */
 function routineReply(state, sessionId) {
   const messages = (state?.messages ?? []).filter((message) => message.session_id === sessionId);
-  const start = messages.findLastIndex((message) => message.role === "user" && message.context?.kind === "routine-run");
+  const start = messages.findLastIndex((message) => message.role === "user" && routineRunOf(message));
   if (start === -1) return "";
   const last = messages
     .slice(start + 1)
@@ -63,9 +71,21 @@ function routineReply(state, sessionId) {
  * The scheduler's view of the Chats (see scheduler.cjs). `cachedState(scope)` is a scope's state in memory, undefined
  * when it isn't open; `openState(scope, sessionId)` opens it if needed and resolves with the Chat's messages loaded.
  * `worktrees` makes and removes a Run's Worktree (create, remove, removable, base, projectWorktree) and `archiveChat`
- * archives a Chat as the user would.
+ * archives a Chat as the user would. `projects()` lists the Projects Milagre has and `projectState(path)` reads one (its
+ * Worktrees and Chats), for finding the Chat a Linear issue's comments go into.
  */
-function routineChats({ chats, store, cachedState, openState, isClosing, worktrees, archiveChat, now = Date.now, timeoutMs = START_TIMEOUT_MS }) {
+function routineChats({
+  chats,
+  cachedState,
+  openState,
+  isClosing,
+  worktrees,
+  archiveChat,
+  projects = async () => [],
+  projectState = async () => null,
+  now = Date.now,
+  timeoutMs = START_TIMEOUT_MS,
+}) {
   const session = (chatId) => cachedState(projectOfKey(chatId))?.sessions?.[sessionIdFromKey(chatId)];
   // What makes a Run's message wait, other than a turn starting: a turn running or preparing, an approval or a question,
   // a message waiting in the Chat's queue for the next turn, or background work whose result comes back to the Chat (a
@@ -116,9 +136,8 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
   function firstMessage(routine, run, at) {
     const event = run.event;
     if (event?.kind === "webhook" || routine.trigger.kind === "webhook") throw new Error(WEBHOOK_LATER);
-    if (event?.kind === "linear") return linearPrompt(routine.prompt, event.issue);
-    const [date, time] = clock(at, routine.trigger.timezone, true).split(" ");
-    return renderRoutinePrompt(routine.prompt, { date, time });
+    if (event?.kind === "linear") return linearPrompt(routine.prompt, event.issue, undefined, routine.trigger.workspace);
+    return schedulePrompt(routine.prompt, at, routine.trigger.timezone);
   }
 
   /**
@@ -140,7 +159,10 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
         ...(createdWorktree ? {} : { fresh: true }),
       });
       const chatId = chatKey(projectPath, sessionId);
-      const context = { kind: "routine-run", routineId: routine.id, runId: run.id, name: routine.name, at, label: `Routine · ${routine.name}` };
+      const runOf = { routineId: routine.id, runId: run.id, name: routine.name, at };
+      // A Linear Run opens with the issue card carrying its Run, which links the Chat to the issue (in the Project folder
+      // too, through its summary); any other Run with its divider.
+      const context = issue ? routineIssueContext(issue, runOf) : { kind: "routine-run", ...runOf, label: `Routine · ${routine.name}` };
       // A Run records its Worktree's id as text (RoutineRun.worktreeId).
       return { chatId, worktreeId: String(worktreeId), createdWorktree, body, prompt: body, context };
     } catch (error) {
@@ -148,6 +170,34 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
       if (createdWorktree) await dropWorktree(projectPath, worktreeId);
       throw error;
     }
+  }
+
+  /**
+   * The Chat working on a Linear issue (`key`, `workspace`), where its comments go: one in the Worktree linked to the issue,
+   * or one whose first message is the issue's card (a Chat started from the issue in the Project folder). Archived Chats
+   * and Chats with no message yet (a Run's Chat whose first message hasn't gone) are left out; of the rest, the one
+   * active most recently. Null when there is none. A Project that can't be read rejects, so the comment is tried again.
+   */
+  async function linkedChat({ key, workspace }) {
+    const wanted = String(key ?? "").toUpperCase();
+    if (!wanted) return null;
+    const same = (issueKey, issueWorkspace) =>
+      typeof issueKey === "string" && issueKey.toUpperCase() === wanted && (!workspace || !issueWorkspace || issueWorkspace === workspace);
+    let best = null;
+    for (const project of await projects()) {
+      const state = await projectState(project.path);
+      for (const chat of Object.values(state?.sessions ?? {})) {
+        if (chat.archived || !(chat.summary?.count > 0)) continue;
+        const worktree = state.worktrees?.[chat.worktree_id];
+        const linked =
+          (worktree && worktree.path !== project.path && same(worktree.linearIssue, worktree.linearWorkspace)) ||
+          same(chat.summary.linearIssue, chat.summary.linearWorkspace);
+        if (!linked) continue;
+        const at = chat.summary.lastAt ?? 0;
+        if (!best || at > best.at || (at === best.at && chat.id > best.id)) best = { chatId: chatKey(project.path, chat.id), at, id: chat.id };
+      }
+    }
+    return best?.chatId ?? null;
   }
 
   // Archives a Chat a Run started; with `removeWorktree`, its Worktree goes too when nothing in it is worth keeping.
@@ -163,10 +213,12 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
     exists: (chatId) => cachedState(projectOfKey(chatId)) === undefined || Boolean(session(chatId)),
     archived: (chatId) => session(chatId)?.archived === true,
     busy: (chatId) => busy(chatId),
-    // A beat runs on the Chat's latest turn settings, its permission mode included, so a mode the user changed since
-    // the heartbeat was set holds. After a restart: the Chat's own provider and last model, and the mode the Chat had
-    // when the heartbeat was set.
-    async send(chatId, { body, prompt, context }) {
+    // A message goes in on the Chat's current settings, as the user's next message would: its latest turn's provider,
+    // model and effort, and the permission mode its composer last set, saved on the Chat (AgentSession.permissionMode,
+    // see ChatHost.notePermissionMode) so a restart keeps it. A Chat with no turn this run (a Run's new Chat, or after a
+    // restart) takes its own provider and last model; what's still missing comes from `settings`, what the Routine said
+    // when its Run was claimed (never what it says now, which an edit since may have changed).
+    async send(chatId, { body, prompt, context, settings: claimed }) {
       if (isClosing()) throw new Error("Milagre is closing.");
       const projectPath = projectOfKey(chatId);
       const sessionId = sessionIdFromKey(chatId);
@@ -175,11 +227,10 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
       if (!target) throw new Error("That Chat is no longer in its Project.");
       // Opening the Project can resume a turn a quit stopped, and the user may have sent meanwhile.
       if (busy(chatId)) throw busyError();
-      const routine = store.get(context.routineId);
       const latest = chats.turnSettings(chatId);
       const settings = latest ?? {
-        provider: target.provider ?? routine?.provider ?? "claude",
-        model: lastUserModel(state, sessionId) || routine?.model,
+        provider: target.provider ?? claimed?.provider ?? "claude",
+        model: lastUserModel(state, sessionId) || claimed?.model,
       };
       let waited = false;
       let asks = 0;
@@ -187,7 +238,7 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
       try {
         sending = await chats.send({
           ...settings,
-          permissionMode: latest?.permissionMode ?? routine?.permissionMode ?? "auto",
+          permissionMode: knownMode(target.permissionMode) ?? latest?.permissionMode ?? claimed?.permissionMode ?? "auto",
           body,
           prompt,
           context,
@@ -197,13 +248,13 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
           sessionId,
           worktreeId: target.worktree_id,
           // A send that carries canStart never waits in the Chat's queue (ChatHost.send). ChatHost asks before it saves
-          // the message and again as it saves it, so a turn that started meanwhile makes the beat wait instead of
-          // steering into it. It asks once more just before the turn starts, when the beat's own run already holds the
-          // Chat: from that third ask on, the beat goes ahead. A turn starting is checked above, not here, since the
-          // beat's own turn counts as starting as soon as its message is saved.
+          // the message and again as it saves it, before the beat's own turn counts as starting: a turn that started or
+          // began starting meanwhile (the user pressed Send while the beat was on its way) makes the beat wait instead
+          // of steering into it or starting beside it. It asks once more just before the turn starts, when the beat's
+          // own run already holds the Chat: from that third ask on, the beat goes ahead.
           canStart: () => {
             asks += 1;
-            if (asks > 2 || !occupied(chatId)) return true;
+            if (asks > 2 || !busy(chatId)) return true;
             waited = true;
             return false;
           },
@@ -212,26 +263,56 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
         if (waited) throw busyError();
         throw error;
       }
-      const { started } = sending;
-      // Whether the Chat was unread before the beat, so a quiet one can leave it that way.
-      return { started, unread: target.unread === true };
+      return { started: sending.started };
     },
     // Called on the turn's end, which is published after it was folded into the saved reply (ChatHost.receive).
     replyText: (chatId) => routineReply(cachedState(projectOfKey(chatId)), sessionIdFromKey(chatId)),
     startChat: (request) => startChat(request),
     archive: (chatId, options) => archive(chatId, options),
-    // Linear comments reach their issue's Chat once polling does (Task B2).
-    linkedChat: async () => null,
-    // `session` patches the Chat in the same change (see ChatHost.patchMessageContext).
+    linkedChat: (issue) => linkedChat(issue),
+    // `session` patches the Chat in the same change (see ChatHost.patchMessageContext). A Linear Run's card keeps its
+    // divider in `context.routine`, so the patch goes there.
     async patchRunContext(chatId, runId, patch, session) {
       await chats.patchMessageContext(
         projectOfKey(chatId),
         sessionIdFromKey(chatId),
-        (message) => message.role === "user" && message.context?.kind === "routine-run" && message.context.runId === runId,
-        patch,
+        (message) => message.role === "user" && routineRunOf(message)?.runId === runId,
+        (context) => (context?.kind === "linear-issue" ? { ...context, routine: { ...context.routine, ...patch } } : { ...context, ...patch }),
         session,
       );
     },
+  };
+}
+
+/**
+ * Where a Routine may run, checked the same way for the Routines form and the agent tools, on create and on change.
+ * `projects()` lists the Projects Milagre has. A new Chat's folder must be one of them once its symlinks and `..` are
+ * resolved, and is stored as Milagre lists it; a Heartbeat's Chat must be in one of them (not a Link's) and still there.
+ * Resolves with the target to store.
+ */
+function routineTargets({ projects, openState }) {
+  async function listedProject(input) {
+    if (typeof input !== "string" || !path.isAbsolute(input) || input.includes("\0")) throw new Error(UNLISTED);
+    const resolved = path.resolve(input);
+    const real = await fs.realpath(resolved).catch(() => resolved);
+    for (const project of await projects()) {
+      if (project.path === real) return project.path;
+      if ((await fs.realpath(project.path).catch(() => project.path)) === real) return project.path;
+    }
+    throw new Error(UNLISTED);
+  }
+  return async function checkTarget(target) {
+    if (target?.kind === "new-chat") return { ...target, projectPath: await listedProject(target.projectPath) };
+    if (target?.kind !== "chat") return target;
+    if (typeof target.chatId !== "string" || !target.chatId.includes("#")) throw new Error("Choose a Chat.");
+    const scope = projectOfKey(target.chatId);
+    // Heartbeats in a Named Link's Chats are out of scope (the spec's non-goals).
+    if (isLinkScopeKey(scope)) throw new Error(UNLISTED);
+    const projectPath = await listedProject(scope);
+    const sessionId = sessionIdFromKey(target.chatId);
+    const session = (await openState(projectPath, sessionId))?.sessions?.[sessionId];
+    if (!session || session.archived) throw new Error(NO_CHAT);
+    return { kind: "chat", chatId: chatKey(projectPath, sessionId) };
   };
 }
 
@@ -252,6 +333,9 @@ function createRoutines({
   // The Mac's Linear connections and (Task C2) webhooks, read lazily: the runtime makes them after this.
   linear: getLinear = () => null,
   hooks: _hooks = () => null,
+  // The Projects Milagre lists ([{ path }]): a Routine runs only in one of them. `projectState(path)` reads one.
+  projects = async () => [],
+  projectState = async () => null,
   timers = {},
 }) {
   const now = timers.now ?? Date.now;
@@ -262,7 +346,8 @@ function createRoutines({
     emit("routines:changed", { enabled: store.enabled() });
     poller?.sync();
   };
-  const routineChatsView = routineChats({ chats, store, cachedState, openState, isClosing, worktrees, archiveChat, now });
+  const checkTarget = routineTargets({ projects, openState });
+  const routineChatsView = routineChats({ chats, projects, projectState, cachedState, openState, isClosing, worktrees, archiveChat, now });
   const scheduler = createRoutineScheduler({
     store,
     chats: routineChatsView,
@@ -303,7 +388,7 @@ function createRoutines({
     return {
       provider: latest?.provider ?? session?.provider,
       model: latest?.model || (state ? lastUserModel(state, sessionIdFromKey(chatId)) : undefined) || undefined,
-      permissionMode: latest?.permissionMode,
+      permissionMode: knownMode(session?.permissionMode) ?? latest?.permissionMode,
     };
   }
   // Read from the state in memory, as chatSettings is: the Chat's session is there when its agent asks for tools.
@@ -311,6 +396,7 @@ function createRoutines({
   const tools = createRoutineTools({
     store,
     scheduler,
+    checkTarget,
     chatSettings,
     defaultTimezone: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     linearWorkspaces,
@@ -346,8 +432,9 @@ function createRoutines({
       }
     },
     chatArchived: (chatId) => scheduler.chatArchived(chatId),
-    // The timer only starts once the switch is on; off again, it keeps running and each tick returns at once.
+    // Recovery runs once at start whatever the switch says; the timer and polling run only while it is on.
     start() {
+      scheduler.recover();
       if (!store.enabled()) return;
       scheduler.start();
       poller.start();
@@ -364,8 +451,9 @@ function createRoutines({
         poller.start();
       } else {
         poller.stop();
-        // Off: one tick turns the routines' keep-awake off now.
+        // Off: one tick turns the routines' keep-awake off now, and the timer stops until the switch is on again.
         await scheduler.tick();
+        scheduler.stop();
       }
       changed();
       return { enabled };
@@ -373,17 +461,18 @@ function createRoutines({
     // store.list gives copies, so each takes its Runs in place.
     list: () => ({ routines: store.list().map((routine) => Object.assign(routine, { runs: store.runs(routine.id) })) }),
     // A Routine from the Routines form: always the user's, whatever the input says.
-    create(input) {
+    async create(input) {
       if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("A Routine needs its settings.");
       if (input.trigger?.kind === "webhook") throw new Error(WEBHOOK_LATER);
-      const routine = store.create({ ...input, createdBy: { kind: "user" } });
+      const target = await checkTarget(input.target);
+      const routine = store.create({ ...input, target, createdBy: { kind: "user" } });
       changed();
       return routine;
     },
-    update(id, patch) {
+    async update(id, patch) {
       if (typeof id !== "string" || !id) throw new Error("Choose a routine.");
       if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("A routine change must be an object.");
-      const routine = store.update(id, patch);
+      const routine = store.update(id, patch.target === undefined ? patch : { ...patch, target: await checkTarget(patch.target) });
       changed();
       return routine;
     },
@@ -401,4 +490,4 @@ function createRoutines({
   };
 }
 
-module.exports = { createRoutines, routineChats, routineReply };
+module.exports = { createRoutines, routineChats, routineReply, routineTargets };

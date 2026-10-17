@@ -21,6 +21,8 @@ const { providerCapabilities } = require("@milagre/shared/provider-capabilities"
 const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
 const { providerName } = require("@milagre/shared/providers");
 const { accountSwitchText } = require("@milagre/shared/usage-limit");
+const { PERMISSION_MODES } = require("./permissions.cjs");
+const { routineRunOf } = require("@milagre/shared/routines");
 
 // A chat stopped longer ago than this waits for the user instead of continuing by itself.
 const RESUME_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -187,6 +189,9 @@ class ChatHost {
     this.notes = new Map();
     // The options of each chat's latest turn, so a turn a quit stops can start again the same way.
     this.turns = new Map();
+    // Chats whose latest turn a Routine started (a beat, a Run's first message): the scheduler owns those, so a quit
+    // saves no resume for them (see suspendRunning).
+    this.routineTurns = new Set();
     this.quitting = false;
     // Chats whose message was saved and whose turn is about to start, by chat key: the provider it starts on. A message
     // sent meanwhile to one that can't steer queues behind it, as it would behind the running turn.
@@ -212,6 +217,53 @@ class ChatHost {
     if (!this.turns.has(chatId)) return null;
     const { prompt: _prompt, ...settings } = this.turns.get(chatId);
     return settings;
+  }
+
+  /**
+   * The composer's mode picker: `mode` is the chat's permission mode from now on, saved with it
+   * (AgentSession.permissionMode) so it outlives a restart, for the turn a quit stops and for whatever Milagre sends into
+   * the chat next (a heartbeat's beat), as it is for the user's next message. A chat that isn't there changes nothing.
+   */
+  async notePermissionMode(chatId, mode) {
+    if (!PERMISSION_MODES.has(mode)) throw new Error(`Unknown permission mode: ${mode}`);
+    const turn = this.turns.get(chatId);
+    if (turn) this.turns.set(chatId, { ...turn, permissionMode: mode });
+    const projectPath = projectOfKey(chatId);
+    const sessionId = sessionIdFromKey(chatId);
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        const session = latest.sessions[sessionId];
+        if (!session || session.permissionMode === mode) return latest;
+        return { ...latest, sessions: { ...latest.sessions, [sessionId]: { ...session, permissionMode: mode } } };
+      },
+      { chats: [] },
+    );
+    if (changed) this.broadcast(projectPath, state);
+  }
+
+  /**
+   * A mode change from the composer: `live(chatId, mode)` hands it to the running agent, and the chat saves it whatever
+   * that says. When both fail, the agent's error is the one reported.
+   */
+  async setPermissionMode(chatId, mode, live) {
+    let failure = null;
+    try {
+      await live(chatId, mode);
+    } catch (error) {
+      failure = error;
+    }
+    try {
+      await this.notePermissionMode(chatId, mode);
+    } catch (error) {
+      failure ??= error;
+    }
+    if (failure) throw failure;
+  }
+
+  /** Forgets what this run knows of a chat that was deleted. */
+  forget(chatId) {
+    this.routineTurns.delete(chatId);
   }
 
   /**
@@ -470,6 +522,9 @@ class ChatHost {
           if (!result.changed) return state;
           const visible = this.isChatFocused ? this.isChatFocused(chatId) : chatId === this.openChat && this.isFocused();
           const unread = isTurnEnd(event) && !visible && !result.state.sessions[sessionId]?.archived;
+          // A turn end that marks the chat unread says so to whoever hears it next (a quiet heartbeat takes back only
+          // that mark). Not enumerable, so it never goes out with the event.
+          if (unread && result.state.sessions[sessionId]?.unread !== true) Object.defineProperty(event, "markedUnread", { value: true, configurable: true });
           const next = unread ? patchSession(result.state, sessionId, { unread: true }) : result.state;
           // Subagents that ended during the turn are archived with it, so the track only lists what is still running.
           const recorded = isTurnEnd(event) ? this.withNotes(archiveFinishedSubagents(next, sessionId, { keepAdvisors: true }), chatId) : next;
@@ -755,6 +810,8 @@ class ChatHost {
         stagedSession = {
           ...withoutDraft(session),
           provider: runProvider,
+          // The mode a person's message carries is the one its composer shows; a Routine's message isn't theirs.
+          ...(PERMISSION_MODES.has(request.permissionMode) && !routineRunOf(request) ? { permissionMode: request.permissionMode } : {}),
           ...(firstMessage && body?.trim() && !session.title && !session.generatedTitle ? { titlePending: true } : {}),
         };
         if (handoff === "switch") {
@@ -877,6 +934,10 @@ class ChatHost {
       prompt: brief !== undefined ? withLead(brief, request.prompt || body) : request.prompt || body || "Describe the attached images.",
     };
     this.turns.set(target.chatId, turn);
+    // A person's message steered into a Routine's turn makes it theirs too.
+    // A Routine's message: a beat or a comment's divider, or a Linear Run's issue card carrying its Run.
+    if (routineRunOf(request)) this.routineTurns.add(target.chatId);
+    else this.routineTurns.delete(target.chatId);
     // A message sent while a handoff prepares waits for its turn to start, then steers it with its own prompt.
     const ready = handoff
       ? this.prepareHandoff(projectPath, target, state, preparation)
@@ -1038,8 +1099,10 @@ class ChatHost {
 
   /**
    * Merges `patch` into the context of the latest message in Chat `sessionId` that `match(message)` picks (a routine run's
-   * divider once its reply is known) and tells the windows. `session`, when given, patches the Chat in the same change
-   * (a quiet beat puts back the unread mark its turn's end set). Resolves true when a message matched.
+   * divider once its reply is known) and tells the windows. `patch` is an object merged into the context, or a function
+   * from the context to the new one (a Linear Run's card keeps its divider in `context.routine`). `session`, when given,
+   * patches the Chat in the same change (a quiet beat takes back the unread mark its turn's end set). Resolves true when a
+   * message matched.
    */
   async patchMessageContext(projectPath, sessionId, match, patch, session) {
     let found = false;
@@ -1049,7 +1112,8 @@ class ChatHost {
         const message = latest.messages.findLast((item) => item.session_id === sessionId && match(item));
         if (!message) return latest;
         found = true;
-        const next = { ...latest, messages: latest.messages.map((item) => (item === message ? { ...item, context: { ...item.context, ...patch } } : item)) };
+        const context = typeof patch === "function" ? patch(message.context) : { ...message.context, ...patch };
+        const next = { ...latest, messages: latest.messages.map((item) => (item === message ? { ...item, context } : item)) };
         return session ? patchSession(next, sessionId, session) : next;
       },
       { chats: [sessionId] },
@@ -1078,7 +1142,7 @@ class ChatHost {
 
   /**
    * Before a quit stops the agents: every chat whose turn runs is saved with what it needs to start again
-   * (`resumeTurn`), and the cancelled turns that follow say the quit stopped them. A chat whose agent never
+   * (`resumeTurn`), except a Routine's turn, and the cancelled turns that follow say the quit stopped them. A chat whose agent never
    * started keeps its prompt, since no session holds it yet. A handoff still preparing is abandoned instead: its
    * agent never started, so the chat goes back to its old provider and the user's resend redoes the handoff.
    */
@@ -1098,7 +1162,8 @@ class ChatHost {
     const byProject = new Map();
     for (const chatId of Object.keys(this.runs)) {
       const turn = this.turns.get(chatId);
-      if (!turn || abandoned.has(chatId)) continue;
+      // A Routine's turn isn't resumed: the scheduler recovers its Run on the next start and runs the next slot itself.
+      if (!turn || abandoned.has(chatId) || this.routineTurns.has(chatId)) continue;
       byProject.set(projectOfKey(chatId), [...(byProject.get(projectOfKey(chatId)) ?? []), [sessionIdFromKey(chatId), turn]]);
     }
     await Promise.all(

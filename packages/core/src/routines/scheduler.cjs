@@ -1,5 +1,5 @@
 const { isTurnEnd } = require("@milagre/shared/agent-runs");
-const { parsePass } = require("@milagre/shared/routines");
+const { clock, parsePass } = require("@milagre/shared/routines");
 const { renderRoutinePrompt } = require("@milagre/shared/routine-prompt");
 
 const TICK_MS = 1000;
@@ -18,52 +18,94 @@ const isComment = (event) => event?.kind === "linear" && event.change === "comme
 // Whether a claimed Run makes a Chat: a trigger's, or a schedule's with a new-chat target.
 const startsChat = (routine, run) => (run.event ? !isComment(run.event) : routine.target.kind === "new-chat");
 
-// A comment's author as its divider names them: one line, no {{ or }}, at most 80 characters. Empty when nothing is left.
+// Characters that show nothing or turn text around: zero-width spaces and joiners, direction marks and overrides,
+// isolates, the BOM and soft hyphens.
+const INVISIBLE = /[\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
+
+// A comment's author as its divider names them: one line, nothing invisible, no {{ or }}, at most 80 characters. Empty
+// when nothing is left.
 function authorName(author) {
-  let text = String(author ?? "").replace(/\s+/g, " ");
+  let text = String(author ?? "")
+    .replace(INVISIBLE, "")
+    .replace(/\s+/g, " ");
   // Taking out one pair of braces can bring two single ones together.
   while (/\{\{|\}\}/.test(text)) text = text.replace(/\{\{|\}\}/g, "");
   return Array.from(text.trim()).slice(0, AUTHOR_MAX).join("").trim();
 }
 
-// A Linear Run's message: the Routine's prompt with the issue's fields filled in, and a comment's when there is one.
-// Everything people wrote in Linear (the title, description, labels, assignee, author and comment) reaches the agent as
-// data: a block, or inline with its braces and tags made harmless when it is one short line. The key, URL, state and team
-// are Linear's own.
-function linearPrompt(template, issue, comment, author) {
+// Linear's identifiers, as they look: an issue key (MIL-1) and a team key (MIL). Anything else is treated as text.
+const ISSUE_KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
+const TEAM_KEY = /^[A-Za-z][A-Za-z0-9]*$/;
+// An issue's URL up to its key, https://linear.app/<org>/issue/MIL-1, in the Routine's own workspace: the title slug
+// Linear puts after the key is text anyone who can rename the issue writes. Null when the URL doesn't read as that issue's.
+const ISSUE_URL = /^https:\/\/linear\.app\/([A-Za-z0-9_-]+)\/issue\/([A-Za-z][A-Za-z0-9]*-\d+)(?=$|[/?#])/;
+function issueUrl(url, key, workspace) {
+  const match = ISSUE_URL.exec(String(url ?? ""));
+  if (!match || match[2].toUpperCase() !== String(key).toUpperCase()) return null;
+  return workspace && match[1].toLowerCase() === String(workspace).toLowerCase() ? match[0] : null;
+}
+
+/**
+ * A Linear Run's message: the Routine's prompt with the issue's fields filled in, and a comment's when there is one.
+ * Everything people wrote in Linear (the title, description, labels, state name, assignee, author and comment) reaches the
+ * agent fenced as data, however short. Only identifiers go in as they are: the key and team key when they look like
+ * Linear's, and the URL up to the key when it is in the Routine's `workspace`. A source label names the issue only by a
+ * key that looks like one.
+ */
+function linearPrompt(template, issue, comment, workspace) {
+  const keyed = ISSUE_KEY.test(String(issue.key ?? ""));
+  const url = keyed ? issueUrl(issue.url, issue.key, workspace) : null;
+  const name = keyed ? `Linear issue ${issue.key}` : "Linear issue";
   const values = {
     "issue.key": issue.key,
     "issue.title": issue.title,
     "issue.description": issue.description,
-    "issue.url": issue.url,
+    "issue.url": url ?? issue.url,
     "issue.labels": (issue.labels ?? []).join(", "),
     "issue.state": issue.state,
     "issue.team": issue.team,
     "issue.assignee": issue.assignee,
   };
   const untrusted = {
-    "issue.title": `Linear issue ${issue.key} title`,
-    "issue.description": `Linear issue ${issue.key} description`,
-    "issue.labels": `Linear issue ${issue.key} labels`,
-    "issue.assignee": `Linear issue ${issue.key} assignee`,
+    "issue.title": `${name} title`,
+    "issue.description": `${name} description`,
+    "issue.labels": `${name} labels`,
+    "issue.assignee": `${name} assignee`,
+    // A workflow state's name is text a Linear admin can set to anything.
+    "issue.state": `${name} state`,
+    // An identifier that doesn't look like one is data like the rest.
+    ...(url ? {} : { "issue.url": `${name} url` }),
+    ...(keyed ? {} : { "issue.key": `${name} key` }),
+    ...(TEAM_KEY.test(String(issue.team ?? "")) ? {} : { "issue.team": `${name} team` }),
   };
   if (comment) {
     Object.assign(values, { "comment.body": comment.body, "comment.author": comment.author });
     Object.assign(untrusted, {
-      "comment.author": `Linear comment author on ${issue.key}`,
-      "comment.body": author ? `Linear comment on ${issue.key} by ${author}` : `Linear comment on ${issue.key}`,
+      "comment.author": keyed ? `Linear comment author on ${issue.key}` : "Linear comment author",
+      // The author's name is fenced where {{comment.author}} puts it, never written into a label beside the instructions.
+      "comment.body": keyed ? `Linear comment on ${issue.key}` : "Linear comment",
     });
   }
   return renderRoutinePrompt(template, values, untrusted);
 }
 
+// A schedule's message: the Routine's prompt with {{date}} and {{time}} filled in on the trigger's clock at `at`, the same
+// for a heartbeat's beat and a Run in a Chat of its own.
+function schedulePrompt(template, at, timezone) {
+  const [date, time] = clock(at, timezone, true).split(" ");
+  return renderRoutinePrompt(template, { date, time });
+}
+
+// What a Run executes on, as its Routine said when the Run was claimed (the claim's copy): an edit since never reaches it.
+const claimedSettings = (routine) => ({ provider: routine.provider, model: routine.model, permissionMode: routine.permissionMode });
+
 /**
  * Starts each Routine's Runs and records how their turns went. A heartbeat's beat goes into its Chat; a trigger's Run (and a
  * schedule's with a new-chat target) starts a Chat of its own; a Linear comment goes into the Chat linked to its issue.
  * `chats` is the adapter the runtime builds: exists, archived, busy (a turn open, preparing, or an approval or question
- * pending), send (resolves once the message is accepted, with a `started` promise for the turn and whether the Chat was
- * `unread` before it), replyText, patchRunContext, startChat (makes a Run's Chat, in a new Worktree or the Project folder,
- * and words its first message), archive and linkedChat (the Chat a Linear issue's comments go into, or null).
+ * pending), send (resolves once the message is accepted, with a `started` promise for the turn), replyText,
+ * patchRunContext, startChat (makes a Run's Chat, in a new Worktree or the Project folder, and words its first message),
+ * archive and linkedChat (the Chat a Linear issue's comments go into, or null).
  */
 function createRoutineScheduler({
   store,
@@ -80,6 +122,7 @@ function createRoutineScheduler({
   let timer = null;
   let ticking = false;
   let swept = false;
+  let recovered = false;
   let awake = null;
   // Chats whose beat failed to start again, its turn end not yet published: that end is marked quiet when it comes.
   const silenced = new Set();
@@ -145,7 +188,7 @@ function createRoutineScheduler({
   async function deliver(chatId, entry, message) {
     let started;
     try {
-      ({ started, unread: entry.unread = false } = await chats.send(chatId, message));
+      ({ started } = await chats.send(chatId, message));
     } catch (error) {
       if (pending.get(chatId) === entry) pending.delete(chatId);
       // The Chat got busy as the message was about to go (the adapter checks again as it is saved): a comment waits as
@@ -180,8 +223,10 @@ function createRoutineScheduler({
     }
     const entry = { runId: run.id, sent: false, turnStarted: false };
     pending.set(chatId, entry);
-    const context = { kind: "routine-run", routineId: routine.id, runId: run.id, name: routine.name, at: now() };
-    await deliver(chatId, entry, { body: routine.prompt, prompt: routine.prompt + PASS_HINT, context });
+    const at = now();
+    const context = { kind: "routine-run", routineId: routine.id, runId: run.id, name: routine.name, at };
+    const body = schedulePrompt(routine.prompt, at, routine.trigger.timezone);
+    await deliver(chatId, entry, { body, prompt: body + PASS_HINT, context, settings: claimedSettings(routine) });
   }
 
   // A Run in a Chat of its own. The adapter makes the Chat from the Routine as it was when the Run was claimed, and words
@@ -204,7 +249,7 @@ function createRoutineScheduler({
     }
     const entry = { runId: run.id, sent: false, turnStarted: false, newChat: true, createdWorktree: removeWorktree };
     pending.set(chatId, entry);
-    await deliver(chatId, entry, { body, prompt: prompt + PASS_HINT, context });
+    await deliver(chatId, entry, { body, prompt: prompt + PASS_HINT, context, settings: claimedSettings(routine) });
   }
 
   // A Linear comment goes into the Chat linked to its issue. A person wrote it, so a busy Chat makes it wait rather than skip
@@ -219,6 +264,12 @@ function createRoutineScheduler({
       finish(run, undefined, { status: "failed", error: errorText(error) });
       return;
     }
+    // The Routine may have been turned off or deleted while its Chat was looked up.
+    const current = store.get(routine.id);
+    if (!current || !current.enabled || current.completedAt) {
+      finish(run, undefined, { status: "skipped-busy", error: "Routine was turned off" });
+      return;
+    }
     if (!chatId) {
       // A comment on an issue no Chat works on isn't for this Routine: skipped, so it never counts as a failure.
       finish(run, undefined, { status: "skipped-busy", error: NO_CHAT });
@@ -229,12 +280,12 @@ function createRoutineScheduler({
       return;
     }
     const author = authorName(comment.author);
-    const text = linearPrompt(routine.prompt, issue, comment, author);
+    const text = linearPrompt(routine.prompt, issue, comment, routine.trigger.workspace);
     const entry = { runId: run.id, sent: false, turnStarted: false, comment: true };
     pending.set(chatId, entry);
     const label = author ? `Linear comment · ${author}` : "Linear comment";
     const context = { kind: "routine-run", routineId: routine.id, runId: run.id, name: routine.name, at: now(), label };
-    await deliver(chatId, entry, { body: text, prompt: text + PASS_HINT, context });
+    await deliver(chatId, entry, { body: text, prompt: text + PASS_HINT, context, settings: claimedSettings(routine) });
   }
 
   async function dispatch(routine, run) {
@@ -316,14 +367,23 @@ function createRoutineScheduler({
     }
   }
 
-  function start() {
-    if (timer) return;
+  // Once per daemon start, whatever the switch says: Runs a stop cut short fail (store.cjs), and with Routines on,
+  // heartbeats whose Chat is gone end. Never again later, when a Run in flight would be failed with them.
+  function recover() {
+    if (recovered) return;
+    recovered = true;
     store.recoverInterrupted();
     if (store.enabled()) {
       swept = true;
       sweepGone();
     }
     syncKeepAwake();
+  }
+
+  // The tick timer, which runs only while Routines are on (the runtime starts and stops it with the switch).
+  function start() {
+    recover();
+    if (timer) return;
     timer = setTimer(() => {
       tick().catch((error) => console.warn("[routines] tick failed", error));
     }, TICK_MS);
@@ -396,8 +456,10 @@ function createRoutineScheduler({
     } else if (failedAgain(finish(run, chatId, { status: "failed", error: event.type === "turn-failed" ? event.message : "cancelled" }))) {
       event.quiet = true;
     }
-    // A quiet beat leaves the Chat as unread (or not) as it was before it: its turn's end marked it unread.
-    const patched = quiet ? patchContext(chatId, entry.runId, { quiet, summary }, { unread: entry.unread }) : patchContext(chatId, entry.runId, { quiet });
+    // A quiet beat takes back only the unread mark its turn's end set (ChatHost marks that end `markedUnread`): a mark
+    // already there, or one the user cleared during the beat, is left as it is.
+    const session = event.markedUnread ? { unread: false } : undefined;
+    const patched = quiet ? patchContext(chatId, entry.runId, { quiet, summary }, session) : patchContext(chatId, entry.runId, { quiet });
     // A quiet Run in a Chat of its own leaves nothing to read there: the Chat is archived once its divider says quiet.
     if (quiet && entry.newChat) archive(chatId, entry.createdWorktree, patched);
     changed();
@@ -441,7 +503,7 @@ function createRoutineScheduler({
     return store.runs(routineId).find((item) => item.id === started.run.id);
   }
 
-  return { start, stop, tick, observe, chatArchived, runNow, enqueueEvent, enqueueEvents };
+  return { recover, start, stop, tick, observe, chatArchived, runNow, enqueueEvent, enqueueEvents };
 }
 
-module.exports = { createRoutineScheduler, linearPrompt };
+module.exports = { createRoutineScheduler, linearPrompt, schedulePrompt };

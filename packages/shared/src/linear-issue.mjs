@@ -37,6 +37,27 @@ export function linearIssueContext(issue, note) {
   };
 }
 
+// A state an older snapshot didn't keep the type or color of: shown as not started, in Linear's gray.
+const UNKNOWN_STATE = { type: "unstarted", color: "#95a2b3" };
+
+/**
+ * The card a Linear Routine's Run opens its Chat with: the issue as the poll saw it (LinearIssueSnapshot), carrying the
+ * Run (`routine`: routineId, runId, name, at) and its divider's label, "Routine · <name>".
+ */
+export function routineIssueContext(issue, routine) {
+  const type = STATE_TYPES.has(issue.stateType) ? issue.stateType : UNKNOWN_STATE.type;
+  const color = typeof issue.stateColor === "string" && issue.stateColor ? issue.stateColor : UNKNOWN_STATE.color;
+  return {
+    kind: "linear-issue",
+    key: issue.key,
+    title: issue.title,
+    url: issue.url,
+    state: { name: issue.state || "Unknown", type, color },
+    ...(issue.workspace ? { workspace: issue.workspace } : {}),
+    routine: { routineId: routine.routineId, runId: routine.runId, name: routine.name, at: routine.at, label: `Routine · ${routine.name}` },
+  };
+}
+
 /** What the agent reads: the issue, then where to get the rest of it. */
 export function linearIssuePrompt(issue, note) {
   return (
