@@ -176,6 +176,7 @@ function createLinearIssues({ linear, now = Date.now }) {
       const ids = linear.workspaces().map((item) => item.id);
       const named = []; // [path, workspace, KEY]
       for (const worktree of worktrees) {
+        if (worktree.linearIssue === null) continue; // Explicitly unlinked, even when the branch still names an issue.
         if (worktree.linearIssue) {
           const key = String(worktree.linearIssue).toUpperCase();
           const stored = String(worktree.linearWorkspace ?? "").toLowerCase();

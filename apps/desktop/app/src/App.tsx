@@ -859,7 +859,7 @@ function App() {
           linearIssue: worktree ? linearIssues[worktree.path] : undefined,
           // The stored link (Worktree.linearIssue) and whether "Link issue…" applies: the chat's own Worktree,
           // not the main checkout, and not one another chat shares.
-          linearKey: linear.active ? worktree?.linearIssue : undefined,
+          linearKey: linear.active ? (worktree?.linearIssue ?? undefined) : undefined,
           linkable: linear.active && !!worktree && worktree.path !== project?.path && !worktreeShared(state, session.id),
           pullRequests: worktree
             ? chatPullRequests(

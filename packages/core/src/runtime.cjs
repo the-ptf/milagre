@@ -839,7 +839,7 @@ function createRuntime(options) {
     );
     return { project: { ...project, state }, mode: "stored", branch: worktree.name };
   });
-  // Removes the stored issue link. The branch keeps its name: a branch that still names the issue keeps the chip.
+  // An explicit unlink suppresses branch detection too. The branch keeps its name.
   commands.handle("worktree:unlink-issue", async (_event, { projectPath, worktreeId } = {}) => {
     await ownProject(projectPath);
     await environmentReady;
@@ -850,8 +850,8 @@ function createRuntime(options) {
       (latest) => {
         const item = latest.worktrees[worktreeId];
         if (!item) return latest;
-        const { linearIssue: _unlinked, linearWorkspace: _workspace, ...rest } = item;
-        return { ...latest, worktrees: { ...latest.worktrees, [worktreeId]: rest } };
+        const { linearWorkspace: _workspace, ...rest } = item;
+        return { ...latest, worktrees: { ...latest.worktrees, [worktreeId]: { ...rest, linearIssue: null } } };
       },
       { chats: [] },
     );
