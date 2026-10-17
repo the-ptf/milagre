@@ -63,6 +63,14 @@ function claudeRequest(toolName, input, options = {}) {
   return compact({ ...base, kind: "other", title: options.title || `Use ${toolName}?`, detail: capText(JSON.stringify(input, null, 2)) });
 }
 
+// What a Claude tool call reaches, for WorkspaceAccess: a read tool's path (Grep and Glob without one search the cwd),
+// else the permission card's own request.
+const READ_TOOLS = new Set(["Read", "Grep", "Glob"]);
+function claudeAccessRequest(toolName, input, request) {
+  const file = READ_TOOLS.has(toolName) ? (input?.file_path ?? input?.path) : undefined;
+  return typeof file === "string" && file ? { kind: "read", files: [file] } : request;
+}
+
 // The user's answer -> the SDK's PermissionResult. Chat-wide rules are kept in the session only,
 // so they never reach the user's settings files.
 function claudeResult(decision, input, suggestions = []) {
@@ -243,6 +251,53 @@ function insideWorkspace(roots, files, cwd = roots[0]) {
   }
 }
 
+const PENDING_WORKTREE_MESSAGE =
+  "This Project has no Worktree in this Chat yet, and its main checkout is read-only. Call the milagre link_worktree_create tool with the Project's name, then make the change in the Worktree it returns.";
+
+/**
+ * The folders a Chat's agent session works in, shared by every provider. `roots` are the Chat's own: unset for a Project
+ * Chat (its cwd alone), a shared Link Chat's Worktrees otherwise. `readOnlyRoots` are the main checkouts of the Link's
+ * Projects the Chat has no Worktree in yet. A Worktree the Chat makes mid-session (`own`) is the Chat's at once, before
+ * the provider's own sandbox has it (`known`, which the provider updates with `learned`).
+ */
+class WorkspaceAccess {
+  constructor({ cwd, workspaceRoots, readOnlyRoots = [] }) {
+    Object.assign(this, { cwd, roots: workspaceRoots, readOnlyRoots, known: [...(workspaceRoots ?? [])] });
+  }
+
+  /** Whether every file is in the Chat's own folders: what Auto edits without asking. */
+  contains(files) {
+    return files.length > 0 && (this.roots ? insideWorkspace([this.cwd, ...this.roots], files, this.cwd) : insideRoot(this.cwd, files));
+  }
+
+  own(workspaceRoots, readOnlyRoots) {
+    Object.assign(this, { roots: workspaceRoots, readOnlyRoots });
+  }
+
+  /** The provider's sandbox now has these roots (every owned one by default). */
+  learned(roots = this.roots ?? []) {
+    this.known = [...new Set([...this.known, ...roots])];
+  }
+
+  /**
+   * A request decided before anyone is asked, or null: an edit in a main checkout is refused with the way to get a
+   * Worktree, a read there is allowed, and in Auto an edit in a Worktree made mid-session is allowed, with the roots
+   * (`learn`) the provider's sandbox should take.
+   */
+  answer({ kind, files = [] }, mode) {
+    if (!files.length) return null;
+    // Root by root: a missing folder only leaves its own requests to the usual cards.
+    const inside = (roots) => roots.some((root) => insideWorkspace([root], files, this.cwd));
+    if (inside(this.readOnlyRoots)) {
+      if (kind === "edit") return { decision: "deny", message: PENDING_WORKTREE_MESSAGE };
+      return kind === "read" ? { decision: "allow", learn: [] } : null;
+    }
+    const late = (this.roots ?? []).filter((root) => !this.known.includes(root));
+    if (kind === "edit" && mode === "auto" && inside(late)) return { decision: "allow", learn: late };
+    return null;
+  }
+}
+
 // The approval requests a session is waiting on. Each is answered exactly once: by the user, or as
 // cancelled when its turn stops. `forget` drops one the agent withdrew without replying to it.
 // The mode follows the user's switch mid-turn. Full answers every request without a card. Switching
@@ -310,6 +365,8 @@ module.exports = {
   insideWorkspace,
   isAcpPlanToolPermission,
   isCodexPlanToolApproval,
+  WorkspaceAccess,
+  claudeAccessRequest,
   claudeRequest,
   claudeResult,
   codexChangesDiff,

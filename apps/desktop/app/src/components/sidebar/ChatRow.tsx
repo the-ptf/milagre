@@ -1,3 +1,4 @@
+import { linkChatWorktreesLabel } from "@milagre/shared/worktree-link";
 import { ChatTitle } from "./ChatTitle";
 import { issueChipLabel, LINK_PR_HINT, type LinearIssue } from "@milagre/shared/linear";
 import { LinearLogo } from "../ProviderLogo";
@@ -325,7 +326,7 @@ export const ChatRow = memo(function ChatRow({
   if (item.worktreeCount !== undefined && factLine)
     facts.push(
       <span key="worktrees" className="shrink-0">
-        {item.worktreeCount} Worktrees
+        {linkChatWorktreesLabel(item.worktreeCount)}
       </span>,
     );
   if (branch)
@@ -470,7 +471,7 @@ export const ChatRow = memo(function ChatRow({
                 <ChatTitle label={item.label} />
               )}
               {item.worktreeCount !== undefined && !factLine && (
-                <span className="block text-[11px] font-normal text-ink-3">{item.worktreeCount} Worktrees</span>
+                <span className="block text-[11px] font-normal text-ink-3">{linkChatWorktreesLabel(item.worktreeCount)}</span>
               )}
             </span>
           </button>

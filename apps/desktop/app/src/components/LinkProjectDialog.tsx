@@ -1,3 +1,4 @@
+import { LINK_CHAT_WORKTREES_TEXT, LINK_UPDATE_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { NamedProjectLink } from "@milagre/shared/model";
@@ -78,9 +79,7 @@ export function LinkProjectDialog({ link, onClose, onCreated }: { link?: NamedPr
         <h2 id="link-dialog-title" className="text-[17px] font-semibold">
           {link ? "Edit Link" : "Link projects"}
         </h2>
-        <p className="mt-1 text-[13px] text-ink-2">
-          {link ? "New Chats get a Worktree in each Project. Chats already started keep theirs." : "One Chat, with a new Worktree in each Project."}
-        </p>
+        <p className="mt-1 text-[13px] text-ink-2">{link ? LINK_UPDATE_WORKTREES_TEXT : LINK_CHAT_WORKTREES_TEXT}</p>
         <label className="mt-5 text-[12px] font-medium text-ink-2" htmlFor="link-name">
           Link name
         </label>

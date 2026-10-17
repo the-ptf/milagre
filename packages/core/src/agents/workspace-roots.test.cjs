@@ -60,3 +60,72 @@ test("a provider session is replaced when its owned root set changes", async (t)
   assert.equal(calls.length, 2);
   assert.deepEqual(calls[1].workspaceRoots, ["/work/api", "/work/web"]);
 });
+test("a Link Project without a Worktree is read-only, and one made mid-session is owned in Auto", async (t) => {
+  const { WorkspaceAccess } = require("./permissions.cjs");
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-roots-")));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const [main, late] = [path.join(root, "web"), path.join(root, "worktrees", "api")];
+  await fs.mkdir(main);
+  await fs.mkdir(late, { recursive: true });
+  // A missing main checkout leaves only its own requests to the usual cards.
+  const access = new WorkspaceAccess({ cwd: root, workspaceRoots: [], readOnlyRoots: [main, path.join(root, "gone")] });
+  const request = (kind, file) => ({ kind, files: [file] });
+  assert.equal(access.answer(request("edit", path.join(main, "a.ts")), "auto").decision, "deny");
+  assert.deepEqual(access.answer(request("read", path.join(main, "a.ts")), "ask"), { decision: "allow", learn: [] });
+  assert.equal(access.answer(request("command", path.join(main, "a.ts")), "auto"), null);
+  access.own([late], [main]);
+  assert.equal(access.contains([path.join(late, "a.ts")]), true);
+  assert.deepEqual(access.answer(request("edit", path.join(late, "a.ts")), "auto"), { decision: "allow", learn: [late] });
+  assert.equal(access.answer(request("edit", path.join(late, "a.ts")), "ask"), null);
+  assert.equal(access.answer(request("edit", path.join(root, "elsewhere.ts")), "auto"), null);
+  access.learned();
+  assert.equal(access.answer(request("edit", path.join(late, "a.ts")), "auto"), null);
+});
+test("Claude refuses edits in a main checkout and adds a Worktree made mid-session for the rest of it", async (t) => {
+  const { WorkspaceAccess } = require("./permissions.cjs");
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-roots-")));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const [main, late] = [path.join(root, "web"), path.join(root, "worktrees", "api")];
+  await fs.mkdir(main);
+  await fs.mkdir(late, { recursive: true });
+  const access = new WorkspaceAccess({ cwd: root, workspaceRoots: [], readOnlyRoots: [main] });
+  const session = new ClaudeSession({ cwd: root, access, emit() {}, command: "/claude" });
+  t.after(() => session.close());
+  session.turnActive = true;
+  session.permissions.setMode("auto");
+  const edit = (file) => session.askPermission("Edit", { file_path: file, old_string: "a", new_string: "b" }, { toolUseID: file });
+  assert.equal((await edit(path.join(main, "a.ts"))).behavior, "deny");
+  const read = await session.askPermission("Read", { file_path: path.join(main, "a.ts") }, { toolUseID: "read" });
+  assert.deepEqual(read, { behavior: "allow", updatedInput: { file_path: path.join(main, "a.ts") } });
+  access.own([late], []);
+  const allowed = await edit(path.join(late, "a.ts"));
+  assert.equal(allowed.behavior, "allow");
+  assert.deepEqual(allowed.updatedPermissions, [{ type: "addDirectories", directories: [late], destination: "session" }]);
+  assert.deepEqual(access.known, [late]);
+});
+test("a Worktree made mid-session updates the running session without replacing it", async (t) => {
+  const calls = [];
+  const manager = new SessionManager({
+    createSession: (_provider, context) => {
+      calls.push(context);
+      return { startTurn() {}, close() {} };
+    },
+    send() {},
+  });
+  t.after(() => manager.closeAll());
+  const request = {
+    chatId: "link#1",
+    provider: "claude",
+    cwd: "/workspace",
+    workspaceRoots: [],
+    readOnlyRoots: ["/main/api"],
+    workspaceInstructions: "None yet",
+  };
+  await manager.startTurn(request);
+  assert.deepEqual(calls[0].access.readOnlyRoots, ["/main/api"]);
+  const next = { workspaceRoots: ["/work/api"], readOnlyRoots: [], workspaceInstructions: "Owned: api" };
+  manager.updateWorkspace("link#1", next);
+  assert.deepEqual([calls[0].access.roots, calls[0].access.readOnlyRoots], [["/work/api"], []]);
+  await manager.startTurn({ ...request, ...next });
+  assert.equal(calls.length, 1);
+});

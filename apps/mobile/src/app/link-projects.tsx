@@ -1,3 +1,4 @@
+import { LINK_CHAT_WORKTREES_TEXT, LINK_UPDATE_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -88,9 +89,7 @@ export default function LinkProjects() {
           <Text style={[styles.text, { fontWeight: "600" }]}>{linkId ? (busy ? "Saving..." : "Save") : busy ? "Creating..." : "Create"}</Text>
         </Pressable>
       </View>
-      <Text style={styles.muted}>
-        {linkId ? "New Chats get a Worktree in each Project. Chats already started keep theirs." : "One Chat, with a new Worktree in each Project."}
-      </Text>
+      <Text style={styles.muted}>{linkId ? LINK_UPDATE_WORKTREES_TEXT : LINK_CHAT_WORKTREES_TEXT}</Text>
       <Field label="Link name" value={name} onChangeText={setName} placeholder="e.g. RDFood" autoFocus editable={!busy} returnKeyType="next" />
       <Field
         label="Search projects"

@@ -74,8 +74,11 @@ async function main() {
       turnActive: false,
       async startTurn() {
         providerCalls++;
-        assert.equal(context.workspaceRoots.length, 2);
-        for (const member of context.workspaceRoots) await fs.writeFile(path.join(member, "status.txt"), "Shared edit\n");
+        // A shared Chat starts with no Worktree: the agent makes one in each Project it is about to change.
+        const create = context.linked.tools.find((tool) => tool.name === "link_worktree_create");
+        for (const project of projects) await create.run({ project: path.basename(project) });
+        assert.equal(context.access.roots.length, 2);
+        for (const member of context.access.roots) await fs.writeFile(path.join(member, "status.txt"), "Shared edit\n");
         context.emit({ type: "session-started", nativeId: "shared-session" });
         context.emit({ type: "turn-started", turnId: "turn" });
         context.emit({ type: "text-delta", messageId: `reply-${providerCalls}`, text: "Updated status.txt in both owned Worktrees." });
@@ -477,8 +480,8 @@ async function main() {
       false,
       "Explicit new Chat selection must survive a scope switch",
     );
-    // Setup now runs after the Chat exists and its send is acknowledged. Hold Worktree creation itself
-    // so these checks still exercise a late acknowledgement, through the real Git/daemon/IPC path.
+    // A shared Chat's agent makes its Worktrees during the turn. Hold that creation, through the real
+    // Git/daemon/IPC path, so these checks run while the earlier send's turn is still busy.
     const worktreeGate = path.join(dir, "worktree-ready");
     const worktreeStarted = path.join(dir, "worktree-started");
     const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -498,7 +501,7 @@ async function main() {
         ),
       "slow Worktree creation started",
     );
-    assert.equal(providerCalls, 2, "Worktree creation must still block the first send");
+    assert.equal(providerCalls, 3, "The send's turn started; its agent's Worktree creation is what waits");
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
     await input('textarea[aria-label="Prompt"]', "Slow new shared Chat");
     await fs.writeFile(worktreeGate, "ready");
@@ -523,7 +526,7 @@ async function main() {
         ),
       "scope-switch Worktree creation started",
     );
-    assert.equal(providerCalls, 3, "Worktree creation must still block the background send");
+    assert.equal(providerCalls, 4, "The background send's turn started; its agent's Worktree creation is what waits");
     await openScope(scopeOf("food-api"));
     await waitFor(() => isCurrent(scopeOf("food-api")), "switched away during creation");
     await fs.writeFile(worktreeGate, "ready");

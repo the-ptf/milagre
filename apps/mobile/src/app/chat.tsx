@@ -1,3 +1,4 @@
+import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Reanimated from "react-native-reanimated";
@@ -1171,7 +1172,7 @@ export default function ChatScreen() {
                 <Text style={styles.subtitle}>What are we working on?</Text>
                 <Text style={[styles.muted, { textAlign: "center" }]}>
                   {project.link
-                    ? "One Chat, with a new Worktree in each linked Project on your computer."
+                    ? LINK_CHAT_WORKTREES_TEXT
                     : newWorktree
                       ? `Your agent starts in a new worktree from ${base || "the selected branch"} on your computer.`
                       : `Your agent runs in ${worktree?.name || "this Worktree"} on your computer.`}

@@ -149,7 +149,20 @@ test("mobile bridge forwards commands to the existing owner and reads cached sna
 });
 
 test("a phone opens a named Link and sends one shared Chat with two owned Worktrees", async (t) => {
-  const { dataDir, project, rpc, request, bridge, token } = await fixture(t, { runtimeOptions: demoRuntimeOptions() });
+  const demo = demoRuntimeOptions();
+  // The Projects the agent changes: each gets the shared Chat's Worktree first, as a real agent's would.
+  const edits = [];
+  const createSession = (provider, context) => {
+    const session = demo.createSession(provider, context);
+    const startTurn = session.startTurn.bind(session);
+    session.startTurn = async (turn) => {
+      const tool = context.linked?.tools.find((item) => item.name === "link_worktree_create");
+      if (tool) for (const project of edits) await tool.run({ project });
+      return startTurn(turn);
+    };
+    return session;
+  };
+  const { dataDir, project, rpc, request, bridge, token } = await fixture(t, { runtimeOptions: { ...demo, createSession } });
   const second = path.join(path.dirname(project), "second");
   await fs.mkdir(second);
   execFileSync("git", ["init", "-b", "main", second], { stdio: "ignore" });
@@ -162,6 +175,7 @@ test("a phone opens a named Link and sends one shared Chat with two owned Worktr
   const registryResponse = await rpc("project:registry");
   assert.equal(registryResponse.status, 200);
   const registered = (await registryResponse.json()).result;
+  edits.push(...registered.map((item) => item.name));
   const made = await rpc("link:create", [{ name: "Together", projectIds: registered.map((item) => item.id) }]);
   assert.equal(made.status, 200);
   const link = (await made.json()).result;

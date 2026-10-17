@@ -15,7 +15,7 @@ const {
   mapClaudeMessage,
   missingCliMessage,
 } = require("./events.cjs");
-const { PendingPermissions, claudeRequest, claudeResult, insideRoot, insideWorkspace } = require("./permissions.cjs");
+const { PendingPermissions, WorkspaceAccess, claudeAccessRequest, claudeRequest, claudeResult } = require("./permissions.cjs");
 const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = require("./questions.cjs");
 const { mcpContent, runTool } = require("../linked-tools.cjs");
 const { advisorPolicy, ANALYSIS_INSTRUCTIONS } = require("./advisor-policy.cjs");
@@ -104,6 +104,9 @@ class ClaudeSession {
     env,
     emit,
     workspaceRoots,
+    readOnlyRoots,
+    // The SessionManager's, which follows a shared Link Chat's Worktrees; a session made alone (an advisor) has its own.
+    access = new WorkspaceAccess({ cwd, workspaceRoots, readOnlyRoots }),
     workspaceInstructions,
     tldrEnabled = true,
     designsEnabled = true,
@@ -120,7 +123,7 @@ class ClaudeSession {
       command,
       env,
       emit,
-      workspaceRoots,
+      access,
       workspaceInstructions,
       tldrEnabled,
       designsEnabled,
@@ -292,6 +295,8 @@ class ClaudeSession {
     this.ultracode = ultracode;
     this.fastMode = fastMode;
     this.outputStyle = null;
+    // Claude Code takes every owned root as its own directory; one made later reaches it through askPermission.
+    this.access.learned();
     // Settings › MCP: Everywhere servers join the Chat's servers; off servers are switched off once Claude Code has started.
     // An advisor never gets them, and a failing read never stops the Chat from starting.
     const extras = this.mcpExtras && !this.analysisOnly ? await readMcpExtras(this) : null;
@@ -305,7 +310,7 @@ class ClaudeSession {
         // Headless Claude Code hides TaskCreate / TaskUpdate / TaskList, which feed the Chat's task list.
         env: { ...(this.env ?? process.env), CLAUDE_CODE_ENABLE_TODO_TOOLS: "1" },
         cwd: this.cwd,
-        ...(this.workspaceRoots ? { additionalDirectories: this.workspaceRoots.filter((root) => root !== this.cwd) } : {}),
+        ...(this.access.roots ? { additionalDirectories: this.access.roots.filter((root) => root !== this.cwd) } : {}),
         model,
         permissionMode: mode,
         ...(effort ? { effort } : {}),
@@ -379,12 +384,16 @@ class ClaudeSession {
     // A request that arrives once its turn has stopped has nobody to ask.
     if (!this.turnActive || this.cancelRequested || this.closed) return Promise.resolve(claudeResult("cancelled", input));
     const request = claudeRequest(toolName, input, options);
+    const decided = this.access.answer(claudeAccessRequest(toolName, input, request), this.permissions.mode);
+    if (decided?.decision === "deny") return Promise.resolve({ behavior: "deny", message: decided.message });
+    if (decided) {
+      this.access.learned(decided.learn);
+      const added = decided.learn.length ? { updatedPermissions: [{ type: "addDirectories", directories: decided.learn, destination: "session" }] } : {};
+      return Promise.resolve({ behavior: "allow", updatedInput: input, ...added });
+    }
     return new Promise((resolve) => {
       const abort = () => this.permissions.resolve(request.requestId, "cancelled");
-      const inWorkspace =
-        !options.blockedPath &&
-        Boolean(request.files?.length) &&
-        (this.workspaceRoots ? insideWorkspace([this.cwd, ...this.workspaceRoots], request.files, this.cwd) : insideRoot(this.cwd, request.files));
+      const inWorkspace = !options.blockedPath && this.access.contains(request.files ?? []);
       this.permissions.add(
         request,
         (decision) => {
