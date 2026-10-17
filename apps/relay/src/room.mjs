@@ -7,10 +7,12 @@ const OPEN = 1,
   DATA = 2,
   CLOSE = 3;
 // Webhook frames, all on conn 0 (phones start at 1): HOOK carries a stored delivery to the Mac, HOOK_SET the Mac's full
-// set of hook ids, HOOK_ACK the id of a delivery the Mac has persisted. Older daemons drop anything that is not DATA.
+// set of hook ids, HOOK_ACK the id of a delivery the Mac has persisted, HOOK_RESULT (room to Mac) the ids of the last
+// set that another room still holds. Older daemons drop anything that is not DATA.
 export const HOOK = 4,
   HOOK_SET = 5,
-  HOOK_ACK = 6;
+  HOOK_ACK = 6,
+  HOOK_RESULT = 7;
 
 export function frame(type, conn, payload = new Uint8Array()) {
   const out = new Uint8Array(9 + payload.length);

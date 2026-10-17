@@ -50,7 +50,8 @@ export type HookSend = (bytes: Uint8Array) => boolean;
 export interface HookRoom {
   receive(hookId: string, request: HookRequest): HookAnswer;
   onHostReady(send?: HookSend): void;
-  onFrame(type: number, payload: Uint8Array, send?: HookSend): Promise<void>;
+  /** HOOK_SET returns its settle; HOOK_ACK and anything else return undefined. After each set the room sends HOOK_RESULT `{ refused }`. */
+  onFrame(type: number, payload: Uint8Array, send?: HookSend): Promise<void> | undefined;
   expire(at: number): number | null;
 }
 export function createHookRoom(options: {
@@ -76,3 +77,15 @@ export function pickHookQuery(search: string): Record<string, string>;
 export function splitHookFrame(payload: Uint8Array): { header: Record<string, unknown>; body: Uint8Array };
 export function packHookRequest(request: HookRequest): Uint8Array;
 export function unpackHookRequest(bytes: Uint8Array): HookRequest;
+export function hookResponse(answer: HookAnswer): Response;
+export function handleHookRequest(
+  request: Request,
+  hops: {
+    lookupRoom(hookId: string): Promise<string | null> | string | null;
+    forwardToRoom(roomId: string, hookId: string, packed: Uint8Array): Promise<Response> | Response;
+  },
+): Promise<Response>;
+export interface HookSql {
+  exec(query: string, ...bindings: unknown[]): { toArray(): Record<string, any>[]; one(): Record<string, any> };
+}
+export function sqlHookStorage(sql: HookSql): HookStorage;

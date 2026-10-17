@@ -1,3 +1,5 @@
+# Never turn on observability, Logpush or tail logs for this Worker: a webhook's request.url carries its secret
+# (/hook/<secret>), and the bodies are other people's payloads.
 name = "milagre-relay"
 main = "src/worker.ts"
 compatibility_date = "2026-09-01"

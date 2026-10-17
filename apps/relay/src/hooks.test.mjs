@@ -10,6 +10,8 @@ import {
   hookIdOf,
   hookSecretOf,
   pickHookHeaders,
+  handleHookRequest,
+  sqlHookStorage,
   splitHookFrame,
   NOT_FOUND,
   MAX_HOOK_BODY,
@@ -17,7 +19,7 @@ import {
   MAX_STORED_PER_HOOK,
   HOLD_MS,
 } from "./hooks.mjs";
-import { createRoom, unframe, frame, HOOK, HOOK_SET, HOOK_ACK } from "./room.mjs";
+import { createRoom, unframe, frame, HOOK, HOOK_SET, HOOK_ACK, HOOK_RESULT } from "./room.mjs";
 
 const encoder = new TextEncoder();
 const hex = (c) => c.repeat(64);
@@ -28,12 +30,14 @@ function setup({ roomId = "room-1", directory = memoryHookDirectory(), clock = {
   const storage = memoryHookStorage();
   let n = 0;
   const hooks = createHookRoom({ storage, directory, roomId, now: () => clock.now, randomId: () => `d${++n}` });
-  const sent = [];
+  const sent = []; // HOOK frames
+  const results = []; // HOOK_RESULT payloads
   const send = (bytes) => {
-    sent.push(bytes);
+    if (bytes[0] === HOOK_RESULT) results.push(JSON.parse(new TextDecoder().decode(unframe(bytes).payload)));
+    else sent.push(bytes);
     return true;
   };
-  return { storage, directory, hooks, sent, send, clock };
+  return { storage, directory, hooks, sent, results, send, clock };
 }
 const setFrame = (ids) => encoder.encode(JSON.stringify({ hookIds: ids }));
 const request = (body = '{"ok":true}', extra = {}) => ({ headers: { "content-type": "application/json" }, query: {}, body: encoder.encode(body), ...extra });
@@ -47,7 +51,7 @@ function readHook(bytes) {
 }
 
 test("frame constants sit beside OPEN, DATA and CLOSE", () => {
-  assert.deepEqual([HOOK, HOOK_SET, HOOK_ACK], [4, 5, 6]);
+  assert.deepEqual([HOOK, HOOK_SET, HOOK_ACK, HOOK_RESULT], [4, 5, 6, 7]);
 });
 
 test("an unregistered hook gets the same 404 as a bad secret", async () => {
@@ -304,4 +308,185 @@ test("the room routes HOOK_SET and HOOK_ACK on conn 0 to the hook room and tells
   assert.deepEqual(seen, ["ready", [HOOK_SET, '{"hookIds":[]}'], [HOOK_ACK, "d1"]]);
   assert.equal(room.sendHost(frame(HOOK, 0n)), true);
   assert.equal(unframe(host.sent.at(-1)).type, HOOK);
+});
+
+test("each HOOK_SET is answered with the ids another room still holds, and a later set claims them once released", async () => {
+  // A Phone Reset: the Mac's new room asks for hooks its old room still owns.
+  const directory = memoryHookDirectory();
+  const old = setup({ directory, roomId: "old-room" });
+  const fresh = setup({ directory, roomId: "new-room" });
+  await old.hooks.onFrame(HOOK_SET, setFrame([A, B]), old.send);
+  assert.deepEqual(old.results, [{ refused: [] }]);
+  await fresh.hooks.onFrame(HOOK_SET, setFrame([A, B]), fresh.send);
+  assert.deepEqual(fresh.results.at(-1), { refused: [A, B] });
+  assert.deepEqual(await fresh.hooks.receive(A, request()), NOT_FOUND);
+  // The retiring host lets go, then the new one sends its set again.
+  await old.hooks.onFrame(HOOK_SET, setFrame([]), old.send);
+  assert.deepEqual(await old.hooks.receive(A, request()), NOT_FOUND);
+  await fresh.hooks.onFrame(HOOK_SET, setFrame([A, B]), fresh.send);
+  assert.deepEqual(fresh.results.at(-1), { refused: [] });
+  assert.equal(directory.owner(A), "new-room");
+  assert.equal((await fresh.hooks.receive(A, request())).status, 202);
+});
+
+test("a directory release that fails is tried again on the next set", async () => {
+  const inner = memoryHookDirectory();
+  let failing = true;
+  const flaky = {
+    claim: (id, room) => inner.claim(id, room),
+    release: async (id, room) => {
+      if (failing) throw new Error("directory down");
+      inner.release(id, room);
+    },
+  };
+  const { hooks, send } = setup({ directory: flaky });
+  await hooks.onFrame(HOOK_SET, setFrame([A]), send);
+  await hooks.onFrame(HOOK_SET, setFrame([]), send);
+  assert.equal(inner.owner(A), "room-1", "the release failed");
+  assert.deepEqual(await hooks.receive(A, request()), NOT_FOUND, "dead here all the same");
+  failing = false;
+  await hooks.onFrame(HOOK_SET, setFrame([B]), send);
+  assert.equal(inner.owner(A), null);
+  assert.equal(inner.owner(B), "room-1");
+});
+
+test("HOOK_ACK returns nothing to wait on, even while a set is settling", async () => {
+  const { hooks, send } = setup();
+  const settling = hooks.onFrame(HOOK_SET, setFrame([A]), send);
+  assert.equal(hooks.onFrame(HOOK_ACK, encoder.encode("x"), send), undefined);
+  await settling;
+});
+
+/** The edge with an in-memory directory and rooms, counting lookups. */
+function edge() {
+  const directory = memoryHookDirectory();
+  const rooms = new Map();
+  const lookups = [];
+  const hops = {
+    lookupRoom: (hookId) => {
+      lookups.push(hookId);
+      return directory.owner(hookId);
+    },
+    forwardToRoom: async (roomId, hookId, packed) => {
+      const { unpackHookRequest, hookResponse } = await import("./hooks.mjs");
+      return hookResponse(rooms.get(roomId).hooks.receive(hookId, unpackHookRequest(packed)));
+    },
+  };
+  const room = (roomId) => {
+    const made = setup({ directory, roomId });
+    rooms.set(roomId, made);
+    return made;
+  };
+  return { hops, room, lookups, directory };
+}
+const post = (path, init = {}) => new Request(`https://relay.milagre.cloud${path}`, { method: "POST", body: '{"a":1}', ...init });
+async function snapshotResponse(response) {
+  return { status: response.status, headers: [...response.headers.entries()], body: new Uint8Array(await response.arrayBuffer()) };
+}
+
+test("a malformed secret, an unknown hook and a released hook answer the same bytes, each after one lookup", async () => {
+  const { hops, room, lookups } = edge();
+  const mac = room("room-1");
+  const released = "R".repeat(43);
+  const releasedId = await hookIdOf(released);
+  await mac.hooks.onFrame(HOOK_SET, setFrame([releasedId]), mac.send);
+  assert.equal((await handleHookRequest(post(`/hook/${released}`), hops)).status, 202);
+  await mac.hooks.onFrame(HOOK_SET, setFrame([]), mac.send);
+  // Released from the room but, as after a failed release, still in the directory: the room's own 404 must match.
+  const stillListed = "S".repeat(43);
+  const stillListedId = await hookIdOf(stillListed);
+  await mac.hooks.onFrame(HOOK_SET, setFrame([stillListedId]), mac.send);
+  mac.storage.hooks.delete(stillListedId);
+  lookups.length = 0;
+  const answers = [];
+  for (const path of ["/hook/bad-shape", `/hook/${"U".repeat(43)}`, `/hook/${released}`, `/hook/${stillListed}`, `/hook/${"A".repeat(42)}=`]) {
+    const before = lookups.length;
+    answers.push(await snapshotResponse(await handleHookRequest(post(path), hops)));
+    assert.equal(lookups.length, before + 1, path);
+  }
+  for (const answer of answers.slice(1)) assert.deepEqual(answer, answers[0]);
+  assert.equal(answers[0].status, 404);
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(answers[0].body)), NOT_FOUND.json);
+});
+
+test("405 and 413 are decided before any lookup", async () => {
+  const { hops, lookups } = edge();
+  const secret = "/hook/" + "A".repeat(43);
+  const get = await handleHookRequest(new Request(`https://relay.milagre.cloud${secret}`), hops);
+  assert.equal(get.status, 405);
+  assert.equal(get.headers.get("allow"), "POST");
+  const big = await handleHookRequest(post(secret, { body: new Uint8Array(MAX_HOOK_BODY + 1) }), hops);
+  assert.equal(big.status, 413);
+  assert.deepEqual(lookups, []);
+});
+
+test("a registered hook gets 202 through the edge with its headers, query and body", async () => {
+  const { hops, room } = edge();
+  const mac = room("room-1");
+  const secret = "Z".repeat(43);
+  await mac.hooks.onFrame(HOOK_SET, setFrame([await hookIdOf(secret)]), mac.send);
+  mac.hooks.onHostReady(mac.send);
+  const response = await handleHookRequest(
+    post(`/hook/${secret}?env=prod&env=dev`, { headers: { "content-type": "application/json", "cf-ray": "x" }, body: '{"level":"error"}' }),
+    hops,
+  );
+  assert.equal(response.status, 202);
+  const { header, body } = readHook(mac.sent[0]);
+  assert.deepEqual(header.query, { env: "prod" });
+  assert.equal(header.headers["content-type"], "application/json");
+  assert.equal(header.headers["cf-ray"], undefined);
+  assert.equal(new TextDecoder().decode(body), '{"level":"error"}');
+});
+
+test("the SQL storage keeps order, counts, sums and BLOB bytes (node:sqlite standing in for the Durable Object)", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(":memory:");
+  const sql = {
+    exec(query, ...bindings) {
+      const statement = db.prepare(query);
+      const values = bindings.map((value) => (value instanceof ArrayBuffer ? new Uint8Array(value) : value));
+      const rows = /^\s*SELECT/i.test(query) ? statement.all(...values) : (statement.run(...values), []);
+      return {
+        toArray: () => rows,
+        one: () => {
+          if (rows.length !== 1) throw new Error("Expected one row");
+          return rows[0];
+        },
+      };
+    },
+  };
+  const storage = sqlHookStorage(sql);
+  storage.hooks.add(A);
+  storage.hooks.add(A);
+  storage.hooks.add(B);
+  assert.equal(storage.hooks.has(A), true);
+  assert.deepEqual([...storage.hooks].sort(), [A, B]);
+  storage.hooks.delete(B);
+  assert.equal(storage.hooks.has(B), false);
+  assert.equal(storage.deliveries.size(), 0);
+  assert.equal(storage.deliveries.bytes(), 0);
+  const body = new Uint8Array([0, 1, 255, 10]);
+  const view = new Uint8Array(new Uint8Array([9, 9, ...body, 9]).buffer, 2, 4); // a view into a larger buffer
+  storage.deliveries.put({ id: "late", hook: A, receivedAt: 20, size: 4, headers: { h: "1" }, query: { q: "2" }, body: view });
+  storage.deliveries.put({ id: "early", hook: B, receivedAt: 10, size: 3, headers: {}, query: {}, body: new Uint8Array([1, 2, 3]) });
+  storage.deliveries.put({ id: "tie", hook: A, receivedAt: 20, size: 1, headers: {}, query: {}, body: new Uint8Array([7]) });
+  assert.deepEqual(storage.deliveries.list(), [
+    { id: "early", hook: B, receivedAt: 10, size: 3 },
+    { id: "late", hook: A, receivedAt: 20, size: 4 },
+    { id: "tie", hook: A, receivedAt: 20, size: 1 },
+  ]);
+  assert.equal(storage.deliveries.size(), 3);
+  assert.equal(storage.deliveries.bytes(), 8);
+  const got = storage.deliveries.get("late");
+  assert.deepEqual(got.body, body);
+  assert.deepEqual(got.headers, { h: "1" });
+  assert.deepEqual(got.query, { q: "2" });
+  storage.deliveries.delete("late");
+  assert.equal(storage.deliveries.get("late"), null);
+  assert.equal(storage.deliveries.bytes(), 4);
+  // The hook room runs on it as on memory.
+  const hooks = createHookRoom({ storage, directory: memoryHookDirectory(), roomId: "room-1", now: () => 30 });
+  await hooks.onFrame(HOOK_SET, setFrame([A]), () => true);
+  assert.equal((await hooks.receive(A, request("x"))).status, 202);
+  assert.equal(storage.deliveries.size(), 3);
 });

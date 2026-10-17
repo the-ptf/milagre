@@ -1,5 +1,5 @@
 import { b64url } from "@milagre/shared/relay-crypto";
-import { frame, HOOK, HOOK_SET, HOOK_ACK } from "./room.mjs";
+import { frame, HOOK, HOOK_SET, HOOK_ACK, HOOK_RESULT } from "./room.mjs";
 
 /**
  * Webhooks through the relay, runtime-neutral so the Worker and the daemon's local test relay share it.
@@ -97,6 +97,81 @@ export function pickHookQuery(search) {
   return out;
 }
 
+/** The JSON answer for a hook request; every 404 is these exact bytes and headers. */
+export function hookResponse(answer) {
+  return new Response(answer === NOT_FOUND ? NOT_FOUND_BODY : JSON.stringify(answer.json), {
+    status: answer.status,
+    headers: { "content-type": "application/json", "cache-control": "no-store" },
+  });
+}
+
+/**
+ * `POST /hook/<secret>` at the edge. 405 and 413 are decided before anything about the hook is looked at. Then every path
+ * is hashed, well-formed or not, and its directory entry is asked once (`lookupRoom(hookId)` → room id or null), so a
+ * malformed secret, an unknown hook and a released one take the same steps to the same 404. A hook with a room goes on
+ * to it (`forwardToRoom(roomId, hookId, packed)` → Response), which answers 404 itself when the hook isn't registered there.
+ * Nothing here logs the secret, the URL or the body.
+ */
+export async function handleHookRequest(request, { lookupRoom, forwardToRoom }) {
+  if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { allow: "POST" } });
+  const url = new URL(request.url);
+  const body = await readHookBody(request);
+  if (!body) return hookResponse(TOO_LARGE);
+  const secret = hookSecretOf(url.pathname);
+  const hookId = await hookIdOf(secret ?? url.pathname);
+  const roomId = await lookupRoom(hookId);
+  if (!secret || typeof roomId !== "string" || roomId === "") return hookResponse(NOT_FOUND);
+  return forwardToRoom(roomId, hookId, packHookRequest({ headers: pickHookHeaders(request.headers.entries()), query: pickHookQuery(url.search), body }));
+}
+
+/**
+ * One room's hook storage over SQLite (`sql.exec(query, ...bindings)` → a cursor with toArray and one, as a Durable
+ * Object's `ctx.storage.sql` is). Makes its tables on first use.
+ */
+export function sqlHookStorage(sql) {
+  sql.exec("CREATE TABLE IF NOT EXISTS hooks (id TEXT PRIMARY KEY)");
+  sql.exec(
+    "CREATE TABLE IF NOT EXISTS deliveries (id TEXT PRIMARY KEY, hook TEXT NOT NULL, received_at INTEGER NOT NULL, size INTEGER NOT NULL, headers TEXT NOT NULL, query TEXT NOT NULL, body BLOB NOT NULL)",
+  );
+  const entry = (row) => ({ id: row.id, hook: row.hook, receivedAt: Number(row.received_at), size: Number(row.size) });
+  return {
+    hooks: {
+      has: (id) => sql.exec("SELECT 1 AS x FROM hooks WHERE id = ?", id).toArray().length > 0,
+      add: (id) => void sql.exec("INSERT OR IGNORE INTO hooks (id) VALUES (?)", id),
+      delete: (id) => void sql.exec("DELETE FROM hooks WHERE id = ?", id),
+      [Symbol.iterator]: () => {
+        const ids = sql
+          .exec("SELECT id FROM hooks")
+          .toArray()
+          .map((row) => row.id);
+        return ids[Symbol.iterator]();
+      },
+    },
+    deliveries: {
+      put: (d) =>
+        void sql.exec(
+          "INSERT OR REPLACE INTO deliveries (id, hook, received_at, size, headers, query, body) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          d.id,
+          d.hook,
+          d.receivedAt,
+          d.size,
+          JSON.stringify(d.headers),
+          JSON.stringify(d.query),
+          d.body.slice().buffer,
+        ),
+      get: (id) => {
+        const row = sql.exec("SELECT * FROM deliveries WHERE id = ?", id).toArray()[0];
+        if (!row) return null;
+        return { ...entry(row), headers: JSON.parse(row.headers), query: JSON.parse(row.query), body: new Uint8Array(row.body) };
+      },
+      delete: (id) => void sql.exec("DELETE FROM deliveries WHERE id = ?", id),
+      list: () => sql.exec("SELECT id, hook, received_at, size FROM deliveries ORDER BY received_at, rowid").toArray().map(entry),
+      size: () => Number(sql.exec("SELECT COUNT(*) AS n FROM deliveries").one().n),
+      bytes: () => Number(sql.exec("SELECT COALESCE(SUM(size), 0) AS n FROM deliveries").one().n),
+    },
+  };
+}
+
 /** A HOOK frame's payload split into its JSON header line and the body bytes. */
 export function splitHookFrame(payload) {
   const at = payload.indexOf(10);
@@ -165,16 +240,41 @@ export function createHookRoom({ storage, directory, roomId, now = Date.now, ran
     }
   };
   let desired = null; // the latest HOOK_SET, which the directory calls catch up with
+  const unreleased = new Set(); // hooks dropped here whose directory release hasn't gone through yet
+  const release = (id, roomNow) =>
+    Promise.resolve()
+      .then(() => directory.release(id, roomNow))
+      .then(
+        () => unreleased.delete(id),
+        () => unreleased.add(id),
+      );
   async function settle(removed) {
     const roomNow = room();
-    for (const id of removed) await Promise.resolve(directory.release(id, roomNow)).catch(() => {});
+    for (const id of removed) unreleased.add(id);
+    // Releases that failed before are tried again on every set; a hook wanted again is still this room's.
+    for (const id of [...unreleased]) {
+      if (desired.has(id)) unreleased.delete(id);
+      else await release(id, roomNow);
+    }
+    const refused = [];
     for (const id of desired) {
       if (storage.hooks.has(id)) continue;
-      const claimed = await Promise.resolve(directory.claim(id, roomNow)).catch(() => false);
-      if (claimed !== true) continue;
+      const claimed = await Promise.resolve()
+        .then(() => directory.claim(id, roomNow))
+        .catch(() => false);
+      if (claimed !== true) {
+        // Another room holds it (this Mac before a Reset, until its old room lets go). The next set tries again.
+        if (desired.has(id)) refused.push(id);
+        continue;
+      }
       // A later HOOK_SET may have dropped it while the claim was in flight.
       if (desired.has(id)) storage.hooks.add(id);
-      else await Promise.resolve(directory.release(id, roomNow)).catch(() => {});
+      else await release(id, roomNow);
+    }
+    try {
+      send(frame(HOOK_RESULT, 0n, encoder.encode(JSON.stringify({ refused }))));
+    } catch {
+      /* the Mac is gone; it sends its set again on the next ready */
     }
   }
   return {
@@ -214,11 +314,11 @@ export function createHookRoom({ storage, directory, roomId, now = Date.now, ran
       if (nextSend) send = nextSend;
       if (type === HOOK_ACK) {
         storage.deliveries.delete(decoder.decode(payload));
-        return applying;
+        return undefined;
       }
-      if (type !== HOOK_SET) return applying;
+      if (type !== HOOK_SET) return undefined;
       const next = hookSetOf(payload);
-      if (!next) return applying;
+      if (!next) return undefined;
       desired = next;
       // Removals now, before any directory call: a rotated hook is dead at once.
       const removed = [...storage.hooks].filter((id) => !next.has(id));

@@ -2,6 +2,7 @@ export const MAX_PHONES: number;
 export const HOOK: 4;
 export const HOOK_SET: 5;
 export const HOOK_ACK: 6;
+export const HOOK_RESULT: 7;
 export type Payload = string | ArrayBuffer | ArrayBufferView;
 export interface RoomSocket {
   send(data: string | Uint8Array): void;
