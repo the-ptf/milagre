@@ -127,15 +127,19 @@ export function placeholderQuery(text, caret, names = []) {
 }
 
 /**
- * Replaces what was typed from `start` (the "{{") to `caret` with the placeholder, and puts the caret after its "}}". The
- * rest of a name and the closing braces that already followed the caret are taken, so finishing a placeholder in the
- * middle of a closed one, or one with a single "}" typed, leaves nothing behind.
+ * Replaces what was typed from `start` (the "{{") to `caret` with the placeholder, and puts the caret after its "}}". Text
+ * right after the caret goes too when it is the rest of this placeholder: the name and braces of one already closed
+ * ("{{iss|ue.key}}", "{{iss|}"), or the rest of the chosen name typed on both sides of the caret ("{{iss|ue"). Anything else
+ * after the caret stays ("Fix ({{|)", "{{|foo bar").
  */
 export function insertPlaceholder(text, start, caret, name) {
   const source = String(text ?? "");
   const placeholder = `{{${name}}}`;
   const tail = source.slice(caret);
-  // The rest of the name being typed, and the closing braces after it, go: the placeholder replaces them.
-  const rest = /^[^\s{}]*\}{0,2}/.exec(tail)?.[0] ?? "";
-  return { text: source.slice(0, start) + placeholder + tail.slice(rest.length), caret: start + placeholder.length };
+  const [, rest = "", braces = ""] = /^([\w.-]*)(\}{0,2})/.exec(tail) ?? [];
+  const typed = source.slice(start, caret).replace(/^\{+[ \t]*/, "");
+  let taken = 0;
+  if (braces) taken = rest.length + braces.length;
+  else if (rest && name.toLowerCase().startsWith((typed + rest).toLowerCase())) taken = rest.length;
+  return { text: source.slice(0, start) + placeholder + tail.slice(taken), caret: start + placeholder.length };
 }

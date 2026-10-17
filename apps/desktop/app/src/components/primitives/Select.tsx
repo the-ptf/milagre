@@ -33,6 +33,7 @@ export function Select<T extends string>({
   width = 240,
   disabled = false,
   triggerClassName = "",
+  searchable = false,
 }: {
   label: string;
   value: T;
@@ -42,6 +43,8 @@ export function Select<T extends string>({
   disabled?: boolean;
   /** Added to the trigger's classes, e.g. `w-full` in a form. */
   triggerClassName?: string;
+  /** A search field over a long list (e.g. time zones); it filters by label. */
+  searchable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number }>({ left: 0, maxHeight: 0 });
@@ -49,9 +52,13 @@ export function Select<T extends string>({
   const panelRef = useRef<HTMLDivElement>(null);
   // Inside an open modal <dialog> the panel goes into the dialog: the dialog sits in the top layer, above anything in body.
   const [host, setHost] = useState<Element | null>(null);
+  const [query, setQuery] = useState("");
+  const words = query.toLowerCase().trim();
+  const shown = searchable && words ? options.filter((option) => option.label.toLowerCase().includes(words)) : options;
   const selected = options.find((option) => option.value === value);
 
   function place() {
+    setQuery("");
     setHost(triggerRef.current?.closest("dialog[open]") ?? null);
     const trigger = triggerRef.current?.getBoundingClientRect();
     if (!trigger) return;
@@ -77,7 +84,8 @@ export function Select<T extends string>({
   }
 
   useLayoutEffect(() => {
-    if (!open) return;
+    // With a search field, it takes focus (autoFocus) so typing filters at once.
+    if (!open || searchable) return;
     const rows = panelRef.current?.querySelectorAll<HTMLElement>("[data-picker-row]");
     const index = options.findIndex((option) => option.value === value && !option.disabled);
     const focusIndex = index >= 0 ? index : options.findIndex((option) => !option.disabled);
@@ -141,10 +149,13 @@ export function Select<T extends string>({
             className="fixed z-50"
             style={{ left: position.left, top: position.top, bottom: position.bottom, width }}
           >
-            <PickerPanel style={{ maxHeight: position.maxHeight, transformOrigin: `${position.top === undefined ? "bottom" : "top"} right` }}>
-              {options.map((option, index) => (
+            <PickerPanel
+              style={{ maxHeight: position.maxHeight, transformOrigin: `${position.top === undefined ? "bottom" : "top"} right` }}
+              {...(searchable ? { query, onQueryChange: setQuery, placeholder: "Search", isEmpty: shown.length === 0, emptyLabel: "No matches" } : {})}
+            >
+              {shown.map((option, index) => (
                 <Fragment key={option.value}>
-                  {option.group && option.group !== options[index - 1]?.group && (
+                  {option.group && option.group !== shown[index - 1]?.group && (
                     <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-3">{option.group}</div>
                   )}
                   <PickerRow

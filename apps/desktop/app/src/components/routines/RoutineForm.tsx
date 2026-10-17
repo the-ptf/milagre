@@ -108,6 +108,8 @@ export function RoutineForm({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
+  // Note for the merge with the hooks track: once routineHook / rotateRoutineHook are on the typed bridge, call them as
+  // window.milagre.* and list them in routed-bridge.test.ts; this alias keeps them out of that allowlist until then.
   const bridge = window.milagre as typeof window.milagre & HookBridge;
   const [state, setState] = useState<RoutineFormState>(() => {
     const zone = localZone();
@@ -220,10 +222,15 @@ export function RoutineForm({
     }
   };
   const copy = (url: string) => {
-    void navigator.clipboard?.writeText(url).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
+    Promise.resolve()
+      .then(() => navigator.clipboard.writeText(url))
+      .then(
+        () => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        },
+        () => setTopError("Couldn’t copy the URL."),
+      );
   };
   const rotate = async () => {
     if (!initial || !bridge.rotateRoutineHook) return;
@@ -308,7 +315,7 @@ export function RoutineForm({
     <div data-routine-hook className="space-y-2 rounded-[10px] border border-line bg-field px-3 py-2.5">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink" title={url ?? undefined}>
-          {url ?? (editing ? "Reading the URL…" : "The URL appears after you create the routine.")}
+          {url ?? (!editing ? "The URL appears after you create the routine." : bridge.routineHook ? "Reading the URL…" : "This Mac can’t show the URL yet.")}
         </span>
         {url && (
           <button type="button" data-routine-hook-copy className={smallButton} onClick={() => copy(url)}>
@@ -448,6 +455,7 @@ export function RoutineForm({
                       label="Timezone"
                       value={state.schedule.timezone}
                       options={timezones(state.schedule.timezone).map((zone) => ({ value: zone, label: zone.replaceAll("_", " ") }))}
+                      searchable
                       onChange={(timezone) => update({ schedule: { ...state.schedule, timezone } })}
                       triggerClassName="w-full"
                       width={260}
@@ -604,7 +612,7 @@ export function RoutineForm({
                     />
                   </Field>
                 </div>
-                {editing && state.webhook.signed && (
+                {initial?.trigger.kind === "webhook" && initial.trigger.signed && (
                   <label className="flex items-center gap-2 text-[12px] text-ink-2">
                     <input
                       type="checkbox"
@@ -717,7 +725,8 @@ export function RoutineForm({
                     value={dateValue(state.stop.at)}
                     onChange={(event) => {
                       const at = dateAt(event.target.value);
-                      if (at !== null) update({ stop: { ...state.stop, at } });
+                      // The last day offered ends a little before the store's 30 day limit, not at 23:59.
+                      if (at !== null) update({ stop: { ...state.stop, at: Math.min(at, openedAt + 30 * DAY_MS - 60_000) } });
                     }}
                   />
                 )}

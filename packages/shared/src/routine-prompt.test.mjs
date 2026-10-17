@@ -398,3 +398,11 @@ test("placeholderQuery accepts spaces after the {{, as the renderer does", () =>
 test("insertPlaceholder takes the rest of an unclosed name after the caret", () => {
   assert.deepEqual(insertPlaceholder("{{issue more", 0, 5, "issue.key"), { text: "{{issue.key}} more", caret: 13 });
 });
+
+test("insertPlaceholder leaves text after the caret that isn't part of the name", () => {
+  assert.deepEqual(insertPlaceholder("Fix ({{)", 5, 7, "issue.key"), { text: "Fix ({{issue.key}})", caret: 18 });
+  assert.deepEqual(insertPlaceholder("Review issue {{.", 13, 15, "issue.key"), { text: "Review issue {{issue.key}}.", caret: 26 });
+  assert.deepEqual(insertPlaceholder("Check {{foo bar", 6, 8, "issue.key"), { text: "Check {{issue.key}}foo bar", caret: 19 });
+  // A name typed on both sides of the caret is one name: "{{iss|ue" picking issue.key.
+  assert.deepEqual(insertPlaceholder("{{issue", 0, 5, "issue.key"), { text: "{{issue.key}}", caret: 13 });
+});

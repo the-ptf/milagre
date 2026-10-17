@@ -24,7 +24,8 @@ export function renderRoutinePrompt(template: string, values: Record<string, str
 export function placeholderQuery(text: string, caret: number, names: string[]): { start: number; query: string; matches: string[] } | null;
 
 /**
- * Replaces the text from `start` (the `{{`) to `caret` with `{{name}}`; the caret goes after the `}}`. The rest of a name
- * (typed or not) and up to two closing braces right after the caret are taken, so nothing is doubled or left behind.
+ * Replaces the text from `start` (the `{{`) to `caret` with `{{name}}`; the caret goes after the `}}`. Text after the caret
+ * goes too only when it is the rest of this placeholder: the name and braces of a closed one, or the rest of `name` typed
+ * on both sides of the caret. Anything else after the caret stays.
  */
 export function insertPlaceholder(text: string, start: number, caret: number, name: string): { text: string; caret: number };

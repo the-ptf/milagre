@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CodeIcon } from "@hugeicons/core-free-icons";
 import { insertPlaceholder, placeholderQuery } from "@milagre/shared/routine-prompt";
@@ -38,6 +39,8 @@ export function PlaceholderTextarea({
   const [dismissed, setDismissed] = useState<number | null>(null);
   const [anchor, setAnchor] = useState<{ left: number; width: number; maxHeight: number; top?: number; bottom?: number } | null>(null);
   const pendingCaret = useRef<number | null>(null);
+  // The list goes into the open modal dialog (above the page, outside the form's scroll fade, whose mask would clip it).
+  const [host, setHost] = useState<Element | null>(null);
 
   const look = (text: string, caret: number) => {
     const found = placeholderQuery(
@@ -56,6 +59,7 @@ export function PlaceholderTextarea({
       return { start: found.start, caret, matches };
     });
     const rect = textarea.current?.getBoundingClientRect();
+    setHost(textarea.current?.closest("dialog[open]") ?? null);
     if (rect) {
       // Under the textarea, or above it when the window has no room below.
       const below = window.innerHeight - rect.bottom - 16;
@@ -124,36 +128,39 @@ export function PlaceholderTextarea({
         onBlur={() => setOpen(null)}
         className={`w-full resize-y rounded-lg border bg-surface px-3 py-2 text-[13px] leading-[1.5] text-ink outline-none focus:border-ink focus:ring-1 focus:ring-ink ${invalid ? "border-red" : "border-line-strong"}`}
       />
-      {open && anchor && (
-        <ScrollArea
-          id="routine-placeholders"
-          role="listbox"
-          aria-label="Placeholders"
-          data-routine-placeholders
-          className="fixed z-50 rounded-[12px] border border-line-strong bg-surface p-1.5 shadow-overlay"
-          style={{ left: anchor.left, top: anchor.top, bottom: anchor.bottom, width: anchor.width, maxHeight: Math.min(anchor.maxHeight, 280) }}
-          // Keep focus in the textarea while picking with the mouse.
-          onMouseDown={(event) => event.preventDefault()}
-        >
-          {open.matches.map((entry, index) => (
-            <button
-              key={entry.name}
-              type="button"
-              role="option"
-              aria-selected={index === active}
-              data-placeholder={entry.name}
-              onMouseEnter={() => setActive(index)}
-              ref={index === active ? (node) => node?.scrollIntoView({ block: "nearest" }) : undefined}
-              onClick={() => choose(entry)}
-              className={`flex h-9 w-full items-center gap-2 rounded-[8px] px-2 text-left ${index === active ? "bg-hover-2" : ""}`}
-            >
-              <HugeiconsIcon icon={CodeIcon} size={14} strokeWidth={1.8} color="currentColor" className={index === active ? "text-ink" : "text-ink-2"} />
-              <span className={`shrink-0 text-[13px] text-ink ${index === active ? "font-medium" : ""}`}>{entry.name}</span>
-              <span className="min-w-0 flex-1 truncate text-right text-[12px] text-ink-2">{entry.example}</span>
-            </button>
-          ))}
-        </ScrollArea>
-      )}
+      {open &&
+        anchor &&
+        createPortal(
+          <ScrollArea
+            id="routine-placeholders"
+            role="listbox"
+            aria-label="Placeholders"
+            data-routine-placeholders
+            className="fixed z-50 rounded-[12px] border border-line-strong bg-surface p-1.5 shadow-overlay"
+            style={{ left: anchor.left, top: anchor.top, bottom: anchor.bottom, width: anchor.width, maxHeight: Math.min(anchor.maxHeight, 280) }}
+            // Keep focus in the textarea while picking with the mouse.
+            onMouseDown={(event) => event.preventDefault()}
+          >
+            {open.matches.map((entry, index) => (
+              <button
+                key={entry.name}
+                type="button"
+                role="option"
+                aria-selected={index === active}
+                data-placeholder={entry.name}
+                onMouseEnter={() => setActive(index)}
+                ref={index === active ? (node) => node?.scrollIntoView({ block: "nearest" }) : undefined}
+                onClick={() => choose(entry)}
+                className={`flex h-9 w-full items-center gap-2 rounded-[8px] px-2 text-left ${index === active ? "bg-hover-2" : ""}`}
+              >
+                <HugeiconsIcon icon={CodeIcon} size={14} strokeWidth={1.8} color="currentColor" className={index === active ? "text-ink" : "text-ink-2"} />
+                <span className={`shrink-0 text-[13px] text-ink ${index === active ? "font-medium" : ""}`}>{entry.name}</span>
+                <span className="min-w-0 flex-1 truncate text-right text-[12px] text-ink-2">{entry.example}</span>
+              </button>
+            ))}
+          </ScrollArea>,
+          host ?? document.body,
+        )}
     </>
   );
 }
