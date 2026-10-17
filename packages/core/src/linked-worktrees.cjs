@@ -296,20 +296,13 @@ function createLinkedWorktrees({
       url: () => mcp.url(chatId),
       toolsAvailable: (available) => setToolsAvailable(chatId, available),
     }),
-    /**
-     * What a turn starts with: the linked summary, then the Delegation reports its agent hasn't had, or "" when there is
-     * neither. A failed read leaves its part out.
-     */
-    context: async (chatId) => {
-      const [summary, reports] = await Promise.all([
-        reads.summary(chatId).catch(() => ""),
-        delegations.takeReports(chatId).catch((error) => {
-          console.warn("Milagre couldn't read the Delegation reports:", error.message);
-          return "";
-        }),
-      ]);
-      return [summary, reports].filter(Boolean).join("\n\n");
-    },
+    /** The linked summary can be read while CLI and setup checks run; it consumes nothing. */
+    context: (chatId) => reads.summary(chatId).catch(() => ""),
+    reportsForTurn: (chatId) =>
+      delegations.reportsForTurn(chatId).catch((error) => {
+        console.warn("Milagre couldn't read the Delegation reports:", error.message);
+        return null;
+      }),
     observe: (chatId, event) => delegations.observe(chatId, event),
     /** A Delegation (or Negotiation report) that waited in the Chat's queue across a restart started, or was removed. */
     queuedStarted: (chatId, context, started) => delegations.adopt(chatId, context, started),

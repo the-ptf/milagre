@@ -8,7 +8,7 @@ const { clip } = require("./linked-summary.cjs");
 
 // Delegations and Negotiations (ADR-0002). A Delegation is a message from a Chat to another Chat, across a
 // Link or in its own Project, carried out by that Chat's own agent; the reply of the turn that took it comes
-// back as the Delegation report, which the requesting agent also gets with its next turn (`takeReports`). A Negotiation is a run of Delegations between two Chats: the
+// back as the Delegation report, which the requesting agent also gets with its next turn (`reportsForTurn`). A Negotiation is a run of Delegations between two Chats: the
 // receiving side answers in its report, which starts the requesting side's next move (another round or
 // `conclude_negotiation`), until it concludes, the user stops it, or it reaches NEGOTIATION_ROUNDS.
 //
@@ -120,6 +120,7 @@ class Delegations {
     this.observations = new Map();
     this.currentTurn = new Map();
     this.stoppedTurns = new Map();
+    this.reportClaims = new Map();
     this.endedTurns = new Map();
     this.pumping = new Set();
     this.ready = store.load().then((data) => {
@@ -504,9 +505,11 @@ class Delegations {
     const negotiation = item.negotiationId ? this.data.negotiations.find((entry) => entry.id === item.negotiationId) : null;
     if (delegation) {
       delegation.status = status;
+      const body = `Couldn't deliver the Delegation to ${delegation.to_label}: ${problem}.`;
+      delegation.report = body;
       await this.persist();
       await this.ports.note(delegation.from_chat, {
-        body: `Couldn't deliver the Delegation to ${delegation.to_label}: ${problem}.`,
+        body,
         context: { kind: "delegation-report", delegationId: delegation.id, from: delegation.to_chat, fromLabel: delegation.to_label, status },
       });
     }
@@ -662,25 +665,43 @@ class Delegations {
     }
     if (negotiation?.status === "running")
       await this.end(negotiation, "stopped", { reason: `round ${delegation.round} ${outcome === "cancelled" ? "was stopped" : "failed"}` });
-    delegation.report = reportBody(outcome, reply);
+    const body = reportBody(outcome, reply);
+    delegation.report = body;
     await this.persist();
-    await this.ports.note(delegation.from_chat, { body: delegation.report, context });
+    await this.ports.note(delegation.from_chat, { body, context });
   }
 
   /**
-   * The Delegation reports the requesting Chat's agent hasn't had yet, as a block for the start of its next turn, or "".
-   * A report is otherwise only a line in the Chat: the agent would see it only through a Link's summary, and an
-   * in-Project Delegation has none. Each report goes once.
+   * Reports for the next turn, or null. Reading leaves them pending until the provider accepts the turn.
+   * Acknowledgement removes only this snapshot, so reports arriving during startup remain for the next turn.
    */
-  async takeReports(chatKey) {
+  async reportsForTurn(chatKey) {
     await this.ready;
-    const waiting = this.data.delegations.filter((item) => item.from_chat === chatKey && item.report);
-    if (!waiting.length) return "";
+    while (this.reportClaims.has(chatKey)) await this.reportClaims.get(chatKey);
+    const waiting = this.data.delegations.filter((item) => item.from_chat === chatKey && item.report).map((item) => ({ item, report: item.report }));
+    if (!waiting.length) return null;
+    const claim = Promise.withResolvers();
+    this.reportClaims.set(chatKey, claim.promise);
+    const release = () => {
+      if (this.reportClaims.get(chatKey) === claim.promise) this.reportClaims.delete(chatKey);
+      claim.resolve();
+    };
     // The Chat ref tells apart several "new" Chats, and is what chat_read and the next delegate take.
-    const lines = waiting.map((item) => `Delegation report from ${item.to_label} (${item.to_chat}, ${item.status}):\n${clip(item.report, REPORT_CHARS)}`);
-    for (const item of waiting) delete item.report;
-    await this.persist();
-    return ["<delegation_reports>", ...lines, "</delegation_reports>"].join("\n");
+    const lines = waiting.map(
+      ({ item, report }) => `Delegation report from ${item.to_label} (${item.to_chat}, ${item.status}):\n${clip(report, REPORT_CHARS)}`,
+    );
+    return {
+      text: ["<delegation_reports>", ...lines, "</delegation_reports>"].join("\n"),
+      release,
+      delivered: async () => {
+        try {
+          for (const { item, report } of waiting) if (item.report === report) delete item.report;
+          await this.persist();
+        } finally {
+          release();
+        }
+      },
+    };
   }
 
   /** Ends a running Negotiation, drops its waiting messages and tells both Chats. */
@@ -718,12 +739,15 @@ class Delegations {
   }
 
   async noteInterrupted(delegations, negotiations) {
-    for (const delegation of delegations)
-      delegation.report = `Milagre restarted before ${delegation.to_label} finished this Delegation, so it was cancelled: "${clip(delegation.message, 120)}"`;
+    const reports = delegations.map((delegation) => {
+      const body = `Milagre restarted before ${delegation.to_label} finished this Delegation, so it was cancelled: "${clip(delegation.message, 120)}"`;
+      delegation.report = body;
+      return { delegation, body };
+    });
     await this.persist();
-    const notes = delegations.map((delegation) =>
+    const notes = reports.map(({ delegation, body }) =>
       this.ports.note(delegation.from_chat, {
-        body: delegation.report,
+        body,
         context: { kind: "delegation-report", delegationId: delegation.id, from: delegation.to_chat, fromLabel: delegation.to_label, status: "cancelled" },
       }),
     );

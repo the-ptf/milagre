@@ -86,7 +86,7 @@ class FakeSession {
 
 const git = (...args) => execFileSync("git", args, { stdio: "ignore" });
 
-async function linkedProjects(t, { link = true } = {}) {
+async function linkedProjects(t, { link = true, agentCli = async () => ({ command: "/fake/agent" }) } = {}) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-links-")));
   const runtimes = [];
   t.after(async () => {
@@ -110,7 +110,7 @@ async function linkedProjects(t, { link = true } = {}) {
     environmentReady: Promise.resolve(),
     registryRoots: [],
     titleModels: {},
-    agentCli: async () => ({ command: "/fake/agent" }),
+    agentCli,
     agentCliStatus: async () => ({ claude: { state: "ready" }, codex: { state: "ready" } }),
     agentModels: async () => ({ claude: [{ id: "claude-test", efforts: [] }], codex: [{ id: "codex-test", efforts: [] }] }),
     emit: (channel, payload) => events.push({ channel, payload }),
@@ -633,6 +633,7 @@ for (const action of ["Stop", "Restart", "Stop during parent turn"])
 function desk({
   data = { delegations: [], negotiations: [], grants: [] },
   target = async () => ({ link_id: "link-1", projectPath: "/web", projectName: "web", branch: "main" }),
+  save = () => {},
 } = {}) {
   const notes = [];
   const delivered = [];
@@ -660,6 +661,7 @@ function desk({
       load: async () => structuredClone(data),
       save: async (next) => {
         saved.push(structuredClone(next));
+        return save(next);
       },
     },
     ports,
@@ -792,11 +794,13 @@ test("Delegations still open when Milagre starts again are cancelled with a noti
   assert.equal(saved.at(-1).negotiations[0].status, "stopped");
   // The requesting agent hears about it with its next turn, once; the report survives until then.
   assert.match(saved.at(-1).delegations[0].report, /Milagre restarted before web/);
-  assert.match(
-    await delegations.takeReports("/api#1"),
-    /^<delegation_reports>\nDelegation report from web \(\/web#2, cancelled\):\nMilagre restarted before web/,
-  );
-  assert.equal(await delegations.takeReports("/api#1"), "");
+  const pending = await delegations.reportsForTurn("/api#1");
+  assert.match(pending.text, /^<delegation_reports>\nDelegation report from web \(\/web#2, cancelled\):\nMilagre restarted before web/);
+  pending.release();
+  const retry = await delegations.reportsForTurn("/api#1");
+  assert.equal(retry.text, pending.text, "a failed start can read the report again");
+  await retry.delivered();
+  assert.equal(await delegations.reportsForTurn("/api#1"), null);
   assert.equal(saved.at(-1).delegations[0].report, undefined);
 });
 
@@ -812,6 +816,68 @@ test("a Delegation with no Link (inside its own Project) never asks for approval
   assert.equal(fake.delegations.snapshot().delegations[0].link_id, null);
 });
 
+test("acknowledging a report snapshot preserves reports that arrived during startup", async () => {
+  const first = { id: "d1", from_chat: "/api#1", to_chat: "/web#2", to_label: "web", status: "done", report: "First result" };
+  const fake = desk({ data: { delegations: [first], negotiations: [], grants: [] } });
+  const pending = await fake.delegations.reportsForTurn("/api#1");
+  fake.delegations.data.delegations.push({ ...first, id: "d2", report: "Second result" });
+  await pending.delivered();
+  const next = await fake.delegations.reportsForTurn("/api#1");
+  assert.match(next.text, /Second result/);
+  assert.doesNotMatch(next.text, /First result/);
+  assert.equal(fake.saved.at(-1).delegations[1].report, "Second result");
+});
+
+for (const accepted of [false, true])
+  test(`concurrent report readers wait until startup ${accepted ? "accepts" : "releases"} its reservation`, async () => {
+    const record = { id: "d1", from_chat: "/api#1", to_chat: "/web#2", to_label: "web", status: "done", report: "Result" };
+    const fake = desk({ data: { delegations: [record], negotiations: [], grants: [] } });
+    const first = await fake.delegations.reportsForTurn("/api#1");
+    let resolved = false;
+    const waiting = fake.delegations.reportsForTurn("/api#1").then((next) => {
+      resolved = true;
+      return next;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(resolved, false, "concurrent starts cannot both send the same report");
+    if (accepted) await first.delivered();
+    else first.release();
+    const next = await waiting;
+    if (accepted) assert.equal(next, null);
+    else {
+      assert.equal(next.text, first.text, "a failed start leaves reports for the next caller");
+      await next.delivered();
+    }
+  });
+
+for (const restart of [false, true])
+  test(`consuming a ${restart ? "restart" : "completed"} report during persistence preserves its visible note`, async () => {
+    const saving = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    const open = { id: "d1", from_chat: "/api#1", to_chat: "/web#2", to_label: "web", message: "Add it", status: "running" };
+    const fake = desk({
+      data: { delegations: restart ? [open] : [], negotiations: [], grants: [] },
+      save: () => {
+        saving.resolve();
+        return release.promise;
+      },
+    });
+    await fake.delegations.ready;
+    if (!restart) fake.delegations.data.delegations.push(open);
+    const finished = restart ? Promise.resolve() : fake.delegations.finish(open, "done");
+    await saving.promise;
+    const context = await fake.delegations.reportsForTurn("/api#1");
+    const consumed = context.delivered();
+    await waitFor(() => !fake.delegations.data.delegations[0].report);
+    release.resolve();
+    await finished;
+    await consumed;
+    await waitFor(() => fake.notes.length === 1);
+    const expected = restart ? 'Milagre restarted before web finished this Delegation, so it was cancelled: "Add it"' : "reply";
+    assert.equal(fake.notes[0].body, expected);
+    assert.ok(context.text.includes(expected), context.text);
+  });
+
 // A receiving Chat on a provider that can't steer queues the message (chat-host.cjs), and the queue outlives a restart.
 function queuingDesk(data) {
   const fake = desk(data ? { data } : {});
@@ -821,6 +887,16 @@ function queuingDesk(data) {
   };
   return fake;
 }
+
+test("removing a queued Delegation keeps its cancellation report for the requesting agent", async () => {
+  const fake = queuingDesk();
+  await fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" });
+  await waitFor(() => fake.saved.at(-1)?.delegations[0]?.waiting === true);
+  assert.equal(await fake.delegations.unqueued("/web#2", fake.delivered[0].item.context), true);
+  const context = await fake.delegations.reportsForTurn("/api#1");
+  assert.ok(context.text.includes(fake.notes[0].body), context.text);
+  assert.match(context.text, /removed from the Chat's queue/);
+});
 
 test("a Delegation waiting in its Chat's queue stays open across a restart and reports once its turn runs", async () => {
   const first = queuingDesk();
@@ -1058,7 +1134,11 @@ test("a grant on any Link that reaches the destination covers it, when an older 
 });
 
 test("a Chat delegates inside its own Project with no Link and no card, and its next turn gets the report once", async (t) => {
-  const fixture = await linkedProjects(t, { link: false });
+  let cliFailed = false;
+  const fixture = await linkedProjects(t, {
+    link: false,
+    agentCli: async () => (cliFailed ? { problem: "Temporary CLI failure" } : { command: "/fake/agent" }),
+  });
   const prompts = [];
   let result;
   fixture.scripts.api = async (session, prompt) => {
@@ -1083,6 +1163,10 @@ test("a Chat delegates inside its own Project with no Link and no card, and its 
   assert.equal(received.body, "Rename the uploads route");
   assert.equal(received.context.from, fixture.chatOf("api"));
 
+  cliFailed = true;
+  await fixture.send("api", "Read the report", "ask");
+  await waitFor(() => fixture.events.some(({ channel, payload }) => channel === "agent:event" && payload.event?.message === "Temporary CLI failure"));
+  cliFailed = false;
   await fixture.send("api", "What did it do?", "ask");
   await waitFor(() => prompts.length === 2);
   const report = `<delegation_reports>\nDelegation report from api / main / a new Chat (${child}, done):\nRenamed the uploads route.\n</delegation_reports>`;

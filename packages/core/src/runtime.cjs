@@ -971,9 +971,14 @@ function createRuntime(options) {
     // A new turn carries the summary of the Chat's linked Worktrees after its message (a leading slash command
     // stays first); a message steering a turn doesn't repeat it.
     const context = agents.isTurnActive(request.chatId) ? "" : await linkedContext;
-    const text = [prompt, ...setupNotes, context].filter(Boolean).join("\n\n");
+    const reports = agents.isTurnActive(request.chatId) ? null : await linked.reportsForTurn(request.chatId);
+    const text = [prompt, ...setupNotes, context, reports?.text].filter(Boolean).join("\n\n");
     try {
-      return await agents.startTurn({
+      if (closing) {
+        await chats.receive(request.chatId, { type: "turn-cancelled" });
+        return { turnId: null, steered: false, cancelled: true };
+      }
+      const started = await agents.startTurn({
         ...request,
         designsEnabled: artifacts.enabled(),
         prompt: text,
@@ -984,10 +989,14 @@ function createRuntime(options) {
         args: cli.args,
         accountId: cli.accountId,
       });
+      if (started?.turnId) await reports?.delivered();
+      return started;
     } catch (error) {
       // A start that throws sends no event, so the hold a setup handed to this turn would never be released.
       keepAwake.turnNotStarted(request.chatId);
       throw error;
+    } finally {
+      reports?.release();
     }
   }
 
