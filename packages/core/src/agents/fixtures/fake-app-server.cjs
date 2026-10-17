@@ -207,7 +207,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         });
       }
       if (["mcp-approval", "mcp-form", "mcp-plan-approval"].includes(scenario)) {
-        const tool = scenario === "mcp-plan-approval" ? "tasks_set" : "design_show";
+        const tool = scenario === "mcp-plan-approval" ? "tasks_set" : "design_delete";
         pendingTurn = { threadId, turnId, approvalId: "srv-mcp" };
         return send({
           id: "srv-mcp",

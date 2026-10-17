@@ -187,13 +187,16 @@ function codexMcpRequest(id, params) {
 // what they would do; the provider's bare "run tool?" card in front of it would make the user approve twice.
 // Codex names the tool only in the message: `Allow the milagre MCP server to run tool "tasks_set"?`.
 const SELF_GATED_TOOLS = ["worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"];
-const PLAN_TOOLS = new Set([...PLAN_TOOL_NAMES, ...SELF_GATED_TOOLS]);
+// Like the plan tools, these only write the Chat's own canvas, page or Negotiation (design_delete stays gated).
+const OWN_CHAT_TOOLS = ["design_show", "design_apply", "artifact_show", "artifact_resolve_comment", "conclude_negotiation"];
+const PLAN_TOOLS = new Set([...PLAN_TOOL_NAMES, ...SELF_GATED_TOOLS, ...OWN_CHAT_TOOLS]);
 
 /**
- * The milagre tools a provider runs without its own card: the reads, the plan tools and the self-gated ones. Every other
- * milagre tool (Linear writes, chat_stop, worktree_create, design_delete…) follows the Chat's permission mode like any
- * tool. Claude takes this list as allowedTools. Codex skips its own card for readOnlyHint tools, and Milagre answers the
- * card Codex or Antigravity shows for a plan or self-gated tool (isCodexPlanToolApproval, isAcpPlanToolPermission).
+ * The milagre tools a provider runs without its own card, in every mode: the reads, the plan tools, the ones that only
+ * write the Chat's own canvas, page or Negotiation, and the self-gated ones. Every other milagre tool (Linear writes,
+ * chat_stop, worktree_create, design_delete…) follows the Chat's permission mode like any tool. Claude takes this list as
+ * allowedTools. Codex skips its own card for readOnlyHint tools, and Milagre answers the card Codex or Antigravity shows
+ * for the rest of the list (isCodexPlanToolApproval, isAcpPlanToolPermission).
  */
 const isUngatedMilagreTool = (definition) => definition.readOnly === true || PLAN_TOOLS.has(definition.name);
 
