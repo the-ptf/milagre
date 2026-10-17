@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ChatMessage } from "../model";
 import { chatMark, dropIntent, folderName, formatLineCount, orderChats } from "./chat-list.ts";
+import { createPendingChat, withPendingChat } from "@milagre/shared/chats";
+import type { CoordinatorState } from "../model";
 
 test("chatMark: a question beats waiting beats running beats unread", () => {
   assert.equal(chatMark({ asking: true, waiting: true, running: true, unread: true }), "question");
@@ -68,6 +70,34 @@ test("orderChats keeps pinned chats on top in their own order, whatever their ac
     orderChats(chats, "created").map((c) => c.name),
     ["first pin", "second pin", "quiet", "busy"],
   );
+});
+
+test("sending to a Chat without loaded messages follows the chosen order until it is saved", () => {
+  const state = {
+    next_id: 100,
+    projects: {},
+    worktrees: {},
+    messages: [],
+    tasks: {},
+    sessions: {
+      1: { id: 1, worktree_id: 1, agent_name: "Claude", status: "Idle", summary: { count: 8, firstId: 3, lastId: 40 } },
+      10: { id: 10, worktree_id: 1, agent_name: "Claude", status: "Idle", summary: { count: 2, firstId: 12, lastId: 60 } },
+    },
+  } as CoordinatorState;
+  const pending = createPendingChat({ state, worktreeId: 1, sessionId: 1, body: "Follow up", model: "m", provider: "claude" });
+  const preview = withPendingChat(state, pending);
+  const saved = { ...state, sessions: { ...state.sessions, 1: { ...state.sessions[1], summary: { count: 9, firstId: 3, lastId: 100 } } } };
+  for (const current of [preview, saved]) {
+    const chats = Object.values(current.sessions).map((session) => ({ session, sessionMessages: [] }));
+    assert.deepEqual(
+      orderChats(chats, "created").map(({ session }) => session.id),
+      [10, 1],
+    );
+    assert.deepEqual(
+      orderChats(chats, "recent").map(({ session }) => session.id),
+      [1, 10],
+    );
+  }
 });
 
 test("dropIntent: between rows pins, unpins or reorders; on a row links other Worktrees", () => {

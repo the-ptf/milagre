@@ -23,6 +23,7 @@ window.computerList = [
   { id: "c-studio", name: "studio", hostId: "s".repeat(22), relayHost: "relay.milagre.cloud", state: "offline", route: null, lastSeen: Date.now() - 2 * HOUR, addedAt: 1, message: null, lan: false, lanRoutes: [] },
 ];
 let computersChanged = () => {};
+const computerEvents = new Set();
 window.setComputers = (list) => { window.computerList = list; computersChanged({ thisMac: "victor-mbp", computers: list }); };
 const remoteState = (title, body) => ({ next_id: 9, projects: { 1: { id: 1, name: "p" } }, worktrees: { 1: { id: 1, name: "main", path: "/remote", project_id: 1 } }, sessions: { 4: { id: 4, worktree_id: 1, agent_name: "Claude", provider: "claude", status: "Idle", title } }, connections: {}, events: [], messages: [{ id: 4, session_id: 4, role: "user", body }], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] });
 const remoteProjects = {
@@ -43,7 +44,19 @@ window.remoteProjects = remoteProjects;
 window.sent = [];
 // Each computer's bridge, as main would answer it: keys already name the computer.
 const projectsOf = (id) => Object.values(remoteProjects).filter((project) => project.path.startsWith(id + "|"));
-const projectAt = async (key) => Object.values(remoteProjects).find((project) => project.path === key);
+const projectAt = async (key) => {
+  const project = structuredClone(Object.values(remoteProjects).find((project) => project.path === key));
+  if (new URLSearchParams(location.search).has("race") && key === remoteProjects["c-arketa"].path && !window.remoteReadHeld) {
+    window.remoteReadHeld = true;
+    await new Promise(resolve => { window.finishRemoteRead = resolve; });
+  }
+  return project;
+};
+window.pushRemote = (state) => {
+  remoteProjects["c-arketa"].state = state;
+  for (const callback of computerEvents) callback({ channel: "project:state", payload: { path: remoteProjects["c-arketa"].path, state } });
+};
+window.setChatOrder = (chatOrder) => updateSettings({ chatOrder });
 const remote = (id) => new Proxy({
   listRecentProjects: async () => projectsOf(id).map(({ path, name, hidden }) => ({ path, name, ...(hidden ? { hidden } : {}) })),
   setProjectHidden: async (key, hidden) => {
@@ -83,6 +96,7 @@ window.milagre = new Proxy({
   getPhoneStatus: async () => ({ enabled: false, state: "off", remote: "none" }),
   listDevices: async () => [],
   onComputersChanged: (callback) => ((computersChanged = callback), () => {}),
+  onComputerEvent: (callback) => (computerEvents.add(callback), () => computerEvents.delete(callback)),
   computers: {
     list: async () => ({ thisMac: "victor-mbp", computers: window.computerList }),
     setEnabled: async () => {},
@@ -360,6 +374,31 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('[data-computers-button]')`);
     assert.deepEqual(errors, []);
     console.log("PASS: Add computer opens from the popover, and nothing about computers shows while Other computers is off");
+
+    // A slow initial remote read must not undo live pin settings received while it was in flight.
+    await window.loadURL(process.argv[2] + "?race=1");
+    await waitFor(`typeof window.finishRemoteRead === 'function'`);
+    await evaluate(`window.pushRemote({ ...window.remoteProjects['c-arketa'].state, messages: [], messagesInChats: true, sessions: {
+      4: { id: 4, worktree_id: 1, agent_name: 'Claude', status: 'Idle', pinned: true, pin_order: 1, summary: { count: 5, firstId: 1, lastId: 20, titleLine: 'Fix flaky deploy check' } },
+      8: { id: 8, worktree_id: 1, agent_name: 'Claude', status: 'Idle', pinned: true, pin_order: 0, summary: { count: 2, firstId: 9, lastId: 12, titleLine: 'Newer remote chat' } }
+    } })`);
+    const remoteIds = `[...document.querySelectorAll('[data-pinned-scope="c-arketa|/Users/a/arketa-web"] [data-chat-id], [data-sidebar-scope="c-arketa|/Users/a/arketa-web"] [data-chat-id]')].map(row => row.dataset.chatId)`;
+    await waitFor(`JSON.stringify(${remoteIds}) === '["8","4"]'`);
+    await evaluate(`window.finishRemoteRead()`);
+    await delay(150);
+    assert.deepEqual(await evaluate(remoteIds), ["8", "4"], "the delayed snapshot keeps the live pin order");
+    await evaluate(`(() => {
+      const state = structuredClone(window.remoteProjects['c-arketa'].state);
+      for (const chat of Object.values(state.sessions)) chat.pinned = false;
+      window.pushRemote(state);
+      window.setChatOrder('recent');
+    })()`);
+    await waitFor(`JSON.stringify(${remoteIds}) === '["4","8"]'`);
+    await evaluate(`window.setChatOrder('created')`);
+    await waitFor(`JSON.stringify(${remoteIds}) === '["8","4"]'`);
+    await screenshot("remote-chat-order");
+    assert.deepEqual(errors, []);
+    console.log("PASS: remote chats retain live pin settings through a delayed read and follow both Chat order choices");
     app.exit(0);
   } catch (error) {
     console.error(error);
@@ -386,7 +425,7 @@ async function main() {
         },
         configureServer(server) {
           server.middlewares.use(async (request, response, next) => {
-            if (request.url !== "/__sidebar-computers") return next();
+            if (request.url.split("?")[0] !== "/__sidebar-computers") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(
               await server.transformIndexHtml(
