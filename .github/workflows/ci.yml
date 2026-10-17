@@ -44,10 +44,10 @@ jobs:
               - 'package-lock.json'
               - '.github/workflows/ci.yml'
               - '.github/actions/**'
-  # The required JavaScript check. Its checks were four jobs (static, supply-chain, two unit shards) behind a gate job;
-  # they are steps of one job now, the quick ones as a parallel group with a log each. The account runs 20 jobs at
-  # once and a run took 18, so a second run waited for the first; a run takes 14 now and a second one starts six jobs.
-  javascript:
+  # The quick JavaScript checks (static, supply chain, Linux repository signing) as parallel steps of one job, a log
+  # each. The unit suite has a job per shard: beside these steps it shared the runner's four cores and took 100 s
+  # instead of 60. The `javascript` gate below is the required check that gathers them.
+  quick-checks:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -58,6 +58,13 @@ jobs:
         run: npx --yes lockfile-lint@5.0.1 --path package-lock.json --type npm --allowed-hosts npm --validate-https --validate-integrity
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
+      # `npm audit signatures` asks the registry about 1800 packages, a minute a run, and its answer only changes with
+      # the lockfile: a marker cached under the lockfile's hash stands in for it until the lockfile changes.
+      - name: Remember which lockfile had its signatures verified
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/signatures-verified
+          key: signatures-verified-${{ hashFiles('package-lock.json') }}
       - parallel:
           - name: Typecheck
             run: npm run typecheck
@@ -78,7 +85,9 @@ jobs:
           - name: Build renderer
             run: npm run build:renderer --workspace milagre
           - name: Verify package signatures
-            run: npm audit signatures
+            run: |
+              if [ -f "$RUNNER_TEMP/signatures-verified" ]; then echo "this lockfile's signatures were verified on an earlier run"; exit 0; fi
+              npm audit signatures && touch "$RUNNER_TEMP/signatures-verified"
           # Node built-ins plus the rpm and repository tools; this was the Linux leg of native-tests.
           - name: Test real Linux repository signing
             run: |-
@@ -91,13 +100,35 @@ jobs:
               MILAGRE_LINUX_REPOSITORY_INTEGRATION=1 node --test scripts/linux-repository.test.cjs
               gpgconf --kill gpg-agent || true
               rm -rf "$GNUPGHOME"
-      # The unit suite runs after the quick checks rather than among them: inside that group it took 164 s and its
-      # timing-sensitive tests failed. As one process it took 124 s; two shards side by side share the cores better.
-      - parallel:
-          - name: Unit tests (1/2)
-            run: npm test -- --unit --shard 1/2
-          - name: Unit tests (2/2)
-            run: npm test -- --unit --shard 2/2
+  unit:
+    # node --test uses every core, so each shard gets a runner of its own: 60 s each, against 100 s beside the quick checks.
+    name: unit (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install dependencies
+        uses: ./.github/actions/install-dependencies
+      - name: Test
+        run: npm test -- --unit --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+  javascript:
+    # The required check: green only when the quick checks and every unit shard passed.
+    if: always()
+    needs: [quick-checks, unit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every JavaScript job to have passed
+        env:
+          RESULTS: ${{ needs.quick-checks.result }} ${{ needs.unit.result }}
+        run: |
+          echo "quick-checks, unit: $RESULTS"
+          for result in $RESULTS; do [ "$result" = success ] || exit 1; done
   native-tests:
     # The Windows tests. The Linux repository signing test is a parallel step of the javascript job.
     name: native-tests (windows-latest)
@@ -147,8 +178,9 @@ jobs:
           echo "native-tests: $RESULT"
           case "$RESULT" in success|skipped) exit 0 ;; *) exit 1 ;; esac
   desktop-checks:
-    # The Electron checks run one at a time (each boots Vite and Electron), so they are split across runners. Two
-    # streams per runner were measured: 30 s slower and three to eight retries a run where one shard has none.
+    # The Electron checks run one at a time (each boots Vite and Electron), so they are split across runners by the
+    # weights in scripts/test-runner.cjs: about 920 s of checks, 92 s a shard plus 20 s of setup. Two streams per
+    # runner were measured: 30 s slower and three to eight retries a run where one shard has none.
     name: desktop-checks (${{ matrix.shard }}/${{ strategy.job-total }})
     needs: changes
     if: needs.changes.outputs.desktop == 'true'
@@ -157,7 +189,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install dependencies
@@ -191,17 +223,15 @@ jobs:
           retention-days: 7
 
   macos-desktop-smoke:
-    needs: changes
-    if: needs.changes.outputs.desktop == 'true'
+    # Guards release signing, so it runs where releases come from: pushes to main. On PRs it sat on the critical path
+    # (133 s) in a pool of five macOS jobs for the whole account; AGENTS.md asks for the local run before a desktop PR.
+    if: github.event_name == 'push'
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
+      - name: Install dependencies
+        uses: ./.github/actions/install-dependencies
       - name: Exercise the macOS desktop before signing a release
         run: npm test -- --only test-desktop
       - name: Upload dock failure diagnostics

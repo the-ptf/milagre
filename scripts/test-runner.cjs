@@ -7,26 +7,52 @@ const SKIP_DIRS = new Set(["node_modules", "dist", "release", ".expo", "ios", "a
 
 /**
  * Checks that need more than Node, Vite and Electron. Everything else runs anywhere.
- * `seconds` marks the slow checks (their time on the Linux CI runner) so --shard can give them shards of their own.
+ * `seconds` is a check's time on the Linux CI runner (run 39032341784, 2026-10-17) so --shard balances the shards;
+ * a check without one counts as TYPICAL_CHECK_SECONDS. Stale numbers cost real time: with the previous table one
+ * shard ran 169 s while another ran 71 s. Refresh them from a green main run's PASS lines when a shard stands out.
  */
 const MANIFEST = {
-  "test-artifacts.cjs": { seconds: 50 },
+  "test-artifacts.cjs": { seconds: 85 },
   // Six Lighthouse runs (three mobile, three desktop) on a site build.
-  "test-site-lighthouse.cjs": { seconds: 90 },
-  "test-genui.cjs": { seconds: 30 },
-  "test-chat-attachments.cjs": { seconds: 20 },
-  "test-archive-enter.cjs": { seconds: 15 },
-  "test-chat-pins.cjs": { seconds: 15 },
+  "test-site-lighthouse.cjs": { seconds: 49 },
+  "test-theming-gallery.cjs": { seconds: 38 },
+  "test-design-editor.cjs": { seconds: 35 },
+  "test-design-live.cjs": { seconds: 32 },
+  "test-simulators.cjs": { seconds: 29 },
+  "test-update-flow.cjs": { seconds: 25 },
+  "test-floating-inbox.cjs": { seconds: 25 },
+  "test-chat-attachments.cjs": { seconds: 24 },
+  "test-site.cjs": { seconds: 23 },
+  "test-task-track.cjs": { seconds: 20 },
+  "test-chat-pins.cjs": { seconds: 17 },
+  "test-sidebar-links.cjs": { seconds: 16 },
+  "test-usage-limit.cjs": { seconds: 14 },
+  "test-project-links.cjs": { seconds: 14, needsBuild: true },
+  "test-image-generation.cjs": { seconds: 13 },
+  "test-worktree-setup.cjs": { seconds: 13 },
+  "test-settings-devices.cjs": { seconds: 13 },
+  "test-terminal.cjs": { seconds: 13 },
+  "test-sidebar-all-projects.cjs": { seconds: 13 },
+  "test-sidebar-rail.cjs": { seconds: 12 },
+  "test-diff-view.cjs": { seconds: 12 },
+  "test-sidebar-computers.cjs": { seconds: 12 },
+  "test-archive-enter.cjs": { seconds: 11 },
+  "test-allow-computer.cjs": { seconds: 11 },
+  "test-chat-selections.cjs": { seconds: 11 },
+  "test-popover-dismiss.cjs": { seconds: 11 },
+  "test-genui.cjs": { seconds: 10 },
+  "test-canvas-links.cjs": { seconds: 10 },
+  "test-floating-inbox-native.cjs": { seconds: 10, needsBuild: true },
+  "test-desktop.cjs": { seconds: 10, needsBuild: true },
+  "test-permission-chip.cjs": { seconds: 10 },
+  "test-chat-drafts.cjs": { seconds: 10 },
+  "test-chat-timer.cjs": { seconds: 10 },
   // 7s for the check plus about 20s for its shard to install ffmpeg (.github/workflows/ci.yml).
   "test-chat-titles.cjs": { seconds: 27 },
-  "test-sidebar-rail.cjs": { seconds: 12 },
   "test-windows-cli.cjs": { platforms: ["win32"] },
   "test-ports.cjs": { needs: ["zsh", "ps", "lsof"] },
-  "test-desktop.cjs": { needsBuild: true },
+  // needsBuild: loads apps/desktop/dist; test-project-links only passed serially because test-desktop built it first.
   "test-design-csp.cjs": { needsBuild: true },
-  "test-floating-inbox-native.cjs": { needsBuild: true },
-  // Loads apps/desktop/dist/index.html; it only passed serially because test-desktop built it first.
-  "test-project-links.cjs": { needsBuild: true },
   // Red on the Linux CI runner (xvfb); each issue holds the log and the triage notes.
   "test-chat-layout.cjs": { platforms: ["darwin"], reason: "message preview overlaps the prompt on Linux, #234" },
   "test-chat-send-feedback.cjs": { platforms: ["darwin"], reason: "message navigation rebuilds on Linux, #235" },
@@ -34,7 +60,6 @@ const MANIFEST = {
   "test-find-in-chat.cjs": { platforms: ["darwin"], reason: "presses Meta+G, the Mac-only find-next shortcut, #237" },
   "test-prompt-skills.cjs": { platforms: ["darwin"], reason: "skill tooltip never shows on hover under xvfb, #238" },
   "test-sidebar-resize.cjs": { platforms: ["darwin"], reason: "reads the width mid-transition on Linux, #239" },
-  "test-theming-gallery.cjs": { seconds: 25 },
   "test-subagents.cjs": { platforms: ["darwin"], reason: "eyes do not follow the pointer under xvfb, #240" },
   "test-sidebar-usage.cjs": { platforms: ["darwin"], reason: "usage card text differs on Linux, #254" },
 };
