@@ -79,7 +79,14 @@ async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   await app.whenReady();
   const window = new BrowserWindow({ width: 1280, height: 640, show: false, webPreferences: { backgroundThrottling: false } });
-  const evaluate = (source) => window.webContents.executeJavaScript(source);
+  // A page error names the script that threw it, not only "Script failed to execute".
+  const evaluate = async (source) => {
+    try {
+      return await window.webContents.executeJavaScript(source);
+    } catch (error) {
+      throw new Error(`${error.message}\n  in: ${source.replace(/\s+/g, " ").slice(0, 220)}`, { cause: error });
+    }
+  };
   const errors = [];
   window.webContents.on("console-message", (details) => {
     if (details.level === "error") errors.push(details.message);
@@ -185,8 +192,13 @@ async function browserChecks() {
     const toggle = await evaluate(
       `(() => { const r = document.querySelector('[data-sidebar-scope="/work/shop"] [data-scope-toggle]').getBoundingClientRect(); return { x: Math.round(r.x + 40), y: Math.round(r.y + r.height / 2) }; })()`,
     );
-    window.webContents.sendInputEvent({ type: "mouseMove", ...toggle });
-    await delay(300);
+    // A slow runner coalesces moves and updates :hover late (CI failed here with the dot still at 12), so the move is
+    // sent again until the dot has slid over; the slide itself takes 150 ms.
+    for (let attempt = 0; (await dotGap()) !== 64; attempt++) {
+      if (attempt === 20) break;
+      window.webContents.sendInputEvent({ type: "mouseMove", ...toggle });
+      await delay(250);
+    }
     assert.equal(await dotGap(), 64, "On hover it moves left of the menu and New chat buttons");
     await screenshot("attention-hover");
     window.webContents.sendInputEvent({ type: "mouseMove", x: 900, y: 400 });
@@ -332,25 +344,79 @@ async function browserChecks() {
     await waitFor(`!document.querySelector("[data-filters-panel]")`);
 
     // Dragging another Project's chat from its group into Pinned pins it there: the group and its pinned rows are one list.
-    await click('[data-sidebar-scope="/work/shop"] [data-scope-toggle]');
-    await waitFor(`document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id="8"]')?.getBoundingClientRect().height > 0`);
-    await delay(250);
-    const centre = (selector) =>
+    const scopeToggle = '[data-sidebar-scope="/work/shop"] [data-scope-toggle]';
+    const row8 = '[data-sidebar-scope="/work/shop"] [data-chat-id="8"]';
+    const row7 = '[data-all-pinned] [data-pinned-scope="/work/shop"] [data-chat-id="7"]';
+    const expanded = () => evaluate(`document.querySelector(${JSON.stringify(scopeToggle)}).getAttribute("aria-expanded")`);
+    // Both rows' boxes, or "null" while either is missing: the pinned row comes and goes as the group unfolds.
+    const rects = () =>
       evaluate(
+        `JSON.stringify([${JSON.stringify(row8)}, ${JSON.stringify(row7)}].map((selector) => document.querySelector(selector)?.getBoundingClientRect() ?? null))`,
+      );
+    // Unfold the group, reading the toggle rather than assuming the fold above has landed, and press only once both
+    // rows have kept the same boxes for half a second: on the CI runner the row was there 100 ms after the unfold,
+    // gone again right after (the list mounts once more as the unfold ends), and back by 250 ms.
+    for (let attempt = 0; ; attempt++) {
+      if ((await expanded()) !== "true") await click(scopeToggle);
+      await waitFor(`document.querySelector(${JSON.stringify(row8)})?.getBoundingClientRect().height > 0`);
+      let last = await rects();
+      let unchanged = 0;
+      for (let i = 0; i < 40 && unchanged < 5; i++) {
+        await delay(100);
+        const next = await rects();
+        unchanged = next === last && !next.includes("null") ? unchanged + 1 : 0;
+        last = next;
+      }
+      if (unchanged === 5) break;
+      if (attempt === 3) throw new Error(`the unfolded group never settled: aria-expanded=${await expanded()} rows=${last}`);
+    }
+    // A row is away for a moment while the list mounts again (a press that ended as a click on it does that too), so a
+    // row is measured once it is back, not assumed.
+    const centre = async (selector) => {
+      await waitFor(`!!document.querySelector(${JSON.stringify(selector)})`);
+      return evaluate(
         `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.left + 60), y: Math.round(r.top + r.height / 2), bottom: r.bottom }; })()`,
       );
+    };
     const mouse = (type, x, y) => window.webContents.sendInputEvent({ type, x, y, button: "left", clickCount: 1 });
-    const from = await centre('[data-sidebar-scope="/work/shop"] [data-chat-id="8"]');
-    const to = await centre('[data-all-pinned] [data-pinned-scope="/work/shop"] [data-chat-id="7"]');
-    mouse("mouseMove", from.x, from.y);
-    mouse("mouseDown", from.x, from.y);
-    for (let step = 1; step <= 10; step++) {
-      mouse("mouseMove", from.x, Math.round(from.y + ((to.bottom - 4 - from.y) * step) / 10));
-      await delay(16);
+    const target = () => centre(row7);
+    // On the CI runner the press sometimes never became a drag (its timeout dump showed no data-chat-drag with the
+    // pointer resting on the right row), so the press is repeated until the page marks the drag as begun.
+    const dragging = `document.documentElement.hasAttribute("data-chat-drag")`;
+    let from, to;
+    for (let attempt = 0; !(await evaluate(dragging)); attempt++) {
+      if (attempt === 5) throw new Error("Timed out: the drag never began");
+      if (attempt) mouse("mouseUp", from.x, from.y);
+      from = await centre(row8);
+      to = await target();
+      mouse("mouseMove", from.x, from.y);
+      mouse("mouseDown", from.x, from.y);
+      for (let step = 1; step <= 10; step++) {
+        mouse("mouseMove", from.x, Math.round(from.y + ((to.bottom - 4 - from.y) * step) / 10));
+        await delay(16);
+      }
+      for (let i = 0; i < 20 && !(await evaluate(dragging)); i++) await delay(25);
     }
-    await waitFor(`!!document.querySelector("[data-drop-line]")`);
+    // A slow runner can process those moves before the drag's first render, so none of them set a target. Nudge at the
+    // target, read live, until the drop line shows.
+    const dropLine = `!!document.querySelector("[data-drop-line]")`;
+    for (let attempt = 0; !(await evaluate(dropLine)); attempt++) {
+      if (attempt === 25) {
+        await screenshot("drag-timeout");
+        const state = await evaluate(`(() => {
+          const at = document.elementFromPoint(${from.x}, ${Math.round(to.bottom - 4)});
+          const rect = (selector) => { const r = document.querySelector(selector)?.getBoundingClientRect(); return r && [r.left, r.top, r.right, r.bottom].map(Math.round); };
+          return JSON.stringify({ dragging: document.documentElement.hasAttribute("data-chat-drag"), at: at?.outerHTML.slice(0, 160), row8: rect('[data-sidebar-scope="/work/shop"] [data-chat-id="8"]'), row7: rect('[data-all-pinned] [data-pinned-scope="/work/shop"] [data-chat-id="7"]'), pinned: rect("[data-all-pinned]") });
+        })()`);
+        throw new Error(`Timed out: ${dropLine} ${state}`);
+      }
+      const now = await target();
+      mouse("mouseMove", now.x + (attempt % 2), now.bottom - 4);
+      await delay(200);
+    }
     await screenshot("drag-into-pinned");
-    mouse("mouseUp", to.x, to.bottom - 4);
+    const drop = await target();
+    mouse("mouseUp", drop.x, drop.bottom - 4);
     await waitFor(`window.patched?.[1] === 8`);
     const [scope, id, patch] = await evaluate("window.patched");
     assert.deepEqual([scope, id, patch.pinned], ["/work/shop", 8, true], "dropped below the pinned chat, another Project's chat is pinned");
