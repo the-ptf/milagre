@@ -76,6 +76,9 @@ test("a heartbeat's meta says its cadence, its Chat and how many runs are left",
   const meta = routineMeta(heartbeat, { chatTitle: () => "Notification chimes", now: NOW });
   assert.equal(meta, "Every 10 min · in Notification chimes · 3 of 20 Runs left");
   assert.equal(routineMeta({ ...heartbeat, maxRuns: undefined, expiresAt: NOW + 50 * HOUR }, { now: NOW }), "Every 10 min · in a Chat · ends in 2 days");
+  // A Heartbeat set for 2 days, read a few seconds later, still ends in 2 days (not 1).
+  assert.equal(routineMeta({ ...heartbeat, maxRuns: undefined, expiresAt: NOW + 48 * HOUR - 5000 }, { now: NOW }), "Every 10 min · in a Chat · ends in 2 days");
+  assert.equal(routineMeta({ ...heartbeat, maxRuns: undefined, expiresAt: NOW + 3 * HOUR - 5000 }, { now: NOW }), "Every 10 min · in a Chat · ends in 3 h");
   assert.equal(routineStatus(heartbeat, NOW), `Next ${clock(heartbeat.nextRunAt!)}`);
 });
 

@@ -27,11 +27,11 @@ const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const projectName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 
-/** How long until `at`, in the largest whole unit: "2 days", "5 h", "12 min". */
+/** How long until `at`, rounded in the largest unit: "2 days", "5 h", "12 min" (a 2-day end read a moment later is still 2 days). */
 function until(at: number, now: number): string {
   const left = Math.max(0, at - now);
-  if (left >= DAY) return plural(Math.floor(left / DAY), "day");
-  if (left >= HOUR) return `${Math.floor(left / HOUR)} h`;
+  if (left >= DAY) return plural(Math.round(left / DAY), "day");
+  if (left >= HOUR) return `${Math.round(left / HOUR)} h`;
   return `${Math.max(1, Math.ceil(left / MINUTE))} min`;
 }
 
