@@ -5,6 +5,7 @@ const { isTurnEnd } = require("@milagre/shared/agent-runs");
 const { createActivityTracker, activityBusy } = require("@milagre/shared/chat-activity");
 const { NEGOTIATION_ROUNDS } = require("@milagre/shared/limits");
 const { clip } = require("./linked-summary.cjs");
+const { MODE_RANK } = require("./agents/permissions.cjs");
 
 // Delegations and Negotiations (ADR-0002). A Delegation is a message from a Chat to another Chat, across a
 // Link or in its own Project, carried out by that Chat's own agent; the reply of the turn that took it comes
@@ -105,6 +106,7 @@ class Delegations {
    *   reply(chatKey, delegationId) -> what the Chat replied after that Delegation's message
    *   note(chatKey, { body, context }) posts a line that starts no turn
    *   permissionMode(chatKey); approve(chatKey, request) -> "allow" | "allow-for-chat" | "deny" | "cancelled"
+   *   deliveryMode(chatKey, fromChat) -> the permission mode a message delivered to that Chat would run in
    *   changed(snapshot) tells the windows
    */
   constructor({ store, ports, id = randomUUID, now = () => new Date() }) {
@@ -219,9 +221,12 @@ class Delegations {
     }
     const from = await this.ports.chat(fromChat);
     // A Link reaches another Project's Chats, so the user approves it in Ask mode. The Chat's own Project needs no card:
-    // its agent can already start Chats there (chat_start).
+    // its agent can already start Chats there (chat_start). Either way, a Chat that would run the message in more than
+    // the caller's mode asks first, every time (a new Chat takes the caller's mode).
     const linkIds = target.link_id ? [target.link_id, ...(target.link_ids ?? []).filter((id) => id !== target.link_id)] : [];
-    const decision = linkIds.length ? await this.approval(fromChat, linkIds, { target: toLabel, message, negotiation }) : "allow";
+    const raised = chat === "new" ? null : this.raisedMode(fromChat, chat);
+    const card = { target: toLabel, message, negotiation };
+    const decision = raised ? await this.raiseApproval(fromChat, raised, card) : linkIds.length ? await this.approval(fromChat, linkIds, card) : "allow";
     if (decision === "deny") throw new Error("The user denied this Delegation. Don't send it again unless they ask.");
     if (decision === "cancelled") throw new Error("The approval card closed before the user answered, so nothing was sent.");
     const toChat = chat === "new" ? await this.ports.openChat(target.projectPath, worktree) : chat;
@@ -331,6 +336,28 @@ class Delegations {
       await this.persist();
     }
     return decision === "allow-for-chat" ? "allow" : decision;
+  }
+
+  /** The receiving Chat's mode when it is more than the caller's, else null. */
+  raisedMode(fromChat, toChat) {
+    const mode = this.ports.deliveryMode(toChat, fromChat);
+    return MODE_RANK[mode] > MODE_RANK[this.ports.permissionMode(fromChat)] ? mode : null;
+  }
+
+  // No grant covers it and the card offers none: the receiving Chat's mode can change between Delegations.
+  raiseApproval(fromChat, mode, delegation) {
+    const modeName = mode === "full" ? "Full permission" : "Auto mode";
+    return this.ports.approve(fromChat, {
+      requestId: this.id(),
+      kind: "delegation",
+      tool: "Delegation",
+      title: delegation.negotiation
+        ? `Open a Negotiation with ${delegation.target} in ${modeName}?`
+        : `Send a Delegation to ${delegation.target} in ${modeName}?`,
+      description: `That Chat runs in ${modeName}, more than this Chat's agent has, and the message would run there with it.`,
+      allowForChat: false,
+      delegation,
+    });
   }
 
   /**

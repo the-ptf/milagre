@@ -60,7 +60,10 @@ function claudeRequest(toolName, input, options = {}) {
       diff: claudeEditDiff(toolName, input),
     });
   }
-  return compact({ ...base, kind: "other", title: options.title || `Use ${toolName}?`, detail: capText(JSON.stringify(input, null, 2)) });
+  // An MCP tool reads as its step row does: `mcp__milagre__chat_stop` -> "chat_stop from milagre".
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(toolName);
+  const name = mcp ? `${mcp[2]} from ${mcp[1]}` : toolName;
+  return compact({ ...base, kind: "other", title: options.title || `Use ${name}?`, detail: capText(JSON.stringify(input, null, 2)) });
 }
 
 // What a Claude tool call reaches, for WorkspaceAccess: a read tool's path (Grep and Glob without one search the cwd),
@@ -184,7 +187,18 @@ function codexMcpRequest(id, params) {
 // what they would do; the provider's bare "run tool?" card in front of it would make the user approve twice.
 // Codex names the tool only in the message: `Allow the milagre MCP server to run tool "tasks_set"?`.
 const SELF_GATED_TOOLS = ["worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"];
-const PLAN_TOOLS = new Set([...PLAN_TOOL_NAMES, ...SELF_GATED_TOOLS]);
+// Like the plan tools, these only write the Chat's own canvas, page or Negotiation (design_delete stays gated).
+const OWN_CHAT_TOOLS = ["design_show", "design_apply", "artifact_show", "artifact_resolve_comment", "conclude_negotiation"];
+const PLAN_TOOLS = new Set([...PLAN_TOOL_NAMES, ...SELF_GATED_TOOLS, ...OWN_CHAT_TOOLS]);
+
+/**
+ * The milagre tools a provider runs without its own card, in every mode: the reads, the plan tools, the ones that only
+ * write the Chat's own canvas, page or Negotiation, and the self-gated ones. Every other milagre tool (Linear writes,
+ * chat_stop, worktree_create, design_delete…) follows the Chat's permission mode like any tool. Claude takes this list as
+ * allowedTools. Codex skips its own card for readOnlyHint tools, and Milagre answers the card Codex or Antigravity shows
+ * for the rest of the list (isCodexPlanToolApproval, isAcpPlanToolPermission).
+ */
+const isUngatedMilagreTool = (definition) => definition.readOnly === true || PLAN_TOOLS.has(definition.name);
 
 function isCodexPlanToolApproval(params = {}) {
   if (params.serverName !== "milagre" || !isCodexMcpApproval(params)) return false;
@@ -212,6 +226,8 @@ function codexDecision(decision) {
 
 // Milagre permission modes the user can switch a running turn to.
 const PERMISSION_MODES = new Set(["ask", "auto", "full"]);
+// How much a permission mode allows, least first. A tool never gives a Chat more than its caller has without the user's say.
+const MODE_RANK = Object.freeze({ ask: 0, auto: 1, full: 2 });
 
 // True when every path is inside root.
 function insideRoot(root, files) {
@@ -356,6 +372,7 @@ class PendingPermissions {
 module.exports = {
   CANCELLED_MESSAGE,
   DENIED_MESSAGE,
+  MODE_RANK,
   PERMISSION_MODES,
   USER_DECISIONS,
   PendingPermissions,
@@ -365,6 +382,7 @@ module.exports = {
   insideWorkspace,
   isAcpPlanToolPermission,
   isCodexPlanToolApproval,
+  isUngatedMilagreTool,
   WorkspaceAccess,
   claudeAccessRequest,
   claudeRequest,

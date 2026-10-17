@@ -250,7 +250,7 @@ test("MCP tool calls in Ask mode reach the permission card and accept once", asy
   const request = events.find((event) => event.type === "permission-request");
   assert.equal(request.kind, "other");
   assert.equal(request.tool, "MCP: milagre");
-  assert.equal(request.title, 'Allow the milagre MCP server to run tool "design_show"?');
+  assert.equal(request.title, 'Allow the milagre MCP server to run tool "design_delete"?');
   assert.deepEqual(JSON.parse(request.detail), { id: "daily-notes" });
   assert.equal(request.allowForChat, false);
   // A stale or forged "always" UI choice cannot make Codex write a settings rule.

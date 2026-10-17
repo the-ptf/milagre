@@ -7,7 +7,8 @@ const { randomUUID } = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const { createRuntime } = require("./runtime.cjs");
 const { scopeKey, chatKeyForScope } = require("@milagre/shared/chat-scopes");
-async function fixture(t) {
+// `approvals`: sessions keep their turn's permission mode and hold Milagre's approval cards in it, as real ones do.
+async function fixture(t, { approvals = null } = {}) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-link-runtime-")));
   const events = [],
     created = [],
@@ -26,9 +27,18 @@ async function fixture(t) {
     emit: (channel, payload) => events.push({ channel, payload }),
     createSession: (provider, context) => {
       created.push(context);
+      const permissions = approvals && {
+        mode: "ask",
+        add(request, answer) {
+          if (this.mode === "full") return answer("allow");
+          approvals.push({ chat: context, request, answer });
+        },
+      };
       return {
         turnActive: false,
-        startTurn() {
+        ...(permissions ? { permissions } : {}),
+        startTurn(request) {
+          if (permissions && request?.permissionMode) permissions.mode = request.permissionMode;
           const run = (async () => {
             const create = context.linked?.tools.find((tool) => tool.name === "link_worktree_create");
             // A Project outside the Link refuses; the agent goes on with the others.
@@ -307,4 +317,40 @@ test("a shared Chat manages its Link's Projects through Milagre's tools and dele
   );
   assert.equal(received.context.from, shared);
   assert.equal(received.context.fromLabel, "Food / Plan");
+});
+
+test("a shared Chat in Ask asks before its delegate or chat_start reaches a member-Project Chat in Full", async (t) => {
+  const approvals = [];
+  const { runtime, projects, created, settle } = await fixture(t, { approvals });
+  const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((project) => project.id) }]);
+  await runtime.invoke("link:open", [link.id]);
+  await runtime.invoke("link:send", [
+    { linkId: link.id, sessionId: null, operationId: randomUUID(), body: "Plan", provider: "codex", model: "test", permissionMode: "ask" },
+  ]);
+  await settle(1);
+  const tool = (name) => created[0].linked.tools.find((item) => item.name === name);
+  const web = projects.find((project) => path.basename(project.path) === "web");
+  const starter = Object.values((await runtime.openProject(web.path)).state.sessions)[0];
+  await runtime.invoke("chat:send", [{ projectPath: web.path, sessionId: starter.id, body: "Work", provider: "codex", model: "test", permissionMode: "full" }]);
+  await settle(2);
+  const target = `${web.path}#${starter.id}`;
+  const received = async () =>
+    Object.values((await runtime.invoke("project:snapshot", [web.path])).state.messages).filter((message) => message.body === "Delete the build");
+
+  // The card shows in the shared Chat, found by the same key its session and its MCP caller use.
+  const delegating = tool("delegate").run({ worktree: web.path, chat: target, message: "Delete the build" });
+  for (let i = 0; i < 200 && !approvals.length; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(approvals[0].chat, created[0]);
+  assert.equal(approvals[0].request.title, `Send a Delegation to web / main / Work in Full permission?`);
+  assert.equal(approvals[0].request.allowForChat, false);
+  approvals[0].answer("deny");
+  await assert.rejects(delegating, /denied/);
+
+  const starting = tool("chat_start").run({ projectPath: web.path, chatId: target, prompt: "Delete the build", requestId: "r1" });
+  for (let i = 0; i < 200 && approvals.length < 2; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(approvals[1].chat, created[0]);
+  assert.match(approvals[1].request.title, /^Run a prompt in .* in Full permission\?$/);
+  approvals[1].answer("deny");
+  await assert.rejects(starting, /declined/);
+  assert.deepEqual(await received(), [], "nothing reached the Full Chat");
 });

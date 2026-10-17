@@ -15,7 +15,7 @@ const {
   mapClaudeMessage,
   missingCliMessage,
 } = require("./events.cjs");
-const { PendingPermissions, WorkspaceAccess, claudeAccessRequest, claudeRequest, claudeResult } = require("./permissions.cjs");
+const { PendingPermissions, WorkspaceAccess, claudeAccessRequest, claudeRequest, claudeResult, isUngatedMilagreTool } = require("./permissions.cjs");
 const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = require("./questions.cjs");
 const { mcpContent, runTool } = require("../linked-tools.cjs");
 const { advisorPolicy, ANALYSIS_INSTRUCTIONS } = require("./advisor-policy.cjs");
@@ -72,8 +72,9 @@ function userMessage(prompt, images = []) {
   return { type: "user", uuid: randomUUID(), message: { role: "user", content }, parent_tool_use_id: null };
 }
 
-// A Chat's linked tools, served in-process. They are allowed outright: the reads need no approval, and
-// `delegate` asks through Milagre's own card (see Delegations), in every provider the same way.
+// A Chat's linked tools, served in-process. The reads, the plan tools and the self-gated ones (`delegate` asks through
+// Milagre's own card, see Delegations) are allowed outright; every other one reaches canUseTool and follows the Chat's
+// permission mode, as on Codex and Antigravity (isUngatedMilagreTool).
 function linkedOptions(tools, sdk) {
   const server = sdk.createSdkMcpServer({
     name: "milagre",
@@ -91,7 +92,10 @@ function linkedOptions(tools, sdk) {
       ),
     ),
   });
-  return { mcpServers: { milagre: server }, allowedTools: tools.map((definition) => `mcp__milagre__${definition.name}`) };
+  return {
+    mcpServers: { milagre: server },
+    allowedTools: tools.filter(isUngatedMilagreTool).map((definition) => `mcp__milagre__${definition.name}`),
+  };
 }
 
 const sessionClosedError = () => Object.assign(new Error("The agent session closed before this message was sent."), { sessionClosed: true });

@@ -4,6 +4,7 @@ const { chatKey, lastUserModel, projectOfKey, runStatus, sessionIdFromKey } = re
 const { activeWorktrees } = require("./project-identity.cjs");
 const { linkedWorktrees } = require("./project-links.cjs");
 const { Delegations, jsonFileStore } = require("./delegations.cjs");
+const { MODE_RANK } = require("./agents/permissions.cjs");
 const { chatLabel, createLinkedReads, delegationReply, linkedToolDefinitions } = require("./linked-tools.cjs");
 const { chatTitle } = require("@milagre/shared/chats");
 const { createLinkedMcpServer } = require("./linked-mcp-server.cjs");
@@ -162,6 +163,13 @@ function createLinkedWorktrees({
     };
   }
 
+  // The mode a delivered message runs in: the latest turn's (turnOptions), or the live agent's when a steer reaches it
+  // after a switch, whichever allows more; a Chat with neither takes the requesting Chat's.
+  function deliveryMode(key, requester) {
+    const modes = [agents.permissionMode(key, null), chats.turnSettings(key)?.permissionMode].filter((mode) => mode in MODE_RANK);
+    return modes.length ? modes.reduce((most, mode) => (MODE_RANK[mode] > MODE_RANK[most] ? mode : most)) : agents.permissionMode(requester);
+  }
+
   // Resolves once the message is saved, with `started`: what took it (see Delegations' deliver port), and `queued` when
   // it waits in the Chat's queue for a turn its provider can't steer.
   async function deliver(key, { body, prompt, context }) {
@@ -235,6 +243,7 @@ function createLinkedWorktrees({
       note: (key, note) => chats.addNote(key, note),
       reply: async (key, delegationId) => delegationReply(await messages(projectOfKey(key), [sessionIdFromKey(key)]), sessionIdFromKey(key), delegationId),
       permissionMode: (key) => agents.permissionMode(key),
+      deliveryMode: (key, requester) => deliveryMode(key, requester),
       approve: (key, request) => agents.askApproval(key, request),
       changed: () => emit("linked:changed", snapshot()),
     },

@@ -364,7 +364,7 @@ function steeringHost(t, overrides = {}) {
     removeWorktree: async (...args) => (calls.push(["remove", ...args]), { removed: true, branch: "milagre/wt", branchDeleted: true }),
     approve: async (chatId, request) => {
       calls.push(["approve", chatId, request.title]);
-      return overrides.decision ?? "allow";
+      return overrides.approve ? overrides.approve(request) : (overrides.decision ?? "allow");
     },
   });
   return { host, projectPath, otherPath, calls, chatId: `${projectPath}#1`, caller: `${projectPath}#2`, links: () => links };
@@ -396,6 +396,54 @@ test("a permission mode above the caller's needs the user's approval, and an out
     /declined/,
   );
   assert.equal(denied.calls.filter(([kind]) => kind === "send").length, 0);
+});
+
+test("chat_start into a Chat already in more than the caller's mode asks first and waits; a denial sends nothing", async (t) => {
+  let answer;
+  const { host, projectPath, chatId, caller, calls } = steeringHost(t, {
+    modes: (root) => ({ [`${root}#1`]: "full" }),
+    approve: (request) =>
+      new Promise((resolve) => {
+        answer = { request, allow: () => resolve("allow") };
+      }),
+  });
+  const pending = host.startChat({ projectPath, chatId, prompt: "Delete the build" }, "a", () => {}, caller);
+  // The card waits on the user: nothing is sent until they answer.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(calls, [["approve", caller, 'Run a prompt in "Target" in Full permission?']]);
+  assert.deepEqual(JSON.parse(answer.request.detail), { permissionMode: "full", prompt: "Delete the build" });
+  assert.equal(answer.request.kind, "other");
+  answer.allow();
+  await pending;
+  assert.equal(calls.at(-1)[0], "send");
+  assert.equal(calls.at(-1)[1].permissionMode, "full");
+
+  const denied = steeringHost(t, { modes: (root) => ({ [`${root}#1`]: "auto" }), decision: "deny" });
+  await assert.rejects(
+    denied.host.startChat({ projectPath: denied.projectPath, chatId: denied.chatId, prompt: "Go" }, "a", () => {}, denied.caller),
+    /declined/,
+  );
+  assert.equal(denied.calls.filter(([kind]) => kind === "send").length, 0);
+  // An outside client counts as Ask and has nowhere to show the card.
+  await assert.rejects(
+    denied.host.startChat({ projectPath: denied.projectPath, chatId: denied.chatId, prompt: "Go" }, "b", () => {}),
+    /outside client/,
+  );
+});
+
+test("chat_start into a Chat in the caller's mode or less, or with no live agent, sends without a card", async (t) => {
+  for (const [target, callerMode] of [
+    ["ask", "ask"],
+    ["auto", "full"],
+    [undefined, "auto"],
+  ]) {
+    const { host, projectPath, chatId, caller, calls } = steeringHost(t, {
+      modes: (root) => ({ [`${root}#2`]: callerMode, ...(target ? { [`${root}#1`]: target } : {}) }),
+    });
+    await host.startChat({ projectPath, chatId, prompt: "Go" }, "a", () => {}, caller);
+    assert.equal(calls.filter(([kind]) => kind === "approve").length, 0, `${target} from ${callerMode}`);
+    assert.equal(calls.findLast(([kind]) => kind === "send")[1].permissionMode, target ?? callerMode);
+  }
 });
 
 test("chat_set_mode needs a running agent and gates a raise", async (t) => {

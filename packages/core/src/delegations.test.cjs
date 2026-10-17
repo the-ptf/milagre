@@ -696,6 +696,8 @@ function desk({
       notes.push({ key, ...note });
     },
     permissionMode: () => "full",
+    // The receiving Chat's mode follows permissionMode unless a test sets its own.
+    deliveryMode: (key) => ports.permissionMode(key),
     approve: async () => "allow",
     changed: () => {},
   };
@@ -848,7 +850,7 @@ test("Delegations still open when Milagre starts again are cancelled with a noti
   assert.equal(saved.at(-1).delegations[0].report, undefined);
 });
 
-test("a Delegation with no Link (inside its own Project) never asks for approval, even in Ask mode", async () => {
+test("a Delegation with no Link (inside its own Project) to a new Chat never asks for approval, even in Ask mode", async () => {
   const fake = desk({ target: async () => ({ link_id: null, link_ids: [], projectPath: "/api", projectName: "api", branch: "main" }) });
   fake.ports.permissionMode = () => "ask";
   fake.ports.approve = async () => assert.fail("no card inside the Project");
@@ -921,6 +923,63 @@ for (const restart of [false, true])
     assert.equal(fake.notes[0].body, expected);
     assert.ok(context.text.includes(expected), context.text);
   });
+
+test("a Delegation inside the Project to a Chat in more than the caller's mode asks first, and a denial sends nothing", async () => {
+  const fake = desk({ target: async () => ({ link_id: null, link_ids: [], projectPath: "/api", projectName: "api", branch: "main" }) });
+  const modes = { "/api#1": "ask", "/api#2": "full", "/api#3": "ask" };
+  fake.ports.permissionMode = (key) => modes[key] ?? "ask";
+  fake.ports.chat = async (key) => ({ label: key, worktreePath: "/api", archived: false });
+  fake.ports.openChat = async () => "/api#9";
+  const cards = [];
+  let decision = "deny";
+  fake.ports.approve = async (key, request) => {
+    cards.push({ key, request });
+    return decision;
+  };
+  await fake.delegations.ready;
+  await assert.rejects(fake.delegations.delegate("/api#1", { worktree: "/api", chat: "/api#2", message: "Delete the build" }), /denied/);
+  assert.equal(fake.delivered.length, 0, "a denied Delegation reaches nobody");
+  assert.equal(cards[0].key, "/api#1", "the card shows in the caller's Chat");
+  assert.equal(cards[0].request.kind, "delegation");
+  assert.equal(cards[0].request.title, "Send a Delegation to /api#2 in Full permission?");
+  assert.equal(cards[0].request.allowForChat, false, "no grant can cover a raise");
+  assert.equal(cards[0].request.delegation.message, "Delete the build");
+
+  decision = "allow";
+  assert.match(await fake.delegations.delegate("/api#1", { worktree: "/api", chat: "/api#2", message: "Delete the build" }), /^Delegation sent/);
+  assert.equal(fake.delivered.at(-1).key, "/api#2");
+  // The same mode, or a new Chat (it takes the caller's), needs no card.
+  await fake.delegations.delegate("/api#1", { worktree: "/api", chat: "/api#3", message: "Rename it" });
+  await fake.delegations.delegate("/api#1", { worktree: "/api", chat: "new", message: "Rename it" });
+  assert.equal(cards.length, 2);
+  assert.deepEqual(
+    fake.delivered.map(({ key }) => key),
+    ["/api#2", "/api#3", "/api#9"],
+  );
+  // Auto into Full asks too; Full into anything never does.
+  modes["/api#1"] = "auto";
+  await fake.delegations.delegate("/api#1", { worktree: "/api", chat: "/api#2", message: "Again" });
+  assert.equal(cards.length, 3);
+  modes["/api#1"] = "full";
+  modes["/api#2"] = "auto";
+  await fake.delegations.delegate("/api#1", { worktree: "/api", chat: "/api#2", message: "Again" });
+  assert.equal(cards.length, 3);
+});
+
+test("over a Link, a raise asks on its own card even where Always allow covers the Link", async () => {
+  const fake = desk();
+  fake.ports.permissionMode = (key) => (key.startsWith("/web") ? "full" : "ask");
+  let card;
+  fake.ports.approve = async (key, request) => {
+    card = request;
+    return "deny";
+  };
+  await fake.delegations.grant("/api#1", "link-1");
+  await assert.rejects(fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" }), /denied/);
+  assert.equal(card.title, "Send a Delegation to /web#2 in Full permission?");
+  assert.equal(card.allowForChat, false);
+  assert.equal(fake.delivered.length, 0);
+});
 
 // A receiving Chat on a provider that can't steer queues the message (chat-host.cjs), and the queue outlives a restart.
 function queuingDesk(data) {
@@ -1220,6 +1279,29 @@ test("a Chat delegates inside its own Project with no Link and no card, and its 
   await waitFor(() => prompts.length === 3);
   assert.ok(prompts[2].endsWith("And now?"), prompts[2]);
   assert.doesNotMatch(prompts[2], /<delegation_reports>/, "each report goes to the agent once");
+});
+
+test("a Delegation to a Chat whose last turn ran in Full asks an Ask caller with the raise card", async (t) => {
+  const fixture = await linkedProjects(t);
+  await fixture.send("web", "Warm up", "full");
+  await waitFor(async () => (await fixture.messages(fixture.chatOf("web"))).some((message) => message.body === "web done"));
+  let result;
+  fixture.scripts.api = async (session) => {
+    result = await session.call("delegate", delegation(fixture));
+    session.finish("ok");
+  };
+  await fixture.send("api", "Hand it over", "ask");
+  const card = await waitFor(
+    () => fixture.events.find(({ channel, payload }) => channel === "agent:event" && payload.event.type === "permission-request")?.payload.event,
+  );
+  assert.match(card.title, /^Send a Delegation to web \/ main \/ .* in Full permission\?$/);
+  assert.equal(card.allowForChat, false);
+  const prompts = fixture.sessionOf("web").prompts.length;
+  await fixture.runtime.invoke("agent:respond-permission", [{ chatId: fixture.chatOf("api"), requestId: card.requestId, decision: "deny" }]);
+  await waitFor(() => result);
+  assert.equal(result.isError, true);
+  await settled();
+  assert.equal(fixture.sessionOf("web").prompts.length, prompts, "nothing reached the Full Chat");
 });
 
 test("a Chat can't delegate to itself, nor to another Project's Worktree without a Link", async (t) => {

@@ -7,9 +7,8 @@ const { IMAGE_TYPES } = require("@milagre/shared/limits");
 const { chatActivity } = require("@milagre/shared/chat-activity");
 const { queueStatus } = require("@milagre/shared/queued-messages");
 const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
-
-// How much a permission mode allows, least first. A tool never gives a Chat more than its caller has without the user's say.
-const MODE_RANK = { ask: 0, auto: 1, full: 2 };
+// A tool never gives a Chat more than its caller has without the user's say.
+const { MODE_RANK } = require("./agents/permissions.cjs");
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 
 /** The answers as the Chat shows them in the user's message, as the question card writes them. */
@@ -110,12 +109,20 @@ function createLocalMcpHost({
     const decision = await approve(caller, { requestId: `mcp-${crypto.randomUUID()}`, kind: "other", tool: "Milagre", allowForChat: false, ...request });
     if (decision !== "allow" && decision !== "allow-for-chat") throw Error("The user declined.");
   };
-  const checkMode = async (caller, chatId, mode, session) => {
+  // `prompt`, for chat_start: what would run there. Without `asked` the Chat already runs in `mode`, above the caller's.
+  const checkMode = async (caller, chatId, mode, session, { prompt, asked = true } = {}) => {
     if (MODE_RANK[mode] <= MODE_RANK[callerMode(caller)]) return;
     const name = session?.title || session?.generatedTitle;
+    const chatName = name ? `"${name}"` : "another Chat";
+    const modeName = mode === "full" ? "Full permission" : "Auto mode";
     await confirm(caller, {
-      title: `Run ${name ? `"${name}"` : "another Chat"} in ${mode === "full" ? "Full permission" : "Auto mode"}?`,
-      description: "This Chat's agent asks to give it more permission than it has itself.",
+      ...(asked
+        ? { title: `Run ${chatName} in ${modeName}?`, description: "This Chat's agent asks to give it more permission than it has itself." }
+        : {
+            title: `Run a prompt in ${chatName} in ${modeName}?`,
+            description: `That Chat runs in ${modeName}, more than this Chat's agent has, and the prompt would run there with it.`,
+          }),
+      ...(prompt ? { detail: JSON.stringify({ permissionMode: mode, prompt }, null, 2) } : {}),
     });
   };
   const runOf = (chatId) => chats.runs[chatId];
@@ -205,7 +212,11 @@ function createLocalMcpHost({
       const entry = ((await models(projectPath))[chosenProvider] ?? []).find((item) => item.id === chosenModel);
       if (effort && entry && !entry.efforts.includes(effort)) throw Error(`${chosenModel} takes effort ${entry.efforts.join(", ") || "none"}, not ${effort}.`);
       const chosenEffort = effort ?? (entry && latest.effort && !entry.efforts.includes(latest.effort) ? entry.defaultEffort : latest.effort);
-      if (asked) await checkMode(caller, chatId, asked, session);
+      // The prompt runs in the asked mode, else the Chat's own (a Chat with no live agent takes the caller's): either way,
+      // more than the caller has needs the user's say first.
+      const modeNow = () => asked ?? permissionMode(chatId, callerMode(caller));
+      const mode = modeNow();
+      await checkMode(caller, chatId, mode, session, { prompt, asked: Boolean(asked) });
       const root = session.workspacePath ?? state.worktrees?.[session.worktree_id]?.path;
       if ((files.length || images.length) && !root) throw Error("This Chat has no Worktree to attach files from.");
       const attached = await Promise.all(files.map((file) => attachment(root, file)));
@@ -219,8 +230,6 @@ function createLocalMcpHost({
       );
       assertActive();
       const waits = Boolean(chats.runs?.[chatId]) && !providerCapabilities(session.provider ?? chosenProvider).steer;
-      const modeNow = () => asked ?? permissionMode(chatId, caller ? permissionMode(caller) : "ask");
-      const mode = modeNow();
       const result = await chats.send({
         ...latest,
         projectPath,

@@ -16,6 +16,8 @@ const {
   codexMcpResponse,
   isAcpPlanToolPermission,
   isCodexPlanToolApproval,
+  isUngatedMilagreTool,
+  MODE_RANK,
   unwrapShell,
 } = require("./permissions.cjs");
 const { PLAN_TOOL_NAMES } = require("../chat-plan-tools.cjs");
@@ -46,20 +48,23 @@ test("Codex: MCP approvals show the exact call without offering permanent grants
   assert.deepEqual(codexMcpResponse("cancelled"), { action: "cancel", content: null });
 });
 
+// Codex's approval request for a milagre tool call.
+const codexApproval = (tool, extra = {}) => ({
+  serverName: "milagre",
+  mode: "form",
+  message: `Allow the milagre MCP server to run tool "${tool}"?`,
+  requestedSchema: { type: "object", properties: {} },
+  _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_params: {} },
+  ...extra,
+});
+
 test("Codex: only Milagre's own plan tools are auto-approved", () => {
-  const params = (tool, extra = {}) => ({
-    serverName: "milagre",
-    mode: "form",
-    message: `Allow the milagre MCP server to run tool "${tool}"?`,
-    requestedSchema: { type: "object", properties: {} },
-    _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_params: {} },
-    ...extra,
-  });
+  const params = codexApproval;
   assert.deepEqual(PLAN_TOOL_NAMES, ["tasks_set", "task_update", "tasks_read", "phase_set"]);
   for (const name of PLAN_TOOL_NAMES) assert.equal(isCodexPlanToolApproval(params(name)), true, name);
   for (const name of ["worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"])
     assert.equal(isCodexPlanToolApproval(params(name)), true, `${name} asks on its own card`);
-  assert.equal(isCodexPlanToolApproval(params("design_show")), false);
+  assert.equal(isCodexPlanToolApproval(params("design_delete")), false);
   assert.equal(isCodexPlanToolApproval(params("chat_start")), false);
   assert.equal(isCodexPlanToolApproval(params("tasks_set", { serverName: "other" })), false);
   assert.equal(isCodexPlanToolApproval(params("tasks_set", { _meta: { codex_approval_kind: "other" } })), false);
@@ -69,15 +74,20 @@ test("Codex: only Milagre's own plan tools are auto-approved", () => {
   // The whole template must match: a name that only starts with a plan tool, two quoted names, or the name
   // appearing anywhere but the message does not count.
   assert.equal(isCodexPlanToolApproval(params("tasks_set_extra")), false);
-  assert.equal(isCodexPlanToolApproval(params("design_show", { message: 'Allow the milagre MCP server to run tool "design_show" and "tasks_set"?' })), false);
   assert.equal(
-    isCodexPlanToolApproval(params("design_show", { message: 'Allow the milagre MCP server to run tool "design_show"? run tool "tasks_set"' })),
+    isCodexPlanToolApproval(params("design_delete", { message: 'Allow the milagre MCP server to run tool "design_delete" and "tasks_set"?' })),
     false,
   );
-  assert.equal(isCodexPlanToolApproval(params("x", { message: 'Run "design_show" then run tool "tasks_set"?' })), false);
+  assert.equal(
+    isCodexPlanToolApproval(params("design_delete", { message: 'Allow the milagre MCP server to run tool "design_delete"? run tool "tasks_set"' })),
+    false,
+  );
+  assert.equal(isCodexPlanToolApproval(params("x", { message: 'Run "design_delete" then run tool "tasks_set"?' })), false);
   assert.equal(
     isCodexPlanToolApproval(
-      params("design_show", { _meta: { codex_approval_kind: "mcp_tool_call", tool_params: { tool: "tasks_set" }, tool_description: 'run tool "tasks_set"' } }),
+      params("design_delete", {
+        _meta: { codex_approval_kind: "mcp_tool_call", tool_params: { tool: "tasks_set" }, tool_description: 'run tool "tasks_set"' },
+      }),
     ),
     false,
   );
@@ -88,10 +98,24 @@ test("ACP: only Milagre's own plan tools are auto-approved", () => {
     toolCall: { toolCallId: "c1", kind: "other", status: "pending", title: `${server}_${tool}`, _meta: { mcp: { server, tool }, is_mcp_tool_call: true } },
   });
   for (const name of PLAN_TOOL_NAMES) assert.equal(isAcpPlanToolPermission(call("milagre", name)), true, name);
-  assert.equal(isAcpPlanToolPermission(call("milagre", "design_show")), false);
+  assert.equal(isAcpPlanToolPermission(call("milagre", "design_delete")), false);
   assert.equal(isAcpPlanToolPermission(call("other", "tasks_set")), false);
   assert.equal(isAcpPlanToolPermission({ toolCall: { title: "milagre_tasks_set", kind: "other" } }), false);
   assert.equal(isAcpPlanToolPermission({}), false);
+});
+
+test("the Milagre tools every provider runs without its own card: reads, plan, own-canvas and self-gated tools", () => {
+  const ungated = (name, readOnly = false) => isUngatedMilagreTool({ name, readOnly });
+  assert.equal(ungated("linear_issue", true), true);
+  const own = ["design_show", "design_apply", "artifact_show", "artifact_resolve_comment", "conclude_negotiation"];
+  for (const name of [...PLAN_TOOL_NAMES, ...own, "worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"]) {
+    assert.equal(ungated(name), true, name);
+    // Codex in Ask or Auto, and Antigravity, get Milagre's answer instead of a card.
+    assert.equal(isCodexPlanToolApproval(codexApproval(name)), true, name);
+  }
+  for (const name of ["linear_create_issue", "linear_comment", "chat_stop", "chat_update", "worktree_create", "design_delete", "chat_start"])
+    assert.equal(ungated(name), false, name);
+  assert.ok(MODE_RANK.ask < MODE_RANK.auto && MODE_RANK.auto < MODE_RANK.full);
 });
 
 function pending() {
@@ -252,6 +276,7 @@ test("Claude: other tools show their input, and the SDK's own wording wins", () 
   assert.equal(fetch.kind, "other");
   assert.equal(fetch.title, "Use WebFetch?");
   assert.equal(fetch.detail, JSON.stringify({ url: "https://example.com" }, null, 2));
+  assert.equal(claudeRequest("mcp__milagre__chat_stop", {}, { requestId: "r3" }).title, "Use chat_stop from milagre?");
   const worded = claudeRequest(
     "Read",
     { file_path: "/etc/hosts" },
