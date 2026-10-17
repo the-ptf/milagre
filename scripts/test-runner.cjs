@@ -72,11 +72,13 @@ const WORKSPACES = {
 };
 
 function parseArgs(argv) {
-  const filters = { unit: false, electron: false, workspace: null, only: null, list: false, shard: null };
+  const filters = { unit: false, electron: false, workspace: null, only: null, list: false, shard: null, skipBuild: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--changed") throw new Error("--changed is not implemented yet; use --only or --workspace");
     if (arg === "--unit" || arg === "--electron" || arg === "--list") filters[arg.slice(2)] = true;
+    // CI builds the renderer once per runner before its two Electron streams, so neither writes dist while the other reads.
+    else if (arg === "--skip-build") filters.skipBuild = true;
     else if (arg === "--workspace" || arg === "--only") {
       filters[arg.slice(2)] = argv[++i];
       if (!filters[arg.slice(2)]) throw new Error(`${arg} needs a value`);
