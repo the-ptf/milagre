@@ -44,94 +44,70 @@ jobs:
               - 'package-lock.json'
               - '.github/workflows/ci.yml'
               - '.github/actions/**'
-  # The JavaScript checks run as three parallel jobs; the `javascript` job below is the required check that gathers them.
-  static:
+  # The required JavaScript check. Its checks were four jobs (static, supply-chain, two unit shards) behind a gate job;
+  # they are parallel steps of one job now, each with its own log. The account runs 20 jobs at once and a run took 18,
+  # so a second run waited for the first; a run takes 10 now and two fit side by side.
+  javascript:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Install dependencies
-        uses: ./.github/actions/install-dependencies
-      - name: Typecheck
-        run: npm run typecheck
-      - name: Lint
-        run: npm run lint
-      - name: Format check
-        run: npm run format:check
-      - name: Dead code
-        run: npm run knip
-      - name: Typecheck mobile
-        run: npm run typecheck:mobile
-      - name: Typecheck relay
-        run: npm run typecheck:relay
-      - name: Typecheck site
-        run: npm run typecheck:site
-      - name: Build site
-        run: npm run build:site
-      - name: Build renderer
-        run: npm run build:renderer --workspace milagre
-  supply-chain:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # No install script runs before the lockfile's hosts and integrity hashes are checked.
       - name: Check lockfile sources and integrity
         run: npx --yes lockfile-lint@5.0.1 --path package-lock.json --type npm --allowed-hosts npm --validate-https --validate-integrity
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
-      - name: Verify package signatures
-        run: npm audit signatures
-  unit:
-    name: unit (${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2]
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Install dependencies
-        uses: ./.github/actions/install-dependencies
-      - name: Test
-        run: npm test -- --unit --shard ${{ matrix.shard }}/${{ strategy.job-total }}
-  javascript:
-    # The required check: green only when every JavaScript job passed.
-    if: always()
-    needs: [static, supply-chain, unit]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: Require every JavaScript job to have passed
-        env:
-          RESULTS: ${{ needs.static.result }} ${{ needs.supply-chain.result }} ${{ needs.unit.result }}
-        run: |
-          echo "static, supply-chain, unit: $RESULTS"
-          for result in $RESULTS; do [ "$result" = success ] || exit 1; done
+      - parallel:
+          - name: Typecheck
+            run: npm run typecheck
+          - name: Lint
+            run: npm run lint
+          - name: Format check
+            run: npm run format:check
+          - name: Dead code
+            run: npm run knip
+          - name: Typecheck mobile
+            run: npm run typecheck:mobile
+          - name: Typecheck relay
+            run: npm run typecheck:relay
+          - name: Typecheck site
+            run: npm run typecheck:site
+          - name: Build site
+            run: npm run build:site
+          - name: Build renderer
+            run: npm run build:renderer --workspace milagre
+          - name: Verify package signatures
+            run: npm audit signatures
+          # node --test already runs the files on every core; a second shard here would only fight it for them.
+          - name: Unit tests
+            run: npm test -- --unit
+          # Node built-ins plus the rpm and repository tools; this was the Linux leg of native-tests.
+          - name: Test real Linux repository signing
+            run: |-
+              sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm createrepo-c gnupg
+              export GNUPGHOME="$RUNNER_TEMP/milagre-test-key"
+              mkdir -m 700 "$GNUPGHOME"
+              gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'Milagre CI fixture' rsa3072 sign 1d
+              MILAGRE_LINUX_SIGNING_KEY=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')
+              export MILAGRE_LINUX_SIGNING_KEY
+              MILAGRE_LINUX_REPOSITORY_INTEGRATION=1 node --test scripts/linux-repository.test.cjs
+              gpgconf --kill gpg-agent || true
+              rm -rf "$GNUPGHOME"
   native-tests:
-    name: native-tests (${{ matrix.os }})
+    # The Windows tests. The Linux repository signing test is a parallel step of the javascript job.
+    name: native-tests (windows-latest)
     needs: changes
     if: needs.changes.outputs.desktop == 'true'
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-          - os: ubuntu-24.04
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-      # The Windows tests load only core and the daemon, so they install just those (150 MB, not 1.7 GB) and cache it.
-      # The Linux leg runs Node built-ins only and installs nothing.
+      # The tests load only core and the daemon, so they install just those (150 MB, not 1.7 GB) and cache it.
       - name: Restore core and daemon dependencies
-        if: matrix.os == 'windows-latest'
         id: windows-cache
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
@@ -142,31 +118,15 @@ jobs:
           # Windows workspace junctions contain absolute paths. A repository rename changes the checkout path.
           key: node-modules-core-daemon-${{ github.repository }}-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('package-lock.json') }}
       - name: Install core and daemon dependencies
-        if: matrix.os == 'windows-latest' && steps.windows-cache.outputs.cache-hit != 'true'
+        if: steps.windows-cache.outputs.cache-hit != 'true'
         run: npm ci --workspace @milagre/core --workspace @milagre/daemon --ignore-scripts --omit=optional --no-audit --no-fund
       - name: Test Windows agent protocol
-        if: matrix.os == 'windows-latest'
         timeout-minutes: 5
         run: node --test --test-reporter=tap --test-timeout=60000 packages/core/src/agents/codex-provider.test.cjs
       - name: Test Windows runtime and pipe security
-        if: matrix.os == 'windows-latest'
         shell: pwsh
         timeout-minutes: 15
         run: node --test --test-reporter=tap --test-timeout=180000 packages/core/src/windows-runtime.test.cjs apps/daemon/src/windows-transport.test.cjs packages/core/src/agents/process-tree.test.cjs packages/core/src/ownership.test.cjs
-      - name: Install Linux repository tools
-        if: matrix.os == 'ubuntu-24.04'
-        run: sudo apt-get update && sudo apt-get install -y rpm createrepo-c gnupg
-      - name: Test real Linux repository signing
-        if: matrix.os == 'ubuntu-24.04'
-        run: |-
-          export GNUPGHOME="$RUNNER_TEMP/milagre-test-key"
-          mkdir -m 700 "$GNUPGHOME"
-          gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'Milagre CI fixture' rsa3072 sign 1d
-          MILAGRE_LINUX_SIGNING_KEY=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')
-          export MILAGRE_LINUX_SIGNING_KEY
-          MILAGRE_LINUX_REPOSITORY_INTEGRATION=1 node --test scripts/linux-repository.test.cjs
-          gpgconf --kill gpg-agent || true
-          rm -rf "$GNUPGHOME"
 
   native-gate:
     # The required check for native tests. A skipped matrix never reports per-leg names, so this
@@ -183,7 +143,8 @@ jobs:
           echo "native-tests: $RESULT"
           case "$RESULT" in success|skipped) exit 0 ;; *) exit 1 ;; esac
   desktop-checks:
-    # The Electron checks run one at a time (each boots Vite and Electron), so they are split across runners.
+    # The Electron checks run one at a time in a stream (each boots Vite and Electron). A runner hosts two streams,
+    # each on an X display of its own, and the streams are split across runners.
     name: desktop-checks (${{ matrix.shard }}/${{ strategy.job-total }})
     needs: changes
     if: needs.changes.outputs.desktop == 'true'
@@ -192,17 +153,29 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4]
+    env:
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      ELECTRON_ENABLE_LOGGING: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
+      # The test runner splits the checks into twice as many slices as there are runners; this runner takes two.
+      # Both streams write screenshots to one folder (a job-level env can't name runner.temp, so it is set here).
+      - name: Name this runner's two slices
+        run: |
+          {
+            echo "SLICE_A=$((2 * ${{ matrix.shard }} - 1))/$((2 * ${{ strategy.job-total }}))"
+            echo "SLICE_B=$((2 * ${{ matrix.shard }}))/$((2 * ${{ strategy.job-total }}))"
+            echo "MILAGRE_SCREENSHOT_DIR=$RUNNER_TEMP/electron-screenshots"
+          } >> "$GITHUB_ENV"
       # The runner image ships most of these; apt only runs for what is missing, since a slow mirror once took 12 minutes.
-      # ffmpeg, the one the image lacks, is only for chat-titles' GIF, so only the shard that runs it installs it.
+      # ffmpeg, the one the image lacks, is only for chat-titles' GIF, so only the runner that runs it installs it.
       - name: Install display and Electron libraries
         run: |
           packages="xvfb libgbm1 libgtk-3-0t64 libnss3 libasound2t64 lsof"
-          if node scripts/test.cjs --electron --list --shard ${{ matrix.shard }}/${{ strategy.job-total }} | grep -q test-chat-titles; then packages="$packages ffmpeg"; fi
+          if { node scripts/test.cjs --electron --list --shard "$SLICE_A"; node scripts/test.cjs --electron --list --shard "$SLICE_B"; } | grep -q test-chat-titles; then packages="$packages ffmpeg"; fi
           missing=$(for package in $packages; do
             dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'install ok installed' || echo "$package"
           done)
@@ -210,12 +183,14 @@ jobs:
           if [ -n "$missing" ]; then sudo apt-get update && sudo apt-get install -y --no-install-recommends $missing; fi
       - name: Allow Electron's sandbox in the runner
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - name: Run Electron checks
-        env:
-          MILAGRE_SCREENSHOT_DIR: ${{ runner.temp }}/electron-screenshots
-          LIBGL_ALWAYS_SOFTWARE: "1"
-          ELECTRON_ENABLE_LOGGING: "1"
-        run: xvfb-run -a -s "-screen 0 1600x1200x24 +extension GLX +render -noreset" npm test -- --electron --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+      # Checks with needsBuild load apps/desktop/dist. Built once here, so neither stream writes it while the other reads.
+      - name: Build renderer
+        run: npm run build:renderer --workspace milagre
+      - parallel:
+          - name: Run Electron checks (slice A)
+            run: xvfb-run -n 90 -s "-screen 0 1600x1200x24 +extension GLX +render -noreset" npm test -- --electron --skip-build --shard "$SLICE_A"
+          - name: Run Electron checks (slice B)
+            run: xvfb-run -n 91 -s "-screen 0 1600x1200x24 +extension GLX +render -noreset" npm test -- --electron --skip-build --shard "$SLICE_B"
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
