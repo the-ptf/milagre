@@ -2,7 +2,7 @@
 
 ### Checks before a PR
 
-Run `npm run typecheck`, `npm run lint` and `npm test -- --unit` before opening or updating a PR. Run the Electron check for the screen you touched with `npm test -- --only <name>`.
+Run `npm run typecheck`, `npm run lint` and `npm test -- --unit` before opening or updating a PR. Run the Electron check for the screen you touched with `npm test -- --only <name>`. A change under `apps/desktop/electron` or to window, dock, menu or notification code also gets `npm test -- --only test-desktop` on your Mac: CI runs that macOS smoke on pushes to main only, so a PR is the last place it is caught before merge.
 
 ### Landing page Lighthouse budget
 

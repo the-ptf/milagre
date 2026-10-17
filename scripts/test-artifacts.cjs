@@ -329,9 +329,10 @@ async function browserChecks() {
     window.webContents.executeJavaScript(source).catch((error) => {
       throw new Error(`${error.message}\n  in: ${source.slice(0, 300)}`);
     });
+  // 250 ms lets a transition end before the capture; at 900 ms the 35 screenshots cost the CI shard half a minute.
   async function screenshot(name) {
     if (!process.env.MILAGRE_SCREENSHOT_DIR) return;
-    await delay(900);
+    await delay(250);
     const fs = require("node:fs");
     fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, `${name}.png`), (await window.webContents.capturePage()).toPNG());
@@ -587,7 +588,7 @@ async function browserChecks() {
     );
     await screenshot("canvas");
     if (process.env.MILAGRE_SCREENSHOT_DIR) {
-      await delay(900);
+      await delay(250);
       const fs = require("node:fs");
       const bounds = (selector) =>
         evaluate(
@@ -923,7 +924,7 @@ async function browserChecks() {
     }
     await evaluate(`${frame("login")}.querySelector("[data-slot=artifact-sent-pin]").click()`);
     if (process.env.MILAGRE_SCREENSHOT_DIR) {
-      await delay(500);
+      await delay(250);
       const fs = require("node:fs");
       fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "comment-mid-morph.png"), (await window.webContents.capturePage()).toPNG());
       await evaluate(`document.getElementById("slow-morph").remove()`);

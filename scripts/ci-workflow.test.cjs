@@ -26,14 +26,15 @@ test("every CI job has a timeout", () => {
   for (const [name, job] of Object.entries(ci.jobs)) assert.ok(Number.isInteger(job["timeout-minutes"]), `${name} needs timeout-minutes`);
 });
 
-test("a run is at most 14 jobs, so a second run starts six of its jobs under the account's 20 concurrent jobs", () => {
-  const jobs = Object.entries(ci.jobs).filter(([name]) => name !== "release");
-  const total = jobs.reduce((sum, [, job]) => sum + (job.strategy?.matrix?.shard?.length ?? 1), 0);
-  assert.ok(total <= 14, `${total} jobs per run`);
+test("a PR run is at most 20 jobs, the account's concurrency: every slot for under two minutes", () => {
+  // Jobs that only run on a push to main or in the merge queue (release, macOS smoke, Windows tests) never take a PR run's slots.
+  const jobs = Object.values(ci.jobs).filter((job) => !/github\.event_name (== 'push'|!= 'pull_request')/.test(job.if ?? ""));
+  const total = jobs.reduce((sum, job) => sum + (job.strategy?.matrix?.shard?.length ?? 1), 0);
+  assert.ok(total <= 20, `${total} jobs per PR run`);
 });
 
 test("CI typechecks once and builds the renderer without a second typecheck", () => {
-  const commands = new Set(runs(ci.jobs.javascript));
+  const commands = new Set(runs(ci.jobs["quick-checks"]));
   assert.ok(commands.has("npm run typecheck"));
   assert.ok(commands.has("npm run build:renderer --workspace milagre"));
   assert.ok(!commands.has("npm run build"));
@@ -62,25 +63,25 @@ test("the release job waits for the required checks, not the change filter or de
   assert.ok(!needs.includes("changes"));
 });
 
-test("CI runs the unit suite through the single test command, two shards side by side after the quick checks", () => {
-  const groups = ci.jobs.javascript.steps.filter((step) => step.parallel);
-  assert.equal(groups.length, 2, "quick checks, then the unit shards");
-  const shards = groups[1].parallel.map((step) => step.run);
-  // The shard count is the group's size, so the two cannot drift apart.
+test("CI runs the unit suite through the single test command, one shard per matrix leg on a runner of its own", () => {
+  const job = ci.jobs.unit;
+  const shards = job.strategy.matrix.shard;
   assert.deepEqual(
     shards,
-    shards.map((_, i) => `npm test -- --unit --shard ${i + 1}/${shards.length}`),
+    Array.from({ length: shards.length }, (_, i) => i + 1),
   );
-  // Inside the quick-check group the suite took three times as long and its timing-sensitive tests failed.
-  assert.ok(!groups[0].parallel.some((step) => /--unit/.test(step.run)), "no unit tests among the quick checks");
+  // The shard count comes from the matrix itself, so the two cannot drift apart.
+  assert.ok(runs(job).includes("npm test -- --unit --shard ${{ matrix.shard }}/${{ strategy.job-total }}"));
+  // Beside the quick checks a shard took 100 s instead of 60: node --test wants the whole runner.
+  assert.ok(!runs(ci.jobs["quick-checks"]).some((run) => /--unit/.test(run)), "no unit tests among the quick checks");
   const every = Object.values(ci.jobs).flatMap((job) => runs(job));
   assert.ok(!every.some((run) => /npm run test:/.test(run)), "no per-suite scripts left in CI");
 });
 
-test("the required javascript check is one job whose quick checks run as parallel steps, each with its own log", () => {
-  const job = ci.jobs.javascript;
+test("the quick checks run as parallel steps of one job, each with its own log", () => {
+  const job = ci.jobs["quick-checks"];
   assert.equal(job.needs, undefined);
-  assert.equal(job.if, undefined, "javascript always runs");
+  assert.equal(job.if, undefined, "quick-checks always runs");
   const group = job.steps.find((step) => step.parallel);
   assert.ok(group, "the checks form a parallel group");
   const commands = group.parallel.map((step) => step.run);
@@ -94,15 +95,48 @@ test("the required javascript check is one job whose quick checks run as paralle
     "npm run typecheck:site",
     "npm run build:site",
     "npm run build:renderer --workspace milagre",
-    "npm audit signatures",
   ])
     assert.ok(commands.includes(command), command);
   for (const step of group.parallel) assert.ok(step.name && step.run, "every parallel step is named and runs a command");
-  // The gate job went with the jobs it gathered.
-  for (const name of ["static", "supply-chain", "unit"]) assert.equal(ci.jobs[name], undefined, `${name} folded into javascript`);
+  for (const name of ["static", "supply-chain"]) assert.equal(ci.jobs[name], undefined, `${name} folded into quick-checks`);
 });
 
-test("Windows native tests run on PRs without building an installer; Linux repository signing is a javascript step", () => {
+test("package signatures are verified once per lockfile: a cached marker keyed on its hash stands in afterwards", () => {
+  const job = ci.jobs["quick-checks"];
+  const cache = job.steps.find((step) => step.uses?.startsWith("actions/cache@"));
+  assert.equal(cache.with.path, "${{ runner.temp }}/signatures-verified");
+  assert.match(cache.with.key, /hashFiles\('package-lock\.json'\)/);
+  assert.ok(job.steps.indexOf(cache) < job.steps.findIndex((step) => step.parallel), "restored before the checks run");
+  const verify = steps(job).find((step) => step.name === "Verify package signatures").run;
+  assert.match(verify, /if \[ -f "\$RUNNER_TEMP\/signatures-verified" \]; then .* exit 0; fi/);
+  assert.match(verify, /npm audit signatures && touch "\$RUNNER_TEMP\/signatures-verified"/);
+});
+
+test("the required javascript check passes only when the quick checks and every unit shard passed", () => {
+  const gate = ci.jobs.javascript;
+  assert.equal(gate.if, "always()");
+  assert.deepEqual(gate.needs, ["quick-checks", "unit"]);
+  // A skipped or cancelled job must fail the gate, or the queue would accept a PR whose checks never ran.
+  for (const need of gate.needs) assert.ok(gate.steps[0].env.RESULTS.includes(`needs.${need}.result`), need);
+  assert.match(runs(gate).join("\n"), /\[ "\$result" = success \] \|\| exit 1/);
+});
+
+test("the macOS smoke runs on pushes to main only and still gates the release and the desktop gate", () => {
+  const job = ci.jobs["macos-desktop-smoke"];
+  assert.equal(job.if, "github.event_name == 'push'");
+  assert.equal(job.needs, undefined);
+  assert.ok(
+    job.steps.some((step) => step.uses === `./${installAction}`),
+    "node_modules come from the cache, not a 64 s npm ci",
+  );
+  assert.ok(runs(job).includes("npm test -- --only test-desktop"));
+  assert.ok(ci.jobs.release.needs.includes("macos-desktop-smoke"));
+  assert.ok(ci.jobs["desktop-gate"].needs.includes("macos-desktop-smoke"), "skipped on a PR, which the gate accepts");
+  // The local run replaces it on PRs.
+  assert.match(fs.readFileSync(path.join(__dirname, "../AGENTS.md"), "utf8"), /npm test -- --only test-desktop` on your Mac/);
+});
+
+test("Windows native tests run on merge groups and main without building an installer; Linux repository signing is a quick-checks step", () => {
   const job = ci.jobs["native-tests"];
   assert.equal(job["runs-on"], "windows-latest");
   assert.equal(job.strategy, undefined, "one leg, no matrix");
@@ -114,13 +148,13 @@ test("Windows native tests run on PRs without building an installer; Linux repos
       text.includes("ownership.test.cjs"),
   );
   assert.ok(!text.includes("package:"), "native tests never package");
-  const signing = steps(ci.jobs.javascript).find((step) => step.name === "Test real Linux repository signing");
+  const signing = steps(ci.jobs["quick-checks"]).find((step) => step.name === "Test real Linux repository signing");
   assert.match(signing.run, /MILAGRE_LINUX_REPOSITORY_INTEGRATION=1 node --test scripts\/linux-repository\.test\.cjs/);
   assert.match(signing.run, /apt-get install .*rpm createrepo-c gnupg/);
   assert.match(signing.run, /rm -rf "\$GNUPGHOME"/);
 });
 
-test("native tests and Electron checks run only when a PR touches desktop code; the JavaScript job always runs", () => {
+test("Electron checks run only when a PR touches desktop code; Windows tests wait for the merge queue; the JavaScript jobs always run", () => {
   const changes = ci.jobs.changes;
   assert.ok(changes, "a changes job decides what a PR touched");
   const filter = changes.steps.find((step) => step.id === "filter");
@@ -131,11 +165,12 @@ test("native tests and Electron checks run only when a PR touches desktop code; 
   assert.ok(desktop.includes(".github/actions/**"), "a change to the install action reruns the jobs that use it");
   assert.ok(!desktop.includes("apps/mobile/**"), "mobile-only PRs skip the desktop jobs");
   assert.equal(changes.outputs.desktop, "${{ github.event_name != 'pull_request' || steps.filter.outputs.desktop == 'true' }}");
-  for (const name of ["native-tests", "desktop-checks"]) {
-    assert.equal(ci.jobs[name].needs, "changes", `${name} waits for the change detection`);
-    assert.equal(ci.jobs[name].if, "needs.changes.outputs.desktop == 'true'", `${name} is skipped on PRs without desktop changes`);
-  }
-  assert.equal(ci.jobs.javascript.if, undefined, "javascript always runs");
+  assert.equal(ci.jobs["desktop-checks"].needs, "changes", "desktop-checks waits for the change detection");
+  assert.equal(ci.jobs["desktop-checks"].if, "needs.changes.outputs.desktop == 'true'", "desktop-checks is skipped on PRs without desktop changes");
+  // Windows runners took 70 to 161 s for the same suites; the merge queue runs them before a PR lands, PR runs don't.
+  assert.equal(ci.jobs["native-tests"].if, "github.event_name != 'pull_request'");
+  assert.equal(ci.jobs["native-tests"].needs, undefined);
+  for (const name of ["quick-checks", "unit"]) assert.equal(ci.jobs[name].if, undefined, `${name} always runs`);
 });
 
 test("installers build on main, on dispatch, and on PRs only with the preview:installers label", () => {
@@ -162,7 +197,7 @@ test("Electron checks run on Ubuntu under xvfb, one shard per matrix leg, with s
   assert.ok(run.endsWith("npm test -- --electron --shard ${{ matrix.shard }}/${{ strategy.job-total }}"), run);
   // Every place the job names a shard (the ffmpeg lookup too) takes the count from the matrix, or the lookup picks the wrong shard.
   const occurrences = JSON.stringify(job.steps).split("--shard ").slice(1);
-  assert.ok(occurrences.length >= 2, "the ffmpeg lookup and the test run both name the shard");
+  assert.ok(occurrences.length >= 1, "the test run names the shard");
   for (const rest of occurrences) assert.ok(rest.startsWith("${{ matrix.shard }}/${{ strategy.job-total }}"), rest.slice(0, 40));
   // One Electron stream per runner: two streams were measured 30 s slower with three to eight retries a run.
   assert.ok(!job.steps.some((step) => step.parallel), "no parallel group in the Electron job");
@@ -174,7 +209,7 @@ test("Electron checks run on Ubuntu under xvfb, one shard per matrix leg, with s
 });
 
 test("CI lints every workspace with oxlint, which carries the Expo rules for mobile", () => {
-  const commands = new Set(runs(ci.jobs.javascript));
+  const commands = new Set(runs(ci.jobs["quick-checks"]));
   assert.ok(commands.has("npm run lint"));
   assert.ok(!commands.has("npm run lint --workspace @milagre/mobile"));
   const config = JSON.parse(fs.readFileSync(path.join(__dirname, "../.oxlintrc.json"), "utf8"));
@@ -186,7 +221,7 @@ test("CI lints every workspace with oxlint, which carries the Expo rules for mob
 });
 
 test("lint, format check and dead code are parallel steps of the javascript job, on the repo's oxfmt and knip scripts", () => {
-  const commands = runs(ci.jobs.javascript);
+  const commands = runs(ci.jobs["quick-checks"]);
   for (const command of ["npm run lint", "npm run format:check", "npm run knip"]) assert.ok(commands.includes(command), command);
   const scripts = require("../package.json").scripts;
   assert.equal(scripts["format:check"], "oxfmt --check .");
@@ -194,7 +229,7 @@ test("lint, format check and dead code are parallel steps of the javascript job,
 });
 
 test("CI lints the lockfile before installing and verifies signatures after", () => {
-  const job = ci.jobs.javascript;
+  const job = ci.jobs["quick-checks"];
   const install = job.steps.findIndex((step) => step.uses === `./${installAction}`);
   assert.equal(
     job.steps[install - 1].run,
@@ -202,7 +237,7 @@ test("CI lints the lockfile before installing and verifies signatures after", ()
   );
   const group = job.steps.findIndex((step) => step.parallel);
   assert.ok(group > install, "the checks, signatures among them, run after the install");
-  assert.ok(runs(job).includes("npm audit signatures"));
+  assert.ok(runs(job).some((run) => /npm audit signatures/.test(run)));
 });
 
 test("a cached install is keyed on the lockfile and installs with npm ci only on a miss", () => {
