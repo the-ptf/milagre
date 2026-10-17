@@ -5,6 +5,7 @@ import {
   EVERY_MINUTES,
   emptyRoutineForm,
   formFromRoutine,
+  isCommentRoutine,
   formToInput,
   formToUpdate,
   scheduleCron,
@@ -183,7 +184,7 @@ test("a Routine opens in the form and saves back as an update of what changed", 
   });
 });
 
-test("an edited heartbeat keeps its Chat and its webhook keeps its hook id", () => {
+test("an edited heartbeat keeps its Chat and its webhook patch leaves the hook id out", () => {
   const heartbeat = {
     id: "h1",
     name: "Watch CI",
@@ -213,13 +214,14 @@ test("an edited heartbeat keeps its Chat and its webhook keeps its hook id", () 
   };
   const hookForm = formFromRoutine(hook, "UTC", NOW);
   assert.equal(hookForm.trigger, "webhook");
-  assert.deepEqual(formToUpdate(hookForm, hook, NOW).patch.trigger, { kind: "webhook", hookId: "a".repeat(64), signed: true });
+  // The hook id stays out of the patch: only a rotate changes it, and a stale one would be refused after a rotate.
+  assert.deepEqual(formToUpdate(hookForm, hook, NOW).patch.trigger, { kind: "webhook", signed: true });
   assert.equal("signingSecret" in formToUpdate(hookForm, hook, NOW).patch, false);
   // A new secret is sent; clearing the switch makes it unsigned.
   const resigned = formToUpdate({ ...hookForm, webhook: { signingHeader: "", signingSecret: "new" } }, hook, NOW).patch;
   assert.equal(resigned.signingSecret, "new");
   const unsigned = formToUpdate({ ...hookForm, webhook: { signed: false, signingHeader: "", signingSecret: "" } }, hook, NOW).patch;
-  assert.deepEqual(unsigned.trigger, { kind: "webhook", hookId: "a".repeat(64), signed: false });
+  assert.deepEqual(unsigned.trigger, { kind: "webhook", signed: false });
 });
 
 test("the trigger kind and where a Run lands can't change on an edit", () => {
@@ -304,4 +306,58 @@ test("the form's cadences are the ones the Mac's cron accepts", async () => {
   const store = await readFile(new URL("../../core/src/routines/store.cjs", import.meta.url), "utf8");
   assert.match(store, /const NAME_MAX = 80;/);
   assert.match(store, /const PROMPT_MAX = 4000;/);
+});
+
+test("a signed webhook's header opens in the form, and clearing it sends null so it goes back to the default", () => {
+  const hook = {
+    id: "w2",
+    name: "n",
+    prompt: "p",
+    trigger: { kind: "webhook", hookId: "c".repeat(64), signed: true },
+    target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+    signingHeader: "x-hub-signature",
+    enabled: true,
+    createdBy: { kind: "user" },
+    runCount: 0,
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+  const form = formFromRoutine(hook, "UTC", NOW);
+  assert.equal(form.webhook.signingHeader, "x-hub-signature");
+  assert.equal(formToUpdate(form, hook, NOW).patch.signingHeader, "x-hub-signature");
+  assert.equal(formToUpdate({ ...form, webhook: { ...form.webhook, signingHeader: " " } }, hook, NOW).patch.signingHeader, null);
+  // Unsigned, the header means nothing and isn't sent.
+  const unsigned = formToUpdate({ ...form, webhook: { ...form.webhook, signed: false } }, hook, NOW).patch;
+  assert.equal("signingHeader" in unsigned, false);
+});
+
+test("a Linear comment Routine has no Each run: comments go into the Chat linked to the issue", () => {
+  const comment = { ...linearForm(), linear: { workspace: "milagre", event: "comment", team: "", label: "agent", state: "" }, runIn: "project" };
+  assert.equal(isCommentRoutine(comment), true);
+  assert.equal(isCommentRoutine(linearForm()), false);
+  assert.equal(isCommentRoutine({ ...comment, trigger: "schedule" }), false);
+  // The Mac still keeps a new-chat target on a listed Project; the form fills it, whatever Each run held.
+  assert.deepEqual(formToInput(comment, NOW).input.target, { kind: "new-chat", projectPath: "/code/milagre", workspace: "worktree" });
+  assert.deepEqual(formToInput({ ...comment, runIn: "chat", chatId: "c1" }, NOW).input.target, {
+    kind: "new-chat",
+    projectPath: "/code/milagre",
+    workspace: "worktree",
+  });
+  assert.deepEqual(formToInput(comment, NOW).input.trigger, { kind: "linear", workspace: "milagre", event: "comment" });
+  // An edit keeps the stored target as it is.
+  const routine = {
+    id: "c1",
+    name: "Answer comments",
+    prompt: "Reply to {{comment.body}}",
+    trigger: { kind: "linear", workspace: "milagre", event: "comment" },
+    target: { kind: "new-chat", projectPath: "/code/other", workspace: "project" },
+    enabled: true,
+    createdBy: { kind: "user" },
+    runCount: 0,
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+  const edited = formFromRoutine(routine, "UTC", NOW);
+  assert.equal(isCommentRoutine(edited), true);
+  assert.deepEqual(formToUpdate({ ...edited, projectPath: "", runIn: "worktree" }, routine, NOW).patch.target, routine.target);
 });

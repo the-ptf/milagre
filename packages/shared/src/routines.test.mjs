@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, parsePass, routineRunOf, routineRunText, triggerText } from "./routines.mjs";
+import { canRunNow, clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, parsePass, routineRunOf, routineRunText, triggerText } from "./routines.mjs";
 
 test("parsePass reads a leading (pass) as quiet, with the summary after it", () => {
   assert.deepEqual(parsePass("(pass) CI green"), { quiet: true, summary: "CI green" });
@@ -297,4 +297,12 @@ test("triggerText copes with a trigger from a newer version", () => {
   assert.equal(triggerText(linear("teleport", { team: "MIL" })), "Linear · team MIL");
   assert.equal(triggerText(null), "");
   assert.equal(triggerText(undefined), "");
+});
+
+test("canRunNow: schedules and Heartbeats run now; Linear and webhook triggers have no event to run with", () => {
+  const newChat = { kind: "new-chat", projectPath: "/p", workspace: "worktree" };
+  assert.equal(canRunNow({ trigger: { kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" }, target: newChat }), true);
+  assert.equal(canRunNow({ trigger: { kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" }, target: { kind: "chat", chatId: "c" } }), true);
+  assert.equal(canRunNow({ trigger: { kind: "linear", workspace: "w", event: "assigned" }, target: newChat }), false);
+  assert.equal(canRunNow({ trigger: { kind: "webhook", hookId: "a", signed: false }, target: newChat }), false);
 });
