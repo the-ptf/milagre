@@ -7,6 +7,14 @@ routes = [{ pattern = "relay.milagre.cloud", custom_domain = true }]
 name = "ROOMS"
 class_name = "Room"
 
+[[durable_objects.bindings]]
+name = "HOOKS"
+class_name = "HookDirectory"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Room"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["HookDirectory"]
