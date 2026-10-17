@@ -38,6 +38,7 @@ import {
   PencilEdit02Icon,
   PinIcon,
   PinOffIcon,
+  Pulse01Icon,
   Refresh01Icon,
   ShieldAlertIcon,
   SourceCodeIcon,
@@ -142,6 +143,8 @@ export type SidebarRecent = {
   /** In the Pinned section, at `pinOrder` among the pinned chats. */
   pinned?: boolean;
   pinOrder?: number;
+  /** An enabled heartbeat checks back on this Chat: its hover-card line, "Heartbeat · every 15 min · next 10:45". */
+  heartbeat?: string;
   details?: ChatDetails;
 };
 
@@ -468,21 +471,28 @@ export const ChatRow = memo(function ChatRow({
                 item.unread ? "font-semibold text-ink" : active ? "font-medium text-ink" : "font-medium text-ink-2"
               }`}
             >
-              {linked.length > 0 ? (
-                // The icon follows the title, like the presence glyphs Orca puts after a worktree's name.
+              {linked.length > 0 || item.heartbeat ? (
+                // The icons follow the title, like the presence glyphs Orca puts after a worktree's name.
                 <span className="flex min-w-0 items-center gap-1">
                   <span className="min-w-0">
                     <ChatTitle label={item.label} />
                   </span>
-                  <span
-                    data-chat-linked
-                    role="img"
-                    aria-label={`Linked to ${linked.map((end) => end.label).join(", ")}`}
-                    title={`Linked to ${linked.map((end) => end.label).join(", ")}`}
-                    className="flex shrink-0 font-normal text-ink-3"
-                  >
-                    <HugeiconsIcon icon={Link04Icon} size={12} strokeWidth={2} color="currentColor" />
-                  </span>
+                  {linked.length > 0 && (
+                    <span
+                      data-chat-linked
+                      role="img"
+                      aria-label={`Linked to ${linked.map((end) => end.label).join(", ")}`}
+                      title={`Linked to ${linked.map((end) => end.label).join(", ")}`}
+                      className="flex shrink-0 font-normal text-ink-3"
+                    >
+                      <HugeiconsIcon icon={Link04Icon} size={12} strokeWidth={2} color="currentColor" />
+                    </span>
+                  )}
+                  {item.heartbeat && (
+                    <span data-chat-heartbeat role="img" aria-label={item.heartbeat} title="Heartbeat" className="flex shrink-0 font-normal text-ink-3">
+                      <HugeiconsIcon icon={Pulse01Icon} size={12} strokeWidth={2} color="currentColor" />
+                    </span>
+                  )}
                 </span>
               ) : (
                 <ChatTitle label={item.label} />
@@ -784,6 +794,13 @@ function ChatHoverCard({
             }
           >
             <span className={status.tone}>{status.label}</span>
+          </CardLine>
+        )}
+        {item.heartbeat && (
+          <CardLine icon={<HugeiconsIcon icon={Pulse01Icon} size={14} strokeWidth={1.8} color="currentColor" />}>
+            <span data-chat-card-heartbeat className="min-w-0 truncate">
+              {item.heartbeat}
+            </span>
           </CardLine>
         )}
         {details.pullRequests?.length ? (

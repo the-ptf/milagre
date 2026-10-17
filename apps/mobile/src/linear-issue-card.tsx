@@ -9,8 +9,10 @@ export function LinearIssueCard({ issue }: { issue: LinearIssueContext }) {
   return (
     <View style={{ alignItems: "flex-end", gap: 6 }}>
       <Pressable
-        accessibilityRole="link"
-        accessibilityLabel={`Open Linear issue ${issue.key}: ${issue.title}`}
+        accessibilityRole={issue.url ? "link" : undefined}
+        accessibilityLabel={issue.url ? `Open Linear issue ${issue.key}: ${issue.title}` : `Linear issue ${issue.key}: ${issue.title}`}
+        // A Routine Run's card has no link when the issue's URL wasn't Linear's own.
+        disabled={!issue.url}
         onPress={() => void Linking.openURL(issue.url).catch(() => {})}
         style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
       >

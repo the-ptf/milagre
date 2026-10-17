@@ -12,7 +12,7 @@ const { once } = require("node:events");
 const { createRuntime } = require("@milagre/core");
 const { socketPath: pathFor, prepareSocketDirectory } = require("./paths.cjs");
 const { VERSION, MAX_FRAME_BYTES, MAX_PENDING, pageSize, wire } = require("./protocol.cjs");
-const { createPhone } = require("./phone.cjs");
+const { createPhone, RELAY_URL } = require("./phone.cjs");
 const { createMobilePush } = require("./mobile-push.cjs");
 const { createLiveActivity } = require("./live-activity.cjs");
 const { createExpoPush } = require("./expo-push.cjs");
@@ -362,6 +362,8 @@ async function startDaemon({
     },
   });
   const runtime = createRuntime({
+    // Webhook URLs point at the relay the phone uses.
+    hookRelayUrl: phoneOptions.relayUrl ?? RELAY_URL,
     ...runtimeOptions,
     dataDir,
     version,
@@ -378,6 +380,16 @@ async function startDaemon({
   const liveActivity = createLiveActivity({ snapshot: () => runtime.snapshot(), answer: (value) => runtime.invoke("agent:answer-question", [value]) });
   function broadcast(channel, payload) {
     if (channel === "agent:event") push.observe(payload.chatId, payload.event);
+    // A Routine made, deleted, paused or rotated may change the hooks the relay holds. Later, since the runtime can say so
+    // while it is still being made, before the phone is.
+    if (channel === "routines:changed")
+      queueMicrotask(() => {
+        try {
+          void phone.syncHooks().catch(() => {});
+        } catch {
+          /* the phone isn't made yet; its start sends the set */
+        }
+      });
     const seq = ++eventSeq;
     const patched = statePatch(channel, payload, seq);
     if (!clients.size) return;
@@ -478,6 +490,13 @@ async function startDaemon({
     onPending: (requests) => broadcast("devices:pending", { requests }),
     // Each paired desktop is one more client of this daemon, with the paired-desktop deny set.
     openPeer: (carrier) => acceptConnection({ ...carrier, policy: peerPolicy }),
+    // Webhook Routines ride the relay host; the phone module keeps one running for them while phone access is off.
+    hooks: {
+      ids: () => runtime.routines.hookIds(),
+      receive: (deliveries) => runtime.routines.receiveHooks(deliveries),
+      refused: (ids) => runtime.routines.hooksRefused(ids),
+      owners: (ids) => runtime.routines.hookOwners(ids),
+    },
     ...phoneOptions,
   });
   /**

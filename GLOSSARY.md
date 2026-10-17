@@ -77,6 +77,24 @@ A summary of what the receiving agent did for a **Delegation**, posted to the re
 A back-and-forth of **Delegations** between two **Chats**, across a **Link** or inside one **Project**, where each **Delegation report** starts a turn on the other side, until one agent concludes it with a summary of the agreement. The requesting agent decides on its own that a request needs a **Negotiation**, and only it can; the user never has to ask for one, and the receiving side can't turn a **Delegation** into one. It stops after at most 10 rounds, when the user stops it, and pauses while either side waits on the user.
 _Avoid_: consensus mode, auto-chat
 
+### Routines
+
+**Routine**:
+A saved prompt plus a **Trigger** plus a target, kept by the **Computer**'s daemon so it fires while no window is open. Off until the Routines switch in Settings › Experimental is on.
+
+**Heartbeat**:
+A **Routine** whose target is an existing **Chat**: on a schedule, Milagre sends its prompt back into that **Chat** as a new turn. The **Chat**'s agent sets it on its own **Chat** with Milagre's `heartbeat_create`. Every **Heartbeat** ends: after 7 days by default, at most 30, after its maximum **Runs**, when its **Chat** is archived or gone, or after three failed **Runs** in a row.
+_Avoid_: reminder, cron job
+
+**Trigger**:
+What fires a **Routine**: a schedule, a Linear event or a webhook. Used loosely for a **Routine** whose target is a new **Chat**.
+
+**Run**:
+One firing of a **Routine**. It acts, is quiet, fails, or is skipped because its **Chat** was busy or the **Computer** missed its time.
+
+**Quiet run**:
+A **Run** whose reply, after its last tool step, starts with `(pass)`. Its divider collapses, its reply is hidden, and it sends no notification.
+
 ### Computers and devices
 
 **Computer**:

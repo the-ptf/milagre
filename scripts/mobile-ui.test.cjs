@@ -1656,6 +1656,9 @@ function chatHost({
   effects = false,
   alert = () => {},
   linear = { active: false },
+  routines = [],
+  routinesOn = true,
+  now = new Date(2026, 9, 17, 10, 30).getTime(),
   chatDefaults = require("../apps/mobile/src/chat-defaults-store.ts").createChatDefaultsStore({ getItem: () => null, setItemAsync: async () => {} }),
 } = {}) {
   const sending = deferred();
@@ -1758,7 +1761,9 @@ function chatHost({
   const icons = new Proxy({}, { get: (_, name) => String(name) });
   const router = {
     setParams: (values) => Object.assign(params, values),
-    push() {},
+    push(href) {
+      (router.pushed ??= []).push(href);
+    },
     replace(route) {
       router.replaced = route;
     },
@@ -1803,7 +1808,10 @@ function chatHost({
     "react-native": native,
     "expo-router": {
       Redirect: "Redirect",
-      Stack: { Screen: "Screen", Toolbar: Object.assign(() => null, { Menu: "ToolbarMenu", MenuAction: "ToolbarMenuAction", Button: "ToolbarButton" }) },
+      Stack: {
+        Screen: "Screen",
+        Toolbar: Object.assign(() => null, { Menu: "ToolbarMenu", MenuAction: "ToolbarMenuAction", Button: "ToolbarButton", View: "ToolbarView" }),
+      },
       router,
       useNavigation: () => ({ setParams: (values) => Object.assign(params, values) }),
       useLocalSearchParams: () => params,
@@ -1835,6 +1843,10 @@ function chatHost({
     "@milagre/shared/linear": require("@milagre/shared/linear"),
     "@milagre/shared/archive": require("@milagre/shared/archive"),
     "../use-linear": { useLinear: () => linear },
+    "../use-routines": {
+      useRoutines: () => ({ routines, enabled: routinesOn, unavailable: null, error: "", loading: false, refresh: async () => {}, update: async () => {} }),
+    },
+    "../chat-row-store": { useActivityClock: (on) => (on ? now : 0) },
     "../use-worktree-linear-issues": { useWorktreeLinearIssues: () => ({}) },
     "../choice-store": { showChoiceSheet: (request) => choices.push(request) },
     "../session": { useSession: () => session, useComposer: () => session, usePendingChats: () => session },
@@ -1860,6 +1872,8 @@ function chatHost({
     "../compaction-divider": { CompactionDivider: "CompactionDivider" },
     "../account-switch-divider": { AccountSwitchDivider: "AccountSwitchDivider" },
     "../chat-reload-divider": { ChatReloadDivider: "ChatReloadDivider" },
+    "../routine-run-divider": { RoutineRunDivider: "RoutineRunDivider" },
+    "@milagre/shared/routines": require("@milagre/shared/routines"),
     "@milagre/shared/chat-reload": require("@milagre/shared/chat-reload"),
     "../checkpoint-restore-divider": { CheckpointRestoreDivider: "CheckpointRestoreDivider" },
     "@milagre/shared/checkpoint-restore": require("@milagre/shared/checkpoint-restore"),
@@ -2250,6 +2264,7 @@ function navigationHost(
     effects = false,
     links = linksState(),
     AppState = { currentState: "active", addEventListener: () => ({ remove() {} }) },
+    routinesAvailable = true,
   } = {},
 ) {
   const react = hookHost({ effects });
@@ -2347,6 +2362,7 @@ function navigationHost(
     "./status-indicators": { ChatMarkIcon: "ChatMarkIcon" },
     "./use-chat-pull-requests": { useChatPullRequests: () => ({}) },
     "./use-linear": { useLinear: () => ({ active: false }) },
+    "./use-routines": { useRoutinesAvailable: () => routinesAvailable },
     "./use-worktree-linear-issues": { useWorktreeLinearIssues: () => ({}) },
     "@milagre/shared/chat-row": require("../packages/shared/src/chat-row.ts"),
     "./chat-row-store": {
@@ -3100,6 +3116,7 @@ function pullDownHost(react = { forwardRef: (fn) => fn }) {
     ),
     "@expo/ui/swift-ui/modifiers": modifiers,
     "@expo/ui/community/menu": { MenuView: "MenuView" },
+    "@expo/ui/jetpack-compose/modifiers": { semantics: (value) => ({ name: "semantics", value }) },
     "expo-haptics": { selectionAsync: async () => {} },
     "@hugeicons/core-free-icons": {},
     "./theme": {
@@ -3913,6 +3930,98 @@ test("the message that continued a Chat on another account is a line, not a repl
   );
   const rail = find(tree, (node) => node.type === "MessageNavigation");
   assert.equal(rail.props.items.at(-1).label, "Go to Switched to me@work.com after the usage limit, 2 of 2.");
+});
+
+test("quiet heartbeats collapse into one line and their replies are hidden", () => {
+  const screen = chatHost();
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.sessions[42] = { id: 42, provider: "claude" };
+  const run = (id, minute, summary) => ({
+    id,
+    session_id: 42,
+    role: "user",
+    body: "Heartbeat",
+    context: { kind: "routine-run", routineId: "r1", runId: `run${id}`, name: "Babysit", at: Date.UTC(2026, 9, 16, 10, minute), quiet: true, summary },
+  });
+  state.messages = [
+    { id: 1, session_id: 42, role: "user", body: "Watch CI" },
+    run(2, 15, "waiting"),
+    { id: 3, session_id: 42, role: "assistant", body: "(pass) waiting" },
+    run(4, 30, "CI green"),
+    { id: 5, session_id: 42, role: "assistant", body: "(pass) CI green" },
+  ];
+  const tree = screen.render();
+  const dividers = [];
+  find(tree, (node) => {
+    if (node.type === "RoutineRunDivider") dividers.push(node.props);
+    return false;
+  });
+  assert.equal(dividers.length, 1);
+  assert.equal(dividers[0].merged.count, 2);
+  assert.equal(dividers[0].merged.last.summary, "CI green");
+  assert.deepEqual(
+    transcriptMessages(screen).map((message) => message.id),
+    [1],
+  );
+});
+
+test("a Linear Run's first message shows the routine divider, then its issue card", () => {
+  const screen = chatHost();
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.sessions[42] = { id: 42, provider: "claude" };
+  const routine = { routineId: "r1", runId: "run1", name: "Triage", at: Date.UTC(2026, 9, 16, 10, 15), label: "Routine · Triage" };
+  state.messages = [
+    {
+      id: 1,
+      session_id: 42,
+      role: "user",
+      body: "Look at MIL-1",
+      context: { kind: "linear-issue", key: "MIL-1", title: "Paste", url: "u", state: { name: "Todo", type: "unstarted", color: "#aaa" }, routine },
+    },
+    { id: 2, session_id: 42, role: "assistant", body: "On it." },
+  ];
+  const tree = screen.render();
+  const order = [];
+  find(tree, (node) => {
+    if (node.type === "RoutineRunDivider") order.push(["divider", node.props.context]);
+    if (node.type === "ChatReply" && node.props.message) order.push(["reply", node.props.message.id]);
+    return false;
+  });
+  assert.deepEqual(order[0], ["divider", { kind: "routine-run", ...routine }]);
+  assert.deepEqual(order.slice(1), [
+    ["reply", 1],
+    ["reply", 2],
+  ]);
+  const rail = find(tree, (node) => node.type === "MessageNavigation");
+  assert.match(rail.props.items[0].label, /^Go to Routine · Triage · \d\d:\d\d, 1 of 2\.$/);
+});
+
+test("the navigation rail skips hidden heartbeat replies and counts what the transcript shows", () => {
+  const screen = chatHost();
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.sessions[42] = { id: 42, provider: "claude" };
+  const run = (id, minute, summary) => ({
+    id,
+    session_id: 42,
+    role: "user",
+    body: "Heartbeat",
+    context: { kind: "routine-run", routineId: "r1", runId: `run${id}`, name: "Babysit", at: Date.UTC(2026, 9, 16, 10, minute), quiet: true, summary },
+  });
+  state.messages = [
+    { id: 1, session_id: 42, role: "user", body: "Watch CI" },
+    run(2, 15, "waiting"),
+    { id: 3, session_id: 42, role: "assistant", body: "(pass) waiting" },
+    run(4, 30, "CI green"),
+    { id: 5, session_id: 42, role: "assistant", body: "(pass) CI green" },
+  ];
+  const rail = find(screen.render(), (node) => node.type === "MessageNavigation");
+  assert.equal(rail.props.items.length, 2);
+  assert.match(rail.props.items[0].label, /^Go to user message 1 of 2\. Watch CI$/);
+  assert.match(rail.props.items[1].label, /^Go to 2 quiet checks · last \d\d:\d\d: CI green, 2 of 2\.$/);
+  assert.ok(rail.props.items.every((item) => !item.label.includes("(pass)")));
 });
 
 test("mobile navigation spans a long Chat with at most 15 lines and loads older targets before scrolling", () => {
@@ -7599,6 +7708,7 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
@@ -7707,6 +7817,7 @@ test("mobile Full detail shows each tool call and the notes between them in the 
       "./chat-display-setting": { useToolCallDisplay: () => [display, () => {}] },
       "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
       "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+      "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
       "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
       "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
       "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
@@ -8278,6 +8389,89 @@ test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the
   );
 });
 
+test("mobile Experimental page shows the Mac's Routines switch, hidden until read, saved on the Mac and rolled back when refused", async () => {
+  const react = hookHost();
+  const focused = [];
+  const saves = [];
+  let refuse = false;
+  const client = {
+    async call(method, args) {
+      if (method === "routines:enabled:read") return { enabled: false };
+      if (method === "routines:enabled:save") {
+        saves.push(args[0]);
+        if (refuse) throw new Error("This computer does not allow changing this setting from a phone.");
+        return { enabled: args[0] };
+      }
+      return null;
+    },
+  };
+  const modules = (session) => ({
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/linear": require("../packages/shared/src/linear.ts"),
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
+    "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue", seedsFrom: (id) => ({ from: id }) },
+    "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./push": { usePush: () => ({ state: null }) },
+    "./icons": { Icon: "Icon" },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
+    "./session": { useSession: () => ({ designs: { ...designsOn }, ...session }) },
+    "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PillButton: "PillButton", Toggle: "Toggle", styles: {} },
+  });
+  const { ExperimentalSection } = load("experimental-section.tsx", modules({ client }));
+  const render = () => {
+    react.begin();
+    return ExperimentalSection();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const title = "Routines";
+  assert.equal(
+    find(render(), (n) => n.props?.title === title),
+    undefined,
+    "hidden until the Mac answers",
+  );
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  let tree = render();
+  assert.equal(find(tree, (n) => n.props?.title === title).props.selected, false);
+  assert.ok(
+    find(
+      tree,
+      (n) =>
+        n.type === "Text" && n.props.children === "Let agents set Heartbeats that check back on a Chat on a schedule. Open Chats get it after Reload chat.",
+    ),
+  );
+  find(tree, (n) => n.props?.title === title).props.onPress();
+  await settle();
+  assert.deepEqual(saves, [true]);
+  assert.equal(find(render(), (n) => n.props?.title === title).props.selected, true);
+  refuse = true;
+  find(render(), (n) => n.props?.title === title).props.onPress();
+  await settle();
+  tree = render();
+  assert.deepEqual(saves, [true, false]);
+  assert.equal(find(tree, (n) => n.props?.title === title).props.selected, true, "a refused save puts the switch back");
+  assert.match(find(tree, (n) => n.type === "ErrorNotice").props.message, /does not allow/);
+  const rejecting = load(
+    "experimental-section.tsx",
+    modules({ client: { call: async () => Promise.reject(new Error("unknown method")) } }),
+  ).ExperimentalSection;
+  react.begin();
+  rejecting();
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  react.begin();
+  assert.equal(
+    find(rejecting(), (n) => n.props?.title === title),
+    undefined,
+    "an older Mac rejects the read: no switch",
+  );
+});
+
 test("mobile ChatReply shows the usage-limit card instead of the failed line, with a Project only when it can switch", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
   const { ChatReply } = load("chat-reply.tsx", {
@@ -8301,6 +8495,7 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
@@ -8355,6 +8550,7 @@ test("mobile ChatReply marks a Delegation and its report with their sender, neve
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
@@ -10522,4 +10718,697 @@ test("undo changes on the phone: task list, conflict-only choice, stale preview 
   assert.ok(strings(redo).includes("Redo"));
   redo.props.onPress();
   assert.deepEqual(previews, [["recovery", "Redo"]]);
+});
+
+test("the phone's project dock has four buttons, Routines before Settings, and Routines pushes /routines", () => {
+  const nav = navigationHost(deferred().promise);
+  const buttons = allNodes(
+    nav.render(),
+    (node) => node.type === "IconButton" && node.props.size === 44 && ["Canvas", "Link projects", "Routines", "Settings"].includes(node.props.label),
+  );
+  assert.deepEqual(
+    buttons.map((button) => button.props.label),
+    ["Canvas", "Link projects", "Routines", "Settings"],
+  );
+  buttons[2].props.onPress();
+  assert.deepEqual(nav.routes, ["/routines"]);
+  assert.deepEqual(nav.secondaryRoutes, [true], "Routines push onto the stack like Settings");
+});
+
+test("the phone's project dock leaves Routines out when the Mac can't offer them (an older Mac, a confined phone)", () => {
+  const nav = navigationHost(deferred().promise, { routinesAvailable: false });
+  assert.equal(
+    find(nav.render(), (node) => node.type === "IconButton" && node.props.label === "Routines"),
+    undefined,
+  );
+  assert.ok(find(nav.render(), (node) => node.type === "IconButton" && node.props.label === "Settings"));
+});
+
+const routineFixtures = () => [
+  {
+    id: "hb",
+    name: "Babysit PR #473",
+    prompt: "Check CI",
+    trigger: { kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" },
+    target: { kind: "chat", chatId: "/p#4" },
+    enabled: true,
+    createdBy: { kind: "agent", chatId: "/p#4" },
+    nextRunAt: Date.UTC(2026, 9, 17, 10, 45),
+    maxRuns: 10,
+    runCount: 7,
+    createdAt: 1,
+    updatedAt: 1,
+    runs: [],
+  },
+  {
+    id: "tr",
+    name: "Issues labelled agent",
+    prompt: "Work on {{issue.key}}",
+    trigger: { kind: "linear", workspace: "w", event: "label-added", label: "agent" },
+    target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+    enabled: false,
+    pausedReason: "3 failed runs in a row: no worktree",
+    createdBy: { kind: "user" },
+    runCount: 3,
+    createdAt: 1,
+    updatedAt: 1,
+    runs: [{ id: "r1", routineId: "tr", startedAt: 5, status: "failed", chatId: "/p#9" }],
+  },
+];
+
+function routinesHost({ routines = routineFixtures(), enabled = true, refuse = false, confined = false, slowUpdates = false } = {}) {
+  const react = hookHost();
+  const effects = [];
+  const focused = [];
+  const calls = [];
+  const routes = [];
+  let list = routines;
+  const sockets = [];
+  const updates = [];
+  const client = {
+    url: "ws://mac",
+    live: (path) => (sockets.push(path), { close() {} }),
+    async call(method, args) {
+      calls.push([method, args]);
+      if (refuse && method.startsWith("routines:")) throw new Error(`${method} is not available from mobile`);
+      if (confined && (method === "routines:enabled:read" || method === "routines:list")) return [];
+      if (method === "routines:enabled:read") return { enabled };
+      if (method === "routines:list") return { routines: list };
+      if (method === "routines:update" && slowUpdates) {
+        const gate = deferred();
+        updates.push(gate);
+        await gate.promise;
+      }
+      if (method === "routines:update") {
+        list = list.map((routine) => (routine.id === args[0] ? { ...routine, ...args[1] } : routine));
+        return list.find((routine) => routine.id === args[0]);
+      }
+      return null;
+    },
+  };
+  const reactModule = { ...react, useSyncExternalStore: (_subscribe, read) => read(), useEffect: (fn, deps) => effects.push([fn, deps]) };
+  const useRoutines = load("use-routines.ts", {
+    react: reactModule,
+    "react-native": { AppState: { addEventListener: () => ({ remove() {} }) } },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+  });
+  const { default: RoutinesScreen } = load("app/routines.tsx", {
+    react: reactModule,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": {
+      ...Object.fromEntries(["Pressable", "Text", "View"].map((name) => [name, name])),
+      Platform: { OS: "ios" },
+      StyleSheet: { hairlineWidth: 1 },
+    },
+    "expo-router": {
+      Stack: Object.assign(() => null, { Toolbar: Object.assign(() => null, { Button: "ToolbarButton", View: "ToolbarView" }) }),
+      router: { push: (href) => routes.push(href) },
+    },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"),
+    "@milagre/shared/routines": require("@milagre/shared/routines"),
+    "../session": { useSession: () => ({ client }) },
+    "../use-routines": useRoutines,
+    "../routine-rows": load("routine-rows.ts", {
+      "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+      "@milagre/shared/routines": require("@milagre/shared/routines"),
+    }),
+    "../confirm-store": { confirm: async () => true },
+    "../chat-row-store": { useActivityClock: () => Date.UTC(2026, 9, 17, 10, 30) },
+    "../icons": { Icon: "Icon" },
+    "../ui": Object.fromEntries(["ErrorNotice", "HeaderButton", "PageScroll", "PullDown", "RowSwitch"].map((name) => [name, name])),
+  });
+  const render = () => {
+    react.begin();
+    return RoutinesScreen();
+  };
+  const settle = async () => {
+    for (const [fn] of effects.splice(0)) fn();
+    for (const fn of focused.splice(0)) fn();
+    for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  };
+  // The rows are components of their own; render each to read what it shows.
+  const rows = (tree) => allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "RoutineRow").map((row) => row.type(row.props));
+  const groups = (tree) => allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "Group").map((group) => group.props.title);
+  return { render, settle, calls, routes, rows, groups, sockets, updates };
+}
+
+test("the phone Routines screen groups heartbeats and triggers, says why a trigger paused, and opens a row's actions", async () => {
+  const host = routinesHost();
+  host.render();
+  await host.settle();
+  const tree = host.render();
+  assert.deepEqual(host.groups(tree), ["Heartbeats", "Triggers"]);
+  assert.deepEqual(
+    allNodes(tree, (node) => node.props?.accessibilityRole === "radio").map((node) => node.props.accessibilityLabel),
+    ["All, 2", "Heartbeats, 1", "Triggers, 1", "Paused, 1"],
+  );
+  const [heartbeat, trigger] = host.rows(tree);
+  assert.match(textOf(heartbeat), /Babysit PR #473/);
+  assert.match(textOf(heartbeat), /Every 15 min · next \d\d:\d\d · 3 Runs left/);
+  assert.match(textOf(trigger), /Paused: 3 failed runs in a row: no worktree/);
+  assert.equal(find(trigger, (node) => node.type === "RowSwitch").props.selected, false);
+  const menu = find(trigger, (node) => node.type === "PullDown");
+  // A Linear trigger only runs on its event, so it has no Run now; the heartbeat (a schedule) does.
+  assert.deepEqual([...menu.props.sections.flatMap((section) => section.items.map((item) => item.title))], ["Edit", "Open last Chat", "Delete"]);
+  const heartbeatMenu = find(heartbeat, (node) => node.type === "PullDown");
+  assert.deepEqual([...heartbeatMenu.props.sections.flatMap((section) => section.items.map((item) => item.title))], ["Edit", "Run now", "Open Chat", "Delete"]);
+  menu.props.onSelect("open");
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes)), [{ pathname: "/chat", params: { projectPath: "/p", hostId: "ws://mac", id: "9" } }]);
+  assert.ok(
+    allNodes(tree, (node) => node.type === "Text").some(
+      (node) => textOf(node) === "Routines run while this Mac is awake. Closing the lid on battery pauses them.",
+    ),
+  );
+  // The Paused chip keeps only the paused trigger.
+  allNodes(tree, (node) => node.props?.accessibilityRole === "radio")[3].props.onPress();
+  assert.deepEqual(host.groups(host.render()), ["Triggers"]);
+});
+
+test("flipping a Routine's switch on the phone writes routines:update with the new value and reads the list again", async () => {
+  const host = routinesHost();
+  host.render();
+  await host.settle();
+  const [heartbeat] = host.rows(host.render());
+  host.calls.length = 0;
+  find(heartbeat, (node) => node.type === "RowSwitch").props.onPress();
+  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowSwitch").props.selected, false, "the switch moves at once");
+  await host.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.calls[0])), ["routines:update", ["hb", { enabled: false }]]);
+  assert.ok(host.calls.some(([method]) => method === "routines:list"));
+  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowSwitch").props.selected, false);
+});
+
+test("with the Mac's Routines switch off, the phone says so and links to Experimental", async () => {
+  const host = routinesHost({ routines: [], enabled: false });
+  host.render();
+  await host.settle();
+  const tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Routines are off on this Mac"));
+  find(tree, (node) => node.props?.accessibilityLabel === "Open Experimental settings").props.onPress();
+  assert.deepEqual(host.routes, ["/experimental"]);
+});
+
+function routineFormHost({ params = {}, routines = [], answers = {}, created } = {}) {
+  const react = hookHost();
+  const calls = [];
+  const routes = [];
+  const responses = {
+    "routines:targets": { projects: [{ path: "/p", name: "milagre-ade", chats: [{ chatId: "/p#4", title: "Babysit", lastAt: 1 }] }] },
+    "routines:linear-options": {
+      workspaces: [{ id: "w1", name: "Milagre" }],
+      teams: [{ key: "MIL", name: "Milagre" }],
+      labels: ["agent", "bug"],
+      states: [{ name: "Todo", type: "unstarted" }],
+    },
+    ...answers,
+  };
+  const client = {
+    url: "ws://mac",
+    async call(method, args) {
+      calls.push([method, JSON.parse(JSON.stringify(args))]);
+      if (method === "routines:create") {
+        const routine = { id: "new", enabled: true, runCount: 0, createdAt: 1, updatedAt: 1, runs: [], ...args[0], ...created?.routine };
+        routines.push(routine);
+        return { routine, ...(created?.hookUrl ? { hookUrl: created.hookUrl } : {}) };
+      }
+      if (method === "routines:rotate-hook") return { url: "https://relay.milagre.cloud/hook/rotated" };
+      if (method === "routines:update") return { id: args[0] };
+      return responses[method] ?? null;
+    },
+  };
+  const icons = new Proxy({}, { get: (_, key) => key });
+  const { default: RoutineForm } = load("app/routine-form.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": {
+      ...Object.fromEntries(["Pressable", "Text", "View"].map((name) => [name, name])),
+      Platform: { OS: "ios" },
+      StyleSheet: { hairlineWidth: 1 },
+    },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
+    "expo-router": {
+      Stack: { Screen: "StackScreen" },
+      router: { back: () => routes.push("back"), push: (href) => routes.push(href) },
+      useLocalSearchParams: () => params,
+    },
+    "expo-clipboard": { setStringAsync: async () => {} },
+    "@hugeicons/core-free-icons": icons,
+    "@milagre/shared/routine-form": require("@milagre/shared/routine-form"),
+    "@milagre/shared/routine-prompt": require("@milagre/shared/routine-prompt"),
+    "@milagre/shared/model-copy": require("../packages/shared/src/model-copy.ts"),
+    "@milagre/shared/providers": require("@milagre/shared/providers"),
+    "../session": { useSession: () => ({ client, models: null, cliStatus: null, snapshot: { project: { path: "/p" } } }) },
+    "../use-routines": { useRoutines: () => ({ routines, enabled: true, error: "", loading: false, refresh: async () => {}, update: async () => {} }) },
+    "../use-rpc": { useRpc: (caller, method) => ({ data: caller ? (responses[method] ?? null) : null, error: "", loading: false, refresh() {} }) },
+    "../turn-options": { modelsFor: (provider) => (provider === "claude" ? [{ id: "claude-opus-5-5", name: "Opus 5.5", provider }] : []) },
+    "../placeholder-field": { PlaceholderField: "PlaceholderField" },
+    "../confirm-store": { confirm: async () => true },
+    "../icons": { Icon: "Icon" },
+    "../ui": Object.fromEntries(["CircleButton", "ErrorNotice", "Field", "PageScroll", "PillButton", "PullDown", "RowSwitch"].map((name) => [name, name])),
+  });
+  const render = () => {
+    react.begin();
+    return RoutineForm();
+  };
+  const rowLabels = (tree) => allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "FormRow").map((node) => node.props.label);
+  const pick = (tree, label) => find(tree, (node) => node.type === "PullDown" && node.props.label === label);
+  return { render, calls, routes, rowLabels, pick };
+}
+
+test("the phone routine form in Linear mode shows the When, Label and Team rows and offers Linear placeholders", () => {
+  const host = routineFormHost();
+  let tree = host.render();
+  assert.ok(find(tree, (node) => node.type === "CircleButton" && node.props.label === "Close"));
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "New Routine"));
+  assert.ok(host.rowLabels(tree).includes("Repeats"), "a new Routine starts on a schedule");
+  find(tree, (node) => node.props?.accessibilityLabel === "Linear" && node.props.accessibilityRole === "radio").props.onPress();
+  tree = host.render();
+  const labels = host.rowLabels(tree);
+  for (const label of ["When", "Label", "Team", "Project", "Works in", "Model", "Stop after"]) assert.ok(labels.includes(label), label);
+  assert.equal(
+    allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "FormRow" && node.props.label === "Works in")[0].props.value,
+    "New Worktree",
+    "Worktree is a product noun",
+  );
+  const linear = find(tree, (node) => node.props?.accessibilityLabel === "Linear" && node.props.accessibilityRole === "radio");
+  assert.equal(linear.props.accessibilityState.checked, true);
+  const names = [...find(tree, (node) => node.type === "PlaceholderField").props.placeholders.map((item) => item.name)];
+  assert.ok(names.includes("issue.key"));
+  assert.equal(find(tree, (node) => node.type === "PillButton").props.title, "Create Routine");
+});
+
+test("the phone prompt field suggests {{issue.key}} while typing {{iss, and choosing it inserts the placeholder", () => {
+  const react = hookHost();
+  const changes = [];
+  const { PlaceholderField } = load("placeholder-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Text: "Text", View: "View" },
+    "@milagre/shared/routine-prompt": require("@milagre/shared/routine-prompt"),
+    "./ui": { Field: "Field", ListRow: "ListRow" },
+  });
+  const placeholders = require("@milagre/shared/routine-prompt").placeholdersFor({ kind: "linear", workspace: "w", event: "label-added" });
+  let value = "Work on {{iss";
+  const render = () => {
+    react.begin();
+    return PlaceholderField({ value, onChangeText: (next) => changes.push((value = next)), placeholders });
+  };
+  const field = find(render(), (node) => node.type === "Field");
+  field.props.onFocus();
+  field.props.onSelectionChange({ nativeEvent: { selection: { start: value.length, end: value.length } } });
+  const suggestion = find(render(), (node) => node.type === "ListRow" && node.props.title === "{{issue.key}}");
+  assert.ok(suggestion, "issue.key is suggested");
+  suggestion.props.onPress();
+  assert.deepEqual(changes, ["Work on {{issue.key}}"]);
+  const after = find(render(), (node) => node.type === "Field");
+  assert.deepEqual(JSON.parse(JSON.stringify(after.props.selection)), { start: 21, end: 21 }, "the caret goes after the }}");
+});
+
+test("Create on the phone routine form sends routines:create the formToInput output and closes", async () => {
+  const host = routineFormHost();
+  let tree = host.render();
+  find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Take issues labelled agent");
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Linear" && node.props.accessibilityRole === "radio").props.onPress();
+  host.pick(host.render(), "Label").props.onSelect("agent");
+  host.pick(host.render(), "Project").props.onSelect("/p");
+  find(host.render(), (node) => node.type === "PlaceholderField").props.onChangeText("Work on {{issue.key}}");
+  tree = host.render();
+  find(tree, (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const create = host.calls.find(([method]) => method === "routines:create");
+  assert.deepEqual(create[1], [
+    {
+      name: "Take issues labelled agent",
+      prompt: "Work on {{issue.key}}",
+      trigger: { kind: "linear", workspace: "w1", event: "label-added", label: "agent" },
+      target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+    },
+  ]);
+  assert.deepEqual(host.routes, ["back"]);
+});
+
+test("the phone routine form shows a refused field's problem and sends nothing", async () => {
+  const host = routineFormHost();
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Linear" && node.props.accessibilityRole === "radio").props.onPress();
+  find(host.render(), (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Labels");
+  find(host.render(), (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    host.calls.find(([method]) => method === "routines:create"),
+    undefined,
+  );
+  const problems = allNodes(host.render(), (node) => typeof node.type === "function" && node.type.name === "Problem").map((node) => node.props.text);
+  assert.ok(problems.includes("Pick the label to watch"), "the problem shows under the Linear card");
+});
+
+test("opening the phone Routines screen reads once and opens one live socket", async () => {
+  const host = routinesHost();
+  host.render();
+  await host.settle();
+  assert.equal(host.calls.filter(([method]) => method === "routines:list").length, 1);
+  assert.deepEqual(host.sockets, [""]);
+});
+
+test("on a Mac without Routines the phone screen asks to update Milagre there, with no raw error and no socket", async () => {
+  const host = routinesHost({ refuse: true });
+  host.render();
+  await host.settle();
+  const tree = host.render();
+  const texts = allNodes(tree, (node) => node.type === "Text").map(textOf);
+  assert.ok(texts.includes("Update Milagre on this Mac to use Routines."));
+  assert.ok(!texts.includes("Routines are off on this Mac"));
+  assert.equal(
+    find(tree, (node) => node.type === "ErrorNotice"),
+    undefined,
+  );
+  assert.deepEqual(host.sockets, []);
+});
+
+test("a confined phone is never told Routines are off, and opens no Project-less socket", async () => {
+  const host = routinesHost({ confined: true });
+  host.render();
+  await host.settle();
+  const texts = allNodes(host.render(), (node) => node.type === "Text").map(textOf);
+  assert.ok(!texts.includes("Routines are off on this Mac"));
+  assert.ok(texts.includes("Routines aren't available on this connection."));
+  assert.deepEqual(host.sockets, []);
+});
+
+test("two quick flips of one Routine on the phone keep the second value until its own write settles", async () => {
+  const host = routinesHost({ slowUpdates: true });
+  host.render();
+  await host.settle();
+  const switchOf = () => find(host.rows(host.render())[0], (node) => node.type === "RowSwitch");
+  switchOf().props.onPress();
+  assert.equal(switchOf().props.selected, false);
+  switchOf().props.onPress();
+  assert.equal(switchOf().props.selected, true);
+  await host.settle();
+  host.updates[0].resolve();
+  await host.settle();
+  assert.equal(switchOf().props.selected, true, "the first write's end doesn't drop the second flip");
+  host.updates[1].resolve();
+  await host.settle();
+});
+
+test("useRoutinesAvailable is true on a Mac with Routines, switched off or on, and false on an older Mac or a confined phone", async () => {
+  const check = async (answer) => {
+    const react = hookHost();
+    const focused = [];
+    const { useRoutinesAvailable } = load("use-routines.ts", {
+      react,
+      "react-native": { AppState: { addEventListener: () => ({ remove() {} }) } },
+      "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+    });
+    const client = { call: async () => (answer instanceof Error ? Promise.reject(answer) : answer) };
+    react.begin();
+    useRoutinesAvailable(client);
+    for (const fn of focused.splice(0)) fn();
+    await new Promise((resolve) => setImmediate(resolve));
+    react.begin();
+    return useRoutinesAvailable(client);
+  };
+  assert.equal(await check({ enabled: false }), true);
+  assert.equal(await check({ enabled: true }), true);
+  assert.equal(await check(new Error("routines:enabled:read is not available from mobile")), false);
+  assert.equal(await check([]), false);
+});
+
+const heartbeatFor = (chatId, extra = {}) => ({
+  id: "hb1",
+  name: "Babysit PR #473",
+  prompt: "Check CI",
+  trigger: { kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" },
+  target: { kind: "chat", chatId },
+  enabled: true,
+  createdBy: { kind: "agent", chatId },
+  nextRunAt: new Date(2026, 9, 17, 10, 45).getTime(),
+  expiresAt: new Date(2026, 9, 24, 9, 0).getTime(),
+  runCount: 2,
+  createdAt: 1,
+  updatedAt: 1,
+  runs: [],
+  ...extra,
+});
+
+test("a phone Chat with an enabled Heartbeat shows the Heartbeat header button and Next check; without one, neither", () => {
+  const chat = chatHost({ routines: [heartbeatFor("/p#7"), heartbeatFor("/p#8", { id: "other" })] });
+  chat.params.id = "7";
+  chat.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
+  const tree = chat.render();
+  const button = find(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Heartbeat");
+  assert.ok(button, "the header shows the Heartbeat button");
+  assert.equal(button.props.icon, "waveform.path.ecg");
+  button.props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(chat.router.pushed)), [{ pathname: "/routine-form", params: { id: "hb1" } }]);
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Next check 10:45"));
+
+  const paused = chatHost({ routines: [heartbeatFor("/p#7", { enabled: false })] });
+  paused.params.id = "7";
+  paused.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
+  const off = paused.render();
+  assert.equal(
+    find(off, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Heartbeat"),
+    undefined,
+  );
+  assert.ok(!allNodes(off, (node) => node.type === "Text").some((node) => textOf(node).startsWith("Next check")));
+});
+
+test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card, out of the activity rows", () => {
+  const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
+  const { ChatReply } = load("chat-reply.tsx", {
+    "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
+    "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
+    "react-native-svg": { default: "Svg", Path: "Path" },
+    "expo-router": { router: {} },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "./file-chip": { FileChip: "FileChip" },
+    "./markdown": { Markdown: "Markdown" },
+    "./icons": { Icon: "Icon" },
+    "./activity-item": { ActivityTitle: "ActivityTitle" },
+    "./tool-row": { ToolRow: "ToolRow" },
+    "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
+    "./answer-card": { AnswerCard: "AnswerCard" },
+    "./chat-display-setting": { useToolCallDisplay: () => ["full", () => {}] },
+    "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
+    "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
+    "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
+    "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
+    "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
+    "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
+    "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+    "./theme": { hex: () => "#000" },
+    "./viewer-store": { showImages() {} },
+    "./ui": { colors: {}, styles: { card: {}, row: {}, muted: {} } },
+  });
+  const steps = [
+    { id: "s1", kind: "shell", title: "Ran `gh pr view`", status: "done" },
+    { id: "s2", kind: "other", title: 'Set Heartbeat "Babysit PR #473"', status: "done", routine: { id: "hb1", name: "Babysit PR #473" } },
+  ];
+  const message = { id: 9, session_id: 7, role: "assistant", body: "Opened #473. I'll check every 15 minutes.", steps };
+  const tree = ChatReply({ message, media: () => null, onActivity() {}, chatId: "/p#7" });
+  const card = find(tree, (node) => node.type === "HeartbeatCard");
+  assert.ok(card, "the card shows");
+  assert.equal(card.props.step.routine.id, "hb1");
+  const rows = allNodes(tree, (node) => node.type === "ToolRow").map((node) => node.props.step.id);
+  assert.ok(!rows.includes("s2"), "the heartbeat step isn't an activity row too");
+  const order = allNodes(tree, (node) => node.type === "HeartbeatCard" || node.type === "Markdown").map((node) => node.type);
+  assert.deepEqual(order.slice(-2), ["Markdown", "HeartbeatCard"], "the reply text comes first, then the card");
+  assert.ok(rows.includes("s1"));
+});
+
+function heartbeatCardHost(routines, { fail } = {}) {
+  const react = hookHost();
+  const calls = [];
+  let refreshed = 0;
+  const client = {
+    async call(method, args) {
+      calls.push([method, JSON.parse(JSON.stringify(args))]);
+      if (fail) throw new Error(fail);
+      return { removed: true };
+    },
+  };
+  const { HeartbeatCard } = load("heartbeat-card.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View", StyleSheet: { hairlineWidth: 1 } },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "./session": { useSession: () => ({ client }) },
+    "./use-routines": {
+      useRoutines: () => ({
+        routines,
+        enabled: true,
+        unavailable: null,
+        error: "",
+        loading: false,
+        refresh: async () => void refreshed++,
+        update: async () => {},
+      }),
+    },
+    "./routine-rows": load("routine-rows.ts", {
+      "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+      "@milagre/shared/routines": require("@milagre/shared/routines"),
+    }),
+    "@milagre/shared/routines": require("@milagre/shared/routines"),
+    "./icons": { Icon: "Icon" },
+    "./ui": { tap() {}, ErrorNotice: "ErrorNotice" },
+  });
+  const step = { id: "s2", kind: "other", title: "Set Heartbeat", status: "done", routine: { id: "hb1", name: "Babysit PR #473" } };
+  const render = () => {
+    react.begin();
+    return HeartbeatCard({ step });
+  };
+  return { render, calls, refreshed: () => refreshed };
+}
+
+test("the phone Heartbeat set card names the Heartbeat, its cadence and end, and Stop deletes it", async () => {
+  const host = heartbeatCardHost([heartbeatFor("/p#7")]);
+  const tree = host.render();
+  const texts = allNodes(tree, (node) => node.type === "Text").map(textOf);
+  assert.ok(texts.includes("Heartbeat set: Babysit PR #473"));
+  assert.ok(texts.includes("Every 15 min · ends Oct 24"), texts.join(" | "));
+  const stop = find(tree, (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473");
+  stop.props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(host.calls, [["routines:delete", ["hb1"]]]);
+  assert.equal(host.refreshed(), 1);
+});
+
+test("the phone Heartbeat set card says Stopped once its Heartbeat is gone, with no Stop button", () => {
+  const host = heartbeatCardHost([]);
+  const tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Stopped"));
+  assert.equal(
+    find(tree, (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473"),
+    undefined,
+  );
+});
+
+test("editing a Routine on the phone starts from it and saves the formToUpdate patch", async () => {
+  const stored = {
+    id: "tr",
+    name: "Issues labelled agent",
+    prompt: "Work on {{issue.key}}",
+    trigger: { kind: "linear", workspace: "w1", event: "label-added", label: "agent" },
+    target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+    enabled: true,
+    createdBy: { kind: "user" },
+    runCount: 0,
+    createdAt: 1,
+    updatedAt: 1,
+    runs: [],
+  };
+  const host = routineFormHost({ params: { id: "tr" }, routines: [stored] });
+  host.render();
+  let tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Edit Routine"));
+  assert.equal(find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.value, "Issues labelled agent");
+  assert.equal(find(tree, (node) => node.props?.accessibilityLabel === "Schedule" && node.props.accessibilityRole === "radio").props.disabled, true);
+  assert.equal(host.pick(tree, "Label").props.nativeTrigger.title, "agent", "VoiceOver reads the row as Label: agent");
+  find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Agent issues");
+  tree = host.render();
+  assert.equal(find(tree, (node) => node.type === "PillButton").props.title, "Save");
+  find(tree, (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const update = host.calls.find(([method]) => method === "routines:update");
+  const { formFromRoutine, formToUpdate } = require("@milagre/shared/routine-form");
+  const expected = formToUpdate({ ...formFromRoutine(stored, "UTC"), name: "Agent issues" }, stored).patch;
+  assert.deepEqual(update[1], ["tr", JSON.parse(JSON.stringify(expected))]);
+  assert.deepEqual(host.routes, ["back"]);
+});
+
+test("creating a webhook Routine on the phone keeps the sheet open on its URL, with Copy and Rotate", async () => {
+  const host = routineFormHost({ created: { routine: { id: "wh" }, hookUrl: "https://relay.milagre.cloud/hook/abc" } });
+  find(host.render(), (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Sentry crashes");
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Webhook" && node.props.accessibilityRole === "radio").props.onPress();
+  let tree = host.render();
+  assert.ok(host.rowLabels(tree).includes("URL"));
+  assert.ok(host.rowLabels(tree).includes("Check signature"));
+  assert.ok(!host.rowLabels(tree).includes("Signing secret"), "signing fields wait for the switch");
+  host.pick(tree, "Project").props.onSelect("/p");
+  find(host.render(), (node) => node.type === "PlaceholderField").props.onChangeText("Look at {{body}}");
+  find(host.render(), (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const create = host.calls.find(([method]) => method === "routines:create");
+  assert.deepEqual(create[1][0].trigger, { kind: "webhook", signed: false });
+  assert.deepEqual(host.routes, [], "the sheet stays open");
+  tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "https://relay.milagre.cloud/hook/abc"));
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Webhook Routine"));
+  const buttons = allNodes(tree, (node) => node.type === "PillButton").map((node) => node.props.title);
+  assert.ok(buttons.includes("Copy") && buttons.includes("Rotate"));
+  assert.equal(find(tree, (node) => node.type === "PillButton" && node.props.title === "Save").props.title, "Save");
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Rotate").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    host.calls.find(([method]) => method === "routines:rotate-hook"),
+    ["routines:rotate-hook", ["wh"]],
+  );
+  assert.ok(allNodes(host.render(), (node) => node.type === "Text").some((node) => textOf(node) === "https://relay.milagre.cloud/hook/rotated"));
+});
+
+test("a phone Chat shows no Heartbeat button or Next check while the Mac's Routines switch is off, a turn runs, or the check is past", () => {
+  const setUp = (options, run) => {
+    const chat = chatHost({ routines: [heartbeatFor("/p#7")], ...options });
+    chat.params.id = "7";
+    chat.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
+    if (run) chat.session.snapshot.runs.runs["/p#7"] = { startedAt: Date.now(), questions: [], approvals: [], steps: [] };
+    return chat.render();
+  };
+  const button = (tree) => find(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Heartbeat");
+  const nextCheck = (tree) => allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node).startsWith("Next check"));
+  const off = setUp({ routinesOn: false });
+  assert.equal(button(off), undefined, "switch off: no button");
+  assert.equal(nextCheck(off), false, "switch off: no Next check");
+  const running = setUp({}, true);
+  assert.ok(button(running), "the button stays while a turn runs");
+  assert.equal(nextCheck(running), false, "no Next check while a turn runs");
+  const late = setUp({ now: new Date(2026, 9, 17, 10, 50).getTime() });
+  assert.equal(nextCheck(late), false, "a check time already past isn't promised");
+});
+
+test("the phone Heartbeat set card shows a refused Stop as an error and keeps the button", async () => {
+  const host = heartbeatCardHost([heartbeatFor("/p#7")], { fail: "This computer does not allow changing this setting from a phone." });
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const tree = host.render();
+  assert.match(find(tree, (node) => node.type === "ErrorNotice").props.message, /does not allow/);
+  assert.ok(find(tree, (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473"));
+  assert.equal(host.refreshed(), 0);
+});
+
+test("the phone Heartbeat set card says Ended for a Heartbeat that ran out on its own", () => {
+  const host = heartbeatCardHost([heartbeatFor("/p#7", { enabled: false, completedAt: 5 })]);
+  const tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Ended"));
+  assert.equal(
+    find(tree, (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473"),
+    undefined,
+  );
+});
+
+test("a Linear comment Routine on the phone form drops the Each Run rows: comments go into the issue's linked Chat", async () => {
+  const host = routineFormHost();
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Linear" && node.props.accessibilityRole === "radio").props.onPress();
+  host.pick(host.render(), "When").props.onSelect("comment");
+  const tree = host.render();
+  const labels = host.rowLabels(tree);
+  assert.ok(!labels.includes("Project") && !labels.includes("Works in"), labels.join(", "));
+  assert.ok(labels.includes("Model") && labels.includes("Stop after"), "the agent's settings stay");
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Comments go into the Chat linked to the issue."));
+  find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Answer comments");
+  find(host.render(), (node) => node.type === "PlaceholderField").props.onChangeText("Reply to {{comment.body}}");
+  find(host.render(), (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const create = host.calls.find(([method]) => method === "routines:create");
+  assert.ok(create, "a comment Routine saves without the user picking a Project");
+  assert.equal(create[1][0].trigger.event, "comment");
+  assert.deepEqual(create[1][0].target, { kind: "new-chat", projectPath: "/p", workspace: "worktree" }, "it carries the Project open on the phone");
 });

@@ -10,6 +10,7 @@ import {
   FolderOpenIcon,
   GitBranchIcon,
   Refresh01Icon,
+  RepeatIcon,
   Search01Icon,
   Settings01Icon,
 } from "@hugeicons/core-free-icons";
@@ -30,6 +31,7 @@ const icons = {
   search: Search01Icon,
   message: BubbleChatSearchIcon,
   reload: Refresh01Icon,
+  routines: RepeatIcon,
 };
 
 function Label({ command }: { command: Command }) {

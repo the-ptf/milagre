@@ -77,6 +77,11 @@ const Artifacts = createContext<ArtifactsValue>({
   resolutions: new Map(),
 });
 
+/** The Chat key of the replies inside the provider (null outside one or for a Chat not saved yet). */
+export function useReplyChatId(): string | null {
+  return useContext(Artifacts).chatId;
+}
+
 /**
  * Opens the Chat's Designs from elsewhere in it (the Subagents view): on one design, by id, or on all of them while the
  * design isn't saved yet. Null while Designs are off or the Chat's designs can't be read.

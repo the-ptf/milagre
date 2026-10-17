@@ -162,15 +162,61 @@ function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(rand
   return phone;
 }
 
-/** Plays the Cloudflare Worker: real sockets, the real room logic. */
+/**
+ * Plays the Cloudflare Worker: real sockets, the real room logic, and `POST /hook/<secret>` through the real hook logic
+ * (apps/relay/src/hooks.mjs) on in-memory storage. `hooks.directory` is the hook directory every room shares.
+ */
 async function startLocalRelay(t, { autoPong = true, hostBehavior } = {}) {
   const { createRoom } = await import("../../relay/src/room.mjs");
+  const { createHookRoom, memoryHookStorage, memoryHookDirectory, handleHookRequest, hookResponse, unpackHookRequest } =
+    await import("../../relay/src/hooks.mjs");
   const rooms = new Map();
+  const hookRooms = new Map();
+  const directory = memoryHookDirectory();
+  const hookRoomFor = (id) => {
+    if (!hookRooms.has(id)) {
+      const storage = memoryHookStorage();
+      hookRooms.set(id, { storage, hooks: createHookRoom({ storage, directory, roomId: id, send: (bytes) => roomFor(id).sendHost(bytes) }) });
+    }
+    return hookRooms.get(id);
+  };
   const roomFor = (id) => {
-    if (!rooms.has(id)) rooms.set(id, createRoom({ id }));
+    if (!rooms.has(id))
+      rooms.set(
+        id,
+        createRoom({
+          id,
+          onHostReady: () => hookRoomFor(id).hooks.onHostReady(),
+          onHostFrame: (type, payload) => hookRoomFor(id).hooks.onFrame(type, payload),
+        }),
+      );
     return rooms.get(id);
   };
-  const server = http.createServer();
+  const server = http.createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", async () => {
+      try {
+        const url = new URL(request.url, "http://relay");
+        if (!url.pathname.startsWith("/hook/")) {
+          response.writeHead(404).end();
+          return;
+        }
+        const headers = Object.entries(request.headers).flatMap(([name, value]) =>
+          Array.isArray(value) ? value.map((item) => [name, item]) : [[name, value]],
+        );
+        const body = request.method === "GET" || request.method === "HEAD" ? undefined : Buffer.concat(chunks);
+        const answer = await handleHookRequest(new Request(`http://relay${request.url}`, { method: request.method, headers, body }), {
+          lookupRoom: (hookId) => directory.owner(hookId),
+          forwardToRoom: (roomId, hookId, packed) => hookResponse(hookRoomFor(roomId).hooks.receive(hookId, unpackHookRequest(packed))),
+        });
+        response.writeHead(answer.status, Object.fromEntries(answer.headers.entries()));
+        response.end(Buffer.from(await answer.arrayBuffer()));
+      } catch {
+        response.writeHead(500).end();
+      }
+    });
+  });
   const wss = new WebSocketServer({ noServer: true, autoPong });
   const hostSockets = [];
   server.on("upgrade", (request, socket, head) => {
@@ -182,7 +228,7 @@ async function startLocalRelay(t, { autoPong = true, hostBehavior } = {}) {
       if (url.pathname === "/v1/host") {
         const index = hostSockets.length;
         hostSockets.push(ws);
-        if (hostBehavior?.(ws, index)) return;
+        if (hostBehavior?.(ws, index, id)) return;
         ws.on("message", (data, isBinary) => room.hostMessage(ws, payload(data, isBinary)));
         ws.on("close", () => room.hostClosed(ws));
         room.hostOpened(ws);
@@ -198,7 +244,12 @@ async function startLocalRelay(t, { autoPong = true, hostBehavior } = {}) {
     for (const client of wss.clients) client.terminate();
     server.close();
   });
-  return { url: `ws://127.0.0.1:${port}`, hostSockets };
+  /** POSTs to a hook URL the Mac handed out (its origin is the relay's) and answers { status, json }. */
+  const postHook = async (hookUrl, body, headers = {}) => {
+    const response = await fetch(hookUrl, { method: "POST", headers: { "content-type": "application/json", ...headers }, body });
+    return { status: response.status, json: await response.json().catch(() => null) };
+  };
+  return { url: `ws://127.0.0.1:${port}`, hostSockets, hooks: { directory, rooms: hookRooms }, postHook };
 }
 
 /**
@@ -350,7 +401,7 @@ function fakePeerDaemon() {
  * on 127.0.0.1 (none with `lan: false`), and a clock the test moves (pairing windows). Never Victor's data folder, 8797
  * or 8798. `autoAllow`: this Mac's window allows every computer that asks, as its owner would.
  */
-async function startTestMac(t, { autoAllow = true, lan = true } = {}) {
+async function startTestMac(t, { autoAllow = true, lan = true, runtime: runtimeExtra = {}, relay: relayOptions = {} } = {}) {
   const fs = require("node:fs/promises");
   const os = require("node:os");
   const path = require("node:path");
@@ -377,12 +428,12 @@ async function startTestMac(t, { autoAllow = true, lan = true } = {}) {
     }
   });
   execFileSync("git", ["init", "-b", "main", project], { stdio: "ignore" });
-  const relay = await startLocalRelay(t);
+  const relay = await startLocalRelay(t, relayOptions);
   daemon = await startDaemon({
     dataDir,
     homeDir: directory,
     version: "9.8.7",
-    runtimeOptions: { cwd: project, environmentReady: Promise.resolve(), titleModels: {}, readPullRequests: async (_worktree, refs) => refs },
+    runtimeOptions: { cwd: project, environmentReady: Promise.resolve(), titleModels: {}, readPullRequests: async (_worktree, refs) => refs, ...runtimeExtra },
     phoneOptions: {
       relayUrl: relay.url,
       localPort: 0,

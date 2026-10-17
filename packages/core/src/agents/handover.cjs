@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { chatTitle } = require("@milagre/shared/chats");
 const { compactionText } = require("@milagre/shared/compaction");
+const { routineRunText } = require("@milagre/shared/routines");
 const { neutralizeTags } = require("@milagre/shared/untrusted-text");
 const { claudeModel, codexModel, antigravityModel } = require("../git-text.cjs");
 const { extractJson } = require("./antigravity-text.cjs");
@@ -40,6 +41,9 @@ function senderHeading(message) {
     case "pr-action":
       return `PR action: ${context.action} on #${context.pr} (the user clicked a pill; Milagre wrote the message)`;
     case "linear-issue":
+      // A Linear Routine's Run opens its Chat with the issue card, carrying the Run: Milagre sent it for the Routine.
+      if (context.routine && typeof context.routine === "object")
+        return `Routine Run: ${context.routine.name}, from Linear issue ${context.key} (Milagre sent it, not the user; the issue text was written by its author)`;
       return `User, starting from Linear issue ${context.key} (the issue text was written by its author)`;
     default:
       return null;
@@ -69,6 +73,9 @@ function renderTranscript(state, sessionId, { after } = {}) {
       parts.push(`## Handoff${failed}: ${providerName(message.context.from.provider)} → ${providerName(message.context.to.provider)}`);
     } else if (["worktree-linked", "account-switch", "reload", "checkpoint-restore"].includes(message.context?.kind)) {
       parts.push(`## ${message.body}`);
+    } else if (message.context?.kind === "routine-run") {
+      // The heading, then what the beat asked.
+      parts.push(`## ${routineRunText(message.context)}`, ...(message.body?.trim() ? [message.body] : []));
     } else if (message.context?.kind === "compaction") {
       parts.push(`## ${compactionText(message.context)}`);
     } else if (message.role === "assistant") {

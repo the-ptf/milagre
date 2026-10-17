@@ -261,3 +261,48 @@ test("Designs changes and connection status use the existing Project socket with
   assert.deepEqual(statuses, [true, false]);
   stop();
 });
+
+test("a Routines change passes through the socket without fetching the Project or its runs", async () => {
+  const { timers } = clock();
+  const { made, create } = sockets();
+  const signals: string[] = [];
+  let snapshots = 0;
+  const stop = syncProject({
+    connect: (options) =>
+      openLive(
+        "ws://mac/live",
+        {},
+        {
+          ...options,
+          onSignal: (signal) => {
+            signals.push(signal);
+            options.onSignal(signal);
+          },
+          create,
+          timers,
+        },
+      ),
+    snapshot: async () => {
+      snapshots++;
+    },
+    runs: async () => {
+      throw new Error("A Routines signal must not fetch runs");
+    },
+    onError: (error) => {
+      throw error;
+    },
+    active: () => true,
+    watchActive: () => () => {},
+    pollDelay: () => 4000,
+    timers,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  made[0].onopen!();
+  await new Promise((resolve) => setImmediate(resolve));
+  const before = snapshots;
+  made[0].onmessage!({ data: '{"type":"routines"}' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(signals, ["routines"], "the app knows the routines signal");
+  assert.equal(snapshots, before);
+  stop();
+});

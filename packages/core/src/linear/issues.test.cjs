@@ -374,3 +374,77 @@ test("a moved issue is read again instead of from the cache", async () => {
   await issues.markStarted("ENG-1", "acme");
   assert.equal((await issues.worktreeIssues(worktree))["/w"].state.name, "In Progress");
 });
+
+test("routine options list the workspaces, the chosen one's teams, and the named team's labels and states", async () => {
+  const linear = fakeLinear({
+    workspaces: [acme, beta],
+    answer: (document, variables) => {
+      if (document.includes("RoutineTeams"))
+        return {
+          teams: {
+            nodes: [
+              { key: "WEB", name: "Web" },
+              { key: "ENG", name: "Engineering" },
+            ],
+          },
+        };
+      assert.equal(variables.team, "eng");
+      return {
+        issueLabels: { nodes: [{ name: "bug" }, { name: "agent" }, { name: "bug" }] },
+        teams: {
+          nodes: [
+            {
+              states: {
+                nodes: [
+                  { name: "Done", type: "completed", position: 3 },
+                  { name: "Todo", type: "unstarted", position: 1 },
+                ],
+              },
+            },
+          ],
+        },
+      };
+    },
+  });
+  const issues = createLinearIssues({ linear });
+  assert.deepEqual(await issues.routineOptions({ workspace: "beta" }), {
+    workspaces: [
+      { id: "acme", name: "Acme" },
+      { id: "beta", name: "Beta" },
+    ],
+    teams: [
+      { key: "ENG", name: "Engineering" },
+      { key: "WEB", name: "Web" },
+    ],
+    labels: [],
+    states: [],
+  });
+  assert.equal(linear.calls[0].workspace, "beta");
+  const withTeam = await issues.routineOptions({ team: "eng" });
+  assert.equal(linear.calls.at(-1).workspace, "acme");
+  assert.deepEqual(withTeam.labels, ["agent", "bug"]);
+  assert.deepEqual(withTeam.states, [
+    { name: "Todo", type: "unstarted" },
+    { name: "Done", type: "completed" },
+  ]);
+});
+
+test("routine options say why when Linear is off or a read fails, and never throw", async () => {
+  const off = await createLinearIssues({ linear: fakeLinear({ enabled: false }) }).routineOptions({});
+  assert.deepEqual(off, { workspaces: [], teams: [], labels: [], states: [], error: "Linear is off in Settings › Connections › Linear." });
+  const failing = fakeLinear({
+    answer: () => {
+      throw new LinearError("Linear is limiting requests. Try again in a minute.", "rate-limited");
+    },
+  });
+  const result = await createLinearIssues({ linear: failing }).routineOptions({ team: "ENG" });
+  assert.deepEqual(result.workspaces, [{ id: "acme", name: "Acme" }]);
+  assert.match(result.error, /limiting/);
+});
+
+test("routine options for a workspace that isn't connected say so instead of answering with another one", async () => {
+  const linear = fakeLinear({ workspaces: [acme] });
+  const result = await createLinearIssues({ linear }).routineOptions({ workspace: "beta", team: "ENG" });
+  assert.deepEqual(result, { workspaces: [{ id: "acme", name: "Acme" }], teams: [], labels: [], states: [], error: "That Linear workspace isn't connected." });
+  assert.equal(linear.calls.length, 0);
+});

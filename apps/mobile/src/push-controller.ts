@@ -45,6 +45,7 @@ export const SHEETS_OVER_CHAT = new Set([
   "browser-sheet",
   "activity",
   "handoff-brief",
+  "routine-form",
   "viewer",
 ]);
 // Sheets the layout presents over a full-screen page (the designs), which already hides the Chat: they don't keep it viewed.

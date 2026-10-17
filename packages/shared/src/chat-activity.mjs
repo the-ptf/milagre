@@ -118,7 +118,7 @@ const MAX_CHATS = 500;
  * the daemon's phone push). `observe` folds an event and says how the Chat's activity changed; `completion` is set when
  * the Chat's work just ended: it left working or background for idle or failed, after a turn that completed or failed.
  * A turn that ends while background work goes on announces nothing then; the turn its result wakes announces its own
- * end, and if none comes the held end is announced when the last of it ends. A cancelled turn announces nothing.
+ * end, and if none comes the held end is announced when the last of it ends. A cancelled or quiet turn announces nothing.
  * Only work that holds the announcement counts here (holdsAnnouncement); the Chat's sidebar row shows all of it.
  */
 export function createActivityTracker({ maxChats = MAX_CHATS, holdsTask = holdsAnnouncement } = {}) {
@@ -184,7 +184,10 @@ export function createActivityTracker({ maxChats = MAX_CHATS, holdsTask = holdsA
             chat.requests.clear();
             chat.failed = event.type === "turn-failed";
             chat.end =
-              event.type === "turn-cancelled" ? null : { failed: chat.failed, body: chat.failed ? event.message : chat.preview || "Turn completed.", event };
+              // A quiet turn (a heartbeat's "(pass)", or one failing again) has nothing to announce, like a cancelled one.
+              event.type === "turn-cancelled" || event.quiet
+                ? null
+                : { failed: chat.failed, body: chat.failed ? event.message : chat.preview || "Turn completed.", event };
             chat.preview = "";
           }
       }
