@@ -45,7 +45,7 @@ function daysBetween(at: number, now: number): number {
 }
 
 /** How long ago `at` was: "just now", "12 min ago", "2 h ago" (today), "yesterday", "3 days ago". */
-export function ago(at: number, now: number): string {
+function ago(at: number, now: number): string {
   const past = Math.max(0, now - at);
   if (past < MINUTE) return "just now";
   if (past < HOUR) return `${Math.floor(past / MINUTE)} min ago`;
@@ -62,7 +62,7 @@ export function routineEnd(routine: Routine, now: number): string | null {
 }
 
 /** The model and mode a Routine's Runs use, "Opus 5.5 · Full permission", or null when it uses the Mac's defaults. */
-export function routineModel(routine: Routine, modelName?: (provider: Routine["provider"], model: string) => string): string | null {
+function routineModel(routine: Routine, modelName?: (provider: Routine["provider"], model: string) => string): string | null {
   const model = routine.model ? (modelName?.(routine.provider, routine.model) ?? routine.model) : null;
   const mode = routine.permissionMode ? (PERMISSION_MODES.find((entry) => entry.id === routine.permissionMode)?.name ?? routine.permissionMode) : null;
   const parts = [model, mode].filter(Boolean);

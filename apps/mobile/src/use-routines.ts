@@ -15,7 +15,7 @@ export type RoutinesUnavailable = "older" | "confined";
  * The connected Mac's Routines. `enabled` is the Mac's Routines switch, null until it answers; `unavailable` is set
  * instead when this phone can't reach Routines at all, so the screen never claims they are off.
  */
-export type RoutinesState = {
+type RoutinesState = {
   routines: RoutineWithRuns[];
   enabled: boolean | null;
   unavailable: RoutinesUnavailable | null;
@@ -67,7 +67,7 @@ const nativeAppState: AppStateLike = {
  * `routines` signal; it also reads again on return to the app. A confined or older connection gets no socket: the bridge
  * refuses a confined phone's Project-less socket, which would only retry forever.
  */
-export function createRoutinesStore(client: RoutinesClient, appState: AppStateLike = nativeAppState) {
+function createRoutinesStore(client: RoutinesClient, appState: AppStateLike = nativeAppState) {
   let state = EMPTY;
   const listeners = new Set<() => void>();
   // Optimistic switches: the value a Routine was just flipped to and the write that flipped it, until it settles.
@@ -190,7 +190,7 @@ type RoutinesStore = ReturnType<typeof createRoutinesStore>;
 // One store per client: the session makes a new client each time it connects, and a late answer from the computer the
 // phone left lands on that client's store, never this one's.
 const stores = new WeakMap<object, RoutinesStore>();
-export function routinesStore(client: RoutinesClient): RoutinesStore {
+function routinesStore(client: RoutinesClient): RoutinesStore {
   let store = stores.get(client);
   if (!store) {
     store = createRoutinesStore(client);

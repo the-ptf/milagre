@@ -24,7 +24,7 @@ export function routineIcon(routine: Pick<Routine, "target" | "trigger">): IconD
 }
 
 /** How long ago, in a few words: "just now", "5 min ago", "2 h ago", "yesterday", "3 days ago". */
-export function ago(at: number, now: number) {
+function ago(at: number, now: number) {
   const minutes = Math.floor(Math.max(0, now - at) / 60_000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes} min ago`;

@@ -13,17 +13,17 @@ import { frame, HOOK, HOOK_SET, HOOK_ACK, HOOK_RESULT } from "./room.mjs";
  */
 
 export const MAX_HOOK_BODY = 256 * 1024;
-export const MAX_HOOK_HEADERS = 16 * 1024;
+const MAX_HOOK_HEADERS = 16 * 1024;
 export const MAX_STORED = 200;
-export const MAX_STORED_BYTES = 20 * 1024 * 1024;
+const MAX_STORED_BYTES = 20 * 1024 * 1024;
 // One noisy hook can fill at most a quarter of the room, so the others always have space left.
 export const MAX_STORED_PER_HOOK = 50;
-export const MAX_STORED_BYTES_PER_HOOK = 5 * 1024 * 1024;
+const MAX_STORED_BYTES_PER_HOOK = 5 * 1024 * 1024;
 export const HOLD_MS = 24 * 60 * 60 * 1000;
-export const MAX_HOOKS = 100;
+const MAX_HOOKS = 100;
 /** The one answer for every hook nobody can deliver to: unknown, malformed, released or owned by another room. */
 export const NOT_FOUND = Object.freeze({ status: 404, json: Object.freeze({ error: "not found" }) });
-export const NOT_FOUND_BODY = JSON.stringify(NOT_FOUND.json);
+const NOT_FOUND_BODY = JSON.stringify(NOT_FOUND.json);
 const FULL = Object.freeze({ status: 429, json: Object.freeze({ error: "too many deliveries waiting" }) });
 const TOO_LARGE = Object.freeze({ status: 413, json: Object.freeze({ error: "payload too large" }) });
 
@@ -91,7 +91,7 @@ export function pickHookHeaders(entries, max = MAX_HOOK_HEADERS) {
 }
 
 /** The first value of each query parameter, as the agent's `{{query.<name>}}` reads it. */
-export function pickHookQuery(search) {
+function pickHookQuery(search) {
   const out = {};
   for (const [name, value] of new URLSearchParams(search)) if (!Object.hasOwn(out, name)) out[name] = value;
   return out;
@@ -186,7 +186,7 @@ export function splitHookFrame(payload) {
 }
 
 /** Packs a delivery for the Worker's hop to the room: a JSON line with headers and query, then the body. */
-export function packHookRequest({ headers, query, body }) {
+function packHookRequest({ headers, query, body }) {
   const head = encoder.encode(JSON.stringify({ headers, query }) + "\n");
   const out = new Uint8Array(head.byteLength + body.byteLength);
   out.set(head);

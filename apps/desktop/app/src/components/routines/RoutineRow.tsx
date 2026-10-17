@@ -28,7 +28,7 @@ const outlineButton = "rounded-lg border border-line-strong bg-surface px-3 py-1
 const removeButton = "rounded-lg border border-red/30 bg-surface px-3 py-1.5 text-[12.5px] font-medium text-red transition-colors hover:bg-red-tint";
 
 /** The row's tile: a pulse for a heartbeat, else what starts it. */
-export function routineIcon(routine: Routine): HugeIconData {
+function routineIcon(routine: Routine): HugeIconData {
   if (isHeartbeat(routine)) return Pulse01Icon;
   const { trigger } = routine;
   if (trigger.kind === "webhook") return WebhookIcon;
@@ -46,7 +46,7 @@ export function routineIcon(routine: Routine): HugeIconData {
 }
 
 /** The Chat the row's Open action goes to: a heartbeat's own, or the newest Run's. */
-export function routineChat(routine: RoutineWithRuns): string | undefined {
+function routineChat(routine: RoutineWithRuns): string | undefined {
   return routine.target.kind === "chat" ? routine.target.chatId : routine.runs.find((run) => run.chatId)?.chatId;
 }
 
