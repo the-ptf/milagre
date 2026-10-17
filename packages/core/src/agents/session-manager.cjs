@@ -184,6 +184,8 @@ class SessionManager {
       if (entry.backgroundTasks.size) clearTimeout(entry.idleTimer);
       else if (!entry.session.turnActive) this.scheduleIdleClose(chatId);
     }
+    if (event.type === "turn-started") entry.usageLimited = false;
+    if (event.type === "turn-failed" && event.limit) entry.usageLimited = true;
     // A usage limit belongs to the account the session runs on, which only this manager knows.
     this.send(chatId, event.type === "turn-failed" && event.limit ? { ...event, limit: { ...event.limit, accountId: entry.accountId } } : event);
     // A turn the provider started itself (a steer that missed the end of the last one) isn't covered by
@@ -286,6 +288,18 @@ class SessionManager {
 
   closeChat(chatId) {
     return this.serial(chatId, () => this.closeEntry(chatId, this.sessions.get(chatId)));
+  }
+
+  /** A limited account cannot finish its background work. A switch may stop it and resume the saved Chat elsewhere. */
+  releaseLimited(chatId, provider, accountId, onReleased = () => {}) {
+    return this.serial(chatId, async () => {
+      const entry = this.sessions.get(chatId);
+      if (!entry?.usageLimited || entry.session.turnActive || (entry.provider === provider && entry.accountId === accountId)) return false;
+      await this.closeEntry(chatId, entry);
+      // Publish the stopped work before a concurrent send can start another process for this Chat.
+      await onReleased();
+      return true;
+    });
   }
 
   // The session stays current while it closes, so its own final event (a cancelled turn)

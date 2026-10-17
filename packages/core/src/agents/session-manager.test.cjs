@@ -578,6 +578,31 @@ test("background subagents count only for a provider that has them", async (t) =
   assert.equal(manager.backgroundWork("1"), 0);
 });
 
+test("only a usage-limited idle process releases background work for another account or provider", async (t) => {
+  for (const next of [
+    { provider: "claude", accountId: "work" },
+    { provider: "codex", accountId: "default" },
+  ]) {
+    const { manager, created } = harness();
+    t.after(() => manager.closeAll());
+    await manager.startTurn(request("1", { provider: "claude", accountId: "personal" }));
+    created[0].emit({ type: "background-tasks", tasks: [{ id: "bg", kind: "local_bash" }] });
+    assert.equal(await manager.releaseLimited("1", next.provider, next.accountId), false);
+    created[0].emit({ type: "turn-failed", limit: { provider: "claude" } });
+    assert.equal(await manager.releaseLimited("1", "claude", "personal"), false);
+    created[0].turnActive = true;
+    assert.equal(await manager.releaseLimited("1", next.provider, next.accountId), false);
+    created[0].turnActive = false;
+    created[0].emit({ type: "turn-started", turnId: "retry" });
+    created[0].emit({ type: "turn-completed" });
+    assert.equal(await manager.releaseLimited("1", next.provider, next.accountId), false);
+    created[0].emit({ type: "turn-failed", limit: { provider: "claude" } });
+    assert.equal(await manager.releaseLimited("1", next.provider, next.accountId), true);
+    assert.equal(created[0].closed, true);
+    assert.equal(manager.backgroundWork("1"), 0);
+  }
+});
+
 test("Milagre's own tools ask through the chat's approval cards and read its permission mode", async () => {
   const added = [];
   const session = {
