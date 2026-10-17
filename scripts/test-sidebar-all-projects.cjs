@@ -340,20 +340,21 @@ async function browserChecks() {
       evaluate(
         `JSON.stringify([${JSON.stringify(row8)}, ${JSON.stringify(row7)}].map((selector) => document.querySelector(selector)?.getBoundingClientRect() ?? null))`,
       );
-    // Unfold the group, reading the toggle rather than assuming the fold above has landed (on the CI runner the row
-    // appeared and was gone again 100 ms later), and press only once both rows have stopped moving.
+    // Unfold the group, reading the toggle rather than assuming the fold above has landed, and press only once both
+    // rows have kept the same boxes for half a second: on the CI runner the row was there 100 ms after the unfold,
+    // gone again right after (the list mounts once more as the unfold ends), and back by 250 ms.
     for (let attempt = 0; ; attempt++) {
       if ((await expanded()) !== "true") await click(scopeToggle);
       await waitFor(`document.querySelector(${JSON.stringify(row8)})?.getBoundingClientRect().height > 0`);
       let last = await rects();
-      let stable = false;
-      for (let i = 0; i < 20 && !stable; i++) {
+      let unchanged = 0;
+      for (let i = 0; i < 40 && unchanged < 5; i++) {
         await delay(100);
         const next = await rects();
-        stable = next === last && !next.includes("null");
+        unchanged = next === last && !next.includes("null") ? unchanged + 1 : 0;
         last = next;
       }
-      if (stable) break;
+      if (unchanged === 5) break;
       if (attempt === 3) throw new Error(`the unfolded group never settled: aria-expanded=${await expanded()} rows=${last}`);
     }
     const centre = (selector) =>
