@@ -11,7 +11,7 @@ const CONCURRENT_RUNS = 3;
 // How long a comment whose Chat is busy waits before it tries again.
 const COMMENT_RETRY_MS = 15_000;
 const NO_CHAT = "issue has no Chat";
-const RUN_NOW_EVENTS = "Run now works for schedules and heartbeats";
+const RUN_NOW_EVENTS = "Run now works for schedules and Heartbeats";
 const AUTHOR_MAX = 80;
 
 const errorText = (error) => error?.message ?? String(error);
@@ -116,8 +116,17 @@ function createRoutineScheduler({
   let ticking = false;
   let swept = false;
   let recovered = false;
-  // The comments going out, one after another (see dispatchAll).
+  // Work going on off the tick (a Run's Chat being made, a quiet Run's Chat being archived), so idle() can wait for it.
+  const background = new Set();
+  const track = (work) => {
+    background.add(work);
+    void work.finally(() => background.delete(work));
+  };
+  // The comments going out, one after another (see dispatchAll), and whether the scheduler was stopped since.
   let comments = Promise.resolve();
+  let stopped = false;
+  // The comments whose failed Chat lookup was logged, by event key: a comment retried every 15 s is logged once.
+  const lookupWarned = new Set();
   let awake = null;
   // Chats whose beat failed to start again, its turn end not yet published: that end is marked quiet when it comes.
   const silenced = new Set();
@@ -184,6 +193,8 @@ function createRoutineScheduler({
     let started;
     try {
       ({ started } = await chats.send(chatId, message));
+      // The message is saved: whatever starts in the Chat now is the Run's turn (or steers into it).
+      entry.sent = true;
     } catch (error) {
       if (pending.get(chatId) === entry) pending.delete(chatId);
       // The Chat got busy as the message was about to go (the adapter checks again as it is saved): a comment waits as
@@ -197,6 +208,7 @@ function createRoutineScheduler({
     // steered into a turn already running belongs to that turn, which isn't the Run's to classify.
     Promise.resolve(started).then(
       (result) => {
+        if (result?.turnId) entry.turnId ??= result.turnId;
         if (result?.steered) release(chatId, entry, BUSY);
         else if (!result?.turnId) release(chatId, entry, "turn did not start");
         return null;
@@ -258,8 +270,17 @@ function createRoutineScheduler({
     } catch (error) {
       // The Chats couldn't be looked up just now: the comment waits and tries again, uncounted, as for a busy Chat (store.cjs
       // gives up after 2 h). Its key is already seen, so failing it would lose it for good.
-      console.warn("[routines] couldn't find a comment's Chat", error);
+      if (!lookupWarned.has(run.event.key)) {
+        lookupWarned.add(run.event.key);
+        console.warn("[routines] couldn't find a comment's Chat; it waits and tries again", error);
+      }
       store.deferRun(run.id, now() + COMMENT_RETRY_MS);
+      return;
+    }
+    lookupWarned.delete(run.event.key);
+    // Stopped while the Chat was looked up: back to the queue for next time.
+    if (stopped) {
+      store.deferRun(run.id, now());
       return;
     }
     // The Routine may have been turned off or deleted while its Chat was looked up.
@@ -326,7 +347,11 @@ function createRoutineScheduler({
         // Finding a comment's Chat reads every Project, so comments go out off the tick, one after another in the order they
         // were claimed (comments on one issue arrive in order), and a heartbeat never waits on that lookup.
         comments = comments
-          .then(() => dispatchSafely(routine, run))
+          .then(() => {
+            // Stopped meanwhile (Routines off, Milagre closing): the comment goes back to its queue for next time.
+            if (stopped) return store.deferRun(run.id, now());
+            return dispatchSafely(routine, run);
+          })
           .then(changed)
           .catch((error) => console.warn("[routines] dispatch failed", error));
         continue;
@@ -334,9 +359,11 @@ function createRoutineScheduler({
       if (startsChat(routine, run)) {
         // Making a Chat can take a while (a Worktree, a fetch), so it holds up neither the tick nor the other Routines. It
         // says when it's done: the Run has its Chat, or failed.
-        void dispatchSafely(routine, run)
-          .then(changed)
-          .catch((error) => console.warn("[routines] dispatch failed", error));
+        track(
+          dispatchSafely(routine, run)
+            .then(changed)
+            .catch((error) => console.warn("[routines] dispatch failed", error)),
+        );
         continue;
       }
       try {
@@ -390,6 +417,7 @@ function createRoutineScheduler({
   // The tick timer, which runs only while Routines are on (the runtime starts and stops it with the switch).
   function start() {
     recover();
+    stopped = false;
     if (timer) return;
     timer = setTimer(() => {
       tick().catch((error) => console.warn("[routines] tick failed", error));
@@ -398,6 +426,7 @@ function createRoutineScheduler({
   }
 
   function stop() {
+    stopped = true;
     if (!timer) return;
     clearTimer(timer);
     timer = null;
@@ -416,7 +445,7 @@ function createRoutineScheduler({
   // Archives a Chat a Run started, once `after` settles; its Worktree goes too when the Run made it (and, the adapter
   // checks, nothing in it is worth keeping).
   function archive(chatId, removeWorktree, after = Promise.resolve()) {
-    void after.then(() => chats.archive(chatId, { removeWorktree })).catch((error) => console.warn("[routines] archive failed", error));
+    track(after.then(() => chats.archive(chatId, { removeWorktree })).catch((error) => console.warn("[routines] archive failed", error)));
   }
 
   // Runs synchronously: it marks the event quiet before the runtime broadcasts it.
@@ -430,12 +459,16 @@ function createRoutineScheduler({
     }
     const entry = pending.get(chatId);
     if (!entry) return;
+    // Only the Run's own message counts (ChatHost names the Run on its message-sent), and only a turn after it, so a
+    // user's turn that starts and ends while the Run's message is on its way is never taken for the Run's.
     if (event.type === "message-sent") {
-      entry.sent = true;
+      if (event.routineRunId === entry.runId) entry.sent = true;
       return;
     }
     if (event.type === "turn-started") {
+      if (!entry.sent || (entry.turnId && event.turnId && event.turnId !== entry.turnId)) return;
       entry.turnStarted = true;
+      entry.turnId ??= event.turnId;
       return;
     }
     if (!isTurnEnd(event)) return;
@@ -512,8 +545,13 @@ function createRoutineScheduler({
 
   return {
     recover,
-    // Resolves once the comments claimed so far have gone out (or waited); for tests and an orderly stop.
-    idle: () => comments,
+    // Resolves once the comments claimed so far have gone out (or waited) and, unless `background` is false, the Chats
+    // being made or archived are done; for tests and an orderly stop.
+    idle: async ({ background: andBackground = true } = {}) => {
+      await comments;
+      if (!andBackground) return;
+      while (background.size) await Promise.allSettled([...background]);
+    },
     start,
     stop,
     tick,

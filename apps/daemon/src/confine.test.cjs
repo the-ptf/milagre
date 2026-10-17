@@ -832,3 +832,10 @@ test("a confined phone can neither read a webhook Routine's URL nor rotate it", 
   await assert.rejects(confine.checkCall("routines:hook", ["r1"]), { status: 403, message: REFUSED });
   await assert.rejects(confine.checkCall("routines:rotate-hook", ["r1"]), { status: 403, message: REFUSED });
 });
+
+test("a confined phone's routines:targets reaches the daemon limited to its folder, whatever it sent", async () => {
+  const root = await fs.realpath(os.tmpdir());
+  const confine = createConfinement({ allowedRoot: root });
+  assert.deepEqual(await confine.checkCall("routines:targets", []), { args: [{ within: root }] });
+  assert.deepEqual(await confine.checkCall("routines:targets", [{ within: "/" }]), { args: [{ within: root }] });
+});

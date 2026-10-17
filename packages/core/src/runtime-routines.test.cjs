@@ -20,7 +20,7 @@ async function eventually(check, { timeoutMs = 3000 } = {}) {
 // A runtime with one Chat on a fake agent, the routine clock and timer in the test's hands.
 // `restart` ({ dir, clock }) starts a second runtime on the data an earlier one left, as Milagre does after a quit: it
 // sends nothing of its own.
-async function fixture(t, { enable = true, restart } = {}) {
+async function fixture(t, { enable = true, restart, open = true } = {}) {
   const dir = restart?.dir ?? (await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "runtime-routines-"))));
   const project = path.join(dir, "project");
   if (!restart) {
@@ -104,8 +104,9 @@ async function fixture(t, { enable = true, restart } = {}) {
     if (!restart) await fs.rm(dir, { recursive: true, force: true });
   });
   if (enable && !restart) assert.deepEqual(await runtime.invoke("routines:enabled:save", [true]), { enabled: true });
-  const opened = await runtime.openProject(project);
-  const id = Object.values(opened.state.sessions)[0].id;
+  // `open: false` leaves the Project as a restart leaves it: listed, not opened by anyone yet.
+  const opened = open ? await runtime.openProject(project) : null;
+  const id = opened ? Object.values(opened.state.sessions)[0].id : null;
   const chatId = `${project}#${id}`;
   if (!restart) {
     await runtime.invoke("chat:send", [{ projectPath: project, sessionId: id, body: "Watch CI", provider: "claude", model: "cm", permissionMode: "full" }]);
@@ -385,8 +386,8 @@ test("a quiet Run keeps a Worktree with uncommitted work", async (t) => {
   await fs.writeFile(path.join(worktree.path, "notes.md"), "keep me\n");
   agent.finish("(pass) nothing to do");
   await eventually(async () => (await snapshot(f)).sessions[session.id]?.archived === true);
-  // The archive's removal check has run by the time the Chat shows archived plus a beat.
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  // The archive and its removal check are the scheduler's work off the tick: idle once they are done.
+  await f.runtime.routines.idle();
   const latest = await snapshot(f);
   assert.ok(latest.worktrees[session.worktree_id], "the Worktree stays");
   await fs.access(path.join(worktree.path, "notes.md"));
@@ -480,9 +481,10 @@ test("a beat a quit cut off never resumes on restart: its Run shows interrupted 
 
   const g = await fixture(t, { restart: { dir: f.dir, clock: f.clock() } });
   try {
-    // Opening the Project is when a quit's stopped turns continue; give a resume the time it takes.
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    assert.equal(g.sessions.length, 0, "nothing resumes the beat");
+    // Opening the Project is when a quit's stopped turns continue, and the fixture opened it: a resume's message (and the
+    // run it starts) is saved before openProject answers.
+    assert.equal(g.runtime.snapshot().runs.runs[g.chatId], undefined, "nothing resumes the beat");
+    assert.equal(g.sessions.length, 0, "no agent started");
     assert.equal((await g.runtime.invoke("project:snapshot", [g.project])).state.sessions[g.id].resumeTurn, undefined);
     const run = await latestRun(g);
     assert.deepEqual([run.status, run.error], ["failed", "daemon restarted"]);
@@ -688,8 +690,9 @@ test("a webhook Routine gets a URL; a delivery starts a Run whose first message 
   // A redelivery of the same delivery starts nothing new, and its copy goes at once.
   f.runtime.routines.receiveHook({ ...sent });
   assert.deepEqual(await storedDeliveries(f), []);
-  f.tick();
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  // A whole tick and whatever it set going: then nothing new has started.
+  await f.runtime.routines.tick();
+  await f.runtime.routines.idle();
   assert.equal((await f.list())[0].runs.length, 1);
 });
 
@@ -707,8 +710,8 @@ test("a signed webhook with a wrong signature records a failed Run and starts no
   assert.equal(failed.error, "signature mismatch");
   assert.equal(failed.event.deliveryId, wrong.id);
   assert.deepEqual(await storedDeliveries(f), []);
-  f.tick();
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await f.runtime.routines.tick();
+  await f.runtime.routines.idle();
   assert.equal(f.sessions.length, 1, "no Chat");
   // A failed signature doesn't count toward pausing the Routine: anyone with the URL could send three.
   assert.equal((await f.list())[0].failedStreak ?? 0, 0);
@@ -777,8 +780,8 @@ test("a delivery for a deleted or paused Routine is acked, dropped and starts no
   assert.deepEqual(f.runtime.routines.receiveHook(delivery(routine.trigger.hookId)), { ack: true });
   assert.deepEqual(f.runtime.routines.receiveHook(delivery(paused.trigger.hookId)), { ack: true });
   assert.deepEqual(await storedDeliveries(f), []);
-  f.tick();
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await f.runtime.routines.tick();
+  await f.runtime.routines.idle();
   assert.deepEqual((await f.list()).find((item) => item.id === paused.id).runs, []);
   assert.equal(f.sessions.length, 1);
 });
@@ -841,4 +844,50 @@ test("a redelivery of one still waiting in the queue keeps the copy its Run need
   assert.deepEqual(await storedDeliveries(f), [sent.id]);
   f.tick();
   await runChat(f);
+});
+
+test("routines:targets lists a Project's Chats without opening it, so nothing a quit stopped resumes", async (t) => {
+  const f = await fixture(t);
+  // The user's turn is running when Milagre quits: it is saved to resume once its Project opens.
+  await f.runtime.close();
+  const g = await fixture(t, { restart: { dir: f.dir, clock: f.clock() }, open: false });
+  try {
+    const { projects } = await g.runtime.invoke("routines:targets");
+    const project = projects.find((item) => item.path === f.project);
+    assert.ok(project, "the Project is listed");
+    assert.deepEqual(
+      project.chats.map((chat) => chat.chatId),
+      [f.chatId],
+    );
+    // Opening a Project resumes what a quit stopped before it answers (resumeInterrupted saves the resume message and
+    // the Chat's run starts with it), so a run here means the lookup opened the Project.
+    assert.equal(g.runtime.snapshot().runs.runs[f.chatId], undefined, "nothing resumed");
+    assert.equal(g.sessions.length, 0, "no agent started");
+  } finally {
+    await g.runtime.close();
+  }
+});
+
+test("routines:targets within a folder reads only the Projects inside it", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const inside = await f.runtime.invoke("routines:targets", [{ within: f.project }]);
+  assert.deepEqual(
+    inside.projects.map((project) => project.path),
+    [f.project],
+  );
+  const elsewhere = await f.runtime.invoke("routines:targets", [{ within: path.join(f.dir, "elsewhere") }]);
+  assert.deepEqual(elsewhere.projects, []);
+});
+
+test("an agent's routine_delete of a webhook Routine forgets its URL secret too", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const { routine, hookUrl } = await createWebhook(f);
+  const secrets = async () => JSON.parse(await fs.readFile(hookFile(f), "utf8")).secrets;
+  assert.ok((await secrets())[routine.id], "the secret is stored");
+  const deleted = await runTool(f.tool("routine_delete"), { id: routine.id });
+  assert.equal(deleted.isError, false, deleted.text);
+  assert.equal((await secrets())[routine.id], undefined, "the secret is gone");
+  assert.ok(!(await fs.readFile(hookFile(f), "utf8")).includes(secretOf(hookUrl)));
 });

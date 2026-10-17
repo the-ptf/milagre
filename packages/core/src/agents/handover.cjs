@@ -41,6 +41,9 @@ function senderHeading(message) {
     case "pr-action":
       return `PR action: ${context.action} on #${context.pr} (the user clicked a pill; Milagre wrote the message)`;
     case "linear-issue":
+      // A Linear Routine's Run opens its Chat with the issue card, carrying the Run: Milagre sent it for the Routine.
+      if (context.routine && typeof context.routine === "object")
+        return `Routine Run: ${context.routine.name}, from Linear issue ${context.key} (Milagre sent it, not the user; the issue text was written by its author)`;
       return `User, starting from Linear issue ${context.key} (the issue text was written by its author)`;
     default:
       return null;

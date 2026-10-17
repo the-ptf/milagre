@@ -239,7 +239,7 @@ test("routine_run_now runs it through the scheduler and reports how it went", as
   assert.equal(result.text, 'Ran "watch CI": acted. Pinged CI');
 });
 
-test("the routine tools are auto-approved for Codex and ACP", () => {
+test("Codex and ACP auto-approve routine_list only: every routine write follows the Chat's permission mode", () => {
   const { isAcpPlanToolPermission, isCodexPlanToolApproval } = require("../agents/permissions.cjs");
   const params = (tool) => ({
     serverName: "milagre",
@@ -249,9 +249,14 @@ test("the routine tools are auto-approved for Codex and ACP", () => {
     _meta: { codex_approval_kind: "mcp_tool_call", tool_params: {} },
   });
   for (const name of ROUTINE_TOOL_NAMES) {
-    assert.equal(isCodexPlanToolApproval(params(name)), true, name);
-    assert.equal(isAcpPlanToolPermission({ toolCall: { _meta: { mcp: { server: "milagre", tool: name } } } }), true, name);
+    const ungated = name === "routine_list";
+    assert.equal(isCodexPlanToolApproval(params(name)), ungated, name);
+    assert.equal(isAcpPlanToolPermission({ toolCall: { _meta: { mcp: { server: "milagre", tool: name } } } }), ungated, name);
   }
+  // Claude takes the ungated ones as allowedTools: the reads (routine_list is read-only) and no routine write.
+  const { isUngatedMilagreTool } = require("../agents/permissions.cjs");
+  const { tools } = setup();
+  for (const tool of tools.definitions(CHAT)) assert.equal(isUngatedMilagreTool(tool), tool.name === "routine_list", tool.name);
 });
 
 test("expiresIn is capped at 30 days in heartbeat_create and routine_update, and a refused one saves nothing", async () => {

@@ -86,6 +86,8 @@ function createRoutineTools({
   linearWorkspaces = () => [],
   // Where a Routine may run (runtime-adapter's routineTargets): resolves with the target to store, or throws.
   checkTarget = async (target) => target,
+  // Deletes a Routine with what lives outside the store (a webhook's secret): runtime-adapter's removeRoutine.
+  remove = (routineId) => store.remove(routineId),
   now = Date.now,
 }) {
   function definitions(chatId) {
@@ -253,7 +255,7 @@ function createRoutineTools({
         readOnly: false,
         run: async ({ id }) => {
           const routine = own(id);
-          store.remove(id);
+          remove(id);
           return `Deleted "${routine.name}".`;
         },
       },

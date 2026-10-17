@@ -1441,7 +1441,7 @@ test("queues, seen keys and cursors survive a store re-created on the same file"
     again.claimQueued(clock.t, 3).map((claim) => claim.run.event.key),
     ["hook:4", "hook:5"],
   );
-  assert.deepEqual(Object.keys(saved(options)).toSorted(), ["enabled", "linear", "queues", "routines", "runs", "seen", "version"]);
+  assert.deepEqual(Object.keys(saved(options)).toSorted(), ["enabled", "linear", "queues", "rejections", "routines", "runs", "seen", "version"]);
 });
 
 test("remove deletes a Routine's queue and seen keys, and keeps the Linear cursors", () => {
@@ -2044,4 +2044,79 @@ test("a webhook Routine keeps the header its signature comes in, lowercased; onl
   const schedule = store.create({ ...spec, name: "s", trigger: HOURLY });
   assert.throws(() => store.update(schedule.id, { signingHeader: "x-sig" }), /webhook/);
   assert.throws(() => store.create({ ...spec, name: "s2", trigger: HOURLY, signingHeader: "x-sig" }), /webhook/);
+});
+
+test("a flood of bad signatures takes no place in the seen ledger and keeps the file bounded; a good delivery still runs", () => {
+  const { store, clock, file } = setup();
+  store.setEnabled(true);
+  const hook = store.create({ ...spec, trigger: webhook(HOOK, true) });
+  for (let n = 1; n <= 6000; n += 1) {
+    clock.t += 1;
+    store.rejectEvent(hook.id, delivery(n), "signature mismatch");
+  }
+  // The newest 50 rejections stay listed, with how many there were.
+  const rejected = store.runs(hook.id).filter((run) => run.error === "signature mismatch");
+  assert.equal(rejected.length, 50);
+  const keys = rejected.map((run) => run.event.key);
+  assert.ok(keys.includes("hook:6000") && keys.includes("hook:5951") && !keys.includes("hook:5950"));
+  assert.equal(store.rejections(hook.id), 6000);
+  assert.ok(fs.statSync(file).size < 64 * 1024, `routines.json is ${fs.statSync(file).size} bytes`);
+  // A redelivery of a recent rejection is still answered once.
+  assert.equal(store.rejectEvent(hook.id, delivery(6000), "signature mismatch"), null);
+  assert.deepEqual(store.enqueue(hook.id, delivery(6000)), { queued: false, reason: "seen" });
+  // A valid delivery is admitted: the seen ledger has room.
+  assert.deepEqual(store.enqueue(hook.id, delivery(7000)), { queued: true });
+  // The count survives a restart; a deleted Routine takes it along.
+  const reopened = createRoutineStore({ file, now: () => clock.t });
+  assert.equal(reopened.rejections(hook.id), 6000);
+  reopened.remove(hook.id);
+  assert.equal(reopened.rejections(hook.id), 0);
+});
+
+test("a queue that can't move on this tick is checked without copying the store", () => {
+  const { store, clock, file } = setup();
+  store.setEnabled(true);
+  const hook = store.create({ ...spec });
+  store.enqueue(hook.id, delivery(1));
+  store.enqueue(hook.id, delivery(2));
+  store.enqueue(hook.id, delivery(3));
+  store.enqueue(hook.id, delivery(4));
+  assert.equal(store.claimQueued(clock.t, 3).length, 3);
+  // Three Runs going and one event waiting: nothing can move, so nothing is written.
+  const written = fs.statSync(file).mtimeMs;
+  const before = fs.readFileSync(file, "utf8");
+  const original = structuredClone;
+  let clones = 0;
+  globalThis.structuredClone = (value) => {
+    clones += 1;
+    return original(value);
+  };
+  try {
+    assert.deepEqual(store.claimQueued(clock.t, 3), []);
+  } finally {
+    globalThis.structuredClone = original;
+  }
+  assert.equal(clones, 0, "no transaction copy");
+  assert.equal(fs.readFileSync(file, "utf8"), before);
+  assert.equal(fs.statSync(file).mtimeMs, written);
+});
+
+test("the store says which Routines its upkeep purged, so their webhook secrets go with them", () => {
+  const { options, clock } = setup();
+  const purged = [];
+  const store = createRoutineStore({ ...options, onPurged: (ids) => purged.push(...ids) });
+  store.setEnabled(true);
+  const hook = store.create({ ...spec });
+  store.complete(hook.id, "done");
+  // 30 days on, the hourly upkeep purges it on the next write.
+  clock.t += 31 * 864e5;
+  store.create({ ...spec, name: "other", trigger: webhook(OTHER_HOOK) });
+  assert.deepEqual(purged, [hook.id]);
+  // A purge on load says so too.
+  const loaded = [];
+  const other = store.list()[0];
+  store.complete(other.id, "done");
+  clock.t += 31 * 864e5;
+  createRoutineStore({ ...options, onPurged: (ids) => loaded.push(...ids) });
+  assert.deepEqual(loaded, [other.id]);
 });

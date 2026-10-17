@@ -270,6 +270,8 @@ function createConfinement({ allowedRoot, uploadsDir }) {
     if (method === "push:unregister") return { result: { registered: false } };
     if (method === "push:focus") return { result: null };
     if (method === "chat:send") args = [sendRequest(args[0])];
+    // The daemon reads only the Projects inside the folder for it, so the phone never makes it read another one.
+    if (method === "routines:targets") args = [{ within: await realRoot() }];
     for (const item of paths(args)) {
       if (item && typeof item === "object" && "file" in item) await check(item.file, { uploads: true });
       else await check(item);

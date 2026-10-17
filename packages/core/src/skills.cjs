@@ -111,17 +111,25 @@ async function readDiscoveredSkill(projectPath, file, options) {
   return readSkill(file);
 }
 
+// A fence of text from outside Milagre (routine-prompt.mjs): a Linear issue's or a webhook's text a Routine's message
+// carries as data. Its text has every "<" escaped, so the first closing tag ends it.
+const UNTRUSTED_FENCE = /<untrusted-data source="[^"\n]*">[\s\S]*?<\/untrusted-data>/g;
+// The prompt with every fence blanked out (same length, line breaks kept): a /skill written inside one is data, never an
+// invocation. Only the words around the fences (a Routine's own prompt, what the user typed) can call a skill.
+const outsideFences = (prompt) => String(prompt ?? "").replace(UNTRUSTED_FENCE, (fence) => fence.replace(/[^\n]/g, " "));
+
 function skillCommands(prompt) {
-  return new Set(promptSkillTokens(prompt).map((token) => token.name.toLowerCase()));
+  return new Set(promptSkillTokens(outsideFences(prompt)).map((token) => token.name.toLowerCase()));
 }
 
 async function expandSkillPrompt(projectPath, prompt, options) {
+  const visible = outsideFences(prompt);
   const commands = skillCommands(prompt);
   if (!commands.size) return prompt;
   const { skills } = await discoverSkills(projectPath, options);
   const invoked = new Set(
     promptSkillParts(
-      prompt,
+      visible,
       skills.map((skill) => skill.name),
     )
       .filter((part) => part.skill)
@@ -140,8 +148,8 @@ async function expandSkillPrompt(projectPath, prompt, options) {
   // Claude Code runs a message that starts with `/name` as its own slash command, and when it has no such command
   // it tells the model the skill is not installed and did not run. Only skills in .claude folders are its own,
   // so a message led by any other skill gets a first line that doesn't start with a slash.
-  const leading = promptSkillTokens(prompt)[0];
-  const lead = leading && !prompt.slice(0, leading.start).trim() ? selected.find((skill) => skill.name.toLowerCase() === leading.name.toLowerCase()) : null;
+  const leading = promptSkillTokens(visible)[0];
+  const lead = leading && !visible.slice(0, leading.start).trim() ? selected.find((skill) => skill.name.toLowerCase() === leading.name.toLowerCase()) : null;
   const intro = lead && lead.provider !== "claude" ? `The user invoked the skill /${lead.name} with this message:\n\n` : "";
   return `${intro}${prompt}\n\nThe user invoked the following skills. Read and apply their instructions for this request, subject to the user's instructions and the current permission mode.\n\n${sections.join("\n\n")}`;
 }

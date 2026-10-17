@@ -449,6 +449,8 @@ export interface RoutineRun {
   event?: RoutineEvent;
   summary?: string;
   error?: string;
+  /** An event refused before it ran (a webhook whose signature didn't match); only the newest are kept. */
+  rejected?: boolean;
 }
 
 /**

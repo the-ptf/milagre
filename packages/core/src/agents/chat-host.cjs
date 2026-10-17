@@ -920,7 +920,14 @@ class ChatHost {
         }
         throw error;
       });
-    this.publish(target.chatId, { type: "message-sent", model: runModel, permissionMode: request.permissionMode }, state, seq);
+    // A Routine's message names its Run, so the scheduler tells it from a user's message sent around the same time.
+    const routineRunId = routineRunOf(request)?.runId;
+    this.publish(
+      target.chatId,
+      { type: "message-sent", model: runModel, permissionMode: request.permissionMode, ...(routineRunId ? { routineRunId } : {}) },
+      state,
+      seq,
+    );
     if (state.sessions[target.sessionId].titlePending) void this.nameChat(projectPath, target.sessionId).catch(() => {});
     const turn = {
       provider: runProvider,

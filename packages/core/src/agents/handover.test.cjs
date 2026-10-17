@@ -149,6 +149,26 @@ test("messages nobody typed are labeled by what wrote them, not as the user", ()
   assert.equal(text.match(/## User\n/g).length, 1);
 });
 
+test("a Linear Routine Run's first message is labeled as Milagre's, for the Routine, not as the user's", () => {
+  const card = { kind: "linear-issue", key: "ENG-2", title: "Crash", url: "u", state: { name: "Todo", type: "unstarted", color: "" } };
+  const text = renderTranscript(
+    {
+      ...state,
+      messages: [
+        { id: 1, session_id: 3, role: "user", body: "Look at ENG-2", context: { ...card, routine: { routineId: "r1", runId: "run1", name: "Triage", at: 1 } } },
+        { id: 2, session_id: 3, role: "user", body: "Work on ENG-1", context: { ...card, key: "ENG-1" } },
+      ],
+    },
+    3,
+  );
+  assert.match(
+    text,
+    /## Routine Run: Triage, from Linear issue ENG-2 \(Milagre sent it, not the user; the issue text was written by its author\)\n\nLook at ENG-2/,
+  );
+  assert.doesNotMatch(text, /User, starting from Linear issue ENG-2/);
+  assert.match(text, /## User, starting from Linear issue ENG-1/);
+});
+
 test("a brief is found in a reply that wraps the JSON in prose", async () => {
   const brief = await generateBrief(
     { transcript: "t", transcriptPath: "/x", provider: "claude", lastUserMessage: "", changedFiles: async () => [] },
