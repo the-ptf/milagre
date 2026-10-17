@@ -233,3 +233,27 @@ test("a native-gate job always reports for branch protection and only fails when
   assert.match(run, /success\|skipped\) exit 0/);
   assert.deepEqual(ci.jobs.release.needs, ["javascript", "native-gate", "macos-desktop-smoke"]);
 });
+
+test("CI and the title check run on merge groups, so every required check reports before the queue merges", () => {
+  // The merge queue tests the PR squashed onto current main; a required check that never reports there blocks the queue.
+  assert.deepEqual(ci.on.merge_group, { types: ["checks_requested"] });
+  // A merge group ref is never a pull request, so the change filter runs every job there (see the changes job test).
+  const title = read("pr-title.yml");
+  assert.deepEqual(title.on.merge_group, { types: ["checks_requested"] });
+  // The title was checked to enter the queue; the merge group has no PR title, so the job reports green with every step skipped.
+  for (const step of title.jobs.conventional.steps) assert.equal(step.if, "github.event_name == 'pull_request'", step.name ?? step.uses);
+});
+
+test("a desktop-gate job always reports for the merge queue and only fails when an Electron check or the macOS smoke failed", () => {
+  const gate = ci.jobs["desktop-gate"];
+  assert.ok(gate, "desktop-gate job exists");
+  assert.equal(gate.if, "always()");
+  assert.deepEqual(gate.needs, ["desktop-checks", "macos-desktop-smoke"]);
+  // Both are skipped on PRs without desktop changes, which must stay mergeable; a failure or cancellation must not.
+  for (const need of gate.needs) assert.ok(gate.steps[0].env.RESULTS.includes(`needs.${need}.result`), need);
+  const script = runs(gate).join("\n");
+  assert.match(script, /success\|skipped\) ;;/);
+  assert.match(script, /\*\) exit 1/);
+  // The release candidate keeps its own gate list; desktop-gate guards merges, not candidates.
+  assert.ok(!ci.jobs.release.needs.includes("desktop-gate"));
+});
