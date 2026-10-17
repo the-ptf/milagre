@@ -28,7 +28,8 @@ const NOT_STARTED = new Set(["triage", "backlog", "unstarted"]);
 // CommentFilter.createdAt (DateComparator.gt/lte, a DateTimeOrDuration), QueryIssuesArgs.sort (IssueSortInput.updatedAt
 // with PaginationSortOrder Ascending), Comment.botActor (ActorBot.type) and Comment.user. Sizes keep each query well under
 // Linear's 10 000-point complexity cap (linear-poller.test.cjs estimates them).
-const ROUTINE_ISSUE_FIELDS = "id identifier title description url state { name } team { key } assignee { name } labels(first: 10) { nodes { name } }";
+const ROUTINE_ISSUE_FIELDS =
+  "id identifier title description url state { name type color } team { key } assignee { name } labels(first: 10) { nodes { name } }";
 const HISTORY_FIELDS = "id createdAt toAssignee { isMe } addedLabels { name } toState { name }";
 // Oldest change first, so a poll cut short by its request budget can resume where it stopped.
 const POLL_ISSUES_PAGE = `issues(first: 25, after: $after, sort: [{ updatedAt: { order: Ascending } }], filter: { updatedAt: { gt: $since } }) {

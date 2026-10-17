@@ -22,6 +22,7 @@ const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-act
 const { providerName } = require("@milagre/shared/providers");
 const { accountSwitchText } = require("@milagre/shared/usage-limit");
 const { PERMISSION_MODES } = require("./permissions.cjs");
+const { routineRunOf } = require("@milagre/shared/routines");
 
 // A chat stopped longer ago than this waits for the user instead of continuing by itself.
 const RESUME_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -810,7 +811,7 @@ class ChatHost {
           ...withoutDraft(session),
           provider: runProvider,
           // The mode a person's message carries is the one its composer shows; a Routine's message isn't theirs.
-          ...(PERMISSION_MODES.has(request.permissionMode) && request.context?.kind !== "routine-run" ? { permissionMode: request.permissionMode } : {}),
+          ...(PERMISSION_MODES.has(request.permissionMode) && !routineRunOf(request) ? { permissionMode: request.permissionMode } : {}),
           ...(firstMessage && body?.trim() && !session.title && !session.generatedTitle ? { titlePending: true } : {}),
         };
         if (handoff === "switch") {
@@ -934,7 +935,8 @@ class ChatHost {
     };
     this.turns.set(target.chatId, turn);
     // A person's message steered into a Routine's turn makes it theirs too.
-    if (request.context?.kind === "routine-run") this.routineTurns.add(target.chatId);
+    // A Routine's message: a beat or a comment's divider, or a Linear Run's issue card carrying its Run.
+    if (routineRunOf(request)) this.routineTurns.add(target.chatId);
     else this.routineTurns.delete(target.chatId);
     // A message sent while a handoff prepares waits for its turn to start, then steers it with its own prompt.
     const ready = handoff
@@ -1097,8 +1099,10 @@ class ChatHost {
 
   /**
    * Merges `patch` into the context of the latest message in Chat `sessionId` that `match(message)` picks (a routine run's
-   * divider once its reply is known) and tells the windows. `session`, when given, patches the Chat in the same change
-   * (a quiet beat puts back the unread mark its turn's end set). Resolves true when a message matched.
+   * divider once its reply is known) and tells the windows. `patch` is an object merged into the context, or a function
+   * from the context to the new one (a Linear Run's card keeps its divider in `context.routine`). `session`, when given,
+   * patches the Chat in the same change (a quiet beat takes back the unread mark its turn's end set). Resolves true when a
+   * message matched.
    */
   async patchMessageContext(projectPath, sessionId, match, patch, session) {
     let found = false;
@@ -1108,7 +1112,8 @@ class ChatHost {
         const message = latest.messages.findLast((item) => item.session_id === sessionId && match(item));
         if (!message) return latest;
         found = true;
-        const next = { ...latest, messages: latest.messages.map((item) => (item === message ? { ...item, context: { ...item.context, ...patch } } : item)) };
+        const context = typeof patch === "function" ? patch(message.context) : { ...message.context, ...patch };
+        const next = { ...latest, messages: latest.messages.map((item) => (item === message ? { ...item, context } : item)) };
         return session ? patchSession(next, sessionId, session) : next;
       },
       { chats: [sessionId] },

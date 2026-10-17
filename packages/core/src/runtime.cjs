@@ -1099,6 +1099,7 @@ function createRuntime(options) {
     linear: () => linear,
     hooks: () => null,
     projects: () => projectRegistry().list(),
+    projectState: (projectPath) => linkedState(projectPath),
     timers: options.routines,
   });
   routines.start();

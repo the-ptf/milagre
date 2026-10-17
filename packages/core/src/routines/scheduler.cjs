@@ -18,27 +18,44 @@ const isComment = (event) => event?.kind === "linear" && event.change === "comme
 // Whether a claimed Run makes a Chat: a trigger's, or a schedule's with a new-chat target.
 const startsChat = (routine, run) => (run.event ? !isComment(run.event) : routine.target.kind === "new-chat");
 
-// A comment's author as its divider names them: one line, no {{ or }}, at most 80 characters. Empty when nothing is left.
+// Characters that show nothing or turn text around: zero-width spaces and joiners, direction marks and overrides,
+// isolates, the BOM and soft hyphens.
+const INVISIBLE = /[\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
+
+// A comment's author as its divider names them: one line, nothing invisible, no {{ or }}, at most 80 characters. Empty
+// when nothing is left.
 function authorName(author) {
-  let text = String(author ?? "").replace(/\s+/g, " ");
+  let text = String(author ?? "")
+    .replace(INVISIBLE, "")
+    .replace(/\s+/g, " ");
   // Taking out one pair of braces can bring two single ones together.
   while (/\{\{|\}\}/.test(text)) text = text.replace(/\{\{|\}\}/g, "");
   return Array.from(text.trim()).slice(0, AUTHOR_MAX).join("").trim();
 }
 
-// A Linear Run's message: the Routine's prompt with the issue's fields filled in, and a comment's when there is one.
-// Everything people wrote in Linear (the title, description, labels, state name, assignee, author and comment) reaches the
-// agent fenced as data, however short. Only the key, the URL up to the key, and the team key go in as they are.
-// An issue's URL up to its key: https://linear.app/<org>/issue/MIL-1 opens the issue, and the title slug Linear puts after
-// the key is text anyone who can rename the issue writes. Null when the URL doesn't read as that issue's.
-const ISSUE_URL = /^https:\/\/linear\.app\/[A-Za-z0-9_-]+\/issue\/([A-Za-z][A-Za-z0-9]*-\d+)(?=$|[/?#])/;
-function issueUrl(url, key) {
+// Linear's identifiers, as they look: an issue key (MIL-1) and a team key (MIL). Anything else is treated as text.
+const ISSUE_KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
+const TEAM_KEY = /^[A-Za-z][A-Za-z0-9]*$/;
+// An issue's URL up to its key, https://linear.app/<org>/issue/MIL-1, in the Routine's own workspace: the title slug
+// Linear puts after the key is text anyone who can rename the issue writes. Null when the URL doesn't read as that issue's.
+const ISSUE_URL = /^https:\/\/linear\.app\/([A-Za-z0-9_-]+)\/issue\/([A-Za-z][A-Za-z0-9]*-\d+)(?=$|[/?#])/;
+function issueUrl(url, key, workspace) {
   const match = ISSUE_URL.exec(String(url ?? ""));
-  return match && match[1].toUpperCase() === String(key).toUpperCase() ? match[0] : null;
+  if (!match || match[2].toUpperCase() !== String(key).toUpperCase()) return null;
+  return workspace && match[1].toLowerCase() === String(workspace).toLowerCase() ? match[0] : null;
 }
 
-function linearPrompt(template, issue, comment) {
-  const url = issueUrl(issue.url, issue.key);
+/**
+ * A Linear Run's message: the Routine's prompt with the issue's fields filled in, and a comment's when there is one.
+ * Everything people wrote in Linear (the title, description, labels, state name, assignee, author and comment) reaches the
+ * agent fenced as data, however short. Only identifiers go in as they are: the key and team key when they look like
+ * Linear's, and the URL up to the key when it is in the Routine's `workspace`. A source label names the issue only by a
+ * key that looks like one.
+ */
+function linearPrompt(template, issue, comment, workspace) {
+  const keyed = ISSUE_KEY.test(String(issue.key ?? ""));
+  const url = keyed ? issueUrl(issue.url, issue.key, workspace) : null;
+  const name = keyed ? `Linear issue ${issue.key}` : "Linear issue";
   const values = {
     "issue.key": issue.key,
     "issue.title": issue.title,
@@ -50,21 +67,23 @@ function linearPrompt(template, issue, comment) {
     "issue.assignee": issue.assignee,
   };
   const untrusted = {
-    "issue.title": `Linear issue ${issue.key} title`,
-    "issue.description": `Linear issue ${issue.key} description`,
-    "issue.labels": `Linear issue ${issue.key} labels`,
-    "issue.assignee": `Linear issue ${issue.key} assignee`,
+    "issue.title": `${name} title`,
+    "issue.description": `${name} description`,
+    "issue.labels": `${name} labels`,
+    "issue.assignee": `${name} assignee`,
     // A workflow state's name is text a Linear admin can set to anything.
-    "issue.state": `Linear issue ${issue.key} state`,
-    // A URL that isn't the issue's own shape is data like the rest.
-    ...(url ? {} : { "issue.url": `Linear issue ${issue.key} url` }),
+    "issue.state": `${name} state`,
+    // An identifier that doesn't look like one is data like the rest.
+    ...(url ? {} : { "issue.url": `${name} url` }),
+    ...(keyed ? {} : { "issue.key": `${name} key` }),
+    ...(TEAM_KEY.test(String(issue.team ?? "")) ? {} : { "issue.team": `${name} team` }),
   };
   if (comment) {
     Object.assign(values, { "comment.body": comment.body, "comment.author": comment.author });
     Object.assign(untrusted, {
-      "comment.author": `Linear comment author on ${issue.key}`,
+      "comment.author": keyed ? `Linear comment author on ${issue.key}` : "Linear comment author",
       // The author's name is fenced where {{comment.author}} puts it, never written into a label beside the instructions.
-      "comment.body": `Linear comment on ${issue.key}`,
+      "comment.body": keyed ? `Linear comment on ${issue.key}` : "Linear comment",
     });
   }
   return renderRoutinePrompt(template, values, untrusted);
@@ -245,6 +264,12 @@ function createRoutineScheduler({
       finish(run, undefined, { status: "failed", error: errorText(error) });
       return;
     }
+    // The Routine may have been turned off or deleted while its Chat was looked up.
+    const current = store.get(routine.id);
+    if (!current || !current.enabled || current.completedAt) {
+      finish(run, undefined, { status: "skipped-busy", error: "Routine was turned off" });
+      return;
+    }
     if (!chatId) {
       // A comment on an issue no Chat works on isn't for this Routine: skipped, so it never counts as a failure.
       finish(run, undefined, { status: "skipped-busy", error: NO_CHAT });
@@ -255,7 +280,7 @@ function createRoutineScheduler({
       return;
     }
     const author = authorName(comment.author);
-    const text = linearPrompt(routine.prompt, issue, comment);
+    const text = linearPrompt(routine.prompt, issue, comment, routine.trigger.workspace);
     const entry = { runId: run.id, sent: false, turnStarted: false, comment: true };
     pending.set(chatId, entry);
     const label = author ? `Linear comment · ${author}` : "Linear comment";

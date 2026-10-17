@@ -962,6 +962,26 @@ test("a quit saves no resume for a Routine's turn, which the scheduler owns; a u
   assert.equal(saved.get(BETA).sessions[user.sessionId].resumeTurn.prompt, "fix the api");
 });
 
+test("a Linear Run's first message, the issue card carrying its Routine, is a Routine's turn too: no resume, no saved mode", async (t) => {
+  const { host, manager, saved, session } = harness();
+  t.after(() => manager.closeAll());
+  const context = {
+    kind: "linear-issue",
+    key: "MIL-1",
+    title: "Paste",
+    url: "u",
+    state: { name: "Todo", type: "unstarted", color: "#aaa" },
+    routine: { routineId: "r1", runId: "run-1", name: "Triage", at: NOW },
+  };
+  const run = await host.send(message(ALPHA, "Look at MIL-1", { context, permissionMode: "full" }));
+  await waitUntil(() => session(ALPHA));
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  await host.suspendRunning();
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[run.sessionId].resumeTurn, undefined);
+  assert.equal(saved.get(ALPHA).sessions[run.sessionId].permissionMode, undefined);
+});
+
 test("the Chat keeps the mode its composer last set, saved with it: a pick, or the mode a person's message carried", async (t) => {
   const { host, manager, saved, session } = harness();
   t.after(() => manager.closeAll());

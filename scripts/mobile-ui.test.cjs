@@ -3753,6 +3753,38 @@ test("quiet heartbeats collapse into one line and their replies are hidden", () 
   );
 });
 
+test("a Linear Run's first message shows the routine divider, then its issue card", () => {
+  const screen = chatHost();
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.sessions[42] = { id: 42, provider: "claude" };
+  const routine = { routineId: "r1", runId: "run1", name: "Triage", at: Date.UTC(2026, 9, 16, 10, 15), label: "Routine · Triage" };
+  state.messages = [
+    {
+      id: 1,
+      session_id: 42,
+      role: "user",
+      body: "Look at MIL-1",
+      context: { kind: "linear-issue", key: "MIL-1", title: "Paste", url: "u", state: { name: "Todo", type: "unstarted", color: "#aaa" }, routine },
+    },
+    { id: 2, session_id: 42, role: "assistant", body: "On it." },
+  ];
+  const tree = screen.render();
+  const order = [];
+  find(tree, (node) => {
+    if (node.type === "RoutineRunDivider") order.push(["divider", node.props.context]);
+    if (node.type === "ChatReply" && node.props.message) order.push(["reply", node.props.message.id]);
+    return false;
+  });
+  assert.deepEqual(order[0], ["divider", { kind: "routine-run", ...routine }]);
+  assert.deepEqual(order.slice(1), [
+    ["reply", 1],
+    ["reply", 2],
+  ]);
+  const rail = find(tree, (node) => node.type === "MessageNavigation");
+  assert.match(rail.props.items[0].label, /^Go to Routine · Triage · \d\d:\d\d, 1 of 2\.$/);
+});
+
 test("the navigation rail skips hidden heartbeat replies and counts what the transcript shows", () => {
   const screen = chatHost();
   screen.params.id = "42";

@@ -3,6 +3,8 @@ const path = require("node:path");
 const { chatKey, lastUserModel, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { backgroundWork, holdsAnnouncement } = require("@milagre/shared/chat-activity");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
+const { routineIssueContext } = require("@milagre/shared/linear-issue");
+const { routineRunOf } = require("@milagre/shared/routines");
 const { PERMISSION_MODES } = require("../agents/permissions.cjs");
 const { createRoutineStore } = require("./store.cjs");
 const { createRoutineScheduler, linearPrompt, schedulePrompt } = require("./scheduler.cjs");
@@ -47,12 +49,13 @@ function withTimeout(work, ms, message, late) {
 /**
  * How a heartbeat's turn ended: the text after its last tool step in its last reply. A beat that reads "Let me check
  * CI." → a tool call → "(pass) CI green" ended with a pass, though the reply saved is the whole turn's text. The replies
- * are the ones saved after the Chat's latest routine-run divider (Milagre's own notes left out), as `delegationReply`
+ * are the ones saved after the Chat's latest divider (a routine-run message, or a Linear Run's issue card carrying its
+ * Run; Milagre's own notes left out), as `delegationReply`
  * reads a Delegation's: the streamed run is folded away before the turn's end is published, so they are all there is.
  */
 function routineReply(state, sessionId) {
   const messages = (state?.messages ?? []).filter((message) => message.session_id === sessionId);
-  const start = messages.findLastIndex((message) => message.role === "user" && message.context?.kind === "routine-run");
+  const start = messages.findLastIndex((message) => message.role === "user" && routineRunOf(message));
   if (start === -1) return "";
   const last = messages
     .slice(start + 1)
@@ -68,9 +71,21 @@ function routineReply(state, sessionId) {
  * The scheduler's view of the Chats (see scheduler.cjs). `cachedState(scope)` is a scope's state in memory, undefined
  * when it isn't open; `openState(scope, sessionId)` opens it if needed and resolves with the Chat's messages loaded.
  * `worktrees` makes and removes a Run's Worktree (create, remove, removable, base, projectWorktree) and `archiveChat`
- * archives a Chat as the user would.
+ * archives a Chat as the user would. `projects()` lists the Projects Milagre has and `projectState(path)` reads one (its
+ * Worktrees and Chats), for finding the Chat a Linear issue's comments go into.
  */
-function routineChats({ chats, cachedState, openState, isClosing, worktrees, archiveChat, now = Date.now, timeoutMs = START_TIMEOUT_MS }) {
+function routineChats({
+  chats,
+  cachedState,
+  openState,
+  isClosing,
+  worktrees,
+  archiveChat,
+  projects = async () => [],
+  projectState = async () => null,
+  now = Date.now,
+  timeoutMs = START_TIMEOUT_MS,
+}) {
   const session = (chatId) => cachedState(projectOfKey(chatId))?.sessions?.[sessionIdFromKey(chatId)];
   // What makes a Run's message wait, other than a turn starting: a turn running or preparing, an approval or a question,
   // a message waiting in the Chat's queue for the next turn, or background work whose result comes back to the Chat (a
@@ -121,7 +136,7 @@ function routineChats({ chats, cachedState, openState, isClosing, worktrees, arc
   function firstMessage(routine, run, at) {
     const event = run.event;
     if (event?.kind === "webhook" || routine.trigger.kind === "webhook") throw new Error(WEBHOOK_LATER);
-    if (event?.kind === "linear") return linearPrompt(routine.prompt, event.issue);
+    if (event?.kind === "linear") return linearPrompt(routine.prompt, event.issue, undefined, routine.trigger.workspace);
     return schedulePrompt(routine.prompt, at, routine.trigger.timezone);
   }
 
@@ -144,7 +159,10 @@ function routineChats({ chats, cachedState, openState, isClosing, worktrees, arc
         ...(createdWorktree ? {} : { fresh: true }),
       });
       const chatId = chatKey(projectPath, sessionId);
-      const context = { kind: "routine-run", routineId: routine.id, runId: run.id, name: routine.name, at, label: `Routine · ${routine.name}` };
+      const runOf = { routineId: routine.id, runId: run.id, name: routine.name, at };
+      // A Linear Run opens with the issue card carrying its Run, which links the Chat to the issue (in the Project folder
+      // too, through its summary); any other Run with its divider.
+      const context = issue ? routineIssueContext(issue, runOf) : { kind: "routine-run", ...runOf, label: `Routine · ${routine.name}` };
       // A Run records its Worktree's id as text (RoutineRun.worktreeId).
       return { chatId, worktreeId: String(worktreeId), createdWorktree, body, prompt: body, context };
     } catch (error) {
@@ -152,6 +170,34 @@ function routineChats({ chats, cachedState, openState, isClosing, worktrees, arc
       if (createdWorktree) await dropWorktree(projectPath, worktreeId);
       throw error;
     }
+  }
+
+  /**
+   * The Chat working on a Linear issue (`key`, `workspace`), where its comments go: one in the Worktree linked to the issue,
+   * or one whose first message is the issue's card (a Chat started from the issue in the Project folder). Archived Chats
+   * and Chats with no message yet (a Run's Chat whose first message hasn't gone) are left out; of the rest, the one
+   * active most recently. Null when there is none. A Project that can't be read rejects, so the comment is tried again.
+   */
+  async function linkedChat({ key, workspace }) {
+    const wanted = String(key ?? "").toUpperCase();
+    if (!wanted) return null;
+    const same = (issueKey, issueWorkspace) =>
+      typeof issueKey === "string" && issueKey.toUpperCase() === wanted && (!workspace || !issueWorkspace || issueWorkspace === workspace);
+    let best = null;
+    for (const project of await projects()) {
+      const state = await projectState(project.path);
+      for (const chat of Object.values(state?.sessions ?? {})) {
+        if (chat.archived || !(chat.summary?.count > 0)) continue;
+        const worktree = state.worktrees?.[chat.worktree_id];
+        const linked =
+          (worktree && worktree.path !== project.path && same(worktree.linearIssue, worktree.linearWorkspace)) ||
+          same(chat.summary.linearIssue, chat.summary.linearWorkspace);
+        if (!linked) continue;
+        const at = chat.summary.lastAt ?? 0;
+        if (!best || at > best.at || (at === best.at && chat.id > best.id)) best = { chatId: chatKey(project.path, chat.id), at, id: chat.id };
+      }
+    }
+    return best?.chatId ?? null;
   }
 
   // Archives a Chat a Run started; with `removeWorktree`, its Worktree goes too when nothing in it is worth keeping.
@@ -223,15 +269,15 @@ function routineChats({ chats, cachedState, openState, isClosing, worktrees, arc
     replyText: (chatId) => routineReply(cachedState(projectOfKey(chatId)), sessionIdFromKey(chatId)),
     startChat: (request) => startChat(request),
     archive: (chatId, options) => archive(chatId, options),
-    // Linear comments reach their issue's Chat once polling does (Task B2).
-    linkedChat: async () => null,
-    // `session` patches the Chat in the same change (see ChatHost.patchMessageContext).
+    linkedChat: (issue) => linkedChat(issue),
+    // `session` patches the Chat in the same change (see ChatHost.patchMessageContext). A Linear Run's card keeps its
+    // divider in `context.routine`, so the patch goes there.
     async patchRunContext(chatId, runId, patch, session) {
       await chats.patchMessageContext(
         projectOfKey(chatId),
         sessionIdFromKey(chatId),
-        (message) => message.role === "user" && message.context?.kind === "routine-run" && message.context.runId === runId,
-        patch,
+        (message) => message.role === "user" && routineRunOf(message)?.runId === runId,
+        (context) => (context?.kind === "linear-issue" ? { ...context, routine: { ...context.routine, ...patch } } : { ...context, ...patch }),
         session,
       );
     },
@@ -287,8 +333,9 @@ function createRoutines({
   // The Mac's Linear connections and (Task C2) webhooks, read lazily: the runtime makes them after this.
   linear: getLinear = () => null,
   hooks: _hooks = () => null,
-  // The Projects Milagre lists ([{ path }]): a Routine runs only in one of them.
+  // The Projects Milagre lists ([{ path }]): a Routine runs only in one of them. `projectState(path)` reads one.
   projects = async () => [],
+  projectState = async () => null,
   timers = {},
 }) {
   const now = timers.now ?? Date.now;
@@ -300,7 +347,7 @@ function createRoutines({
     poller?.sync();
   };
   const checkTarget = routineTargets({ projects, openState });
-  const routineChatsView = routineChats({ chats, cachedState, openState, isClosing, worktrees, archiveChat, now });
+  const routineChatsView = routineChats({ chats, projects, projectState, cachedState, openState, isClosing, worktrees, archiveChat, now });
   const scheduler = createRoutineScheduler({
     store,
     chats: routineChatsView,

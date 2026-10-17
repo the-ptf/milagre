@@ -109,6 +109,9 @@ export interface ChatSummary {
   openHandoff?: number;
   /** The clientMessageId of the Chat's last few sends, so a window without messages finds the Chat its preview became. */
   clientMessageIds?: string[];
+  /** The Linear issue the Chat's first message is the card of (key and workspace), so a comment on it finds the Chat. */
+  linearIssue?: string;
+  linearWorkspace?: string;
 }
 
 export interface AgentSession {
@@ -334,7 +337,7 @@ export type LinearIssueContext = {
   state: { name: string; type: "triage" | "backlog" | "unstarted" | "started" | "completed" | "canceled"; color: string };
   workspace?: string;
   note?: string;
-  routine?: { routineId: string; runId: string; name: string; at: number; quiet?: boolean; summary?: string };
+  routine?: { routineId: string; runId: string; name: string; at: number; quiet?: boolean; summary?: string; label?: string };
 };
 
 /**
@@ -376,6 +379,9 @@ export interface LinearIssueSnapshot {
   url: string;
   labels: string[];
   state: string;
+  /** The state's type and color, for the issue card; absent on a snapshot taken before they were kept. */
+  stateType?: string;
+  stateColor?: string;
   team: string;
   assignee?: string;
   workspace: string;
