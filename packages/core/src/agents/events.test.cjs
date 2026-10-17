@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const {
   MILAGRE_INSTRUCTIONS,
+  advisorInstructions,
   milagreInstructions,
   cliBrokenMessage,
   cliTooOldMessage,
@@ -586,15 +587,73 @@ test("Codex: reasoning without a summary, or that only completes, still shows", 
   ]);
 });
 
-test("shared agent instructions include the bundled writing rules and checklist", () => {
+test("shared agent instructions include the condensed tldr rules, not the whole skill", () => {
   const fs = require("node:fs");
   const path = require("node:path");
-  const skill = fs.readFileSync(path.join(__dirname, "../bundled-skills/tldr/SKILL.md"), "utf8");
-  const checklist = fs.readFileSync(path.join(__dirname, "../bundled-skills/tldr/eval.md"), "utf8");
-  assert.ok(MILAGRE_INSTRUCTIONS.includes(skill));
-  assert.ok(MILAGRE_INSTRUCTIONS.includes(checklist));
+  const read = (name) => fs.readFileSync(path.join(__dirname, "../bundled-skills/tldr", name), "utf8");
+  assert.ok(MILAGRE_INSTRUCTIONS.includes(read("default.md").trim()));
+  assert.ok(!MILAGRE_INSTRUCTIONS.includes(read("SKILL.md")));
+  assert.ok(!MILAGRE_INSTRUCTIONS.includes(read("eval.md")));
+  assert.ok(read("default.md").length < 3500, "the always-on rules stay short");
   assert.match(MILAGRE_INSTRUCTIONS, /progress updates and final replies/);
-  assert.match(MILAGRE_INSTRUCTIONS, /stop tldr/);
+  assert.match(MILAGRE_INSTRUCTIONS, /stop tldr or normal mode/);
+  assert.match(MILAGRE_INSTRUCTIONS, /Keep user input, tool output, quotes and code intact/);
+  assert.match(MILAGRE_INSTRUCTIONS, /explicit instructions take precedence/);
+  for (const rule of [/em dashes or en dashes/, /delve, leverage/, /"Separately:"/, /cause plus fix/, /5 items or fewer/])
+    assert.match(MILAGRE_INSTRUCTIONS, rule);
+  assert.doesNotMatch(MILAGRE_INSTRUCTIONS, /\u2014|\u2013/, "the prompt itself has no em or en dash");
+});
+
+test("turning TLDR writing off in Settings drops the rules", () => {
+  const off = milagreInstructions(false);
+  assert.match(off, /Automatic TLDR writing is disabled in Settings/);
+  assert.doesNotMatch(off, /delve, leverage|"Separately:"/);
+});
+
+// A budget, so the prompt every Chat sends can't grow back without anyone noticing. Raise it on purpose, not by accident.
+test("a default Chat's system prompt stays under its size budget", () => {
+  assert.ok(MILAGRE_INSTRUCTIONS.length <= 10_800, `the default system prompt is ${MILAGRE_INSTRUCTIONS.length} characters`);
+});
+
+test("the instructions say Milagre's tools may be missing, and name the skills to read before attaching", () => {
+  assert.match(MILAGRE_INSTRUCTIONS, /work only when they are in your tool list/);
+  for (const skill of ["simulator", "browser"]) {
+    const file = new RegExp(`Before the first attach, read (\\S+${skill}.SKILL\\.md)`).exec(MILAGRE_INSTRUCTIONS)?.[1];
+    assert.ok(file, `the instructions name the ${skill} skill's file`);
+    assert.match(require("node:fs").readFileSync(file, "utf8"), new RegExp(`^name: ${skill}$`, "m"));
+  }
+});
+
+test("the task instructions keep one list and name every phase", () => {
+  assert.match(MILAGRE_INSTRUCTIONS, /\(start, plan, build, test, review, merge, release, done\)/);
+  assert.match(MILAGRE_INSTRUCTIONS, /Keep one list: use your own todo or plan tool only when the milagre task tools are missing/);
+  assert.match(MILAGRE_INSTRUCTIONS, /artifact_comments/);
+});
+
+test("a shared Link Chat is told how its delegate differs, and never about Negotiations", () => {
+  const text = milagreInstructions(true, "", true, { sharedLink: true });
+  for (const sentence of [/Read the linked side with the milagre tools: linked_overview/, /Ask for changes with delegate/, /worktree_link/])
+    assert.match(text, sentence);
+  assert.match(
+    text,
+    /delegate reaches the Worktrees of the Link's Projects and canvas-linked Worktrees, but not this Chat's own Worktrees or another shared Chat/,
+  );
+  assert.match(text, /Negotiations aren't available here\./);
+  assert.doesNotMatch(text, /negotiation: true|conclude_negotiation|up to 10 rounds/);
+  assert.match(MILAGRE_INSTRUCTIONS, /conclude_negotiation/);
+  assert.doesNotMatch(MILAGRE_INSTRUCTIONS, /shared Link Chat/);
+});
+
+test("an advisor gets a short analysis-only prompt with its read tools, and the writing rules only when on", () => {
+  const { ANALYSIS_INSTRUCTIONS } = require("./advisor-policy.cjs");
+  const tools = [{ name: "advisor_read_file" }, { name: "linked_overview" }];
+  const text = advisorInstructions(true, tools);
+  assert.ok(text.includes(ANALYSIS_INSTRUCTIONS));
+  assert.match(text, /read-only milagre tools advisor_read_file, linked_overview\./);
+  assert.match(text, /delve, leverage/);
+  assert.doesNotMatch(text, /tasks_set|delegate|design_show|simulator_attach/);
+  assert.ok(text.length < 4500, `the advisor prompt is ${text.length} characters`);
+  assert.doesNotMatch(advisorInstructions(false, tools), /delve, leverage|TLDR/);
 });
 
 test("Claude: TodoWrite emits the whole list and keeps its step row", () => {

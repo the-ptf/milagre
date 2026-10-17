@@ -111,6 +111,7 @@ function createChatScopes({ projects, links, validateLink }) {
         projectRoots: projectsOfLink.map((project) => project.path),
         readOnlyRoots: pending.map((project) => project.path),
         workspaceInstructions: linkWorkspaceInstructions(session.worktrees, pending),
+        sharedLink: true,
       };
     },
   };

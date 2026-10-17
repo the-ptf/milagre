@@ -3,8 +3,8 @@ const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
 const { z } = require("zod");
 const {
-  designDocumentSchema,
-  designOperationSchema,
+  designDocumentInputSchema,
+  designOperationInputSchema,
   validateDesignDocument,
   applyDesignOperations,
   designHtml,
@@ -571,7 +571,7 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
           .describe(
             "The part of the app this screen belongs to, such as Onboarding or Settings. The canvas lays out one row per group. A revision keeps its group unless you pass one; an empty string removes it.",
           ),
-        document: designDocumentSchema,
+        document: designDocumentInputSchema,
         id: z.string().regex(ID).optional(),
         expectedVersion: z.number().int().nonnegative().optional(),
       },
@@ -595,11 +595,11 @@ function artifactToolDefinitions(chatId, api, authorization, { renderPng = rende
     {
       name: "design_apply",
       description:
-        "Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent changing a design uses this (or design_show with expectedVersion), never a separate file. Edit it with one atomic batch of layer operations: update properties, insert a layer, delete a layer and its descendants, or replace the document. Use stable layer ids. expectedVersion must match the latest version read; a conflict changes nothing, so read again and reapply the intended edits. One successful batch creates one immutable version and shows its design card.",
+        "Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent changing a design uses this (or design_show with expectedVersion), never a separate file. Edit it with one atomic batch of layer operations: update properties, insert a layer, or delete a layer and its descendants. To replace the whole document, use design_show with its id and expectedVersion. Use stable layer ids. expectedVersion must match the latest version read; a conflict changes nothing, so read again and reapply the intended edits. One successful batch creates one immutable version and shows its design card.",
       input: {
         id: z.string().regex(ID),
         expectedVersion: z.number().int().positive(),
-        operations: z.array(designOperationSchema).min(1).max(1000),
+        operations: z.array(designOperationInputSchema).min(1).max(1000),
       },
       readOnly: false,
       run: async (args) => {

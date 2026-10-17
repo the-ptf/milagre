@@ -1,13 +1,24 @@
 const { providerName } = require("@milagre/shared/providers");
 const { randomUUID } = require("node:crypto");
 const { ADVISOR_PROVIDERS, createInput, promptInput } = require("./advisor-tools.cjs");
-const { ANALYSIS_INSTRUCTIONS } = require("./agents/advisor-policy.cjs");
 const ACTIVE = new Set(["initializing", "running", "waiting"]);
 
 function advisorRow(record) {
   const { id, title, prompt, status, provider, model, startedAt, updatedAt, endedAt, latestActivity, transcript, retryable } = record;
   return { id, title, prompt, status, provider, model, startedAt, updatedAt, endedAt, latestActivity, transcript, retryable, source: "milagre-advisor" };
 }
+// A retried turn asks the original question again, with the last saved output, and the follow-up that stopped when it
+// wasn't the first turn. Advisors saved before `question` existed retry their last prompt.
+function retryPrompt(record) {
+  const question = record.question ?? record.prompt;
+  const request = record.request ?? question;
+  return [
+    question,
+    ...(record.output ? [`Previous saved output:\n${record.output}`] : []),
+    ...(request !== question ? [`Follow-up that was interrupted:\n${request}`] : []),
+  ].join("\n\n");
+}
+
 function createAdvisors({ store, contextFor, providersFor, launch, publish = async () => {}, completed = async () => {}, now = Date.now }) {
   const sessions = new Map();
   const queues = new Map();
@@ -176,6 +187,7 @@ function createAdvisors({ store, contextFor, providersFor, launch, publish = asy
               ...r,
               status: "initializing",
               prompt: nextPrompt,
+              request: nextPrompt,
               queuedPrompts: r.queuedPrompts.slice(1),
               turnNumber: r.turnNumber + 1,
               updatedAt: now(),
@@ -246,7 +258,11 @@ function createAdvisors({ store, contextFor, providersFor, launch, publish = asy
           provider: identity.provider,
           model: identity.model,
           title: input.title,
-          prompt: `${input.prompt}\n\n${ANALYSIS_INSTRUCTIONS}`,
+          // The analysis-only rules are in the advisor's system prompt (events.cjs advisorInstructions).
+          prompt: input.prompt,
+          // What Retry asks again: the question the advisor was started with, and the request of the turn that stopped.
+          question: input.prompt,
+          request: input.prompt,
           status: "initializing",
           source: "milagre-advisor",
           startedAt: timestamp,
@@ -288,6 +304,7 @@ function createAdvisors({ store, contextFor, providersFor, launch, publish = asy
             return {
               ...r,
               prompt,
+              request: prompt,
               status: "initializing",
               turnNumber: r.turnNumber + 1,
               updatedAt: now(),
@@ -337,7 +354,7 @@ function createAdvisors({ store, contextFor, providersFor, launch, publish = asy
             turnNumber: r.turnNumber + 1,
             updatedAt: now(),
             endedAt: undefined,
-            prompt: `${r.prompt}\n\nPrevious saved output:\n${r.output}\n\n${ANALYSIS_INSTRUCTIONS}`,
+            prompt: retryPrompt(r),
           };
         });
         const entry = prepare(record, stamp);

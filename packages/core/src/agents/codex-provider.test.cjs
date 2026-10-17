@@ -5,7 +5,16 @@ const os = require("node:os");
 const path = require("node:path");
 const { CodexRpc } = require("./codex-rpc.cjs");
 const { CodexSession, saveGeneratedImage, recoverCodexSubagents } = require("./codex-provider.cjs");
-const { MILAGRE_INSTRUCTIONS, RESUME_FAILED_MESSAGE, crashMessage, isTerminal, loginMessage, missingCliMessage, failedWith } = require("./events.cjs");
+const {
+  MILAGRE_INSTRUCTIONS,
+  advisorInstructions,
+  RESUME_FAILED_MESSAGE,
+  crashMessage,
+  isTerminal,
+  loginMessage,
+  missingCliMessage,
+  failedWith,
+} = require("./events.cjs");
 const { decodeImages } = require("../image-input.cjs");
 const { waitUntil } = require("./test-helpers.cjs");
 
@@ -64,6 +73,8 @@ test("analysis-only Codex pins read-only policy and denies unexpected command ap
   const messages = await received(session);
   const thread = messages.find((message) => message.method === "thread/start").params;
   assert.equal(thread.sandbox, "read-only");
+  // An advisor's own short prompt, not the Chat's (events.cjs advisorInstructions).
+  assert.equal(thread.developerInstructions, advisorInstructions());
   assert.equal(thread.config.features.shell_tool, false);
   assert.equal(thread.config.mcp_servers.personal.enabled, false);
   assert.deepEqual(thread.environments, []);

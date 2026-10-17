@@ -242,10 +242,10 @@ test("design-only configuration never exposes management or public publishing", 
   const edited = await call(connection, "design_apply", {
     id: "page",
     expectedVersion: 1,
-    operations: [{ op: "replace", document: { ...document, width: 400 } }],
+    operations: [{ op: "insert", node: { id: "box", type: "rectangle", width: 10, height: 10 } }],
   });
   assert.equal(edited.version, 2);
-  assert.equal((await call(connection, "design_read", { id: "page" })).document.width, 400);
+  assert.equal((await call(connection, "design_read", { id: "page" })).document.nodes[0].id, "box");
   await f.runtime.invoke("designs:enabled:save", [false]);
   await assert.rejects(call(connection, "design_list"), /unavailable/);
   await f.runtime.invoke("designs:enabled:save", [true]);
