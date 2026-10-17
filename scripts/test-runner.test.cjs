@@ -87,7 +87,7 @@ test("--shard partitions the unit files and the runnable Electron checks, balanc
   const all = select([]);
   const seconds = (file) => MANIFEST[path.basename(file)]?.seconds ?? 8;
   const unitSeconds = (file) => UNIT_SECONDS[file] ?? 0.3;
-  for (const count of [1, 2, 3, 8, 11]) {
+  for (const count of [1, 2, 3, 8, 12]) {
     const shards = Array.from({ length: count }, (_, i) => select(["--shard", `${i + 1}/${count}`]));
     // Every runnable test runs on exactly one shard, so nothing is dropped or run twice.
     assert.deepEqual(shards.flatMap((shard) => shard.unit).toSorted(), all.unit.toSorted(), `${count} shards`);

@@ -26,11 +26,11 @@ test("every CI job has a timeout", () => {
   for (const [name, job] of Object.entries(ci.jobs)) assert.ok(Number.isInteger(job["timeout-minutes"]), `${name} needs timeout-minutes`);
 });
 
-test("a PR run is at most 19 jobs under the account's 20 concurrent jobs", () => {
+test("a PR run is at most 20 jobs, the account's concurrency: every slot for under two minutes", () => {
   // Jobs that only run on a push to main (the release candidate, the macOS smoke) never take a PR run's slots.
   const jobs = Object.values(ci.jobs).filter((job) => !/github\.event_name == 'push'/.test(job.if ?? ""));
   const total = jobs.reduce((sum, job) => sum + (job.strategy?.matrix?.shard?.length ?? 1), 0);
-  assert.ok(total <= 19, `${total} jobs per PR run`);
+  assert.ok(total <= 20, `${total} jobs per PR run`);
 });
 
 test("CI typechecks once and builds the renderer without a second typecheck", () => {
