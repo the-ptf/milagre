@@ -1656,6 +1656,7 @@ function chatHost({
   effects = false,
   alert = () => {},
   linear = { active: false },
+  routines = [],
   chatDefaults = require("../apps/mobile/src/chat-defaults-store.ts").createChatDefaultsStore({ getItem: () => null, setItemAsync: async () => {} }),
 } = {}) {
   const sending = deferred();
@@ -1758,7 +1759,9 @@ function chatHost({
   const icons = new Proxy({}, { get: (_, name) => String(name) });
   const router = {
     setParams: (values) => Object.assign(params, values),
-    push() {},
+    push(href) {
+      (router.pushed ??= []).push(href);
+    },
     replace(route) {
       router.replaced = route;
     },
@@ -1802,7 +1805,10 @@ function chatHost({
     "react-native": native,
     "expo-router": {
       Redirect: "Redirect",
-      Stack: { Screen: "Screen", Toolbar: Object.assign(() => null, { Menu: "ToolbarMenu", MenuAction: "ToolbarMenuAction", Button: "ToolbarButton" }) },
+      Stack: {
+        Screen: "Screen",
+        Toolbar: Object.assign(() => null, { Menu: "ToolbarMenu", MenuAction: "ToolbarMenuAction", Button: "ToolbarButton", View: "ToolbarView" }),
+      },
       router,
       useNavigation: () => ({ setParams: (values) => Object.assign(params, values) }),
       useLocalSearchParams: () => params,
@@ -1833,6 +1839,9 @@ function chatHost({
     "@milagre/shared/linear": require("@milagre/shared/linear"),
     "@milagre/shared/archive": require("@milagre/shared/archive"),
     "../use-linear": { useLinear: () => linear },
+    "../use-routines": {
+      useRoutines: () => ({ routines, enabled: true, unavailable: null, error: "", loading: false, refresh: async () => {}, update: async () => {} }),
+    },
     "../use-worktree-linear-issues": { useWorktreeLinearIssues: () => ({}) },
     "../choice-store": { showChoiceSheet: (request) => choices.push(request) },
     "../session": { useSession: () => session, useComposer: () => session, usePendingChats: () => session },
@@ -7281,6 +7290,7 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
@@ -7387,6 +7397,7 @@ test("mobile Full detail shows each tool call and the notes between them in the 
       "./chat-display-setting": { useToolCallDisplay: () => [display, () => {}] },
       "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
       "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+      "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
       "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
       "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
       "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
@@ -8062,6 +8073,7 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
@@ -10633,4 +10645,155 @@ test("useRoutinesAvailable is true on a Mac with Routines, switched off or on, a
   assert.equal(await check({ enabled: true }), true);
   assert.equal(await check(new Error("routines:enabled:read is not available from mobile")), false);
   assert.equal(await check([]), false);
+});
+
+const heartbeatFor = (chatId, extra = {}) => ({
+  id: "hb1",
+  name: "Babysit PR #473",
+  prompt: "Check CI",
+  trigger: { kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" },
+  target: { kind: "chat", chatId },
+  enabled: true,
+  createdBy: { kind: "agent", chatId },
+  nextRunAt: new Date(2026, 9, 17, 10, 45).getTime(),
+  expiresAt: new Date(2026, 9, 24, 9, 0).getTime(),
+  runCount: 2,
+  createdAt: 1,
+  updatedAt: 1,
+  runs: [],
+  ...extra,
+});
+
+test("a phone Chat with an enabled Heartbeat shows the Heartbeat header button and Next check; without one, neither", () => {
+  const chat = chatHost({ routines: [heartbeatFor("/p#7"), heartbeatFor("/p#8", { id: "other" })] });
+  chat.params.id = "7";
+  chat.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
+  const tree = chat.render();
+  const button = find(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Heartbeat");
+  assert.ok(button, "the header shows the Heartbeat button");
+  assert.equal(button.props.icon, "waveform.path.ecg");
+  button.props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(chat.router.pushed)), [{ pathname: "/routine-form", params: { id: "hb1" } }]);
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Next check 10:45"));
+
+  const paused = chatHost({ routines: [heartbeatFor("/p#7", { enabled: false })] });
+  paused.params.id = "7";
+  paused.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
+  const off = paused.render();
+  assert.equal(
+    find(off, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Heartbeat"),
+    undefined,
+  );
+  assert.ok(!allNodes(off, (node) => node.type === "Text").some((node) => textOf(node).startsWith("Next check")));
+});
+
+test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card, out of the activity rows", () => {
+  const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
+  const { ChatReply } = load("chat-reply.tsx", {
+    "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
+    "react-native-svg": { default: "Svg", Path: "Path" },
+    "expo-router": { router: {} },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "./file-chip": { FileChip: "FileChip" },
+    "./markdown": { Markdown: "Markdown" },
+    "./icons": { Icon: "Icon" },
+    "./activity-item": { ActivityTitle: "ActivityTitle" },
+    "./tool-row": { ToolRow: "ToolRow" },
+    "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
+    "./answer-card": { AnswerCard: "AnswerCard" },
+    "./chat-display-setting": { useToolCallDisplay: () => ["full", () => {}] },
+    "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
+    "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
+    "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
+    "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
+    "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
+    "@milagre/shared/linear-issue": require("@milagre/shared/linear-issue"),
+    "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+    "./theme": { hex: () => "#000" },
+    "./viewer-store": { showImages() {} },
+    "./ui": { colors: {}, styles: { card: {}, row: {}, muted: {} } },
+  });
+  const steps = [
+    { id: "s1", kind: "shell", title: "Ran `gh pr view`", status: "done" },
+    { id: "s2", kind: "other", title: 'Set heartbeat "Babysit PR #473"', status: "done", routine: { id: "hb1", name: "Babysit PR #473" } },
+  ];
+  const message = { id: 9, session_id: 7, role: "assistant", body: "Opened #473. I'll check every 15 minutes.", steps };
+  const tree = ChatReply({ message, media: () => null, onActivity() {}, chatId: "/p#7" });
+  const card = find(tree, (node) => node.type === "HeartbeatCard");
+  assert.ok(card, "the card shows");
+  assert.equal(card.props.step.routine.id, "hb1");
+  const rows = allNodes(tree, (node) => node.type === "ToolRow").map((node) => node.props.step.id);
+  assert.ok(!rows.includes("s2"), "the heartbeat step isn't an activity row too");
+  assert.ok(rows.includes("s1"));
+});
+
+function heartbeatCardHost(routines) {
+  const react = hookHost();
+  const calls = [];
+  let refreshed = 0;
+  const client = {
+    async call(method, args) {
+      calls.push([method, JSON.parse(JSON.stringify(args))]);
+      return { removed: true };
+    },
+  };
+  const { HeartbeatCard } = load("heartbeat-card.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View", StyleSheet: { hairlineWidth: 1 } },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "./session": { useSession: () => ({ client }) },
+    "./use-routines": {
+      useRoutines: () => ({
+        routines,
+        enabled: true,
+        unavailable: null,
+        error: "",
+        loading: false,
+        refresh: async () => void refreshed++,
+        update: async () => {},
+      }),
+    },
+    "./routine-rows": load("routine-rows.ts", {
+      "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+      "@milagre/shared/routines": require("@milagre/shared/routines"),
+    }),
+    "@milagre/shared/routines": require("@milagre/shared/routines"),
+    "./icons": { Icon: "Icon" },
+    "./ui": { tap() {} },
+  });
+  const step = { id: "s2", kind: "other", title: "Set heartbeat", status: "done", routine: { id: "hb1", name: "Babysit PR #473" } };
+  const render = () => {
+    react.begin();
+    return HeartbeatCard({ step });
+  };
+  return { render, calls, refreshed: () => refreshed };
+}
+
+test("the phone Heartbeat set card names the Heartbeat, its cadence and end, and Stop deletes it", async () => {
+  const host = heartbeatCardHost([heartbeatFor("/p#7")]);
+  const tree = host.render();
+  const texts = allNodes(tree, (node) => node.type === "Text").map(textOf);
+  assert.ok(texts.includes("Heartbeat set: Babysit PR #473"));
+  assert.ok(texts.includes("Every 15 min · ends Oct 24"), texts.join(" | "));
+  const stop = find(tree, (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473");
+  stop.props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(host.calls, [["routines:delete", ["hb1"]]]);
+  assert.equal(host.refreshed(), 1);
+});
+
+test("the phone Heartbeat set card says Stopped once its Heartbeat is gone, with no Stop button", () => {
+  const host = heartbeatCardHost([]);
+  const tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Stopped"));
+  assert.equal(
+    find(tree, (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473"),
+    undefined,
+  );
 });

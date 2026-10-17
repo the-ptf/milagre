@@ -20,6 +20,7 @@ import { PullRequestActionCard } from "./pr-action-card";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { LinearIssueCard } from "./linear-issue-card";
+import { HeartbeatCard } from "./heartbeat-card";
 import { usageLimitOf } from "@milagre/shared/usage-limit";
 import { UsageLimitCard } from "./usage-limit-card";
 import { useTheme } from "./theme";
@@ -225,7 +226,10 @@ export const ChatReply = memo(function ChatReply({
   const savedMedia = useCallback((path: string) => media(message?.images?.find((image) => image.sourcePath === path)?.path || path), [media, message?.images]);
   const openActivity = () => onActivity(message ? String(message.id) : "run");
   const text = run?.text ?? message?.body ?? "";
-  const steps = run?.steps ?? message?.steps ?? [];
+  const allSteps = run?.steps ?? message?.steps ?? [];
+  // A heartbeat_create step that set a Heartbeat shows as its card, not as one more activity row.
+  const heartbeats = allSteps.filter((step) => step.routine && step.status === "done");
+  const steps = heartbeats.length ? allSteps.filter((step) => !heartbeats.includes(step)) : allSteps;
   const reply = replyActivity(text, steps);
   const waiting = !!(run?.approvals.length || run?.questions.length);
   // Feedback sent from the design sheet or canvas shows as a card, not as the text the agent reads.
@@ -314,6 +318,9 @@ export const ChatReply = memo(function ChatReply({
           <GeneratedImage step={step} media={savedMedia} />
         </View>
       ))}
+      {heartbeats.map((step) => (
+        <HeartbeatCard key={step.id} step={step} />
+      ))}
       <ArtifactCards steps={reply.artifacts} chatId={chatId} chosen={designChoice} />
       {!!reply.answer.trim() && <Markdown text={reply.answer} streaming={!!run} media={savedMedia} basePath={basePath} />}
       {!!thought && (
@@ -328,7 +335,7 @@ export const ChatReply = memo(function ChatReply({
           The turn failed. Review the response before trying again.
         </Text>
       )}
-      {!run && !text && !steps.length && !message?.outcome && <Text style={styles.muted}>No text response</Text>}
+      {!run && !text && !allSteps.length && !message?.outcome && <Text style={styles.muted}>No text response</Text>}
     </View>
   );
 });

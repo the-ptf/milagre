@@ -1,7 +1,7 @@
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Reanimated from "react-native-reanimated";
-import { Alert, Image, Keyboard, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { UltracodeGlow } from "../ultracode-glow";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
@@ -16,6 +16,7 @@ import {
   GitBranchIcon,
   GitForkIcon,
   LaptopIcon,
+  Pulse01Icon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
@@ -58,7 +59,7 @@ import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import { UndoPanel, type UndoIntent } from "../undo-panel";
 import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
 import { RoutineRunDivider } from "../routine-run-divider";
-import { groupQuietRuns, isRoutineRun, mergedRoutineRunText, routineRunText } from "@milagre/shared/routines";
+import { clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, routineRunText } from "@milagre/shared/routines";
 import { CompactionDivider } from "../compaction-divider";
 import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
@@ -77,7 +78,7 @@ import { Icon, LinearLogo } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
-import { ErrorNotice, GlassIconButton, IconButton, PageScroll, PillButton, PullDown, useStyles } from "../ui";
+import { ErrorNotice, GlassIconButton, HeaderButton, IconButton, PageScroll, PillButton, PullDown, useStyles } from "../ui";
 import { PromptField } from "../prompt-field";
 import { ContextRing } from "../context-ring";
 import { PlanPanel, PlanPill, usePlanPanel } from "../plan-pill";
@@ -90,6 +91,7 @@ import { useChatPage } from "../chat-pages";
 import { MessageNavigation } from "../message-navigation";
 import { AttentionPill } from "../attention";
 import { useLinear } from "../use-linear";
+import { useRoutines } from "../use-routines";
 import { useWorktreeLinearIssues } from "../use-worktree-linear-issues";
 import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
@@ -252,6 +254,8 @@ export default function ChatScreen() {
   const projectPath = session.snapshot?.project.path;
   // Linear is read only while the Mac has it on and connected; a linked Chat has no Worktrees of its own.
   const { active: linearActive } = useLinear(connected);
+  // The Mac's Routines, for this Chat's Heartbeat: the header button and the Next check line.
+  const { routines } = useRoutines(connected);
   const linearIssues = useWorktreeLinearIssues(connected, linearActive && projectPath && !session.snapshot?.project.link ? [projectPath] : [], linkVersion);
   const targetMatches = (!params.projectPath || params.projectPath === projectPath) && (!params.hostId || params.hostId === connected?.url);
   const originChatId = `${projectPath}#${params.id ?? `new:${params.worktreeId}`}`;
@@ -552,6 +556,8 @@ export default function ChatScreen() {
   const attachments = composer.attachments[chatId] || [];
   const attachmentDisabled = busy || picking || attachments.length >= 4;
   const run = chat ? runs.runs[chatId] : undefined;
+  const heartbeat = chat ? routines.find((routine) => routine.enabled && routine.target.kind === "chat" && routine.target.chatId === chatId) : undefined;
+  const openHeartbeat = () => heartbeat && router.push({ pathname: "/routine-form", params: { id: heartbeat.id } });
   const undoHighlight = (undo.view === "list" ? undo.tasks[0] : undo.view === "preview" ? undo.preview : null)?.messageId;
   // What the Chat is doing (chat-activity.mjs), the same as its sidebar row and desktop's composer show.
   const activity = chat ? chatActivity(chat, run) : undefined;
@@ -1036,6 +1042,16 @@ export default function ChatScreen() {
   );
   const more = (
     <Stack.Toolbar placement="right">
+      {/* Shown while this Chat has a Heartbeat on; it opens the Heartbeat's settings. */}
+      {heartbeat ? (
+        Platform.OS === "ios" ? (
+          <Stack.Toolbar.Button icon="waveform.path.ecg" accessibilityLabel="Heartbeat" onPress={openHeartbeat} />
+        ) : (
+          <Stack.Toolbar.View>
+            <HeaderButton label="Heartbeat" icon={Pulse01Icon} onPress={openHeartbeat} />
+          </Stack.Toolbar.View>
+        )
+      ) : null}
       <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="Chat actions">
         <Stack.Toolbar.MenuAction
           icon="doc.text.magnifyingglass"
@@ -1285,6 +1301,9 @@ export default function ChatScreen() {
             {!run && !pending && activity?.activity === "background" && (
               <BackgroundIndicator count={activity.background} startedAt={activity.since} mark={<BackgroundRing count={activity.background} />} />
             )}
+            {heartbeat && !run && !pending && typeof heartbeat.nextRunAt === "number" ? (
+              <Text style={{ color: colors.ink2, fontSize: 12, textAlign: "center" }}>{`Next check ${clock(heartbeat.nextRunAt)}`}</Text>
+            ) : null}
             {chat?.resumeTurn && !run && (
               <PillButton
                 title="Continue interrupted turn"
