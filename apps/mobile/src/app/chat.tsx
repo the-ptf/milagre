@@ -92,6 +92,7 @@ import { MessageNavigation } from "../message-navigation";
 import { AttentionPill } from "../attention";
 import { useLinear } from "../use-linear";
 import { useRoutines } from "../use-routines";
+import { useActivityClock } from "../chat-row-store";
 import { useWorktreeLinearIssues } from "../use-worktree-linear-issues";
 import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
@@ -255,7 +256,11 @@ export default function ChatScreen() {
   // Linear is read only while the Mac has it on and connected; a linked Chat has no Worktrees of its own.
   const { active: linearActive } = useLinear(connected);
   // The Mac's Routines, for this Chat's Heartbeat: the header button and the Next check line.
-  const { routines } = useRoutines(connected);
+  // With the Mac's switch off nothing runs, so a listed Heartbeat promises no check.
+  const { routines, enabled: routinesOn } = useRoutines(connected);
+  const beating = routinesOn === true && routines.some((routine) => routine.enabled && routine.target.kind === "chat");
+  // Now, to the half minute, only while some Heartbeat could show a Next check.
+  const now = useActivityClock(beating);
   const linearIssues = useWorktreeLinearIssues(connected, linearActive && projectPath && !session.snapshot?.project.link ? [projectPath] : [], linkVersion);
   const targetMatches = (!params.projectPath || params.projectPath === projectPath) && (!params.hostId || params.hostId === connected?.url);
   const originChatId = `${projectPath}#${params.id ?? `new:${params.worktreeId}`}`;
@@ -556,7 +561,10 @@ export default function ChatScreen() {
   const attachments = composer.attachments[chatId] || [];
   const attachmentDisabled = busy || picking || attachments.length >= 4;
   const run = chat ? runs.runs[chatId] : undefined;
-  const heartbeat = chat ? routines.find((routine) => routine.enabled && routine.target.kind === "chat" && routine.target.chatId === chatId) : undefined;
+  const heartbeat =
+    chat && beating
+      ? routines.find((routine) => routine.enabled && !routine.completedAt && routine.target.kind === "chat" && routine.target.chatId === chatId)
+      : undefined;
   const openHeartbeat = () => heartbeat && router.push({ pathname: "/routine-form", params: { id: heartbeat.id } });
   const undoHighlight = (undo.view === "list" ? undo.tasks[0] : undo.view === "preview" ? undo.preview : null)?.messageId;
   // What the Chat is doing (chat-activity.mjs), the same as its sidebar row and desktop's composer show.
@@ -1301,7 +1309,7 @@ export default function ChatScreen() {
             {!run && !pending && activity?.activity === "background" && (
               <BackgroundIndicator count={activity.background} startedAt={activity.since} mark={<BackgroundRing count={activity.background} />} />
             )}
-            {heartbeat && !run && !pending && typeof heartbeat.nextRunAt === "number" ? (
+            {heartbeat && !run && !pending && typeof heartbeat.nextRunAt === "number" && heartbeat.nextRunAt > now ? (
               <Text style={{ color: colors.ink2, fontSize: 12, textAlign: "center" }}>{`Next check ${clock(heartbeat.nextRunAt)}`}</Text>
             ) : null}
             {chat?.resumeTurn && !run && (

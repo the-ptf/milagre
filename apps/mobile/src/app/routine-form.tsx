@@ -51,7 +51,7 @@ import { modelsFor } from "../turn-options";
 import { PlaceholderField } from "../placeholder-field";
 import { confirm } from "../confirm-store";
 import { Icon, type IconData } from "../icons";
-import { CircleButton, ErrorNotice, Field, PageScroll, PillButton, PullDown, useStyles } from "../ui";
+import { CircleButton, ErrorNotice, Field, PageScroll, PillButton, PullDown, RowSwitch, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 type Targets = { projects: { path: string; name: string; chats: { chatId: string; title: string; lastAt?: number }[] }[] };
@@ -87,15 +87,20 @@ const RUN_IN: { id: RoutineFormState["runIn"]; title: string }[] = [
 ];
 
 const deviceTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-/** The zones Hermes knows, when it lists them; without the list the timezone stays as it is. */
+/** The zones Hermes knows, when it lists them (read once); without the list the timezone stays as it is. */
+let zoneList: string[] | null = null;
 function timezones(): string[] {
+  if (zoneList) return zoneList;
   const intl = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
   try {
-    return intl.supportedValuesOf?.("timeZone") ?? [];
+    zoneList = intl.supportedValuesOf?.("timeZone") ?? [];
   } catch {
-    return [];
+    zoneList = [];
   }
+  return zoneList;
 }
+/** A searchable picker's trigger: VoiceOver reads the row as "label: value", as it shows. */
+const shows = (value: string, disabled = false) => ({ systemImage: "chevron.right", title: value, disabled });
 const daysText = (days: number[]) => {
   if (days.length === 7) return "Every day";
   if (days.length === 5 && WEEKDAYS.every((day) => days.includes(day))) return "Weekdays";
@@ -146,8 +151,12 @@ export default function RoutineFormSheet() {
     form.trigger === "linear" && !form.linear.workspace && linearOptions?.workspaces[0]
       ? { ...form, linear: { ...form.linear, workspace: linearOptions.workspaces[0].id } }
       : form;
-  if (hook.data?.signingHeader && !form.webhook.signingHeader && loadedFor === routine?.id && !form.webhook.signingSecret)
-    setForm({ ...form, webhook: { ...form.webhook, signingHeader: hook.data.signingHeader } });
+  // The signing header is read with the URL; it fills the form once, so switching signing off doesn't bring it back.
+  const [headerFor, setHeaderFor] = useState("");
+  if (hook.data && routine && loadedFor === routine.id && headerFor !== routine.id) {
+    setHeaderFor(routine.id);
+    if (hook.data.signingHeader && !form.webhook.signingHeader) setForm({ ...form, webhook: { ...form.webhook, signingHeader: hook.data.signingHeader } });
+  }
 
   const change = (patch: Partial<RoutineFormState>) => {
     setProblem(null);
@@ -210,7 +219,10 @@ export default function RoutineFormSheet() {
   );
   const workspaceName = linearOptions?.workspaces.find((item) => item.id === resolved.linear.workspace)?.name ?? resolved.linear.workspace;
   const team = linearOptions?.teams.find((item) => item.key === form.linear.team);
+  const teamText = team ? `${team.key} · ${team.name}` : form.linear.team || "Any team";
   const heartbeat = form.runIn === "chat";
+  // A webhook checks an HMAC once signing is switched on (or a secret is typed); off clears the header and secret.
+  const signed = form.webhook.signed === true || !!form.webhook.signingSecret.trim();
   const title = editing ? (createdId ? "Webhook Routine" : "Edit Routine") : "New Routine";
 
   return (
@@ -244,10 +256,15 @@ export default function RoutineFormSheet() {
         </View>
         <View style={{ padding: 20, paddingTop: 8, gap: 12 }}>
           {error ? <ErrorNotice message={error} /> : null}
+          {routines.unavailable ? (
+            <Text style={styles.muted}>
+              {routines.unavailable === "older" ? "Update Milagre on this Mac to use Routines." : "Routines aren't available on this connection."}
+            </Text>
+          ) : null}
           {routines.enabled === false ? (
             <Text style={styles.caption}>Routines are off on this Mac. Turn them on in Settings › Experimental to run this one.</Text>
           ) : null}
-          <View style={[card(colors), { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16 }]}>
+          <View style={[styles.card, { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 0 }]}>
             <Icon icon={PencilEdit02Icon} tone="ink3" size={20} />
             <View style={{ flex: 1 }}>
               <Field
@@ -401,13 +418,14 @@ export default function RoutineFormSheet() {
                   label="Timezone"
                   title="Timezone"
                   searchable={{ placeholder: "Search timezones", emptyLabel: "No matching timezones" }}
+                  nativeTrigger={shows(form.schedule.timezone)}
                   sections={[{ items: zones.map((zone) => ({ id: zone, title: zone, checked: zone === form.schedule.timezone })) }]}
                   onSelect={(timezone) => changeSchedule({ timezone })}
                 >
                   <FormRow icon={Globe02Icon} label="Timezone" value={form.schedule.timezone} />
                 </PullDown>
               ) : (
-                <FormRow icon={Globe02Icon} label="Timezone" value={form.schedule.timezone} />
+                <FormRow icon={Globe02Icon} label="Timezone" value={form.schedule.timezone} readOnly />
               )}
             </Card>
           ) : null}
@@ -419,6 +437,7 @@ export default function RoutineFormSheet() {
                   label="Workspace"
                   title="Linear workspace"
                   searchable={{ placeholder: "Search workspaces", emptyLabel: "No matching workspaces" }}
+                  nativeTrigger={shows(workspaceName)}
                   sections={[
                     {
                       items: (linearOptions?.workspaces ?? []).map((item) => ({
@@ -446,6 +465,7 @@ export default function RoutineFormSheet() {
                   label="Label"
                   title="Label"
                   searchable={{ placeholder: "Search labels", emptyLabel: "No matching labels" }}
+                  nativeTrigger={shows(form.linear.label || "Choose")}
                   sections={[{ items: (linearOptions?.labels ?? []).map((label) => ({ id: label, title: label, checked: label === form.linear.label })) }]}
                   onSelect={(label) => changeLinear({ label })}
                 >
@@ -457,6 +477,7 @@ export default function RoutineFormSheet() {
                   label="State"
                   title="State"
                   searchable={{ placeholder: "Search states", emptyLabel: "No matching states" }}
+                  nativeTrigger={shows(form.linear.state || "Choose")}
                   sections={[
                     { items: (linearOptions?.states ?? []).map((item) => ({ id: item.name, title: item.name, checked: item.name === form.linear.state })) },
                   ]}
@@ -469,6 +490,7 @@ export default function RoutineFormSheet() {
                 label="Team"
                 title="Team"
                 searchable={{ placeholder: "Search teams", emptyLabel: "No matching teams" }}
+                nativeTrigger={shows(teamText)}
                 sections={[
                   {
                     items: [
@@ -483,7 +505,7 @@ export default function RoutineFormSheet() {
                 ]}
                 onSelect={(key) => changeLinear({ team: key === ANY_TEAM ? "" : key, label: "", state: "" })}
               >
-                <FormRow icon={UserMultipleIcon} label="Team" value={team ? `${team.key} · ${team.name}` : form.linear.team || "Any team"} />
+                <FormRow icon={UserMultipleIcon} label="Team" value={teamText} />
               </PullDown>
             </Card>
           ) : null}
@@ -502,38 +524,50 @@ export default function RoutineFormSheet() {
                   </View>
                 </View>
               ) : null}
-              <FormRow icon={Shield01Icon} label="Signing header">
-                <Field
-                  label="Signing header"
-                  hideLabel
-                  placeholder="sentry-hook-signature"
-                  value={form.webhook.signingHeader}
-                  onChangeText={(signingHeader) => change({ webhook: { ...form.webhook, signingHeader } })}
-                  style={inlineField(colors)}
+              <FormRow icon={Shield01Icon} label="Check signature">
+                <RowSwitch
+                  label="Check signature"
+                  selected={signed}
+                  onPress={() => change({ webhook: signed ? { signed: false, signingHeader: "", signingSecret: "" } : { ...form.webhook, signed: true } })}
                 />
               </FormRow>
-              <FormRow icon={Shield01Icon} label="Signing secret">
-                <Field
-                  label="Signing secret"
-                  hideLabel
-                  secureTextEntry
-                  placeholder={form.webhook.signed ? "Saved" : "Optional"}
-                  value={form.webhook.signingSecret}
-                  onChangeText={(signingSecret) => change({ webhook: { ...form.webhook, signingSecret } })}
-                  style={inlineField(colors)}
-                />
-              </FormRow>
+              {signed ? (
+                <FormRow icon={Shield01Icon} label="Signing header">
+                  <Field
+                    label="Signing header"
+                    hideLabel
+                    placeholder="sentry-hook-signature"
+                    value={form.webhook.signingHeader}
+                    onChangeText={(signingHeader) => change({ webhook: { ...form.webhook, signingHeader } })}
+                    style={inlineField(colors)}
+                  />
+                </FormRow>
+              ) : null}
+              {signed ? (
+                <FormRow icon={Shield01Icon} label="Signing secret">
+                  <Field
+                    label="Signing secret"
+                    hideLabel
+                    secureTextEntry
+                    // A stored secret never comes back; a new one replaces it.
+                    placeholder={routine?.trigger.kind === "webhook" && routine.trigger.signed ? "Saved" : "Required"}
+                    value={form.webhook.signingSecret}
+                    onChangeText={(signingSecret) => change({ webhook: { ...form.webhook, signingSecret } })}
+                    style={inlineField(colors)}
+                  />
+                </FormRow>
+              ) : null}
             </Card>
           ) : null}
           <Problem text={problemFor("trigger", "schedule", "timezone", "workspace", "label", "state", "signingSecret")} />
 
-          <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Each run</Text>
+          <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Each Run</Text>
           <Card>
             <PullDown
               label="Project"
               title="Project"
               searchable={{ placeholder: "Search Projects", emptyLabel: "No matching Projects" }}
-              nativeTrigger={{ systemImage: "folder", disabled: heartbeat && editing }}
+              nativeTrigger={shows(project?.name ?? "Choose", heartbeat && editing)}
               sections={[{ items: projects.map((item) => ({ id: item.path, title: item.name, subtitle: item.path, checked: item.path === project?.path })) }]}
               onSelect={(projectPath) => change({ projectPath, chatId: "" })}
             >
@@ -541,7 +575,7 @@ export default function RoutineFormSheet() {
             </PullDown>
             <PullDown
               label="Works in"
-              title="Each run works in"
+              title="Each Run works in"
               sections={[
                 {
                   items: RUN_IN.map((item) => ({
@@ -565,6 +599,7 @@ export default function RoutineFormSheet() {
                 label="Chat"
                 title="Chat"
                 searchable={{ placeholder: "Search Chats", emptyLabel: project ? "No Chats in this Project" : "Choose a Project first" }}
+                nativeTrigger={shows(chat?.title ?? "Choose")}
                 sections={[{ items: (project?.chats ?? []).map((item) => ({ id: item.chatId, title: item.title, checked: item.chatId === form.chatId })) }]}
                 onSelect={(chatId) => change({ chatId })}
               >
@@ -575,6 +610,7 @@ export default function RoutineFormSheet() {
               label="Model"
               title="Model"
               searchable={{ placeholder: "Search models", emptyLabel: "No matching models" }}
+              nativeTrigger={shows(model?.name ?? (form.model || "Default"))}
               sections={[
                 {
                   items: [
@@ -636,7 +672,15 @@ export default function RoutineFormSheet() {
               <FormRow
                 icon={Flag02Icon}
                 label="Stop after"
-                value={form.stop.kind === "never" ? "Never" : form.stop.kind === "runs" ? `${form.stop.runs} Runs` : `Ends ${dateText(form.stop.at)}`}
+                value={
+                  form.stop.kind === "never"
+                    ? "Never"
+                    : form.stop.kind === "runs"
+                      ? form.stop.runs === 1
+                        ? "1 Run"
+                        : `${form.stop.runs} Runs`
+                      : `Ends ${dateText(form.stop.at)}`
+                }
               />
             </PullDown>
             {form.stop.kind === "runs" ? (
@@ -682,7 +726,7 @@ export default function RoutineFormSheet() {
           title={editing ? "Save" : "Create Routine"}
           icon={editing ? undefined : Add01Icon}
           loading={saving}
-          disabled={!client}
+          disabled={!client || !!routines.unavailable}
           onPress={() => void save()}
         />
       </View>
@@ -695,16 +739,15 @@ function chatProject(chatId: string, projects: Targets["projects"]) {
   return projects.find((item) => item.chats.some((chat) => chat.chatId === chatId))?.path ?? chatId.slice(0, chatId.lastIndexOf("#"));
 }
 
-const card = (colors: ReturnType<typeof useTheme>["colors"]) =>
-  ({ backgroundColor: colors.surface, borderRadius: 20, borderCurve: "continuous", borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line }) as const;
 const inlineField = (colors: ReturnType<typeof useTheme>["colors"]) =>
   ({ backgroundColor: "transparent", color: colors.ink2, textAlign: "right", paddingHorizontal: 0, minWidth: 120, fontSize: 15 }) as const;
 
 /** A card of rows split by hairlines. */
 function Card({ children }: { children: React.ReactNode }) {
+  const styles = useStyles();
   const { colors } = useTheme();
   return (
-    <View style={[card(colors), { paddingHorizontal: 16 }]}>
+    <View style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
       {Children.toArray(children).map((child, index) => (
         <View key={(child as { key?: string }).key ?? String(index)}>
           {index > 0 ? <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.line }} /> : null}
@@ -716,7 +759,20 @@ function Card({ children }: { children: React.ReactNode }) {
 }
 
 /** One setting: its icon and name, then its value and a chevron, or an inline input in place of both. */
-function FormRow({ icon, label, value, children }: { icon: IconData; label: string; value?: string; children?: React.ReactNode }) {
+function FormRow({
+  icon,
+  label,
+  value,
+  readOnly = false,
+  children,
+}: {
+  icon: IconData;
+  label: string;
+  value?: string;
+  /** Shown, not chosen: no chevron. */
+  readOnly?: boolean;
+  children?: React.ReactNode;
+}) {
   const { colors } = useTheme();
   return (
     <View
@@ -733,7 +789,7 @@ function FormRow({ icon, label, value, children }: { icon: IconData; label: stri
           <Text numberOfLines={1} style={{ flex: 1, textAlign: "right", color: colors.ink2, fontSize: 15 }}>
             {value}
           </Text>
-          <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
+          {readOnly ? null : <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />}
         </>
       )}
     </View>

@@ -7,14 +7,14 @@ import { useSession } from "./session";
 import { useRoutines } from "./use-routines";
 import { heartbeatEnd } from "./routine-rows";
 import { Icon } from "./icons";
-import { tap } from "./ui";
+import { ErrorNotice, tap } from "./ui";
 import { useTheme } from "./theme";
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /**
  * The Heartbeat an agent set in this reply (its heartbeat_create step): its name, how often and until when, and Stop,
- * which deletes it. Once the Heartbeat is gone (stopped, ended or deleted) the card says Stopped.
+ * which deletes it. A Heartbeat that ended on its own says Ended; one that was deleted says Stopped.
  */
 export function HeartbeatCard({ step }: { step: ChatStep }) {
   const { colors } = useTheme();
@@ -26,11 +26,14 @@ export function HeartbeatCard({ step }: { step: ChatStep }) {
   const [now] = useState(Date.now);
   const ref = step.routine;
   if (!ref) return null;
-  const routine = routines.routines.find((item) => item.id === ref.id);
+  const found = routines.routines.find((item) => item.id === ref.id);
+  // A Heartbeat that ran out (its end, its Runs, its Chat archived) is kept a while as completed: it Ended.
+  const ended = !!found?.completedAt;
+  const routine = ended ? undefined : found;
   // Until the list is read the card can't tell a live Heartbeat from a stopped one, so it says neither.
   const known = !routines.loading && !routines.unavailable && !routines.error;
   const end = routine ? heartbeatEnd(routine, now) : "";
-  const meta = routine ? [capital(triggerText(routine.trigger)), end].filter(Boolean).join(" · ") : known ? "Stopped" : "";
+  const meta = routine ? [capital(triggerText(routine.trigger)), end].filter(Boolean).join(" · ") : ended ? "Ended" : known ? "Stopped" : "";
   async function stop() {
     if (!client || !ref || stopping) return;
     setStopping(true);
@@ -68,11 +71,7 @@ export function HeartbeatCard({ step }: { step: ChatStep }) {
             {meta}
           </Text>
         ) : null}
-        {error ? (
-          <Text accessibilityRole="alert" style={{ color: colors.error, fontSize: 12 }}>
-            {error}
-          </Text>
-        ) : null}
+        {error ? <ErrorNotice message={error} /> : null}
       </View>
       {routine ? (
         <Pressable

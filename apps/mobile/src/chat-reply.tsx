@@ -318,11 +318,12 @@ export const ChatReply = memo(function ChatReply({
           <GeneratedImage step={step} media={savedMedia} />
         </View>
       ))}
+      <ArtifactCards steps={reply.artifacts} chatId={chatId} chosen={designChoice} />
+      {!!reply.answer.trim() && <Markdown text={reply.answer} streaming={!!run} media={savedMedia} basePath={basePath} />}
+      {/* The reply says what the Heartbeat is for; its card follows. */}
       {heartbeats.map((step) => (
         <HeartbeatCard key={step.id} step={step} />
       ))}
-      <ArtifactCards steps={reply.artifacts} chatId={chatId} chosen={designChoice} />
-      {!!reply.answer.trim() && <Markdown text={reply.answer} streaming={!!run} media={savedMedia} basePath={basePath} />}
       {!!thought && (
         <View style={{ opacity: 0.75 }}>
           <Markdown text={thought} media={savedMedia} basePath={basePath} />

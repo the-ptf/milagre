@@ -1657,6 +1657,8 @@ function chatHost({
   alert = () => {},
   linear = { active: false },
   routines = [],
+  routinesOn = true,
+  now = new Date(2026, 9, 17, 10, 30).getTime(),
   chatDefaults = require("../apps/mobile/src/chat-defaults-store.ts").createChatDefaultsStore({ getItem: () => null, setItemAsync: async () => {} }),
 } = {}) {
   const sending = deferred();
@@ -1840,8 +1842,9 @@ function chatHost({
     "@milagre/shared/archive": require("@milagre/shared/archive"),
     "../use-linear": { useLinear: () => linear },
     "../use-routines": {
-      useRoutines: () => ({ routines, enabled: true, unavailable: null, error: "", loading: false, refresh: async () => {}, update: async () => {} }),
+      useRoutines: () => ({ routines, enabled: routinesOn, unavailable: null, error: "", loading: false, refresh: async () => {}, update: async () => {} }),
     },
+    "../chat-row-store": { useActivityClock: (on) => (on ? now : 0) },
     "../use-worktree-linear-issues": { useWorktreeLinearIssues: () => ({}) },
     "../choice-store": { showChoiceSheet: (request) => choices.push(request) },
     "../session": { useSession: () => session, useComposer: () => session, usePendingChats: () => session },
@@ -2964,6 +2967,7 @@ function pullDownHost() {
     ),
     "@expo/ui/swift-ui/modifiers": modifiers,
     "@expo/ui/community/menu": { MenuView: "MenuView" },
+    "@expo/ui/jetpack-compose/modifiers": { semantics: (value) => ({ name: "semantics", value }) },
     "expo-haptics": { selectionAsync: async () => {} },
     "@hugeicons/core-free-icons": {},
     "./theme": {
@@ -10431,7 +10435,7 @@ test("with the Mac's Routines switch off, the phone says so and links to Experim
   assert.deepEqual(host.routes, ["/experimental"]);
 });
 
-function routineFormHost({ params = {}, routines = [], answers = {} } = {}) {
+function routineFormHost({ params = {}, routines = [], answers = {}, created } = {}) {
   const react = hookHost();
   const calls = [];
   const routes = [];
@@ -10449,7 +10453,12 @@ function routineFormHost({ params = {}, routines = [], answers = {} } = {}) {
     url: "ws://mac",
     async call(method, args) {
       calls.push([method, JSON.parse(JSON.stringify(args))]);
-      if (method === "routines:create") return { routine: { id: "new", ...args[0] } };
+      if (method === "routines:create") {
+        const routine = { id: "new", enabled: true, runCount: 0, createdAt: 1, updatedAt: 1, runs: [], ...args[0], ...created?.routine };
+        routines.push(routine);
+        return { routine, ...(created?.hookUrl ? { hookUrl: created.hookUrl } : {}) };
+      }
+      if (method === "routines:rotate-hook") return { url: "https://relay.milagre.cloud/hook/rotated" };
       if (method === "routines:update") return { id: args[0] };
       return responses[method] ?? null;
     },
@@ -10482,7 +10491,7 @@ function routineFormHost({ params = {}, routines = [], answers = {} } = {}) {
     "../placeholder-field": { PlaceholderField: "PlaceholderField" },
     "../confirm-store": { confirm: async () => true },
     "../icons": { Icon: "Icon" },
-    "../ui": Object.fromEntries(["CircleButton", "ErrorNotice", "Field", "PageScroll", "PillButton", "PullDown"].map((name) => [name, name])),
+    "../ui": Object.fromEntries(["CircleButton", "ErrorNotice", "Field", "PageScroll", "PillButton", "PullDown", "RowSwitch"].map((name) => [name, name])),
   });
   const render = () => {
     react.begin();
@@ -10729,16 +10738,19 @@ test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card
   assert.equal(card.props.step.routine.id, "hb1");
   const rows = allNodes(tree, (node) => node.type === "ToolRow").map((node) => node.props.step.id);
   assert.ok(!rows.includes("s2"), "the heartbeat step isn't an activity row too");
+  const order = allNodes(tree, (node) => node.type === "HeartbeatCard" || node.type === "Markdown").map((node) => node.type);
+  assert.deepEqual(order.slice(-2), ["Markdown", "HeartbeatCard"], "the reply text comes first, then the card");
   assert.ok(rows.includes("s1"));
 });
 
-function heartbeatCardHost(routines) {
+function heartbeatCardHost(routines, { fail } = {}) {
   const react = hookHost();
   const calls = [];
   let refreshed = 0;
   const client = {
     async call(method, args) {
       calls.push([method, JSON.parse(JSON.stringify(args))]);
+      if (fail) throw new Error(fail);
       return { removed: true };
     },
   };
@@ -10765,7 +10777,7 @@ function heartbeatCardHost(routines) {
     }),
     "@milagre/shared/routines": require("@milagre/shared/routines"),
     "./icons": { Icon: "Icon" },
-    "./ui": { tap() {} },
+    "./ui": { tap() {}, ErrorNotice: "ErrorNotice" },
   });
   const step = { id: "s2", kind: "other", title: "Set heartbeat", status: "done", routine: { id: "hb1", name: "Babysit PR #473" } };
   const render = () => {
@@ -10792,6 +10804,109 @@ test("the phone Heartbeat set card says Stopped once its Heartbeat is gone, with
   const host = heartbeatCardHost([]);
   const tree = host.render();
   assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Stopped"));
+  assert.equal(
+    find(tree, (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473"),
+    undefined,
+  );
+});
+
+test("editing a Routine on the phone starts from it and saves the formToUpdate patch", async () => {
+  const stored = {
+    id: "tr",
+    name: "Issues labelled agent",
+    prompt: "Work on {{issue.key}}",
+    trigger: { kind: "linear", workspace: "w1", event: "label-added", label: "agent" },
+    target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+    enabled: true,
+    createdBy: { kind: "user" },
+    runCount: 0,
+    createdAt: 1,
+    updatedAt: 1,
+    runs: [],
+  };
+  const host = routineFormHost({ params: { id: "tr" }, routines: [stored] });
+  host.render();
+  let tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Edit Routine"));
+  assert.equal(find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.value, "Issues labelled agent");
+  assert.equal(find(tree, (node) => node.props?.accessibilityLabel === "Schedule" && node.props.accessibilityRole === "radio").props.disabled, true);
+  assert.equal(host.pick(tree, "Label").props.nativeTrigger.title, "agent", "VoiceOver reads the row as Label: agent");
+  find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Agent issues");
+  tree = host.render();
+  assert.equal(find(tree, (node) => node.type === "PillButton").props.title, "Save");
+  find(tree, (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const update = host.calls.find(([method]) => method === "routines:update");
+  const { formFromRoutine, formToUpdate } = require("@milagre/shared/routine-form");
+  const expected = formToUpdate({ ...formFromRoutine(stored, "UTC"), name: "Agent issues" }, stored).patch;
+  assert.deepEqual(update[1], ["tr", JSON.parse(JSON.stringify(expected))]);
+  assert.deepEqual(host.routes, ["back"]);
+});
+
+test("creating a webhook Routine on the phone keeps the sheet open on its URL, with Copy and Rotate", async () => {
+  const host = routineFormHost({ created: { routine: { id: "wh" }, hookUrl: "https://relay.milagre.cloud/hook/abc" } });
+  find(host.render(), (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Sentry crashes");
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Webhook" && node.props.accessibilityRole === "radio").props.onPress();
+  let tree = host.render();
+  assert.ok(host.rowLabels(tree).includes("URL"));
+  assert.ok(host.rowLabels(tree).includes("Check signature"));
+  assert.ok(!host.rowLabels(tree).includes("Signing secret"), "signing fields wait for the switch");
+  host.pick(tree, "Project").props.onSelect("/p");
+  find(host.render(), (node) => node.type === "PlaceholderField").props.onChangeText("Look at {{body}}");
+  find(host.render(), (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const create = host.calls.find(([method]) => method === "routines:create");
+  assert.deepEqual(create[1][0].trigger, { kind: "webhook", signed: false });
+  assert.deepEqual(host.routes, [], "the sheet stays open");
+  tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "https://relay.milagre.cloud/hook/abc"));
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Webhook Routine"));
+  const buttons = allNodes(tree, (node) => node.type === "PillButton").map((node) => node.props.title);
+  assert.ok(buttons.includes("Copy") && buttons.includes("Rotate"));
+  assert.equal(find(tree, (node) => node.type === "PillButton" && node.props.title === "Save").props.title, "Save");
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Rotate").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    host.calls.find(([method]) => method === "routines:rotate-hook"),
+    ["routines:rotate-hook", ["wh"]],
+  );
+  assert.ok(allNodes(host.render(), (node) => node.type === "Text").some((node) => textOf(node) === "https://relay.milagre.cloud/hook/rotated"));
+});
+
+test("a phone Chat shows no Heartbeat button or Next check while the Mac's Routines switch is off, a turn runs, or the check is past", () => {
+  const setUp = (options, run) => {
+    const chat = chatHost({ routines: [heartbeatFor("/p#7")], ...options });
+    chat.params.id = "7";
+    chat.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
+    if (run) chat.session.snapshot.runs.runs["/p#7"] = { startedAt: Date.now(), questions: [], approvals: [], steps: [] };
+    return chat.render();
+  };
+  const button = (tree) => find(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Heartbeat");
+  const nextCheck = (tree) => allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node).startsWith("Next check"));
+  const off = setUp({ routinesOn: false });
+  assert.equal(button(off), undefined, "switch off: no button");
+  assert.equal(nextCheck(off), false, "switch off: no Next check");
+  const running = setUp({}, true);
+  assert.ok(button(running), "the button stays while a turn runs");
+  assert.equal(nextCheck(running), false, "no Next check while a turn runs");
+  const late = setUp({ now: new Date(2026, 9, 17, 10, 50).getTime() });
+  assert.equal(nextCheck(late), false, "a check time already past isn't promised");
+});
+
+test("the phone Heartbeat set card shows a refused Stop as an error and keeps the button", async () => {
+  const host = heartbeatCardHost([heartbeatFor("/p#7")], { fail: "This computer does not allow changing this setting from a phone." });
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const tree = host.render();
+  assert.match(find(tree, (node) => node.type === "ErrorNotice").props.message, /does not allow/);
+  assert.ok(find(tree, (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473"));
+  assert.equal(host.refreshed(), 0);
+});
+
+test("the phone Heartbeat set card says Ended for a Heartbeat that ran out on its own", () => {
+  const host = heartbeatCardHost([heartbeatFor("/p#7", { enabled: false, completedAt: 5 })]);
+  const tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Ended"));
   assert.equal(
     find(tree, (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473"),
     undefined,
