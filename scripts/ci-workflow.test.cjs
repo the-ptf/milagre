@@ -78,7 +78,7 @@ test("CI runs the unit suite through the single test command, one shard per matr
   assert.ok(!every.some((run) => /npm run test:/.test(run)), "no per-suite scripts left in CI");
 });
 
-test("the quick checks run as parallel steps of one job, each with its own log", () => {
+test("independent quick checks run in parallel, while the site commands sharing Astro's cache run sequentially", () => {
   const job = ci.jobs["quick-checks"];
   assert.equal(job.needs, undefined);
   assert.equal(job.if, undefined, "quick-checks always runs");
@@ -92,11 +92,18 @@ test("the quick checks run as parallel steps of one job, each with its own log",
     "npm run knip",
     "npm run typecheck:mobile",
     "npm run typecheck:relay",
-    "npm run typecheck:site",
-    "npm run build:site",
     "npm run build:renderer --workspace milagre",
   ])
     assert.ok(commands.includes(command), command);
+  const site = commands.filter((command) => /npm run (typecheck|build):site/.test(command));
+  assert.equal(site.length, 1, "Astro commands must share one sequential step to avoid a .vite cache rename race");
+  assert.deepEqual(
+    site[0]
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => line.trim()),
+    ["npm run typecheck:site", "npm run build:site"],
+  );
   for (const step of group.parallel) assert.ok(step.name && step.run, "every parallel step is named and runs a command");
   for (const name of ["static", "supply-chain"]) assert.equal(ci.jobs[name], undefined, `${name} folded into quick-checks`);
 });
