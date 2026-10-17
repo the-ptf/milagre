@@ -333,7 +333,10 @@ function createLinearPoller({
   }
 
   // Hands events to the scheduler in one batch, oldest first. The sort is stable, so comments made at once keep Linear's order.
-  function deliver(events) {
+  // It sorts a copy (one per hand-over, not per poll): a held buffer keeps Linear's page order until the hand-over worked,
+  // so a failed one can be cut back to what was held before the poll without losing what earlier pages read.
+  function deliver(...lists) {
+    const events = [].concat(...lists);
     if (!events.length) return;
     events.sort((a, b) => a.at - b.at);
     scheduler.enqueueEvents(events);
@@ -409,8 +412,7 @@ function createLinearPoller({
           }
           // A window one millisecond wide can't be narrowed, and its comments have no order to keep: hand over what it holds.
           if (!live()) return;
-          deliver(scan.events);
-          deliver(found);
+          deliver(scan.events, found);
           scan.events = [];
         } else scan.events.push(...found);
         if (connection?.pageInfo?.hasNextPage && connection.pageInfo.endCursor) {

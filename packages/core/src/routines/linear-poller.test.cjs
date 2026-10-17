@@ -483,6 +483,43 @@ test("comments past the request budget aren't lost: the window is read on across
   ctx.poller.stop();
 });
 
+for (const { requestBudget, count, step } of [
+  { requestBudget: 3, count: 12, step: 1_000 },
+  { requestBudget: 1, count: 6, step: 10_000 },
+]) {
+  test(`a hand-over that fails when a window read across polls completes loses no comment, and each is queued once (budget ${requestBudget})`, async () => {
+    const ctx = setup({ linked: () => true, requestBudget });
+    ctx.routine({ event: "comment" });
+    ctx.linear.data.pageSize = 2;
+    // Listed newest first, so the held buffer isn't in time order.
+    ctx.linear.data.comments.a = Array.from({ length: count }, (_, index) => ({
+      id: `c${index}`,
+      body: "Hi",
+      createdAt: iso(START + (index + 1) * step),
+      botActor: null,
+      user: { name: "Victor" },
+      issue: issue(),
+    })).reverse();
+    // The store's write fails once (ENOSPC, say) on the hand-over that completes the window.
+    const enqueueMany = ctx.store.enqueueMany;
+    let failures = 0;
+    ctx.store.enqueueMany = (items) => {
+      if (failures === 0) {
+        failures += 1;
+        throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
+      }
+      return enqueueMany(items);
+    };
+    ctx.clock.t = START + 60_000;
+    ctx.poller.start();
+    for (let poll = 0; poll < 30 && ctx.enqueued.length < count; poll += 1) await ctx.poller.pollNow("a");
+    assert.equal(failures, 1, "the failing hand-over happened");
+    assert.deepEqual(ctx.enqueued.map(({ event }) => event.key).toSorted(), Array.from({ length: count }, (_, index) => `linear-comment:c${index}`).toSorted());
+    assert.equal(ctx.store.linearCursor("a:comments"), START + count * step);
+    ctx.poller.stop();
+  });
+}
+
 for (const order of ["newest first", "oldest first"]) {
   test(`an issue whose history is longer than one page is read whole (${order}), changes before the window left out`, async () => {
     const ctx = setup();
