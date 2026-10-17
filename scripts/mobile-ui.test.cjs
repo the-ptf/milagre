@@ -11197,6 +11197,7 @@ test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card
     "./chat-display-setting": { useToolCallDisplay: () => ["full", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
+    "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
