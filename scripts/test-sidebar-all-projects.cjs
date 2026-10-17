@@ -172,8 +172,13 @@ async function browserChecks() {
     const toggle = await evaluate(
       `(() => { const r = document.querySelector('[data-sidebar-scope="/work/shop"] [data-scope-toggle]').getBoundingClientRect(); return { x: Math.round(r.x + 40), y: Math.round(r.y + r.height / 2) }; })()`,
     );
-    window.webContents.sendInputEvent({ type: "mouseMove", ...toggle });
-    await delay(300);
+    // A slow runner coalesces moves and updates :hover late (CI failed here with the dot still at 12), so the move is
+    // sent again until the dot has slid over; the slide itself takes 150 ms.
+    for (let attempt = 0; (await dotGap()) !== 64; attempt++) {
+      if (attempt === 20) break;
+      window.webContents.sendInputEvent({ type: "mouseMove", ...toggle });
+      await delay(250);
+    }
     assert.equal(await dotGap(), 64, "On hover it moves left of the menu and New chat buttons");
     await screenshot("attention-hover");
     window.webContents.sendInputEvent({ type: "mouseMove", x: 900, y: 400 });
@@ -335,7 +340,14 @@ async function browserChecks() {
       mouse("mouseMove", from.x, Math.round(from.y + ((to.bottom - 4 - from.y) * step) / 10));
       await delay(16);
     }
-    await waitFor(`!!document.querySelector("[data-drop-line]")`);
+    // A slow runner can coalesce those moves, or lay the rows out again once the drag began (CI timed out here with
+    // no drop line). A nudge at the target gives the list a fresh hit test until the line shows.
+    const dropLine = `!!document.querySelector("[data-drop-line]")`;
+    for (let attempt = 0; !(await evaluate(dropLine)); attempt++) {
+      if (attempt === 25) throw new Error(`Timed out: ${dropLine}`);
+      mouse("mouseMove", from.x + (attempt % 2), to.bottom - 4);
+      await delay(200);
+    }
     await screenshot("drag-into-pinned");
     mouse("mouseUp", to.x, to.bottom - 4);
     await waitFor(`window.patched?.[1] === 8`);

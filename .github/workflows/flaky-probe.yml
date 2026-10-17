@@ -1,0 +1,47 @@
+name: Flaky checks probe
+# Throwaway, removed before this branch's PR leaves draft: runs the two checks that failed twice in a row on main
+# sixteen times each on the CI runner, so their fixes are measured, not assumed.
+on:
+  push:
+    branches: [ci/flaky-checks]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    name: probe (${{ matrix.check }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [test-sidebar-all-projects, test-floating-inbox-native]
+    env:
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      ELECTRON_ENABLE_LOGGING: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/install-dependencies
+      - name: Install display and Electron libraries
+        run: |
+          packages="xvfb libgbm1 libgtk-3-0t64 libnss3 libasound2t64 lsof"
+          missing=$(for package in $packages; do
+            dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'install ok installed' || echo "$package"
+          done)
+          if [ -n "$missing" ]; then sudo apt-get update && sudo apt-get install -y --no-install-recommends $missing; fi
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: npm run build:renderer --workspace milagre
+      - name: Run the check sixteen times
+        env:
+          MILAGRE_SCREENSHOT_DIR: ${{ runner.temp }}/electron-screenshots
+        run: |
+          mkdir -p "$MILAGRE_SCREENSHOT_DIR"
+          failed=0
+          for i in $(seq 1 16); do
+            start=$(date +%s)
+            if xvfb-run -a -s "-screen 0 1600x1200x24 +extension GLX +render -noreset" node "scripts/${{ matrix.check }}.cjs" > "$RUNNER_TEMP/run-$i.log" 2>&1; then verdict=PASS; else verdict=FAIL; failed=$((failed + 1)); fi
+            echo "$verdict ${{ matrix.check }} run $i ($(( $(date +%s) - start ))s)"
+            [ $verdict = FAIL ] && grep -E "Error|Timed out|AssertionError" "$RUNNER_TEMP/run-$i.log" | head -3
+          done
+          echo "### ${{ matrix.check }}: $failed of 16 failed" | tee -a "$GITHUB_STEP_SUMMARY"
+          [ $failed -eq 0 ]
