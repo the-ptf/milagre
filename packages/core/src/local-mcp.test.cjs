@@ -306,7 +306,7 @@ function steeringHost(t, overrides = {}) {
   let links = overrides.links?.(projectPath, otherPath) ?? [];
   const state = (root) => ({
     worktrees: { 1: { id: 1, path: root, name: "main" } },
-    sessions: { 1: { id: 1, worktree_id: 1, title: "Target" }, 2: { id: 2, worktree_id: 1 } },
+    sessions: { 1: { id: 1, worktree_id: 1, title: "Target", ...overrides.session }, 2: { id: 2, worktree_id: 1 } },
   });
   const host = createLocalMcpHost({
     projects: async () => [
@@ -318,7 +318,7 @@ function steeringHost(t, overrides = {}) {
     permissionMode: (chatId, fallback = "ask") => (chatId in modes ? modes[chatId] : fallback),
     chats: {
       runs: overrides.run ? { [`${projectPath}#1`]: { approvals: [], questions: [], ...overrides.run } } : {},
-      turnSettings: () => ({ provider: "claude", model: "old", effort: "low" }),
+      turnSettings: () => ({ provider: "claude", model: "old", effort: "low", ...overrides.turn }),
       send: async (request) => {
         calls.push(["send", request]);
         return { sessionId: 1 };
@@ -511,4 +511,30 @@ test("chat_start refuses an effort the model doesn't take, and drops a carried o
   );
   await host.startChat({ projectPath, chatId, prompt: "Go", provider: "codex", model: "new" }, "b", () => {});
   assert.equal(calls.at(-1)[1].effort, "medium");
+});
+
+test("chat_read and chat_list show the messages queued behind a running turn, with the line the Chat shows", async (t) => {
+  const queued = [{ id: "q1", body: "Then run the tests", provider: "antigravity", model: "gemini", queuedAt: 5, turn: { permissionMode: "ask" } }];
+  const { host, projectPath, chatId } = steeringHost(t, { run: {}, session: { queued } });
+  const read = await host.readChat({ projectPath, chatId, limit: 5 });
+  assert.deepEqual(read.queue, {
+    status: "sends when this turn ends",
+    messages: [{ id: "q1", body: "Then run the tests", provider: "antigravity", model: "gemini", queuedAt: 5 }],
+  });
+  assert.equal((await host.chats({ projectPath })).find((item) => item.chatId === chatId).queued, 1);
+  const held = steeringHost(t, { session: { queued, queueHeld: true } });
+  assert.equal(
+    (await held.host.readChat({ projectPath: held.projectPath, chatId: held.chatId, limit: 5 })).queue.status,
+    "on hold since the last turn stopped",
+  );
+  const empty = steeringHost(t);
+  assert.equal("queue" in (await empty.host.readChat({ projectPath: empty.projectPath, chatId: empty.chatId, limit: 5 })), false);
+});
+
+test("chat_start into a busy Chat whose agent can't steer says the message waits for the running turn", async (t) => {
+  const busy = steeringHost(t, { run: {}, turn: { provider: "antigravity" } });
+  const waiting = await busy.host.startChat({ projectPath: busy.projectPath, chatId: busy.chatId, prompt: "Go" }, "a", () => {});
+  assert.match(waiting.note, /starts this one after its running turn ends/);
+  const steering = steeringHost(t, { run: {} });
+  assert.equal("note" in (await steering.host.startChat({ projectPath: steering.projectPath, chatId: steering.chatId, prompt: "Go" }, "a", () => {})), false);
 });
