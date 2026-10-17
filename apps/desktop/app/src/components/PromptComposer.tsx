@@ -627,19 +627,6 @@ export function PromptComposer({
           <div
             className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"}`}
           >
-            <button
-              type="button"
-              aria-label="Add attachments and sources"
-              aria-expanded={plusOpen}
-              onClick={() => {
-                setModelOpen(false);
-                setPlusOpen((current) => !current);
-                inputRef.current?.focus();
-              }}
-              className={`flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
-            >
-              <Icon icon={Add01Icon} size={16} />
-            </button>
             <div className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"}`}>
               {hasSkill && (
                 <PromptHighlights
@@ -675,6 +662,19 @@ export function PromptComposer({
                 className={`${inputTextClass} ${expanded ? "" : "placeholder-shown:whitespace-nowrap placeholder:truncate"} ${hasSkill ? "prompt-input-highlighted" : "text-ink"} relative block min-w-0 w-full resize-none overflow-hidden bg-transparent caret-ink outline-none [overflow-wrap:anywhere] placeholder:text-ink-3`}
               />
             </div>
+            <button
+              type="button"
+              aria-label="Add attachments and sources"
+              aria-expanded={plusOpen}
+              onClick={() => {
+                setModelOpen(false);
+                setPlusOpen((current) => !current);
+                inputRef.current?.focus();
+              }}
+              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"} flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
+            >
+              <Icon icon={Add01Icon} size={16} />
+            </button>
             <div className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"}`}>
               <button
                 type="button"

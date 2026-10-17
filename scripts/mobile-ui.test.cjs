@@ -8639,6 +8639,27 @@ const linearIssue = {
   state: { name: "In Progress", type: "started", color: "#f2c94c" },
 };
 
+test("a new Chat presents setup, prompt and action controls in focus order", () => {
+  const screen = chatHost({ linear: { active: true } });
+  const order = [];
+  find(screen.render(), (node) => {
+    const label = node.props?.label ?? node.props?.accessibilityLabel;
+    if (["Choose isolation", "Choose branch", "Start from a Linear issue", "Add photos or files", "Send message"].includes(label)) order.push(label);
+    if (["PromptField", "AgentControls", "PermissionChip"].includes(node.type)) order.push(node.type);
+    return false;
+  });
+  assert.deepEqual(order, [
+    "Choose isolation",
+    "Choose branch",
+    "Start from a Linear issue",
+    "PromptField",
+    "Add photos or files",
+    "AgentControls",
+    "PermissionChip",
+    "Send message",
+  ]);
+});
+
 test("a new Chat offers a Linear issue chip only while Linear is on and connected", () => {
   const chip = (screen) => find(screen.render(), (node) => node.props?.accessibilityLabel === "Start from a Linear issue");
   assert.ok(!chip(chatHost({ linear: { active: false } })), "off hides the chip");

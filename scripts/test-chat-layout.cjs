@@ -56,8 +56,9 @@ function Fixture() {
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={ultracode} onUltracodeChange={setUltracode}
       fastMode={fastMode} onFastModeChange={setFastMode} permissionMode="auto" onPermissionModeChange={noop}
-      onRecommendationSelect={noop} worktrees={[]} onWorktreeChange={noop}
-      isolation="local" onIsolationChange={noop} branches={[]} baseBranch="main" onBaseBranchChange={noop} newChatError={null} />
+      onRecommendationSelect={noop} worktrees={[{ id: 1, name: "main", path: "/fixture" }]} onWorktreeChange={noop}
+      isolation="worktree" onIsolationChange={noop} branches={["main"]} baseBranch="main" onBaseBranchChange={noop} newChatError={null}
+      linearActive onStartFromIssue={noop} />
   </div>;
 }
 document.documentElement.classList.add("dark");
@@ -87,6 +88,43 @@ async function browserChecks() {
   }
   try {
     await window.loadURL(process.argv[2]);
+    await waitFor('document.querySelectorAll("[data-slot=preview-rail-item]").length > 0');
+    await evaluate('window.setMessageCount(0); window.setDraft("verify")');
+    await waitFor('!!document.querySelector("[data-new-chat-pickers]")');
+    const focusLabel = `(() => {
+      const element = document.activeElement;
+      return element.getAttribute('aria-label') || (element.querySelector('[data-model-name]') ? 'Model' : element.textContent.trim());
+    })()`;
+    const expectedFocus = ["New worktree", "main", "Linear issue", "Prompt", "Add attachments and sources", "Model", "Agent permissions", "Send"];
+    const tab = async (backwards = false) => {
+      const modifiers = backwards ? ["shift"] : [];
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Tab", modifiers });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Tab", modifiers });
+      await delay(25);
+      return evaluate(focusLabel);
+    };
+    await evaluate('document.querySelector("[data-new-chat-pickers] button").focus()');
+    const forward = [await evaluate(focusLabel)];
+    for (let i = 1; i < expectedFocus.length; i++) forward.push(await tab());
+    assert.deepEqual(forward, expectedFocus, "New Chat tabs through setup, prompt, add, model, permissions and send in order");
+    const backward = [await evaluate(focusLabel)];
+    for (let i = 1; i < expectedFocus.length; i++) backward.push(await tab(true));
+    assert.deepEqual(backward, expectedFocus.toReversed(), "Shift+Tab reverses the New Chat focus order");
+    assert.ok(
+      await evaluate(`(() => {
+        const prompt = document.querySelector('textarea[aria-label="Prompt"]').getBoundingClientRect();
+        const add = document.querySelector('[aria-label="Add attachments and sources"]').getBoundingClientRect();
+        const model = document.querySelector('[data-model-name]').getBoundingClientRect();
+        return prompt.bottom <= add.top && add.right <= model.left;
+      })()`),
+      "The New Chat prompt stays above the toolbar with Add to the left of Model",
+    );
+    if (process.env.MILAGRE_SCREENSHOT_DIR)
+      await window.webContents
+        .capturePage()
+        .then((image) => require("node:fs").writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "new-chat-focus.png"), image.toPNG()));
+    console.log("PASS: New Chat keyboard focus follows setup, prompt and action controls in both directions");
+    await evaluate('window.setMessageCount(50); window.setDraft("")');
     await waitFor('document.querySelectorAll("[data-slot=preview-rail-item]").length > 0');
     assert.ok(
       await evaluate(`(() => {
