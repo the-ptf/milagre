@@ -1,8 +1,8 @@
 /** What the bridge's live socket says: fetch the runs, or the whole Project, again. It never carries state. */
-export type LiveSignal = "runs" | "project" | "accounts" | "links" | "designs" | "mcp";
+export type LiveSignal = "runs" | "project" | "accounts" | "links" | "designs" | "mcp" | "routines";
 /** Whether a live message names a signal this app knows; a newer bridge may send others, which are ignored. */
 export const isLiveSignal = (type: unknown): type is LiveSignal =>
-  type === "runs" || type === "project" || type === "accounts" || type === "links" || type === "designs" || type === "mcp";
+  type === "runs" || type === "project" || type === "accounts" || type === "links" || type === "designs" || type === "mcp" || type === "routines";
 export type LiveSocket = {
   onopen: (() => void) | null;
   onmessage: ((event: { data?: unknown }) => void) | null;
@@ -199,7 +199,8 @@ export function syncProject({
         if (signal === "accounts") accounts?.();
         else if (signal === "links") links?.();
         else if (signal === "designs") designs?.();
-        else void pull(signal);
+        // The Routines screen and the Chat header read Routines on their own socket (use-routines.ts).
+        else if (signal === "runs" || signal === "project") void pull(signal);
       },
       // On opening, catch up on what changed while it was down; on losing it, poll until it is back.
       onStatus: (next) => {

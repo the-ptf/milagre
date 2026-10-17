@@ -41,6 +41,7 @@ import {
   foregroundStyle,
   frame,
   labelStyle,
+  labelsHidden,
   lineLimit,
   menuOrder,
   padding,
@@ -53,6 +54,7 @@ import {
   opacity,
 } from "@expo/ui/swift-ui/modifiers";
 import { MenuView, type MenuAction } from "@expo/ui/community/menu";
+import { semantics } from "@expo/ui/jetpack-compose/modifiers";
 import * as Haptics from "expo-haptics";
 import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { createStylesHook, fonts, useTheme, type Palette } from "./theme";
@@ -231,6 +233,24 @@ export function Toggle({
     <Host ignoreSafeArea="all" matchContents={{ vertical: true }} style={{ minHeight: 44 }} seedColor={(seed ?? colors.green) as string}>
       <Switch label={title} value={selected} disabled={disabled} onValueChange={onPress} />
     </Host>
+  );
+}
+/** A switch with no visible label, for the trailing end of a row that names it; `label` is what VoiceOver and TalkBack read. */
+export function RowSwitch({ selected, onPress, disabled = false, label }: { selected: boolean; onPress: () => void; disabled?: boolean; label: string }) {
+  const { colors } = useTheme();
+  return (
+    // The native switch keeps its own semantics and takes the label itself (a wrapper with a role would hide the Compose
+    // switch from TalkBack).
+    <View>
+      <Host ignoreSafeArea="all" matchContents seedColor={colors.ink as string}>
+        <Switch
+          value={selected}
+          disabled={disabled}
+          onValueChange={onPress}
+          modifiers={Platform.OS === "ios" ? [labelsHidden(), accessibilityLabel(label), tint(colors.ink)] : [semantics({ contentDescription: label })]}
+        />
+      </Host>
+    </View>
   );
 }
 export function Field({ label, hideLabel = false, ...props }: TextInputProps & { label: string; hideLabel?: boolean; ref?: React.Ref<TextInputInstance> }) {

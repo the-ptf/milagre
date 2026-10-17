@@ -1,6 +1,6 @@
 const path = require("node:path");
 const { capText } = require("./permissions.cjs");
-const { capOutput, code, thinkingEnd, thinkingStep } = require("./steps.cjs");
+const { capOutput, code, routineRef, thinkingEnd, thinkingStep } = require("./steps.cjs");
 const { acpPlanTasks } = require("./tasks.cjs");
 
 // ACP session/update notifications -> Milagre's AgentEvents (see steps.cjs for the step shapes). The
@@ -148,6 +148,11 @@ function acpStep(call, diffs = diffsOf(call)) {
   }
 }
 
+const isHeartbeatCreate = (call) => {
+  const mcp = meta(call).mcp;
+  return mcp && typeof mcp === "object" ? mcp.server === "milagre" && mcp.tool === "heartbeat_create" : toolName(call) === "milagre_heartbeat_create";
+};
+
 // A finished tool call -> the end of its step.
 function acpStepResult(call, diffs = diffsOf(call)) {
   const id = String(call.toolCallId);
@@ -159,6 +164,11 @@ function acpStepResult(call, diffs = diffsOf(call)) {
   if (failed) return compact({ id, status, detail: output ? capText(output) : undefined });
   if (call.kind === "read") return { id, status };
   if (["edit", "delete", "move"].includes(call.kind)) return compact({ id, status, title: acpStep(call, diffs).title, detail: acpDiffText(diffs) });
+  // Milagre's heartbeat_create starts its result with a JSON line naming the Heartbeat: the step carries it, the detail doesn't.
+  if (isHeartbeatCreate(call)) {
+    const { routine, detail } = routineRef(output);
+    if (routine) return compact({ id, status, routine, detail: detail ? capText(detail) : undefined });
+  }
   return compact({ id, status, detail: output ? capText(output) : undefined });
 }
 

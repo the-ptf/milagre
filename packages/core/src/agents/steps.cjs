@@ -312,4 +312,16 @@ function codexStepResult(item) {
   }
 }
 
-module.exports = { MAX_OUTPUT, capOutput, code, formatDuration, claudeStep, claudeStepResult, codexStep, codexStepResult, thinkingEnd, thinkingStep };
+module.exports = {
+  MAX_OUTPUT,
+  capOutput,
+  code,
+  formatDuration,
+  claudeStep,
+  claudeStepResult,
+  codexStep,
+  codexStepResult,
+  thinkingEnd,
+  thinkingStep,
+  routineRef,
+};
