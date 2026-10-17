@@ -362,20 +362,27 @@ export function createHookDirectory({ storage }) {
     /**
      * `proof.ownerKey`: the key the Mac made with the hook. The first claim that presents one, by the room holding the hook,
      * registers its sha256 (the key itself is never stored); after that, presenting it moves the hook to the claiming room,
-     * as after a Reset gave the Mac a new room. The URL secret routes deliveries and moves nothing. A hook claimed without a
-     * key can't be taken by another room at all.
+     * as after a Reset gave the Mac a new room. Released, it stays that key's: only the key claims it again. The URL secret
+     * routes deliveries and moves nothing. A hook claimed without a key can't be taken by another room while held.
      */
     async claim(roomId, proof) {
       const current = owner();
       const known = storage.get("owner") ?? null;
       const key = proof && typeof proof.ownerKey === "string" && SECRET.test(proof.ownerKey) ? proof.ownerKey : null;
-      if (!current || current === roomId) {
-        if (!current) storage.put("room", roomId);
+      if (current === roomId) {
         if (!known && key) storage.put("owner", await hookIdOf(key));
         return true;
       }
-      if (!known || !key || (await hookIdOf(key)) !== known) return false;
+      // A hook with an owner key, held or released (a paused or deleted Routine, a retiring room), goes only to that key.
+      if (known) {
+        if (!key || (await hookIdOf(key)) !== known) return false;
+        storage.put("room", roomId);
+        return true;
+      }
+      // No key registered: first come, and one another room holds stays with it.
+      if (current) return false;
       storage.put("room", roomId);
+      if (key) storage.put("owner", await hookIdOf(key));
       return true;
     },
     release(roomId) {

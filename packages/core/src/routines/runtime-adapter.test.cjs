@@ -620,3 +620,48 @@ test("rotating writes the new secret first and puts the old one back when the Ro
   assert.equal(secrets.secretFor(routine.id).previous, undefined);
   assert.equal(webhooks.hook(routine.id).signed, true);
 });
+
+test("a rotate whose last secret write fails still tells the relay about the new hook id", (t) => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+  const { createWebhooks } = require("./runtime-adapter.cjs");
+  const { createRoutineStore } = require("./store.cjs");
+  const { createHookStore } = require("./hook-store.cjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rotate-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = createRoutineStore({ file: path.join(dir, "routines.json") });
+  store.setEnabled(true);
+  const real = createHookStore({ file: path.join(dir, "routine-hooks.json") });
+  let failClean = false;
+  const secrets = {
+    ...real,
+    setSecret: (id, entry) => {
+      if (failClean && !entry.previous) throw new Error("disk full");
+      return real.setSecret(id, entry);
+    },
+  };
+  let changes = 0;
+  const webhooks = createWebhooks({
+    store,
+    scheduler: { enqueueEvents: () => [] },
+    hooks: () => ({ store: secrets, relayUrl: "wss://relay" }),
+    changed: () => (changes += 1),
+  });
+  const routine = webhooks.create({
+    name: "Sentry",
+    prompt: "{{body}}",
+    trigger: { kind: "webhook" },
+    target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+  });
+  const before = changes;
+  failClean = true;
+  assert.throws(() => webhooks.rotate(routine.id), /disk full/);
+  assert.equal(changes, before + 1, "the relay hears of the new hook id");
+  const rotated = store.get(routine.id);
+  assert.notEqual(rotated.trigger.hookId, routine.trigger.hookId);
+  failClean = false;
+  // The entry matching the new hook id is the one that answers.
+  const { url } = webhooks.hook(routine.id);
+  assert.equal(require("node:crypto").createHash("sha256").update(url.split("/hook/")[1]).digest("hex"), rotated.trigger.hookId);
+});

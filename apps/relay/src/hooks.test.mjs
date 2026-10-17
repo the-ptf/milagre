@@ -583,3 +583,20 @@ test("the SQL storage keeps order, counts, sums and BLOB bytes (node:sqlite stan
   assert.equal((await hooks.receive(A, request("x"))).status, 202);
   assert.equal(storage.deliveries.size(), 3);
 });
+
+test("a released hook with an owner key goes back only to that key", async () => {
+  const kv = new Map();
+  const storage = { get: (k) => kv.get(k), put: (k, v) => kv.set(k, v), delete: (k) => kv.delete(k) };
+  const directory = createHookDirectory({ storage });
+  const ownerKey = "K".repeat(43);
+  assert.equal(await directory.claim("mac-room", { ownerKey }), true);
+  directory.release("mac-room");
+  assert.equal(directory.room(), null);
+  assert.equal(await directory.claim("thief-room"), false, "no key");
+  assert.equal(await directory.claim("thief-room", { ownerKey: "W".repeat(43) }), false, "a wrong key");
+  assert.equal(directory.room(), null);
+  assert.equal(await directory.claim("mac-room", { ownerKey }), true, "the Mac's key claims it again");
+  assert.equal(directory.room(), "mac-room");
+  directory.release("mac-room");
+  assert.equal(await directory.claim("new-room", { ownerKey }), true, "from any room, as after a Reset");
+});

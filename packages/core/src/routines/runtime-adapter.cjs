@@ -604,8 +604,13 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
         else secrets.removeSecret(id);
         throw error;
       }
-      secrets.setSecret(id, next);
-      changed();
+      // The Routine has the new hook id now, so the relay hears of it even if dropping `previous` fails (reads pick the
+      // entry that matches the hook id either way).
+      try {
+        secrets.setSecret(id, next);
+      } finally {
+        changed();
+      }
       return { url: hookUrl(relayUrl, secret) };
     },
     /** The hooks the relay should hold deliveries for: none while the Routines switch is off. */
