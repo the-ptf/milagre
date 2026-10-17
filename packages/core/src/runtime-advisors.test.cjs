@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
 const { execFileSync } = require("node:child_process");
+const { randomUUID } = require("node:crypto");
 const { createRuntime } = require("./runtime.cjs");
 const { runTool } = require("./linked-tools.cjs");
 const { waitUntil } = require("./agents/test-helpers.cjs");
@@ -31,6 +32,7 @@ async function fixture(t, provider = "claude") {
   const sessions = [];
   const runtime = createRuntime({
     dataDir: path.join(dir, "data"),
+    worktreeRoot: path.join(dir, "worktrees"),
     cwd: project,
     environmentReady: Promise.resolve(),
     titleModels: {},
@@ -74,7 +76,7 @@ async function fixture(t, provider = "claude") {
   await runtime.invoke("chat:send", [{ projectPath: project, sessionId: id, body: "Review", provider, model: "cm", permissionMode: "full" }]);
   await waitUntil(() => sessions.length === 1 && sessions[0].turns.length === 1);
   const tool = (name) => sessions[0].options.linked.tools.find((t) => t.name === name);
-  return { runtime, sessions, tool, chatId, id, project };
+  return { runtime, sessions, tool, chatId, id, project, dir };
 }
 test("main Chat tools launch the other provider with isolated reads and return labeled results", async (t) => {
   const f = await fixture(t);
@@ -161,3 +163,48 @@ test("advisor results for Antigravity stay queued through Stop and send once whe
   assert.match(f.sessions[0].turns[1].prompt, /Review result/);
   assert.equal(f.runtime.snapshot().projects[0].state.messages.filter((m) => m.context?.kind === "advisor-result").length, 1);
 });
+
+for (const provider of ["claude", "antigravity"]) {
+  test(`a shared Chat's ${provider} advisor result survives creating a Worktree`, async (t) => {
+    const f = await fixture(t);
+    const other = path.join(f.dir, "other");
+    execFileSync("git", ["clone", "-q", f.project, other]);
+    await fs.writeFile(path.join(f.project, "README.md"), "First Project");
+    await fs.writeFile(path.join(other, "README.md"), "Other Project");
+    await f.runtime.openProject(other);
+    const projects = await f.runtime.invoke("project:registry");
+    const link = await f.runtime.invoke("link:create", [{ name: "Review", projectIds: projects.map((p) => p.id) }]);
+    await f.runtime.invoke("link:open", [link.id]);
+    const sent = await f.runtime.invoke("link:send", [
+      { linkId: link.id, operationId: randomUUID(), body: "Review", provider, model: "cm", permissionMode: "full" },
+    ]);
+    await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1);
+    const parent = f.sessions[1];
+    const tool = (name) => parent.options.linked.tools.find((item) => item.name === name);
+    const advisor = await runTool(tool("create_advisor"), { title: "Review", prompt: "Assess", provider: "codex", model: "xm" });
+    assert.equal(advisor.isError, false);
+    await waitUntil(() => f.sessions.length === 3 && f.sessions[2].turns.length === 1);
+    const read = f.sessions[2].options.linked.tools.find((item) => item.name === "advisor_read_file");
+    for (const root of [f.project, other]) {
+      const result = await runTool(read, { root, path: "README.md" });
+      assert.equal(result.isError, false, "advisors can read Projects before a Worktree is created");
+      assert.match(result.text, /Project/);
+    }
+    const created = await runTool(tool("link_worktree_create"), { project: "project" });
+    assert.equal(created.isError, false);
+    f.sessions[2].finish("Advice after expansion");
+    let state;
+    for (let i = 0; i < 200; i++) {
+      state = (await f.runtime.invoke("link:snapshot", [link.id])).state;
+      if (state.sessions[sent.sessionId].queued?.length || parent.turns.length === 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    if (provider === "antigravity") {
+      assert.equal(state.sessions[sent.sessionId].queued?.[0]?.context?.kind, "advisor-result");
+      assert.equal(parent.turns.length, 1);
+    } else {
+      assert.equal(parent.turns.length, 2);
+      assert.match(parent.turns[1].prompt, /Advice after expansion/);
+    }
+  });
+}

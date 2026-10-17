@@ -1516,7 +1516,9 @@ function createRuntime(options) {
     if (session.archived) throw new Error("This Chat is archived.");
     const execution = await scopeStates.executionContext(scope, id);
     if (!execution.cwd) throw new Error("This Chat's Worktree is unavailable.");
-    const roots = [...new Set([execution.cwd, ...(execution.workspaceRoots ?? [])])];
+    // Advisors can compare owned Worktrees with their Project checkouts. Keep those checkout identities when a
+    // pending Link Project gains its Worktree, so an in-flight advisor can still deliver its result.
+    const roots = [...new Set([execution.cwd, ...(execution.workspaceRoots ?? []), ...(execution.readOnlyRoots ?? []), ...(execution.projectRoots ?? [])])];
     const identities = await Promise.all(
       roots.map(async (root) => {
         const real = await fs.realpath(root);

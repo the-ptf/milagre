@@ -82,6 +82,38 @@ test("changed scope and uncertain deliveries stay inspectable without replay", a
   await f.delivery.drain("chat");
   assert.equal(f.sent.length, 0);
 });
+test("a result reaches its Chat after its original roots gain a Worktree", async (t) => {
+  const f = await fixture(t);
+  const roots = [
+    ["/workspace", 1, 10],
+    ["/project", 1, 20],
+  ];
+  const identity = (items) => JSON.stringify(["link:review", "1", null, items]);
+  await f.store.update("chat", (rows) => rows.map((r) => ({ ...r, scopeIdentity: identity(roots) })));
+  f.ctx.scopeIdentity = identity([...roots, ["/worktree", 1, 30]]);
+  await f.delivery.drain("chat");
+  assert.equal(f.sent.length, 1);
+  assert.equal((await f.store.read("chat"))[0].completions[0].delivery, "delivered");
+});
+test("adding roots cannot deliver across a removed root, replaced directory, or different Chat", async (t) => {
+  const f = await fixture(t);
+  const roots = [
+    ["/workspace", 1, 10],
+    ["/project", 1, 20],
+  ];
+  const identity = (id, items) => JSON.stringify(["link:review", id, null, items]);
+  await f.store.update("chat", (rows) => rows.map((r) => ({ ...r, scopeIdentity: identity("1", roots) })));
+  for (const next of [
+    identity("1", [roots[0], ["/new", 1, 30]]),
+    identity("1", [roots[0], ["/project", 1, 99], ["/new", 1, 30]]),
+    identity("2", [...roots, ["/new", 1, 30]]),
+  ]) {
+    f.ctx.scopeIdentity = next;
+    await f.delivery.drain("chat");
+    assert.equal(f.sent.length, 0);
+    assert.equal((await f.store.read("chat"))[0].completions[0].delivery, "pending");
+  }
+});
 test("failed durable sending boundary never calls the provider", async (t) => {
   let sent = 0;
   const delivery = createAdvisorDelivery({
