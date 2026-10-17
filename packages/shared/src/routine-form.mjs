@@ -118,7 +118,18 @@ function triggerOf(state) {
   return fail("trigger", "Pick a trigger");
 }
 
+/** A Linear Routine on new comments: it has no Each run, because comments go into the Chat linked to the issue. */
+export function isCommentRoutine(state) {
+  return state.trigger === "linear" && state.linear?.event === "comment";
+}
+
 function targetOf(state) {
+  // The Mac still keeps a new-chat target on a listed Project for a comment Routine (store.cjs checkTarget); its Runs
+  // never use it, so the form fills it from the Project it has, in a Worktree.
+  if (isCommentRoutine(state)) {
+    if (!text(state.projectPath)) return fail("project", "Pick a Project");
+    return { target: { kind: "new-chat", projectPath: state.projectPath, workspace: "worktree" } };
+  }
   if (state.runIn === "chat") {
     if (state.trigger !== "schedule") return fail("runIn", CHAT_ONLY_SCHEDULE);
     if (!text(state.chatId)) return fail("chat", "Pick the Chat to check on");
@@ -145,7 +156,9 @@ function endOf(state, now) {
   return {};
 }
 
-function common(state, now) {
+function common(form, now) {
+  // A comment Routine's Each run is hidden: whatever it last held (even an existing Chat) doesn't count.
+  const state = isCommentRoutine(form) ? { ...form, runIn: "worktree" } : form;
   const name = text(state.name);
   if (!name) return fail("name", "Give the Routine a name");
   if (name.length > NAME_MAX) return fail("name", `A name is at most ${NAME_MAX} characters`);
@@ -181,7 +194,7 @@ export function formToInput(state, now = Date.now()) {
   return { input: { ...input, ...made.end } };
 }
 
-/** The form for editing `routine`. The webhook's signing header comes from `routineHook`, so it starts blank here. */
+/** The form for editing `routine`. A webhook's signing header is the Routine's own (blank for the default). */
 export function formFromRoutine(routine, timezone, now = Date.now()) {
   const empty = emptyRoutineForm(timezone, now);
   const { trigger, target } = routine;
@@ -197,7 +210,7 @@ export function formFromRoutine(routine, timezone, now = Date.now()) {
   if (trigger.kind === "schedule") state.schedule = scheduleFromCron(trigger.cron, trigger.timezone);
   if (trigger.kind === "linear")
     state.linear = { workspace: trigger.workspace, event: trigger.event, team: trigger.team ?? "", label: trigger.label ?? "", state: trigger.state ?? "" };
-  if (trigger.kind === "webhook") state.webhook = { signed: trigger.signed, signingHeader: "", signingSecret: "" };
+  if (trigger.kind === "webhook") state.webhook = { signed: trigger.signed, signingHeader: routine.signingHeader ?? "", signingSecret: "" };
   if (target.kind === "chat") {
     state.runIn = "chat";
     state.chatId = target.chatId;
@@ -218,19 +231,23 @@ export function formFromRoutine(routine, timezone, now = Date.now()) {
  */
 export function formToUpdate(state, routine, now = Date.now()) {
   if (state.trigger !== routine.trigger.kind) return fail("trigger", "A Routine's trigger kind can't change");
-  if ((state.runIn === "chat") !== (routine.target.kind === "chat"))
+  const comment = isCommentRoutine(state) && routine.target.kind === "new-chat";
+  if (!comment && (state.runIn === "chat") !== (routine.target.kind === "chat"))
     return fail("runIn", "Where a Routine's Runs land can't change between a Chat and new Chats");
-  const made = common(state, now);
+  const made = common(comment ? { ...state, projectPath: routine.target.projectPath } : state, now);
   if (made.error) return made;
-  const patch = { name: made.name, prompt: made.prompt, trigger: made.trigger, target: made.target };
+  // A comment Routine keeps the target it has: the form shows no Project or Each run for it.
+  const patch = { name: made.name, prompt: made.prompt, trigger: made.trigger, target: comment ? routine.target : made.target };
   if (routine.trigger.kind === "webhook") {
     const secret = text(state.webhook.signingSecret);
     const signed = Boolean(secret) || (state.webhook.signed ?? routine.trigger.signed) === true;
     // Signing a webhook that had no secret needs one now, or every delivery would fail its check.
     if (signed && !secret && routine.trigger.signed !== true) return fail("signingSecret", SIGNED_NEEDS_SECRET);
-    patch.trigger = { kind: "webhook", hookId: routine.trigger.hookId, signed };
+    // No hook id: only a rotate changes it, and the one this form opened with is stale after a rotate.
+    patch.trigger = { kind: "webhook", signed };
     if (secret) patch.signingSecret = secret;
-    if (signed && text(state.webhook.signingHeader)) patch.signingHeader = text(state.webhook.signingHeader);
+    // A cleared header (null) goes back to the default.
+    if (signed) patch.signingHeader = text(state.webhook.signingHeader) || null;
   }
   for (const key of ["provider", "model", "permissionMode"]) patch[key] = text(state[key]) || null;
   patch.maxRuns = made.end.maxRuns ?? null;

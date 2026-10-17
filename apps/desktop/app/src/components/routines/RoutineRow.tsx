@@ -16,6 +16,7 @@ import {
   WebhookIcon,
 } from "@hugeicons/core-free-icons";
 import type { Routine } from "@milagre/shared/model";
+import { canRunNow } from "@milagre/shared/routines";
 import GlideMenu from "../primitives/GlideMenu";
 import { Switch } from "../primitives/Switch";
 import { useDismiss } from "../../lib/use-dismiss";
@@ -48,9 +49,6 @@ export function routineIcon(routine: Routine): HugeIconData {
 export function routineChat(routine: RoutineWithRuns): string | undefined {
   return routine.target.kind === "chat" ? routine.target.chatId : routine.runs.find((run) => run.chatId)?.chatId;
 }
-
-/** Run now works for schedules and Heartbeats only: a Linear or webhook trigger has no event to run with. */
-export const canRunNow = (routine: Routine) => routine.trigger.kind === "schedule";
 
 type MenuEntry = { key: string; label: string; icon: HugeIconData; danger?: boolean; onSelect: () => void };
 
