@@ -59,11 +59,6 @@ test("unknown flags are rejected", () => {
   assert.throws(() => parseArgs(["--watchh"]), /Unknown option --watchh/);
 });
 
-test("--skip-build says the renderer is already built; it is off by default", () => {
-  assert.equal(parseArgs([]).skipBuild, false);
-  assert.equal(parseArgs(["--electron", "--skip-build"]).skipBuild, true);
-});
-
 test("--changed is rejected until it is implemented", () => {
   assert.throws(() => parseArgs(["--changed"]), /--changed is not implemented yet; use --only or --workspace/);
 });

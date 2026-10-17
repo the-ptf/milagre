@@ -26,10 +26,10 @@ test("every CI job has a timeout", () => {
   for (const [name, job] of Object.entries(ci.jobs)) assert.ok(Number.isInteger(job["timeout-minutes"]), `${name} needs timeout-minutes`);
 });
 
-test("a run is at most 10 jobs, so two runs fit under the account's 20 concurrent jobs", () => {
+test("a run is at most 14 jobs, so a second run starts six of its jobs under the account's 20 concurrent jobs", () => {
   const jobs = Object.entries(ci.jobs).filter(([name]) => name !== "release");
   const total = jobs.reduce((sum, [, job]) => sum + (job.strategy?.matrix?.shard?.length ?? 1), 0);
-  assert.ok(total <= 10, `${total} jobs per run`);
+  assert.ok(total <= 14, `${total} jobs per run`);
 });
 
 test("CI typechecks once and builds the renderer without a second typecheck", () => {
@@ -62,14 +62,17 @@ test("the release job waits for the required checks, not the change filter or de
   assert.ok(!needs.includes("changes"));
 });
 
-test("CI runs the whole unit suite through the single test command, as one step of the javascript job", () => {
-  assert.ok(runs(ci.jobs.javascript).includes("npm test -- --unit"));
+test("CI runs the whole unit suite through the single test command, after the javascript job's parallel group", () => {
+  const steps = ci.jobs.javascript.steps;
+  const unit = steps.findIndex((step) => step.run === "npm test -- --unit");
+  // node --test uses every core; inside the group the suite took three times as long and its timing-sensitive tests failed.
+  assert.ok(unit > steps.findIndex((step) => step.parallel), "the unit suite follows the group");
   const every = Object.values(ci.jobs).flatMap((job) => runs(job));
   assert.ok(!every.some((run) => /npm run test:/.test(run)), "no per-suite scripts left in CI");
-  assert.ok(!every.some((run) => /--unit --shard/.test(run)), "node --test already uses every core; a second unit shard on the runner would fight it for them");
+  assert.ok(!every.some((run) => /--unit --shard/.test(run)), "one runner, one suite: a second shard would fight the first for the cores");
 });
 
-test("the required javascript check is one job whose checks run as parallel steps, each with its own log", () => {
+test("the required javascript check is one job whose quick checks run as parallel steps, each with its own log", () => {
   const job = ci.jobs.javascript;
   assert.equal(job.needs, undefined);
   assert.equal(job.if, undefined, "javascript always runs");
@@ -87,7 +90,6 @@ test("the required javascript check is one job whose checks run as parallel step
     "npm run build:site",
     "npm run build:renderer --workspace milagre",
     "npm audit signatures",
-    "npm test -- --unit",
   ])
     assert.ok(commands.includes(command), command);
   for (const step of group.parallel) assert.ok(step.name && step.run, "every parallel step is named and runs a command");
@@ -141,40 +143,24 @@ test("installers build on main, on dispatch, and on PRs only with the preview:in
   );
 });
 
-test("Electron checks run on Ubuntu under xvfb, two streams per runner on displays of their own, screenshots kept per runner", () => {
+test("Electron checks run on Ubuntu under xvfb, one shard per matrix leg, with screenshots kept per shard", () => {
   const job = ci.jobs["desktop-checks"];
   assert.equal(job["runs-on"], "ubuntu-24.04");
+  // The shard count in the command must match the matrix, or checks are silently dropped or run twice.
   const shards = job.strategy.matrix.shard;
   assert.deepEqual(
     shards,
     Array.from({ length: shards.length }, (_, i) => i + 1),
   );
-  // Each runner takes slices 2k-1 and 2k of 2n; both come from the matrix, so the counts cannot drift apart.
-  const slices = job.steps.find((step) => step.name === "Name this runner's two slices").run;
-  assert.ok(slices.includes("SLICE_A=$((2 * ${{ matrix.shard }} - 1))/$((2 * ${{ strategy.job-total }}))"), slices);
-  assert.ok(slices.includes("SLICE_B=$((2 * ${{ matrix.shard }}))/$((2 * ${{ strategy.job-total }}))"), slices);
-  const group = job.steps.find((step) => step.parallel);
-  assert.equal(group.parallel.length, 2);
-  const displays = new Set();
-  for (const [stream, slice] of [
-    [group.parallel[0], "$SLICE_A"],
-    [group.parallel[1], "$SLICE_B"],
-  ]) {
-    const display = /^xvfb-run -n (\d+) /.exec(stream.run);
-    assert.ok(display, stream.run);
-    displays.add(display[1]);
-    assert.ok(stream.run.endsWith(`npm test -- --electron --skip-build --shard "${slice}"`), stream.run);
-  }
-  assert.equal(displays.size, 2, "the streams never share an X display");
-  // The renderer is built once before the streams start, so no stream writes dist while the other reads it.
-  const build = job.steps.findIndex((step) => step.run === "npm run build:renderer --workspace milagre");
-  assert.ok(build >= 0 && build < job.steps.indexOf(group), "build before the streams");
-  // The ffmpeg lookup covers both slices.
-  const libraries = job.steps.find((step) => step.name === "Install display and Electron libraries").run;
-  assert.ok(libraries.includes('--shard "$SLICE_A"') && libraries.includes('--shard "$SLICE_B"'), libraries);
-  for (const name of ["LIBGL_ALWAYS_SOFTWARE", "ELECTRON_ENABLE_LOGGING"]) assert.ok(job.env[name], name);
-  // A job-level env can't name runner.temp; the slices step exports the folder, and the upload names the same one.
-  assert.ok(slices.includes('echo "MILAGRE_SCREENSHOT_DIR=$RUNNER_TEMP/electron-screenshots"') && slices.includes('} >> "$GITHUB_ENV"'), slices);
+  const run = job.steps.map((step) => step.run).find((command) => command?.includes("npm test -- --electron"));
+  assert.match(run, /^xvfb-run /);
+  assert.ok(run.endsWith("npm test -- --electron --shard ${{ matrix.shard }}/${{ strategy.job-total }}"), run);
+  // Every place the job names a shard (the ffmpeg lookup too) takes the count from the matrix, or the lookup picks the wrong shard.
+  const occurrences = JSON.stringify(job.steps).split("--shard ").slice(1);
+  assert.ok(occurrences.length >= 2, "the ffmpeg lookup and the test run both name the shard");
+  for (const rest of occurrences) assert.ok(rest.startsWith("${{ matrix.shard }}/${{ strategy.job-total }}"), rest.slice(0, 40));
+  // One Electron stream per runner: two streams were measured 30 s slower with three to eight retries a run.
+  assert.ok(!job.steps.some((step) => step.parallel), "no parallel group in the Electron job");
   const upload = job.steps.find((step) => step.uses?.startsWith("actions/upload-artifact"));
   assert.equal(upload.if, "always()");
   // upload-artifact v4 rejects a second artifact with the same name in one run.

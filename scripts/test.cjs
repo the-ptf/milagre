@@ -11,7 +11,7 @@ try {
   filters = parseArgs(process.argv.slice(2));
 } catch (error) {
   console.error(error.message);
-  console.error("Usage: npm test [-- --unit | --electron] [--workspace <name>] [--only <substring>] [--shard <index>/<count>] [--skip-build] [--list]");
+  console.error("Usage: npm test [-- --unit | --electron] [--workspace <name>] [--only <substring>] [--shard <index>/<count>] [--list]");
   process.exit(2);
 }
 
@@ -55,7 +55,7 @@ if (selected.unit.length) run(`${selected.unit.length} unit test files`, process
 if (selected.electron.length) {
   // Checks write screenshots straight into this folder; with sharding, the one that used to create it may run elsewhere.
   if (process.env.MILAGRE_SCREENSHOT_DIR) require("node:fs").mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
-  if (!filters.skipBuild && selected.electron.some((file) => MANIFEST[path.basename(file)]?.needsBuild))
+  if (selected.electron.some((file) => MANIFEST[path.basename(file)]?.needsBuild))
     run("build renderer", "npm", ["run", "build:renderer", "--workspace", "milagre"]);
   // The first Electron launch on a fresh Linux runner is unreliable (see electron-warmup.cjs); spend it on a throwaway window.
   // A failed warm-up is not a failed check.

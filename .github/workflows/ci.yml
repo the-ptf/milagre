@@ -45,8 +45,8 @@ jobs:
               - '.github/workflows/ci.yml'
               - '.github/actions/**'
   # The required JavaScript check. Its checks were four jobs (static, supply-chain, two unit shards) behind a gate job;
-  # they are parallel steps of one job now, each with its own log. The account runs 20 jobs at once and a run took 18,
-  # so a second run waited for the first; a run takes 10 now and two fit side by side.
+  # they are steps of one job now, the quick ones as a parallel group with a log each. The account runs 20 jobs at
+  # once and a run took 18, so a second run waited for the first; a run takes 14 now and a second one starts six jobs.
   javascript:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -79,9 +79,6 @@ jobs:
             run: npm run build:renderer --workspace milagre
           - name: Verify package signatures
             run: npm audit signatures
-          # node --test already runs the files on every core; a second shard here would only fight it for them.
-          - name: Unit tests
-            run: npm test -- --unit
           # Node built-ins plus the rpm and repository tools; this was the Linux leg of native-tests.
           - name: Test real Linux repository signing
             run: |-
@@ -94,6 +91,10 @@ jobs:
               MILAGRE_LINUX_REPOSITORY_INTEGRATION=1 node --test scripts/linux-repository.test.cjs
               gpgconf --kill gpg-agent || true
               rm -rf "$GNUPGHOME"
+      # node --test runs the files on every core, so the suite runs after the group rather than fighting it for them:
+      # inside the group it took 164 s and its timing-sensitive tests failed; alone, both shards took 58 s each.
+      - name: Unit tests
+        run: npm test -- --unit
   native-tests:
     # The Windows tests. The Linux repository signing test is a parallel step of the javascript job.
     name: native-tests (windows-latest)
@@ -143,8 +144,8 @@ jobs:
           echo "native-tests: $RESULT"
           case "$RESULT" in success|skipped) exit 0 ;; *) exit 1 ;; esac
   desktop-checks:
-    # The Electron checks run one at a time in a stream (each boots Vite and Electron). A runner hosts two streams,
-    # each on an X display of its own, and the streams are split across runners.
+    # The Electron checks run one at a time (each boots Vite and Electron), so they are split across runners. Two
+    # streams per runner were measured: 30 s slower and three to eight retries a run where one shard has none.
     name: desktop-checks (${{ matrix.shard }}/${{ strategy.job-total }})
     needs: changes
     if: needs.changes.outputs.desktop == 'true'
@@ -153,29 +154,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
-    env:
-      LIBGL_ALWAYS_SOFTWARE: "1"
-      ELECTRON_ENABLE_LOGGING: "1"
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
-      # The test runner splits the checks into twice as many slices as there are runners; this runner takes two.
-      # Both streams write screenshots to one folder (a job-level env can't name runner.temp, so it is set here).
-      - name: Name this runner's two slices
-        run: |
-          {
-            echo "SLICE_A=$((2 * ${{ matrix.shard }} - 1))/$((2 * ${{ strategy.job-total }}))"
-            echo "SLICE_B=$((2 * ${{ matrix.shard }}))/$((2 * ${{ strategy.job-total }}))"
-            echo "MILAGRE_SCREENSHOT_DIR=$RUNNER_TEMP/electron-screenshots"
-          } >> "$GITHUB_ENV"
       # The runner image ships most of these; apt only runs for what is missing, since a slow mirror once took 12 minutes.
-      # ffmpeg, the one the image lacks, is only for chat-titles' GIF, so only the runner that runs it installs it.
+      # ffmpeg, the one the image lacks, is only for chat-titles' GIF, so only the shard that runs it installs it.
       - name: Install display and Electron libraries
         run: |
           packages="xvfb libgbm1 libgtk-3-0t64 libnss3 libasound2t64 lsof"
-          if { node scripts/test.cjs --electron --list --shard "$SLICE_A"; node scripts/test.cjs --electron --list --shard "$SLICE_B"; } | grep -q test-chat-titles; then packages="$packages ffmpeg"; fi
+          if node scripts/test.cjs --electron --list --shard ${{ matrix.shard }}/${{ strategy.job-total }} | grep -q test-chat-titles; then packages="$packages ffmpeg"; fi
           missing=$(for package in $packages; do
             dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'install ok installed' || echo "$package"
           done)
@@ -183,14 +172,12 @@ jobs:
           if [ -n "$missing" ]; then sudo apt-get update && sudo apt-get install -y --no-install-recommends $missing; fi
       - name: Allow Electron's sandbox in the runner
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # Checks with needsBuild load apps/desktop/dist. Built once here, so neither stream writes it while the other reads.
-      - name: Build renderer
-        run: npm run build:renderer --workspace milagre
-      - parallel:
-          - name: Run Electron checks (slice A)
-            run: xvfb-run -n 90 -s "-screen 0 1600x1200x24 +extension GLX +render -noreset" npm test -- --electron --skip-build --shard "$SLICE_A"
-          - name: Run Electron checks (slice B)
-            run: xvfb-run -n 91 -s "-screen 0 1600x1200x24 +extension GLX +render -noreset" npm test -- --electron --skip-build --shard "$SLICE_B"
+      - name: Run Electron checks
+        env:
+          MILAGRE_SCREENSHOT_DIR: ${{ runner.temp }}/electron-screenshots
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          ELECTRON_ENABLE_LOGGING: "1"
+        run: xvfb-run -a -s "-screen 0 1600x1200x24 +extension GLX +render -noreset" npm test -- --electron --shard ${{ matrix.shard }}/${{ strategy.job-total }}
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
