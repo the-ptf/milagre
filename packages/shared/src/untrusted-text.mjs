@@ -2,7 +2,8 @@
 // block is data. Text inside a block must not be able to close it or open one of Milagre's own, so these tags are
 // neutralized in whatever is put inside.
 
-const MILAGRE_TAGS = ["linked_worktrees", "delegation_reports", "handoff_brief", "advisor_result", "linear_issue", "milagre_note"];
+// untrusted-data is a Routine's fence (routine-prompt.mjs), which escapes every bracket of what it fences itself.
+const MILAGRE_TAGS = ["linked_worktrees", "delegation_reports", "handoff_brief", "advisor_result", "linear_issue", "milagre_note", "untrusted-data"];
 const TAG = new RegExp(`<(\\s*/?\\s*(?:${MILAGRE_TAGS.join("|")})\\b)`, "gi");
 
 /** The text with every opening or closing Milagre block tag written as `&lt;tag`, so it can't end or start a block. */
