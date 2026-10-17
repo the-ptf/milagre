@@ -93,3 +93,25 @@ test("a Reset can keep the old identity to drain its room's webhooks, privately,
     [second.hostId],
   );
 });
+
+test("no number of Resets evicts an identity still draining; one past its limit goes at the next Reset", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "relay-drain-cap-"));
+  const ids = [];
+  for (let i = 0; i < 6; i++) {
+    ids.push((await readIdentity(dir)).hostId);
+    await rotateIdentity(dir, { drainUntil: 5000 + i, now: 1000 + i });
+  }
+  assert.deepEqual(
+    (await readDraining(dir, 2000)).map((entry) => entry.hostId),
+    ids,
+    "the first still drains: its room may hold deliveries the relay accepted",
+  );
+  const last = (await readIdentity(dir)).hostId;
+  await rotateIdentity(dir, { drainUntil: 9000, now: 5002 });
+  const kept = JSON.parse(await fs.readFile(path.join(dir, "relay-draining.json"), "utf8")).draining;
+  assert.equal(kept.length, 4, "the three past their limit are gone from disk");
+  assert.deepEqual(
+    (await readDraining(dir, 5002)).map((entry) => entry.hostId),
+    [...ids.slice(3), last],
+  );
+});

@@ -1179,8 +1179,9 @@ test("an old room that is both retired (paired phones) and draining gets one hos
   assert.equal(open().length, 1, "one host per old identity");
   const [host] = open();
   host.options.hooks.drained();
-  await waitFor(async () => (await readDraining(dataDir, 0)).length === 0);
-  await delay(20);
+  // The finish runs in the phone's queue: once that is through, the drop and whatever it closes are done.
+  await phone.settled();
+  assert.deepEqual(await readDraining(dataDir, 0), []);
   assert.equal(open().length, 1, "its phones still hear the Mac was reset");
   await phone.setEnabled(false);
   await phone.settled();
@@ -1202,4 +1203,121 @@ test("a drain gives up once the relay can no longer hold anything (25 h)", async
   await later.start();
   await later.settled();
   assert.equal(drainHosts(retired).length, 1, "no new drain host after the limit");
+});
+
+test("a drain that gives up also drops its identity, so the old signing key leaves the disk", async (t) => {
+  const clock = { now: 0 };
+  const { phone, retired, create, dataDir } = await fixture(t, { clock, phoneOptions: { hooks: DRAIN_HOOKS } });
+  await phone.start();
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  await phone.close();
+  // A later launch a moment before the 25 h limit: its drain host gives up a few milliseconds in.
+  clock.now = 25 * 3600_000 - 30;
+  const later = create();
+  t.after(() => later.close());
+  await later.start();
+  await later.settled();
+  const host = drainHosts(retired).at(-1);
+  assert.equal(host.closed, false);
+  await waitFor(() => host.closed);
+  await later.settled();
+  assert.deepEqual(await readDraining(dataDir, 0), []);
+});
+
+test("a Reset that lands while another room's drain finishes keeps both rooms still draining", async (t) => {
+  const { phone, retired, dataDir } = await fixture(t, { phoneOptions: { hooks: DRAIN_HOOKS } });
+  await phone.start();
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  const [first, second] = drainHosts(retired);
+  const current = (await readIdentity(dataDir)).hostId;
+  // The drop reads the list, then waits to write it back until a Reset has written it (or, when the Reset can't, a moment).
+  const file = path.join(dataDir, "relay-draining.json");
+  const { readFile, rename } = fs;
+  let held = false;
+  let release;
+  const released = new Promise((resolve) => (release = resolve));
+  t.mock.method(fs, "readFile", async (name, ...args) => {
+    const read = await readFile(name, ...args);
+    if (name === file && !held) {
+      held = true;
+      await released;
+    }
+    return read;
+  });
+  t.mock.method(fs, "rename", async (from, to) => {
+    await rename(from, to);
+    if (to === file && held) release();
+  });
+  first.options.hooks.drained();
+  const resetting = phone.reset();
+  // Queued behind the drop, the Reset never writes while the drop holds the list, so the hold ends on its own.
+  setTimeout(release, 100);
+  await resetting;
+  await phone.settled();
+  assert.deepEqual(
+    (await readDraining(dataDir, 0)).map((entry) => entry.hostId),
+    [second.options.identity.hostId, current],
+  );
+});
+
+test("a drain that finishes as the bridge restarts leaves the room for the next launch to hold, and throws nothing", async (t) => {
+  const { phone, relays, retired, bridges, dataDir } = await fixture(t, { phoneOptions: { hooks: DRAIN_HOOKS } });
+  // A paired phone, then a Reset with phone access off: the old room is both retired and drained by a host of its own.
+  await phone.setEnabled(true);
+  await phone.settled();
+  await relays.find((host) => !host.options.hooksOnly).options.phones.add("phoneA");
+  await phone.setEnabled(false);
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  const [drain] = drainHosts(retired);
+  const old = drain.options.identity.hostId;
+  await phone.setEnabled(true);
+  await phone.settled();
+  assert.equal(phone.status().state, "on");
+  const warnings = t.mock.method(console, "warn", () => {});
+  // The bridge goes as the finish reads which rooms to hold: restartLater clears `live` outside the queue.
+  const retiredFile = path.join(dataDir, "relay-retired.json");
+  const { readFile } = fs;
+  let lost = false;
+  t.mock.method(fs, "readFile", async (name, ...args) => {
+    if (name === retiredFile && !lost) {
+      lost = true;
+      bridges.at(-1).lose();
+    }
+    return readFile(name, ...args);
+  });
+  drain.options.hooks.drained();
+  await waitFor(() => lost && drain.closed);
+  await waitFor(() => phone.status().state === "on" && retired.some((host) => !host.closed && host !== drain && host.options.identity.hostId === old));
+  assert.equal(warnings.mock.callCount(), 0);
+});
+
+test("a drain whose finish fails says so in the log, with the error's message and no key", async (t) => {
+  const { phone, retired, dataDir } = await fixture(t, { phoneOptions: { hooks: DRAIN_HOOKS } });
+  await phone.start();
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  const [drain] = drainHosts(retired);
+  const file = path.join(dataDir, "relay-draining.json");
+  const { rename } = fs;
+  t.mock.method(fs, "rename", async (from, to) => {
+    if (to === file) throw new Error("disk full");
+    return rename(from, to);
+  });
+  const warnings = t.mock.method(console, "warn", () => {});
+  drain.options.hooks.drained();
+  await phone.settled();
+  await waitFor(() => warnings.mock.callCount() === 1);
+  const logged = warnings.mock.calls[0].arguments.join(" ");
+  assert.match(logged, /disk full/);
+  const { hostId, sign } = drain.options.identity;
+  for (const secret of [hostId, b64url(sign.secretKey), b64url(sign.publicKey)]) assert.equal(logged.includes(secret), false);
 });

@@ -1011,12 +1011,20 @@ test("a draining host says drained once it has acked everything its room held, a
   const received = [];
   let drained = 0;
   let heldWhenDrained = null;
+  // Every answer from the room (hooks.refused hears each one), and how many had come when the host was back online.
+  let answers = 0;
+  let answersWhenBack = null;
   const draining = startRelayHost({
     relayUrl: relay.url,
     identity: first.identity,
     retired: true,
+    timing: { backoff: [20, 40], jitter: false },
+    onStatus: (status) => {
+      if (status === "online" && drained) answersWhenBack = answers;
+    },
     hooks: hookSet([], {
       receive: (list) => received.push(...list),
+      refused: () => (answers += 1),
       drained: () => {
         drained += 1;
         heldWhenDrained = roomOf(relay, first.identity).storage.deliveries.size();
@@ -1028,7 +1036,9 @@ test("a draining host says drained once it has acked everything its room held, a
   assert.equal(received.length, 2);
   assert.equal(heldWhenDrained, 0);
   assert.equal(relay.hooks.directory.owner(HOOK_ID), null, "its hooks released");
-  await sleep(300);
+  // Dropped and back, the host asks its room again and hears that it still holds nothing.
+  relay.hostSockets.at(-1).terminate();
+  await until(() => answersWhenBack !== null && answers > answersWhenBack, "the room's answer after the reconnect");
   assert.equal(drained, 1, "once");
 });
 

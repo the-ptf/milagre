@@ -7,8 +7,6 @@ const { boxKeyPair, signKeyPair, hostIdOf, b64url, fromB64url } = require("@mila
 const random = (n) => new Uint8Array(randomBytes(n));
 // Each retired identity holds one more relay socket while the phone is on, so only the last few are kept.
 const MAX_RETIRED = 3;
-// Old identities kept to drain their rooms' webhook deliveries after a Reset; each one's limit is a day or so.
-const MAX_DRAINING = 5;
 
 async function writePrivate(file, value) {
   await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -63,8 +61,10 @@ async function rotateIdentity(dataDir, { retireUntil, drainUntil, now = Date.now
       await writePrivate(retiredFile(dataDir), { retired: [...kept, { sign: old, until: retireUntil }].slice(-MAX_RETIRED) });
     }
     if (old && drainUntil) {
+      // No cap: an identity still draining may have deliveries the relay accepted waiting in its room, so only those past
+      // their limit (a day or so, see phone.cjs DRAIN_MS) go. That limit is what bounds the list.
       const kept = (await readKeysRaw(drainingFile(dataDir), "draining")).filter((entry) => entry.until > now && entry.sign.publicKey !== old.publicKey);
-      await writePrivate(drainingFile(dataDir), { draining: [...kept, { sign: old, until: drainUntil }].slice(-MAX_DRAINING) });
+      await writePrivate(drainingFile(dataDir), { draining: [...kept, { sign: old, until: drainUntil }] });
     }
   }
   const sign = signKeyPair(random),

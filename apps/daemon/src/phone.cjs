@@ -108,7 +108,12 @@ function createPhone({
   // Old rooms a Reset left with webhook deliveries in them, each drained by a host of its own: hostId -> { host, timer }.
   // A room the phone already holds as retired (paired phones, phone on) drains through that host instead.
   const drains = new Map();
-  const drainHooks = (hostId) => retiringHooks && { ...retiringHooks, drained: () => void finishDrain(hostId) };
+  // Nothing waits on a finish, and the daemon has no handler for a rejection nobody caught: it is logged, without any key.
+  const drainHooks = (hostId) =>
+    retiringHooks && {
+      ...retiringHooks,
+      drained: () => void finishDrain(hostId).catch((failure) => console.warn("[phone] couldn't finish draining an old relay room:", message(failure))),
+    };
   const wantsHooks = () => {
     try {
       return Boolean(relayHooks) && relayHooks.ids().length > 0;
@@ -322,14 +327,15 @@ function createPhone({
     for (const [hostId, entry] of wanted) {
       if (drains.has(hostId)) continue;
       const host = startRelay({ relayUrl, identity: { hostId, sign: entry.sign }, retired: true, hooks: drainHooks(hostId) });
-      // Past the relay's retention there is nothing left to take.
+      // Past the relay's retention there is nothing left to take: the host goes, and the identity with its signing key.
       const timer = setTimeout(
         () => {
           void enqueue(async () => {
             if (drains.get(hostId)?.host !== host) return;
             drains.delete(hostId);
             await host.close().catch(() => {});
-          });
+            await dropDraining(dataDir, hostId);
+          }).catch((failure) => console.warn("[phone] couldn't drop an old relay identity:", message(failure)));
         },
         Math.min(Math.max(entry.until - now(), 0), 2 ** 31 - 1),
       );
@@ -344,18 +350,24 @@ function createPhone({
       await entry.host.close().catch(() => {});
     }
   }
-  /** The old room holds nothing more: its identity goes, and so does its host unless the phone holds the room for its phones. */
-  async function finishDrain(hostId) {
-    await dropDraining(dataDir, hostId).catch(() => {});
-    await enqueue(async () => {
+  /**
+   * The old room holds nothing more: its identity goes, and so does its host unless the phone holds the room for its phones.
+   * All of it runs in the queue, so a Reset's rotateIdentity can't write the list between the drop's read and its write.
+   */
+  function finishDrain(hostId) {
+    return enqueue(async () => {
+      await dropDraining(dataDir, hostId);
       const entry = drains.get(hostId);
       if (!entry) return;
       drains.delete(hostId);
       clearTimeout(entry.timer);
       await entry.host.close().catch(() => {});
-      if (!live || closed || live.retired?.some((held) => held.hostId === hostId)) return;
+      const unwanted = () => !live || closed || live.retired?.some((held) => held.hostId === hostId);
+      if (unwanted()) return;
       const old = (await readRetired(dataDir, now())).find((item) => item.hostId === hostId);
-      if (old) live.retired.push(holdOne(old, false));
+      // Asked again: a bridge that lost the daemon clears `live` outside the queue (restartLater), and the next launch
+      // holds the room then.
+      if (old && !unwanted()) live.retired.push(holdOne(old, false));
     });
   }
 
