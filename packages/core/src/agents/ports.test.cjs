@@ -198,6 +198,40 @@ test("stopping a port ends its command's group, and only a pid the chat shows", 
   watcher.close();
 });
 
+test("a stop during a poll waits for it and reads again, so the stopped server is gone when it resolves", async () => {
+  let alive = true;
+  let release;
+  const published = [];
+  const watcher = new PortWatcher({
+    roots: () => new Map([["/a#1", { pid: 100 }]]),
+    publish: (ports) => published.push(ports),
+    pollMs: 60_000,
+    graceMs: 200,
+    exec: async (command) => {
+      const listing = command === "ps" ? (alive ? PS : PS.replace(/^.*\b11[012]\b.*$/gm, "")) : alive ? LSOF : "";
+      // The poll already running read the listeners before the server died, and hasn't published them yet.
+      if (command === "lsof" && release === null) return new Promise((resolve) => (release = () => resolve(listing)));
+      return listing;
+    },
+    kill: (target, signal) => {
+      if (signal === "SIGTERM") alive = false;
+      if (signal === 0 && !alive) throw Object.assign(new Error("gone"), { code: "ESRCH" });
+    },
+  });
+  await watcher.poll();
+  release = null;
+  const running = watcher.poll({ fresh: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  const stopped = watcher.stopPort("/a#1", 111);
+  await new Promise((resolve) => setImmediate(resolve));
+  release();
+  assert.equal(await stopped, true);
+  await running;
+  assert.deepEqual(watcher.snapshot(), {}, "the stale read in flight doesn't stand as the list Stop resolves with");
+  assert.deepEqual(published.at(-1), {});
+  watcher.close();
+});
+
 test("a port that ignores SIGTERM gets SIGKILL", async () => {
   const signals = [];
   const watcher = new PortWatcher({

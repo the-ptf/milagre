@@ -185,7 +185,8 @@ class PortWatcher {
     this.windowsIdentities = new Map();
     this.ports = {};
     this.timer = null;
-    this.polling = false;
+    // The poll under way, if any.
+    this.polling = null;
   }
 
   /** Every chat's ports now. */
@@ -255,37 +256,48 @@ class PortWatcher {
     return true;
   }
 
-  /** `fresh` re-reads listeners even if the chats' pids are unchanged, e.g. after stopping one. */
+  /**
+   * `fresh` re-reads listeners even if the chats' pids are unchanged, e.g. after stopping one. A fresh read asked for
+   * while a poll runs waits for it and reads again: that poll may have read the processes before the change.
+   */
   async poll({ fresh = false } = {}) {
-    if (this.closed || this.polling) return;
+    if (this.closed) return;
+    if (this.polling) {
+      if (!fresh) return;
+      await this.polling;
+      return this.poll({ fresh });
+    }
     clearTimeout(this.timer);
     this.timer = null;
-    this.polling = true;
-    try {
-      const roots = this.roots();
-      if (roots.size || this.groups.size) {
-        const processes = parsePs(await this.exec("ps", ["-axo", "pid=,ppid=,pgid=,comm="]));
-        if (this.platform === "win32") {
-          const stillRunning = this.roots();
-          for (const [chatId, root] of roots) if (stillRunning.get(chatId)?.pid !== root.pid) roots.delete(chatId);
-          const current = new Map(processes.map((row) => [row.pid, row.startedAt]));
-          for (const known of this.groups.values())
-            for (const pid of known) {
-              if (!current.get(pid) || current.get(pid) !== this.windowsIdentities.get(pid)) known.delete(pid);
-            }
-          this.windowsIdentities = current;
-        }
-        this.processes = new Map(processes.map((row) => [row.pid, row]));
-        const byChat = chatProcesses(processes, roots, this.groups);
-        const pids = [...new Set([...byChat.values()].flatMap((set) => [...set]))];
-        this.set(chatPorts(await this.listenersOf(pids, fresh), byChat));
-      } else this.set({});
-      if (!this.closed && (this.roots().size || this.groups.size)) {
-        this.timer = setTimeout(() => void this.poll(), this.isRunning() ? this.pollMs : this.idlePollMs);
-        this.timer.unref?.();
+    this.polling = this.read(fresh).finally(() => {
+      this.polling = null;
+    });
+    return this.polling;
+  }
+
+  /** One read of the processes and their listeners; schedules the next poll. */
+  async read(fresh) {
+    const roots = this.roots();
+    if (roots.size || this.groups.size) {
+      const processes = parsePs(await this.exec("ps", ["-axo", "pid=,ppid=,pgid=,comm="]));
+      if (this.platform === "win32") {
+        const stillRunning = this.roots();
+        for (const [chatId, root] of roots) if (stillRunning.get(chatId)?.pid !== root.pid) roots.delete(chatId);
+        const current = new Map(processes.map((row) => [row.pid, row.startedAt]));
+        for (const known of this.groups.values())
+          for (const pid of known) {
+            if (!current.get(pid) || current.get(pid) !== this.windowsIdentities.get(pid)) known.delete(pid);
+          }
+        this.windowsIdentities = current;
       }
-    } finally {
-      this.polling = false;
+      this.processes = new Map(processes.map((row) => [row.pid, row]));
+      const byChat = chatProcesses(processes, roots, this.groups);
+      const pids = [...new Set([...byChat.values()].flatMap((set) => [...set]))];
+      this.set(chatPorts(await this.listenersOf(pids, fresh), byChat));
+    } else this.set({});
+    if (!this.closed && (this.roots().size || this.groups.size)) {
+      this.timer = setTimeout(() => void this.poll(), this.isRunning() ? this.pollMs : this.idlePollMs);
+      this.timer.unref?.();
     }
   }
 
