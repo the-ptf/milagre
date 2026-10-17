@@ -1017,7 +1017,8 @@ function createRuntime(options) {
   }
 
   const chats = new ChatHost({
-    beforeTask: (request) => checkpoints.begin(request),
+    // Undo is a convenience: a Worktree it can't capture still runs the task, with no checkpoint.
+    beforeTask: (request) => checkpoints.begin(request).catch((error) => console.warn("Checkpoint start capture failed:", error.message)),
     beforeSend: async (request) => {
       if (request.context?.kind !== "advisor-result" && request.sessionId != null) await advisorDelivery?.resume(`${request.projectPath}#${request.sessionId}`);
     },

@@ -74,7 +74,8 @@ function fileOperation(request) {
 async function namesFor(root) {
   return (await git.text(root, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])).split("\0").filter(Boolean);
 }
-function createCheckpoints({ directory, assertIdle = async () => {}, validateRoots = async () => {} }) {
+/** `budget` caps the bytes one capture saves across a Chat's Worktrees; past it the largest files stay out. */
+function createCheckpoints({ directory, budget = 100 * 1024 * 1024, assertIdle = async () => {}, validateRoots = async () => {} }) {
   const running = new Map(),
     previews = new Map();
   let queue = Promise.resolve();
@@ -94,23 +95,24 @@ function createCheckpoints({ directory, assertIdle = async () => {}, validateRoo
     return item;
   }
 
-  async function snapshot(roots) {
+  /** `only[index]`, when given, limits root `index` to those files: a restore saves just the files it writes. */
+  async function snapshot(roots, only) {
     const snapshots = [];
     let excluded = 0,
       total = 0;
-    for (const root of roots) {
+    for (const [index, root] of roots.entries()) {
       const id = await identity(root);
       const captured = await fileOperation({
         op: "scan",
         root,
         identity: id,
-        names: [...new Set(await namesFor(root))].toSorted(),
+        names: [...new Set(only ? only[index] : await namesFor(root))].toSorted(),
         blobDirectory: path.join(directory, "blobs"),
+        // A shared Chat's Worktrees take what the earlier ones left of the budget.
+        budget: budget - total,
       });
       if (!same(id, await identity(root))) throw new Error("Worktree changed during checkpoint capture");
-      // Each worker bounds content at 100 MiB; a shared Chat has the same aggregate limit.
       total += captured.total;
-      if (total > 100 * 1024 * 1024) throw new Error("Checkpoint exceeds 100 MiB");
       excluded += captured.blocked.length;
       snapshots.push({ identity: id, files: captured.files, blocked: captured.blocked });
     }
@@ -137,7 +139,7 @@ function createCheckpoints({ directory, assertIdle = async () => {}, validateRoo
         (name) =>
           !before.blocked.includes(name) && !after?.blocked.includes(name) && (!after || !same(entryAt(before.files, name), entryAt(after.files, name))),
       );
-      const current = await fileOperation({ op: "inspect", root, identity: before.identity, names: candidates });
+      const current = await fileOperation({ op: "inspect", root, identity: before.identity, names: candidates, budget });
       states.push({ identity: before.identity, patterns: current.patterns });
       for (const name of candidates) {
         if (current.blocked.includes(name)) {
@@ -245,7 +247,11 @@ function createCheckpoints({ directory, assertIdle = async () => {}, validateRoo
         // `redo` marks restoring a recovery checkpoint: putting back the files an earlier restore replaced.
         const outcome = { checkpointId: item.id, kept: current.files.length - selected.length, redo: item.kind === "recovery" };
         if (!selected.length) return { ...outcome, restored: 0, recoveryId: null };
-        const captured = await snapshot(item.before.map((s) => s.identity.root));
+        // Only the files about to change: the rest of the Worktree can't crowd them out of the budget.
+        const captured = await snapshot(
+          item.before.map((s) => s.identity.root),
+          item.before.map((_, index) => selected.filter((file) => file.key.startsWith(`${index}:`)).map((file) => file.path)),
+        );
         const recovery = {
           version: 1,
           id: randomUUID(),

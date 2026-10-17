@@ -796,7 +796,8 @@ class ChatHost {
     if (queuedEntry) return this.queueSaved(projectPath, target, queuedEntry);
     try {
       await this.states.flush(projectPath);
-      if (newTask) await this.beforeTask({ ...request, ...target, messageId: pendingId });
+      // A /compact changes no files, so it takes no checkpoint.
+      if (newTask && !compaction) await this.beforeTask({ ...request, ...target, messageId: pendingId });
     } catch (error) {
       this.doneStarting(target.chatId);
       if (preparation) {
