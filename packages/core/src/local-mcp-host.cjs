@@ -5,6 +5,8 @@ const path = require("node:path");
 const { projectOfKey, sessionIdFromKey, lastUserModel } = require("@milagre/shared/agent-runs");
 const { IMAGE_TYPES } = require("@milagre/shared/limits");
 const { chatActivity } = require("@milagre/shared/chat-activity");
+const { queueStatus } = require("@milagre/shared/queued-messages");
+const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
 
 // How much a permission mode allows, least first. A tool never gives a Chat more than its caller has without the user's say.
 const MODE_RANK = { ask: 0, auto: 1, full: 2 };
@@ -87,8 +89,20 @@ function createLocalMcpHost({
       backgroundWork: background,
       approvals: run?.approvals?.length ?? 0,
       questions: run?.questions?.length ?? 0,
+      queued: session.queued?.length ?? 0,
     };
   };
+  // Messages waiting for the running turn to end, on a provider that can't steer (chat-host.cjs), with the line the
+  // Chat shows above them.
+  const queue = (chatId, session) =>
+    session.queued?.length
+      ? {
+          queue: {
+            status: queueStatus({ count: session.queued.length, held: Boolean(session.queueHeld), running: Boolean(chats.runs[chatId]) }),
+            messages: session.queued.map(({ id, body, provider, model, queuedAt }) => ({ id, body, provider, model, queuedAt })),
+          },
+        }
+      : {};
   const callerMode = (caller) => (caller ? permissionMode(caller, "ask") : "ask");
   // Past what the caller may do alone: the user decides on a card in the caller's Chat. An outside client has no Chat.
   const confirm = async (caller, request) => {
@@ -155,7 +169,12 @@ function createLocalMcpHost({
     async readChat({ projectPath, chatId, limit }) {
       const { session } = await chat(projectPath, chatId);
       const messages = await scopeStates.chatMessages(projectPath, [session.id]);
-      return { ...progress(chatId, session), ...pending(chatId), messages: messages.slice(-limit).map(({ id, role, body }) => ({ id, role, body })) };
+      return {
+        ...progress(chatId, session),
+        ...pending(chatId),
+        ...queue(chatId, session),
+        messages: messages.slice(-limit).map(({ id, role, body }) => ({ id, role, body })),
+      };
     },
     async createWorktree(args, operationId, assertActive) {
       const result = await createWorktree({ localMcp: { operationId, assertActive } }, args);
@@ -199,6 +218,7 @@ function createLocalMcpHost({
         }),
       );
       assertActive();
+      const waits = Boolean(chats.runs?.[chatId]) && !providerCapabilities(session.provider ?? chosenProvider).steer;
       const modeNow = () => asked ?? permissionMode(chatId, caller ? permissionMode(caller) : "ask");
       const mode = modeNow();
       const result = await chats.send({
@@ -222,7 +242,13 @@ function createLocalMcpHost({
       });
       // A running turn takes the asked mode at once, as the composer's switch does.
       if (asked) await setPermissionMode(chatId, asked);
-      return { chatId: `${projectPath}#${result.sessionId}`, accepted: true };
+      // MCP sends never join the Chat's queue (chat-host.cjs): an agent that can't steer takes this one as its next turn
+      // once the running one ends (acp-session.cjs), so the caller hears it waits.
+      return {
+        chatId: `${projectPath}#${result.sessionId}`,
+        accepted: true,
+        ...(waits ? { note: "This Chat's agent can't take a message mid-turn: it starts this one after its running turn ends." } : {}),
+      };
     },
     async stopChat({ projectPath, chatId }) {
       await chat(projectPath, chatId);

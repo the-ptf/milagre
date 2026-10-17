@@ -74,6 +74,7 @@ import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turn
 import LINEAR_MARK from "../../assets/linear-mark.png";
 import { Icon, LinearLogo } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
+import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
 import { ErrorNotice, GlassIconButton, IconButton, PageScroll, PillButton, PullDown, useStyles } from "../ui";
@@ -431,6 +432,7 @@ export default function ChatScreen() {
     chatId: pending ? (pendingCanonicalId ?? pending.preview.session.id) : params.id ? Number(params.id) : undefined,
     worktreeId: targetMatches && worktreeOf ? worktreeOf.id : undefined,
   });
+  useReadOpenChat(connected, projectPath, targetMatches && params.id ? session.snapshot?.project.state.sessions[Number(params.id)] : undefined, !!panels.open);
   // A Chat picked in another Project opens that Project here, behind the splash mark, rather than in the navigation.
   const { wanted, error: openError, retry: retryOpen } = useOpenProject(params);
   // A new Chat picked without a Worktree starts in the Project's own checkout once the Project is here.

@@ -121,7 +121,7 @@ function managementToolGroups({ host, operations }) {
         ),
         read(
           "chat_read",
-          "Read a Chat's recent messages, current progress, and the approvals and questions it waits on (answer them with chat_respond).",
+          "Read a Chat's recent messages, current progress, the approvals and questions it waits on (answer them with chat_respond), and the messages queued behind its running turn.",
           { ...chatInput, limit: z.number().int().min(1).max(100).default(30) },
           (args) => host.readChat(args),
         ),
@@ -140,7 +140,7 @@ function managementToolGroups({ host, operations }) {
         ),
         mutate(
           "chat_start",
-          "Send a task to an existing Chat through Milagre. Nothing comes back from it: an agent that wants the result uses delegate, which reports back. provider, model and effort switch the Chat as its pickers do (a new provider hands off). permissionMode sets its mode; more than the caller's own needs the user's approval, and the call waits for it. Otherwise it keeps its mode, and a Chat with no running agent takes the calling Chat's. files and images are absolute paths inside the Chat's Worktree. Reuse requestId on retry.",
+          "Send a task to an existing Chat through Milagre. Nothing comes back from it: an agent that wants the result uses delegate, which reports back. A Chat whose agent can't take a message mid-turn starts it after its running turn (the answer's note says so). provider, model and effort switch the Chat as its pickers do (a new provider hands off). permissionMode sets its mode; more than the caller's own needs the user's approval, and the call waits for it. Otherwise it keeps its mode, and a Chat with no running agent takes the calling Chat's. files and images are absolute paths inside the Chat's Worktree. Reuse requestId on retry.",
           "start",
           {
             ...chatInput,

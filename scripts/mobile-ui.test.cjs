@@ -1816,6 +1816,7 @@ function chatHost({
     "../icons": { Icon: "Icon" },
     "../bottom-fade": { BottomFade: "BottomFade", EdgeFade: "EdgeFade" },
     "../side-panels": { useSidePanels: () => panels, PanelSwipe: "PanelSwipe" },
+    "../read-open-chat": { useReadOpenChat() {} },
     "../loading-logo": { LoadingLogo: "LoadingLogo" },
     "../use-open-project": load("use-open-project.ts", {
       react,
@@ -2579,6 +2580,73 @@ test("mobile list PR lookups combine branch and historical statuses and stop whi
   listener();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(render()["/next"].branch.number, 248, "foreground resumes PR lookup");
+  react.cleanup();
+});
+
+test("the phone reads the Chat on screen: on opening, on coming back to it, and when a reply lands there", () => {
+  const react = hookHost({ effects: true });
+  let changed;
+  let focus;
+  const app = { currentState: "active", addEventListener: (_event, fn) => ((changed = fn), { remove() {} }) };
+  const patches = [];
+  // Arguments come from the module's own realm: compared as JSON.
+  const client = { call: async (method, args) => patches.push(JSON.parse(JSON.stringify([method, args]))) };
+  const { useReadOpenChat } = load("read-open-chat.ts", {
+    react,
+    "expo-router": { useFocusEffect: (fn) => (focus = fn) },
+    "react-native": { AppState: app },
+  });
+  const read = [["chat:patch", ["/p", 4, { unread: false }]]];
+  let chat = { id: 4, unread: true };
+  let covered = false;
+  const render = () => {
+    react.begin();
+    useReadOpenChat(client, "/p", chat, covered);
+  };
+  render();
+  assert.deepEqual(patches, [], "nothing is read before the screen has focus");
+  const blur = focus();
+  render();
+  assert.deepEqual(patches, read, "opening the Chat reads it");
+  chat = { id: 4, unread: false };
+  render();
+  // Mark as unread from the sidebar, which covers the Chat: it sticks until the Chat shows again.
+  covered = true;
+  render();
+  chat = { id: 4, unread: true };
+  render();
+  assert.equal(patches.length, 1);
+  covered = false;
+  render();
+  assert.deepEqual(patches, [...read, ...read], "closing the sidebar over it reads it again");
+  chat = { id: 4, unread: false };
+  render();
+  // A turn that ends while the Chat shows sets the mark on the host; the phone clears it.
+  chat = { id: 4, unread: true };
+  render();
+  assert.equal(patches.length, 3);
+  chat = { id: 4, unread: false };
+  render();
+  // In the background, or with another screen on top, nothing is read until the Chat shows again.
+  app.currentState = "background";
+  changed("background");
+  render();
+  chat = { id: 4, unread: true };
+  render();
+  assert.equal(patches.length, 3);
+  changed("active");
+  render();
+  assert.equal(patches.length, 4, "coming back to the foreground over the Chat reads it");
+  chat = { id: 4, unread: false };
+  render();
+  blur();
+  render();
+  chat = { id: 4, unread: true };
+  render();
+  assert.equal(patches.length, 4);
+  focus();
+  render();
+  assert.equal(patches.length, 5);
   react.cleanup();
 });
 
@@ -6920,6 +6988,51 @@ test("mobile Ports sheet stops only this Chat's process and refuses another host
   other.render("PortsSheet", { hostId: "other", chatId: "/p#7" });
   await settle();
   assert.deepEqual(calls, []);
+});
+
+test("mobile Ports sheet drops a server Stop ended before the host's list comes back", async (t) => {
+  let refetch = null;
+  let stopped = false;
+  const ports = [
+    { port: 3000, pid: 22, command: "node", address: "127.0.0.1" },
+    { port: 8081, pid: 23, command: "node", address: "*" },
+  ];
+  const client = {
+    url: "mac",
+    call: async (method) => {
+      if (method === "agent:stop-port") {
+        stopped = true;
+        return true;
+      }
+      // The list after Stop hasn't come back yet.
+      if (stopped) return new Promise((resolve) => (refetch = resolve));
+      return { chatId: "/p#7", ports };
+    },
+  };
+  const h = simulatorHost(client, "ports.tsx");
+  t.after(() => h.cleanup());
+  const render = () => h.render("PortsSheet", { hostId: "mac", chatId: "/p#7" });
+  render();
+  await settle();
+  void find(render(), (n) => n.props.accessibilityLabel === "Stop port 3000").props.onPress();
+  await settle();
+  assert.equal(
+    find(render(), (n) => n.props.accessibilityLabel === "Stop port 3000"),
+    undefined,
+    "the stopped row leaves at once",
+  );
+  assert.ok(
+    find(render(), (n) => n.props.accessibilityLabel === "Stop port 8081"),
+    "the other server stays",
+  );
+  assert.equal(typeof refetch, "function", "the list is read again right after Stop");
+  // The host's list has the last word.
+  refetch({ chatId: "/p#7", ports: [ports[1]] });
+  await settle();
+  assert.equal(
+    find(render(), (n) => n.props.accessibilityLabel === "Stop port 3000"),
+    undefined,
+  );
 });
 
 function artifactHost(client, pushes = [], router = { back() {} }, feature = designsOn) {
