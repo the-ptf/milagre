@@ -2076,9 +2076,11 @@ function createRuntime(options) {
 
   function close() {
     closing = true;
-    routines.stop();
+    // A comment already on its way goes back to its queue before the rest closes.
+    const routinesStopped = routines.stop();
     linked.suspend();
     closed ??= (async () => {
+      await routinesStopped;
       await localMcp.close();
       await advisorDelivery.close();
       await advisors.close();

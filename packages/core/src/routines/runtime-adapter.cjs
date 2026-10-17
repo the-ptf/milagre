@@ -513,9 +513,11 @@ function createRoutines({
       scheduler.start();
       poller.start();
     },
+    // Resolves once a comment already on its way has gone back to its queue.
     stop() {
       scheduler.stop();
       poller.stop();
+      return scheduler.idle();
     },
     read: () => ({ enabled: store.enabled() }),
     async save(value) {
@@ -525,9 +527,11 @@ function createRoutines({
         poller.start();
       } else {
         poller.stop();
-        // Off: one tick turns the routines' keep-awake off now, and the timer stops until the switch is on again.
+        // Off: one tick turns the routines' keep-awake off now, and the timer stops until the switch is on again. A comment
+        // already on its way goes back to its queue; this resolves once it has.
         await scheduler.tick();
         scheduler.stop();
+        await scheduler.idle();
       }
       changed();
       return { enabled };

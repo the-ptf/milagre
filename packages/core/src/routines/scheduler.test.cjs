@@ -410,15 +410,23 @@ test("a send that steers into a running turn finishes failed and never classifie
 });
 
 test("a turn that fails after the beat's message is sent but before it starts finishes the Run failed", async () => {
-  const ctx = setup();
+  let ctx = null;
   let resolveStarted;
+  ctx = setup({
+    chatOptions: {
+      async send(chatId, message) {
+        ctx.calls.send.push({ chatId, ...message });
+        // The turn the Chat just ended is published late, before the beat's message: not the beat's.
+        ctx.scheduler.observe("c1", { type: "turn-failed", message: "the turn before" });
+        assert.equal(lastRun(ctx).status, "running");
+        ctx.scheduler.observe("c1", { type: "message-sent", routineRunId: message.context.runId });
+        return { started: ctx.state.startResult };
+      },
+    },
+  });
   ctx.state.startResult = new Promise((resolve) => (resolveStarted = resolve));
   due(ctx);
   await ctx.scheduler.tick();
-  // The turn the Chat just ended is published late, before the beat's message: not the beat's.
-  ctx.scheduler.observe("c1", { type: "turn-failed", message: "the turn before" });
-  assert.equal(lastRun(ctx).status, "running");
-  ctx.scheduler.observe("c1", { type: "message-sent" });
   ctx.scheduler.observe("c1", { type: "turn-failed", message: "Claude Code isn't installed." });
   assert.equal(lastRun(ctx).status, "failed");
   assert.equal(lastRun(ctx).error, "Claude Code isn't installed.");
@@ -791,8 +799,9 @@ test("the Run is pending before its first message is awaited: a turn that ends w
       async send(chatId, message) {
         ctx.calls.send.push({ chatId, ...message });
         ctx.state.reply = "(pass) nothing new";
-        ctx.scheduler.observe(chatId, { type: "message-sent" });
-        ctx.scheduler.observe(chatId, { type: "turn-started" });
+        // ChatHost names the Run its message carries on the message-sent it publishes.
+        ctx.scheduler.observe(chatId, { type: "message-sent", routineRunId: message.context.runId });
+        ctx.scheduler.observe(chatId, { type: "turn-started", turnId: "t" });
         ctx.scheduler.observe(chatId, { type: "turn-completed" });
         return { started: Promise.resolve({ turnId: "t" }) };
       },
@@ -1456,4 +1465,78 @@ test("a malformed issue key fences an otherwise good URL", async () => {
     ctx.calls.send[0].body.split("\n\n").at(-1),
     'See <untrusted-data source="Linear issue url">https://linear.app/milagre/issue/MIL-1</untrusted-data>',
   );
+});
+
+test("a user's turn that starts and ends while a beat is on its way never finishes the beat's Run", async () => {
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  let message;
+  const ctx = setup({
+    chatOptions: {
+      async send(chatId, sent) {
+        ctx.calls.send.push({ chatId, ...sent });
+        message = sent;
+        await gate;
+        return { started: Promise.resolve({ turnId: "beat-turn" }) };
+      },
+    },
+  });
+  due(ctx);
+  const ticking = ctx.scheduler.tick();
+  await new Promise((resolve) => setImmediate(resolve));
+  // The user's own message and turn, in the gap before the beat's message is saved.
+  ctx.state.reply = "(pass) the user's reply";
+  ctx.scheduler.observe("c1", { type: "message-sent" });
+  ctx.scheduler.observe("c1", { type: "turn-started", turnId: "user-turn" });
+  ctx.scheduler.observe("c1", { type: "turn-completed" });
+  assert.equal(lastRun(ctx).status, "running", "the user's turn isn't the beat's");
+  // Now the beat's message goes in and its own turn runs.
+  ctx.scheduler.observe("c1", { type: "message-sent", routineRunId: message.context.runId });
+  release();
+  await ticking;
+  await new Promise((resolve) => setImmediate(resolve));
+  ctx.state.reply = "CI failed, fixing it.";
+  ctx.scheduler.observe("c1", { type: "turn-started", turnId: "beat-turn" });
+  ctx.scheduler.observe("c1", { type: "turn-completed" });
+  assert.equal(lastRun(ctx).status, "acted");
+});
+
+test("a comment still on its way when the scheduler stops is put back in the queue, not sent", async () => {
+  const ctx = triggers();
+  const routine = createComments(ctx);
+  let release;
+  ctx.state.lookup = new Promise((resolve) => (release = resolve));
+  ctx.scheduler.enqueueEvent(routine.id, commentEvent("k1"));
+  await ctx.raw.tick();
+  ctx.raw.stop();
+  release();
+  await ctx.raw.idle();
+  assert.equal(ctx.calls.send.length, 0);
+  assert.deepEqual(
+    ctx.store.runs(routine.id).filter((run) => run.status === "running"),
+    [],
+  );
+  // Back in the queue: started again later, and sent then.
+  ctx.state.lookup = null;
+  ctx.raw.start();
+  try {
+    await ctx.scheduler.tick();
+  } finally {
+    ctx.raw.stop();
+  }
+  assert.equal(ctx.calls.send.length, 1);
+});
+
+test("a comment whose Chat lookup keeps failing is logged once, not on every retry", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const ctx = triggers();
+  const routine = createComments(ctx);
+  ctx.state.lookupError = new Error("registry unreadable");
+  ctx.scheduler.enqueueEvent(routine.id, commentEvent("k1"));
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await ctx.scheduler.tick();
+    ctx.clock.t += 15_000;
+  }
+  assert.equal(ctx.calls.linked.length, 4, "it tried four times");
+  assert.equal(warn.mock.callCount(), 1);
 });
