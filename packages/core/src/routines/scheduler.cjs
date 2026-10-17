@@ -1,5 +1,5 @@
 const { isTurnEnd } = require("@milagre/shared/agent-runs");
-const { parsePass } = require("@milagre/shared/routines");
+const { clock, parsePass } = require("@milagre/shared/routines");
 const { renderRoutinePrompt } = require("@milagre/shared/routine-prompt");
 
 const TICK_MS = 1000;
@@ -57,13 +57,23 @@ function linearPrompt(template, issue, comment, author) {
   return renderRoutinePrompt(template, values, untrusted);
 }
 
+// A schedule's message: the Routine's prompt with {{date}} and {{time}} filled in on the trigger's clock at `at`, the same
+// for a heartbeat's beat and a Run in a Chat of its own.
+function schedulePrompt(template, at, timezone) {
+  const [date, time] = clock(at, timezone, true).split(" ");
+  return renderRoutinePrompt(template, { date, time });
+}
+
+// What a Run executes on, as its Routine said when the Run was claimed (the claim's copy): an edit since never reaches it.
+const claimedSettings = (routine) => ({ provider: routine.provider, model: routine.model, permissionMode: routine.permissionMode });
+
 /**
  * Starts each Routine's Runs and records how their turns went. A heartbeat's beat goes into its Chat; a trigger's Run (and a
  * schedule's with a new-chat target) starts a Chat of its own; a Linear comment goes into the Chat linked to its issue.
  * `chats` is the adapter the runtime builds: exists, archived, busy (a turn open, preparing, or an approval or question
- * pending), send (resolves once the message is accepted, with a `started` promise for the turn and whether the Chat was
- * `unread` before it), replyText, patchRunContext, startChat (makes a Run's Chat, in a new Worktree or the Project folder,
- * and words its first message), archive and linkedChat (the Chat a Linear issue's comments go into, or null).
+ * pending), send (resolves once the message is accepted, with a `started` promise for the turn), replyText,
+ * patchRunContext, startChat (makes a Run's Chat, in a new Worktree or the Project folder, and words its first message),
+ * archive and linkedChat (the Chat a Linear issue's comments go into, or null).
  */
 function createRoutineScheduler({
   store,
@@ -80,6 +90,7 @@ function createRoutineScheduler({
   let timer = null;
   let ticking = false;
   let swept = false;
+  let recovered = false;
   let awake = null;
   // Chats whose beat failed to start again, its turn end not yet published: that end is marked quiet when it comes.
   const silenced = new Set();
@@ -145,7 +156,7 @@ function createRoutineScheduler({
   async function deliver(chatId, entry, message) {
     let started;
     try {
-      ({ started, unread: entry.unread = false } = await chats.send(chatId, message));
+      ({ started } = await chats.send(chatId, message));
     } catch (error) {
       if (pending.get(chatId) === entry) pending.delete(chatId);
       // The Chat got busy as the message was about to go (the adapter checks again as it is saved): a comment waits as
@@ -180,8 +191,10 @@ function createRoutineScheduler({
     }
     const entry = { runId: run.id, sent: false, turnStarted: false };
     pending.set(chatId, entry);
-    const context = { kind: "routine-run", routineId: routine.id, runId: run.id, name: routine.name, at: now() };
-    await deliver(chatId, entry, { body: routine.prompt, prompt: routine.prompt + PASS_HINT, context });
+    const at = now();
+    const context = { kind: "routine-run", routineId: routine.id, runId: run.id, name: routine.name, at };
+    const body = schedulePrompt(routine.prompt, at, routine.trigger.timezone);
+    await deliver(chatId, entry, { body, prompt: body + PASS_HINT, context, settings: claimedSettings(routine) });
   }
 
   // A Run in a Chat of its own. The adapter makes the Chat from the Routine as it was when the Run was claimed, and words
@@ -204,7 +217,7 @@ function createRoutineScheduler({
     }
     const entry = { runId: run.id, sent: false, turnStarted: false, newChat: true, createdWorktree: removeWorktree };
     pending.set(chatId, entry);
-    await deliver(chatId, entry, { body, prompt: prompt + PASS_HINT, context });
+    await deliver(chatId, entry, { body, prompt: prompt + PASS_HINT, context, settings: claimedSettings(routine) });
   }
 
   // A Linear comment goes into the Chat linked to its issue. A person wrote it, so a busy Chat makes it wait rather than skip
@@ -234,7 +247,7 @@ function createRoutineScheduler({
     pending.set(chatId, entry);
     const label = author ? `Linear comment · ${author}` : "Linear comment";
     const context = { kind: "routine-run", routineId: routine.id, runId: run.id, name: routine.name, at: now(), label };
-    await deliver(chatId, entry, { body: text, prompt: text + PASS_HINT, context });
+    await deliver(chatId, entry, { body: text, prompt: text + PASS_HINT, context, settings: claimedSettings(routine) });
   }
 
   async function dispatch(routine, run) {
@@ -316,14 +329,23 @@ function createRoutineScheduler({
     }
   }
 
-  function start() {
-    if (timer) return;
+  // Once per daemon start, whatever the switch says: Runs a stop cut short fail (store.cjs), and with Routines on,
+  // heartbeats whose Chat is gone end. Never again later, when a Run in flight would be failed with them.
+  function recover() {
+    if (recovered) return;
+    recovered = true;
     store.recoverInterrupted();
     if (store.enabled()) {
       swept = true;
       sweepGone();
     }
     syncKeepAwake();
+  }
+
+  // The tick timer, which runs only while Routines are on (the runtime starts and stops it with the switch).
+  function start() {
+    recover();
+    if (timer) return;
     timer = setTimer(() => {
       tick().catch((error) => console.warn("[routines] tick failed", error));
     }, TICK_MS);
@@ -396,8 +418,10 @@ function createRoutineScheduler({
     } else if (failedAgain(finish(run, chatId, { status: "failed", error: event.type === "turn-failed" ? event.message : "cancelled" }))) {
       event.quiet = true;
     }
-    // A quiet beat leaves the Chat as unread (or not) as it was before it: its turn's end marked it unread.
-    const patched = quiet ? patchContext(chatId, entry.runId, { quiet, summary }, { unread: entry.unread }) : patchContext(chatId, entry.runId, { quiet });
+    // A quiet beat takes back only the unread mark its turn's end set (ChatHost marks that end `markedUnread`): a mark
+    // already there, or one the user cleared during the beat, is left as it is.
+    const session = event.markedUnread ? { unread: false } : undefined;
+    const patched = quiet ? patchContext(chatId, entry.runId, { quiet, summary }, session) : patchContext(chatId, entry.runId, { quiet });
     // A quiet Run in a Chat of its own leaves nothing to read there: the Chat is archived once its divider says quiet.
     if (quiet && entry.newChat) archive(chatId, entry.createdWorktree, patched);
     changed();
@@ -441,7 +465,7 @@ function createRoutineScheduler({
     return store.runs(routineId).find((item) => item.id === started.run.id);
   }
 
-  return { start, stop, tick, observe, chatArchived, runNow, enqueueEvent, enqueueEvents };
+  return { recover, start, stop, tick, observe, chatArchived, runNow, enqueueEvent, enqueueEvents };
 }
 
-module.exports = { createRoutineScheduler, linearPrompt };
+module.exports = { createRoutineScheduler, linearPrompt, schedulePrompt };

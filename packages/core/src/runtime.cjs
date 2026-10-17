@@ -1466,7 +1466,12 @@ function createRuntime(options) {
     }
   });
 
-  commands.handle("agent:set-permission-mode", (_event, { chatId, mode }) => agents.setPermissionMode(chatId, mode));
+  // The mode picked is the Chat's from now on: its running turn takes it at once, and a heartbeat's next beat runs in it.
+  async function setPermissionMode(chatId, mode) {
+    chats.notePermissionMode(chatId, mode);
+    return agents.setPermissionMode(chatId, mode);
+  }
+  commands.handle("agent:set-permission-mode", (_event, { chatId, mode }) => setPermissionMode(chatId, mode));
 
   async function notifyIfWaiting(chatId, event) {
     const projectPath = projectOfKey(chatId);
@@ -1971,7 +1976,7 @@ function createRuntime(options) {
       permissionMode: (chatId, fallback) => agents.permissionMode(chatId, fallback),
       createWorktree: (context, request) => handlers.get("worktree:create")(context, request),
       stopChat,
-      setPermissionMode: (chatId, mode) => agents.setPermissionMode(chatId, mode),
+      setPermissionMode,
       respondPermission: (chatId, requestId, decision) => handlers.get("agent:respond-permission")(null, { chatId, requestId, decision }),
       answerQuestion: (chatId, requestId, answers, summary) => handlers.get("agent:answer-question")(null, { chatId, requestId, answers, summary }),
       patchChat,

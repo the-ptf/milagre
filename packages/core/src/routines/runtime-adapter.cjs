@@ -1,10 +1,8 @@
 const { chatKey, lastUserModel, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { backgroundWork, holdsAnnouncement } = require("@milagre/shared/chat-activity");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
-const { clock } = require("@milagre/shared/routines");
-const { renderRoutinePrompt } = require("@milagre/shared/routine-prompt");
 const { createRoutineStore } = require("./store.cjs");
-const { createRoutineScheduler, linearPrompt } = require("./scheduler.cjs");
+const { createRoutineScheduler, linearPrompt, schedulePrompt } = require("./scheduler.cjs");
 const { createRoutineTools } = require("./tools.cjs");
 const { createLinearPoller } = require("./linear-poller.cjs");
 
@@ -65,7 +63,7 @@ function routineReply(state, sessionId) {
  * `worktrees` makes and removes a Run's Worktree (create, remove, removable, base, projectWorktree) and `archiveChat`
  * archives a Chat as the user would.
  */
-function routineChats({ chats, store, cachedState, openState, isClosing, worktrees, archiveChat, now = Date.now, timeoutMs = START_TIMEOUT_MS }) {
+function routineChats({ chats, cachedState, openState, isClosing, worktrees, archiveChat, now = Date.now, timeoutMs = START_TIMEOUT_MS }) {
   const session = (chatId) => cachedState(projectOfKey(chatId))?.sessions?.[sessionIdFromKey(chatId)];
   // What makes a Run's message wait, other than a turn starting: a turn running or preparing, an approval or a question,
   // a message waiting in the Chat's queue for the next turn, or background work whose result comes back to the Chat (a
@@ -117,8 +115,7 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
     const event = run.event;
     if (event?.kind === "webhook" || routine.trigger.kind === "webhook") throw new Error(WEBHOOK_LATER);
     if (event?.kind === "linear") return linearPrompt(routine.prompt, event.issue);
-    const [date, time] = clock(at, routine.trigger.timezone, true).split(" ");
-    return renderRoutinePrompt(routine.prompt, { date, time });
+    return schedulePrompt(routine.prompt, at, routine.trigger.timezone);
   }
 
   /**
@@ -163,10 +160,11 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
     exists: (chatId) => cachedState(projectOfKey(chatId)) === undefined || Boolean(session(chatId)),
     archived: (chatId) => session(chatId)?.archived === true,
     busy: (chatId) => busy(chatId),
-    // A beat runs on the Chat's latest turn settings, its permission mode included, so a mode the user changed since
-    // the heartbeat was set holds. After a restart: the Chat's own provider and last model, and the mode the Chat had
-    // when the heartbeat was set.
-    async send(chatId, { body, prompt, context }) {
+    // A message goes in on the Chat's current settings, as the user's next message would: its latest turn's provider,
+    // model and effort, and the permission mode its composer last set (ChatHost.chatPermissionMode). A Chat with no turn
+    // this run (a Run's new Chat, or after a restart) takes its own provider and last model, else `settings`: what the
+    // Routine said when its Run was claimed (never what it says now, which an edit since may have changed).
+    async send(chatId, { body, prompt, context, settings: claimed }) {
       if (isClosing()) throw new Error("Milagre is closing.");
       const projectPath = projectOfKey(chatId);
       const sessionId = sessionIdFromKey(chatId);
@@ -175,11 +173,10 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
       if (!target) throw new Error("That Chat is no longer in its Project.");
       // Opening the Project can resume a turn a quit stopped, and the user may have sent meanwhile.
       if (busy(chatId)) throw busyError();
-      const routine = store.get(context.routineId);
       const latest = chats.turnSettings(chatId);
       const settings = latest ?? {
-        provider: target.provider ?? routine?.provider ?? "claude",
-        model: lastUserModel(state, sessionId) || routine?.model,
+        provider: target.provider ?? claimed?.provider ?? "claude",
+        model: lastUserModel(state, sessionId) || claimed?.model,
       };
       let waited = false;
       let asks = 0;
@@ -187,7 +184,7 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
       try {
         sending = await chats.send({
           ...settings,
-          permissionMode: latest?.permissionMode ?? routine?.permissionMode ?? "auto",
+          permissionMode: chats.chatPermissionMode?.(chatId) ?? latest?.permissionMode ?? claimed?.permissionMode ?? "auto",
           body,
           prompt,
           context,
@@ -197,13 +194,13 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
           sessionId,
           worktreeId: target.worktree_id,
           // A send that carries canStart never waits in the Chat's queue (ChatHost.send). ChatHost asks before it saves
-          // the message and again as it saves it, so a turn that started meanwhile makes the beat wait instead of
-          // steering into it. It asks once more just before the turn starts, when the beat's own run already holds the
-          // Chat: from that third ask on, the beat goes ahead. A turn starting is checked above, not here, since the
-          // beat's own turn counts as starting as soon as its message is saved.
+          // the message and again as it saves it, before the beat's own turn counts as starting: a turn that started or
+          // began starting meanwhile (the user pressed Send while the beat was on its way) makes the beat wait instead
+          // of steering into it or starting beside it. It asks once more just before the turn starts, when the beat's
+          // own run already holds the Chat: from that third ask on, the beat goes ahead.
           canStart: () => {
             asks += 1;
-            if (asks > 2 || !occupied(chatId)) return true;
+            if (asks > 2 || !busy(chatId)) return true;
             waited = true;
             return false;
           },
@@ -212,9 +209,7 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
         if (waited) throw busyError();
         throw error;
       }
-      const { started } = sending;
-      // Whether the Chat was unread before the beat, so a quiet one can leave it that way.
-      return { started, unread: target.unread === true };
+      return { started: sending.started };
     },
     // Called on the turn's end, which is published after it was folded into the saved reply (ChatHost.receive).
     replyText: (chatId) => routineReply(cachedState(projectOfKey(chatId)), sessionIdFromKey(chatId)),
@@ -262,7 +257,7 @@ function createRoutines({
     emit("routines:changed", { enabled: store.enabled() });
     poller?.sync();
   };
-  const routineChatsView = routineChats({ chats, store, cachedState, openState, isClosing, worktrees, archiveChat, now });
+  const routineChatsView = routineChats({ chats, cachedState, openState, isClosing, worktrees, archiveChat, now });
   const scheduler = createRoutineScheduler({
     store,
     chats: routineChatsView,
@@ -303,7 +298,7 @@ function createRoutines({
     return {
       provider: latest?.provider ?? session?.provider,
       model: latest?.model || (state ? lastUserModel(state, sessionIdFromKey(chatId)) : undefined) || undefined,
-      permissionMode: latest?.permissionMode,
+      permissionMode: chats.chatPermissionMode?.(chatId) ?? latest?.permissionMode,
     };
   }
   // Read from the state in memory, as chatSettings is: the Chat's session is there when its agent asks for tools.
@@ -346,8 +341,9 @@ function createRoutines({
       }
     },
     chatArchived: (chatId) => scheduler.chatArchived(chatId),
-    // The timer only starts once the switch is on; off again, it keeps running and each tick returns at once.
+    // Recovery runs once at start whatever the switch says; the timer and polling run only while it is on.
     start() {
+      scheduler.recover();
       if (!store.enabled()) return;
       scheduler.start();
       poller.start();
@@ -364,8 +360,9 @@ function createRoutines({
         poller.start();
       } else {
         poller.stop();
-        // Off: one tick turns the routines' keep-awake off now.
+        // Off: one tick turns the routines' keep-awake off now, and the timer stops until the switch is on again.
         await scheduler.tick();
+        scheduler.stop();
       }
       changed();
       return { enabled };

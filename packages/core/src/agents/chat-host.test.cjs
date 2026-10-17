@@ -948,6 +948,38 @@ test("a quit saves each running chat to resume, and its cancelled turn says so",
   assert.equal(saved.get(BETA).sessions[idle.sessionId].resumeTurn, undefined);
 });
 
+test("a quit saves no resume for a Routine's turn, which the scheduler owns; a user's turn still resumes", async (t) => {
+  const { host, manager, saved, session } = harness();
+  t.after(() => manager.closeAll());
+  const context = { kind: "routine-run", routineId: "r1", runId: "run-1", name: "Babysit", at: NOW };
+  const beat = await host.send(message(ALPHA, "Check CI", { context }));
+  const user = await host.send(message(BETA, "fix the api"));
+  await waitUntil(() => session(ALPHA) && session(BETA));
+  for (const cwd of [ALPHA, BETA]) session(cwd).emit({ type: "turn-started", turnId: "t1" });
+  await host.suspendRunning();
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[beat.sessionId].resumeTurn, undefined);
+  assert.equal(saved.get(BETA).sessions[user.sessionId].resumeTurn.prompt, "fix the api");
+});
+
+test("a mode picked in the composer becomes the Chat's mode, with or without a turn this run", async (t) => {
+  const { host, manager, session } = harness();
+  t.after(() => manager.closeAll());
+  assert.equal(host.chatPermissionMode(`${ALPHA}#5`), undefined);
+  host.notePermissionMode(`${ALPHA}#5`, "ask");
+  assert.equal(host.chatPermissionMode(`${ALPHA}#5`), "ask");
+  assert.throws(() => host.notePermissionMode(`${ALPHA}#5`, "yolo"), /Unknown permission mode/);
+
+  const chat = await host.send(message(ALPHA, "fix the api", { permissionMode: "full" }));
+  const chatId = `${ALPHA}#${chat.sessionId}`;
+  await waitUntil(() => session(ALPHA));
+  assert.equal(host.chatPermissionMode(chatId), "full");
+  host.notePermissionMode(chatId, "ask");
+  assert.equal(host.chatPermissionMode(chatId), "ask");
+  // The turn a quit stops starts again in the mode the Chat has now.
+  assert.equal(host.turnSettings(chatId).permissionMode, "ask");
+});
+
 test("a chat a quit stopped continues once on its saved session when its project opens", async (t) => {
   const { host, manager, states, saved, session } = harness();
   t.after(() => manager.closeAll());

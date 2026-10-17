@@ -17,13 +17,14 @@ const state = {
   ],
 };
 
-function fixture({ turnSettings = null, runs = {}, busy = false, open = true } = {}) {
+function fixture({ turnSettings = null, permissionMode, runs = {}, busy = false, open = true } = {}) {
   const sent = [];
   const patched = [];
   const chats = {
     runs,
     isBusy: () => busy,
     turnSettings: () => turnSettings,
+    chatPermissionMode: () => permissionMode ?? turnSettings?.permissionMode,
     send: async (request) => {
       sent.push(request);
       return { sessionId: request.sessionId, started: Promise.resolve({ turnId: "t" }) };
@@ -33,10 +34,8 @@ function fixture({ turnSettings = null, runs = {}, busy = false, open = true } =
       return true;
     },
   };
-  const store = { get: (id) => (id === "r1" ? { id, provider: "claude", model: "cm", permissionMode: "full" } : null) };
   const adapter = routineChats({
     chats,
-    store,
     cachedState: (scope) => (open && scope === "/project" ? state : undefined),
     openState: async () => state,
     isClosing: () => false,
@@ -82,7 +81,6 @@ function idleFixture({ session = {}, startingTurns = new Map(), runs = {}, send 
   };
   const adapter = routineChats({
     chats,
-    store: { get: () => null },
     cachedState: (scope) => (scope === "/project" ? chatState : undefined),
     openState: async () => chatState,
     isClosing: () => false,
@@ -152,10 +150,11 @@ test("a beat into a Chat whose turn started as its Project opened rejects as bus
   assert.equal(sent.length, 0);
 });
 
-test("after a restart a beat runs on the Chat's own provider and last model, with the routine's stored permission mode", async () => {
+test("after a restart a beat runs on the Chat's own provider and last model, with the permission mode its Run was claimed with", async () => {
   const { adapter, sent } = fixture();
   const context = { kind: "routine-run", routineId: "r1", runId: "run-2" };
-  const { started } = await adapter.send(chatId, { body: "Check CI", prompt: "Check CI + hint", context });
+  const settings = { provider: "claude", model: "cm", permissionMode: "full" };
+  const { started } = await adapter.send(chatId, { body: "Check CI", prompt: "Check CI + hint", context, settings });
   assert.deepEqual(await started, { turnId: "t" });
   assert.equal(sent[0].provider, "codex");
   assert.equal(sent[0].model, "gpt-x");
@@ -229,19 +228,8 @@ test("patchRunContext patches the divider of that Run", async () => {
   );
 });
 
-test("send says whether the Chat was unread, and patchRunContext hands a session patch on", async () => {
+test("patchRunContext hands a session patch on", async () => {
   const { adapter, patched } = fixture();
-  state.sessions[2].unread = true;
-  try {
-    const result = await adapter.send(chatId, { body: "Check CI", prompt: "Check CI", context: { kind: "routine-run", routineId: "r1", runId: "run-2" } });
-    assert.equal(result.unread, true);
-  } finally {
-    delete state.sessions[2].unread;
-  }
-  assert.equal(
-    (await adapter.send(chatId, { body: "Check CI", prompt: "Check CI", context: { kind: "routine-run", routineId: "r1", runId: "run-3" } })).unread,
-    false,
-  );
   await adapter.patchRunContext(chatId, "run-1", { quiet: true }, { unread: false });
   assert.deepEqual(patched[0][4], { unread: false });
 });
@@ -267,11 +255,17 @@ function newChatFixture({ removable = true, failChat = false, createDelayMs = 0,
   const projectState = {
     worktrees: { 1: { id: 1, path: "/project" }, 7: { id: 7, path: "/worktrees/seven", base: "main" } },
     sessions: { 4: { id: 4, worktree_id: 7 } },
+    messages: [],
   };
+  const sent = [];
   const chats = {
     runs: {},
     isBusy: () => false,
     turnSettings: () => null,
+    send: async (request) => {
+      sent.push(request);
+      return { sessionId: request.sessionId, started: Promise.resolve({ turnId: "t" }) };
+    },
     emptyChat: async (projectPath, worktreeId, options) => {
       calls.emptyChats.push({ projectPath, worktreeId, options });
       if (failChat) throw new Error("no chat");
@@ -293,7 +287,6 @@ function newChatFixture({ removable = true, failChat = false, createDelayMs = 0,
   };
   const adapter = routineChats({
     chats,
-    store: { get: () => null },
     cachedState: (scope) => (scope === "/project" ? projectState : undefined),
     openState: async () => projectState,
     isClosing: () => false,
@@ -302,7 +295,7 @@ function newChatFixture({ removable = true, failChat = false, createDelayMs = 0,
     now: () => Date.UTC(2026, 9, 16, 11, 5),
     ...(timeoutMs ? { timeoutMs } : {}),
   });
-  return { adapter, calls };
+  return { adapter, calls, sent };
 }
 
 const triage = (workspace = "worktree", trigger = { kind: "schedule", cron: "0 8 * * *", timezone: "America/Sao_Paulo" }) => ({
@@ -532,4 +525,200 @@ test("Linear polling runs on the Routines' clock", async (t) => {
   // 5 s before the Routine was made on that clock; on the real one this would be floored at a day ago.
   assert.equal(queries[0].since, new Date(clock - 5_000).toISOString());
   await routines.save(false);
+});
+
+// The real ChatHost on fake agents, as chat-host.test.cjs builds it: one Project with one Chat that ran a turn.
+async function realChats({ beforeSend, beforeTask } = {}) {
+  const { ChatHost } = require("../agents/chat-host.cjs");
+  const { SessionManager } = require("../agents/session-manager.cjs");
+  const { ProjectStates } = require("../project-states.cjs");
+  const project = "/projects/alpha";
+  const agents = [];
+  const states = new ProjectStates({
+    read: async () => ({
+      next_id: 3,
+      projects: { 1: { id: 1, name: "alpha" } },
+      worktrees: { 1: { id: 1, name: "main", path: project } },
+      sessions: { 2: { id: 2, worktree_id: 1, agent_name: "main", status: "Created", provider: "claude" } },
+      connections: {},
+      events: [],
+      messages: [{ id: 1, session_id: 2, role: "user", body: "Watch CI", context: null, model: "opus" }],
+      approvals: [],
+      tasks: {},
+      artifacts: {},
+      outputs: [],
+      conflicts: [],
+    }),
+    save: async () => {},
+  });
+  let host;
+  const manager = new SessionManager({
+    createSession: (provider, options) => {
+      const agent = {
+        provider,
+        options,
+        turns: [],
+        startTurn: async (turn) => (agent.turns.push(turn), { turnId: `t${agent.turns.length}` }),
+        close: async () => {},
+      };
+      agents.push(agent);
+      return agent;
+    },
+    send: (key, event) => void host.receive(key, event),
+    batchMs: 5,
+  });
+  host = new ChatHost({
+    states,
+    startTurn: (request) => manager.startTurn({ ...request, command: "/bin/agent" }),
+    publish: () => {},
+    broadcast: () => {},
+    ...(beforeSend ? { beforeSend } : {}),
+    ...(beforeTask ? { beforeTask } : {}),
+  });
+  const adapter = routineChats({
+    chats: host,
+    cachedState: (scope) => states.states.get(scope),
+    openState: async (scope) => states.get(scope),
+    isClosing: () => false,
+  });
+  return { host, manager, states, agents, adapter, project, chatId: `${project}#2` };
+}
+
+test("a user's turn that starts while a beat is on its way to ChatHost makes the beat wait instead of starting beside it", async (t) => {
+  const { waitUntil } = require("../agents/test-helpers.cjs");
+  let releaseUser;
+  const userGate = new Promise((resolve) => (releaseUser = resolve));
+  let userSend;
+  const ctx = await realChats({
+    // The user presses Send while the beat is between its busy check and its save.
+    beforeSend: async (request) => {
+      if (request.context?.kind !== "routine-run") return;
+      userSend = ctx.host.send({
+        projectPath: ctx.project,
+        sessionId: 2,
+        body: "fix the test",
+        images: [],
+        provider: "claude",
+        model: "opus",
+        permissionMode: "auto",
+      });
+      await waitUntil(() => ctx.host.startingTurns.has(ctx.chatId));
+    },
+    // The user's message is saved and its turn starting, its run not made yet.
+    beforeTask: async (request) => {
+      if (!request.context) await userGate;
+    },
+  });
+  t.after(() => ctx.manager.closeAll());
+  await assert.rejects(
+    ctx.adapter.send(ctx.chatId, {
+      body: "Check CI",
+      prompt: "Check CI",
+      context: { kind: "routine-run", routineId: "r1", runId: "run-1", name: "Babysit", at: 1 },
+    }),
+    (error) => error.busy === true,
+  );
+  releaseUser();
+  await userSend;
+  await waitUntil(() => ctx.agents[0]?.turns.length === 1);
+  const saved = (await ctx.states.get(ctx.project)).messages.filter((message) => message.role === "user").map((message) => message.body);
+  assert.deepEqual(saved, ["Watch CI", "fix the test"]);
+});
+
+test("a Run's message carries the settings its Routine had when it was claimed, whatever the Routine says now", async () => {
+  const { adapter, sent } = newChatFixture();
+  // The Run's claimed settings, which an edit to the Routine since doesn't change.
+  const settings = { provider: "codex", model: "gpt-6", permissionMode: "ask" };
+  await adapter.send("/project#4", { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r9", runId: "run-1" }, settings });
+  assert.deepEqual([sent[0].provider, sent[0].model, sent[0].permissionMode], ["codex", "gpt-6", "ask"]);
+});
+
+test("a beat takes the mode the user picked since the Chat's last turn, and the mode picked before any turn", async () => {
+  const { adapter, sent } = fixture({
+    turnSettings: { provider: "claude", model: "opus", permissionMode: "full", effort: "high" },
+    permissionMode: "ask",
+  });
+  await adapter.send(chatId, { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r1" } });
+  assert.equal(sent[0].permissionMode, "ask");
+  const fresh = fixture({ permissionMode: "ask" });
+  await fresh.adapter.send(chatId, { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r1" } });
+  assert.equal(fresh.sent[0].permissionMode, "ask");
+});
+
+// createRoutines with its timer and clock in the test's hands.
+function timedRoutines(t, { prepare } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-adapter-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "routines.json");
+  prepare?.(file);
+  const intervals = [];
+  const routines = createRoutines({
+    file,
+    chats: { turnSettings: () => null },
+    keepAwake: { setRoutinesActive() {} },
+    emit() {},
+    cachedState: () => undefined,
+    openState: async () => undefined,
+    timers: {
+      now: () => Date.UTC(2026, 9, 16, 12),
+      setInterval(fn, ms) {
+        const timer = { fn, ms, cleared: false, unref() {} };
+        intervals.push(timer);
+        return timer;
+      },
+      clearInterval(timer) {
+        if (timer) timer.cleared = true;
+      },
+      setTimeout: () => ({ unref() {} }),
+      clearTimeout() {},
+    },
+  });
+  const live = () => intervals.filter((timer) => !timer.cleared);
+  return { routines, live, file };
+}
+
+test("the scheduler's timer runs only while Routines are on", async (t) => {
+  const { routines, live } = timedRoutines(t);
+  routines.start();
+  assert.equal(live().length, 0, "off: nothing ticks");
+  await routines.save(true);
+  assert.equal(live().length, 1, "on: one timer ticks");
+  assert.equal(live()[0].ms, 1000);
+  await routines.save(false);
+  assert.equal(live().length, 0, "off again: the timer stops");
+  await routines.save(true);
+  assert.equal(live().length, 1, "on again: it ticks again");
+  routines.stop();
+  assert.equal(live().length, 0);
+});
+
+test("start recovers the Runs a stop cut short even while Routines are off", async (t) => {
+  const { createRoutineStore } = require("./store.cjs");
+  const at = Date.UTC(2026, 9, 16, 12);
+  let runId;
+  let routineId;
+  const { routines } = timedRoutines(t, {
+    prepare(file) {
+      const store = createRoutineStore({ file, now: () => at });
+      store.setEnabled(true);
+      const routine = store.upsertHeartbeat({
+        chatId: "/project#2",
+        name: "check",
+        prompt: "look",
+        every: "15m",
+        timezone: "UTC",
+        createdBy: { kind: "user" },
+      });
+      routineId = routine.id;
+      runId = store.startRun(routine.id, at).run.id;
+      store.setEnabled(false);
+    },
+  });
+  routines.start();
+  const [routine] = routines.list().routines;
+  assert.equal(routine.id, routineId);
+  assert.deepEqual(
+    routine.runs.filter((run) => run.id === runId).map((run) => [run.status, run.error]),
+    [["failed", "daemon restarted"]],
+  );
 });
