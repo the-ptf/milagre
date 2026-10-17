@@ -1372,11 +1372,29 @@ test("worktree:link-issue reports an issue Linear no longer has, and nothing cha
 });
 
 test("worktree:unlink-issue removes the stored key and never renames the branch back", async (t) => {
-  const { project, runtime, worktreeId, worktree } = await linkFixture(t);
+  const { project, runtime, worktreeId, worktree, events } = await linkFixture(t);
   await runtime.invoke("worktree:link-issue", [{ projectPath: project, worktreeId, key: "ENG-12" }]);
   const unlinked = await runtime.invoke("worktree:unlink-issue", [{ projectPath: project, worktreeId }]);
   const after = unlinked.project.state.worktrees[worktreeId];
-  assert.equal("linearIssue" in after, false);
+  assert.equal(after.linearIssue, null);
+  assert.equal("linearWorkspace" in after, false);
+  await runtime.flush();
+  assert.equal((await readSavedState(project)).worktrees[worktreeId].linearIssue, null, "The unlink survives a restart");
+  assert.equal(events.filter(({ channel }) => channel === "project:state").at(-1).payload.state.worktrees[worktreeId].linearIssue, null);
   assert.equal(after.name, "eng-12-fix-login");
   assert.equal(branchOf(worktree.path), "eng-12-fix-login");
+});
+
+test("unlinking hides a branch-named issue after refresh, and relinking restores it", async (t) => {
+  const { project, runtime, worktreeId, worktree } = await linkFixture(t);
+  const readIssues = () => runtime.invoke("linear:worktree-issues", [project]);
+  const link = () => runtime.invoke("worktree:link-issue", [{ projectPath: project, worktreeId, key: "ENG-12" }]);
+  await link();
+  assert.equal((await readIssues())[worktree.path].key, "ENG-12");
+  await runtime.invoke("worktree:unlink-issue", [{ projectPath: project, worktreeId }]);
+  assert.deepEqual(await readIssues(), {});
+  await runtime.openProject(project);
+  assert.deepEqual(await readIssues(), {}, "Project reconciliation preserves the explicit unlink");
+  await link();
+  assert.equal((await readIssues())[worktree.path].key, "ENG-12");
 });

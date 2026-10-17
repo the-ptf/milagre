@@ -195,6 +195,17 @@ test("worktree issues are cached for a minute, team keys for ten, and empty when
   assert.deepEqual(await createLinearIssues({ linear: fakeLinear({ connected: false }) }).worktreeIssues(worktrees), {});
 });
 
+test("an explicit unlink suppresses branch detection even when the issue is cached", async () => {
+  const linear = fakeLinear({
+    answer: (document) => (document.includes("teams(") ? { teams: { nodes: [{ key: "ENG" }] } } : batch(document, () => true)),
+  });
+  const issues = createLinearIssues({ linear });
+  const worktree = { name: "eng-12-fix", path: "/wt/a" };
+  assert.equal((await issues.worktreeIssues([worktree]))["/wt/a"].key, "ENG-12");
+  assert.deepEqual(await issues.worktreeIssues([{ ...worktree, linearIssue: null }]), {});
+  assert.equal((await issues.worktreeIssues([{ ...worktree, linearIssue: "ENG-13" }]))["/wt/a"].key, "ENG-13");
+});
+
 test("only Linear's not-found reads as a missing issue; any other failure is thrown", async () => {
   const notFound = fakeLinear({
     answer: (document) => {

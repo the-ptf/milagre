@@ -31,7 +31,7 @@ The branch a **Project**'s remote names as its default (`origin/HEAD`), else `ma
 _Avoid_: base (the base is whatever branch a **Worktree** started from, which may not be the main branch)
 
 **Linear issue**:
-An issue in the Linear workspace connected on a **Computer**, named by its key (`ENG-123`). A **Worktree** has at most one: the link stored on it when there is one, else the first key in its branch name that matches one of the workspace's team keys. Milagre only reads it; Linear's GitHub integration moves its status.
+An issue in the Linear workspace connected on a **Computer**, named by its key (`ENG-123`). A **Worktree** has at most one: the link stored on it when there is one, else the first key in its branch name that matches one of the workspace's team keys. Explicitly unlinking an issue suppresses branch detection until another issue is linked. Milagre only reads it; Linear's GitHub integration moves its status.
 _Avoid_: ticket, task (Linear's own word is issue)
 
 **Chat**:

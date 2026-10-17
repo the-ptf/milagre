@@ -80,8 +80,8 @@ export interface Worktree {
   name: string;
   /** The ref a worktree Milagre created started from; its changes are measured against it. */
   base?: string;
-  /** The Linear issue this Worktree was started from (its key); the branch may also name one. */
-  linearIssue?: string;
+  /** A stored Linear issue key. Null means explicitly unlinked; absent allows detection from the branch name. */
+  linearIssue?: string | null;
   /** The Linear workspace (its URL key) `linearIssue` belongs to; links saved before workspaces have none. */
   linearWorkspace?: string;
   /** Lines changed against the base, refreshed in the background so the hover card shows it at once. */
