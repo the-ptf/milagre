@@ -10229,3 +10229,170 @@ test("undo changes on the phone: task list, conflict-only choice, stale preview 
   redo.props.onPress();
   assert.deepEqual(previews, [["recovery", "Redo"]]);
 });
+
+test("the phone's project dock has four buttons, Routines before Settings, and Routines pushes /routines", () => {
+  const nav = navigationHost(deferred().promise);
+  const buttons = allNodes(
+    nav.render(),
+    (node) => node.type === "IconButton" && node.props.size === 44 && ["Canvas", "Link projects", "Routines", "Settings"].includes(node.props.label),
+  );
+  assert.deepEqual(
+    buttons.map((button) => button.props.label),
+    ["Canvas", "Link projects", "Routines", "Settings"],
+  );
+  buttons[2].props.onPress();
+  assert.deepEqual(nav.routes, ["/routines"]);
+  assert.deepEqual(nav.secondaryRoutes, [true], "Routines push onto the stack like Settings");
+});
+
+const routineFixtures = () => [
+  {
+    id: "hb",
+    name: "Babysit PR #473",
+    prompt: "Check CI",
+    trigger: { kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" },
+    target: { kind: "chat", chatId: "/p#4" },
+    enabled: true,
+    createdBy: { kind: "agent", chatId: "/p#4" },
+    nextRunAt: Date.UTC(2026, 9, 17, 10, 45),
+    maxRuns: 10,
+    runCount: 7,
+    createdAt: 1,
+    updatedAt: 1,
+    runs: [],
+  },
+  {
+    id: "tr",
+    name: "Issues labelled agent",
+    prompt: "Work on {{issue.key}}",
+    trigger: { kind: "linear", workspace: "w", event: "label-added", label: "agent" },
+    target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+    enabled: false,
+    pausedReason: "3 failed runs in a row: no worktree",
+    createdBy: { kind: "user" },
+    runCount: 3,
+    createdAt: 1,
+    updatedAt: 1,
+    runs: [{ id: "r1", routineId: "tr", startedAt: 5, status: "failed", chatId: "/p#9" }],
+  },
+];
+
+function routinesHost({ routines = routineFixtures(), enabled = true } = {}) {
+  const react = hookHost();
+  const effects = [];
+  const focused = [];
+  const calls = [];
+  const routes = [];
+  let list = routines;
+  const client = {
+    url: "ws://mac",
+    live: () => ({ close() {} }),
+    async call(method, args) {
+      calls.push([method, args]);
+      if (method === "routines:enabled:read") return { enabled };
+      if (method === "routines:list") return { routines: list };
+      if (method === "routines:update") {
+        list = list.map((routine) => (routine.id === args[0] ? { ...routine, ...args[1] } : routine));
+        return list.find((routine) => routine.id === args[0]);
+      }
+      return null;
+    },
+  };
+  const reactModule = { ...react, useSyncExternalStore: (_subscribe, read) => read(), useEffect: (fn, deps) => effects.push([fn, deps]) };
+  const useRoutines = load("use-routines.ts", {
+    react: reactModule,
+    "react-native": { AppState: { addEventListener: () => ({ remove() {} }) } },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+  });
+  const { default: RoutinesScreen } = load("app/routines.tsx", {
+    react: reactModule,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": {
+      ...Object.fromEntries(["Pressable", "Text", "View"].map((name) => [name, name])),
+      Platform: { OS: "ios" },
+      StyleSheet: { hairlineWidth: 1 },
+    },
+    "expo-router": {
+      Stack: Object.assign(() => null, { Toolbar: Object.assign(() => null, { Button: "ToolbarButton", View: "ToolbarView" }) }),
+      router: { push: (href) => routes.push(href) },
+    },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"),
+    "../session": { useSession: () => ({ client }) },
+    "../use-routines": useRoutines,
+    "../routine-rows": load("routine-rows.ts", {
+      "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+      "@milagre/shared/routines": require("@milagre/shared/routines"),
+    }),
+    "../confirm-store": { confirm: async () => true },
+    "../chat-row-store": { useActivityClock: () => Date.UTC(2026, 9, 17, 10, 30) },
+    "../icons": { Icon: "Icon" },
+    "../ui": Object.fromEntries(["ErrorNotice", "HeaderButton", "PageScroll", "PullDown", "RowSwitch"].map((name) => [name, name])),
+  });
+  const render = () => {
+    react.begin();
+    return RoutinesScreen();
+  };
+  const settle = async () => {
+    for (const [fn] of effects.splice(0)) fn();
+    for (const fn of focused.splice(0)) fn();
+    for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  };
+  // The rows are components of their own; render each to read what it shows.
+  const rows = (tree) => allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "RoutineRow").map((row) => row.type(row.props));
+  const groups = (tree) => allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "Group").map((group) => group.props.title);
+  return { render, settle, calls, routes, rows, groups };
+}
+
+test("the phone Routines screen groups heartbeats and triggers, says why a trigger paused, and opens a row's actions", async () => {
+  const host = routinesHost();
+  host.render();
+  await host.settle();
+  const tree = host.render();
+  assert.deepEqual(host.groups(tree), ["Heartbeats", "Triggers"]);
+  assert.deepEqual(
+    allNodes(tree, (node) => node.props?.accessibilityRole === "radio").map((node) => node.props.accessibilityLabel),
+    ["All, 2", "Heartbeats, 1", "Triggers, 1", "Paused, 1"],
+  );
+  const [heartbeat, trigger] = host.rows(tree);
+  assert.match(textOf(heartbeat), /Babysit PR #473/);
+  assert.match(textOf(heartbeat), /Every 15 min · next \d\d:\d\d · 3 runs left/);
+  assert.match(textOf(trigger), /Paused: 3 failed runs in a row: no worktree/);
+  assert.equal(find(trigger, (node) => node.type === "RowSwitch").props.selected, false);
+  const menu = find(trigger, (node) => node.type === "PullDown");
+  assert.deepEqual([...menu.props.sections.flatMap((section) => section.items.map((item) => item.title))], ["Edit", "Run now", "Open last Chat", "Delete"]);
+  menu.props.onSelect("open");
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes)), [{ pathname: "/chat", params: { projectPath: "/p", hostId: "ws://mac", id: "9" } }]);
+  assert.ok(
+    allNodes(tree, (node) => node.type === "Text").some(
+      (node) => textOf(node) === "Routines run while this Mac is awake. Closing the lid on battery pauses them.",
+    ),
+  );
+  // The Paused chip keeps only the paused trigger.
+  allNodes(tree, (node) => node.props?.accessibilityRole === "radio")[3].props.onPress();
+  assert.deepEqual(host.groups(host.render()), ["Triggers"]);
+});
+
+test("flipping a Routine's switch on the phone writes routines:update with the new value and reads the list again", async () => {
+  const host = routinesHost();
+  host.render();
+  await host.settle();
+  const [heartbeat] = host.rows(host.render());
+  host.calls.length = 0;
+  find(heartbeat, (node) => node.type === "RowSwitch").props.onPress();
+  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowSwitch").props.selected, false, "the switch moves at once");
+  await host.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.calls[0])), ["routines:update", ["hb", { enabled: false }]]);
+  assert.ok(host.calls.some(([method]) => method === "routines:list"));
+  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowSwitch").props.selected, false);
+});
+
+test("with the Mac's Routines switch off, the phone says so and links to Experimental", async () => {
+  const host = routinesHost({ routines: [], enabled: false });
+  host.render();
+  await host.settle();
+  const tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Routines are off on this Mac"));
+  find(tree, (node) => node.props?.accessibilityLabel === "Open Experimental settings").props.onPress();
+  assert.deepEqual(host.routes, ["/experimental"]);
+});

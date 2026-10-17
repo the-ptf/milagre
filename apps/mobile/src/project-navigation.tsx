@@ -18,6 +18,7 @@ import {
   Link04Icon,
   MoreHorizontalIcon,
   PinIcon,
+  RepeatIcon,
   Search01Icon,
   Settings01Icon,
   UnfoldMoreIcon,
@@ -633,6 +634,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <IconButton label="Canvas" icon={GitMergeIcon} size={44} disabled={busy} onPress={() => onNavigate("/canvas", true)} />
         <IconButton label="Link projects" icon={Link04Icon} size={44} disabled={busy} onPress={() => onNavigate("/link-projects", true)} />
+        <IconButton label="Routines" icon={RepeatIcon} size={44} disabled={busy} onPress={() => onNavigate("/routines", true)} />
         <View>
           <IconButton label="Settings" icon={Settings01Icon} size={44} onPress={() => onNavigate("/settings", true)} />
           <UpdateSettingsBadge />

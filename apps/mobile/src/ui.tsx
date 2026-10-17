@@ -41,6 +41,7 @@ import {
   foregroundStyle,
   frame,
   labelStyle,
+  labelsHidden,
   lineLimit,
   menuOrder,
   padding,
@@ -231,6 +232,22 @@ export function Toggle({
     <Host ignoreSafeArea="all" matchContents={{ vertical: true }} style={{ minHeight: 44 }} seedColor={(seed ?? colors.green) as string}>
       <Switch label={title} value={selected} disabled={disabled} onValueChange={onPress} />
     </Host>
+  );
+}
+/** A switch with no visible label, for the trailing end of a row that names it; `label` is what VoiceOver reads. */
+export function RowSwitch({ selected, onPress, disabled = false, label }: { selected: boolean; onPress: () => void; disabled?: boolean; label: string }) {
+  const { colors } = useTheme();
+  return (
+    <View accessible={Platform.OS !== "ios"} accessibilityLabel={label} accessibilityRole="switch" accessibilityState={{ checked: selected, disabled }}>
+      <Host ignoreSafeArea="all" matchContents seedColor={colors.ink as string}>
+        <Switch
+          value={selected}
+          disabled={disabled}
+          onValueChange={onPress}
+          modifiers={Platform.OS === "ios" ? [labelsHidden(), accessibilityLabel(label), tint(colors.ink)] : undefined}
+        />
+      </Host>
+    </View>
   );
 }
 export function Field({ label, hideLabel = false, ...props }: TextInputProps & { label: string; hideLabel?: boolean; ref?: React.Ref<TextInputInstance> }) {
