@@ -150,8 +150,8 @@ no token, and a short message string on network or API errors; none of them thro
   - Otherwise the link is stored on the Worktree as `linear: { key, stored: true }` in project state. The chip
     then adds the hint "Add `Fixes ENG-123` to the PR so Linear tracks it" in its hover card and on the
     phone's issue sheet.
-- `worktree:unlink-issue` removes the stored link. A renamed branch is never renamed back; to drop that link
-  the user renames the branch.
+- `worktree:unlink-issue` clears the stored link and suppresses issue detection from the branch name until
+  another issue is linked. A renamed branch is never renamed back.
 
 ## Errors
 
