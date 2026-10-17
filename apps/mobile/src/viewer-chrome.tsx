@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Pressable, Text, TextInput, View, type TextInputInstance } from "react-native";
 import { CheckmarkCircle02Icon, Sent02Icon } from "@hugeicons/core-free-icons";
 import type { ArtifactComment } from "@milagre/shared/artifact";
 import { Icon, type IconData } from "./icons";
@@ -100,6 +100,16 @@ export function CommentBox({
   const { colors } = useTheme();
   const styles = useStyles();
   const [text, setText] = useState(note?.text ?? "");
+  // A web page the comment was held on can keep the keyboard focus past autoFocus (WebKit's text interaction takes it
+  // as the hold ends): the field asks again once the hold is over.
+  const input = useRef<TextInputInstance>(null);
+  useEffect(() => {
+    if (sentComment) return;
+    const timer = setTimeout(() => {
+      if (!input.current?.isFocused()) input.current?.focus();
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [sentComment]);
   return (
     <View
       accessibilityViewIsModal
@@ -144,6 +154,7 @@ export function CommentBox({
       ) : (
         <>
           <TextInput
+            ref={input}
             // Uncontrolled to the parent: each keystroke updates the comment without writing the value back.
             accessibilityLabel={`Comment ${number}`}
             autoFocus

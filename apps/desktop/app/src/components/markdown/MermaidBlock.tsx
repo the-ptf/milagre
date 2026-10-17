@@ -67,6 +67,8 @@ export function MermaidBlock({ code }: { code: string }) {
         if (!live) return;
         setType(detectType(code));
         mounted = mount(element, code, {
+          // Expand opens the diagram to zoom; in the reply it just fits.
+          zoom: false,
           onRender: () => setError(""),
           onError: (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
         });
@@ -100,7 +102,8 @@ export function MermaidBlock({ code }: { code: string }) {
       const { svg, width, height } = render(code, {
         maxWidth: Math.max(640, window.innerWidth - 160),
         fontFamily: style.fontFamily,
-        fontSize: parseFloat(style.fontSize) || 13,
+        // Larger than the reply's text: the lightbox has the room, and zooms from there.
+        fontSize: 16,
       });
       const theme = plainTheme(element);
       // On its own the SVG has no page behind it: a backdrop of the block's colour, with room around the drawing.

@@ -3,7 +3,7 @@ import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-na
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SvgXml } from "react-native-svg";
-import { Cancel01Icon, Maximize01Icon } from "@hugeicons/core-free-icons";
+import { ArrowExpand01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { render } from "pele";
 import { diagramLabel, diagramTheme, nativeDiagramSvg } from "@milagre/shared/diagram";
 import { MarkdownStreamingContext } from "./genui/GenerativeUI";
@@ -68,7 +68,7 @@ export function MermaidBlock({ code, plain }: { code: string; plain: ReactNode }
           }}
           style={({ pressed }) => ({ width: 32, height: 32, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
         >
-          <Icon icon={Maximize01Icon} tone="ink3" size={16} />
+          <Icon icon={ArrowExpand01Icon} tone="ink3" size={16} />
         </Pressable>
       </View>
       <View accessible accessibilityRole="image" accessibilityLabel={label} style={{ padding: 14, alignItems: "center", minHeight: 80 }}>
@@ -86,6 +86,7 @@ export function DiagramSheet() {
   const diagram = opened;
   const room = Math.max(240, width - insets.left - insets.right - 32);
   const drawn = useMemo(() => (diagram ? draw(diagram.code, room, colors) : null), [diagram, room, colors]);
+  const grow = drawn && drawn.width > 0 ? Math.min(2, room / drawn.width) : 1;
   return (
     <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.surface }}>
       <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, height: 52, gap: 8 }}>
@@ -112,7 +113,8 @@ export function DiagramSheet() {
             paddingBottom: 16 + insets.bottom,
           }}
         >
-          <SvgXml xml={drawn.svg} width={drawn.width} height={drawn.height} />
+          {/* As wide as the screen, up to twice its own size: the full screen is for reading it. */}
+          <SvgXml xml={drawn.svg} width={drawn.width * grow} height={drawn.height * grow} />
         </ScrollView>
       ) : (
         <Text style={{ color: colors.red, padding: 20 }}>{drawn?.error || "This diagram is no longer open."}</Text>
