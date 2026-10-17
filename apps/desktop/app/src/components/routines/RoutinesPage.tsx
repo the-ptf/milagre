@@ -60,6 +60,7 @@ export function RoutinesPage({
   const shown = (list: RoutineWithRuns[]) => (filter === "paused" ? list.filter((routine) => !routine.enabled) : list);
   const heartbeats = filter === "triggers" ? [] : shown(groups.heartbeats);
   const triggers = filter === "heartbeats" ? [] : shown(groups.triggers);
+  const empty = enabled && routines.length === 0 && !error && !loadError;
   const modelName = (_provider: unknown, id: string) => models.find((model) => model.id === id)?.name ?? id;
 
   const act = (work: () => Promise<unknown>) => {
@@ -90,8 +91,8 @@ export function RoutinesPage({
   ];
 
   return (
-    <ScrollArea className="h-full">
-      <div data-routines-page className="mx-auto w-full max-w-[720px] px-6 pt-14 pb-10">
+    <ScrollArea className="flex h-full flex-col">
+      <div data-routines-page className="mx-auto flex w-full max-w-[720px] flex-1 flex-col px-6 pt-14 pb-10">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">Routines</h1>
@@ -131,24 +132,26 @@ export function RoutinesPage({
           </div>
         ) : enabled ? (
           <>
-            <div role="tablist" aria-label="Show" className="mt-5 flex gap-1.5">
-              {chips.map((chip) => (
-                <button
-                  key={chip.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={filter === chip.id}
-                  data-routine-chip={chip.id}
-                  onClick={() => setFilter(chip.id)}
-                  className={`h-7 rounded-full px-3 text-[12px] font-medium transition-colors ${
-                    filter === chip.id ? "bg-ink text-surface" : "border border-line-strong bg-surface text-ink-2 hover:bg-hover"
-                  }`}
-                >
-                  {chip.label} {chip.count}
-                </button>
-              ))}
-            </div>
-            <div className="mt-5 space-y-5">
+            {routines.length > 0 && (
+              <div role="tablist" aria-label="Show" className="mt-5 flex gap-1.5">
+                {chips.map((chip) => (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={filter === chip.id}
+                    data-routine-chip={chip.id}
+                    onClick={() => setFilter(chip.id)}
+                    className={`h-7 rounded-full px-3 text-[12px] font-medium transition-colors ${
+                      filter === chip.id ? "bg-ink text-surface" : "border border-line-strong bg-surface text-ink-2 hover:bg-hover"
+                    }`}
+                  >
+                    {chip.label} {chip.count}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className={empty ? "flex min-h-[200px] flex-1 flex-col items-center justify-center gap-3 py-10 text-center" : "mt-5 space-y-5"}>
               {heartbeats.length > 0 && (
                 <section data-routine-group="heartbeats" className="space-y-2">
                   <h2 className="flex items-center gap-1.5 px-1 text-[13px] font-semibold text-ink">
@@ -167,15 +170,21 @@ export function RoutinesPage({
                   <div className={card}>{triggers.map(row)}</div>
                 </section>
               )}
-              {heartbeats.length === 0 && triggers.length === 0 && (
+              {empty && (
+                <div data-routines-empty className="flex flex-col items-center gap-3">
+                  <HugeiconsIcon icon={RepeatIcon} size={40} strokeWidth={1.5} color="currentColor" className="text-ink-3" />
+                  <p className="text-[13px] text-ink-2">No Routines yet.</p>
+                </div>
+              )}
+              {routines.length > 0 && heartbeats.length === 0 && triggers.length === 0 && (
                 <p data-routines-empty className="px-1 text-[13px] text-ink-3">
-                  {routines.length === 0 ? "No Routines yet. Make one with New Routine, or ask an agent in a Chat to check back later." : "None here."}
+                  None here.
                 </p>
               )}
-              <p data-routines-help className="px-1 text-[12px] text-ink-3">
-                {HELP}
-              </p>
             </div>
+            <p data-routines-help className={`px-1 text-[12px] text-ink-3 ${empty ? "text-center" : "mt-5"}`}>
+              {HELP}
+            </p>
           </>
         ) : null}
       </div>

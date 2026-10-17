@@ -1,7 +1,7 @@
 import { Children, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
-import { Add01Icon, ArrowRight01Icon, Settings01Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, ArrowRight01Icon, RepeatIcon, Settings01Icon } from "@hugeicons/core-free-icons";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { canRunNow } from "@milagre/shared/routines";
 import { useSession } from "../session";
@@ -44,6 +44,7 @@ export default function RoutinesScreen() {
   // "2 h ago" moves on with the app's shared half-minute clock.
   const now = useActivityClock(true);
   const all = routines.routines;
+  const empty = client && routines.enabled === true && !routines.loading && !all.length && !routines.error && !routines.unavailable && !error;
   const heartbeats = all.filter(isHeartbeat);
   const triggers = all.filter((routine) => !isHeartbeat(routine));
   const counts: Record<Filter, number> = {
@@ -100,81 +101,88 @@ export default function RoutinesScreen() {
           </Stack.Toolbar.View>
         )}
       </Stack.Toolbar>
-      <PageScroll contentContainerStyle={{ gap: 12 }}>
-        {!client ? <Text style={styles.muted}>Connect to a Mac to see its Routines.</Text> : null}
-        {routines.error ? <ErrorNotice message={routines.error} retry={() => void routines.refresh()} retryTitle="Reload" /> : null}
-        {error ? <ErrorNotice message={error} /> : null}
-        {routines.unavailable ? (
-          <Text style={styles.muted}>
-            {routines.unavailable === "older" ? "Update Milagre on this Mac to use Routines." : "Routines aren't available on this connection."}
-          </Text>
-        ) : null}
-        {routines.enabled === false ? (
-          <View style={[styles.card, { gap: 8 }]}>
-            <Text style={[styles.text, { fontWeight: "600" }]}>Routines are off on this Mac</Text>
-            <Text style={styles.muted}>Turn them on in Settings › Experimental to let Routines run. Nothing runs while they are off.</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Open Experimental settings"
-              onPress={() => router.push("/experimental")}
-              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44, opacity: pressed ? 0.5 : 1 })}
-            >
-              <Icon icon={Settings01Icon} tone="ink" size={20} />
-              <Text style={[styles.text, { flex: 1, fontWeight: "500" }]}>Experimental</Text>
-              <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
-            </Pressable>
+      {empty ? (
+        <View style={[styles.screen, { padding: 20, paddingBottom: 36 }]}>
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 14 }}>
+            <Icon icon={RepeatIcon} tone="ink3" size={40} />
+            <Text style={[styles.muted, { textAlign: "center" }]}>No Routines yet.</Text>
           </View>
-        ) : null}
-        {all.length ? (
-          <View accessibilityRole="radiogroup" style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-            {FILTERS.map((item) => {
-              const selected = filter === item.id;
-              return (
-                <Pressable
-                  key={item.id}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: selected }}
-                  accessibilityLabel={`${item.label}, ${counts[item.id]}`}
-                  onPress={() => setFilter(item.id)}
-                  style={({ pressed }) => ({
-                    height: 32,
-                    paddingHorizontal: 12,
-                    borderRadius: 16,
-                    borderCurve: "continuous",
-                    justifyContent: "center",
-                    backgroundColor: selected ? colors.ink : colors.surface,
-                    borderWidth: selected ? 0 : 1,
-                    borderColor: colors.lineStrong,
-                    opacity: pressed ? 0.7 : 1,
-                  })}
-                >
-                  <Text style={{ color: selected ? colors.onInk : colors.ink2, fontSize: 13, fontWeight: selected ? "600" : "500" }}>
-                    {item.label} {counts[item.id]}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        ) : null}
-        {groups.map((group) => (
-          <Group key={group.title} title={group.title}>
-            {group.rows.map((routine) => (
-              <RoutineRow
-                key={routine.id}
-                routine={routine}
-                now={now}
-                hasChat={!!chatOf(routine)}
-                onSelect={(id) => select(routine, id)}
-                onFlip={() => flip(routine)}
-              />
-            ))}
-          </Group>
-        ))}
-        {client && !routines.loading && !all.length && !routines.error && !routines.unavailable ? (
-          <Text style={styles.muted}>No Routines yet. Tap + to add one, or ask an agent in a Chat to set a Heartbeat.</Text>
-        ) : null}
-        {client && !routines.unavailable ? <Text style={[styles.caption, { paddingHorizontal: 4 }]}>{LID_HELP}</Text> : null}
-      </PageScroll>
+          <Text style={[styles.caption, { textAlign: "center" }]}>{LID_HELP}</Text>
+        </View>
+      ) : (
+        <PageScroll style={{ flex: 1 }} contentContainerStyle={{ gap: 12 }}>
+          {!client ? <Text style={styles.muted}>Connect to a Mac to see its Routines.</Text> : null}
+          {routines.error ? <ErrorNotice message={routines.error} retry={() => void routines.refresh()} retryTitle="Reload" /> : null}
+          {error ? <ErrorNotice message={error} /> : null}
+          {routines.unavailable ? (
+            <Text style={styles.muted}>
+              {routines.unavailable === "older" ? "Update Milagre on this Mac to use Routines." : "Routines aren't available on this connection."}
+            </Text>
+          ) : null}
+          {routines.enabled === false ? (
+            <View style={[styles.card, { gap: 8 }]}>
+              <Text style={[styles.text, { fontWeight: "600" }]}>Routines are off on this Mac</Text>
+              <Text style={styles.muted}>Turn them on in Settings › Experimental to let Routines run. Nothing runs while they are off.</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open Experimental settings"
+                onPress={() => router.push("/experimental")}
+                style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44, opacity: pressed ? 0.5 : 1 })}
+              >
+                <Icon icon={Settings01Icon} tone="ink" size={20} />
+                <Text style={[styles.text, { flex: 1, fontWeight: "500" }]}>Experimental</Text>
+                <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
+              </Pressable>
+            </View>
+          ) : null}
+          {all.length ? (
+            <View accessibilityRole="radiogroup" style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+              {FILTERS.map((item) => {
+                const selected = filter === item.id;
+                return (
+                  <Pressable
+                    key={item.id}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selected }}
+                    accessibilityLabel={`${item.label}, ${counts[item.id]}`}
+                    onPress={() => setFilter(item.id)}
+                    style={({ pressed }) => ({
+                      height: 32,
+                      paddingHorizontal: 12,
+                      borderRadius: 16,
+                      borderCurve: "continuous",
+                      justifyContent: "center",
+                      backgroundColor: selected ? colors.ink : colors.surface,
+                      borderWidth: selected ? 0 : 1,
+                      borderColor: colors.lineStrong,
+                      opacity: pressed ? 0.7 : 1,
+                    })}
+                  >
+                    <Text style={{ color: selected ? colors.onInk : colors.ink2, fontSize: 13, fontWeight: selected ? "600" : "500" }}>
+                      {item.label} {counts[item.id]}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+          {groups.map((group) => (
+            <Group key={group.title} title={group.title}>
+              {group.rows.map((routine) => (
+                <RoutineRow
+                  key={routine.id}
+                  routine={routine}
+                  now={now}
+                  hasChat={!!chatOf(routine)}
+                  onSelect={(id) => select(routine, id)}
+                  onFlip={() => flip(routine)}
+                />
+              ))}
+            </Group>
+          ))}
+          {client && !routines.unavailable ? <Text style={[styles.caption, { paddingHorizontal: 4 }]}>{LID_HELP}</Text> : null}
+        </PageScroll>
+      )}
     </>
   );
 }

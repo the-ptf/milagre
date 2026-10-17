@@ -135,6 +135,7 @@ export default function RoutineFormSheet() {
   const [problem, setProblem] = useState<RoutineFormProblem | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [footerHeight, setFooterHeight] = useState(0);
   // Editing starts from the stored Routine once the list has it.
   if (routine && loadedFor !== routine.id && !createdId) {
     setLoadedFor(routine.id);
@@ -233,10 +234,18 @@ export default function RoutineFormSheet() {
   const title = editing ? (createdId ? "Webhook Routine" : "Edit Routine") : "New Routine";
 
   return (
-    <View style={styles.screen}>
+    // Keep the form and its footer inside one native view. Flattening this root makes iOS treat its background as a
+    // full-height header beside the scroll view, leaving the fields with zero height (as in model-sheet.tsx).
+    <View collapsable={false} style={styles.screen}>
       <Stack.Screen options={{ headerShown: false }} />
       {/* A form sheet sizes its first scroll view to the sheet, so the header is its sticky first child (as in mcp-add.tsx). */}
-      <PageScroll contentContainerStyle={{ padding: 0, gap: 0 }} stickyHeaderIndices={[0]} automaticallyAdjustKeyboardInsets>
+      <PageScroll
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 0, gap: 0, paddingBottom: footerHeight }}
+        scrollIndicatorInsets={{ bottom: footerHeight }}
+        stickyHeaderIndices={[0]}
+        automaticallyAdjustKeyboardInsets
+      >
         <View style={{ backgroundColor: colors.page }}>
           <View style={{ flexDirection: "row", alignItems: "center", minHeight: 60, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6 }}>
             <Text
@@ -726,7 +735,12 @@ export default function RoutineFormSheet() {
         </View>
       </PageScroll>
       <View
+        onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
         style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: colors.line,
           backgroundColor: colors.page,
