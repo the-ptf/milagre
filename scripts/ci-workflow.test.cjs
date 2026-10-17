@@ -62,14 +62,19 @@ test("the release job waits for the required checks, not the change filter or de
   assert.ok(!needs.includes("changes"));
 });
 
-test("CI runs the whole unit suite through the single test command, after the javascript job's parallel group", () => {
-  const steps = ci.jobs.javascript.steps;
-  const unit = steps.findIndex((step) => step.run === "npm test -- --unit");
-  // node --test uses every core; inside the group the suite took three times as long and its timing-sensitive tests failed.
-  assert.ok(unit > steps.findIndex((step) => step.parallel), "the unit suite follows the group");
+test("CI runs the unit suite through the single test command, two shards side by side after the quick checks", () => {
+  const groups = ci.jobs.javascript.steps.filter((step) => step.parallel);
+  assert.equal(groups.length, 2, "quick checks, then the unit shards");
+  const shards = groups[1].parallel.map((step) => step.run);
+  // The shard count is the group's size, so the two cannot drift apart.
+  assert.deepEqual(
+    shards,
+    shards.map((_, i) => `npm test -- --unit --shard ${i + 1}/${shards.length}`),
+  );
+  // Inside the quick-check group the suite took three times as long and its timing-sensitive tests failed.
+  assert.ok(!groups[0].parallel.some((step) => /--unit/.test(step.run)), "no unit tests among the quick checks");
   const every = Object.values(ci.jobs).flatMap((job) => runs(job));
   assert.ok(!every.some((run) => /npm run test:/.test(run)), "no per-suite scripts left in CI");
-  assert.ok(!every.some((run) => /--unit --shard/.test(run)), "one runner, one suite: a second shard would fight the first for the cores");
 });
 
 test("the required javascript check is one job whose quick checks run as parallel steps, each with its own log", () => {
