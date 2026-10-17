@@ -45,7 +45,7 @@ function Fixture() {
     id: index + 1, session_id: 1, context: null, role: index === 0 ? "user" : "assistant",
     body: index === 0 ? "Review authentication and run the relevant tests." : "I started two subagents. Their progress is available below.",
   }));
-  if(advisorResult)messages.push({id:999,session_id:1,role:"user",body:"Advisor finding: prefer validated reads.",context:{kind:"advisor-result",advisorId:"advisor:review",completionId:"completion",title:"Security",provider:"codex",outcome:"completed"}});
+  if(advisorResult)messages.push({id:999,session_id:1,role:"user",body:advisorResult.body || "Advisor finding: prefer validated reads.",context:{kind:"advisor-result",advisorId:"advisor:review",completionId:"completion",title:advisorResult.title || "Security",provider:advisorResult.provider || "codex",outcome:advisorResult.outcome || "completed"}});
   return <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden text-ink">
     <div className="flex min-h-0 shrink-0 pt-[60px] pb-3 pl-3">
       <aside data-fixture-sidebar style={{ width: sidebarWidth }} className="relative flex min-h-0 shrink-0 flex-col overflow-hidden rounded-window bg-surface p-2 shadow-card">
@@ -996,9 +996,55 @@ async function browserChecks() {
     assert.ok(await evaluate('document.querySelector("[data-slot=subagent-transcript]").textContent.includes("Advisor finding")'));
     await screenshot("advisor-output");
     await clickLabel("Collapse subagents");
-    assert.ok(await evaluate('document.querySelector("[data-advisor-result]").textContent.includes("Codex advisor result: Security")'));
+    assert.equal(await evaluate('document.querySelector("[data-advisor-result]").getAttribute("aria-label")'), "Codex advisor result: Security");
     assert.equal(await evaluate('document.querySelector("[data-advisor-result]").closest("article").dataset.from'), "app");
+    assert.equal(await evaluate('document.querySelector("[data-advisor-result] h3").textContent'), "Security");
+    assert.equal(await evaluate('document.querySelector("[data-advisor-result]").textContent.includes("Completed")'), false);
+    const shortAdvisorHeight = await evaluate('document.querySelector("[data-advisor-result]").getBoundingClientRect().height');
     await screenshot("advisor-result");
+    const longAdvisorBody = Array.from({ length: 24 }, (_, index) => `**Finding ${index + 1}**: Keep validated reads and retained identities intact.`).join(
+      "\n\n",
+    );
+    await evaluate(`window.setAdvisorResult(${JSON.stringify({ body: longAdvisorBody })})`);
+    await waitFor('!!document.querySelector("[data-advisor-result] strong")');
+    assert.equal(
+      await evaluate('document.querySelector("[data-advisor-result]").getBoundingClientRect().height'),
+      shortAdvisorHeight,
+      "long output keeps the card's height",
+    );
+    assert.ok(
+      await evaluate('(() => { const body = document.querySelector("[data-advisor-result] [role=region]"); return body.scrollHeight > body.clientHeight; })()'),
+      "long output scrolls inside the card",
+    );
+    const advisorHeadingOffset = () =>
+      evaluate(
+        '(() => { const card = document.querySelector("[data-advisor-result]"); return card.querySelector("h3").getBoundingClientRect().top - card.getBoundingClientRect().top; })()',
+      );
+    const advisorHeadingTop = await advisorHeadingOffset();
+    await evaluate('document.querySelector("[data-advisor-result] [role=region]").focus()');
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Down" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Down" });
+    await waitFor('document.querySelector("[data-advisor-result] [role=region]").scrollTop > 0');
+    await waitFor('document.querySelector("[data-advisor-result] [role=region]").hasAttribute("data-fade-top")');
+    await waitFor('parseFloat(getComputedStyle(document.querySelector("[data-advisor-result] [role=region]")).getPropertyValue("--fade-top")) >= 27');
+    assert.equal(await advisorHeadingOffset(), advisorHeadingTop, "scrolling leaves the title in place");
+    await evaluate('document.querySelector("[data-advisor-result] [role=region]").scrollTop = 99999');
+    await waitFor(
+      '(() => { const body = document.querySelector("[data-advisor-result] [role=region]"); return body.scrollTop + body.clientHeight >= body.scrollHeight - 1; })()',
+    );
+    assert.ok(
+      await evaluate('document.querySelector("[data-advisor-result] [role=region]").textContent.includes("Finding 24")'),
+      "the full result remains reachable",
+    );
+    await screenshot("advisor-result-scrolled");
+    for (const [outcome, label] of [
+      ["failed", "Failed"],
+      ["cancelled", "Stopped"],
+    ]) {
+      await evaluate(`window.setAdvisorResult(${JSON.stringify({ outcome, provider: "claude" })})`);
+      await waitFor(`document.querySelector("[data-advisor-result]").textContent.includes(${JSON.stringify(label)})`);
+      assert.ok(await evaluate('document.querySelector("[data-advisor-result]").textContent.includes("Claude advisor")'));
+    }
     await evaluate("window.setAdvisorResult(false)");
     // Antigravity's children (read from its transcripts, see antigravity-subagents.cjs) render like any other provider's.
     await evaluate(

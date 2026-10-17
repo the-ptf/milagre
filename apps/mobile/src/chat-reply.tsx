@@ -13,7 +13,7 @@ import { Icon } from "./icons";
 import { ActivityTitle } from "./activity-item";
 import { ToolRow } from "./tool-row";
 import { ArtifactCards, DesignFeedbackCard } from "./artifact";
-import { advisorResultLabel } from "@milagre/shared/advisor-result";
+import { AdvisorResultCard } from "./advisor-result-card";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import { AnswerCard } from "./answer-card";
 import { useToolCallDisplay } from "./chat-display-setting";
@@ -268,9 +268,8 @@ export const ChatReply = memo(function ChatReply({
   const linked = linkedContext(message);
   if (advisor)
     return (
-      <View style={{ gap: 6, paddingVertical: 8 }}>
-        <Text style={styles.caption}>{advisorResultLabel(advisor)}</Text>
-        <Markdown text={text} />
+      <View style={{ paddingVertical: 8 }}>
+        <AdvisorResultCard context={advisor} body={text} highlighted={highlighted} media={savedMedia} basePath={basePath} />
       </View>
     );
   if (message?.role === "user" && linked)

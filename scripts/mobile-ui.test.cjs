@@ -3067,7 +3067,7 @@ test("missing, archived and unreachable last Chats leave the project list usable
   }
 });
 
-function pullDownHost() {
+function pullDownHost(react = { forwardRef: (fn) => fn }) {
   const sheets = [];
   const modifiers = new Proxy(
     {},
@@ -3075,8 +3075,8 @@ function pullDownHost() {
       get: (_, name) => (name === "shapes" ? { rectangle: () => "rectangle" } : (value) => ({ name, value })),
     },
   );
-  const { PullDown } = load("ui.tsx", {
-    react: { forwardRef: (fn) => fn },
+  const { PullDown, PageScroll } = load("ui.tsx", {
+    react,
     "react/jsx-runtime": {
       jsx: (type, props, key) => (typeof type === "function" && type.name === "NativeMenuSection" ? type(props) : jsx(type, props, key)),
       jsxs: (type, props, key) => (typeof type === "function" && type.name === "NativeMenuSection" ? type(props) : jsx(type, props, key)),
@@ -3089,8 +3089,11 @@ function pullDownHost() {
       },
       StyleSheet: { create: (value) => value },
       Pressable: "Pressable",
+      ScrollView: "ScrollView",
       View: "View",
     },
+    "@react-native-masked-view/masked-view": { default: "MaskedView" },
+    "expo-linear-gradient": { LinearGradient: "LinearGradient" },
     "@expo/ui": {},
     "@expo/ui/swift-ui": Object.fromEntries(
       ["Button", "Host", "Menu", "Picker", "Section", "Text", "Toggle", "HStack", "Image", "Label", "Rectangle"].map((name) => [name, `IOS${name}`]),
@@ -3108,8 +3111,55 @@ function pullDownHost() {
     "./choice-store": require("../apps/mobile/src/choice-store.ts"),
     "./native-picker-icon": { NativePickerIcon: "NativePickerIcon" },
   });
-  return { PullDown, sheets };
+  return { PullDown, PageScroll, sheets };
 }
+
+test("shared mobile scrolling fades only the edges with more content and keeps native callbacks and its ref", () => {
+  const react = hookHost();
+  react.forwardRef = (fn) => fn;
+  const { PageScroll } = pullDownHost(react);
+  const calls = [];
+  const ref = { current: null };
+  const props = {
+    fadeEdges: true,
+    style: { height: 120 },
+    children: "Result",
+    onScroll: (event) => calls.push(["scroll", event.nativeEvent.contentOffset.y]),
+    onLayout: (event) => calls.push(["layout", event.nativeEvent.layout.height]),
+    onContentSizeChange: (width, height) => calls.push(["content", width, height]),
+  };
+  const render = () => {
+    react.begin();
+    return PageScroll(props, ref);
+  };
+  const scroll = () => find(render(), (node) => node.type === "ScrollView");
+  const colors = () => render().props.maskElement.props.colors;
+  assert.equal(typeof scroll().props.onScroll, "function");
+  scroll().props.onLayout({ nativeEvent: { layout: { height: 120 } } });
+  scroll().props.onContentSizeChange(240, 360);
+  assert.ok(render().props.maskElement, "scrolling content needs an edge fade mask");
+  assert.equal(colors()[0], colors()[1], "the first line stays clear at the start");
+  assert.notEqual(colors().at(-1), colors()[1], "overflow fades at the bottom");
+  scroll().props.onScroll({ nativeEvent: { contentOffset: { y: 60 } } });
+  assert.notEqual(colors()[0], colors()[1], "scrolled text fades under the header");
+  scroll().props.onScroll({ nativeEvent: { contentOffset: { y: 240 } } });
+  assert.equal(colors().at(-1), colors()[1], "the last line stays clear at the end");
+  scroll().props.onScroll({ nativeEvent: { contentOffset: { y: 0 } } });
+  scroll().props.onContentSizeChange(240, 80);
+  assert.equal(colors()[0], colors()[1]);
+  assert.equal(colors().at(-1), colors()[1], "short results have no fades");
+  assert.equal(scroll().props.ref, ref, "the ref still controls the native scroll view");
+  assert.deepEqual(calls, [
+    ["layout", 120],
+    ["content", 240, 360],
+    ["scroll", 60],
+    ["scroll", 240],
+    ["scroll", 0],
+    ["content", 240, 80],
+  ]);
+  react.begin();
+  assert.equal(PageScroll({ children: "Plain" }, ref).type, "ScrollView", "other screens keep their existing native scroll");
+});
 
 test("composer attachment choices stay in a native menu after the header action-sheet fix", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -7529,6 +7579,7 @@ test("feedback from the designs shows as a card of the choice and each comment",
 test("a reply shows the thinking it wrote nothing after, once it waits on a question or ends, not while working", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
   const { ChatReply } = load("chat-reply.tsx", {
+    "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
     "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
     react,
@@ -7636,6 +7687,7 @@ test("mobile Full detail shows each tool call and the notes between them in the 
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
   const reply = (display) =>
     load("chat-reply.tsx", {
+      "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
       "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
       "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
       react,
@@ -8229,6 +8281,7 @@ test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the
 test("mobile ChatReply shows the usage-limit card instead of the failed line, with a Project only when it can switch", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
   const { ChatReply } = load("chat-reply.tsx", {
+    "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
     "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
     react,
@@ -8282,6 +8335,7 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
 test("mobile ChatReply marks a Delegation and its report with their sender, never as the user's own message", () => {
   const react = { memo: (fn) => fn, useCallback: (fn) => fn, useEffect() {}, useRef: () => ({}), useState: (value) => [value, () => {}] };
   const { ChatReply } = load("chat-reply.tsx", {
+    "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
     "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
     react,
