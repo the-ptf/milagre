@@ -28,7 +28,7 @@ export function HeartbeatCard({ step }: { step: HeartbeatStep }) {
   const [error, setError] = useState<string | null>(null);
   const routine = routines.find((entry) => entry.id === step.routine.id);
   const name = routine?.name ?? step.routine.name;
-  const failedRead = enabled === null && loadError ? "Couldn’t load Routines" : null;
+  const failedRead = enabled === null && loadError ? "Couldn't load Routines" : null;
   const meta = routine ? [capitalized(triggerText(routine.trigger)), routineEnd(routine, now)].filter(Boolean).join(" · ") : null;
   const stop = () => {
     setStopping(true);

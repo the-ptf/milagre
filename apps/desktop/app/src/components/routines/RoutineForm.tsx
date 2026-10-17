@@ -229,7 +229,7 @@ export function RoutineForm({
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
         },
-        () => setTopError("Couldn’t copy the URL."),
+        () => setTopError("Couldn't copy the URL."),
       );
   };
   const rotate = async () => {
@@ -315,7 +315,7 @@ export function RoutineForm({
     <div data-routine-hook className="space-y-2 rounded-[10px] border border-line bg-field px-3 py-2.5">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink" title={url ?? undefined}>
-          {url ?? (!editing ? "The URL appears after you create the routine." : bridge.routineHook ? "Reading the URL…" : "This Mac can’t show the URL yet.")}
+          {url ?? (!editing ? "The URL appears after you create the routine." : bridge.routineHook ? "Reading the URL…" : "This Mac can't show the URL yet.")}
         </span>
         {url && (
           <button type="button" data-routine-hook-copy className={smallButton} onClick={() => copy(url)}>
@@ -366,7 +366,7 @@ export function RoutineForm({
         {created ? (
           <div className="space-y-4 p-5">
             <h2 className="text-[17px] font-semibold text-ink">Routine created</h2>
-            <p className="text-[13px] text-ink-2">Send POST requests to this URL. It works while the relay holds deliveries for this Mac, up to 24 hours.</p>
+            <p className="text-[13px] text-ink-2">Send POST requests to this URL. While this Mac is away, the relay holds them for up to 24 hours.</p>
             {urlCard(created)}
             <div className="flex justify-end">
               <button type="button" className={`${footerButton} bg-ink font-semibold text-surface hover:opacity-90`} onClick={onClose}>

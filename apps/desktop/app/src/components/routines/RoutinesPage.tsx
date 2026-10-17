@@ -49,7 +49,7 @@ export function RoutinesPage({
           if (!live) return;
           setChatTitles(new Map(targets.projects.flatMap((project) => project.chats.map((chat) => [chat.chatId, chat.title] as const))));
         },
-        (failure) => live && setError(`Couldn’t read Chat names: ${ipcErrorMessage(failure)}`),
+        (failure) => live && setError(`Couldn't read Chat names: ${ipcErrorMessage(failure)}`),
       );
     return () => {
       live = false;
