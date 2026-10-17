@@ -107,6 +107,13 @@ function routineChats({
       console.warn("[routines] couldn't delete a webhook delivery", error?.message ?? error);
     }
   };
+  // A webhook Run's delivery once its first message went (the payload lives in the Chat now) or it failed for good.
+  const dropRunDelivery = (runId) => {
+    const deliveryId = webhookRuns.get(runId);
+    if (!deliveryId) return;
+    webhookRuns.delete(runId);
+    dropDelivery(deliveryId);
+  };
   const session = (chatId) => cachedState(projectOfKey(chatId))?.sessions?.[sessionIdFromKey(chatId)];
   // What makes a Run's message wait, other than a turn starting: a turn running or preparing, an approval or a question,
   // a message waiting in the Chat's queue for the next turn, or background work whose result comes back to the Chat (a
@@ -175,11 +182,11 @@ function routineChats({
     const at = now();
     const issue = run.event?.kind === "linear" ? run.event.issue : null;
     const body = firstMessage(routine, run, at);
-    await startCheck(routine.target);
     const { projectPath } = routine.target;
     const deliveryId = run.event?.kind === "webhook" ? run.event.deliveryId : null;
     let made;
     try {
+      await startCheck(routine.target);
       made = await workspaceFor(routine, issue);
     } catch (error) {
       // The Run fails; nothing will word a message from its delivery again.
@@ -205,10 +212,7 @@ function routineChats({
     } catch (error) {
       // Nothing can fail once the Chat is made, so only the Worktree is left to take back.
       if (createdWorktree) await dropWorktree(projectPath, worktreeId);
-      if (deliveryId) {
-        webhookRuns.delete(run.id);
-        dropDelivery(deliveryId);
-      }
+      dropRunDelivery(run.id);
       throw error;
     }
   }
@@ -269,21 +273,23 @@ function routineChats({
       if (isClosing()) throw new Error("Milagre is closing.");
       const projectPath = projectOfKey(chatId);
       const sessionId = sessionIdFromKey(chatId);
-      const state = await openState(projectPath, sessionId);
-      const target = state?.sessions?.[sessionId];
-      if (!target) throw new Error("That Chat is no longer in its Project.");
-      await startCheck({ kind: "chat", chatId });
-      // Opening the Project can resume a turn a quit stopped, and the user may have sent meanwhile.
-      if (busy(chatId)) throw busyError();
-      const latest = chats.turnSettings(chatId);
-      const settings = latest ?? {
-        provider: target.provider ?? claimed?.provider ?? "claude",
-        model: lastUserModel(state, sessionId) || claimed?.model,
-      };
       let waited = false;
       let asks = 0;
       let sending;
       try {
+        // Checked before the Project opens: opening it reads its folder and can resume work there, which a Project no
+        // longer listed, or a folder a symlink was swapped in for, must never get.
+        await startCheck({ kind: "chat", chatId });
+        const state = await openState(projectPath, sessionId);
+        const target = state?.sessions?.[sessionId];
+        if (!target) throw new Error("That Chat is no longer in its Project.");
+        // Opening the Project can resume a turn a quit stopped, and the user may have sent meanwhile.
+        if (busy(chatId)) throw busyError();
+        const latest = chats.turnSettings(chatId);
+        const settings = latest ?? {
+          provider: target.provider ?? claimed?.provider ?? "claude",
+          model: lastUserModel(state, sessionId) || claimed?.model,
+        };
         sending = await chats.send({
           ...settings,
           permissionMode: knownMode(target.permissionMode) ?? latest?.permissionMode ?? claimed?.permissionMode ?? "auto",
@@ -308,21 +314,14 @@ function routineChats({
           },
         });
       } catch (error) {
-        // A webhook Run that fails here isn't tried again: its delivery goes, as after a failed start.
-        const failedDelivery = webhookRuns.get(context?.runId);
-        if (failedDelivery) {
-          webhookRuns.delete(context.runId);
-          dropDelivery(failedDelivery);
-        }
+        // A webhook Run that fails here (its check, its Chat, the send) isn't tried again: its delivery goes, as after a
+        // failed start.
+        dropRunDelivery(context?.runId);
         if (waited) throw busyError();
         throw error;
       }
       // A webhook Run's payload now lives in its Chat's first message: the copy kept for it goes.
-      const deliveryId = webhookRuns.get(context?.runId);
-      if (deliveryId) {
-        webhookRuns.delete(context.runId);
-        dropDelivery(deliveryId);
-      }
+      dropRunDelivery(context?.runId);
       return { started: sending.started };
     },
     // Called on the turn's end, which is published after it was folded into the saved reply (ChatHost.receive).

@@ -189,6 +189,27 @@ test("a beat into a Chat that's gone fails", async () => {
   await assert.rejects(adapter.send("/project#9", { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r1" } }), /no longer in its Project/);
 });
 
+test("a beat checks its target before it opens the Chat's Project, so a failed check opens nothing", async () => {
+  const opened = [];
+  const checked = [];
+  const adapter = routineChats({
+    chats: { runs: {}, isBusy: () => false, turnSettings: () => null, send: async () => assert.fail("nothing is sent") },
+    cachedState: () => undefined,
+    openState: async (...args) => {
+      opened.push(args);
+      return baseState;
+    },
+    isClosing: () => false,
+    startCheck: async (target) => {
+      checked.push(target);
+      throw new Error("The Project folder /project moved or is no longer a folder.");
+    },
+  });
+  await assert.rejects(adapter.send(chatId, { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r1", runId: "run-1" } }), /moved/);
+  assert.deepEqual(checked, [{ kind: "chat", chatId }]);
+  assert.deepEqual(opened, [], "opening it could resume a turn there");
+});
+
 test("the reply is the last saved reply after the latest divider, notes left out", () => {
   assert.equal(fixture({ runs: { [chatId]: { text: "(pass) live" } } }).adapter.replyText(chatId), "(pass) CI green");
   assert.equal(routineReply({ messages: [{ session_id: 2, role: "assistant", body: "(pass) x", context: null }] }, 2), "");
@@ -252,7 +273,7 @@ test("a Chat on a Named Link gets no routine tools", (t) => {
 });
 
 // The adapter's half of a Run in a Chat of its own: Worktrees and Chats faked, with what each call got.
-function newChatFixture({ removable = true, failChat = false, createDelayMs = 0, timeoutMs, hooks, send } = {}) {
+function newChatFixture({ removable = true, failChat = false, createDelayMs = 0, timeoutMs, hooks, send, startCheck } = {}) {
   const calls = { created: [], removed: [], archived: [], emptyChats: [] };
   const projectState = {
     worktrees: { 1: { id: 1, path: "/project" }, 7: { id: 7, path: "/worktrees/seven", base: "main" } },
@@ -299,6 +320,7 @@ function newChatFixture({ removable = true, failChat = false, createDelayMs = 0,
     now: () => Date.UTC(2026, 9, 16, 11, 5),
     ...(timeoutMs ? { timeoutMs } : {}),
     ...(hooks ? { hooks } : {}),
+    ...(startCheck ? { startCheck } : {}),
   });
   return { adapter, calls, sent };
 }
@@ -1010,6 +1032,31 @@ test("a webhook Run whose first message fails to send deletes its delivery, as a
   const chat = await adapter.startChat({ routine, run: { id: "run-1", event: { kind: "webhook", key: "webhook:d1", deliveryId: "d1" } } });
   await assert.rejects(adapter.send(chat.chatId, { body: chat.body, prompt: chat.prompt, context: chat.context }), /agent CLI missing/);
   assert.equal(deliveries.has("d1"), false);
+});
+
+test("a webhook Run whose target fails its start check deletes its delivery, as a failed start does", async () => {
+  const delivery = (id) => [id, { id, hookId: "h", receivedAt: 1, headers: {}, query: {}, body: new TextEncoder().encode("{}") }];
+  const deliveries = new Map([delivery("d1"), delivery("d2")]);
+  const store = { getDelivery: (id) => deliveries.get(id) ?? null, takeDelivery: (id) => deliveries.delete(id) };
+  let failing = "new-chat";
+  const { adapter, calls } = newChatFixture({
+    hooks: () => ({ store, relayUrl: "wss://relay" }),
+    send: async () => ({ started: true }),
+    startCheck: async (target) => {
+      if (target.kind === failing) throw new Error("Choose a Project Milagre lists.");
+    },
+  });
+  const routine = { ...triage("worktree", { kind: "webhook", hookId: "h", signed: false }), prompt: "{{body}}" };
+  const run = (id, deliveryId) => ({ id, event: { kind: "webhook", key: `webhook:${deliveryId}`, deliveryId } });
+  // As its Chat is about to be made.
+  await assert.rejects(adapter.startChat({ routine, run: run("run-1", "d1") }), /Project Milagre lists/);
+  assert.equal(deliveries.has("d1"), false);
+  assert.deepEqual(calls.created, []);
+  // As its first message is about to go into the Chat made for it.
+  failing = "chat";
+  const chat = await adapter.startChat({ routine, run: run("run-2", "d2") });
+  await assert.rejects(adapter.send(chat.chatId, { body: chat.body, prompt: chat.prompt, context: chat.context }), /Project Milagre lists/);
+  assert.equal(deliveries.has("d2"), false);
 });
 
 test("rotating writes the new secret first and puts the old one back when the Routine can't be updated", async (t) => {

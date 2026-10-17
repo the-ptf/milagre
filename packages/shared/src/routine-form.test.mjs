@@ -359,5 +359,8 @@ test("a Linear comment Routine has no Each run: comments go into the Chat linked
   };
   const edited = formFromRoutine(routine, "UTC", NOW);
   assert.equal(isCommentRoutine(edited), true);
-  assert.deepEqual(formToUpdate({ ...edited, projectPath: "", runIn: "worktree" }, routine, NOW).patch.target, routine.target);
+  // An edit leaves the stored target out of the patch: its hidden Project may have left the list, and isn't checked again.
+  const { patch } = formToUpdate({ ...edited, projectPath: "", runIn: "worktree" }, routine, NOW);
+  assert.equal("target" in patch, false);
+  assert.equal(patch.prompt, "Reply to {{comment.body}}");
 });

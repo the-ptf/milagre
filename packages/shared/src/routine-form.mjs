@@ -227,7 +227,8 @@ export function formFromRoutine(routine, timezone, now = Date.now()) {
 
 /**
  * The `routines:update` patch for an edited Routine: everything the form holds, with `null` clearing the model, mode and
- * end. The trigger kind and whether Runs land in a Chat stay as they were; a webhook keeps its hook id.
+ * end. The trigger kind and whether Runs land in a Chat stay as they were; a webhook keeps its hook id, and a comment
+ * Routine its target (left out).
  */
 export function formToUpdate(state, routine, now = Date.now()) {
   if (state.trigger !== routine.trigger.kind) return fail("trigger", "A Routine's trigger kind can't change");
@@ -236,8 +237,9 @@ export function formToUpdate(state, routine, now = Date.now()) {
     return fail("runIn", "Where a Routine's Runs land can't change between a Chat and new Chats");
   const made = common(comment ? { ...state, projectPath: routine.target.projectPath } : state, now);
   if (made.error) return made;
-  // A comment Routine keeps the target it has: the form shows no Project or Each run for it.
-  const patch = { name: made.name, prompt: made.prompt, trigger: made.trigger, target: comment ? routine.target : made.target };
+  // A comment Routine keeps the target it has, left out of the patch: the form shows no Project or Each run for it, and
+  // sending it would check again a Project the form hides, which may have left the list since.
+  const patch = { name: made.name, prompt: made.prompt, trigger: made.trigger, ...(comment ? {} : { target: made.target }) };
   if (routine.trigger.kind === "webhook") {
     const secret = text(state.webhook.signingSecret);
     const signed = Boolean(secret) || (state.webhook.signed ?? routine.trigger.signed) === true;

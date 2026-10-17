@@ -73,7 +73,8 @@ export type RoutineFormPatch = {
   name: string;
   prompt: string;
   trigger: Exclude<RoutineTrigger, { kind: "webhook" }> | { kind: "webhook"; signed: boolean };
-  target: RoutineTarget;
+  /** Left out for a comment Routine, which keeps the target it has. */
+  target?: RoutineTarget;
   provider: ModelProvider | null;
   model: string | null;
   permissionMode: string | null;
@@ -103,7 +104,7 @@ export function isCommentRoutine(state: Pick<RoutineFormState, "trigger" | "line
 export function formFromRoutine(routine: Routine, timezone: string, now?: number): RoutineFormState;
 /**
  * The `routines:update` patch for an edited Routine. The trigger kind and Chat-or-new-Chat stay as they were; a comment
- * Routine keeps its stored target.
+ * Routine keeps its stored target, left out of the patch.
  */
 export function formToUpdate(
   state: RoutineFormState,
