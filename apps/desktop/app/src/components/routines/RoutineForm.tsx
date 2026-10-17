@@ -120,7 +120,7 @@ export function RoutineForm({
   // The date picker's range starts from when the form opened.
   const [openedAt] = useState(() => Date.now());
   const editing = Boolean(initial);
-  // Comments go into the Chat linked to their issue: no Project or Each run to pick.
+  // Comments go into the Chat linked to their issue: no Project or Each Run to pick.
   const comment = isCommentRoutine(state);
   const heartbeat = state.runIn === "chat" && !comment;
 
@@ -191,7 +191,7 @@ export function RoutineForm({
   const submit = async () => {
     const result = initial ? formToUpdate(state, initial) : formToInput(state);
     if (result.field !== undefined) {
-      // A comment Routine shows no Project or Each run, so their problems show under the Linear fields.
+      // A comment Routine shows no Project or Each Run, so their problems show under the Linear fields.
       setErrors({ [comment && ["project", "runIn", "chat"].includes(result.field) ? "workspace" : result.field]: result.error });
       return;
     }
@@ -633,9 +633,9 @@ export function RoutineForm({
                     width={240}
                   />
                 </Field>
-                <Field label="Each run" error={errors.runIn} className="flex-1">
+                <Field label="Each Run" error={errors.runIn} className="flex-1">
                   <Select<RoutineFormState["runIn"]>
-                    label="Each run"
+                    label="Each Run"
                     value={state.runIn}
                     options={runInOptions}
                     onChange={(runIn) => {

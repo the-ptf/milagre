@@ -262,7 +262,7 @@ async function browserChecks() {
     await clickText("dialog[data-routine-form] button", "Done");
     await waitFor(`!document.querySelector('dialog[data-routine-form]')`);
 
-    // A Linear comment Routine: no Project or Each run, a note instead; the target is filled from the open Project.
+    // A Linear comment Routine: no Project or Each Run, a note instead; the target is filled from the open Project.
     await click("[data-routine-new]");
     await waitFor(`!!document.querySelector('dialog[data-routine-form][open]')`);
     await click('[data-routine-trigger="linear"]');
@@ -274,7 +274,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector('[data-routine-comment-note]').textContent.trim()`), "Comments go into the Chat linked to the issue.");
     assert.equal(
       await evaluate(
-        `!!document.querySelector('dialog[data-routine-form] button[aria-label="Project"], dialog[data-routine-form] button[aria-label="Each run"]')`,
+        `!!document.querySelector('dialog[data-routine-form] button[aria-label="Project"], dialog[data-routine-form] button[aria-label="Each Run"]')`,
       ),
       false,
     );
