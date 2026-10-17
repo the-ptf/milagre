@@ -22,11 +22,14 @@ export function DesignPageShareSheet({
   onClose,
   onBusyChange,
   onAvailabilityChange,
+  inSheet = false,
 }: {
   client: Client;
   chatId?: string | null;
   kind?: "designs" | "artifacts";
   onClose: () => void;
+  /** Shown in a bottom sheet over the page, which has its own grabber to close: no Back button. */
+  inSheet?: boolean;
   onBusyChange?: (busy: boolean) => void;
   onAvailabilityChange?: (available: boolean | null) => void;
 }) {
@@ -176,11 +179,13 @@ export function DesignPageShareSheet({
           padding: 16,
         }}
       >
-        <CircleButton
-          label={chatId ? (kind === "artifacts" ? "Back to artifact" : "Back to designs") : "Back to Experimental"}
-          icon={ArrowLeft01Icon}
-          onPress={state.busy ? undefined : onClose}
-        />
+        {!inSheet && (
+          <CircleButton
+            label={chatId ? (kind === "artifacts" ? "Back to artifact" : "Back to designs") : "Back to Experimental"}
+            icon={ArrowLeft01Icon}
+            onPress={state.busy ? undefined : onClose}
+          />
+        )}
         <Text
           accessibilityRole="header"
           style={{

@@ -7188,7 +7188,117 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
   };
 }
 
-test("structured designs on mobile support review and version browsing without edit controls", async () => {
+/** DesignsSheet with its native pieces faked; `open` walks it to a loaded design on a canvas page that said ready. */
+function designsHost(client, router = { back() {} }, feature = designsOn, pushes = []) {
+  const react = hookHost({ effects: true }),
+    files = new Map(),
+    injected = [];
+  const appListeners = new Set();
+  class File {
+    constructor(_cache, name) {
+      this.uri = "file:///cache/" + name;
+    }
+    writeSync(value) {
+      files.set(this.uri, value);
+    }
+    get exists() {
+      return files.has(this.uri);
+    }
+    delete() {
+      files.delete(this.uri);
+    }
+  }
+  const source = load(
+    "designs-sheet.tsx",
+    {
+      react,
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "react-native": {
+        Alert: { alert() {} },
+        Text: "Text",
+        View: "View",
+        Pressable: "Pressable",
+        TextInput: "TextInput",
+        StyleSheet: { absoluteFill: {} },
+        AppState: {
+          addEventListener: (_event, listener) => {
+            appListeners.add(listener);
+            return { remove: () => appListeners.delete(listener) };
+          },
+        },
+      },
+      "expo-router": { router: { back: () => router.back(), push: (route) => pushes.push(route) } },
+      "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 47, bottom: 34 }) },
+      "react-native-reanimated": {
+        __esModule: true,
+        default: { View: "Animated.View", createAnimatedComponent: (component) => component },
+        FadeOut: { duration: () => ({}) },
+        Easing: { inOut: () => () => 0, quad: () => 0 },
+        useAnimatedProps: (fn) => fn,
+        useAnimatedStyle: (fn) => fn,
+        useReducedMotion: () => true,
+        useSharedValue: (value) => ({ value, set() {} }),
+        withRepeat: (value) => value,
+        withTiming: (value) => value,
+      },
+      "react-native-svg": { __esModule: true, default: "Svg", Circle: "Circle", Path: "Path" },
+      "@expo/dom-webview": { DomWebView: "DomWebView" },
+      "expo-file-system": { File, Paths: { cache: "/cache" } },
+      "@hugeicons/core-free-icons": {},
+      "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+      "./design-outbox": require("../apps/mobile/src/design-outbox.ts"),
+      "./session": { useSession: () => ({ client, designs: feature }) },
+      "./use-design-catalog": { markDesignDeleted() {} },
+      "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
+      "./ui": { PillButton: "PillButton", PullDown: "PullDown", tap() {} },
+    },
+    "\nexports.TestDesignsCanvas = DesignsCanvas;",
+  );
+  const host = {
+    files,
+    shareAvailabilityChanged: (...args) => source.shareAvailabilityChanged(...args),
+    setClient(next) {
+      client = next;
+    },
+    appState(status) {
+      for (const listener of appListeners) listener(status);
+    },
+    render(name, props) {
+      react.begin();
+      const tree = source[name](props);
+      react.flush();
+      return tree;
+    },
+    /** What the sheet told the canvas page, as commands. */
+    commands() {
+      return injected.map((script) => JSON.parse(/run\((.*)\);true;$/s.exec(script)[1]));
+    },
+    /** The canvas page saying something to the sheet. */
+    say(tree, message) {
+      find(tree, (node) => node.type?.name === "DesignsCanvas").props.onMessage(JSON.stringify(message));
+    },
+    async open(props) {
+      host.render("DesignsSheet", props);
+      await settle();
+      host.render("DesignsSheet", props);
+      await settle();
+      let tree = host.render("DesignsSheet", props);
+      const canvas = find(tree, (node) => node.type?.name === "DesignsCanvas");
+      assert.ok(canvas, "the designs open on their canvas");
+      canvas.props.ref.current = { injectJavaScript: (script) => injected.push(script) };
+      host.say(tree, { t: "ready" });
+      tree = host.render("DesignsSheet", props);
+      return tree;
+    },
+    cleanup() {
+      react.cleanup();
+    },
+  };
+  return host;
+}
+const menuItems = (tree) => find(tree, (node) => node.type === "PullDown")?.props.sections.flatMap((section) => section.items) ?? [];
+
+test("structured designs on mobile open on their canvas, with versions in the menu and no edit controls", async () => {
   const { createExampleDesign, designHtml } = require("../packages/shared/src/design.mjs");
   const document = createExampleDesign();
   const latest = {
@@ -7210,40 +7320,34 @@ test("structured designs on mobile support review and version browsing without e
       calls.push([method, request]);
       if (method === "artifact:list") return [latest];
       if (method === "artifact:get") return { ...latest, version: request.version ?? 2 };
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
       throw new Error(`Unexpected request: ${method}`);
     },
   };
-  const h = artifactHost(client);
-  const props = {
-    hostId: "mac",
-    chatId: "/p#7",
-    id: "fieldnotes",
-    version: "2",
-  };
-  h.render("ArtifactSheet", props);
-  await settle();
-  let tree = h.render("ArtifactSheet", props);
-  assert.ok(
-    find(tree, (node) => node.props.html === latest.html),
-    "the structured design renders for review",
+  const h = designsHost(client);
+  const props = { hostId: "mac", chatId: "/p#7", id: "fieldnotes", version: "2" };
+  let tree = await h.open(props);
+  const commands = h.commands();
+  assert.deepEqual(commands.find((command) => command.t === "set").rows, [{ group: "", designs: [{ id: "fieldnotes", w: 390, h: 844 }] }]);
+  assert.equal(commands.find((command) => command.t === "set").focus, "fieldnotes");
+  assert.equal(
+    commands.find((command) => command.t === "html" && command.id === "fieldnotes").doc,
+    require("../packages/shared/src/artifact.ts").artifactDocument(latest.html),
+    "the design goes on the canvas",
   );
   assert.equal(
-    find(tree, (node) => /^Edit|^Save$|^Layers$|^Inspect$/.test(node.props.title ?? "")),
+    find(tree, (node) => /^Edit|^Save$|^Layers$|^Inspect$/.test(node.props?.title ?? "")),
     undefined,
   );
-  assert.ok(find(tree, (node) => node.props.title === "Choose"));
-  assert.ok(find(tree, (node) => node.props.title === "Comment"));
-  find(tree, (node) => node.props.label === "Previous version of Fieldnotes").props.onPress();
-  h.render("ArtifactSheet", props);
+  assert.deepEqual(JSON.parse(JSON.stringify(menuItems(tree).map((item) => item.id))), ["choose", "version:2", "version:1", "delete"]);
+  find(tree, (node) => node.type === "PullDown").props.onSelect("version:1");
+  h.render("DesignsSheet", props);
   await settle();
-  tree = h.render("ArtifactSheet", props);
+  tree = h.render("DesignsSheet", props);
   assert.equal(calls.at(-1)[1].version, 1);
-  assert.equal(
-    find(tree, (node) => (node.props.title ?? "").startsWith("Edit")),
-    undefined,
-  );
-  find(tree, (node) => node.props.label === "Next version of Fieldnotes").props.onPress();
-  h.render("ArtifactSheet", props);
+  find(tree, (node) => node.type === "PullDown").props.onSelect("version:2");
+  h.render("DesignsSheet", props);
   await settle();
   assert.equal(calls.at(-1)[0], "artifact:get");
   assert.equal(calls.at(-1)[1].version, undefined, "returning to the latest version reads the latest saved design");
@@ -7260,7 +7364,7 @@ test("a design card opens its Chat's design full screen; a new Chat's card can't
   assert.equal(h.render("ArtifactCard", { step, chatId: "/p#new:1" }).props.disabled, true);
 });
 
-test("the design sheet loads the version it opened under the design policy, framed in a page of its own", async () => {
+test("the designs sheet loads the version it opened, on a canvas page that runs only its own script", async () => {
   const { createExampleDesign, designHtml } = require("../packages/shared/src/design.mjs");
   const document = createExampleDesign();
   const calls = [];
@@ -7269,6 +7373,8 @@ test("the design sheet loads the version it opened under the design policy, fram
     call: async (method, args) => {
       calls.push([method, args]);
       if (method === "artifact:list") return [{ id: "login", format: "design", version: 2, title: "Login", versions: 2, width: 390, height: 844 }];
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
       return {
         id: "login",
         format: "design",
@@ -7283,36 +7389,33 @@ test("the design sheet loads the version it opened under the design policy, fram
       };
     },
   };
-  const h = artifactHost(client);
-  h.render("ArtifactSheet", { hostId: "mac", chatId: "/p#7", id: "login", version: "1" });
-  await settle();
-  const tree = h.render("ArtifactSheet", { hostId: "mac", chatId: "/p#7", id: "login", version: "1" });
-  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
-    ["artifact:sharing-status", []],
-    ["artifact:list", [{ chatId: "/p#7" }]],
+  const h = designsHost(client);
+  await h.open({ hostId: "mac", chatId: "/p#7", id: "login", version: "1" });
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.filter(([method]) => method === "artifact:get"))), [
     ["artifact:get", [{ chatId: "/p#7", id: "login", version: 1 }]],
   ]);
-  const view = find(tree, (node) => node.props?.html);
-  assert.ok(view, "the design shows once loaded");
-  const web = artifactHost(client);
-  web.render("TestArtifactWebView", { html: view.props.html });
-  const frame = find(web.render("TestArtifactWebView", { html: view.props.html }), (node) => node.type === "DomWebView");
+  for (const method of ["artifact:sharing-status", "artifact:list", "artifact:comments"])
+    assert.ok(
+      calls.some(([called]) => called === method),
+      method,
+    );
+  const web = designsHost(client);
+  web.render("TestDesignsCanvas", { ref: { current: null }, onMessage() {} });
+  const frame = find(web.render("TestDesignsCanvas", { ref: { current: null }, onMessage() {} }), (node) => node.type === "DomWebView");
   assert.ok(frame);
   assert.equal(frame.props.useExpoModulesBridge, false);
-  // A page with no script of its own, framing the design in a sandbox that can't navigate away; removed when done.
+  assert.equal(typeof frame.props.onMessage, "function", "the canvas script reports holds, pins and the view");
+  // The page runs only the canvas script, by its hash; each design's frame is made sandboxed with no scripts.
   const page = web.files.get(frame.props.source.uri);
+  assert.match(page, /script-src 'sha256-/);
+  assert.doesNotMatch(page, /script-src 'unsafe-inline'/);
   assert.match(page, /frame-src 'none'/);
-  assert.match(
-    page,
-    /<iframe sandbox="allow-scripts"[^>]* srcdoc="<!doctype html><meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src 'none'/,
-  );
-  assert.doesNotMatch(page.replace(/srcdoc="[^"]*"/, ""), /<script/);
   web.cleanup();
   assert.equal(web.files.size, 0);
   h.cleanup();
 });
 
-test("on the design sheet, choosing and commenting wait for Send, which hands one message to the Chat", async () => {
+test("on the designs sheet, a held spot's comment and the choice wait for Send, which hands one message to the Chat", async () => {
   const { createExampleDesign, designHtml } = require("../packages/shared/src/design.mjs");
   const document = createExampleDesign();
   const outbox = require("../apps/mobile/src/design-outbox.ts");
@@ -7322,42 +7425,59 @@ test("on the design sheet, choosing and commenting wait for Send, which hands on
     url: "mac",
     call: async (method, args) => {
       if (method === "artifact:add-comments") recorded.push(...args[0].comments);
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
       return method === "artifact:list"
         ? [{ id: "home", format: "design", version: 1, title: "Home", versions: 1, width: 390, height: 844 }]
         : { id: "home", format: "design", document, version: 1, latest: 1, versions: 1, title: "Home", width: 390, height: 844, html: designHtml(document) };
     },
   };
-  const h = artifactHost(client, [], { back: () => backs++ });
+  const h = designsHost(client, { back: () => backs++ });
   const props = { hostId: "mac", chatId: "/p#7", id: "home", version: "1" };
-  h.render("ArtifactSheet", props);
-  await settle();
-  let tree = h.render("ArtifactSheet", props);
-  assert.ok(!find(tree, (node) => (node.props?.title ?? "").startsWith("Send")), "nothing to send yet");
-  find(tree, (node) => node.props?.title === "Choose").props.onPress();
-  tree = h.render("ArtifactSheet", props);
+  let tree = await h.open(props);
+  const sendButton = (node) => node.type?.name === "SendButton";
+  assert.equal(find(tree, sendButton), undefined, "nothing to send yet");
+  find(tree, (node) => node.type === "PullDown").props.onSelect("choose");
+  tree = h.render("DesignsSheet", props);
   assert.equal(outbox.peekDesignMessage("mac|/p#7"), null, "choosing alone sends nothing");
-  assert.ok(find(tree, (node) => node.props?.title === "Chosen ✓"));
-  find(tree, (node) => node.props?.title === "Comment").props.onPress();
-  tree = h.render("ArtifactSheet", props);
-  find(tree, (node) => node.type === "TextInput").props.onChangeText("Bigger title");
-  tree = h.render("ArtifactSheet", props);
-  find(tree, (node) => node.props?.title === "Done").props.onPress();
-  tree = h.render("ArtifactSheet", props);
-  find(tree, (node) => node.props?.title === "Send 2").props.onPress();
+  assert.equal(menuItems(tree).find((item) => item.id === "choose").checked, true);
+  // Holding the design opens a comment at that spot once the canvas has brought it into view.
+  h.say(tree, { t: "press", id: "home", x: 0.5, y: 0.25 });
+  tree = h.render("DesignsSheet", props);
+  assert.deepEqual(
+    h.commands().find((command) => command.t === "reveal"),
+    { t: "reveal", id: "home", x: 0.5, y: 0.25 },
+  );
+  h.say(tree, { t: "anchor", sx: 40, sy: 120 });
+  tree = h.render("DesignsSheet", props);
+  const box = find(tree, (node) => node.type?.name === "CommentBox");
+  assert.deepEqual(JSON.parse(JSON.stringify(box.props.at)), { x: 40, y: 120 });
+  box.props.onChange("Bigger title");
+  box.props.onDone();
+  tree = h.render("DesignsSheet", props);
+  assert.equal(
+    find(tree, (node) => node.type?.name === "CommentBox"),
+    undefined,
+  );
+  const pins = h.commands().findLast((command) => command.t === "pins").pins;
+  assert.deepEqual(
+    pins.map(({ id, x, y, n }) => ({ id, x, y, n })),
+    [{ id: "home", x: 0.5, y: 0.25, n: 1 }],
+  );
+  find(tree, sendButton).props.onPress();
   await settle();
   const message = outbox.peekDesignMessage("mac|/p#7");
   const id = /\(comment ([a-f0-9]{8})\)/.exec(message.text)?.[1];
   assert.equal(
     message.text,
-    `I chose the design "Home" (home, version 1). Continue from this one.\n\nA comment on the designs:\n\n1. (comment ${id}) On the design "Home" (home, version 1): Bigger title\n\nRead the latest design with design_read, then revise its layers with design_apply and expectedVersion. Keep its id. Once you have addressed a comment, resolve it with artifact_resolve_comment and its comment id.`,
+    `I chose the design "Home" (home, version 1). Continue from this one.\n\nA comment on the designs:\n\n1. (comment ${id}) On the design "Home" (home, version 1), 50% across and 25% down: Bigger title\n\nRead the latest design with design_read, then revise its layers with design_apply and expectedVersion. Keep its id. Once you have addressed a comment, resolve it with artifact_resolve_comment and its comment id.`,
   );
   assert.equal(recorded.length, 0, "the comments are recorded only once the message went");
-  assert.ok(outbox.peekDesignMessage("mac|/p#7"), "it waits until it is sent");
   outbox.designMessageSent("mac|/p#7", message);
   await settle();
   assert.deepEqual(
-    recorded.map((comment) => [comment.id, comment.text]),
-    [[id, "Bigger title"]],
+    recorded.map((comment) => [comment.id, comment.text, comment.x, comment.y]),
+    [[id, "Bigger title", 0.5, 0.25]],
   );
   assert.equal(outbox.peekDesignMessage("mac|/p#7"), null, "a message is sent once");
   assert.equal(backs, 1);
@@ -9207,24 +9327,27 @@ test("turning Designs off closes an open phone review and preserves plain feedba
     url: "off-host",
     call: async (method) => {
       calls.push(method);
-      return method === "artifact:list" ? [artifact] : artifact;
+      return method === "artifact:list"
+        ? [artifact]
+        : method === "artifact:comments"
+          ? []
+          : method === "artifact:sharing-status"
+            ? { available: false }
+            : artifact;
     },
   };
   const feature = { ...designsOn };
   let backs = 0;
-  const h = artifactHost(client, [], { back: () => backs++ }, feature);
+  const h = designsHost(client, { back: () => backs++ }, feature);
   const props = { hostId: client.url, chatId: "/p#7", id: "sample" };
-  h.render("ArtifactSheet", props);
-  await settle();
-  let tree = h.render("ArtifactSheet", props);
-  assert.ok(find(tree, (node) => node.props.children === "Experimental"));
-  assert.ok(find(tree, (node) => node.props.title === "Choose"));
+  let tree = await h.open(props);
+  assert.ok(find(tree, (node) => node.type === "PullDown"));
   feature.enabled = false;
   calls.length = 0;
-  tree = h.render("ArtifactSheet", props);
+  tree = h.render("DesignsSheet", props);
   assert.equal(backs, 1);
   assert.equal(
-    find(tree, (node) => node.props.title === "Choose" || node.props.children === "Experimental" || node.props.html),
+    find(tree, (node) => node.type === "PullDown" || node.type?.name === "DesignsCanvas"),
     undefined,
   );
   assert.deepEqual(calls, []);
@@ -9348,56 +9471,45 @@ test("the phone refuses a retired HTML design response even while Designs is ena
   h.cleanup();
 });
 
-test("mobile page sharing uses the Chat scope, regardless of the selected design or version", async () => {
-  const design = {
-    id: "one",
-    version: 1,
-    latest: 2,
-    versions: 2,
-    title: "One",
-    format: "design",
-    document: {},
-    html: "<main>One</main>",
-  };
+test("mobile page sharing opens the Chat's Share sheet over the designs, regardless of the selected design or version", async () => {
+  const design = { id: "one", version: 1, latest: 2, versions: 2, title: "One", format: "design", document: {}, html: "<main>One</main>" };
   const feature = { ...designsOn };
   const client = {
     url: "mac",
     call: async (method) =>
       method === "artifact:sharing-status" ? { available: true } : method === "artifact:list" ? [design, { ...design, id: "two" }] : design,
   };
-  const h = artifactHost(client, [], { back() {} }, feature);
+  const pushes = [];
+  const h = designsHost(client, { back() {} }, feature, pushes);
   const props = { hostId: "mac", chatId: "/p#7", id: "one", version: "1" };
-  h.render("ArtifactSheet", props);
-  await settle();
-  let tree = h.render("ArtifactSheet", props);
-  find(tree, (node) => node.props.accessibilityLabel === "Share Designs page").props.onPress();
-  tree = h.render("ArtifactSheet", props);
-  const sheet = find(tree, (node) => node.type === "DesignPageShareSheet");
-  assert.equal(sheet.props.chatId, "/p#7");
-  assert.equal(sheet.props.id, undefined, "sharing must not take an individual design ID");
-  assert.equal(sheet.props.version, undefined, "sharing always captures the latest saved page");
-  sheet.props.onAvailabilityChange(false);
-  tree = h.render("ArtifactSheet", props);
+  let tree = await h.open(props);
+  find(tree, (node) => node.type === "PullDown").props.onSelect("share");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(pushes)),
+    [{ pathname: "/design-share-sheet", params: { hostId: "mac", chatId: "/p#7" } }],
+    "no design id or version: sharing captures the whole page",
+  );
+  // The sheet's own health check reaches the designs it opened from.
+  h.shareAvailabilityChanged("mac", "/p#7", false);
+  tree = h.render("DesignsSheet", props);
+  assert.equal(
+    menuItems(tree).find((item) => item.id === "share"),
+    undefined,
+    "a failed health check in the sheet hides the entry point",
+  );
+  h.shareAvailabilityChanged("mac", "/p#7", true);
+  tree = h.render("DesignsSheet", props);
+  assert.ok(menuItems(tree).find((item) => item.id === "share"));
+  h.shareAvailabilityChanged("mac", "/p#8", false);
+  tree = h.render("DesignsSheet", props);
   assert.ok(
-    find(tree, (node) => node.type === "DesignPageShareSheet"),
-    "an unavailable result keeps the open dialog available for recovery",
+    menuItems(tree).find((item) => item.id === "share"),
+    "another Chat's sheet changes nothing here",
   );
-  sheet.props.onClose();
-  tree = h.render("ArtifactSheet", props);
-  assert.equal(
-    find(tree, (node) => node.props.accessibilityLabel === "Share Designs page"),
-    undefined,
-    "a failed dialog health check also hides the entry point",
-  );
-
   feature.enabled = false;
-  tree = h.render("ArtifactSheet", props);
+  tree = h.render("DesignsSheet", props);
   assert.equal(
-    find(tree, (node) => node.type === "DesignPageShareSheet"),
-    undefined,
-  );
-  assert.equal(
-    find(tree, (node) => node.props.accessibilityLabel === "Share Designs page"),
+    menuItems(tree).find((item) => item.id === "share"),
     undefined,
   );
   h.cleanup();
@@ -9409,16 +9521,16 @@ test("mobile Share stays hidden until the current host is healthy and refreshes 
   const makeClient = (url) => ({
     url,
     call(method) {
-      if (method !== "artifact:sharing-status") return Promise.resolve(method === "artifact:list" ? [design] : design);
+      if (method !== "artifact:sharing-status") return Promise.resolve(method === "artifact:list" ? [design] : method === "artifact:comments" ? [] : design);
       const request = deferred();
       requests.push(request);
       return request.promise;
     },
   });
-  const h = artifactHost(makeClient("first"));
+  const h = designsHost(makeClient("first"));
   const props = { hostId: "first", chatId: "/p#7", id: "one" };
-  const render = () => h.render("ArtifactSheet", props);
-  const share = () => find(render(), (node) => node.props.accessibilityLabel === "Share Designs page");
+  const render = () => h.render("DesignsSheet", props);
+  const share = () => menuItems(render()).find((item) => item.id === "share");
   render();
   await settle();
   assert.equal(share(), undefined, "initial health request has no Share flash");

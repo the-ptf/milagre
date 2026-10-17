@@ -198,10 +198,10 @@ export {
   ARTIFACT_ESCAPE,
   ARTIFACT_SEND,
   ARTIFACT_ESCAPE_SCRIPT,
-  DESIGN_CANVAS_SCRIPT,
+  DESIGNS_CANVAS_SCRIPT,
   artifactDocument,
   artifactShell,
-  designCanvasShell,
+  designsCanvasShell,
 } from "./artifact-document.mjs";
 
 /** The step the transcript shows for the agent resolving a design comment (core's agents/steps.cjs names it). */

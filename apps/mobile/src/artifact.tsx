@@ -1,20 +1,17 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Alert, AppState, Pressable, Text, TextInput, View } from "react-native";
+import { AppState, Pressable, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { DomWebView } from "@expo/dom-webview";
-import { ArrowLeft01Icon, ArrowRight01Icon, Cancel01Icon, CheckmarkCircle02Icon, Delete02Icon, PaintBoardIcon } from "@hugeicons/core-free-icons";
+import { ArrowRight01Icon, Cancel01Icon, CheckmarkCircle02Icon, PaintBoardIcon } from "@hugeicons/core-free-icons";
 import {
   artifactShell,
-  designCanvasShell,
   designFeedbackMessage,
   designFeedbackText,
-  designGroups,
   newCommentId,
   type Artifact,
   type ArtifactComment,
-  type ArtifactSummary,
   type DesignComment,
   resolutionNotes,
 } from "@milagre/shared/artifact";
@@ -23,7 +20,7 @@ import type { ArtifactStep } from "@milagre/shared/reply-parts";
 import { postDesignMessage } from "./design-outbox";
 import { File, Paths } from "expo-file-system";
 import { useSession } from "./session";
-import { markDesignDeleted, useArtifactCatalog } from "./use-design-catalog";
+import { useArtifactCatalog } from "./use-design-catalog";
 import { Icon } from "./icons";
 import { CircleButton, PillButton, useStyles } from "./ui";
 import { useTheme } from "./theme";
@@ -341,44 +338,23 @@ function ArtifactCard({ step, chatId, chosen, kind = "design" }: { step: Artifac
 }
 
 /**
- * Feedback not sent yet, by Chat: leaving the designs keeps the comments and the choice until they are sent or deleted,
- * as on desktop. In memory, for the app's life.
+ * Feedback not sent yet, by Chat: leaving the page keeps the comment until it is sent or deleted, as on desktop. In
+ * memory, for the app's life.
  */
-const unsent = new Map<string, { notes: Record<string, DesignComment>; choice: ArtifactRef | null }>();
+const unsent = new Map<string, Record<string, DesignComment>>();
 
 /**
- * The Chat's designs full screen, the one a card opened first. The header steps between designs and the bar under the
- * design steps through its versions, comments on it, or chooses it. Comments and the choice wait for Send, which hands
- * them to the Chat as one message for the agent.
+ * The Chat's HTML artifact full screen (its designs open on their own canvas, in DesignsSheet). A comment on the page
+ * waits for Send, which hands it to the Chat as a message for the agent.
  */
-export function ArtifactSheet({
-  hostId,
-  chatId,
-  id,
-  version,
-  chosen,
-  kind,
-}: {
-  hostId?: string;
-  chatId?: string;
-  id?: string;
-  version?: string;
-  chosen?: string;
-  kind?: string;
-}) {
+export function ArtifactSheet({ hostId, chatId, id, kind }: { hostId?: string; chatId?: string; id?: string; kind?: string }) {
   const { colors } = useTheme();
   const styles = useStyles();
-  const { client, designs: feature, snapshot } = useSession();
+  const { client, snapshot } = useSession();
   const insets = useSafeAreaInsets();
-  const matching = client && chatId && id && (!hostId || hostId === client.url) ? client : null;
-  const [state, setState] = useState<{
-    artifact: Artifact | null;
-    error: string;
-  }>({ artifact: null, error: "" });
-  const isHtml = state.artifact?.format === "html" || (!state.artifact && kind === "html");
-  const shareKind = isHtml ? "artifacts" : "designs";
-  const source = !isHtml && state.artifact?.format === "design" && feature.enabled !== true ? null : matching;
-  const sharingScope = useMemo(() => ({ source, chatId, shareKind }), [source, chatId, shareKind]);
+  const source = client && chatId && id && (!hostId || hostId === client.url) ? client : null;
+  const [state, setState] = useState<{ artifact: Artifact | null; error: string }>({ artifact: null, error: "" });
+  const sharingScope = useMemo(() => ({ source, chatId }), [source, chatId]);
   const [sharingAvailable, setSharingAvailable] = useState<typeof sharingScope | null>(null);
   const sharingRequest = useRef(0);
   const sharingStatusChanged = useCallback(
@@ -395,7 +371,7 @@ export function ArtifactSheet({
       const current = ++sharingRequest.current;
       setSharingAvailable(null);
       source
-        .call<{ available: boolean }>("artifact:sharing-status", shareKind === "artifacts" ? [{ kind: shareKind }] : [])
+        .call<{ available: boolean }>("artifact:sharing-status", [{ kind: "artifacts" }])
         .then((status) => {
           if (live && current === sharingRequest.current && status?.available === true) setSharingAvailable(sharingScope);
         })
@@ -413,142 +389,63 @@ export function ArtifactSheet({
       live = false;
       watch.remove();
     };
-  }, [source, sharingScope, shareKind]);
-  const [designs, setDesigns] = useState<ArtifactSummary[] | null>(null);
-  const [shown, setShown] = useState<{ id: string; version: number | null }>({
-    id: id ?? "",
-    version: version ? Number(version) : null,
-  });
+  }, [source, sharingScope]);
   const [revision, setRevision] = useState(0);
-  const pageRevision =
-    isHtml && chatId
-      ? snapshot?.runs.runs[chatId]?.steps
-          .filter((step) => step.kind === "artifact" && step.status === "done")
-          .map((step) => step.id)
-          .join("|")
-      : undefined;
+  const pageRevision = chatId
+    ? snapshot?.runs.runs[chatId]?.steps
+        .filter((step) => step.kind === "artifact" && step.status === "done")
+        .map((step) => step.id)
+        .join("|")
+    : undefined;
   useEffect(() => {
-    if (!isHtml) return;
     const watch = AppState.addEventListener("change", (status) => {
       if (status === "active") setRevision((value) => value + 1);
     });
     return () => watch.remove();
-  }, [isHtml]);
+  }, []);
   const [sharePage, setSharePage] = useState(false);
-  // Feedback waits here until Send: a comment per design version, and the design the user chose.
   const [editing, setEditing] = useState<string | null>(null);
   const feedbackKey = hostId && chatId ? `${hostId}|${chatId}|${kind === "html" ? "artifacts" : "designs"}` : null;
-  const [notes, setNotes] = useState<Record<string, DesignComment>>(() => (feedbackKey && unsent.get(feedbackKey)?.notes) || {});
-  const [choice, setChoice] = useState<ArtifactRef | null>(() => (feedbackKey && unsent.get(feedbackKey)?.choice) || null);
+  const [notes, setNotes] = useState<Record<string, DesignComment>>(() => (feedbackKey && unsent.get(feedbackKey)) || {});
   useEffect(() => {
     if (!feedbackKey) return;
-    if (Object.values(notes).some((note) => note.text.trim()) || choice) unsent.set(feedbackKey, { notes, choice });
+    if (Object.values(notes).some((note) => note.text.trim())) unsent.set(feedbackKey, notes);
     else unsent.delete(feedbackKey);
-  }, [feedbackKey, notes, choice]);
+  }, [feedbackKey, notes]);
   useEffect(() => {
-    if (feature.enabled === false && state.artifact?.format === "design") router.back();
-  }, [feature.enabled, state.artifact?.format]);
-  useEffect(() => {
-    if (!source) return;
+    if (!source || !id) return;
     let live = true;
     source
-      .call<ArtifactSummary[]>("artifact:list", [{ chatId }])
-      // In the desktop canvas's order: group by group.
-      .then((list) => live && setDesigns(designGroups(list.filter((design) => design.format === "design")).flatMap((row) => row.designs)))
-      .catch(() => live && setDesigns(null));
-    return () => {
-      live = false;
-    };
-  }, [source, chatId]);
-  useEffect(() => {
-    if (!source || !shown.id) return;
-    let live = true;
-    source
-      .call<Artifact>("artifact:get", [
-        {
-          chatId,
-          id: shown.id,
-          ...(shown.version === null ? {} : { version: shown.version }),
-        },
-      ])
+      .call<Artifact>("artifact:get", [{ chatId, id }])
       .then((artifact) => {
-        if (artifact.format !== "html" && (artifact.format !== "design" || !artifact.document)) throw new Error("This page is no longer available.");
+        if (artifact.format !== "html") throw new Error("This page is no longer available.");
         if (live) setState({ artifact, error: "" });
       })
-      .catch(
-        (error: unknown) =>
-          live &&
-          setState({
-            artifact: null,
-            error: error instanceof Error ? error.message : "Could not load this page.",
-          }),
-      );
+      .catch((error: unknown) => live && setState({ artifact: null, error: error instanceof Error ? error.message : "Could not load this page." }));
     return () => {
       live = false;
     };
-  }, [source, chatId, shown, revision, pageRevision]);
-  const artifact = source && (state.artifact?.format === "html" || state.artifact?.id === shown.id) ? state.artifact : null;
-  const index = designs?.findIndex((design) => design.id === shown.id) ?? -1;
-  const step = (offset: number) => {
-    const next = designs?.[index + offset];
-    if (!next) return;
-    setEditing(null);
-    setShown({ id: next.id, version: null });
-  };
-  const current = artifact?.version ?? shown.version ?? 1;
+  }, [source, chatId, id, revision, pageRevision]);
+  const artifact = source ? state.artifact : null;
   const key = artifact ? `${artifact.id}:${artifact.version}` : "";
-  const pendingHere = !!artifact && choice?.id === artifact.id && choice.version === artifact.version;
-  const sentHere = !choice && chosen === key;
   const written = Object.values(notes).filter((note) => note.text.trim());
-  const feedback = written.length + (choice ? 1 : 0);
   const send = async () => {
-    if (!hostId || !chatId || !feedback || !source) return;
+    if (!hostId || !chatId || !written.length || !source) return;
     // Each comment gets the id the agent resolves it by; the host records the comments once the message went.
     const comments = written.map((note) => ({ ...note, id: newCommentId() }));
     if (feedbackKey) unsent.delete(feedbackKey);
     postDesignMessage(`${hostId}|${chatId}`, {
-      kind: isHtml ? "artifacts" : "designs",
-      text: designFeedbackMessage({ choice, comments }),
+      kind: "artifacts",
+      text: designFeedbackMessage({ comments }),
       onSent: () => {
-        if (comments.length) source.call("artifact:add-comments", [{ chatId, comments }]).catch(() => {});
+        source.call("artifact:add-comments", [{ chatId, comments }]).catch(() => {});
       },
     });
     router.back();
   };
-  const remove = (design: Artifact) =>
-    Alert.alert(`Delete ${design.title}?`, "Every version of this design and the comments on it are deleted.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => {
-          if (!source || !chatId) return;
-          source
-            .call("artifact:delete", [{ chatId, id: design.id }])
-            .then(() => {
-              markDesignDeleted(source, chatId, design.id);
-              setNotes((current) => Object.fromEntries(Object.entries(current).filter(([, note]) => note.design.id !== design.id)));
-              setChoice((current) => (current?.id === design.id ? null : current));
-              setEditing(null);
-              const rest = designs?.filter((item) => item.id !== design.id) ?? [];
-              // The next design takes its place, or the one before when it was the last.
-              const next = designs?.[index + 1] ?? designs?.[index - 1];
-              setDesigns(rest);
-              if (next && next.id !== design.id) setShown({ id: next.id, version: null });
-              else router.back();
-            })
-            .catch((error: unknown) => Alert.alert("Could not delete the design", error instanceof Error ? error.message : String(error)));
-        },
-      },
-    ]);
-  const ref = (design: Artifact): ArtifactRef => ({
-    id: design.id,
-    version: design.version,
-    title: design.title,
-    format: design.format,
-  });
+  const ref = (page: Artifact): ArtifactRef => ({ id: page.id, version: page.version, title: page.title, format: page.format });
   return (
-    // The bar under the design rises with the keyboard, so a comment being written stays in view.
+    // The bar under the page rises with the keyboard, so a comment being written stays in view.
     // The keyboard covers the home indicator, so the bar's bottom inset gives way to its 12pt gap while it is up.
     <KeyboardAvoidingView
       behavior="padding"
@@ -557,99 +454,41 @@ export function ArtifactSheet({
     >
       {sharePage && source && chatId ? (
         <DesignPageShareSheet
-          key={`${source.url}:${chatId}:${shareKind}`}
+          key={`${source.url}:${chatId}:artifacts`}
           client={source}
           chatId={chatId}
-          kind={shareKind}
+          kind="artifacts"
           onClose={() => setSharePage(false)}
           onAvailabilityChange={sharingStatusChanged}
         />
       ) : (
         <>
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              paddingHorizontal: 16,
-              paddingTop: 16,
-              paddingBottom: 8,
-              gap: 8,
-            }}
-          >
-            {source && !isHtml && <CircleButton label="Previous design" icon={ArrowLeft01Icon} onPress={index > 0 ? () => step(-1) : undefined} />}
+          <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, gap: 8 }}>
             <View style={{ flex: 1, alignItems: "center" }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-                  {isHtml ? "Artifact" : "Designs"}
-                </Text>
-                {source && !isHtml && (
-                  <Text
-                    style={{
-                      color: colors.ink2,
-                      backgroundColor: colors.canvas,
-                      borderRadius: 5,
-                      paddingHorizontal: 5,
-                      paddingVertical: 2,
-                      fontSize: 10,
-                    }}
-                  >
-                    Experimental
-                  </Text>
-                )}
-              </View>
+              <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
+                Artifact
+              </Text>
               {artifact && (
                 <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 13 }}>
                   {artifact.title}
                 </Text>
               )}
-              {source && !isHtml && designs && designs.length > 1 && index >= 0 && (
-                <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 11 }}>
-                  {designs[index].group ? `${designs[index].group} · ` : ""}Design {index + 1} of {designs.length}
-                </Text>
-              )}
-              {source && sharingAvailable === sharingScope && (isHtml ? !!artifact : designs && designs.length > 0 && feature.enabled === true) && (
+              {source && sharingAvailable === sharingScope && !!artifact && (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={isHtml ? "Share artifact" : "Share Designs page"}
+                  accessibilityLabel="Share artifact"
                   onPress={() => setSharePage(true)}
                   style={{ paddingHorizontal: 12, paddingVertical: 8 }}
                 >
-                  <Text
-                    style={{
-                      color: colors.accent,
-                      fontSize: 13,
-                      fontWeight: "500",
-                    }}
-                  >
-                    Share page
-                  </Text>
+                  <Text style={{ color: colors.accent, fontSize: 13, fontWeight: "500" }}>Share page</Text>
                 </Pressable>
               )}
             </View>
-            {source && !isHtml && (
-              <CircleButton
-                label="Next design"
-                icon={ArrowRight01Icon}
-                onPress={designs && index >= 0 && index < designs.length - 1 ? () => step(1) : undefined}
-              />
-            )}
-            {source && !isHtml && artifact?.format === "design" && (
-              <CircleButton label={`Delete ${artifact.title}`} icon={Delete02Icon} onPress={() => remove(artifact)} />
-            )}
-            <CircleButton label={isHtml ? "Close artifact" : "Close designs"} icon={Cancel01Icon} onPress={() => router.back()} />
+            <CircleButton label="Close artifact" icon={Cancel01Icon} onPress={() => router.back()} />
           </View>
           <View style={{ flex: 1 }}>
-            {!matching ? (
+            {!source ? (
               <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this Mac to open this page.</Text>
-            ) : !isHtml && state.artifact?.format === "design" && feature.enabled !== true ? (
-              <View style={{ padding: 20, gap: 16 }}>
-                <Text style={styles.muted}>
-                  {feature.enabled === false
-                    ? "Designs is off for this Mac. Turn it on in Settings > Experimental."
-                    : feature.error || "Checking whether Designs is available..."}
-                </Text>
-                {feature.error && <PillButton title="Retry" onPress={() => void feature.refresh()} />}
-              </View>
             ) : state.error ? (
               <View style={{ padding: 20, gap: 16 }}>
                 <Text accessibilityRole="alert" style={{ color: colors.red }}>
@@ -658,11 +497,7 @@ export function ArtifactSheet({
                 <PillButton title="Retry" onPress={() => setRevision((value) => value + 1)} />
               </View>
             ) : artifact ? (
-              <ArtifactWebView
-                key={`${artifact.id}:${artifact.version}`}
-                html={artifact.html}
-                canvas={artifact.format === "design" ? artifact.document : undefined}
-              />
+              <ArtifactWebView key={key} html={artifact.html} />
             ) : (
               <Text style={[styles.muted, { padding: 20 }]}>Loading page...</Text>
             )}
@@ -678,75 +513,15 @@ export function ArtifactSheet({
                 borderColor: colors.line,
               }}
             >
-              {/* Its own row, the width of the bar: beside the version and choice controls it would not fit a phone. */}
-              {editing !== key && feedback > 0 && <PillButton title={`Send ${feedback}`} onPress={send} />}
+              {/* Its own row, the width of the bar: beside the comment control it would not fit a phone. */}
+              {editing !== key && written.length > 0 && <PillButton title={`Send ${written.length}`} onPress={send} />}
               {editing !== key ? (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  {!isHtml && (
-                    <>
-                      <CircleButton
-                        label={`Previous version of ${artifact.title}`}
-                        icon={ArrowLeft01Icon}
-                        onPress={
-                          current > 1
-                            ? () =>
-                                setShown({
-                                  id: artifact.id,
-                                  version: current - 1,
-                                })
-                            : undefined
-                        }
-                      />
-                      <Text
-                        style={{
-                          color: colors.ink3,
-                          fontSize: 13,
-                          fontVariant: ["tabular-nums"],
-                        }}
-                      >
-                        v{current} of {artifact.latest}
-                      </Text>
-                      <CircleButton
-                        label={`Next version of ${artifact.title}`}
-                        icon={ArrowRight01Icon}
-                        onPress={
-                          current < artifact.latest
-                            ? () =>
-                                setShown({
-                                  id: artifact.id,
-                                  version: current + 1 === artifact.latest ? null : current + 1,
-                                })
-                            : undefined
-                        }
-                      />
-                    </>
-                  )}
                   <View style={{ flex: 1 }} />
                   <PillButton title={notes[key]?.text.trim() ? "Comment ✓" : "Comment"} secondary onPress={() => setEditing(key)} />
-                  {!isHtml &&
-                    (sentHere ? (
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 4,
-                        }}
-                      >
-                        <Icon icon={CheckmarkCircle02Icon} tone="accent" size={16} />
-                        <Text style={{ color: colors.accent, fontSize: 14 }}>Chosen</Text>
-                      </View>
-                    ) : (
-                      <PillButton title={pendingHere ? "Chosen ✓" : "Choose"} secondary onPress={() => setChoice(pendingHere ? null : ref(artifact))} />
-                    ))}
                 </View>
               ) : (
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "flex-end",
-                    gap: 8,
-                  }}
-                >
+                <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
                   <TextInput
                     // Uncontrolled: the bar moves with the keyboard as it types, and a controlled value written back
                     // during those renders drops keystrokes.
@@ -755,16 +530,7 @@ export function ArtifactSheet({
                     autoFocus
                     multiline
                     defaultValue={notes[key]?.text ?? ""}
-                    onChangeText={(text) =>
-                      setNotes((currentNotes) => ({
-                        ...currentNotes,
-                        [key]: {
-                          ...currentNotes[key],
-                          design: ref(artifact),
-                          text,
-                        },
-                      }))
-                    }
+                    onChangeText={(text) => setNotes((current) => ({ ...current, [key]: { ...current[key], design: ref(artifact), text } }))}
                     placeholder="What should change?"
                     placeholderTextColor={colors.ink3}
                     selectionColor={colors.accent}
@@ -792,23 +558,17 @@ export function ArtifactSheet({
 /**
  * The page inside artifactShell, from a cache file of its own. The page has no script; the page's own runs in its
  * sandboxed frame with an opaque origin, so it can't read the phone's files (this web view grants a file: page read
- * access to all of them), make requests, or navigate the page or its own frame away. A design (`canvas`, its size)
- * goes on designCanvasShell's canvas instead, to pan and zoom: the page runs only that fixed script, and the design's
- * frame runs none. The Expo modules bridge stays off, and nothing the page posts is read.
+ * access to all of them), make requests, or navigate the page or its own frame away. The Expo modules bridge stays
+ * off, and nothing the page posts is read.
  */
-function ArtifactWebView({ html, canvas }: { html: string; canvas?: { width: number; height: number } }) {
+function ArtifactWebView({ html }: { html: string }) {
   const { colors } = useTheme();
   const [crashed, setCrashed] = useState(false);
-  // Written while rendering, so the page is there on the first frame; each design gets a file of its own, removed
-  // when the design changes or goes.
-  // Named for this view and the design's content: two views never share a file, and a changed design gets a new one.
+  // Written while rendering, so the page is there on the first frame; each page gets a file of its own, removed when
+  // the page changes or goes. Named for this view and the page's content: two views never share a file.
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
-  // The size, not the document: a fresh read of the same version is a new object, and preparing again would write the
-  // same file name and then delete it with the previous preparation's cleanup.
-  const width = canvas?.width;
-  const height = canvas?.height;
   const prepared = useMemo(() => {
-    const page = width && height ? designCanvasShell(html, { width, height }, colors.canvas) : artifactShell(html);
+    const page = artifactShell(html);
     let hash = 5381;
     for (let index = 0; index < page.length; index++) hash = (hash * 33) ^ page.charCodeAt(index);
     const file = new File(Paths.cache, `artifact-${id}-${(hash >>> 0).toString(36)}.html`);
@@ -818,7 +578,7 @@ function ArtifactWebView({ html, canvas }: { html: string; canvas?: { width: num
     } catch {
       return null;
     }
-  }, [html, id, width, height, colors.canvas]);
+  }, [html, id]);
   useEffect(
     () => () => {
       try {
@@ -829,9 +589,8 @@ function ArtifactWebView({ html, canvas }: { html: string; canvas?: { width: num
     },
     [prepared],
   );
-  const failed = crashed || !prepared;
   const uri = prepared?.uri;
-  if (failed)
+  if (crashed || !prepared)
     return (
       <Text accessibilityRole="alert" style={{ color: colors.red, padding: 20 }}>
         Could not prepare this page.
@@ -841,8 +600,7 @@ function ArtifactWebView({ html, canvas }: { html: string; canvas?: { width: num
   return (
     <DomWebView
       source={{ uri }}
-      // A design sits on the canvas color, so the view shows it, not white, until the page paints.
-      style={{ flex: 1, backgroundColor: canvas ? colors.canvas : "#ffffff" }}
+      style={{ flex: 1, backgroundColor: "#ffffff" }}
       containerStyle={{ flex: 1 }}
       useExpoModulesBridge={false}
       allowsInlineMediaPlayback
