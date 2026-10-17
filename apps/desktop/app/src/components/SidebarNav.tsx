@@ -31,6 +31,7 @@ import {
   Link04Icon,
   MoreVerticalIcon,
   PencilEdit02Icon,
+  RepeatIcon,
   Search01Icon,
   Settings01Icon,
   SidebarLeft01Icon,
@@ -128,6 +129,9 @@ type SidebarNavProps = {
   onOpenSettings?: () => void;
   onOpenCanvas?: () => void;
   canvasActive?: boolean;
+  /** Opens the Routines page; its button sits between Search and Filters. */
+  onOpenRoutines?: () => void;
+  routinesActive?: boolean;
   onOpenCommands?: () => void;
   hintsEnabled?: boolean;
   /** The project folder, for the project menu's reveal and copy path. */
@@ -494,6 +498,8 @@ export default memo(function SidebarNav({
   onOpenSettings,
   onOpenCanvas,
   canvasActive = false,
+  onOpenRoutines,
+  routinesActive = false,
   onOpenCommands,
   hintsEnabled = true,
   projectPath,
@@ -976,7 +982,7 @@ export default memo(function SidebarNav({
       >
         <div className="flex min-h-0 w-full shrink-0 flex-col">
           <ScrollArea className="sidebar-scroll flex-1 overflow-x-hidden pt-2">
-            {/* Canvas, Search and Filters in one row; collapsed, a column on the rail. */}
+            {/* Canvas, Search, Routines and Filters in one row; collapsed, a column on the rail. */}
             <div data-sidebar-tools className={`mb-3 flex gap-1 ${collapsed ? "mx-auto w-8 flex-col items-center" : "mx-2 w-[calc(100%-16px)] items-center"}`}>
               {onOpenCanvas && (
                 <Tooltip label="Canvas" side="bottom" className={collapsed ? "" : "min-w-0 flex-1"}>
@@ -1008,6 +1014,20 @@ export default memo(function SidebarNav({
                   >
                     <IconMagnifyingGlass size={16} />
                     {!collapsed && <span className="sidebar-copy min-w-0 truncate">Search</span>}
+                  </button>
+                </Tooltip>
+              )}
+              {onOpenRoutines && (
+                <Tooltip label="Routines" side="bottom">
+                  <button
+                    type="button"
+                    aria-label="Routines"
+                    aria-pressed={routinesActive}
+                    data-sidebar-routines
+                    onClick={onOpenRoutines}
+                    className={`${TOOL_BUTTON} size-8 shrink-0 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
+                  >
+                    <HugeIcon icon={RepeatIcon} size={16} />
                   </button>
                 </Tooltip>
               )}

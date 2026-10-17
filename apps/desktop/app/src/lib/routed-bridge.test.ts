@@ -129,6 +129,9 @@ const ALLOWED: Record<string, string[]> = {
   "lib/linked-work.ts": ["getLinkedWork", "onLinkedWork"],
   "lib/terminal-sessions.ts": ["setTerminalFocused"],
   "lib/terminal-actions.ts": ["onTerminalsChanged", "onComputerEvent"],
+  // Routines are this Mac's only (peers are refused routines:*), so they always ask this Mac's own bridge.
+  "lib/routines.ts": ["readRoutinesEnabled", "listRoutines", "onRoutinesChanged"],
+  "components/routines/RoutinesPage.tsx": ["routineTargets", "updateRoutine", "runRoutineNow", "deleteRoutine"],
 };
 
 function sources(folder: string): string[] {
