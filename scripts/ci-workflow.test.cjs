@@ -174,7 +174,7 @@ test("Electron checks run on Ubuntu under xvfb, two streams per runner on displa
   assert.ok(libraries.includes('--shard "$SLICE_A"') && libraries.includes('--shard "$SLICE_B"'), libraries);
   for (const name of ["LIBGL_ALWAYS_SOFTWARE", "ELECTRON_ENABLE_LOGGING"]) assert.ok(job.env[name], name);
   // A job-level env can't name runner.temp; the slices step exports the folder, and the upload names the same one.
-  assert.ok(slices.includes('echo "MILAGRE_SCREENSHOT_DIR=$RUNNER_TEMP/electron-screenshots" >> "$GITHUB_ENV"'), slices);
+  assert.ok(slices.includes('echo "MILAGRE_SCREENSHOT_DIR=$RUNNER_TEMP/electron-screenshots"') && slices.includes('} >> "$GITHUB_ENV"'), slices);
   const upload = job.steps.find((step) => step.uses?.startsWith("actions/upload-artifact"));
   assert.equal(upload.if, "always()");
   // upload-artifact v4 rejects a second artifact with the same name in one run.
