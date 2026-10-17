@@ -179,7 +179,7 @@ jobs:
           case "$RESULT" in success|skipped) exit 0 ;; *) exit 1 ;; esac
   desktop-checks:
     # The Electron checks run one at a time (each boots Vite and Electron), so they are split across runners by the
-    # weights in scripts/test-runner.cjs: about 920 s of checks, 92 s a shard plus 20 s of setup. Two streams per
+    # weights in scripts/test-runner.cjs: about 1000 s of checks, 90 s a shard plus 25 s of setup. Two streams per
     # runner were measured: 30 s slower and three to eight retries a run where one shard has none.
     name: desktop-checks (${{ matrix.shard }}/${{ strategy.job-total }})
     needs: changes
@@ -189,7 +189,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install dependencies

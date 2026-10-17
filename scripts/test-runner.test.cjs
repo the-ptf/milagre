@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { test } = require("node:test");
-const { shouldRetry, discoverUnitTests, discoverElectronChecks, selectTests, parseArgs, MANIFEST } = require("./test-runner.cjs");
+const { shouldRetry, discoverUnitTests, discoverElectronChecks, selectTests, parseArgs, MANIFEST, UNIT_SECONDS } = require("./test-runner.cjs");
 const root = path.join(__dirname, "..");
 
 test("discovers every node:test file and every Electron check", () => {
@@ -80,24 +80,30 @@ test("an Electron check is retried once, only on Linux CI", () => {
   assert.equal(shouldRetry({ platform: "darwin", ci: "true", attempt: 1 }), false);
 });
 
-test("--shard partitions the unit files and the runnable Electron checks, balancing the Electron time", () => {
+test("--shard partitions the unit files and the runnable Electron checks, balancing both by time", () => {
   const unit = discoverUnitTests(root);
   const electron = discoverElectronChecks(root);
   const select = (args) => selectTests({ unit, electron, filters: { ...parseArgs(args), platform: "linux", commandExists: () => true } });
   const all = select([]);
   const seconds = (file) => MANIFEST[path.basename(file)]?.seconds ?? 8;
-  for (const count of [1, 2, 3, 8]) {
+  const unitSeconds = (file) => UNIT_SECONDS[file] ?? 0.3;
+  for (const count of [1, 2, 3, 8, 11]) {
     const shards = Array.from({ length: count }, (_, i) => select(["--shard", `${i + 1}/${count}`]));
     // Every runnable test runs on exactly one shard, so nothing is dropped or run twice.
     assert.deepEqual(shards.flatMap((shard) => shard.unit).toSorted(), all.unit.toSorted(), `${count} shards`);
     assert.deepEqual(shards.flatMap((shard) => shard.electron).toSorted(), all.electron.toSorted(), `${count} shards`);
     for (const shard of shards) assert.deepEqual(shard.skipped, all.skipped);
-    const files = shards.map((shard) => shard.unit.length);
-    assert.ok(Math.max(...files) - Math.min(...files) <= 1, `${count} shards: ${files} unit files`);
-    // No shard runs longer than the average plus one check, so the slowest runner sets the pace only as much as it must.
+    // Unit shards share the measured time, not the file count: by count one shard ran 48 s and the other 80 s.
+    const unitLoads = shards.map((shard) => shard.unit.reduce((sum, file) => sum + unitSeconds(file), 0));
+    const unitAverage = unitLoads.reduce((sum, load) => sum + load, 0) / count;
+    assert.ok(Math.max(...unitLoads) <= Math.max(unitAverage * 1.15, ...all.unit.map(unitSeconds)), `${count} shards: ${unitLoads} unit seconds`);
+    // No shard runs longer than the average plus one check (or the renderer build), so the slowest runner sets the pace only as much as it must.
     const loads = shards.map((shard) => shard.electron.reduce((sum, file) => sum + seconds(file), 0));
     const average = loads.reduce((sum, load) => sum + load, 0) / count;
-    assert.ok(Math.max(...loads) <= Math.max(average + 8, ...all.electron.map(seconds)), `${count} shards: ${loads} seconds`);
+    assert.ok(Math.max(...loads) <= Math.max(average + 10, ...all.electron.map(seconds)), `${count} shards: ${loads} seconds`);
+    // The checks that load the built renderer share one shard, which builds it once.
+    const buildShards = new Set(shards.flatMap((shard, i) => (shard.electron.some((file) => MANIFEST[path.basename(file)]?.needsBuild) ? [i] : [])));
+    assert.equal(buildShards.size, 1, `${count} shards: renderer build on shards ${[...buildShards]}`);
   }
 });
 
