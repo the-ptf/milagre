@@ -1159,22 +1159,50 @@ async function browserChecks() {
     assert.equal(await evaluate('!!document.querySelector("[data-artifact=login]")'), false, "Designs OFF hides only structured designs");
     assert.equal(await evaluate('!!document.querySelector("[data-artifact=home]")'), false, "unmarked structured refs stay hidden when Designs is OFF");
     await waitFor(`${dock}.querySelector('[aria-label="Share page"]')`);
-    await evaluate(`${dock}.querySelector('button[aria-label="Comment on artifact"]').click()`);
-    await waitFor(`${dock}.querySelector('[data-slot="artifact-page-comment"] textarea')`);
+    // The page fills the dock, named in the header, with the zoom bar bottom-left; no comment box under it.
+    assert.equal(await evaluate(`${dock}.querySelector("[data-slot=artifact-dock-title]").textContent`), "Explanation");
+    await waitFor(`${dock}.querySelector("[data-slot=artifact-zoom]")?.textContent === "100%"`);
+    assert.equal(await evaluate(`!!${dock}.querySelector("textarea")`), false);
+    // In comment mode a click on the page pins a comment there; its bubble opens in the dock, at the pin.
+    await evaluate(`${dock}.querySelector('button[aria-label="Comment on the page"]').click()`);
+    await waitFor(`${dock}.querySelector('button[aria-label="Stop commenting"]')?.getAttribute("aria-pressed") === "true"`);
+    const heading = await evaluate(
+      `(() => { const r = ${dock}.querySelector("[data-slot=artifact-page] iframe").getBoundingClientRect(); return { x: Math.round(r.left + 60), y: Math.round(r.top + 40) }; })()`,
+    );
+    // The page's helper may still be starting: click until the bubble opens.
+    // sendInputEvent stops at the page's frame; input through the DevTools protocol is hit-tested into it, as a real click.
+    const input = window.webContents.debugger;
+    if (!input.isAttached()) input.attach("1.3");
+    for (let attempt = 0; attempt < 20 && !(await evaluate(`!!${dock}.querySelector("[data-slot=artifact-comment-bubble] textarea")`)); attempt++) {
+      for (const type of ["mousePressed", "mouseReleased"])
+        await input.sendCommand("Input.dispatchMouseEvent", { type, x: heading.x, y: heading.y, button: "left", clickCount: 1 });
+      await delay(250);
+    }
+    await waitFor(`!!${dock}.querySelector("[data-slot=artifact-comment-bubble] textarea")`);
+    const pinAt = await evaluate(
+      `(() => { const r = ${dock}.querySelector("[data-slot=artifact-comment-bubble]").getBoundingClientRect(); return { x: r.left, y: r.top }; })()`,
+    );
+    assert.ok(Math.abs(pinAt.x - heading.x) < 2 && Math.abs(pinAt.y - heading.y) < 2, `the bubble opens at the click: ${JSON.stringify({ pinAt, heading })}`);
     await evaluate(`(() => {
-      const input = ${dock}.querySelector('[data-slot="artifact-page-comment"] textarea');
+      const input = ${dock}.querySelector("[data-slot=artifact-comment-bubble] textarea");
+      input.focus();
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(input, "Explain the next step");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     })()`);
-    await waitFor(`${dock}.querySelector('[data-slot="artifact-send"]')`);
     await screenshot("artifact-comment-designs-off");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+    await waitFor(
+      `!${dock}.querySelector("[data-slot=artifact-comment-bubble]") && /Send\\s*1/.test(${dock}.querySelector('[data-slot="artifact-send"]')?.textContent ?? "")`,
+    );
+    await screenshot("artifact-pending-designs-off");
     await evaluate(`${dock}.querySelector('[data-slot="artifact-send"]').click()`);
     await waitFor('window.sent.at(-1).includes("Explain the next step")');
     const htmlComment = await evaluate("window.sent.at(-1)");
-    assert.match(htmlComment, /On the artifact "Explanation" \(legacy\): Explain the next step/);
+    assert.match(htmlComment, /On the artifact "Explanation" \(legacy\), \d+% across and \d+% down, near "How this works 1": Explain the next step/);
     assert.match(htmlComment, /artifact_read.*artifact_show/s);
     assert.doesNotMatch(htmlComment, /version|design_read|design_apply|I chose/);
     await waitFor('window.kept.at(-1).design.format === "html"');
+    assert.match(await evaluate("window.kept.at(-1).anchor"), /^h1:1@/, "the host keeps where on the page it was left");
     await evaluate("window.reviseHtml()");
     await waitFor('document.querySelector("[data-artifact=legacy] iframe")?.srcdoc.includes("How this works 2")');
     await waitFor(

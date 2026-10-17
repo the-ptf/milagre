@@ -1170,6 +1170,8 @@ function markdownHost({ media, basePath } = {}) {
     links = [];
   const { Markdown } = load("markdown.tsx", {
     "@milagre/shared/genui": require("../packages/shared/src/genui.ts"),
+    "@milagre/shared/diagram": require("../packages/shared/src/diagram.ts"),
+    "./diagram": { MermaidBlock: "MermaidBlock" },
     "./genui/GenerativeUI": { GenerativeUI: "GenerativeUI", MarkdownStreamingContext: "MarkdownStreamingContext" },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
@@ -7134,9 +7136,22 @@ test("mobile Ports sheet drops a server Stop ended before the host's list comes 
   );
 });
 
+/** The viewers' chrome (viewer-chrome.tsx) as it runs, its native pieces faked. */
+function viewerChrome(react) {
+  return load("viewer-chrome.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Text: "Text", View: "View", Pressable: "Pressable", TextInput: "TextInput" },
+    "@hugeicons/core-free-icons": {},
+    "./icons": { Icon: "Icon" },
+    "./ui": { tap() {} },
+  });
+}
+
 function artifactHost(client, pushes = [], router = { back() {} }, feature = designsOn) {
   const react = hookHost({ effects: true }),
-    files = new Map();
+    files = new Map(),
+    share = load("share-availability.ts", {});
   const appListeners = new Set();
   class File {
     constructor(_cache, name) {
@@ -7162,6 +7177,7 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
         View: "View",
         Pressable: "Pressable",
         TextInput: "TextInput",
+        StyleSheet: { absoluteFill: {} },
         AppState: {
           addEventListener: (_event, listener) => {
             appListeners.add(listener);
@@ -7171,7 +7187,6 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
       },
       "expo-router": { router: { back: () => router.back(), push: (route) => pushes.push(route) } },
       "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 47, bottom: 34 }) },
-      "react-native-keyboard-controller": { KeyboardAvoidingView: "KeyboardAvoidingView" },
       "@expo/dom-webview": { DomWebView: "DomWebView" },
       "expo-file-system": { File, Paths: { cache: "/cache" } },
       "@hugeicons/core-free-icons": {},
@@ -7184,12 +7199,17 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
         "./design-catalog": require("../apps/mobile/src/design-catalog.ts"),
       }),
       "./icons": { Icon: "Icon" },
-      "./ui": { CircleButton: "CircleButton", PillButton: "PillButton", colors: {}, styles: {} },
+      "./ui": { PillButton: "PillButton", PullDown: "PullDown", tap() {}, colors: {}, styles: {} },
+      "./pele-script": { PELE_SCRIPT: "var pele={};" },
+      "./share-availability": share,
+      "./viewer-chrome": viewerChrome(react),
     },
     "\nexports.TestArtifactWebView = ArtifactWebView;\nexports.ArtifactCard = ArtifactCard;",
   );
-  return {
+  const injected = [];
+  const host = {
     files,
+    share,
     setClient(next) {
       client = next;
     },
@@ -7202,17 +7222,41 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
       react.flush();
       return tree;
     },
+    /** What the sheet told the page's helper, as commands. */
+    commands() {
+      return injected.map((script) => JSON.parse(/run\((.*)\);true;$/s.exec(script)[1]));
+    },
+    /** The page's helper saying something to the sheet, through the shell. */
+    say(tree, message) {
+      find(tree, (node) => node.type?.name === "ArtifactWebView").props.onMessage(JSON.stringify(message));
+    },
+    /** The sheet with its page loaded and its helper ready. */
+    async open(props) {
+      host.render("ArtifactSheet", props);
+      await settle();
+      host.render("ArtifactSheet", props);
+      await settle();
+      let tree = host.render("ArtifactSheet", props);
+      const page = find(tree, (node) => node.type?.name === "ArtifactWebView");
+      assert.ok(page, "the page opens");
+      page.props.ref.current = { injectJavaScript: (script) => injected.push(script) };
+      host.say(tree, { t: "ready" });
+      tree = host.render("ArtifactSheet", props);
+      return tree;
+    },
     cleanup() {
       react.cleanup();
     },
   };
+  return host;
 }
 
 /** DesignsSheet with its native pieces faked; `open` walks it to a loaded design on a canvas page that said ready. */
 function designsHost(client, router = { back() {} }, feature = designsOn, pushes = []) {
   const react = hookHost({ effects: true }),
     files = new Map(),
-    injected = [];
+    injected = [],
+    share = load("share-availability.ts", {});
   const appListeners = new Set();
   class File {
     constructor(_cache, name) {
@@ -7271,12 +7315,14 @@ function designsHost(client, router = { back() {} }, feature = designsOn, pushes
       "./use-design-catalog": { markDesignDeleted() {} },
       "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
       "./ui": { PillButton: "PillButton", PullDown: "PullDown", tap() {} },
+      "./share-availability": share,
+      "./viewer-chrome": viewerChrome(react),
     },
     "\nexports.TestDesignsCanvas = DesignsCanvas;",
   );
   const host = {
     files,
-    shareAvailabilityChanged: (...args) => source.shareAvailabilityChanged(...args),
+    shareAvailabilityChanged: (...args) => share.shareAvailabilityChanged(...args),
     setClient(next) {
       client = next;
     },
@@ -9009,6 +9055,20 @@ test("mobile markdown routes openui fences and passes streaming state", () => {
   );
 });
 
+test("mobile markdown routes mermaid fences to the diagram, with the code as its fallback", () => {
+  const h = markdownHost();
+  const block = find(h.render("```mermaid\nflowchart LR\n  A --> B\n```"), (node) => node.type === "MermaidBlock");
+  assert.equal(block.props.code, "flowchart LR\n  A --> B");
+  assert.ok(
+    find(block.props.plain, (node) => node.props?.children === "flowchart LR\n  A --> B"),
+    "the plain code block rides along",
+  );
+  assert.equal(
+    find(h.render("```ts\nconst x = 1\n```"), (node) => node.type === "MermaidBlock"),
+    undefined,
+  );
+});
+
 test("AI consent: native alert cancellation, persistence, reset and headless replies fail closed", async () => {
   const shared = await import("../packages/shared/src/ai-consent.mjs");
   let saved = null,
@@ -10019,36 +10079,134 @@ test("HTML artifact opens the current single page with Designs off, without vers
       calls.push([method, args]);
       if (method === "artifact:list") return [page];
       if (method === "artifact:sharing-status") return { available: true };
+      if (method === "artifact:comments") return [];
       return page;
     },
   };
   const feature = { ...designsOn, enabled: false };
   let backs = 0;
-  const h = artifactHost(client, [], { back: () => backs++ }, feature);
+  const pushes = [];
+  const h = artifactHost(client, pushes, { back: () => backs++ }, feature);
   const props = { hostId: client.url, chatId: "/p#7", id: "historical-id", version: "3" };
-  h.render("ArtifactSheet", props);
-  await settle();
-  h.render("ArtifactSheet", props);
-  await settle();
-  const tree = h.render("ArtifactSheet", props);
+  let tree = await h.open(props);
   assert.equal(backs, 0);
-  assert.ok(find(tree, (n) => n.props.html === page.html));
-  assert.ok(find(tree, (n) => n.props.label === "Close artifact"));
-  assert.ok(find(tree, (n) => n.props.title === "Comment"));
+  assert.ok(find(tree, (n) => n.props?.html === page.html));
+  assert.ok(find(tree, (n) => n.props?.label === "Close artifact"));
+  assert.ok(
+    find(tree, (n) => n.props?.children === "How it works"),
+    "the header names the page",
+  );
   assert.equal(
-    find(tree, (n) => n.props.title === "Choose" || n.props.children === "Experimental" || /version|Previous design|Next design/.test(n.props.label ?? "")),
+    find(tree, (n) => n.type?.name === "SendButton"),
     undefined,
+    "nothing to send yet",
+  );
+  assert.equal(
+    find(
+      tree,
+      (n) =>
+        n.props?.title === "Choose" ||
+        n.props?.title === "Comment" ||
+        n.props?.children === "Experimental" ||
+        /version|Previous design|Next design/.test(n.props?.label ?? ""),
+    ),
+    undefined,
+  );
+  assert.deepEqual(
+    h.commands().find((command) => command.t === "mode"),
+    { t: "mode", input: "touch", comment: false },
   );
   page.html = "<h1>Updated in the same page</h1>";
   h.appState("active");
   h.render("ArtifactSheet", props);
   await settle();
-  const refreshed = h.render("ArtifactSheet", props);
-  assert.ok(find(refreshed, (n) => n.props.html === page.html));
-  find(refreshed, (n) => n.props.accessibilityLabel === "Share artifact").props.onPress();
-  const sharing = find(h.render("ArtifactSheet", props), (n) => n.type === "DesignPageShareSheet");
-  assert.equal(sharing.props.kind, "artifacts");
+  tree = h.render("ArtifactSheet", props);
+  assert.ok(find(tree, (n) => n.props?.html === page.html));
+  // Share is in ⋯, and opens the Chat's Share sheet for its Artifact page.
+  const menu = find(tree, (n) => n.type === "PullDown");
+  assert.deepEqual(JSON.parse(JSON.stringify(menu.props.sections.flatMap((section) => section.items).map((item) => item.id))), ["share"]);
+  menu.props.onSelect("share");
+  assert.deepEqual(JSON.parse(JSON.stringify(pushes.at(-1))), {
+    pathname: "/design-share-sheet",
+    params: { hostId: client.url, chatId: "/p#7", kind: "artifacts" },
+  });
   assert.ok(calls.some(([method, args]) => method === "artifact:sharing-status" && args[0]?.kind === "artifacts"));
+  h.share.shareAvailabilityChanged(client.url, "/p#7", false, "artifacts");
+  assert.equal(
+    find(h.render("ArtifactSheet", props), (n) => n.type === "PullDown"),
+    undefined,
+    "the Share sheet says sharing went away",
+  );
+  h.cleanup();
+});
+
+test("on the Artifact page, a held spot's comment waits for Send, which hands one message to the Chat with the text near it", async () => {
+  const outbox = require("../apps/mobile/src/design-outbox.ts");
+  const page = { id: "explainer", format: "html", title: "Routes", version: 4, latest: 4, html: "<main><h2>Why requests queue</h2></main>" };
+  const recorded = [];
+  let backs = 0;
+  const client = {
+    url: "mac",
+    call: async (method, args) => {
+      if (method === "artifact:add-comments") recorded.push(...args[0].comments);
+      if (method === "artifact:comments")
+        return [
+          { id: "11111111", design: { id: "explainer", version: 4, title: "Routes" }, x: 0.1, y: 0.2, anchor: "main:1@0,0", text: "Earlier", createdAt: 5 },
+          { id: "22222222", design: { id: "explainer", version: 3, title: "Routes" }, x: 0.1, y: 0.2, text: "On an older page", createdAt: 4 },
+        ];
+      if (method === "artifact:sharing-status") return { available: false };
+      return page;
+    },
+  };
+  const h = artifactHost(client, [], { back: () => backs++ });
+  const props = { hostId: "mac", chatId: "/p#9", id: "explainer", kind: "html" };
+  let tree = await h.open(props);
+  const pinsSent = () => h.commands().findLast((command) => command.t === "pins");
+  assert.deepEqual(
+    pinsSent().pins.map(({ k, a, n }) => ({ k, a, n })),
+    [{ k: "sent:11111111", a: "main:1@0,0", n: 1 }],
+    "the page shows what was sent on it as it is now",
+  );
+  // Holding the page pins a comment there; the page scrolls it into view and says where it landed.
+  h.say(tree, { t: "press", x: 0.4, y: 0.6, a: "main:1/h2:1@0.5,0.5", near: "Why requests queue", sx: 120, sy: 640 });
+  tree = h.render("ArtifactSheet", props);
+  const reveal = h.commands().find((command) => command.t === "reveal");
+  assert.ok(reveal, "the new pin is brought into view");
+  const waiting = pinsSent().pins.find((pin) => pin.k === reveal.k);
+  assert.deepEqual(
+    { x: waiting.x, y: waiting.y, a: waiting.a, n: waiting.n, hide: waiting.hide },
+    { x: 0.4, y: 0.6, a: "main:1/h2:1@0.5,0.5", n: 1, hide: true },
+  );
+  assert.equal(pinsSent().watch, reveal.k, "the page reports where the open pin is");
+  find(tree, (node) => node.props?.onLayout).props.onLayout({ nativeEvent: { layout: { width: 390, height: 700 } } });
+  h.say(tree, { t: "anchor", k: reveal.k, sx: 60, sy: 110, shown: true });
+  tree = h.render("ArtifactSheet", props);
+  const box = find(tree, (node) => node.type?.name === "CommentBox");
+  assert.deepEqual(JSON.parse(JSON.stringify(box.props.at)).y, 110);
+  box.props.onChange("Add the retry timing");
+  box.props.onDone();
+  tree = h.render("ArtifactSheet", props);
+  assert.equal(
+    find(tree, (node) => node.type?.name === "CommentBox"),
+    undefined,
+  );
+  find(tree, (node) => node.type?.name === "SendButton").props.onPress();
+  await settle();
+  const message = outbox.peekDesignMessage("mac|/p#9");
+  const id = /\(comment ([a-f0-9]{8})\)/.exec(message.text)?.[1];
+  assert.match(
+    message.text,
+    new RegExp(
+      `^A comment on the artifact:\\n\\n1\\. \\(comment ${id}\\) On the artifact "Routes" \\(explainer\\), 40% across and 60% down, near "Why requests queue": Add the retry timing\\n\\n`,
+    ),
+  );
+  outbox.designMessageSent("mac|/p#9", message);
+  await settle();
+  assert.deepEqual(
+    recorded.map(({ id: commentId, anchor, near, design }) => ({ commentId, anchor, near, version: design.version })),
+    [{ commentId: id, anchor: "main:1/h2:1@0.5,0.5", near: "Why requests queue", version: 4 }],
+  );
+  assert.equal(backs, 1);
   h.cleanup();
 });
 
