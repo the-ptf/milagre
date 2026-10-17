@@ -252,7 +252,7 @@ test("a Chat on a Named Link gets no routine tools", (t) => {
 });
 
 // The adapter's half of a Run in a Chat of its own: Worktrees and Chats faked, with what each call got.
-function newChatFixture({ removable = true, failChat = false, createDelayMs = 0, timeoutMs } = {}) {
+function newChatFixture({ removable = true, failChat = false, createDelayMs = 0, timeoutMs, hooks, send } = {}) {
   const calls = { created: [], removed: [], archived: [], emptyChats: [] };
   const projectState = {
     worktrees: { 1: { id: 1, path: "/project" }, 7: { id: 7, path: "/worktrees/seven", base: "main" } },
@@ -264,10 +264,12 @@ function newChatFixture({ removable = true, failChat = false, createDelayMs = 0,
     runs: {},
     isBusy: () => false,
     turnSettings: () => null,
-    send: async (request) => {
-      sent.push(request);
-      return { sessionId: request.sessionId, started: Promise.resolve({ turnId: "t" }) };
-    },
+    send:
+      send ??
+      (async (request) => {
+        sent.push(request);
+        return { sessionId: request.sessionId, started: Promise.resolve({ turnId: "t" }) };
+      }),
     emptyChat: async (projectPath, worktreeId, options) => {
       calls.emptyChats.push({ projectPath, worktreeId, options });
       if (failChat) throw new Error("no chat");
@@ -296,6 +298,7 @@ function newChatFixture({ removable = true, failChat = false, createDelayMs = 0,
     archiveChat: async (chatId) => calls.archived.push(chatId),
     now: () => Date.UTC(2026, 9, 16, 11, 5),
     ...(timeoutMs ? { timeoutMs } : {}),
+    ...(hooks ? { hooks } : {}),
   });
   return { adapter, calls, sent };
 }
@@ -355,16 +358,31 @@ test("a Worktree that takes too long fails the Run, and goes once it is made", a
   assert.deepEqual(calls.emptyChats, []);
 });
 
-test("a webhook Run isn't supported yet", async () => {
+test("a webhook Run whose delivery is gone fails before making anything", async () => {
   const { adapter, calls } = newChatFixture();
   await assert.rejects(
     adapter.startChat({
       routine: triage("worktree", { kind: "webhook", hookId: "h", signed: false }),
       run: { id: "r", event: { kind: "webhook", key: "k", deliveryId: "d" } },
     }),
-    /Webhook Routines arrive in a later update/,
+    /no longer on this Mac/,
   );
   assert.deepEqual(calls.created, []);
+});
+
+test("a webhook Run words its first message from the delivery and deletes the delivery once that message is sent", async () => {
+  const deliveries = new Map([
+    ["d1", { id: "d1", hookId: "h", receivedAt: 1, headers: { "x-env": "prod" }, query: {}, body: new TextEncoder().encode('{"a":1}') }],
+  ]);
+  const store = { getDelivery: (id) => deliveries.get(id) ?? null, takeDelivery: (id) => deliveries.delete(id) };
+  const { adapter } = newChatFixture({ hooks: () => ({ store, relayUrl: "wss://relay" }), send: async () => ({ started: true }) });
+  const routine = { ...triage("worktree", { kind: "webhook", hookId: "h", signed: false }), prompt: "Body {{body}} env {{headers.x-env}}" };
+  const chat = await adapter.startChat({ routine, run: { id: "run-1", event: { kind: "webhook", key: "webhook:d1", deliveryId: "d1" } } });
+  assert.match(chat.body, /<untrusted-data source="webhook body">\n\{"a":1\}\n<\/untrusted-data>/);
+  assert.match(chat.body, /prod/);
+  assert.ok(deliveries.has("d1"), "kept until the message is sent");
+  await adapter.send(chat.chatId, { body: chat.body, prompt: chat.prompt, context: chat.context });
+  assert.equal(deliveries.has("d1"), false);
 });
 
 test("a Linear Run makes the issue's Worktree, names the Chat after the issue, and opens with the issue card carrying its Routine", async () => {
@@ -936,4 +954,118 @@ test("a Linear Run in the Project folder runs through the real ChatHost: its car
   const card = (await ctx.states.get(ctx.project)).messages.find((message) => message.id === first.id).context;
   assert.equal(card.routine.summary, "nothing to do");
   assert.equal(card.key, "MIL-1");
+});
+
+test("a webhook Run whose first message fails to send deletes its delivery, as a failed start does", async () => {
+  const deliveries = new Map([["d1", { id: "d1", hookId: "h", receivedAt: 1, headers: {}, query: {}, body: new TextEncoder().encode("{}") }]]);
+  const store = { getDelivery: (id) => deliveries.get(id) ?? null, takeDelivery: (id) => deliveries.delete(id) };
+  const { adapter } = newChatFixture({
+    hooks: () => ({ store, relayUrl: "wss://relay" }),
+    send: async () => {
+      throw new Error("agent CLI missing");
+    },
+  });
+  const routine = { ...triage("worktree", { kind: "webhook", hookId: "h", signed: false }), prompt: "{{body}}" };
+  const chat = await adapter.startChat({ routine, run: { id: "run-1", event: { kind: "webhook", key: "webhook:d1", deliveryId: "d1" } } });
+  await assert.rejects(adapter.send(chat.chatId, { body: chat.body, prompt: chat.prompt, context: chat.context }), /agent CLI missing/);
+  assert.equal(deliveries.has("d1"), false);
+});
+
+test("rotating writes the new secret first and puts the old one back when the Routine can't be updated", async (t) => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+  const crypto = require("node:crypto");
+  const { createWebhooks } = require("./runtime-adapter.cjs");
+  const { createRoutineStore } = require("./store.cjs");
+  const { createHookStore } = require("./hook-store.cjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rotate-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const routines = createRoutineStore({ file: path.join(dir, "routines.json") });
+  routines.setEnabled(true);
+  const secrets = createHookStore({ file: path.join(dir, "routine-hooks.json") });
+  let failUpdate = false;
+  const store = {
+    ...routines,
+    update: (...args) => {
+      if (failUpdate) throw new Error("disk full");
+      return routines.update(...args);
+    },
+  };
+  const webhooks = createWebhooks({
+    store,
+    scheduler: { enqueueEvents: () => [] },
+    hooks: () => ({ store: secrets, relayUrl: "wss://relay" }),
+    changed: () => {},
+  });
+  const routine = webhooks.create({
+    name: "Sentry",
+    prompt: "{{body}}",
+    trigger: { kind: "webhook" },
+    target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+    signingSecret: "shh",
+  });
+  const before = webhooks.hook(routine.id).url;
+  const ownerBefore = webhooks.owners([routine.trigger.hookId])[routine.trigger.hookId];
+  failUpdate = true;
+  assert.throws(() => webhooks.rotate(routine.id), /disk full/);
+  assert.equal(webhooks.hook(routine.id).url, before, "the old URL still works");
+  assert.equal(secrets.secretFor(routine.id).previous, undefined, "nothing half-written is left");
+  assert.equal(webhooks.owners([routine.trigger.hookId])[routine.trigger.hookId], ownerBefore);
+  // A crash between the two writes: the new secret is saved, the Routine still has the old hook id.
+  const saved = secrets.secretFor(routine.id);
+  secrets.setSecret(routine.id, { secret: "n".repeat(43), ownerKey: "o".repeat(43), signingSecret: saved.signingSecret, previous: saved });
+  assert.equal(webhooks.hook(routine.id).url, before, "the entry that matches the Routine's hook id wins");
+  assert.equal(webhooks.owners([routine.trigger.hookId])[routine.trigger.hookId], ownerBefore);
+  assert.equal(crypto.createHash("sha256").update(before.split("/hook/")[1]).digest("hex"), routine.trigger.hookId);
+  failUpdate = false;
+  const { url } = webhooks.rotate(routine.id);
+  assert.notEqual(url, before);
+  assert.equal(secrets.secretFor(routine.id).previous, undefined);
+  assert.equal(webhooks.hook(routine.id).signed, true);
+});
+
+test("a rotate whose last secret write fails still tells the relay about the new hook id", (t) => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+  const { createWebhooks } = require("./runtime-adapter.cjs");
+  const { createRoutineStore } = require("./store.cjs");
+  const { createHookStore } = require("./hook-store.cjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rotate-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = createRoutineStore({ file: path.join(dir, "routines.json") });
+  store.setEnabled(true);
+  const real = createHookStore({ file: path.join(dir, "routine-hooks.json") });
+  let failClean = false;
+  const secrets = {
+    ...real,
+    setSecret: (id, entry) => {
+      if (failClean && !entry.previous) throw new Error("disk full");
+      return real.setSecret(id, entry);
+    },
+  };
+  let changes = 0;
+  const webhooks = createWebhooks({
+    store,
+    scheduler: { enqueueEvents: () => [] },
+    hooks: () => ({ store: secrets, relayUrl: "wss://relay" }),
+    changed: () => (changes += 1),
+  });
+  const routine = webhooks.create({
+    name: "Sentry",
+    prompt: "{{body}}",
+    trigger: { kind: "webhook" },
+    target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+  });
+  const before = changes;
+  failClean = true;
+  assert.throws(() => webhooks.rotate(routine.id), /disk full/);
+  assert.equal(changes, before + 1, "the relay hears of the new hook id");
+  const rotated = store.get(routine.id);
+  assert.notEqual(rotated.trigger.hookId, routine.trigger.hookId);
+  failClean = false;
+  // The entry matching the new hook id is the one that answers.
+  const { url } = webhooks.hook(routine.id);
+  assert.equal(require("node:crypto").createHash("sha256").update(url.split("/hook/")[1]).digest("hex"), rotated.trigger.hookId);
 });

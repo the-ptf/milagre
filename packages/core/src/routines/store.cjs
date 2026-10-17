@@ -22,6 +22,7 @@ const UPDATABLE = new Set([
   "permissionMode",
   "trigger",
   "target",
+  "signingHeader",
 ]);
 // These end a run's life in a count: skipped-busy and missed runs never ran, so they are not counted.
 const FINISH_STATUSES = new Set(["acted", "quiet", "failed", "skipped-busy"]);
@@ -116,6 +117,15 @@ function checkTrigger(value) {
     default:
       throw new Error("trigger kind must be schedule, linear or webhook");
   }
+}
+
+// The request header a webhook's HMAC signature comes in (an HTTP token), kept lowercased.
+const HEADER_NAME = /^[a-z0-9!#$%&'*+.^_`|~-]{1,100}$/;
+function checkSigningHeader(value, trigger) {
+  if (trigger.kind !== "webhook") throw new Error("Only a webhook Routine has a signature header");
+  const name = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!HEADER_NAME.test(name)) throw new Error("signingHeader must be a header name, such as x-hub-signature-256");
+  return name;
 }
 
 function checkTarget(value) {
@@ -613,6 +623,7 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     const routine = { id: id(), name, prompt, trigger, target, enabled: true, createdBy, runCount: 0, createdAt: at, updatedAt: at };
     for (const key of ["provider", "model", "permissionMode"]) if (input[key] != null) routine[key] = checkText(input[key], key);
     if (input.maxRuns != null) routine.maxRuns = checkMaxRuns(input.maxRuns);
+    if (input.signingHeader != null) routine.signingHeader = checkSigningHeader(input.signingHeader, trigger);
     if (input.expiresAt != null) routine.expiresAt = checkExpiresAt(input.expiresAt, at);
     else if (target.kind === "chat" && routine.maxRuns === undefined) routine.expiresAt = at + DEFAULT_EXPIRY_MS;
     if (trigger.kind === "schedule") routine.nextRunAt = nextRun(trigger.cron, trigger.timezone, at);
@@ -659,6 +670,8 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
         if (patch.target.kind !== routine.target.kind) throw new Error("Can't change a Routine's target kind");
         next.target = checkTarget(patch.target);
       }
+      if (patch.signingHeader === null) delete next.signingHeader;
+      else if (patch.signingHeader !== undefined) next.signingHeader = checkSigningHeader(patch.signingHeader, next.trigger);
       // A cron or timezone given next to a whole trigger changes that trigger.
       if (patch.cron !== undefined || patch.timezone !== undefined) {
         if (next.trigger.kind !== "schedule") throw new Error("Only a schedule trigger has a cron or timezone");
@@ -756,6 +769,8 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
       return items.map(({ routineId, event }) => {
         const routine = find(state, routineId);
         if (!routine || !routine.enabled || routine.completedAt) return { queued: false, reason: "disabled" };
+        // A webhook event never starts a Linear or schedule Routine, nor a Linear event a webhook one.
+        if (event.kind !== routine.trigger.kind) return { queued: false, reason: "kind" };
         if (!known.has(routineId)) {
           if (pruneSeen(state, routineId, at)) tx.changed = true;
           known.set(
@@ -783,6 +798,32 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
         queue.push({ id: id(), event: copy(event), enqueuedAt: at });
         return { queued: true };
       });
+    });
+  }
+
+  /**
+   * Answers an event of a trigger Routine with a failed Run of its own instead of queuing it (a webhook whose signature
+   * doesn't match). It never ran, so it doesn't count toward the Routine's runs or its pause: anyone holding the URL could
+   * otherwise switch the Routine off. Its key is remembered, as a queued one's is. Null when the Routine is gone or of
+   * another kind, or the event was seen before.
+   */
+  function rejectEvent(routineId, event, error) {
+    assertWritable();
+    assertEvent(event);
+    checkText(error, "error");
+    return transact((state, tx) => {
+      const routine = find(state, routineId);
+      if (!routine || routine.completedAt || routine.trigger.kind !== event.kind) return null;
+      const at = now();
+      pruneSeen(state, routineId, at);
+      const seen = state.seen[routineId] ?? (state.seen[routineId] = []);
+      // The same delivery again (a redelivery) was answered already.
+      if (seen.some((entry) => entry.key === event.key)) return null;
+      seen.push({ key: event.key, at });
+      const run = { id: id(), routineId, scheduledFor: at, startedAt: at, endedAt: at, status: "failed", error, event: copy(event) };
+      appendRun(state, routineId, run);
+      tx.changed = true;
+      return copy(run);
     });
   }
 
@@ -1012,6 +1053,7 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     startRun,
     enqueue,
     enqueueMany,
+    rejectEvent,
     claimQueued,
     deferRun,
     attachChat,

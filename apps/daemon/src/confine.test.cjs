@@ -826,3 +826,9 @@ test("a confined phone never sees a Routine whose Project can't be placed inside
     [root],
   );
 });
+
+test("a confined phone can neither read a webhook Routine's URL nor rotate it", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await assert.rejects(confine.checkCall("routines:hook", ["r1"]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:rotate-hook", ["r1"]), { status: 403, message: REFUSED });
+});

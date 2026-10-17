@@ -27,14 +27,6 @@ import { PlaceholderTextarea } from "./PlaceholderTextarea";
 import type { RoutineWithRuns } from "../../lib/routines";
 
 type HookInfo = { url: string; signed: boolean; signingHeader?: string };
-/**
- * The webhook bridge methods (routineHook, rotateRoutineHook) come with the webhook build. Until they are on the bridge
- * the form reads them as optional, so it still opens without them.
- */
-type HookBridge = {
-  routineHook?: (id: string) => Promise<HookInfo>;
-  rotateRoutineHook?: (id: string) => Promise<{ url: string }>;
-};
 
 const field = "w-full rounded-lg border bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-ink focus:ring-1 focus:ring-ink";
 const labelClass = "block text-[12.5px] font-medium text-ink-2";
@@ -108,9 +100,6 @@ export function RoutineForm({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
-  // Note for the merge with the hooks track: once routineHook / rotateRoutineHook are on the typed bridge, call them as
-  // window.milagre.* and list them in routed-bridge.test.ts; this alias keeps them out of that allowlist until then.
-  const bridge = window.milagre as typeof window.milagre & HookBridge;
   const [state, setState] = useState<RoutineFormState>(() => {
     const zone = localZone();
     if (!initial) return { ...emptyRoutineForm(zone), projectPath: defaultProjectPath ?? "" };
@@ -174,9 +163,9 @@ export function RoutineForm({
     };
   }, [state.trigger, workspace, team]);
   useEffect(() => {
-    if (!initial || initial.trigger.kind !== "webhook" || !bridge.routineHook) return;
+    if (!initial || initial.trigger.kind !== "webhook") return;
     let live = true;
-    bridge.routineHook(initial.id).then(
+    window.milagre.routineHook(initial.id).then(
       (info) => {
         if (!live) return;
         setHook(info);
@@ -233,10 +222,10 @@ export function RoutineForm({
       );
   };
   const rotate = async () => {
-    if (!initial || !bridge.rotateRoutineHook) return;
+    if (!initial) return;
     setRotating(false);
     try {
-      const { url } = await bridge.rotateRoutineHook(initial.id);
+      const { url } = await window.milagre.rotateRoutineHook(initial.id);
       setHook((current) => ({ signed: current?.signed ?? false, ...current, url }));
     } catch (failure) {
       setTopError(ipcErrorMessage(failure));
@@ -315,7 +304,7 @@ export function RoutineForm({
     <div data-routine-hook className="space-y-2 rounded-[10px] border border-line bg-field px-3 py-2.5">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink" title={url ?? undefined}>
-          {url ?? (!editing ? "The URL appears after you create the routine." : bridge.routineHook ? "Reading the URL…" : "This Mac can't show the URL yet.")}
+          {url ?? (!editing ? "The URL appears after you create the routine." : "Reading the URL…")}
         </span>
         {url && (
           <button type="button" data-routine-hook-copy className={smallButton} onClick={() => copy(url)}>
@@ -323,7 +312,7 @@ export function RoutineForm({
             {copied ? "Copied" : "Copy"}
           </button>
         )}
-        {url && editing && bridge.rotateRoutineHook && !rotating && (
+        {url && editing && !rotating && (
           <button type="button" data-routine-hook-rotate className={smallButton} onClick={() => setRotating(true)}>
             <HugeiconsIcon icon={RefreshIcon} size={13} strokeWidth={1.8} color="currentColor" />
             Rotate

@@ -6,6 +6,15 @@ export const MAX_PHONES = 16;
 const OPEN = 1,
   DATA = 2,
   CLOSE = 3;
+// Webhook frames, all on conn 0 (phones start at 1): HOOK carries a stored delivery to the Mac, HOOK_SET the Mac's full
+// set of hook ids, HOOK_ACK the id of a delivery the Mac has persisted, HOOK_RESULT (room to Mac) the ids of the last
+// set that another room still holds. Older daemons drop anything that is not DATA.
+export const HOOK = 4,
+  HOOK_SET = 5,
+  HOOK_ACK = 6,
+  HOOK_RESULT = 7;
+
+const HOST_OFFLINE = new TextEncoder().encode("host-offline");
 
 export function frame(type, conn, payload = new Uint8Array()) {
   const out = new Uint8Array(9 + payload.length);
@@ -50,7 +59,7 @@ function toBytes(data, max) {
  *   { role: 'host', next: '<decimal>' }                 the proven Mac and the last conn handed out
  *   { role: 'phone', conn: '<decimal>' }                a phone and its connection number
  */
-export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8Array(32)), mark = () => {} }) {
+export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8Array(32)), mark = () => {}, onHostReady, onHostFrame }) {
   let host = null,
     pending = null,
     challenge = null,
@@ -140,13 +149,16 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
         host = socket;
         pending = null;
         noteHost();
-        return toHost(JSON.stringify({ t: "ready" }));
+        toHost(JSON.stringify({ t: "ready" }));
+        if (host === socket) onHostReady?.();
+        return;
       }
       if (socket !== host) return drop(socket, 4409, "replaced");
       const bytes = toBytes(data, MAX_FRAME + 9);
       if (bytes === TOO_BIG) return drop(socket, 1009, "too-big");
       if (!bytes || bytes.byteLength < 9) return drop(socket, 1003, "bad-frame");
       const { type, conn, payload } = unframe(bytes);
+      if (conn === 0n) return type === HOOK_SET || type === HOOK_ACK ? onHostFrame?.(type, payload) : undefined;
       const phone = phones.get(conn);
       if (!phone) return;
       if (type === DATA) {
@@ -156,7 +168,10 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
         toHost(frame(CLOSE, conn));
       } else if (type === CLOSE) {
         forgetPhone(conn, phone);
-        drop(phone, 1000, "closed-by-host");
+        // A Mac whose phone access is off (it is connected for webhooks alone) says so, and the phone hears what it would
+        // with no Mac here at all, so it waits instead of dialing again at once.
+        if (payload.byteLength === HOST_OFFLINE.byteLength && payload.every((byte, index) => byte === HOST_OFFLINE[index])) drop(phone, 4404, "host-offline");
+        else drop(phone, 1000, "closed-by-host");
       }
     },
     hostClosed(socket) {
@@ -172,6 +187,12 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
     },
     /** Why a new phone would be turned away right now, or null. Changes nothing. */
     phoneRefusal,
+    /** Sends a whole frame to the proven Mac; false when there is none or the send failed. */
+    sendHost(bytes) {
+      if (!host) return false;
+      toHost(bytes);
+      return host !== null;
+    },
     phoneOpened(socket) {
       const refusal = phoneRefusal();
       if (refusal) {

@@ -1051,3 +1051,71 @@ test("a reset and a close drop waiting requests, and a replaced request's abort 
   assert.equal(await third.verdict, "dropped");
   assert.deepEqual(phone.pendingDevices(), []);
 });
+
+test("webhooks ride the relay host, and a confined phone never takes them", async (t) => {
+  const dataDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-phone-")));
+  t.after(() => fs.rm(dataDir, { recursive: true, force: true }));
+  const startBridge = async (options) => ({ url: `http://127.0.0.1:${options.port}`, lost: new Promise(() => {}), close: async () => {} });
+  const received = [];
+  const hooks = { ids: () => ["a".repeat(64)], receive: (list) => received.push(list), refused: () => {}, owners: () => ({}) };
+  for (const [extra, expectHooks] of [
+    [{ allowedRoot: "/demo/project" }, false],
+    [{}, true],
+  ]) {
+    const started = [];
+    const startRelay = (options) => {
+      started.push(options);
+      return { status: () => "connecting", close: async () => {}, syncHooks: () => {} };
+    };
+    const phone = createPhone({ dataDir, startBridge, startRelay, lanPort: null, name: () => "Test Mac", hooks, ...extra });
+    await phone.start();
+    await phone.setEnabled(true);
+    await phone.settled();
+    // Phone access on: the host serving phones carries the webhooks too.
+    const own = started.filter((options) => !options.retired && !options.hooksOnly);
+    assert.equal(own.length, 1);
+    assert.equal(own[0].hooks === hooks, expectHooks);
+    started.length = 0;
+    await phone.setEnabled(false);
+    await phone.settled();
+    await phone.syncHooks();
+    // Phone access off: a confined Mac starts nothing; the other keeps a host for webhooks alone.
+    assert.equal(
+      started.some((options) => options.hooksOnly),
+      expectHooks,
+    );
+    await phone.close();
+  }
+});
+
+test("with phone access off the webhooks-only host starts with the first webhook and stops with the last", async (t) => {
+  const dataDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-phone-")));
+  t.after(() => fs.rm(dataDir, { recursive: true, force: true }));
+  let ids = [];
+  const hooks = { ids: () => ids, receive: () => {}, refused: () => {}, owners: () => ({}) };
+  const hosts = [];
+  const startRelay = (options) => {
+    const host = { options, closed: false, syncs: 0, status: () => "online", syncHooks: () => (host.syncs += 1), close: async () => (host.closed = true) };
+    hosts.push(host);
+    return host;
+  };
+  const phone = createPhone({ dataDir, startBridge: async () => assert.fail("no bridge"), startRelay, lanPort: null, name: () => "Test Mac", hooks });
+  t.after(() => phone.close());
+  await phone.start();
+  await phone.settled();
+  assert.equal(hosts.length, 0, "no webhook, no host");
+  ids = ["b".repeat(64)];
+  await phone.syncHooks();
+  assert.equal(hosts.length, 1);
+  assert.equal(hosts[0].options.hooksOnly, true);
+  assert.equal(hosts[0].options.hooks, hooks);
+  ids = ["b".repeat(64), "c".repeat(64)];
+  await phone.syncHooks();
+  assert.equal(hosts.length, 1);
+  assert.ok(hosts[0].syncs >= 1);
+  ids = [];
+  const syncsBefore = hosts[0].syncs;
+  await phone.syncHooks();
+  assert.ok(hosts[0].syncs > syncsBefore, "it tells the relay to let go before it stops");
+  assert.equal(hosts[0].closed, true);
+});

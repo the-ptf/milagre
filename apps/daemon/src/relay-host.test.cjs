@@ -836,3 +836,168 @@ test("a computer's second hello replaces its first while it waits, and the new c
   waiting.get(b64url(key.publicKey))("allowed");
   assert.ok((await accepted).channel);
 });
+
+// Webhooks over the host connection (frames 4-7 on conn 0, apps/relay/src/hooks.mjs).
+const crypto = require("node:crypto");
+const sha = (text) => crypto.createHash("sha256").update(text).digest("hex");
+const HOOK_SECRET = "H".repeat(43);
+const HOOK_ID = sha(HOOK_SECRET);
+
+async function hookMac(t, relay, hooks, identityDir) {
+  const dir = identityDir ?? (await fs.mkdtemp(path.join(os.tmpdir(), "relay-host-hooks-")));
+  if (!identityDir) t.after(() => fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  const identity = await readIdentity(dir);
+  const host = startRelayHost({ relayUrl: relay.url, identity, hooks, hooksOnly: true });
+  t.after(() => host.close());
+  await until(() => host.status() === "online", "host online");
+  return { host, identity, dir };
+}
+function hookSet(ids, extra = {}) {
+  return { ids: () => ids, receive: () => ({ ack: true }), refused: () => {}, owners: () => ({}), ...extra };
+}
+const roomOf = (relay, identity) => relay.hooks.rooms.get(identity.hostId);
+const hookUrlFor = (relay, secret) => `${relay.url.replace(/^ws:/, "http:")}/hook/${secret}`;
+
+test("deliveries that wait for the Mac arrive in order, in batches, and are acked only once receive has them", async (t) => {
+  const relay = await startRelay(t);
+  const batches = [];
+  const hooks = hookSet([HOOK_ID], { receive: (list) => batches.push(list) });
+  const first = await hookMac(t, relay, hooks);
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === first.identity.hostId, "registered");
+  await first.host.close();
+  for (const n of [1, 2, 3]) assert.equal((await relay.postHook(hookUrlFor(relay, HOOK_SECRET), JSON.stringify({ n }))).status, 202);
+  assert.equal(roomOf(relay, first.identity).storage.deliveries.size(), 3);
+  await hookMac(t, relay, hooks, first.dir);
+  await until(() => roomOf(relay, first.identity).storage.deliveries.size() === 0, "all acked");
+  // Frames that land in one read are one batch; a busy machine may split them, never reorder them.
+  assert.ok(batches.length >= 1 && batches.length <= 3);
+  const all = batches.flat();
+  assert.deepEqual(
+    all.map((delivery) => JSON.parse(new TextDecoder().decode(delivery.body)).n),
+    [1, 2, 3],
+  );
+  assert.equal(all[0].hookId, HOOK_ID);
+  assert.equal(all[0].headers["content-type"], "application/json");
+});
+
+test("a receive that throws acks nothing, so the relay keeps the delivery", async (t) => {
+  const relay = await startRelay(t);
+  let calls = 0;
+  const mac = await hookMac(
+    t,
+    relay,
+    hookSet([HOOK_ID], {
+      receive: () => {
+        calls += 1;
+        throw new Error("disk full");
+      },
+    }),
+  );
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === mac.identity.hostId, "registered");
+  assert.equal((await relay.postHook(hookUrlFor(relay, HOOK_SECRET), "{}")).status, 202);
+  await until(() => calls === 1, "receive called");
+  await sleep(100);
+  assert.equal(roomOf(relay, mac.identity).storage.deliveries.size(), 1);
+});
+
+test("every hook set carries the owner keys; a hook another room holds moves only for the right key, else it shows on its Routine", async (t) => {
+  const relay = await startRelay(t);
+  const OWNER = "K".repeat(43);
+  await relay.hooks.directory.claim(HOOK_ID, "someone-else", OWNER);
+  const refusals = [];
+  // Only the URL secret: not enough.
+  const wrong = await hookMac(t, relay, hookSet([HOOK_ID], { owners: () => ({ [HOOK_ID]: HOOK_SECRET }), refused: (ids) => refusals.push(ids) }));
+  // Reported on the first answer and on the retry after it, never cleared in between (no flicker on the Routine).
+  await until(() => refusals.length >= 2, "the retry's answer", 6000);
+  assert.deepEqual(
+    refusals,
+    refusals.map(() => [HOOK_ID]),
+  );
+  assert.equal(relay.hooks.directory.owner(HOOK_ID), "someone-else");
+  await wrong.host.close();
+
+  const taken = [];
+  const asked = [];
+  const right = await hookMac(
+    t,
+    relay,
+    hookSet([HOOK_ID], {
+      owners: (ids) => {
+        asked.push(ids);
+        return { [HOOK_ID]: OWNER };
+      },
+      refused: (ids) => taken.push(ids),
+    }),
+  );
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === right.identity.hostId, "the hook to move here");
+  assert.deepEqual(asked[0], [HOOK_ID], "the first set already carries the key");
+  assert.ok(taken.every((ids) => ids.length === 0));
+  assert.equal((await relay.postHook(hookUrlFor(relay, HOOK_SECRET), "{}")).status, 202);
+});
+
+test("syncHooks sends a changed set at once, and an unchanged one not at all", async (t) => {
+  const relay = await startRelay(t);
+  let ids = [HOOK_ID];
+  const mac = await hookMac(t, relay, hookSet(null, { ids: () => ids }));
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === mac.identity.hostId, "registered");
+  ids = [];
+  mac.host.syncHooks();
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === null, "released");
+  assert.equal((await relay.postHook(hookUrlFor(relay, HOOK_SECRET), "{}")).status, 404);
+});
+
+test("a host without hooks ignores hook frames and never registers anything", async (t) => {
+  const { relay, mac } = await paired(t);
+  const room = relay.hooks.rooms.get(mac.identity.hostId);
+  // The relay would only send HOOK for a registered hook; force one anyway.
+  room.storage.hooks.add(HOOK_ID);
+  room.hooks.receive(HOOK_ID, { headers: {}, query: {}, body: new Uint8Array([1]) });
+  room.hooks.onHostReady();
+  await sleep(100);
+  assert.equal(room.storage.deliveries.size(), 1, "never acked");
+  assert.equal(relay.hooks.directory.owner(HOOK_ID), null);
+  assert.equal(mac.host.status(), "online");
+});
+
+test("a claim the directory failed is asked for again until it lands", async (t) => {
+  const relay = await startRelay(t);
+  const directory = relay.hooks.directory;
+  const claim = directory.claim;
+  let calls = 0;
+  directory.claim = (...args) => {
+    calls += 1;
+    if (calls === 1) throw new Error("directory down");
+    return claim(...args);
+  };
+  const mac = await hookMac(t, relay, hookSet([HOOK_ID], { owners: () => ({ [HOOK_ID]: "K".repeat(43) }) }));
+  await until(() => directory.owner(HOOK_ID) === mac.identity.hostId, "the hook to be registered after the failure", 6000);
+  assert.ok(calls >= 2);
+});
+
+test("a retired room's host registers no hooks, so its room lets them go, and still acks what waited there", async (t) => {
+  const relay = await startRelay(t);
+  const received = [];
+  const first = await hookMac(t, relay, hookSet([HOOK_ID], { owners: () => ({ [HOOK_ID]: "K".repeat(43) }) }));
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === first.identity.hostId, "registered");
+  await first.host.close();
+  assert.equal((await relay.postHook(hookUrlFor(relay, HOOK_SECRET), "{}")).status, 202);
+  // The same identity, now retired by a Reset (phone.cjs hands it hooks with no ids).
+  const retired = startRelayHost({
+    relayUrl: relay.url,
+    identity: first.identity,
+    retired: true,
+    hooks: hookSet([], { receive: (list) => received.push(...list) }),
+  });
+  t.after(() => retired.close());
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === null, "the old room to let go");
+  await until(() => received.length === 1, "the waiting delivery");
+  await until(() => roomOf(relay, first.identity).storage.deliveries.size() === 0, "acked");
+});
+
+test("with phone access off, a phone that dials the webhooks-only host hears the Mac is offline", async (t) => {
+  const relay = await startRelay(t);
+  const mac = await hookMac(t, relay, hookSet([HOOK_ID]));
+  const phone = connectPhone({ relayUrl: relay.url, identity: mac.identity });
+  t.after(() => phone.close());
+  assert.deepEqual(await phone.closed, { code: 4404, reason: "host-offline" });
+});

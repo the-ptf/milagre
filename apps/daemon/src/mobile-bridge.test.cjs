@@ -1654,3 +1654,7 @@ test("phone checkpoint RPCs preview and restore a task with explicit confirmatio
     desktop.close();
   }
 });
+
+test("a phone may read a webhook Routine's URL and rotate it", () => {
+  for (const method of ["routines:hook", "routines:rotate-hook"]) assert.ok(METHODS.has(method), method);
+});

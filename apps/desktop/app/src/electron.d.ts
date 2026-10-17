@@ -76,11 +76,18 @@ export type RoutineUpdate = Partial<Pick<Routine, "name" | "prompt" | "enabled">
   permissionMode?: string | null;
   trigger?: RoutineTrigger;
   target?: RoutineTarget;
+  /** Webhook Routines: a new HMAC secret (write-only, never read back) and the header the signature comes in (null or blank: the default). */
+  signingSecret?: string;
+  signingHeader?: string | null;
 };
 
 /** A Routine the user makes in the Routines form. It is always theirs (`createdBy` is set by the Mac). */
 export type RoutineCreate = Pick<Routine, "name" | "prompt" | "trigger" | "target"> &
-  Partial<Pick<Routine, "provider" | "model" | "permissionMode" | "maxRuns" | "expiresAt">>;
+  Partial<Pick<Routine, "provider" | "model" | "permissionMode" | "maxRuns" | "expiresAt">> & {
+    /** Webhook Routines: the HMAC secret, write-only (signs the Routine), and the header the signature comes in. */
+    signingSecret?: string;
+    signingHeader?: string;
+  };
 
 /** The Routines form's Linear choices. `error` says why a read failed. */
 export type RoutineLinearOptions = {
@@ -320,6 +327,10 @@ export type MilagreBridge = {
   routineTargets: () => Promise<RoutineTargets>;
   /** The Routines form's Linear choices: labels and states are the named team's. `error` says why a read failed. */
   routineLinearOptions: (args?: { workspace?: string; team?: string }) => Promise<RoutineLinearOptions>;
+  /** A webhook Routine's URL (on the relay), whether it checks an HMAC, and the header that carries it. */
+  routineHook: (id: string) => Promise<{ url: string; signed: boolean; signingHeader: string }>;
+  /** A new URL for a webhook Routine; the old one stops at once. Signing stays as it was. */
+  rotateRoutineHook: (id: string) => Promise<{ url: string }>;
   onRoutinesChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   saveLinearEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
   onLinearStatusChanged: (callback: (status: LinearStatus) => void) => () => void;
