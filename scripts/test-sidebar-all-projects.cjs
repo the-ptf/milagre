@@ -340,16 +340,27 @@ async function browserChecks() {
       mouse("mouseMove", from.x, Math.round(from.y + ((to.bottom - 4 - from.y) * step) / 10));
       await delay(16);
     }
-    // A slow runner can coalesce those moves, or lay the rows out again once the drag began (CI timed out here with
-    // no drop line). A nudge at the target gives the list a fresh hit test until the line shows.
+    // A slow runner can process those moves before the drag's first render, so none of them set a target (CI timed out
+    // here with no drop line). Nudge at the target, read live, until the line shows.
+    const target = () => centre('[data-all-pinned] [data-pinned-scope="/work/shop"] [data-chat-id="7"]');
     const dropLine = `!!document.querySelector("[data-drop-line]")`;
     for (let attempt = 0; !(await evaluate(dropLine)); attempt++) {
-      if (attempt === 25) throw new Error(`Timed out: ${dropLine}`);
-      mouse("mouseMove", from.x + (attempt % 2), to.bottom - 4);
+      if (attempt === 25) {
+        await screenshot("drag-timeout");
+        const state = await evaluate(`(() => {
+          const at = document.elementFromPoint(${from.x}, ${Math.round(to.bottom - 4)});
+          const rect = (selector) => { const r = document.querySelector(selector)?.getBoundingClientRect(); return r && [r.left, r.top, r.right, r.bottom].map(Math.round); };
+          return JSON.stringify({ dragging: document.documentElement.hasAttribute("data-chat-drag"), at: at?.outerHTML.slice(0, 160), row8: rect('[data-sidebar-scope="/work/shop"] [data-chat-id="8"]'), row7: rect('[data-all-pinned] [data-pinned-scope="/work/shop"] [data-chat-id="7"]'), pinned: rect("[data-all-pinned]") });
+        })()`);
+        throw new Error(`Timed out: ${dropLine} ${state}`);
+      }
+      const now = await target();
+      mouse("mouseMove", now.x + (attempt % 2), now.bottom - 4);
       await delay(200);
     }
     await screenshot("drag-into-pinned");
-    mouse("mouseUp", to.x, to.bottom - 4);
+    const drop = await target();
+    mouse("mouseUp", drop.x, drop.bottom - 4);
     await waitFor(`window.patched?.[1] === 8`);
     const [scope, id, patch] = await evaluate("window.patched");
     assert.deepEqual([scope, id, patch.pinned], ["/work/shop", 8, true], "dropped below the pinned chat, another Project's chat is pinned");
