@@ -16,7 +16,8 @@ export function linkedContext({ context }: Pick<ChatMessage, "context">): Linked
     context.kind !== "limit" &&
     context.kind !== "account-switch" &&
     context.kind !== "reload" &&
-    context.kind !== "routine-run"
+    context.kind !== "routine-run" &&
+    context.kind !== "checkpoint-restore"
     ? context
     : null;
 }

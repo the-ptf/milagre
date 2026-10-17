@@ -153,6 +153,7 @@ class ChatHost {
     readSubagents = async () => [],
     handoverTools,
     beforeSend = async () => {},
+    beforeTask = async () => {},
     onUnblocked = () => {},
     onQueuedStart = () => {},
     onQueuedRemoved = () => {},
@@ -169,6 +170,7 @@ class ChatHost {
       readSubagents,
       handoverTools,
       beforeSend,
+      beforeTask,
       onUnblocked,
       onQueuedStart,
       onQueuedRemoved,
@@ -631,6 +633,7 @@ class ChatHost {
     let preparation = null;
     // A handoff still preparing when this message was sent: it steers into that turn once it starts.
     let waitFor = null;
+    let newTask = false;
     let pendingId;
     let originalSession;
     let stagedSession;
@@ -714,6 +717,7 @@ class ChatHost {
           return { ...withSession, sessions: { ...withSession.sessions, [session.id]: { ...session, queued: [...(session.queued ?? []), queuedEntry] } } };
         }
         const steering = Boolean(this.runs[chatId]) || Boolean(waitFor);
+        newTask = !steering;
         handoff = steering ? null : handoffKind(withSession, session.id, provider);
         // A switch ends the agent process the Chat's background work runs in, so it waits for that work (T3 #16000).
         const background = handoff === "switch" ? processWork(session).length : 0;
@@ -800,6 +804,7 @@ class ChatHost {
     if (queuedEntry) return this.queueSaved(projectPath, target, queuedEntry);
     try {
       await this.states.flush(projectPath);
+      if (newTask) await this.beforeTask({ ...request, ...target, messageId: pendingId });
     } catch (error) {
       this.doneStarting(target.chatId);
       if (preparation) {

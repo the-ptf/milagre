@@ -552,6 +552,12 @@ export function LinkWorkspace({
                         subagents={session?.subagents?.filter((agent) => agent.id !== session.native_session_id)}
                         ports={chatId ? ports[chatId] : undefined}
                         agentChatId={chatId ?? undefined}
+                        onOpenDiff={(path, worktree) => {
+                          const member = session?.worktrees.find((item) => item.worktreePath === worktree);
+                          if (member) setMemberId(member.projectId);
+                          if (!changes.open) changes.toggle();
+                          changes.selectFile(path);
+                        }}
                         waitingForSubagents={run?.waitingForSubagents}
                         activity={session ? chatActivity(session, run) : undefined}
                         asking={Boolean(question)}

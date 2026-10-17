@@ -1611,3 +1611,36 @@ test("a phone may edit URL servers and switch them, but not add command servers 
   for (const method of ["mcp:definition", "mcp:saveUrl", "mcp:remove", "mcp:toggle"]) assert.ok(METHODS.has(method), method);
   for (const method of ["mcp:save", "mcp:signIn", "mcp:cancelSignIn"]) assert.ok(!METHODS.has(method), method);
 });
+
+test("phone checkpoint RPCs preview and restore a task with explicit confirmation", async (t) => {
+  const { project, rpc, request, dataDir } = await fixture(t, { runtimeOptions: demoRuntimeOptions() });
+  await fs.writeFile(path.join(project, "draft.txt"), "before task");
+  await rpc("project:open", [project]);
+  const state = (await (await request("/snapshot?projectPath=" + encodeURIComponent(project))).json()).result.project.state;
+  const sessionId = Object.values(state.sessions)[0].id,
+    chatId = `${project}#${sessionId}`;
+  await rpc("chat:send", [{ projectPath: project, sessionId, body: "hello", provider: "codex", model: "demo", permissionMode: "ask" }]);
+  await fs.writeFile(path.join(project, "draft.txt"), "agent");
+  let items;
+  for (let i = 0; i < 150; i++) {
+    items = (await (await rpc("checkpoint:list", [{ chatId }])).json()).result;
+    if (items?.[0]?.completedAt) break;
+    await delay(20);
+  }
+  assert.ok(items[0].completedAt);
+  await fs.writeFile(path.join(project, "draft.txt"), "manual later");
+  const preview = (await (await rpc("checkpoint:preview", [{ chatId, id: items[0].id }])).json()).result;
+  assert.equal(preview.files[0].conflict, true);
+  const payload = { chatId, token: preview.token, decisions: { [preview.files[0].key]: "restore" } };
+  assert.equal((await rpc("checkpoint:restore", [payload])).status, 409);
+  assert.equal(await fs.readFile(path.join(project, "draft.txt"), "utf8"), "manual later");
+  const restored = await rpc("checkpoint:restore", [{ ...payload, approved: true }]);
+  assert.equal(restored.status, 200);
+  assert.equal(await fs.readFile(path.join(project, "draft.txt"), "utf8"), "before task");
+  const desktop = await connect({ dataDir });
+  try {
+    assert.equal((await desktop.call("checkpoint:list", [{ chatId }])).length, 2);
+  } finally {
+    desktop.close();
+  }
+});

@@ -621,6 +621,26 @@ test("Delegations still open when Milagre starts again are cancelled with a noti
   );
   assert.equal(saved.at(-1).delegations[0].status, "cancelled");
   assert.equal(saved.at(-1).negotiations[0].status, "stopped");
+  // The requesting agent hears about it with its next turn, once; the report survives until then.
+  assert.match(saved.at(-1).delegations[0].report, /Milagre restarted before web/);
+  assert.match(
+    await delegations.takeReports("/api#1"),
+    /^<delegation_reports>\nDelegation report from web \(\/web#2, cancelled\):\nMilagre restarted before web/,
+  );
+  assert.equal(await delegations.takeReports("/api#1"), "");
+  assert.equal(saved.at(-1).delegations[0].report, undefined);
+});
+
+test("a Delegation with no Link (inside its own Project) never asks for approval, even in Ask mode", async () => {
+  const fake = desk({ target: async () => ({ link_id: null, link_ids: [], projectPath: "/api", projectName: "api", branch: "main" }) });
+  fake.ports.permissionMode = () => "ask";
+  fake.ports.approve = async () => assert.fail("no card inside the Project");
+  fake.ports.chat = async (key) => ({ label: key, worktreePath: "/api", archived: false });
+  fake.ports.openChat = async () => "/api#9";
+  await fake.delegations.ready;
+  assert.match(await fake.delegations.delegate("/api#1", { worktree: "/api", chat: "new", message: "Rename it" }), /^Delegation sent to /);
+  assert.equal(fake.delivered[0].key, "/api#9");
+  assert.equal(fake.delegations.snapshot().delegations[0].link_id, null);
 });
 
 // A receiving Chat on a provider that can't steer queues the message (chat-host.cjs), and the queue outlives a restart.
@@ -844,4 +864,57 @@ test("a grant on any Link that reaches the destination covers it, when an older 
   const result = await delegations.delegate("/api#1", { worktree: "/web", chat: "new", message: "Wire the form" });
   assert.equal(asked, 0, "no card: the whole-Projects Link is always allowed");
   assert.match(String(result), /./);
+});
+
+test("a Chat delegates inside its own Project with no Link and no card, and its next turn gets the report once", async (t) => {
+  const fixture = await linkedProjects(t, { link: false });
+  const prompts = [];
+  let result;
+  fixture.scripts.api = async (session, prompt) => {
+    if (prompt.startsWith("Delegation from")) return session.finish("Renamed the uploads route.");
+    prompts.push(prompt);
+    if (prompts.length === 1) {
+      result = await session.call("delegate", { worktree: fixture.folders.api, chat: "new", message: "Rename the uploads route" });
+      return session.finish("Handed it to another Chat.");
+    }
+    session.finish("Noted.");
+  };
+  // Ask mode: a Delegation inside the Project asks for no approval, as chat_start doesn't.
+  await fixture.send("api", "Split the uploads work", "ask");
+  await waitFor(() => result);
+  assert.equal(result.isError, false, result.text);
+  assert.match(result.text, /^Delegation sent to api \/ main \/ a new Chat/);
+  const posted = await findMessage(fixture, "api", "delegation-report");
+  assert.equal(posted.body, "Renamed the uploads route.");
+  const child = posted.context.from;
+  assert.notEqual(child, fixture.chatOf("api"), "it went to a new Chat in the same Worktree");
+  const received = (await fixture.messages(child)).find((message) => message.context?.kind === "delegation");
+  assert.equal(received.body, "Rename the uploads route");
+  assert.equal(received.context.from, fixture.chatOf("api"));
+
+  await fixture.send("api", "What did it do?", "ask");
+  await waitFor(() => prompts.length === 2);
+  const report = `<delegation_reports>\nDelegation report from api / main / a new Chat (${child}, done):\nRenamed the uploads route.\n</delegation_reports>`;
+  assert.ok(prompts[1].endsWith(`What did it do?\n\n${report}`), prompts[1]);
+  await waitFor(async () => (await fixture.messages(fixture.chatOf("api"))).some((message) => message.body === "Noted."));
+  await fixture.send("api", "And now?", "ask");
+  await waitFor(() => prompts.length === 3);
+  assert.ok(prompts[2].endsWith("And now?"), prompts[2]);
+  assert.doesNotMatch(prompts[2], /<delegation_reports>/, "each report goes to the agent once");
+});
+
+test("a Chat can't delegate to itself, nor to another Project's Worktree without a Link", async (t) => {
+  const fixture = await linkedProjects(t, { link: false });
+  const results = [];
+  fixture.scripts.api = async (session) => {
+    results.push(await session.call("delegate", { worktree: fixture.folders.api, chat: fixture.chatOf("api"), message: "Do it yourself" }));
+    results.push(await session.call("delegate", delegation(fixture)));
+    session.finish("Done.");
+  };
+  await fixture.send("api", "Try both");
+  await waitFor(() => results.length === 2);
+  assert.equal(results[0].isError, true);
+  assert.match(results[0].text, /can't delegate to itself/);
+  assert.equal(results[1].isError, true);
+  assert.match(results[1].text, /isn't linked to this Chat/);
 });

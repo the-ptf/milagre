@@ -6,6 +6,8 @@
     "src/*.mjs",
     "src/design-catalog-fonts/*",
     "src/*.d.mts",
+    "src/checkpoints.ts",
+    "src/use-checkpoints.ts",
     "src/model.ts",
     "src/git-diff.ts",
     "src/model-options.ts",
@@ -73,6 +75,8 @@
       "types": "./src/prompt-skills.d.mts",
       "default": "./src/prompt-skills.mjs"
     },
+    "./checkpoints": "./src/checkpoints.ts",
+    "./use-checkpoints": "./src/use-checkpoints.ts",
     "./model": "./src/model.ts",
     "./subagent-glance": {
       "types": "./src/subagent-glance.d.mts",
@@ -130,6 +134,10 @@
     "./routine-prompt": {
       "types": "./src/routine-prompt.d.mts",
       "default": "./src/routine-prompt.mjs"
+    },
+    "./checkpoint-restore": {
+      "types": "./src/checkpoint-restore.d.mts",
+      "default": "./src/checkpoint-restore.mjs"
     },
     "./worktree-link": {
       "types": "./src/worktree-link.d.mts",

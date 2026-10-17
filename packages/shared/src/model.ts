@@ -454,6 +454,20 @@ export type RoutineRunContext = {
   summary?: string;
 };
 
+/**
+ * Undo changes wrote files: `restored` of them went back to how they were before the task (`checkpointId`), `kept` stayed
+ * as they were. `recoveryId` is the checkpoint saved just before, which the line's Redo previews. `redo` marks restoring
+ * such a recovery checkpoint, which puts the files back again.
+ */
+export type CheckpointRestoreContext = {
+  kind: "checkpoint-restore";
+  checkpointId: string;
+  recoveryId: string;
+  restored: number;
+  kept: number;
+  redo: boolean;
+};
+
 export type ChatContext =
   | AdvisorResultContext
   | WorktreeLinkedContext
@@ -467,6 +481,7 @@ export type ChatContext =
   | AccountSwitchContext
   | ChatReloadContext
   | RoutineRunContext
+  | CheckpointRestoreContext
   | "handover"
   | null;
 
@@ -490,7 +505,8 @@ export type LinkedContext =
 /** A Delegation still queued or running (see delegations.cjs in @milagre/core). */
 export interface OpenDelegation {
   id: string;
-  link_id: string;
+  /** The Link it travels along; null for a Delegation inside its Chat's own Project. */
+  link_id: string | null;
   from_chat: string;
   to_chat: string | null;
   from_label: string;
@@ -503,7 +519,7 @@ export interface OpenDelegation {
 
 export interface RunningNegotiation {
   id: string;
-  link_id: string;
+  link_id: string | null;
   chats: [string, string | null];
   labels: [string, string];
   round: number;

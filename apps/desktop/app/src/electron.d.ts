@@ -1,3 +1,4 @@
+import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import type { MainSyncSettings, MainSyncStatus } from "@milagre/shared/main-sync";
 import type { McpAccount, McpAccountCheck, McpChangedEvent, McpProvider, McpServerDefinition, McpTarget } from "@milagre/shared/mcp";
 import type { LocalMcpApi } from "@milagre/shared/local-mcp";
@@ -431,6 +432,7 @@ export type MilagreBridge = {
   /** Raw from the host: a whole state, or a patch (see StateNumbering). Listen through state-events.ts instead. */
   onProjectState: (callback: (update: { path: string; state?: CoordinatorState } & StateNumbering) => void) => () => void;
   /** Saves a message in its chat (a new one when `sessionId` is null), then starts or steers the chat's turn. */
+  checkpoints: CheckpointApi;
   sendMessage: (request: ChatSendRequest) => Promise<{ sessionId: number }>;
   /** Continues a chat a quit stopped mid-turn, on its saved options. Resolves false when it has nothing to continue. */
   resumeChat: (projectPath: string, sessionId: number) => Promise<boolean>;
