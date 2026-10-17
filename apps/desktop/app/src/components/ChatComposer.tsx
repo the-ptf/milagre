@@ -43,6 +43,8 @@ import { Attachments } from "./Attachments";
 import type { ImageDraft } from "./usePastedImages";
 import { PromptComposer } from "./PromptComposer";
 import { QueuedMessages } from "./QueuedMessages";
+import { HeartbeatCard } from "./routines/HeartbeatCard";
+import { NextCheck } from "./routines/NextCheck";
 import type { QueueControls } from "./QueuedMessages";
 import { PickerPanel, PickerRow } from "./primitives/Picker";
 import { LinearIssuePicker } from "./LinearIssuePicker";
@@ -127,7 +129,7 @@ function ReplyContent({
   asking?: boolean;
   waitingStepIds: string[];
 }) {
-  const { setup, activity, images, artifacts, answer } = replyActivity(body, steps);
+  const { setup, activity, images, artifacts, heartbeats, answer } = replyActivity(body, steps);
   const thought = !streaming || asking ? unspokenThought(body, steps) : "";
   return (
     <>
@@ -139,6 +141,9 @@ function ReplyContent({
         <GeneratedImage key={step.id} step={step} />
       ))}
       <ArtifactCards steps={artifacts} />
+      {heartbeats.map((step) => (
+        <HeartbeatCard key={step.id} step={step} />
+      ))}
       {answer.trim() && <div data-slot="message-content">{streaming ? <StreamingMarkdown text={answer} /> : <Markdown text={answer} />}</div>}
       {thought && (
         <div data-slot="message-thought" className="text-ink-2">
@@ -1160,6 +1165,7 @@ export function ChatComposer({
                       />
                     </div>
                   )}
+                  {runtimeChat && !isSending && <NextCheck chatKey={runtimeChat} />}
                   {resume && !isSending && (
                     <div data-resume-bar className="flex w-full items-center gap-3 rounded-control border border-line px-3 py-2 text-[12px] text-ink-2">
                       <span className="min-w-0 flex-1">Milagre closed while this chat was working.</span>

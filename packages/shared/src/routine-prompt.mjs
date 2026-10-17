@@ -105,28 +105,41 @@ export function renderRoutinePrompt(template, values, untrusted) {
 }
 
 /**
- * The placeholder being typed at `caret`: the last "{{" before it with no whitespace or braces after it (so not one that is
- * closed or has been left behind). `start` is where that "{{" is, `query` what follows it, and `matches` the `names` that begin
- * with it, in the order given and without regard to case. Null when the caret isn't in one.
+ * The placeholder being typed at `caret`: the last "{{" before it, followed by optional spaces (the renderer reads
+ * `{{ issue.key }}`) and a name with no whitespace or braces (so not one that is closed or has been left behind). `start` is
+ * where that "{{" is (the first brace of a longer run, so inserting replaces them all), `query` the name typed, and `matches`
+ * the `names` that begin with it, in the order given and without regard to case. Null when the caret isn't in one.
  */
 export function placeholderQuery(text, caret, names = []) {
   const source = String(text ?? "");
   const before = source.slice(0, Math.min(Math.max(caret, 0), source.length));
-  const start = before.lastIndexOf("{{");
-  if (start === -1) return null;
-  const query = before.slice(start + 2);
-  if (/[\s{}]/.test(query)) return null;
+  const last = before.lastIndexOf("{{");
+  if (last === -1) return null;
+  // Spaces may follow the "{{", as the renderer reads `{{ issue.key }}`; a name holds no space, brace or line break.
+  const typed = /^[ \t]*([^\s{}]*)$/.exec(before.slice(last + 2));
+  if (!typed) return null;
+  // A run of three or more opening braces starts at its first, so inserting replaces all of them.
+  let start = last;
+  while (start > 0 && before[start - 1] === "{") start -= 1;
+  const query = typed[1];
   const prefix = query.toLowerCase();
   return { start, query, matches: names.filter((name) => name.toLowerCase().startsWith(prefix)) };
 }
 
 /**
- * Replaces what was typed from `start` (the "{{") to `caret` with the placeholder, and puts the caret after its "}}". A "}}"
- * that already followed the caret is taken, so finishing a placeholder in the middle of a closed one doesn't double it.
+ * Replaces what was typed from `start` (the "{{") to `caret` with the placeholder, and puts the caret after its "}}". Text
+ * right after the caret goes too when it is the rest of this placeholder: the name and braces of one already closed
+ * ("{{iss|ue.key}}", "{{iss|}"), or the rest of the chosen name typed on both sides of the caret ("{{iss|ue"). Anything else
+ * after the caret stays ("Fix ({{|)", "{{|foo bar").
  */
 export function insertPlaceholder(text, start, caret, name) {
   const source = String(text ?? "");
   const placeholder = `{{${name}}}`;
   const tail = source.slice(caret);
-  return { text: source.slice(0, start) + placeholder + (tail.startsWith("}}") ? tail.slice(2) : tail), caret: start + placeholder.length };
+  const [, rest = "", braces = ""] = /^([\w.-]*)(\}{0,2})/.exec(tail) ?? [];
+  const typed = source.slice(start, caret).replace(/^\{+[ \t]*/, "");
+  let taken = 0;
+  if (braces) taken = rest.length + braces.length;
+  else if (rest && name.toLowerCase().startsWith((typed + rest).toLowerCase())) taken = rest.length;
+  return { text: source.slice(0, start) + placeholder + tail.slice(taken), caret: start + placeholder.length };
 }
