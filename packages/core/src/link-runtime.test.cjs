@@ -33,11 +33,13 @@ async function fixture(t) {
             const create = context.linked?.tools.find((tool) => tool.name === "link_worktree_create");
             // A Project outside the Link refuses; the agent goes on with the others.
             if (create) for (const project of edits) await create.run({ project }).catch(() => {});
+            // The turn id it announces is the one it returns, as a real session's: a Delegation follows its turn by it.
+            const turnId = randomUUID();
             context.emit({ type: "session-started", nativeId: "native" });
-            context.emit({ type: "turn-started", turnId: randomUUID() });
+            context.emit({ type: "turn-started", turnId });
             context.emit({ type: "text-delta", messageId: "reply", text: "Changed both" });
             context.emit({ type: "turn-completed" });
-            return { turnId: "turn" };
+            return { turnId };
           })();
           turns.push(run);
           return run;
@@ -268,4 +270,41 @@ test("a shared Chat that changes one Project creates no branch or Worktree in th
   assert.match(created[0].workspaceInstructions, new RegExp(`api: ${api.path}`));
   assert.deepEqual(created[0].access.roots, [session.worktrees[0].worktreePath]);
   assert.deepEqual(created[0].access.readOnlyRoots, [api.path]);
+});
+
+test("a shared Chat manages its Link's Projects through Milagre's tools and delegates to their Chats", async (t) => {
+  const { runtime, projects, created, settle } = await fixture(t);
+  const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((project) => project.id) }]);
+  await runtime.invoke("link:open", [link.id]);
+  const request = { linkId: link.id, sessionId: null, operationId: randomUUID(), body: "Plan", provider: "codex", model: "test", permissionMode: "auto" };
+  const sent = await runtime.invoke("link:send", [request]);
+  await settle(1);
+  const tools = created[0].linked.tools;
+  const tool = (name) => tools.find((item) => item.name === name);
+  for (const name of ["worktree_list", "worktree_create", "chat_list", "chat_start", "delegate"]) assert.ok(tool(name), `${name} is there`);
+  const web = projects.find((project) => path.basename(project.path) === "web");
+  assert.ok(JSON.parse(await tool("worktree_list").run({ projectPath: web.path })).some((item) => item.path === web.path));
+  const outside = path.join(path.dirname(web.path), "elsewhere");
+  await assert.rejects(tool("worktree_list").run({ projectPath: outside }), /scope/);
+
+  const shared = chatKeyForScope({ kind: "link", linkId: link.id }, sent.sessionId);
+  assert.match(await tool("delegate").run({ worktree: web.path, chat: "new", message: "Add the menu route" }), /^Delegation sent to web \/ main \/ a new Chat/);
+  await assert.rejects(tool("delegate").run({ worktree: web.path, chat: "new", message: "Agree first", negotiation: true }), /do not host Negotiations/);
+  await settle(2);
+  const report = await (async () => {
+    for (let i = 0; i < 200; i++) {
+      const state = (await runtime.invoke("link:snapshot", [link.id])).state;
+      const found = state.messages.find((message) => message.session_id === sent.sessionId && message.context?.kind === "delegation-report");
+      if (found) return found;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return null;
+  })();
+  assert.ok(report, "the report comes back to the shared Chat");
+  assert.equal(report.body, "Changed both");
+  const received = Object.values((await runtime.invoke("project:snapshot", [web.path])).state.messages).find(
+    (message) => message.context?.kind === "delegation",
+  );
+  assert.equal(received.context.from, shared);
+  assert.equal(received.context.fromLabel, "Food / Plan");
 });

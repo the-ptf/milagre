@@ -403,12 +403,20 @@ function createRuntime(options) {
       : null,
   });
 
+  // Each named Link's member Project paths, as its last turn found them: a shared Chat's agent manages Worktrees and
+  // Chats in those Projects through Milagre's MCP, whose grants are read synchronously (agentScope below). Every turn
+  // resolves them before its agent starts (executionContext), so a session's tools always see a current list.
+  const linkMembers = new Map();
   const scopeStates = createChatScopes({
     projects: states,
     links: linkStore,
     validateLink: async (id) => {
       const members = await linkWorkspaces.membersAvailable(await linkRuntime.definition(id));
       for (const member of members) await ownProject(member.path);
+      linkMembers.set(
+        id,
+        members.map((member) => member.path),
+      );
       return members;
     },
   });
@@ -1450,6 +1458,12 @@ function createRuntime(options) {
   const linked = createLinkedWorktrees({
     dataDir,
     registry: projectRegistry,
+    // A named Link's member Projects, { id, name, path }, for its shared Chats' Delegations.
+    linkProjects: async (linkId) => {
+      const link = await linkRuntime.definition(linkId);
+      const projects = await projectRegistry().list();
+      return link.projectIds.map((id) => projects.find((project) => project.id === id)).filter(Boolean);
+    },
     project: linkedState,
     messages: linkedMessages,
     bodies: async (projectPath, chatIds) => {
@@ -1879,12 +1893,14 @@ function createRuntime(options) {
       const session = state?.sessions[sessionIdFromKey(chatId)];
       if (!session || session.archived) throw Error("Chat is unavailable or archived");
       const designGrant = { designs: { chatId, designIds: "*", capabilities: ["read", "write"] } };
-      if (isLinkScopeKey(projectPath)) return designGrant;
+      // A shared Link Chat manages its Link's member Projects as an ordinary Chat manages its own Project.
+      const projectPaths = isLinkScopeKey(projectPath) ? (linkMembers.get(scopeFromKey(projectPath).linkId) ?? []) : [projectPath];
+      if (!projectPaths.length) return designGrant;
       return {
         ...designGrant,
-        projects: { projectPaths: [projectPath], capabilities: ["read"] },
-        worktrees: { projectPaths: [projectPath], capabilities: ["read", "create"] },
-        chats: { projectPaths: [projectPath], capabilities: ["read", "create", "start"] },
+        projects: { projectPaths, capabilities: ["read"] },
+        worktrees: { projectPaths, capabilities: ["read", "create"] },
+        chats: { projectPaths, capabilities: ["read", "create", "start"] },
       };
     },
     host: require("./local-mcp-host.cjs").createLocalMcpHost({
