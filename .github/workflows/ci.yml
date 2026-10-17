@@ -130,10 +130,11 @@ jobs:
           echo "quick-checks, unit: $RESULTS"
           for result in $RESULTS; do [ "$result" = success ] || exit 1; done
   native-tests:
-    # The Windows tests. The Linux repository signing test is a parallel step of the javascript job.
+    # The Windows tests, on merge groups and pushes to main: windows-latest runners took 70 to 161 s for the same
+    # suites, so on a PR run they set the pace. The merge queue runs them before a PR lands; the gate below stays
+    # green on a PR run, where they are skipped. The Linux repository signing test is a quick-checks step.
     name: native-tests (windows-latest)
-    needs: changes
-    if: needs.changes.outputs.desktop == 'true'
+    if: github.event_name != 'pull_request'
     timeout-minutes: 30
     runs-on: windows-latest
     steps:
