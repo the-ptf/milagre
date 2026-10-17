@@ -1,6 +1,6 @@
 // How a chat is named, shared by the sidebar and the main process's notifications. Types: chats.d.mts.
 export { pullRequestRefs, pullRequestRefsCache, chatPullRequests } from "./chat-pull-requests.mjs";
-import { summarizeChat } from "./chat-summary.mjs";
+import { chatSummary, summarizeChat } from "./chat-summary.mjs";
 
 /** The same status palette for desktop and mobile chat lists. */
 export function chatMarkTone(mark) {
@@ -140,8 +140,24 @@ export function pendingChatSessionId(state, pending) {
 /** A display projection shared by desktop's sidebar and the phone's drawer; canonical input replaces its preview. */
 export function withPendingChat(state, pending) {
   if (!pending || pendingChatSessionId(state, pending) !== null) return state;
-  const messages = [...state.messages, { ...pending.message, id: pending.sortId }];
-  // The preview counts in its Chat's summary, so the lists show it (and order it) before the host saves it.
-  const summary = summarizeChat(messages.filter((message) => message.session_id === pending.session.id));
-  return { ...state, sessions: { ...state.sessions, [pending.session.id]: { ...pending.session, summary } }, messages };
+  const message = { ...pending.message, id: pending.sortId };
+  const messages = [...state.messages, message];
+  const session = state.sessions[pending.session.id] ?? pending.session;
+  // The host may keep every saved message off the client. Extend its summary rather than replacing the Chat's
+  // history with this one input, and keep settings that changed since the send began (pins, title, etc.).
+  const saved = chatSummary(
+    session,
+    state.messages.filter((item) => item.session_id === session.id),
+  );
+  const summary = {
+    ...summarizeChat([message]),
+    ...saved,
+    count: saved.count + 1,
+    firstId: saved.firstId ?? pending.sortId,
+    lastId: pending.sortId,
+    lastAt: pending.startedAt,
+    ...(message.model ? { lastModel: message.model } : {}),
+    clientMessageIds: [...(saved.clientMessageIds ?? []), ...(message.clientMessageId ? [message.clientMessageId] : [])].slice(-5),
+  };
+  return { ...state, sessions: { ...state.sessions, [session.id]: { ...session, summary } }, messages };
 }

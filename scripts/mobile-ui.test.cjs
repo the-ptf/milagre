@@ -5881,6 +5881,25 @@ test("a mobile follow-up keeps the existing Chat in its drawer position", () => 
   );
 });
 
+test("a mobile follow-up keeps its drawer position when the host sends summaries without messages", () => {
+  const screen = ongoingChatHost();
+  const state = screen.session.snapshot.project.state;
+  state.next_id = 30;
+  state.sessions[7].summary = { count: 20, firstId: 8, lastId: 19 };
+  state.sessions[20] = { id: 20, worktree_id: 1, agent_name: "main", title: "Newer Chat", status: "Idle", summary: { count: 1, firstId: 21, lastId: 21 } };
+  state.messages = [];
+  state.messagesInChats = true;
+  screen.send();
+  const nav = navigationHost(Promise.resolve(), { session: { ...screen.session, recent: [{ path: "/p" }] } });
+  assert.deepEqual(
+    Array.from(
+      nav.rows().props.data.filter((row) => row.kind === "chat"),
+      (row) => row.chat.id,
+    ),
+    [20, 7],
+  );
+});
+
 test("mobile opens a long Chat with its newest 40 messages and loads another page on request", () => {
   const screen = ongoingChatHost();
   screen.session.snapshot.project.state.messages = Array.from({ length: 1000 }, (_, index) => ({
