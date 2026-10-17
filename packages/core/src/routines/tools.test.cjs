@@ -379,3 +379,15 @@ test("a Linear trigger without the filter its event needs is refused by the stor
   const ok = make({ kind: "linear", workspace: "acme", event: "state", state: "Done" });
   assert.throws(() => store.update(ok.id, { trigger: { kind: "linear", workspace: "acme", event: "label-added" } }), /label/);
 });
+
+test("routine_update clears a Linear trigger's team filter with null or an empty string", async () => {
+  const { store, call } = setup();
+  await call("routine_create", { name: "triage", prompt: "p", trigger: "linear", linearEvent: "assigned", team: "MIL" });
+  const [routine] = store.list();
+  for (const team of [null, ""]) {
+    assert.equal((await call("routine_update", { id: routine.id, team: "ENG" })).isError, false);
+    const cleared = await call("routine_update", { id: routine.id, team });
+    assert.equal(cleared.isError, false, cleared.text);
+    assert.deepEqual(store.get(routine.id).trigger, { kind: "linear", workspace: "acme", event: "assigned" }, JSON.stringify(team));
+  }
+});

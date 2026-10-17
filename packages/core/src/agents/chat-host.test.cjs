@@ -995,6 +995,25 @@ test("the Chat keeps the mode its composer last set, saved with it: a pick, or t
   assert.equal(host.routineTurns.has(chatId), false);
 });
 
+test("a mode change saves the mode whatever the live agent says, and reports the agent's error first", async (t) => {
+  const { host, manager } = harness();
+  t.after(() => manager.closeAll());
+  const failing = async () => {
+    throw new Error("agent refused");
+  };
+  const noted = [];
+  host.notePermissionMode = async (chatId, mode) => {
+    noted.push([chatId, mode]);
+    throw new Error("save failed");
+  };
+  await assert.rejects(host.setPermissionMode(`${ALPHA}#1`, "ask", failing), /agent refused/);
+  assert.deepEqual(noted, [[`${ALPHA}#1`, "ask"]]);
+  await assert.rejects(
+    host.setPermissionMode(`${ALPHA}#1`, "ask", async () => {}),
+    /save failed/,
+  );
+});
+
 test("a chat a quit stopped continues once on its saved session when its project opens", async (t) => {
   const { host, manager, states, saved, session } = harness();
   t.after(() => manager.closeAll());

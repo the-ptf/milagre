@@ -1463,14 +1463,8 @@ function createRuntime(options) {
   });
 
   // The mode picked is the Chat's from now on: its running turn takes it at once, and a heartbeat's next beat runs in it.
-  async function setPermissionMode(chatId, mode) {
-    try {
-      await agents.setPermissionMode(chatId, mode);
-    } finally {
-      // Saved even when the live session couldn't take it: the next turn and beat start in it.
-      await chats.notePermissionMode(chatId, mode);
-    }
-  }
+  // Saved even when the live session couldn't take it: the next turn and beat start in it.
+  const setPermissionMode = (chatId, mode) => chats.setPermissionMode(chatId, mode, (id, picked) => agents.setPermissionMode(id, picked));
   commands.handle("agent:set-permission-mode", (_event, { chatId, mode }) => setPermissionMode(chatId, mode));
 
   async function notifyIfWaiting(chatId, event) {

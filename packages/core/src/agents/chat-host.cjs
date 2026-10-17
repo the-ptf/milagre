@@ -241,6 +241,25 @@ class ChatHost {
     if (changed) this.broadcast(projectPath, state);
   }
 
+  /**
+   * A mode change from the composer: `live(chatId, mode)` hands it to the running agent, and the chat saves it whatever
+   * that says. When both fail, the agent's error is the one reported.
+   */
+  async setPermissionMode(chatId, mode, live) {
+    let failure = null;
+    try {
+      await live(chatId, mode);
+    } catch (error) {
+      failure = error;
+    }
+    try {
+      await this.notePermissionMode(chatId, mode);
+    } catch (error) {
+      failure ??= error;
+    }
+    if (failure) throw failure;
+  }
+
   /** Forgets what this run knows of a chat that was deleted. */
   forget(chatId) {
     this.routineTurns.delete(chatId);

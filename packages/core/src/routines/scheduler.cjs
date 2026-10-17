@@ -28,13 +28,22 @@ function authorName(author) {
 
 // A Linear Run's message: the Routine's prompt with the issue's fields filled in, and a comment's when there is one.
 // Everything people wrote in Linear (the title, description, labels, state name, assignee, author and comment) reaches the
-// agent fenced as data, however short. Only the key, URL and team key, which are identifiers, go in as they are.
-function linearPrompt(template, issue, comment, author) {
+// agent fenced as data, however short. Only the key, the URL up to the key, and the team key go in as they are.
+// An issue's URL up to its key: https://linear.app/<org>/issue/MIL-1 opens the issue, and the title slug Linear puts after
+// the key is text anyone who can rename the issue writes. Null when the URL doesn't read as that issue's.
+const ISSUE_URL = /^https:\/\/linear\.app\/[A-Za-z0-9_-]+\/issue\/([A-Za-z][A-Za-z0-9]*-\d+)(?=$|[/?#])/;
+function issueUrl(url, key) {
+  const match = ISSUE_URL.exec(String(url ?? ""));
+  return match && match[1].toUpperCase() === String(key).toUpperCase() ? match[0] : null;
+}
+
+function linearPrompt(template, issue, comment) {
+  const url = issueUrl(issue.url, issue.key);
   const values = {
     "issue.key": issue.key,
     "issue.title": issue.title,
     "issue.description": issue.description,
-    "issue.url": issue.url,
+    "issue.url": url ?? issue.url,
     "issue.labels": (issue.labels ?? []).join(", "),
     "issue.state": issue.state,
     "issue.team": issue.team,
@@ -47,12 +56,15 @@ function linearPrompt(template, issue, comment, author) {
     "issue.assignee": `Linear issue ${issue.key} assignee`,
     // A workflow state's name is text a Linear admin can set to anything.
     "issue.state": `Linear issue ${issue.key} state`,
+    // A URL that isn't the issue's own shape is data like the rest.
+    ...(url ? {} : { "issue.url": `Linear issue ${issue.key} url` }),
   };
   if (comment) {
     Object.assign(values, { "comment.body": comment.body, "comment.author": comment.author });
     Object.assign(untrusted, {
       "comment.author": `Linear comment author on ${issue.key}`,
-      "comment.body": author ? `Linear comment on ${issue.key} by ${author}` : `Linear comment on ${issue.key}`,
+      // The author's name is fenced where {{comment.author}} puts it, never written into a label beside the instructions.
+      "comment.body": `Linear comment on ${issue.key}`,
     });
   }
   return renderRoutinePrompt(template, values, untrusted);
@@ -243,7 +255,7 @@ function createRoutineScheduler({
       return;
     }
     const author = authorName(comment.author);
-    const text = linearPrompt(routine.prompt, issue, comment, author);
+    const text = linearPrompt(routine.prompt, issue, comment);
     const entry = { runId: run.id, sent: false, turnStarted: false, comment: true };
     pending.set(chatId, entry);
     const label = author ? `Linear comment · ${author}` : "Linear comment";

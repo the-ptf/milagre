@@ -60,7 +60,9 @@ function linearTrigger(trigger, { linearEvent, team, label, state }) {
   if (label !== undefined && event !== "label-added") throw new Error("A label goes with linearEvent label-added.");
   if (state !== undefined && event !== "state") throw new Error("A state goes with linearEvent state.");
   const next = { kind: "linear", workspace: trigger.workspace, event };
-  if ((team ?? trigger.team) !== undefined) next.team = team ?? trigger.team;
+  // null or "" clears the team filter; left out, it stays.
+  const keptTeam = team === undefined ? trigger.team : team || undefined;
+  if (keptTeam !== undefined) next.team = keptTeam;
   if (event === "label-added") {
     next.label = label ?? trigger.label;
     if (next.label === undefined) throw new Error("linearEvent label-added needs a label.");
@@ -226,7 +228,7 @@ function createRoutineTools({
           expiresIn: expiresInField.optional(),
           enabled: z.boolean().optional(),
           linearEvent: z.enum(LINEAR_EVENTS).optional().describe("For a linear trigger: what happens to an issue."),
-          team: z.string().min(1).max(80).optional().describe("For a linear trigger: only issues of this team key."),
+          team: z.string().max(80).nullable().optional().describe('For a linear trigger: only issues of this team key. null or "" clears it.'),
           label: z.string().min(1).max(80).optional().describe("For linearEvent label-added: the label."),
           state: z.string().min(1).max(80).optional().describe("For linearEvent state: the state the issue moves to."),
         },

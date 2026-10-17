@@ -733,3 +733,35 @@ test("start recovers the Runs a stop cut short even while Routines are off", asy
     [["failed", "daemon restarted"]],
   );
 });
+
+test("the agent tools refuse a Heartbeat or a Routine from a Chat outside the Projects Milagre lists, or in a Link", async (t) => {
+  const { routineTargets } = require("./runtime-adapter.cjs");
+  const { createRoutineStore } = require("./store.cjs");
+  const { createRoutineTools } = require("./tools.cjs");
+  const { runTool } = require("../linked-tools.cjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-tool-targets-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = createRoutineStore({ file: path.join(dir, "routines.json") });
+  const tools = createRoutineTools({
+    store,
+    scheduler: {},
+    chatSettings: () => null,
+    defaultTimezone: () => "UTC",
+    linearWorkspaces: () => ["acme"],
+    checkTarget: routineTargets({ projects: async () => [{ path: "/listed" }], openState: async () => ({ sessions: { 2: { id: 2 } } }) }),
+  });
+  const call = (chatId, name, args) =>
+    runTool(
+      tools.definitions(chatId).find((tool) => tool.name === name),
+      args,
+    );
+  for (const chatId of ["/unlisted#2", "milagre-link:0f8e2c1a-1b2c-4d5e-8f90-123456789abc#2"]) {
+    const beat = await call(chatId, "heartbeat_create", { name: "b", prompt: "p", every: "15m" });
+    assert.equal(beat.isError, true, chatId);
+    assert.match(beat.text, /Project/);
+    const own = await call(chatId, "routine_create", { name: "r", prompt: "p", trigger: "schedule", every: "1h" });
+    assert.equal(own.isError, true, chatId);
+  }
+  assert.deepEqual(store.list(), []);
+  assert.equal((await call("/listed#2", "heartbeat_create", { name: "b", prompt: "p", every: "15m" })).isError, false);
+});

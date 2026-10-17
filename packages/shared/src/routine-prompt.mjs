@@ -56,16 +56,22 @@ const BLOCKS = new Set(["issue.description", "comment.body", "body", "request"])
 const LINE_BREAKS = ["\n", "\r", String.fromCharCode(0x2028), String.fromCharCode(0x2029)];
 const hasLineBreak = (text) => LINE_BREAKS.some((char) => text.includes(char));
 
-// Text must not be able to write an <untrusted-data> tag of its own: it could close its block and speak as the prompt. A "<"
-// is replaced when the tag name follows it, however the way there is dressed up: any characters that are not brackets,
-// letters or digits may stand between them (spaces, "/", and characters that show nothing, such as a zero-width space or a
-// soft hyphen). It is one lookahead over one class, which cannot hold the next "<", so the work grows with the length of the
-// text and not with its square: a webhook body may be 256 KiB and the daemon renders the prompt on its main thread.
-const TAG_START = /<(?=[^<>\w]*untrusted-data)/gi;
-const escapeTags = (text) => text.replace(TAG_START, "&lt;");
+// Text must not be able to write an <untrusted-data> tag of its own: it could close its block and speak as the prompt.
+// Characters that show nothing (Unicode's default-ignorable code points: zero-width spaces and joiners, soft hyphens,
+// direction marks, the BOM) go first, so none can hide inside a tag name, and then every "<" and ">" becomes its entity:
+// fenced text has no markup of its own. Two plain passes, so the work grows with the length of the text (a webhook body
+// may be 256 KiB and the daemon renders the prompt on its main thread).
+// Spelled out (equal to /\p{Default_Ignorable_Code_Point}/u as of Unicode 15, checked over every code point) so the
+// phone's engine needs neither property escapes nor the u flag; the astral ranges are their surrogate pairs.
+// The class lists combining characters (U+034F, the variation selectors) on purpose: each is escaped and stands alone.
+/* oxlint-disable no-misleading-character-class */
+const IGNORABLE =
+  /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFF8]|\uD82F[\uDCA0-\uDCA3]|\uD834[\uDD73-\uDD7A]|[\uDB40-\uDB43][\uDC00-\uDFFF]/g;
+/* oxlint-enable no-misleading-character-class */
+const escapeTags = (text) => text.replace(IGNORABLE, "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 // The label goes inside source="...", so it loses what could end the attribute or the tag, and its line breaks.
-const cleanLabel = (label) => String(label).replace(/[<>"]/g, "").replace(/\s+/g, " ").trim();
+const cleanLabel = (label) => String(label).replace(IGNORABLE, "").replace(/[<>"]/g, "").replace(/\s+/g, " ").trim();
 
 const fence = (label, text) => `<untrusted-data source="${cleanLabel(label)}">\n${escapeTags(text)}\n</untrusted-data>`;
 // A short single-line value keeps the sentence readable: its fence sits on the same line.

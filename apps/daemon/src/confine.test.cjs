@@ -624,12 +624,12 @@ test("a confined phone reads Designs availability but cannot change the host set
 });
 
 // Routines reach every Chat on the Mac: a confined (demo) phone sees them, and changes nothing.
-test("a confined phone reads Routines but can't switch, create, change, delete or run them", async () => {
+test("a confined phone reads Routines but can't switch, create, change, delete or run them, or list the owner's Linear choices", async () => {
   const confine = createConfinement({ allowedRoot: os.tmpdir() });
   await confine.checkCall("routines:enabled:read", []);
   await confine.checkCall("routines:list", []);
   await confine.checkCall("routines:targets", []);
-  await confine.checkCall("routines:linear-options", [{ workspace: "acme", team: "ENG" }]);
+  await assert.rejects(confine.checkCall("routines:linear-options", [{ workspace: "acme", team: "ENG" }]), { status: 403, message: REFUSED });
   await assert.rejects(confine.checkCall("routines:create", [{ name: "Daily", prompt: "Look" }]), { status: 403, message: REFUSED });
   await assert.rejects(confine.checkCall("routines:enabled:save", [true]), { status: 403, message: REFUSED });
   await assert.rejects(confine.checkCall("routines:update", ["r1", { enabled: false }]), { status: 403, message: REFUSED });

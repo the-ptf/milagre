@@ -136,7 +136,8 @@ const PATHS = Object.freeze({
   "routines:enabled:read": none,
   "routines:list": none,
   "routines:targets": none,
-  "routines:linear-options": none,
+  // The owner's Linear workspaces, teams, labels and states feed only the form a confined phone can't save.
+  "routines:linear-options": denied,
   "routines:enabled:save": denied,
   "routines:update": denied,
   "routines:delete": denied,
