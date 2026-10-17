@@ -25,7 +25,7 @@ export type RoutineFormState = {
   /** `signed` is the stored setting when editing; a new signing secret always signs. The secret is write-only. */
   webhook: { signed?: boolean; signingHeader: string; signingSecret: string };
   projectPath: string;
-  /** "worktree" and "project" start a new Chat per Run; "chat" is a heartbeat on `chatId` (schedules only). */
+  /** "worktree" and "project" start a new Chat per Run; "chat" is a heartbeat on `chatId` (schedules only). A comment Routine ignores it. */
   runIn: "worktree" | "project" | "chat";
   chatId: string;
   provider: ModelProvider | "";
@@ -68,11 +68,11 @@ export type RoutineFormInput = {
   signingHeader?: string;
 };
 
-/** What `routines:update` takes from the form; `null` clears. */
+/** What `routines:update` takes from the form; `null` clears. A webhook trigger leaves its hook id out (only a rotate changes it). */
 export type RoutineFormPatch = {
   name: string;
   prompt: string;
-  trigger: RoutineTrigger;
+  trigger: Exclude<RoutineTrigger, { kind: "webhook" }> | { kind: "webhook"; signed: boolean };
   target: RoutineTarget;
   provider: ModelProvider | null;
   model: string | null;
@@ -80,7 +80,8 @@ export type RoutineFormPatch = {
   maxRuns: number | null;
   expiresAt: number | null;
   signingSecret?: string;
-  signingHeader?: string;
+  /** Sent for a signed webhook: the header, or null to go back to the default. */
+  signingHeader?: string | null;
 };
 
 /** A new Routine's form: a schedule every 15 minutes in a new worktree, running until switched off. */
@@ -96,9 +97,14 @@ export function formToInput(
   state: RoutineFormState,
   now?: number,
 ): { input: RoutineFormInput; field?: undefined } | (RoutineFormProblem & { input?: undefined });
-/** The form for editing `routine`. The webhook's signing header comes from `routineHook`, so it starts blank. */
+/** A Linear Routine on new comments: it has no Each run, because comments go into the Chat linked to the issue. */
+export function isCommentRoutine(state: Pick<RoutineFormState, "trigger" | "linear">): boolean;
+/** The form for editing `routine`. A webhook's signing header is the Routine's own (blank for the default). */
 export function formFromRoutine(routine: Routine, timezone: string, now?: number): RoutineFormState;
-/** The `routines:update` patch for an edited Routine. The trigger kind and Chat-or-new-Chat stay as they were. */
+/**
+ * The `routines:update` patch for an edited Routine. The trigger kind and Chat-or-new-Chat stay as they were; a comment
+ * Routine keeps its stored target.
+ */
 export function formToUpdate(
   state: RoutineFormState,
   routine: Routine,

@@ -1,4 +1,4 @@
-import type { ChatMessage, RoutineRunContext, RoutineTrigger } from "./model.ts";
+import type { ChatMessage, Routine, RoutineRunContext, RoutineTrigger } from "./model.ts";
 
 /**
  * The divider a message stands for, or null. A `routine-run` message gives its own context. A `linear-issue` message that
@@ -30,3 +30,5 @@ export function groupQuietRuns(messages: ChatMessage[]): Array<{
  * "Linear · new comment" for Linear; "Webhook".
  */
 export function triggerText(trigger: RoutineTrigger): string;
+/** Whether Run now works for the Routine: schedules and Heartbeats, not Linear or webhook triggers (no event to run with). */
+export function canRunNow(routine: Pick<Routine, "trigger" | "target">): boolean;

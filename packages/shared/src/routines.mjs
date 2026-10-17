@@ -162,3 +162,9 @@ export function triggerText(trigger) {
       return String(trigger?.kind ?? "");
   }
 }
+
+/** Whether Run now works for the Routine: a schedule (Heartbeats are schedules too) has nothing to wait for; a Linear or
+ * webhook trigger has no event to run with, so the Mac refuses it. */
+export function canRunNow(routine) {
+  return routine?.target?.kind === "chat" || routine?.trigger?.kind === "schedule";
+}
