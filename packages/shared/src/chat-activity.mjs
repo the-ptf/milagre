@@ -121,7 +121,7 @@ const MAX_CHATS = 500;
  * end, and if none comes the held end is announced when the last of it ends. A cancelled turn announces nothing.
  * Only work that holds the announcement counts here (holdsAnnouncement); the Chat's sidebar row shows all of it.
  */
-export function createActivityTracker({ maxChats = MAX_CHATS } = {}) {
+export function createActivityTracker({ maxChats = MAX_CHATS, holdsTask = holdsAnnouncement } = {}) {
   const chats = new Map();
   const fresh = () => ({ running: false, ended: false, requests: new Set(), agents: new Set(), tasks: new Set(), failed: false, preview: "", end: null });
   const background = (chat) => chat.agents.size + chat.tasks.size;
@@ -175,7 +175,7 @@ export function createActivityTracker({ maxChats = MAX_CHATS } = {}) {
           }
           break;
         case "background-tasks":
-          chat.tasks = new Set((Array.isArray(event.tasks) ? event.tasks : []).filter(holdsAnnouncement).map((task) => task.id));
+          chat.tasks = new Set((Array.isArray(event.tasks) ? event.tasks : []).filter(holdsTask).map((task) => task.id));
           break;
         default:
           if (isTurnEnd(event)) {

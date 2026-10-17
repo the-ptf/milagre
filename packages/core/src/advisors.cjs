@@ -144,7 +144,32 @@ function createAdvisors({ store, contextFor, providersFor, launch, publish = asy
             if (!current()) return;
             next = await own(record.chatId, record.id);
             if (!next.queuedPrompts.length) return;
-            const latest = await context(record.chatId, next);
+            let latest;
+            try {
+              latest = await context(record.chatId, next);
+            } catch (error) {
+              if (!current()) return;
+              const note = `Queued follow-ups cancelled. ${error.message}`;
+              next = await save(record.chatId, record.id, (r) =>
+                current()
+                  ? {
+                      ...r,
+                      status: "failed",
+                      retryable: false,
+                      queuedPrompts: [],
+                      latestActivity: note,
+                      updatedAt: now(),
+                      transcript: [...r.transcript, { id: `scope-change:${r.turnNumber}`, kind: "message", text: note }].slice(-100),
+                    }
+                  : r,
+              );
+              if (!current()) return;
+              entry.alive = false;
+              // eslint-disable-next-line promise/no-callback-in-promise -- publishes durable state through the host port
+              await show(next);
+              await entry.session?.close().catch(() => {});
+              return;
+            }
             if (!current()) return;
             const nextPrompt = next.queuedPrompts[0];
             next = await save(record.chatId, record.id, (r) => ({

@@ -971,9 +971,14 @@ function createRuntime(options) {
     // A new turn carries the summary of the Chat's linked Worktrees after its message (a leading slash command
     // stays first); a message steering a turn doesn't repeat it.
     const context = agents.isTurnActive(request.chatId) ? "" : await linkedContext;
-    const text = [prompt, ...setupNotes, context].filter(Boolean).join("\n\n");
+    const reports = agents.isTurnActive(request.chatId) ? null : await linked.reportsForTurn(request.chatId);
+    const text = [prompt, ...setupNotes, context, reports?.text].filter(Boolean).join("\n\n");
     try {
-      return await agents.startTurn({
+      if (closing) {
+        await chats.receive(request.chatId, { type: "turn-cancelled" });
+        return { turnId: null, steered: false, cancelled: true };
+      }
+      const started = await agents.startTurn({
         ...request,
         designsEnabled: artifacts.enabled(),
         prompt: text,
@@ -984,10 +989,14 @@ function createRuntime(options) {
         args: cli.args,
         accountId: cli.accountId,
       });
+      if (started?.turnId) await reports?.delivered();
+      return started;
     } catch (error) {
       // A start that throws sends no event, so the hold a setup handed to this turn would never be released.
       keepAwake.turnNotStarted(request.chatId);
       throw error;
+    } finally {
+      reports?.release();
     }
   }
 
@@ -1345,12 +1354,13 @@ function createRuntime(options) {
   });
 
   async function stopChat(chatId) {
+    // Stop the report before advisor cancellation can make an idle parent look complete. Provider teardown can be slow.
+    await linked.stop({ chatKey: chatId });
     await advisorDelivery.stop(chatId);
     await advisors.stopChat(chatId);
     // A handoff still writing its brief has no agent to stop: cancelling it is the whole interrupt.
     if (await chats.cancelHandoff(chatId)) return;
     await worktreeSetups.cancel(chatId);
-    await linked.stop({ chatKey: chatId });
     await agents.interrupt(chatId);
   }
 
@@ -1459,6 +1469,8 @@ function createRuntime(options) {
     chats,
     agents,
     emit,
+    pendingAdvisorResults: async (chatId) =>
+      (await advisorStore.read(chatId)).some((record) => record.completions?.some((result) => ["pending", "sending"].includes(result.delivery))),
     extraTools: (chatId) => [
       ...planTools.definitions(chatId),
       ...simulatorToolDefinitions(chatId, simulators),
@@ -1504,7 +1516,9 @@ function createRuntime(options) {
     if (session.archived) throw new Error("This Chat is archived.");
     const execution = await scopeStates.executionContext(scope, id);
     if (!execution.cwd) throw new Error("This Chat's Worktree is unavailable.");
-    const roots = [...new Set([execution.cwd, ...(execution.workspaceRoots ?? [])])];
+    // Advisors can compare owned Worktrees with their Project checkouts. Keep those checkout identities when a
+    // pending Link Project gains its Worktree, so an in-flight advisor can still deliver its result.
+    const roots = [...new Set([execution.cwd, ...(execution.workspaceRoots ?? []), ...(execution.readOnlyRoots ?? []), ...(execution.projectRoots ?? [])])];
     const identities = await Promise.all(
       roots.map(async (root) => {
         const real = await fs.realpath(root);
@@ -1567,7 +1581,8 @@ function createRuntime(options) {
         permissionMode: ctx.settings.permissionMode ?? "auto",
         ...message,
       });
-      return sent.started;
+      // A queued result already belongs to the Chat. Waiting for its turn would stall later results and shutdown.
+      return sent.queued ? { queued: true } : sent.started;
     },
   });
   advisors = require("./advisors.cjs").createAdvisors({
@@ -1923,6 +1938,7 @@ function createRuntime(options) {
 
   function close() {
     closing = true;
+    linked.suspend();
     closed ??= (async () => {
       await localMcp.close();
       await advisorDelivery.close();

@@ -69,7 +69,7 @@ if (!restartRecent) localStorage.removeItem("milagre.sidebarScopeOrder");
 updateSettings({ chatRowShow: DESKTOP_CHAT_ROW_SHOW });
 createRoot(document.getElementById("root")).render(
   <div style={{ display: "flex", height: "100vh", padding: "60px 12px 12px" }}>
-    <SidebarNav fill workspaceName="arketa" projectPath="/work/arketa" recents={[{ id: "1", label: "Fix the login flow" }]} activeId="1"
+    <SidebarNav fill workspaceName="arketa" projectPath="/work/arketa" recents={[{ id: "1", label: "Fix the login flow", details: { failed: true } }]} activeId="1"
       runningKeys={"/work/shop#7\\nmilagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7#3"} waitingKeys="milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7#3" attentionPaths={["/work/shop"]} onOpenScopeChat={(key, id) => { window.opened = key + "#" + id; }} />
   </div>,
 );
@@ -126,6 +126,19 @@ async function browserChecks() {
       "Every Project and Link but the hidden one",
     );
     assert.match((await chats("/work/arketa"))[0], /Fix the login flow/);
+    assert.equal(
+      await evaluate(`(() => {
+      const dot = document.querySelector('[data-sidebar-scope="/work/arketa"] [data-chat-id="1"] [data-slot="chat-mark"]');
+      const expected = document.createElement('span');
+      expected.style.color = 'var(--red)';
+      document.body.append(expected);
+      const matches = dot?.getAttribute('aria-label') === 'Last turn failed' && getComputedStyle(dot).backgroundColor === getComputedStyle(expected).color;
+      expected.remove();
+      return matches;
+    })()`),
+      true,
+      "Failed Chats have a red status with an accessible label, as on mobile",
+    );
     assert.match((await chats("/work/shop"))[0], /Shop chat/);
     assert.equal(
       await evaluate(`(() => {

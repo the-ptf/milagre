@@ -86,7 +86,7 @@ class FakeSession {
 
 const git = (...args) => execFileSync("git", args, { stdio: "ignore" });
 
-async function linkedProjects(t, { link = true } = {}) {
+async function linkedProjects(t, { link = true, agentCli = async () => ({ command: "/fake/agent" }) } = {}) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-links-")));
   const runtimes = [];
   t.after(async () => {
@@ -110,7 +110,9 @@ async function linkedProjects(t, { link = true } = {}) {
     environmentReady: Promise.resolve(),
     registryRoots: [],
     titleModels: {},
-    agentCli: async () => ({ command: "/fake/agent" }),
+    agentCli,
+    agentCliStatus: async () => ({ claude: { state: "ready" }, codex: { state: "ready" } }),
+    agentModels: async () => ({ claude: [{ id: "claude-test", efforts: [] }], codex: [{ id: "codex-test", efforts: [] }] }),
     emit: (channel, payload) => events.push({ channel, payload }),
     createSession: (_provider, options) => {
       const name = Object.keys(folders).find((key) => options.cwd === folders[key]);
@@ -319,6 +321,8 @@ test("a Delegation queued behind an Antigravity turn survives a restart, runs af
   // Antigravity can't be steered: the Delegation waits in web's queue instead of reaching the running turn.
   await waitFor(async () => (await webChat()).queued?.length === 1);
   assert.equal(fixture.sessionOf("web").prompts.length, 1);
+  // Only the receiver should resume. Restarting the still-active requester would make its fake script delegate again.
+  await waitFor(() => !fixture.runtime.snapshot().runs.runs[fixture.chatOf("api")]);
 
   // The fake agent keeps no session, so the Delegation's turn starts with a restore brief ahead of its prompt.
   fixture.scripts.web = async (session, prompt) => session.finish(/Delegation from api/.test(prompt) ? "Added GET /health." : "Resumed the long task.");
@@ -561,10 +565,75 @@ test("a Negotiation pauses while a side waits on the user", async (t) => {
   assert.equal((await findMessage(paused, "web", "negotiation-agreement")).body, "Agreed.");
 });
 
+test("an Antigravity Delegation reports after consuming its queued advisor result", async (t) => {
+  const fixture = await linkedProjects(t);
+  fixture.scripts.web = async () => {};
+  await fixture.send("web", "Use Antigravity", "full", { provider: "antigravity", model: "gemini-test" });
+  await waitFor(() => fixture.sessionOf("web")?.turnActive);
+  const parent = fixture.sessionOf("web");
+  parent.finish("Ready");
+  await waitFor(() => !fixture.runtime.snapshot().runs.runs[fixture.chatOf("web")]);
+  fixture.scripts.api = async (session) => {
+    await session.call("delegate", delegation(fixture));
+    session.finish("Asked web");
+  };
+  await fixture.send("api", "Ask web");
+  await waitFor(() => parent.prompts.length === 2 && parent.turnActive);
+  const created = await parent.call("create_advisor", { title: "Check the change", prompt: "Review", provider: "codex", model: "codex-test" });
+  assert.equal(created.isError, false);
+  await waitFor(() => fixture.sessionOf("web") !== parent && fixture.sessionOf("web").turnActive);
+  fixture.sessionOf("web").finish("Advisor recommendation");
+  const chat = async () => (await fixture.state("web")).sessions[fixture.chatOf("web").split("#").at(-1)];
+  await waitFor(async () => (await chat()).queued?.length === 1);
+  parent.finish("Waiting for review");
+  await waitFor(() => parent.prompts.length === 3 && parent.turnActive);
+  await settled();
+  assert.equal((await fixture.messages(fixture.chatOf("api"))).filter((message) => message.context?.kind === "delegation-report").length, 0);
+  parent.finish("Applied the advisor's recommendation");
+  const report = await findMessage(fixture, "api", "delegation-report");
+  assert.equal(report.body, "Waiting for review\n\nApplied the advisor's recommendation");
+  assert.equal(report.context.status, "done");
+});
+
+for (const action of ["Stop", "Restart", "Stop during parent turn"])
+  test(`${action} cancels a background Delegation before a slow advisor finishes stopping`, async (t) => {
+    const fixture = await linkedProjects(t);
+    fixture.scripts.web = async () => {};
+    fixture.scripts.api = async (session) => {
+      await session.call("delegate", delegation(fixture));
+      session.finish("Asked web");
+    };
+    await fixture.send("api", "Ask web");
+    await waitFor(() => fixture.sessionOf("web")?.turnActive);
+    const parent = fixture.sessionOf("web");
+    await parent.call("create_advisor", { title: "Review", prompt: "Assess", provider: "codex", model: "codex-test" });
+    await waitFor(() => fixture.sessionOf("web") !== parent && fixture.sessionOf("web").turnActive);
+    const advisor = fixture.sessionOf("web");
+    const interrupt = advisor.interrupt.bind(advisor);
+    advisor.interrupt = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2200));
+      await interrupt();
+    };
+    if (action === "Stop during parent turn") {
+      const stopping = fixture.runtime.invoke("agent:interrupt", [fixture.chatOf("web")]);
+      setTimeout(() => parent.finish("Still waiting for advisor"), 250);
+      await stopping;
+    } else {
+      parent.finish("Waiting for advisor");
+      await waitFor(() => !fixture.runtime.snapshot().runs.runs[fixture.chatOf("web")]);
+      if (action === "Stop") await fixture.runtime.invoke("agent:interrupt", [fixture.chatOf("web")]);
+      else await fixture.restart();
+    }
+    const report = await findMessage(fixture, "api", "delegation-report");
+    assert.equal(report.context.status, "cancelled");
+    if (action === "Restart") assert.match(report.body, /Milagre restarted/);
+  });
+
 // The Delegations alone, with every runtime part faked: what each port was asked, and Chats that are idle.
 function desk({
   data = { delegations: [], negotiations: [], grants: [] },
   target = async () => ({ link_id: "link-1", projectPath: "/web", projectName: "web", branch: "main" }),
+  save = () => {},
 } = {}) {
   const notes = [];
   const delivered = [];
@@ -592,6 +661,7 @@ function desk({
       load: async () => structuredClone(data),
       save: async (next) => {
         saved.push(structuredClone(next));
+        return save(next);
       },
     },
     ports,
@@ -601,6 +671,107 @@ function desk({
 
 const end = (desk, key, turnId) =>
   desk.delegations.observe(key, { type: "turn-started", turnId }).then(() => desk.delegations.observe(key, { type: "turn-completed" }));
+
+test("a Delegation waits for background agents and reports the reply from their follow-up turn", async () => {
+  const fake = desk();
+  await fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" });
+  await settled();
+  await fake.delegations.observe("/web#2", { type: "turn-started", turnId: "t1" });
+  const agent = { id: "child", status: "running", background: true };
+  await fake.delegations.observe("/web#2", { type: "subagent-update", agent });
+  await fake.delegations.observe("/web#2", { type: "turn-completed" });
+  assert.equal(fake.notes.length, 0, "the parent reply is not final while its child works");
+  assert.equal(fake.delegations.snapshot().delegations.length, 1);
+  await fake.delegations.observe("/web#2", { type: "subagent-update", agent: { ...agent, status: "completed" } });
+  await fake.delegations.observe("/web#2", { type: "turn-started", turnId: "t2", continues: "t1" });
+  fake.ports.reply = async () => "Finished with the child's result";
+  await fake.delegations.observe("/web#2", { type: "turn-completed" });
+  await waitFor(() => fake.notes.length === 1);
+  assert.equal(fake.notes[0].body, "Finished with the child's result");
+  assert.equal(fake.notes[0].context.status, "done");
+});
+
+test("a Delegation waits for background commands even when no follow-up turn starts", async () => {
+  const fake = desk();
+  await fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Run checks" });
+  await settled();
+  await fake.delegations.observe("/web#2", { type: "turn-started", turnId: "t1" });
+  await fake.delegations.observe("/web#2", { type: "background-tasks", tasks: [{ id: "checks", kind: "local_bash" }] });
+  await fake.delegations.observe("/web#2", { type: "turn-completed" });
+  assert.equal(fake.notes.length, 0);
+  await fake.delegations.observe("/web#2", { type: "background-tasks", tasks: [] });
+  await waitFor(() => fake.notes.length === 1);
+  assert.equal(fake.notes[0].context.status, "done");
+  await fake.delegations.observe("/web#2", { type: "background-tasks", tasks: [] });
+  assert.equal(fake.notes.length, 1);
+});
+
+test("a failed follow-up reports the Delegation once even while background work remains", async () => {
+  const fake = desk();
+  await fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" });
+  await settled();
+  await fake.delegations.observe("/web#2", { type: "turn-started", turnId: "t1" });
+  await fake.delegations.observe("/web#2", { type: "subagent-update", agent: { id: "advisor", source: "milagre-advisor", status: "running" } });
+  await fake.delegations.observe("/web#2", { type: "turn-completed" });
+  assert.equal(fake.notes.length, 0);
+  await fake.delegations.observe("/web#2", { type: "turn-started", turnId: "t2" });
+  await fake.delegations.observe("/web#2", { type: "turn-failed", message: "Connection lost" });
+  await waitFor(() => fake.notes.length === 1);
+  assert.equal(fake.notes[0].context.status, "failed");
+});
+
+test("a steered Delegation follows an advisor's explicit next turn", async () => {
+  const fake = desk();
+  fake.ports.nextStart = { turnId: "t1", steered: true };
+  await fake.delegations.observe("/web#2", { type: "turn-started", turnId: "t1" });
+  await fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" });
+  await settled();
+  const agent = { id: "advisor", source: "milagre-advisor", status: "running" };
+  await fake.delegations.observe("/web#2", { type: "subagent-update", agent });
+  await fake.delegations.observe("/web#2", { type: "turn-completed" });
+  await fake.delegations.observe("/web#2", { type: "subagent-update", agent: { ...agent, status: "completed" } });
+  await fake.delegations.observe("/web#2", { type: "turn-started", turnId: "t2" });
+  await new Promise((resolve) => setTimeout(resolve, 1700));
+  assert.equal(fake.notes.length, 0, "the original steering grace must not finish the explicit follow-up");
+  fake.ports.reply = async () => "Used the advisor's result";
+  await fake.delegations.observe("/web#2", { type: "turn-completed" });
+  await waitFor(() => fake.notes.length === 1);
+  assert.equal(fake.notes[0].body, "Used the advisor's result");
+});
+
+test("a Delegation waits for a completed advisor's queued result to be consumed", async () => {
+  const fake = desk();
+  let pending = true;
+  fake.ports.pendingResults = async () => pending;
+  await fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" });
+  await settled();
+  await fake.delegations.observe("/web#2", { type: "turn-started", turnId: "t1" });
+  await fake.delegations.observe("/web#2", { type: "subagent-update", agent: { id: "advisor", source: "milagre-advisor", status: "completed" } });
+  await fake.delegations.observe("/web#2", { type: "turn-completed" });
+  await new Promise((resolve) => setTimeout(resolve, 1700));
+  assert.equal(fake.notes.length, 0, "a queued result is still work even after its advisor completes");
+  pending = false;
+  await fake.delegations.observe("/web#2", { type: "turn-started", turnId: "t2" });
+  fake.ports.reply = async () => "Consumed the queued advisor result";
+  await fake.delegations.observe("/web#2", { type: "turn-completed" });
+  await waitFor(() => fake.notes.length === 1);
+  assert.equal(fake.notes[0].body, "Consumed the queued advisor result");
+});
+
+test("Stop cancels a Delegation held for background work when the provider is idle", async () => {
+  const fake = desk();
+  await fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" });
+  await settled();
+  await fake.delegations.observe("/web#2", { type: "turn-started", turnId: "t1" });
+  const agent = { id: "advisor", source: "milagre-advisor", status: "running" };
+  await fake.delegations.observe("/web#2", { type: "subagent-update", agent });
+  await fake.delegations.observe("/web#2", { type: "turn-completed" });
+  await fake.delegations.observe("/web#2", { type: "subagent-update", agent: { ...agent, status: "cancelled" } });
+  await fake.delegations.stop({ chatKey: "/web#2" });
+  await new Promise((resolve) => setTimeout(resolve, 1700));
+  assert.equal(fake.notes.length, 1);
+  assert.equal(fake.notes[0].context.status, "cancelled");
+});
 
 test("Delegations still open when Milagre starts again are cancelled with a notice in their Chats", async () => {
   const open = { id: "d1", link_id: "l", from_chat: "/api#1", from_label: "api", to_chat: "/web#2", to_label: "web", message: "Add it", status: "running" };
@@ -623,11 +794,13 @@ test("Delegations still open when Milagre starts again are cancelled with a noti
   assert.equal(saved.at(-1).negotiations[0].status, "stopped");
   // The requesting agent hears about it with its next turn, once; the report survives until then.
   assert.match(saved.at(-1).delegations[0].report, /Milagre restarted before web/);
-  assert.match(
-    await delegations.takeReports("/api#1"),
-    /^<delegation_reports>\nDelegation report from web \(\/web#2, cancelled\):\nMilagre restarted before web/,
-  );
-  assert.equal(await delegations.takeReports("/api#1"), "");
+  const pending = await delegations.reportsForTurn("/api#1");
+  assert.match(pending.text, /^<delegation_reports>\nDelegation report from web \(\/web#2, cancelled\):\nMilagre restarted before web/);
+  pending.release();
+  const retry = await delegations.reportsForTurn("/api#1");
+  assert.equal(retry.text, pending.text, "a failed start can read the report again");
+  await retry.delivered();
+  assert.equal(await delegations.reportsForTurn("/api#1"), null);
   assert.equal(saved.at(-1).delegations[0].report, undefined);
 });
 
@@ -643,6 +816,68 @@ test("a Delegation with no Link (inside its own Project) never asks for approval
   assert.equal(fake.delegations.snapshot().delegations[0].link_id, null);
 });
 
+test("acknowledging a report snapshot preserves reports that arrived during startup", async () => {
+  const first = { id: "d1", from_chat: "/api#1", to_chat: "/web#2", to_label: "web", status: "done", report: "First result" };
+  const fake = desk({ data: { delegations: [first], negotiations: [], grants: [] } });
+  const pending = await fake.delegations.reportsForTurn("/api#1");
+  fake.delegations.data.delegations.push({ ...first, id: "d2", report: "Second result" });
+  await pending.delivered();
+  const next = await fake.delegations.reportsForTurn("/api#1");
+  assert.match(next.text, /Second result/);
+  assert.doesNotMatch(next.text, /First result/);
+  assert.equal(fake.saved.at(-1).delegations[1].report, "Second result");
+});
+
+for (const accepted of [false, true])
+  test(`concurrent report readers wait until startup ${accepted ? "accepts" : "releases"} its reservation`, async () => {
+    const record = { id: "d1", from_chat: "/api#1", to_chat: "/web#2", to_label: "web", status: "done", report: "Result" };
+    const fake = desk({ data: { delegations: [record], negotiations: [], grants: [] } });
+    const first = await fake.delegations.reportsForTurn("/api#1");
+    let resolved = false;
+    const waiting = fake.delegations.reportsForTurn("/api#1").then((next) => {
+      resolved = true;
+      return next;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(resolved, false, "concurrent starts cannot both send the same report");
+    if (accepted) await first.delivered();
+    else first.release();
+    const next = await waiting;
+    if (accepted) assert.equal(next, null);
+    else {
+      assert.equal(next.text, first.text, "a failed start leaves reports for the next caller");
+      await next.delivered();
+    }
+  });
+
+for (const restart of [false, true])
+  test(`consuming a ${restart ? "restart" : "completed"} report during persistence preserves its visible note`, async () => {
+    const saving = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    const open = { id: "d1", from_chat: "/api#1", to_chat: "/web#2", to_label: "web", message: "Add it", status: "running" };
+    const fake = desk({
+      data: { delegations: restart ? [open] : [], negotiations: [], grants: [] },
+      save: () => {
+        saving.resolve();
+        return release.promise;
+      },
+    });
+    await fake.delegations.ready;
+    if (!restart) fake.delegations.data.delegations.push(open);
+    const finished = restart ? Promise.resolve() : fake.delegations.finish(open, "done");
+    await saving.promise;
+    const context = await fake.delegations.reportsForTurn("/api#1");
+    const consumed = context.delivered();
+    await waitFor(() => !fake.delegations.data.delegations[0].report);
+    release.resolve();
+    await finished;
+    await consumed;
+    await waitFor(() => fake.notes.length === 1);
+    const expected = restart ? 'Milagre restarted before web finished this Delegation, so it was cancelled: "Add it"' : "reply";
+    assert.equal(fake.notes[0].body, expected);
+    assert.ok(context.text.includes(expected), context.text);
+  });
+
 // A receiving Chat on a provider that can't steer queues the message (chat-host.cjs), and the queue outlives a restart.
 function queuingDesk(data) {
   const fake = desk(data ? { data } : {});
@@ -652,6 +887,16 @@ function queuingDesk(data) {
   };
   return fake;
 }
+
+test("removing a queued Delegation keeps its cancellation report for the requesting agent", async () => {
+  const fake = queuingDesk();
+  await fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" });
+  await waitFor(() => fake.saved.at(-1)?.delegations[0]?.waiting === true);
+  assert.equal(await fake.delegations.unqueued("/web#2", fake.delivered[0].item.context), true);
+  const context = await fake.delegations.reportsForTurn("/api#1");
+  assert.ok(context.text.includes(fake.notes[0].body), context.text);
+  assert.match(context.text, /removed from the Chat's queue/);
+});
 
 test("a Delegation waiting in its Chat's queue stays open across a restart and reports once its turn runs", async () => {
   const first = queuingDesk();
@@ -725,6 +970,28 @@ test("a steer that reaches a turn which already ended belongs to the next turn; 
   await quick.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" });
   await waitFor(() => quick.notes.length === 1);
   assert.equal(quick.notes[0].context.status, "done");
+});
+
+test("a late steering acknowledgement keeps the stopped or failed turn's outcome", async () => {
+  for (const outcome of ["cancelled", "failed"]) {
+    const fake = desk();
+    let acknowledge;
+    fake.ports.deliver = async () => ({
+      started: new Promise((resolve) => {
+        acknowledge = resolve;
+      }),
+    });
+    await fake.delegations.observe("/web#2", { type: "turn-started", turnId: "t1" });
+    await fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" });
+    if (outcome === "cancelled") await fake.delegations.stop({ chatKey: "/web#2" });
+    await fake.delegations.observe("/web#2", { type: outcome === "failed" ? "turn-failed" : "turn-completed" });
+    acknowledge({ turnId: "t1", steered: true });
+    await settled();
+    assert.equal(fake.notes.length, 1, "a late acknowledgement must not revive a stopped or failed Delegation");
+    assert.equal(fake.notes[0].context.status, outcome);
+    await end(fake, "/web#2", "t2");
+    assert.equal(fake.notes.length, 1);
+  }
 });
 
 test("a steered message the agent runs in a turn of its own is reported from that turn", async () => {
@@ -867,7 +1134,11 @@ test("a grant on any Link that reaches the destination covers it, when an older 
 });
 
 test("a Chat delegates inside its own Project with no Link and no card, and its next turn gets the report once", async (t) => {
-  const fixture = await linkedProjects(t, { link: false });
+  let cliFailed = false;
+  const fixture = await linkedProjects(t, {
+    link: false,
+    agentCli: async () => (cliFailed ? { problem: "Temporary CLI failure" } : { command: "/fake/agent" }),
+  });
   const prompts = [];
   let result;
   fixture.scripts.api = async (session, prompt) => {
@@ -892,6 +1163,10 @@ test("a Chat delegates inside its own Project with no Link and no card, and its 
   assert.equal(received.body, "Rename the uploads route");
   assert.equal(received.context.from, fixture.chatOf("api"));
 
+  cliFailed = true;
+  await fixture.send("api", "Read the report", "ask");
+  await waitFor(() => fixture.events.some(({ channel, payload }) => channel === "agent:event" && payload.event?.message === "Temporary CLI failure"));
+  cliFailed = false;
   await fixture.send("api", "What did it do?", "ask");
   await waitFor(() => prompts.length === 2);
   const report = `<delegation_reports>\nDelegation report from api / main / a new Chat (${child}, done):\nRenamed the uploads route.\n</delegation_reports>`;

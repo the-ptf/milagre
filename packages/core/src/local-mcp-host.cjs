@@ -242,8 +242,7 @@ function createLocalMcpHost({
       });
       // A running turn takes the asked mode at once, as the composer's switch does.
       if (asked) await setPermissionMode(chatId, asked);
-      // MCP sends never join the Chat's queue (chat-host.cjs): an agent that can't steer takes this one as its next turn
-      // once the running one ends (acp-session.cjs), so the caller hears it waits.
+      // A provider that can't steer keeps this message in the durable Chat queue, so the caller hears it waits.
       return {
         chatId: `${projectPath}#${result.sessionId}`,
         accepted: true,
@@ -401,7 +400,9 @@ function createLocalMcpHost({
       }
       if (operation === "chat_start") {
         const message = await scopeStates.findMessage(args.projectPath, "operationId", operationId);
-        return message ? { chatId: `${args.projectPath}#${message.session_id}`, accepted: true } : null;
+        const queued = Object.values(state.sessions).find((session) => session.queued?.some((entry) => entry.operationId === operationId));
+        const sessionId = message?.session_id ?? queued?.id;
+        return sessionId != null ? { chatId: `${args.projectPath}#${sessionId}`, accepted: true } : null;
       }
       return null;
     },

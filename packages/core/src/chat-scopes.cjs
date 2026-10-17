@@ -108,6 +108,7 @@ function createChatScopes({ projects, links, validateLink }) {
       return {
         cwd: session.workspacePath,
         workspaceRoots: session.worktrees.map((member) => member.worktreePath),
+        projectRoots: projectsOfLink.map((project) => project.path),
         readOnlyRoots: pending.map((project) => project.path),
         workspaceInstructions: linkWorkspaceInstructions(session.worktrees, pending),
       };

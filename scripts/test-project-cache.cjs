@@ -245,6 +245,9 @@ async function browserChecks() {
     await waitFor("window.requests.some(request => request.path === '/beta')");
     await evaluate("window.finish('/beta', 'Opened beta')");
     await waitFor("window.session.opening === null");
+    // Selecting beta refreshes alpha's preview on the current connection.
+    await waitFor("window.requests.some(request => request.host === 'host-one' && request.path === '/alpha')");
+    await evaluate("window.finish('/alpha', 'Fresh alpha', 'host-one')");
     await evaluate("window.session.connect({ address: 'host-two', token: '' }, false)");
     await waitFor(contains("Loading chats..."));
     assert.equal(await evaluate(contains("Fresh alpha Chat")), false, "same path on another computer has no borrowed cache");

@@ -109,6 +109,21 @@ test("changed scope rejects further work", async (t) => {
   f.context.scopeIdentity = "scope-v2";
   await assert.rejects(f.manager.followup("chat", row.id, "more"), /scope|worktree/i);
 });
+test("a scope change cancels queued advisor follow-ups and releases their slot", async (t) => {
+  const f = await fixture(t);
+  const row = await f.manager.create("chat", input);
+  await running(f);
+  await f.manager.followup("chat", row.id, "Review again");
+  f.context.scopeIdentity = "scope-v2";
+  await finish(f);
+  await waitUntil(() => f.launched[0].closed === 1);
+  const stopped = await f.manager.read("chat", row.id);
+  assert.deepEqual(stopped.queuedPrompts, []);
+  assert.equal(stopped.status, "failed");
+  assert.match(stopped.transcript.at(-1).text, /scope changed/i);
+  await f.manager.create("chat", input);
+  await f.manager.create("chat", input);
+});
 test("Stop during startup closes the late process and ignores its events", async (t) => {
   let release;
   const waiting = new Promise((r) => (release = r));

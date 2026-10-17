@@ -1,7 +1,7 @@
 import { UpdateSettingsBadge } from "./update-sheet";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { AppState, FlatList, KeyboardAvoidingView, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import type { Href } from "expo-router";
 import {
@@ -200,13 +200,37 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
   const listed = useMemo(() => session.recent.filter((item) => !item.hidden), [session.recent]);
   // Searching or filtering reads every Project; ordinary browsing only reads open groups.
   const searching = !!query.trim() || show !== "all";
+  // The selected Project has its own subscription in session.tsx. Refresh the other visible groups, including
+  // before the phone opens a Chat. Polling avoids using one of the host's limited live sockets per Project.
+  const previewPaths =
+    foldsRead || searching
+      ? listed
+          .filter((item) => item.path !== currentPath && (searching || !folded.has(item.path)))
+          .map((item) => item.path)
+          .join("\n")
+      : "";
   useEffect(() => {
-    // Until the folds are read, a folded group would be read for nothing.
-    if (!foldsRead && !searching) return;
-    const paths = listed.filter((item) => searching || !folded.has(item.path)).map((item) => item.path);
-    // One slow Project must not hold up the other open groups.
-    void Promise.all(paths.map(load));
-  }, [folded, foldsRead, searching, listed, load]);
+    if (!session.client || !previewPaths) return;
+    const paths = previewPaths.split("\n");
+    let generation = 0;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      const current = ++generation;
+      clearTimeout(timer);
+      if (stopped || AppState.currentState !== "active") return;
+      await Promise.all(paths.map(load));
+      if (!stopped && current === generation && AppState.currentState === "active") timer = setTimeout(refresh, 4000);
+    };
+    const subscription = AppState.addEventListener("change", () => void refresh());
+    void refresh();
+    return () => {
+      stopped = true;
+      generation++;
+      clearTimeout(timer);
+      subscription.remove();
+    };
+  }, [session.client, previewPaths, load]);
   // Projects held without their messages (a drawer preview, or a host that keeps them by Chat) are searched on the host.
   const [hostMatches, setHostMatches] = useState<{ query: string; matches: Record<string, ChatSearchMatch[]> }>({ query: "", matches: {} });
   const hostSearchPaths = useMemo(

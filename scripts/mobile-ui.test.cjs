@@ -2239,7 +2239,18 @@ const linksState = ({ links = [], projects = [], available = projects.length > 0
 });
 const chatLinks = () => load("chat-links.ts", { "@milagre/shared/chat-links": require("@milagre/shared/chat-links") });
 
-function navigationHost(opening, { session: extra = {}, alert = () => {}, calls = [], activeChatId, effects = false, links = linksState() } = {}) {
+function navigationHost(
+  opening,
+  {
+    session: extra = {},
+    alert = () => {},
+    calls = [],
+    activeChatId,
+    effects = false,
+    links = linksState(),
+    AppState = { currentState: "active", addEventListener: () => ({ remove() {} }) },
+  } = {},
+) {
   const react = hookHost({ effects });
   const linkRequests = [];
   const routes = [];
@@ -2312,6 +2323,7 @@ function navigationHost(opening, { session: extra = {}, alert = () => {}, calls 
     "react-native": {
       ...Object.fromEntries(["FlatList", "KeyboardAvoidingView", "Pressable", "RefreshControl", "Text", "View"].map((name) => [name, name])),
       ...native,
+      AppState,
       Platform: { OS: "ios" },
       StyleSheet: { create: (styles) => styles },
     },
@@ -2322,6 +2334,7 @@ function navigationHost(opening, { session: extra = {}, alert = () => {}, calls 
     "@milagre/shared/chat-summary": require("@milagre/shared/chat-summary"),
     "@milagre/shared/message-search": require("@milagre/shared/message-search"),
     "./session": { useSession: () => session, useComposer: () => session, usePendingChats: () => session },
+    "./live": require("../apps/mobile/src/live.ts"),
     "./use-links": { useLinks: () => links },
     "./chat-links": chatLinks(),
     "./link-actions": {
@@ -2388,8 +2401,74 @@ function navigationHost(opening, { session: extra = {}, alert = () => {}, calls 
   const open = (node) => find(node, (child) => child.type === "PullDown" && child.props.onPress);
   const more = (node) => find(node, (child) => child.type === "PullDown" && !child.props.onPress);
   const filter = () => find(render(), (node) => node.type === "PullDown" && node.props.label === "Filter Chats");
-  return { state, session, routes, secondaryRoutes, opened, calls, external, render, rows, row, open, more, filter, linkRequests };
+  return { state, session, routes, secondaryRoutes, opened, calls, external, render, rows, row, open, more, filter, linkRequests, unmount: react.unmount };
 }
+
+test("the phone list refreshes new Chats before any Chat is opened and pauses in the background", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let copy = { ...snapshot("/other"), previewOnly: true };
+  copy.project.state = { sessions: { 1: { id: 1, worktree_id: 1, title: "First Chat" } }, worktrees: { 1: { id: 1, path: "/other" } }, messages: [] };
+  let cached;
+  let listener;
+  let reads = 0;
+  const AppState = {
+    currentState: "active",
+    addEventListener: (_event, next) => {
+      listener = next;
+      return { remove() {} };
+    },
+  };
+  const nav = navigationHost(Promise.resolve(), {
+    effects: true,
+    AppState,
+    session: {
+      snapshot: null,
+      recent: [{ path: "/other" }],
+      cachedProject: () => cached,
+      previewProject: async () => {
+        reads++;
+        return (cached = copy);
+      },
+      client: {
+        url: "mac",
+        call: async () => {},
+        live: () => assert.fail("preview refresh must not open a live socket for every Project"),
+      },
+    },
+  });
+  t.after(nav.unmount);
+  nav.render();
+  await settleAll();
+  assert.equal(nav.rows().props.data.filter((row) => row.kind === "chat").length, 1);
+  assert.equal(reads, 1);
+  copy = {
+    ...copy,
+    project: {
+      ...copy.project,
+      state: { ...copy.project.state, sessions: { ...copy.project.state.sessions, 2: { id: 2, worktree_id: 1, title: "New Chat" } } },
+    },
+  };
+  t.mock.timers.tick(4000);
+  await settleAll();
+  assert.deepEqual(
+    Array.from(
+      nav.rows().props.data.filter((row) => row.kind === "chat"),
+      (row) => row.title,
+    ),
+    ["New Chat", "First Chat"],
+  );
+  assert.equal(nav.opened.length, 0);
+  AppState.currentState = "background";
+  listener("background");
+  const beforeBackground = reads;
+  t.mock.timers.tick(30_000);
+  await settleAll();
+  assert.equal(reads, beforeBackground, "backgrounded previews make no requests");
+  AppState.currentState = "active";
+  listener("active");
+  await settleAll();
+  assert.equal(reads, beforeBackground + 1, "returning to the list refreshes it immediately");
+});
 
 test("mobile chat titles use summaries before transcripts load and switch to generated or renamed titles", () => {
   const nav = navigationHost(Promise.resolve());
