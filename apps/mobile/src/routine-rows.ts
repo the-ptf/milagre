@@ -34,11 +34,11 @@ export function ago(at: number, now: number) {
   return days === 1 ? "yesterday" : `${days} days ago`;
 }
 
-/** When a heartbeat ends: "3 runs left", "ends Oct 24" ("ends 18:00" today), or "" when it has no end. */
+/** When a heartbeat ends: "3 Runs left", "ends Oct 24" ("ends 18:00" today), or "" when it has no end. */
 export function heartbeatEnd(routine: Pick<Routine, "maxRuns" | "runCount" | "expiresAt">, now: number) {
   if (typeof routine.maxRuns === "number") {
     const left = Math.max(0, routine.maxRuns - routine.runCount);
-    return left === 1 ? "1 run left" : `${left} runs left`;
+    return left === 1 ? "1 Run left" : `${left} Runs left`;
   }
   if (typeof routine.expiresAt !== "number") return "";
   const end = new Date(routine.expiresAt);
@@ -53,7 +53,7 @@ function lastRun(runs: RoutineRun[] | undefined) {
 }
 
 /**
- * The line under a Routine's name. A heartbeat: "Every 15 min · next 10:45 · 3 runs left". A trigger: what starts it and
+ * The line under a Routine's name. A heartbeat: "Every 15 min · next 10:45 · 3 Runs left". A trigger: what starts it and
  * its last Run ("Linear · label agent added · MIL-142, 2 h ago"). Off, paused or failing says so, with the reason.
  */
 export function routineMeta(routine: RoutineLike, now: number) {

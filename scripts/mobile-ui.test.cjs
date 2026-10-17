@@ -10356,7 +10356,7 @@ test("the phone Routines screen groups heartbeats and triggers, says why a trigg
   );
   const [heartbeat, trigger] = host.rows(tree);
   assert.match(textOf(heartbeat), /Babysit PR #473/);
-  assert.match(textOf(heartbeat), /Every 15 min · next \d\d:\d\d · 3 runs left/);
+  assert.match(textOf(heartbeat), /Every 15 min · next \d\d:\d\d · 3 Runs left/);
   assert.match(textOf(trigger), /Paused: 3 failed runs in a row: no worktree/);
   assert.equal(find(trigger, (node) => node.type === "RowSwitch").props.selected, false);
   const menu = find(trigger, (node) => node.type === "PullDown");
@@ -10395,4 +10395,147 @@ test("with the Mac's Routines switch off, the phone says so and links to Experim
   assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Routines are off on this Mac"));
   find(tree, (node) => node.props?.accessibilityLabel === "Open Experimental settings").props.onPress();
   assert.deepEqual(host.routes, ["/experimental"]);
+});
+
+function routineFormHost({ params = {}, routines = [], answers = {} } = {}) {
+  const react = hookHost();
+  const calls = [];
+  const routes = [];
+  const responses = {
+    "routines:targets": { projects: [{ path: "/p", name: "milagre-ade", chats: [{ chatId: "/p#4", title: "Babysit", lastAt: 1 }] }] },
+    "routines:linear-options": {
+      workspaces: [{ id: "w1", name: "Milagre" }],
+      teams: [{ key: "MIL", name: "Milagre" }],
+      labels: ["agent", "bug"],
+      states: [{ name: "Todo", type: "unstarted" }],
+    },
+    ...answers,
+  };
+  const client = {
+    url: "ws://mac",
+    async call(method, args) {
+      calls.push([method, JSON.parse(JSON.stringify(args))]);
+      if (method === "routines:create") return { routine: { id: "new", ...args[0] } };
+      if (method === "routines:update") return { id: args[0] };
+      return responses[method] ?? null;
+    },
+  };
+  const icons = new Proxy({}, { get: (_, key) => key });
+  const { default: RoutineForm } = load("app/routine-form.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": {
+      ...Object.fromEntries(["Pressable", "Text", "View"].map((name) => [name, name])),
+      Platform: { OS: "ios" },
+      StyleSheet: { hairlineWidth: 1 },
+    },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
+    "expo-router": {
+      Stack: { Screen: "StackScreen" },
+      router: { back: () => routes.push("back"), push: (href) => routes.push(href) },
+      useLocalSearchParams: () => params,
+    },
+    "expo-clipboard": { setStringAsync: async () => {} },
+    "@hugeicons/core-free-icons": icons,
+    "@milagre/shared/routine-form": require("@milagre/shared/routine-form"),
+    "@milagre/shared/routine-prompt": require("@milagre/shared/routine-prompt"),
+    "@milagre/shared/model-copy": require("../packages/shared/src/model-copy.ts"),
+    "@milagre/shared/providers": require("@milagre/shared/providers"),
+    "../session": { useSession: () => ({ client, models: null, cliStatus: null }) },
+    "../use-routines": { useRoutines: () => ({ routines, enabled: true, error: "", loading: false, refresh: async () => {}, update: async () => {} }) },
+    "../use-rpc": { useRpc: (caller, method) => ({ data: caller ? (responses[method] ?? null) : null, error: "", loading: false, refresh() {} }) },
+    "../turn-options": { modelsFor: (provider) => (provider === "claude" ? [{ id: "claude-opus-5-5", name: "Opus 5.5", provider }] : []) },
+    "../placeholder-field": { PlaceholderField: "PlaceholderField" },
+    "../confirm-store": { confirm: async () => true },
+    "../icons": { Icon: "Icon" },
+    "../ui": Object.fromEntries(["CircleButton", "ErrorNotice", "Field", "PageScroll", "PillButton", "PullDown"].map((name) => [name, name])),
+  });
+  const render = () => {
+    react.begin();
+    return RoutineForm();
+  };
+  const rowLabels = (tree) => allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "FormRow").map((node) => node.props.label);
+  const pick = (tree, label) => find(tree, (node) => node.type === "PullDown" && node.props.label === label);
+  return { render, calls, routes, rowLabels, pick };
+}
+
+test("the phone routine form in Linear mode shows the When, Label and Team rows and offers Linear placeholders", () => {
+  const host = routineFormHost();
+  let tree = host.render();
+  assert.ok(find(tree, (node) => node.type === "CircleButton" && node.props.label === "Close"));
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "New Routine"));
+  assert.ok(host.rowLabels(tree).includes("Repeats"), "a new Routine starts on a schedule");
+  find(tree, (node) => node.props?.accessibilityLabel === "Linear" && node.props.accessibilityRole === "radio").props.onPress();
+  tree = host.render();
+  const labels = host.rowLabels(tree);
+  for (const label of ["When", "Label", "Team", "Project", "Works in", "Model", "Stop after"]) assert.ok(labels.includes(label), label);
+  const linear = find(tree, (node) => node.props?.accessibilityLabel === "Linear" && node.props.accessibilityRole === "radio");
+  assert.equal(linear.props.accessibilityState.checked, true);
+  const names = [...find(tree, (node) => node.type === "PlaceholderField").props.placeholders.map((item) => item.name)];
+  assert.ok(names.includes("issue.key"));
+  assert.equal(find(tree, (node) => node.type === "PillButton").props.title, "Create Routine");
+});
+
+test("the phone prompt field suggests {{issue.key}} while typing {{iss, and choosing it inserts the placeholder", () => {
+  const react = hookHost();
+  const changes = [];
+  const { PlaceholderField } = load("placeholder-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Text: "Text", View: "View" },
+    "@milagre/shared/routine-prompt": require("@milagre/shared/routine-prompt"),
+    "./ui": { Field: "Field", ListRow: "ListRow" },
+  });
+  const placeholders = require("@milagre/shared/routine-prompt").placeholdersFor({ kind: "linear", workspace: "w", event: "label-added" });
+  let value = "Work on {{iss";
+  const render = () => {
+    react.begin();
+    return PlaceholderField({ value, onChangeText: (next) => changes.push((value = next)), placeholders });
+  };
+  const field = find(render(), (node) => node.type === "Field");
+  field.props.onFocus();
+  field.props.onSelectionChange({ nativeEvent: { selection: { start: value.length, end: value.length } } });
+  const suggestion = find(render(), (node) => node.type === "ListRow" && node.props.title === "{{issue.key}}");
+  assert.ok(suggestion, "issue.key is suggested");
+  suggestion.props.onPress();
+  assert.deepEqual(changes, ["Work on {{issue.key}}"]);
+  const after = find(render(), (node) => node.type === "Field");
+  assert.deepEqual(JSON.parse(JSON.stringify(after.props.selection)), { start: 21, end: 21 }, "the caret goes after the }}");
+});
+
+test("Create on the phone routine form sends routines:create the formToInput output and closes", async () => {
+  const host = routineFormHost();
+  let tree = host.render();
+  find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Take issues labelled agent");
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Linear" && node.props.accessibilityRole === "radio").props.onPress();
+  host.pick(host.render(), "Label").props.onSelect("agent");
+  host.pick(host.render(), "Project").props.onSelect("/p");
+  find(host.render(), (node) => node.type === "PlaceholderField").props.onChangeText("Work on {{issue.key}}");
+  tree = host.render();
+  find(tree, (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const create = host.calls.find(([method]) => method === "routines:create");
+  assert.deepEqual(create[1], [
+    {
+      name: "Take issues labelled agent",
+      prompt: "Work on {{issue.key}}",
+      trigger: { kind: "linear", workspace: "w1", event: "label-added", label: "agent" },
+      target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+    },
+  ]);
+  assert.deepEqual(host.routes, ["back"]);
+});
+
+test("the phone routine form shows a refused field's problem and sends nothing", async () => {
+  const host = routineFormHost();
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Linear" && node.props.accessibilityRole === "radio").props.onPress();
+  find(host.render(), (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Labels");
+  find(host.render(), (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    host.calls.find(([method]) => method === "routines:create"),
+    undefined,
+  );
+  const problems = allNodes(host.render(), (node) => typeof node.type === "function" && node.type.name === "Problem").map((node) => node.props.text);
+  assert.ok(problems.includes("Pick the label to watch"), "the problem shows under the Linear card");
 });

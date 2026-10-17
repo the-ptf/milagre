@@ -45,6 +45,7 @@ export const SHEETS_OVER_CHAT = new Set([
   "browser-sheet",
   "activity",
   "handoff-brief",
+  "routine-form",
   "viewer",
 ]);
 /** The Chat on screen: the one at /chat (`chat`), or the one a sheet opened over (`previous`), while its computer is connected. */
