@@ -19,16 +19,111 @@ export const ARTIFACT_CSP = [
  * The design's HTML with the policy as the first thing the parser meets after the doctype, before anything the design
  * wrote: searching for its <head> could land inside a comment or a script string and leave the design without one. A
  * <meta> ahead of <html> still goes into the head, and applies to everything after it.
+ *
+ * An Artifact page (`page`) also gets ARTIFACT_PAGE_SCRIPT, which its viewer drives for pins, comments and zoom; with
+ * `diagrams` (Pele's browser build, pele/global) a page that has Mermaid blocks gets it too, and they render in place.
  */
-export function artifactDocument(html) {
+export function artifactDocument(html, { page = false, diagrams = "" } = {}) {
   const policy = `<meta http-equiv="Content-Security-Policy" content="${ARTIFACT_CSP}">`;
   // Leading comments and whitespace, then the doctype; without one the design gets standards mode.
   const doctype = /^(?:\s|<!--[\s\S]*?-->)*<!doctype[^>]*>/i.exec(html);
   const at = doctype ? doctype[0].length : 0;
   // A bare fragment (no <html> of its own) also gets the charset and a phone-sized viewport a page would set.
-  const page = /<html[\s>]/i.test(html) ? "" : '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
-  return `${doctype ? html.slice(0, at) : "<!doctype html>"}${policy}${page}${ESCAPE_OUT}${html.slice(at)}`;
+  const bare = /<html[\s>]/i.test(html) ? "" : '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">';
+  const pele = diagrams && hasDiagrams(html) ? `<script>${diagrams}</script>` : "";
+  const helper = page ? `<script>${ARTIFACT_PAGE_SCRIPT}</script>` : "";
+  return `${doctype ? html.slice(0, at) : "<!doctype html>"}${policy}${bare}${ESCAPE_OUT}${pele}${helper}${html.slice(at)}`;
 }
+
+/** Whether the HTML has a Mermaid block, the way Mermaid's own pages write one: `<pre class="mermaid">` or a fenced `language-mermaid`. */
+export function hasDiagrams(html) {
+  return /\sclass\s*=\s*["']?[^"'>]*\b(?:mermaid|language-mermaid)\b/i.test(html);
+}
+
+/** The key every message between an Artifact page (ARTIFACT_PAGE_SCRIPT) and its viewer carries, as `milagre`. */
+export const ARTIFACT_PAGE = "milagre:artifact-page";
+
+/**
+ * The helper inside an Artifact page. It renders the page's Mermaid blocks with Pele when the document carries it,
+ * coloured from the page around them unless the page sets --pele-* itself. For the viewer that sends `mode` it also:
+ *
+ * - draws the pinned comments (`pins`) inside the page, so they scroll with it, each at its anchor (an element path and
+ *   a point in its box, which survives the page reflowing) or else at its fractions of the page; `watch` names the
+ *   one whose screen position it reports (`anchor`) as the page scrolls or changes;
+ * - with the mouse, in comment mode a click pins (`press`: fractions of the page, the anchor, the text near it and the
+ *   screen point), ctrl-wheel or a trackpad pinch asks to zoom (`zoom`), a double-click away from text and controls
+ *   asks to fit (`fit`), and C outside a field asks to toggle comment mode (`key`);
+ * - by touch, a hold pins, and the hold's tap, callout and selection are swallowed;
+ * - reports its scroll width against its viewport's (`size`), so a viewer can fit a page wider than itself.
+ *
+ * `scale` is the viewer's zoom (pins keep their size on screen, and with a point the page keeps it in place);
+ * `reveal` scrolls a pin near the top. Pins and the comment cover live in a closed shadow root, out of the page's CSS.
+ */
+export const ARTIFACT_PAGE_SCRIPT = String.raw`(function(){
+if(window.__milagrePage)return;window.__milagrePage=1;
+var KEY="${ARTIFACT_PAGE}",d=document,root=d.documentElement,P=null;
+var pins=[],watch=null,input="",commenting=false,cursor="",scale=1,host=null,shadow=null,cover=null,nodes=new Map(),frame=0,lastSize="",lastAnchor="",observing=false,hold=0,held=null,swallow=0;
+function post(m){m.milagre=KEY;try{parent.postMessage(m,"*")}catch(e){}}
+function unit(v){v=+v;return v>0?(v<1?v:1):0}
+function later(){if(!frame)frame=requestAnimationFrame(paint)}
+function backdrop(el){for(var n=el;n&&n.nodeType===1;n=n.parentElement){var c=getComputedStyle(n).backgroundColor;if(c&&c!=="transparent"&&!/^rgba\(.*,\s*0\)$/.test(c))return c}return "#ffffff"}
+function theme(el){var s=getComputedStyle(el);if(!el.__themed){if(s.getPropertyValue("--pele-bg").trim())return;el.__themed=1;el.__font=!s.getPropertyValue("--pele-font").trim()}
+var fg=s.color,bg=backdrop(el),mix=function(p){return "color-mix(in srgb, "+fg+" "+p+"%, "+bg+")"},set=function(k,v){el.style.setProperty(k,v)};
+set("--pele-bg",bg);set("--pele-fg",fg);set("--pele-line",fg);set("--pele-muted",mix(62));set("--pele-surface",mix(6));set("--pele-surface-alt",mix(11));set("--pele-border",mix(38));if(el.__font)set("--pele-font",s.fontFamily)}
+var drawn=[];
+function diagrams(){P=window.pele;if(!P||!P.mount)return;var found=d.querySelectorAll("pre.mermaid,div.mermaid,code.language-mermaid");
+for(var i=0;i<found.length;i++){var el=found[i],box=el.localName==="code"&&el.parentElement&&el.parentElement.localName==="pre"?el.parentElement:el;if(el.__milagre||box.__milagre)continue;el.__milagre=box.__milagre=1;var text=el.textContent||"";if(!text.trim())continue;
+var holder=d.createElement("div"),cs=getComputedStyle(box);holder.className=box===el?el.className:"mermaid";holder.__milagre=1;holder.setAttribute("data-milagre-diagram","");if(box.id)holder.id=box.id;holder.style.marginTop=cs.marginTop;holder.style.marginBottom=cs.marginBottom;box.replaceWith(holder);theme(holder);drawn.push(holder);
+try{P.mount(holder,text)}catch(e){holder.textContent=text}}}
+function retheme(){for(var i=0;i<drawn.length;i++)if(drawn[i].__themed)theme(drawn[i])}
+function size(){var sw=root.scrollWidth,cw=root.clientWidth,key=sw+"x"+cw;if(key!==lastSize){lastSize=key;post({t:"size",sw:sw,cw:cw})}}
+function extent(){var b=d.body;return {w:Math.max(root.scrollWidth,b?b.scrollWidth:0)||1,h:Math.max(root.scrollHeight,b?b.scrollHeight:0)||1}}
+function find(a){var at=a.lastIndexOf("@");if(at<0)return null;var steps=a.slice(0,at).split("/").filter(Boolean),f=a.slice(at+1).split(","),cur=d.body,i=0;
+if(steps[0]&&steps[0].charAt(0)==="#"){cur=d.getElementById(steps[0].slice(1));i=1}
+for(;cur&&i<steps.length;i++){var m=/^([A-Za-z][A-Za-z0-9-]*):(\d+)$/.exec(steps[i]);if(!m)return null;var n=+m[2],next=null;for(var c=cur.firstElementChild;c;c=c.nextElementSibling)if(c.localName===m[1]&&--n===0){next=c;break}cur=next}
+return cur?{el:cur,fx:unit(f[0]),fy:unit(f[1])}:null}
+function spot(p){if(typeof p.a==="string"&&p.a){var hit=find(p.a);if(hit){var r=hit.el.getBoundingClientRect();if(r.width||r.height)return {x:r.left+scrollX+hit.fx*r.width,y:r.top+scrollY+hit.fy*r.height}}}var e=extent();return {x:unit(p.x)*e.w,y:unit(p.y)*e.h}}
+function anchor(el,cx,cy){var r=el.getBoundingClientRect();if(!r.width||!r.height)return "";var steps=[],n=el;
+while(n&&n!==d.body&&n!==root&&steps.length<40){if(n.id&&/^[A-Za-z][\w-]{0,63}$/.test(n.id)&&d.querySelectorAll("#"+n.id).length===1){steps.unshift("#"+n.id);break}var i=1;for(var s=n.previousElementSibling;s;s=s.previousElementSibling)if(s.localName===n.localName)i++;if(!/^[A-Za-z][A-Za-z0-9-]*$/.test(n.localName))return "";steps.unshift(n.localName+":"+i);n=n.parentElement}
+if(!steps.length||(n!==d.body&&steps[0].charAt(0)!=="#"))return "";var k=function(v){return Math.round(unit(v)*1e4)/1e4};return steps.join("/")+"@"+k((cx-r.left)/r.width)+","+k((cy-r.top)/r.height)}
+function words(s){return String(s||"").replace(/["\s]+/g," ").trim()}
+function near(el){var block=el.closest?el.closest("h1,h2,h3,h4,h5,h6,p,li,dt,dd,th,td,caption,figcaption,blockquote,label,button,a,summary,[data-id]"):null,t=words(block?block.textContent:"");
+if(!t){var own=words(el.textContent);t=own.length<=200?own:""}if(!t&&el.getAttribute)t=words(el.getAttribute("aria-label")||el.getAttribute("alt")||el.getAttribute("title"));
+return t.length>80?t.slice(0,79).replace(/\s+\S*$/,"")+"\u2026":t}
+function under(cx,cy){if(host)host.style.display="none";var el=d.elementFromPoint(cx,cy);if(host)host.style.display="";return el}
+function press(cx,cy){var el=under(cx,cy);if(!el)return;var e=extent(),inner=el!==d.body&&el!==root;post({t:"press",x:unit((cx+scrollX)/e.w),y:unit((cy+scrollY)/e.h),a:inner?anchor(el,cx,cy):"",near:inner?near(el):"",sx:cx,sy:cy})}
+function mount(){if(host&&host.isConnected)return;if(!host){host=d.createElement("milagre-pins");host.style.cssText="all:initial;position:absolute;left:0;top:0;width:0;height:0;overflow:visible;z-index:2147483647;pointer-events:none";shadow=host.attachShadow({mode:"closed"});
+shadow.innerHTML='<style>.cover{position:fixed;inset:0;display:none;pointer-events:auto;background:transparent}.pin{position:absolute;left:0;top:0;display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:24px;height:24px;border-radius:0 12px 12px 12px;font:600 11px/1 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;box-shadow:0 0 0 1.5px #fff,0 1px 3px rgba(0,0,0,.3);transform-origin:0 0;cursor:pointer;pointer-events:auto;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}</style><div class="cover"></div>';
+cover=shadow.querySelector(".cover");cover.addEventListener("click",function(e){e.preventDefault();e.stopPropagation();press(e.clientX,e.clientY)})}root.appendChild(host)}
+function tapped(e){e.preventDefault();e.stopPropagation();var r=this.getBoundingClientRect();post({t:"pin",k:this.__k,sx:r.left,sy:r.top})}
+function paint(){frame=0;if(!pins.length&&!commenting&&!host)return;mount();cover.style.display=commenting&&input==="mouse"?"block":"none";cover.style.cursor=cursor||"crosshair";var seen={};
+for(var i=0;i<pins.length;i++){var p=pins[i],k=String(p.k),el=nodes.get(k);seen[k]=1;if(!el){el=d.createElement("div");el.className="pin";el.setAttribute("role","button");el.addEventListener("click",tapped);shadow.appendChild(el);nodes.set(k,el)}
+el.__k=k;el.textContent=String(p.n==null?"":p.n);el.setAttribute("aria-label",String(p.label||"Comment"));el.style.background=String(p.fill||"#007df3");el.style.color=String(p.ink||"#ffffff");var at=spot(p);el.__at=at;el.style.display=p.hide?"none":"flex";el.style.transform="translate("+at.x+"px,"+at.y+"px) scale("+1/scale+")"}
+nodes.forEach(function(el,k){if(!seen[k]){el.remove();nodes.delete(k)}});report()}
+function report(){if(watch===null)return;var el=nodes.get(watch);if(!el||!el.__at)return;var sx=el.__at.x-scrollX,sy=el.__at.y-scrollY,key=Math.round(sx*2)+","+Math.round(sy*2);if(key===lastAnchor)return;lastAnchor=key;post({t:"anchor",k:watch,sx:sx,sy:sy,shown:sx>=0&&sy>=0&&sx<=innerWidth&&sy<=innerHeight})}
+function observe(){if(observing)return;observing=true;var ro=new ResizeObserver(function(){size();later()});ro.observe(root);if(d.body)ro.observe(d.body);new MutationObserver(later).observe(root,{childList:true,subtree:true,attributes:true,characterData:true});if(d.fonts&&d.fonts.ready)d.fonts.ready.then(later);setInterval(function(){if(pins.length)later()},1000)}
+function reveal(k){var el=nodes.get(k);if(!el||!el.__at)return;var still=matchMedia("(prefers-reduced-motion: reduce)").matches;scrollTo({top:Math.max(0,el.__at.y-innerHeight*.14),behavior:still?"auto":"smooth"});lastAnchor="";setTimeout(report,still?0:450)}
+function touchStyle(){if(d.getElementById("milagre-touch"))return;var s=d.createElement("style");s.id="milagre-touch";s.textContent="html{-webkit-touch-callout:none!important;-webkit-user-select:none!important;user-select:none!important}input,textarea,select,[contenteditable],[contenteditable] *{-webkit-user-select:text!important;user-select:text!important}";(d.head||root).appendChild(s)}
+addEventListener("message",function(e){if(e.source!==parent)return;var m=e.data;if(!m||typeof m!=="object"||m.milagre!==KEY)return;
+if(m.t==="mode"){input=m.input==="touch"?"touch":"mouse";commenting=!!m.comment;cursor=typeof m.cursor==="string"?m.cursor:"";if(input==="touch")touchStyle();later()}
+else if(m.t==="pins"){pins=Array.isArray(m.pins)?m.pins.filter(function(p){return p&&(typeof p.k==="string"||typeof p.k==="number")}):[];watch=m.watch==null?null:String(m.watch);lastAnchor="";observe();later()}
+else if(m.t==="scale"){var from=scale;scale=Math.min(8,Math.max(.05,+m.s||1));if(typeof m.cx==="number"&&typeof m.cy==="number"){var px=scrollX+m.cx,py=scrollY+m.cy,nx=m.cx*from/scale,ny=m.cy*from/scale;requestAnimationFrame(function(){requestAnimationFrame(function(){scrollTo(px-nx,py-ny)})})}later()}
+else if(m.t==="reveal"){paint();reveal(String(m.k))}});
+addEventListener("scroll",report,{passive:true});
+addEventListener("resize",function(){size();later()});
+addEventListener("wheel",function(e){if(!e.ctrlKey)return;e.preventDefault();post({t:"zoom",dy:e.deltaY,cx:e.clientX,cy:e.clientY})},{passive:false,capture:true});
+addEventListener("dblclick",function(e){if(input!=="mouse"||commenting)return;var t=e.target;if(t&&t.closest&&t.closest("a,button,input,textarea,select,label,summary,video,audio,[contenteditable],[role=button],[onclick],[tabindex]"))return;var s=getSelection();if(s&&!s.isCollapsed&&String(s).trim())return;post({t:"fit"})},true);
+addEventListener("keydown",function(e){if(e.key!=="c"&&e.key!=="C")return;if(e.metaKey||e.ctrlKey||e.altKey||e.shiftKey||e.repeat||e.isComposing||e.defaultPrevented||!input)return;var t=e.target;if(t&&t.closest&&t.closest("input,textarea,select,[contenteditable]:not([contenteditable=false])"))return;post({t:"key",key:"c"})},true);
+d.addEventListener("touchstart",function(e){if(input!=="touch")return;clearTimeout(hold);held=null;if(e.touches.length!==1||e.target===host)return;var t=e.touches[0];held={x:t.clientX,y:t.clientY};hold=setTimeout(function(){var h=held;held=null;if(!h)return;swallow=Date.now();try{getSelection().removeAllRanges()}catch(x){}press(h.x,h.y)},450)},{passive:true,capture:true});
+d.addEventListener("touchmove",function(e){if(!held)return;var t=e.touches[0];if(e.touches.length!==1||!t||Math.abs(t.clientX-held.x)>10||Math.abs(t.clientY-held.y)>10){clearTimeout(hold);held=null}},{passive:true,capture:true});
+function release(){clearTimeout(hold);held=null}
+d.addEventListener("touchend",release,{passive:true,capture:true});d.addEventListener("touchcancel",release,{passive:true,capture:true});
+d.addEventListener("click",function(e){if(swallow&&Date.now()-swallow<800){swallow=0;e.preventDefault();e.stopPropagation()}},true);
+d.addEventListener("contextmenu",function(e){if(input==="touch")e.preventDefault()},true);
+function boot(){diagrams();size();if(window.pele)new MutationObserver(diagrams).observe(d.body||root,{childList:true,subtree:true});post({t:"ready"})}
+addEventListener("load",function(){retheme();size();later()});
+if(d.readyState==="loading")d.addEventListener("DOMContentLoaded",boot);else boot();
+})()`;
 
 /** What a design posts its embedder when Escape is pressed in it: a key the design has the focus for is the design's. */
 export const ARTIFACT_ESCAPE = "milagre:artifact-escape";
@@ -44,14 +139,29 @@ const ESCAPE_OUT = `<script>${ARTIFACT_ESCAPE_SCRIPT}</script>`;
 const attribute = (text) => text.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 
 /**
+ * The phone's go-between for an Artifact page in artifactShell: what the page's helper posts (ARTIFACT_PAGE_SCRIPT)
+ * reaches the app through ReactNativeWebView, as known fields only, its screen points moved into the web view's
+ * pinch zoom; `milagreArtifact.run(command)` hands the app's commands to the page.
+ */
+export const ARTIFACT_SHELL_SCRIPT = String.raw`(function(){
+var frame=document.querySelector("iframe"),KEY="${ARTIFACT_PAGE}",NUMBERS=["x","y","sx","sy","sw","cw","dy","cx","cy"],TEXTS=["t","k","a","near","key"];
+function app(m){var b=window.ReactNativeWebView;if(b&&b.postMessage)b.postMessage(JSON.stringify(m))}
+addEventListener("message",function(e){if(!frame||e.source!==frame.contentWindow)return;var d=e.data;if(!d||typeof d!=="object"||d.milagre!==KEY||typeof d.t!=="string")return;var m={};
+NUMBERS.forEach(function(n){if(typeof d[n]==="number"&&isFinite(d[n]))m[n]=d[n]});TEXTS.forEach(function(n){if(typeof d[n]==="string")m[n]=d[n].slice(0,600)});if(typeof d.shown==="boolean")m.shown=d.shown;
+var v=window.visualViewport;if(v&&typeof m.sx==="number"&&typeof m.sy==="number"){m.sx=(m.sx-v.offsetLeft)*v.scale;m.sy=(m.sy-v.offsetTop)*v.scale}app(m)});
+window.milagreArtifact={run:function(c){if(!frame||!c||typeof c!=="object")return;c.milagre=KEY;frame.contentWindow.postMessage(c,"*")}};
+})()`;
+
+/**
  * A page that shows the design in a sandboxed frame, for a web view with no sandbox of its own (the phone's). The
  * frame runs the design's scripts but has no same origin and no say over the page around it, so it can't navigate
- * it. The frame inherits the page's policy, so the page carries the design's (the page itself has no script), plus
- * frame-src 'none': the frame loads nothing but the design, so the design can't navigate it away either. With an
- * opaque origin, the design can't read the files beside the page, whatever the web view lets the page itself read.
+ * it. The frame inherits the page's policy, so the page carries the design's, plus frame-src 'none': the frame loads
+ * nothing but the design, so the design can't navigate it away either. With an opaque origin, the design can't read
+ * the files beside the page, whatever the web view lets the page itself read. The page's one script is
+ * ARTIFACT_SHELL_SCRIPT, which passes plain messages between the app and the Artifact page's helper.
  */
-export function artifactShell(html) {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${ARTIFACT_CSP}; frame-src 'none'"><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;width:100%;height:100%;border:0}</style></head><body><iframe sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(artifactDocument(html))}"></iframe></body></html>`;
+export function artifactShell(html, { diagrams = "" } = {}) {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${ARTIFACT_CSP}; frame-src 'none'"><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;width:100%;height:100%;border:0}</style></head><body><iframe sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(artifactDocument(html, { page: true, diagrams }))}"></iframe><script>${ARTIFACT_SHELL_SCRIPT}</script></body></html>`;
 }
 
 /**

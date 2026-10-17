@@ -35,6 +35,7 @@
     "src/artifact.ts",
     "src/artifact-document.mjs",
     "src/artifact-document.d.mts",
+    "src/diagram.ts",
     "src/genui.ts",
     "src/file-link.ts",
     "src/message-search.mjs",
@@ -237,6 +238,11 @@
       "types": "./src/artifact-document.d.mts",
       "default": "./src/artifact-document.mjs"
     },
+    "./diagram-script": {
+      "types": "./src/diagram-script.d.mts",
+      "default": "./src/diagram-script.mjs"
+    },
+    "./diagram": "./src/diagram.ts",
     "./design-page": {
       "types": "./src/design-page.d.mts",
       "default": "./src/design-page.mjs"
@@ -296,6 +302,7 @@
   },
   "dependencies": {
     "@openuidev/lang-core": "^0.3.2",
+    "pele": "1.6.0",
     "refractor": "^5.0.0",
     "tweetnacl": "1.0.3",
     "zod": "^4.6.5"

@@ -2,6 +2,7 @@
 // response gets its own CSP, so the main renderer never needs unsafe-inline scripts.
 const { randomBytes } = require("node:crypto");
 const { ARTIFACT_CSP, artifactDocument } = require("@milagre/shared/artifact-document");
+const { diagramScript } = require("@milagre/shared/diagram-script");
 const PREFIX = "milagre-artifact://preview/";
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_TOTAL = 64 * 1024 * 1024;
@@ -17,7 +18,8 @@ function createArtifactPreviews() {
   return {
     register(owner, html) {
       if (typeof html !== "string" || Buffer.byteLength(html) > MAX_BYTES) throw new Error("Artifact preview is too large.");
-      const body = artifactDocument(html);
+      // The page's viewer drives its helper (pins, comments, zoom); Mermaid blocks render with Pele.
+      const body = artifactDocument(html, { page: true, diagrams: diagramScript() });
       const size = Buffer.byteLength(body);
       if (bytes + size > MAX_TOTAL || entries.size >= 128) throw new Error("Too many artifact previews are open.");
       const url = `${PREFIX}${randomBytes(24).toString("hex")}`;

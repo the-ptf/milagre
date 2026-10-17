@@ -17,6 +17,8 @@ const {
   designInstanceRoot,
   loadDesignFonts,
 } = require("@milagre/shared/design");
+const { artifactDocument, hasDiagrams } = require("@milagre/shared/artifact-document");
+const { diagramScript } = require("@milagre/shared/diagram-script");
 const { renderDesignPng } = require("./design-raster.cjs");
 const { BUNDLED_SKILLS_DIRECTORY } = require("./bundled-skills.cjs");
 // The tool descriptions carry what an agent needs to design here, for subagents too: they don't see the parent
@@ -29,11 +31,23 @@ const MAX_VERSIONS = 50;
 const MAX_HTML = 1_000_000;
 const VIEWPORT = { width: 1280, height: 800 };
 const formatOf = (entry) => (entry?.format === "design" ? "design" : "html");
+/**
+ * A published page with Mermaid blocks carries Pele and the page helper, so its diagrams draw on the public page as
+ * they do here, while it stays within the page limit; past it the blocks show their text.
+ */
+function sharedHtml(html) {
+  if (!hasDiagrams(html)) return html;
+  const page = artifactDocument(html, { page: true, diagrams: diagramScript() });
+  return page.length <= MAX_HTML ? page : html;
+}
 const size = (value, fallback) => (Number.isInteger(value) && value >= 240 && value <= 3840 ? value : fallback);
 const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 // The comments the user sent on a Chat's designs, one file beside the designs; no .json extension, so the design list
-// never reads it as a design. Each: { id, design: { id, version, title }, nodeId?, x?, y?, text, createdAt, resolved? }.
+// never reads it as a design. Each: { id, design: { id, version, title }, nodeId?, x?, y?, near?, anchor?, text, createdAt, resolved? }.
 const COMMENTS = "comments";
+// An Artifact pin's anchor, as ARTIFACT_PAGE_SCRIPT writes it: element steps from <body> (or an id), then the point in it.
+const PAGE_ANCHOR =
+  /^(?:#[A-Za-z][\w-]{0,63}|[A-Za-z][A-Za-z0-9-]{0,40}:\d{1,5})(?:\/[A-Za-z][A-Za-z0-9-]{0,40}:\d{1,5}){0,40}@(?:0|1|0?\.\d{1,4}),(?:0|1|0?\.\d{1,4})$/;
 const MAX_COMMENTS = 2000;
 const COMMENT_ID = /^[a-f0-9]{8}$/;
 const LAYER_ID = /^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/;
@@ -213,7 +227,7 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
             const current = await readVersion(folder, entry);
             bytes += Buffer.byteLength(current.html);
             if (bytes > 8 * 1024 * 1024) throw Error("This Artifacts page exceeds the 8 MB sharing limit.");
-            artifacts.push({ title: current.title, html: current.html, width: current.width, height: current.height });
+            artifacts.push({ title: current.title, html: sharedHtml(current.html), width: current.width, height: current.height });
           }
           return { schemaVersion: 1, kind: "artifacts", title: request.title, artifacts };
         }
@@ -379,6 +393,15 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
           if (!text) throw Error("A comment needs its text.");
           if (comment.nodeId !== undefined && (typeof comment.nodeId !== "string" || !LAYER_ID.test(comment.nodeId)))
             throw Error("A comment's layer id must use letters, numbers, dots, underscores or dashes and start with a letter.");
+          // On an Artifact page: the text near the pin, and the element path and point the page finds it by again.
+          const near =
+            typeof comment.near === "string"
+              ? comment.near
+                  .replace(/["\s]+/g, " ")
+                  .trim()
+                  .slice(0, 120)
+              : "";
+          const anchor = typeof comment.anchor === "string" && PAGE_ANCHOR.test(comment.anchor) ? comment.anchor : "";
           const at = (value) => (typeof value === "number" && value >= 0 && value <= 1 ? value : undefined);
           return {
             // The app names the comment in the message it sends first, and records it once that went; one it names
@@ -387,6 +410,8 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
             design: { id: design.id, version: design.version, title: String(design.title ?? design.id).slice(0, 120) },
             ...(comment.nodeId === undefined ? {} : { nodeId: comment.nodeId }),
             ...(at(comment.x) === undefined || at(comment.y) === undefined ? {} : { x: at(comment.x), y: at(comment.y) }),
+            ...(near ? { near } : {}),
+            ...(anchor ? { anchor } : {}),
             text,
             createdAt: Date.now(),
           };
@@ -652,7 +677,7 @@ function htmlArtifactToolDefinitions(chatId, api, authorization) {
     {
       name: "artifact_show",
       description:
-        "Create or replace this Chat's one live HTML artifact page explaining a topic, report or interactive page. Edits update that same page in place; there are no variants or browsable versions. Use design_show for UI screens, mockups and visual design work. HTML artifacts stay available when Designs is off.",
+        'Create or replace this Chat\'s one live HTML artifact page explaining a topic, report or interactive page. Edits update that same page in place; there are no variants or browsable versions. Use design_show for UI screens, mockups and visual design work. HTML artifacts stay available when Designs is off. For a diagram, put Mermaid text in <pre class="mermaid">: Milagre draws it, no script needed.',
       input: {
         title: z.string().min(1).max(120),
         html: z.string().min(1).max(MAX_HTML),

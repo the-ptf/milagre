@@ -27,3 +27,12 @@ test("artifact preview registration bounds individual and total retained data", 
   previews.clear(1);
   assert.ok(previews.register(1, body));
 });
+test("an Artifact preview carries the page helper, and Pele when it has a Mermaid block", async () => {
+  const previews = createArtifactPreviews();
+  const plain = await previews.handle(new Request(previews.register(1, "<p>Plain</p>"))).text();
+  assert.match(plain, /milagre:artifact-page/);
+  assert.doesNotMatch(plain, /var pele=/);
+  const drawn = await previews.handle(new Request(previews.register(1, '<pre class="mermaid">flowchart LR\n A --> B</pre>'))).text();
+  assert.match(drawn, /var pele=/);
+  assert.ok(drawn.indexOf("var pele=") < drawn.indexOf("milagre:artifact-page"), "Pele loads before the helper mounts it");
+});
