@@ -1,4 +1,4 @@
-// The Routines page and the New routine form, on real components with a stubbed window.milagre: groups and chip counts,
+// The Routines page and the New Routine form, on real components with a stubbed window.milagre: groups and chip counts,
 // a paused trigger's reason, the Team Select opening inside the form's modal dialog (D7), the {{ placeholder list, and
 // the createRoutine input a Linear trigger saves. Screenshots go to MILAGRE_SCREENSHOT_DIR when it is set.
 const assert = require("node:assert/strict");
@@ -49,7 +49,19 @@ window.milagre = {
     window.created = input;
     return { routine: { ...base, id: 'new', ...input }, ...(input.trigger.kind === 'webhook' ? { hookUrl: 'https://relay.milagre.cloud/hook/k3fTESTsecret9Qx' } : {}) };
   },
-  updateRoutine: async (id, patch) => { window.updated = [id, patch]; return { ...routines.find((r) => r.id === id), ...patch }; },
+  updateRoutine: async (id, patch) => {
+    const current = routines.find((r) => r.id === id);
+    // As the Mac does: a stale hook id in a patch is refused (only a rotate changes it).
+    if (patch.trigger && patch.trigger.hookId !== undefined && patch.trigger.hookId !== current.trigger.hookId) throw new Error('Rotate the webhook URL to change it.');
+    window.updated = [id, patch];
+    return { ...current, ...patch };
+  },
+  routineHook: async (id) => ({ url: 'https://relay.milagre.cloud/hook/' + (window.rotated ? 'NEWsecret' : 'OLDsecret'), signed: true, signingHeader: 'sentry-hook-signature' }),
+  rotateRoutineHook: async (id) => {
+    window.rotated = true;
+    routines.find((r) => r.id === id).trigger.hookId = 'b'.repeat(64);
+    return { url: 'https://relay.milagre.cloud/hook/NEWsecret' };
+  },
   deleteRoutine: async (id) => { window.deleted = id; return { removed: true }; },
   runRoutineNow: async () => undefined,
 };
@@ -156,7 +168,7 @@ async function browserChecks() {
     await click('[data-heartbeat-card="h1"] [data-heartbeat-stop]');
     await waitFor(`window.deleted === 'h1'`);
 
-    // New routine → Linear: the Team Select's panel opens inside the modal dialog and is the topmost element there.
+    // New Routine → Linear: the Team Select's panel opens inside the modal dialog and is the topmost element there.
     await click("[data-routine-new]");
     await waitFor(`!!document.querySelector('dialog[data-routine-form][open]')`);
     await click('[data-routine-trigger="linear"]');
@@ -236,7 +248,7 @@ async function browserChecks() {
     await click("[data-routine-new]");
     await waitFor(`!!document.querySelector('dialog[data-routine-form][open]')`);
     await click('[data-routine-trigger="webhook"]');
-    await waitFor(`document.querySelector('[data-routine-hook]').textContent.includes('The URL appears after you create the routine.')`);
+    await waitFor(`document.querySelector('[data-routine-hook]').textContent.includes('The URL appears after you create the Routine.')`);
     await type('dialog[data-routine-form] input[aria-label="Name"]', "Triage Sentry");
     await type("[data-routine-prompt]", "Triage this crash");
     await click("[data-routine-save]");
@@ -249,6 +261,46 @@ async function browserChecks() {
     await shot("routines-webhook-created");
     await clickText("dialog[data-routine-form] button", "Done");
     await waitFor(`!document.querySelector('dialog[data-routine-form]')`);
+
+    // A Linear comment Routine: no Project or Each run, a note instead; the target is filled from the open Project.
+    await click("[data-routine-new]");
+    await waitFor(`!!document.querySelector('dialog[data-routine-form][open]')`);
+    await click('[data-routine-trigger="linear"]');
+    await waitFor(`!!document.querySelector('dialog[data-routine-form] button[aria-label="When"]')`);
+    await click('dialog[data-routine-form] button[aria-label="When"]');
+    await waitFor(`!!document.querySelector('[role="listbox"][aria-label="When"]')`);
+    await clickText('[role="listbox"][aria-label="When"] [data-picker-row]', "New comment");
+    await waitFor(`!!document.querySelector('[data-routine-comment-note]')`);
+    assert.equal(await evaluate(`document.querySelector('[data-routine-comment-note]').textContent.trim()`), "Comments go into the Chat linked to the issue.");
+    assert.equal(
+      await evaluate(
+        `!!document.querySelector('dialog[data-routine-form] button[aria-label="Project"], dialog[data-routine-form] button[aria-label="Each run"]')`,
+      ),
+      false,
+    );
+    await type('dialog[data-routine-form] input[aria-label="Name"]', "Answer comments");
+    await type("[data-routine-prompt]", "Reply to the comment");
+    await click("[data-routine-save]");
+    await waitFor(`window.created && window.created.name === 'Answer comments'`);
+    assert.deepEqual(JSON.parse(await evaluate("JSON.stringify([window.created.trigger, window.created.target])")), [
+      { kind: "linear", workspace: "milagre", event: "comment" },
+      { kind: "new-chat", projectPath: "/code/milagre-ade", workspace: "worktree" },
+    ]);
+    await waitFor(`!document.querySelector('dialog[data-routine-form]')`);
+
+    // Edit the webhook, rotate its URL, then Save: the patch carries no stale hook id, so it goes through.
+    await click('[data-routine-row="t2"] [data-routine-more]');
+    await waitFor(`!!document.querySelector('[data-routine-action="edit"]')`);
+    await click('[data-routine-action="edit"]');
+    await waitFor(`!!document.querySelector('[data-routine-hook-rotate]')`);
+    assert.match(await evaluate(`document.querySelector('dialog[data-routine-form] h2').textContent`), /^Edit Routine$/);
+    await click("[data-routine-hook-rotate]");
+    await click("[data-routine-hook-rotate-confirm]");
+    await waitFor(`document.querySelector('[data-routine-hook]').textContent.includes('NEWsecret')`);
+    await click("[data-routine-save]");
+    await waitFor(`!document.querySelector('dialog[data-routine-form]')`);
+    assert.equal(await evaluate("window.updated[0]"), "t2");
+    assert.deepEqual(JSON.parse(await evaluate("JSON.stringify(window.updated[1].trigger)")), { kind: "webhook", signed: true });
     console.log(
       "PASS: Routines page groups and counts Routines; Heartbeat cards and Next check show; the form's Selects open inside its dialog, {{ suggests placeholders, and Save creates a Linear Routine.",
     );

@@ -15,6 +15,7 @@ import {
   formFromRoutine,
   formToInput,
   formToUpdate,
+  isCommentRoutine,
   withRunIn,
   type RoutineFormField,
   type RoutineFormState,
@@ -86,7 +87,7 @@ const HINTS: Record<RoutineFormState["trigger"], string> = {
   webhook: "Type {{ to insert request fields. The request is passed as data, not instructions.",
 };
 
-/** New routine, or Edit routine with `initial`: a modal sheet over the Routines page. It consumes Escape itself. */
+/** New Routine, or Edit Routine with `initial`: a modal sheet over the Routines page. It consumes Escape itself. */
 export function RoutineForm({
   initial,
   models,
@@ -119,7 +120,9 @@ export function RoutineForm({
   // The date picker's range starts from when the form opened.
   const [openedAt] = useState(() => Date.now());
   const editing = Boolean(initial);
-  const heartbeat = state.runIn === "chat";
+  // Comments go into the Chat linked to their issue: no Project or Each run to pick.
+  const comment = isCommentRoutine(state);
+  const heartbeat = state.runIn === "chat" && !comment;
 
   useEffect(() => {
     dialog.current?.showModal();
@@ -169,7 +172,6 @@ export function RoutineForm({
       (info) => {
         if (!live) return;
         setHook(info);
-        if (info.signingHeader) setState((current) => ({ ...current, webhook: { ...current.webhook, signingHeader: info.signingHeader ?? "" } }));
       },
       (failure) => live && setTopError(ipcErrorMessage(failure)),
     );
@@ -189,7 +191,8 @@ export function RoutineForm({
   const submit = async () => {
     const result = initial ? formToUpdate(state, initial) : formToInput(state);
     if (result.field !== undefined) {
-      setErrors({ [result.field]: result.error });
+      // A comment Routine shows no Project or Each run, so their problems show under the Linear fields.
+      setErrors({ [comment && ["project", "runIn", "chat"].includes(result.field) ? "workspace" : result.field]: result.error });
       return;
     }
     setBusy(true);
@@ -250,7 +253,7 @@ export function RoutineForm({
   const chatOptions: SelectOption<string>[] = (project?.chats ?? []).map((chat) => ({ value: chat.chatId, label: chat.title || "Untitled Chat" }));
   if (state.chatId && !chatOptions.some((option) => option.value === state.chatId)) chatOptions.unshift({ value: state.chatId, label: "This Chat" });
   const runInOptions: SelectOption<RoutineFormState["runIn"]>[] = [
-    { value: "worktree", label: "New worktree", description: "A new Chat in its own worktree", disabled: editing && heartbeat },
+    { value: "worktree", label: "New Worktree", description: "A new Chat in its own Worktree", disabled: editing && heartbeat },
     { value: "project", label: "Project folder", description: "A new Chat in the Project folder", disabled: editing && heartbeat },
     {
       value: "chat",
@@ -298,13 +301,13 @@ export function RoutineForm({
     );
   };
 
-  const title = editing ? "Edit routine" : "New routine";
+  const title = editing ? "Edit Routine" : "New Routine";
   const hookUrl = created ?? hook?.url ?? null;
   const urlCard = (url: string | null) => (
     <div data-routine-hook className="space-y-2 rounded-[10px] border border-line bg-field px-3 py-2.5">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink" title={url ?? undefined}>
-          {url ?? (!editing ? "The URL appears after you create the routine." : "Reading the URL…")}
+          {url ?? (!editing ? "The URL appears after you create the Routine." : "Reading the URL…")}
         </span>
         {url && (
           <button type="button" data-routine-hook-copy className={smallButton} onClick={() => copy(url)}>
@@ -614,43 +617,49 @@ export function RoutineForm({
               </div>
             )}
 
-            <div className="flex gap-2">
-              <Field label="Project" error={errors.project} className="flex-1">
-                <Select
-                  label="Project"
-                  value={state.projectPath}
-                  options={projectOptions.length ? projectOptions : [{ value: "", label: targets ? "No Projects" : "Loading…", disabled: true }]}
-                  onChange={(projectPath) => update({ projectPath, chatId: "" })}
-                  triggerClassName="w-full"
-                  width={240}
-                />
-              </Field>
-              <Field label="Each run" error={errors.runIn} className="flex-1">
-                <Select<RoutineFormState["runIn"]>
-                  label="Each run"
-                  value={state.runIn}
-                  options={runInOptions}
-                  onChange={(runIn) => {
-                    setErrors({});
-                    setState((current) => withRunIn(current, runIn));
-                  }}
-                  triggerClassName="w-full"
-                  width={260}
-                />
-              </Field>
-              {heartbeat && (
-                <Field label="Chat" error={errors.chat} className="flex-1">
+            {comment ? (
+              <p data-routine-comment-note className="text-[12.5px] text-ink-2">
+                Comments go into the Chat linked to the issue.
+              </p>
+            ) : (
+              <div className="flex gap-2">
+                <Field label="Project" error={errors.project} className="flex-1">
                   <Select
-                    label="Chat"
-                    value={state.chatId}
-                    options={chatOptions.length ? chatOptions : [{ value: "", label: "No Chats", disabled: true }]}
-                    onChange={(chatId) => update({ chatId })}
+                    label="Project"
+                    value={state.projectPath}
+                    options={projectOptions.length ? projectOptions : [{ value: "", label: targets ? "No Projects" : "Loading…", disabled: true }]}
+                    onChange={(projectPath) => update({ projectPath, chatId: "" })}
+                    triggerClassName="w-full"
+                    width={240}
+                  />
+                </Field>
+                <Field label="Each run" error={errors.runIn} className="flex-1">
+                  <Select<RoutineFormState["runIn"]>
+                    label="Each run"
+                    value={state.runIn}
+                    options={runInOptions}
+                    onChange={(runIn) => {
+                      setErrors({});
+                      setState((current) => withRunIn(current, runIn));
+                    }}
                     triggerClassName="w-full"
                     width={260}
                   />
                 </Field>
-              )}
-            </div>
+                {heartbeat && (
+                  <Field label="Chat" error={errors.chat} className="flex-1">
+                    <Select
+                      label="Chat"
+                      value={state.chatId}
+                      options={chatOptions.length ? chatOptions : [{ value: "", label: "No Chats", disabled: true }]}
+                      onChange={(chatId) => update({ chatId })}
+                      triggerClassName="w-full"
+                      width={260}
+                    />
+                  </Field>
+                )}
+              </div>
+            )}
             <div className="flex gap-2">
               <Field label="Model" className="flex-1">
                 <Select
@@ -726,7 +735,7 @@ export function RoutineForm({
                 Cancel
               </button>
               <button type="submit" data-routine-save className={`${footerButton} bg-ink font-medium text-surface hover:opacity-90`} disabled={busy}>
-                {busy ? "Saving…" : editing ? "Save" : "Create routine"}
+                {busy ? "Saving…" : editing ? "Save" : "Create Routine"}
               </button>
             </div>
           </form>

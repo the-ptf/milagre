@@ -1689,7 +1689,7 @@ function RoutinesSetting() {
     <Row
       label="Routines"
       description={
-        "Let agents set heartbeats that check back on a Chat on a schedule. Open Chats get it after Reload chat." + (error ? ` Could not save: ${error}` : "")
+        "Let agents set Heartbeats that check back on a Chat on a schedule. Open Chats get it after Reload chat." + (error ? ` Could not save: ${error}` : "")
       }
     >
       <Switch label="Routines" checked={enabled} onChange={(next) => void change(next)} />

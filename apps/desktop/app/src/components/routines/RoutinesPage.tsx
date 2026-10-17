@@ -12,7 +12,7 @@ type Filter = "all" | "heartbeats" | "triggers" | "paused";
 const HELP = "Routines run while this Mac is awake. Closing the lid on battery pauses them.";
 const card = "divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface";
 
-/** The Routines page: this Mac's heartbeats and triggers, each with its switch and actions, and New routine. */
+/** The Routines page: this Mac's heartbeats and triggers, each with its switch and actions, and New Routine. */
 export function RoutinesPage({
   models,
   projectPath,
@@ -105,7 +105,7 @@ export function RoutinesPage({
               className="inline-flex h-[34px] shrink-0 items-center gap-1.5 rounded-lg bg-ink px-3.5 text-[13px] font-medium text-surface transition-opacity hover:opacity-90"
             >
               <HugeiconsIcon icon={PlusSignIcon} size={15} strokeWidth={2} color="currentColor" />
-              New routine
+              New Routine
             </button>
           )}
         </div>
@@ -169,7 +169,7 @@ export function RoutinesPage({
               )}
               {heartbeats.length === 0 && triggers.length === 0 && (
                 <p data-routines-empty className="px-1 text-[13px] text-ink-3">
-                  {routines.length === 0 ? "No Routines yet. Make one with New routine, or ask an agent in a Chat to check back later." : "None here."}
+                  {routines.length === 0 ? "No Routines yet. Make one with New Routine, or ask an agent in a Chat to check back later." : "None here."}
                 </p>
               )}
               <p data-routines-help className="px-1 text-[12px] text-ink-3">
