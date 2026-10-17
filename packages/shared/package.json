@@ -135,6 +135,10 @@
       "types": "./src/routine-prompt.d.mts",
       "default": "./src/routine-prompt.mjs"
     },
+    "./routine-form": {
+      "types": "./src/routine-form.d.mts",
+      "default": "./src/routine-form.mjs"
+    },
     "./checkpoint-restore": {
       "types": "./src/checkpoint-restore.d.mts",
       "default": "./src/checkpoint-restore.mjs"

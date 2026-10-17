@@ -370,3 +370,27 @@ test("a prompt renders without a template, values or untrusted map", () => {
   assert.equal(renderRoutinePrompt("a {{b}} c", undefined, undefined), "a {{b}} c");
   assert.equal(renderRoutinePrompt("a {{b}} c", { b: "B" }, undefined), "a B c");
 });
+
+test("insertPlaceholder takes the rest of a name and its braces after the caret", () => {
+  // Caret in the middle of a closed name: "{{iss|ue.key}}".
+  assert.deepEqual(insertPlaceholder("a {{issue.key}} b", 2, 7, "issue.title"), { text: "a {{issue.title}} b", caret: 17 });
+  // One closing brace typed so far: "{{iss|}".
+  assert.deepEqual(insertPlaceholder("{{iss} b", 0, 5, "issue.key"), { text: "{{issue.key}} b", caret: 13 });
+  // Text after a space is not part of the name.
+  assert.deepEqual(insertPlaceholder("{{iss more}}", 0, 5, "issue.key"), { text: "{{issue.key}} more}}", caret: 13 });
+});
+
+test("a third opening brace is taken into the placeholder, not left in front of it", () => {
+  const text = "x {{{iss";
+  const found = placeholderQuery(text, text.length, names);
+  assert.equal(found.start, 2);
+  assert.equal(found.query, "iss");
+  assert.deepEqual(insertPlaceholder(text, found.start, text.length, "issue.key"), { text: "x {{issue.key}}", caret: 15 });
+});
+
+test("placeholderQuery accepts spaces after the {{, as the renderer does", () => {
+  assert.deepEqual(placeholderQuery("{{ iss", 6, names), { start: 0, query: "iss", matches: ISSUE_NAMES });
+  assert.deepEqual(placeholderQuery("{{ ", 3, names), { start: 0, query: "", matches: names });
+  assert.equal(placeholderQuery("{{ iss more", 11, names), null);
+  assert.equal(placeholderQuery("{{\niss", 6, names), null);
+});

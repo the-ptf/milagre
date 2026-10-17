@@ -1,0 +1,106 @@
+import type { ModelProvider, Routine, RoutineTarget, RoutineTrigger } from "./model.ts";
+
+export const EVERY_MINUTES: number[];
+export const EVERY_HOURS: number[];
+
+/** A schedule as the form edits it: every N minutes or hours, at a time on chosen weekdays (0 is Sunday), or a raw cron. */
+export type RoutineFormSchedule = {
+  mode: "every" | "at" | "cron";
+  every: number;
+  unit: "min" | "h";
+  time: string;
+  days: number[];
+  cron: string;
+  timezone: string;
+};
+
+export type RoutineLinearEvent = "assigned" | "label-added" | "state" | "comment";
+
+/** Everything the Routines form holds. Empty strings mean "not chosen". */
+export type RoutineFormState = {
+  name: string;
+  trigger: "schedule" | "linear" | "webhook";
+  schedule: RoutineFormSchedule;
+  linear: { workspace: string; event: RoutineLinearEvent; team: string; label: string; state: string };
+  /** `signed` is the stored setting when editing; a new signing secret always signs. The secret is write-only. */
+  webhook: { signed?: boolean; signingHeader: string; signingSecret: string };
+  projectPath: string;
+  /** "worktree" and "project" start a new Chat per Run; "chat" is a heartbeat on `chatId` (schedules only). */
+  runIn: "worktree" | "project" | "chat";
+  chatId: string;
+  provider: ModelProvider | "";
+  model: string;
+  permissionMode: string;
+  prompt: string;
+  /** `runs` is used with kind "runs", `at` (epoch ms) with kind "date". */
+  stop: { kind: "never" | "runs" | "date"; runs: number; at: number };
+};
+
+/** Which field a problem belongs to, so the form can show it there. */
+export type RoutineFormField =
+  | "name"
+  | "trigger"
+  | "schedule"
+  | "timezone"
+  | "workspace"
+  | "label"
+  | "state"
+  | "signingSecret"
+  | "project"
+  | "runIn"
+  | "chat"
+  | "prompt"
+  | "stop";
+export type RoutineFormProblem = { field: RoutineFormField; error: string };
+
+/** What `routines:create` takes from the form. A webhook trigger has no hook id yet: the Mac mints it with the URL. */
+export type RoutineFormInput = {
+  name: string;
+  prompt: string;
+  trigger: Exclude<RoutineTrigger, { kind: "webhook" }> | { kind: "webhook"; signed: boolean };
+  target: RoutineTarget;
+  provider?: ModelProvider;
+  model?: string;
+  permissionMode?: string;
+  maxRuns?: number;
+  expiresAt?: number;
+  signingSecret?: string;
+  signingHeader?: string;
+};
+
+/** What `routines:update` takes from the form; `null` clears. */
+export type RoutineFormPatch = {
+  name: string;
+  prompt: string;
+  trigger: RoutineTrigger;
+  target: RoutineTarget;
+  provider: ModelProvider | null;
+  model: string | null;
+  permissionMode: string | null;
+  maxRuns: number | null;
+  expiresAt: number | null;
+  signingSecret?: string;
+  signingHeader?: string;
+};
+
+/** A new Routine's form: a schedule every 15 minutes in a new worktree, running until switched off. */
+export function emptyRoutineForm(timezone: string, now?: number): RoutineFormState;
+/** The form with Runs landing in `runIn`. Moving to a Chat turns a Never end into a date 7 days ahead. */
+export function withRunIn(state: RoutineFormState, runIn: RoutineFormState["runIn"], now?: number): RoutineFormState;
+/** The cron a schedule makes, in the shapes `triggerText` reads back as words, or why it can't make one. */
+export function scheduleCron(schedule: RoutineFormSchedule): { cron: string; error?: undefined } | { error: string; cron?: undefined };
+/** The form's schedule for a stored cron: Every or At when the form could have made it, Advanced (raw cron) otherwise. */
+export function scheduleFromCron(cron: string, timezone: string): RoutineFormSchedule;
+/** The `routines:create` input the form makes, or the field that is wrong and why. */
+export function formToInput(
+  state: RoutineFormState,
+  now?: number,
+): { input: RoutineFormInput; field?: undefined } | (RoutineFormProblem & { input?: undefined });
+/** The form for editing `routine`. The webhook's signing header comes from `routineHook`, so it starts blank. */
+export function formFromRoutine(routine: Routine, timezone: string, now?: number): RoutineFormState;
+/** The `routines:update` patch for an edited Routine. The trigger kind and Chat-or-new-Chat stay as they were. */
+export function formToUpdate(
+  state: RoutineFormState,
+  routine: Routine,
+  now?: number,
+): { patch: RoutineFormPatch; field?: undefined } | (RoutineFormProblem & { patch?: undefined });
