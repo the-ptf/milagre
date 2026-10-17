@@ -234,11 +234,12 @@ export function Toggle({
     </Host>
   );
 }
-/** A switch with no visible label, for the trailing end of a row that names it; `label` is what VoiceOver reads. */
+/** A switch with no visible label, for the trailing end of a row that names it; `label` is what VoiceOver reads on iOS. */
 export function RowSwitch({ selected, onPress, disabled = false, label }: { selected: boolean; onPress: () => void; disabled?: boolean; label: string }) {
   const { colors } = useTheme();
   return (
-    <View accessible={Platform.OS !== "ios"} accessibilityLabel={label} accessibilityRole="switch" accessibilityState={{ checked: selected, disabled }}>
+    // The native switch keeps its own semantics (a wrapper with a role would hide the Compose switch from TalkBack).
+    <View>
       <Host ignoreSafeArea="all" matchContents seedColor={colors.ink as string}>
         <Switch
           value={selected}

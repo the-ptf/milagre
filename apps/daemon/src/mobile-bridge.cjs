@@ -583,7 +583,8 @@ async function startMobileBridge({
       if (channel === "accounts:changed" && !confine) signal(entry, "accounts", 0);
       if (channel === "mcp:changed" && !confine) signal(entry, "mcp", 0);
       if (channel === "designs:enabled-changed") signal(entry, "designs", 0);
-      // Routines are the Mac's own; a confined phone reads only its Project's, so it is told too.
+      // Every socket is told, a confined phone's Project socket included: it is the only one such a phone may open (a
+      // Project-less socket is refused), so the phone's Routines screen reads on focus instead of on this signal.
       if (channel === "routines:changed") signal(entry, "routines", 0);
       // A Link made or removed anywhere (canvas, sidebar, another phone): the phone reads canvas:links again. A confined
       // phone is refused canvas:links, so it isn't told.

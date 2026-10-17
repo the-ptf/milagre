@@ -42,6 +42,7 @@ import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { useComposer, usePendingChats, useSession, type MobilePendingChat } from "./session";
 import { savedFoldedProjects } from "./hosts-native";
 import { useLinks } from "./use-links";
+import { useRoutinesAvailable } from "./use-routines";
 import { endNamer, linkMenuSection, linkWorktree, linkedAccessibilityLabel, linkedLabels, type LinkChat } from "./chat-links";
 import { linkWithChat, removeLinkFromChat } from "./link-actions";
 import { afterSend, selectedModel, sendOptions, turnTarget } from "./turn-options";
@@ -135,6 +136,8 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
   const composer = useComposer();
   const { pendingChats } = usePendingChats();
   const links = useLinks(session.client);
+  // An older Mac or a confined phone has no Routines to show, so the dock leaves the button out.
+  const routinesAvailable = useRoutinesAvailable(session.client);
   const insets = useSafeAreaInsets();
   const attention = useAttention();
   const { reloadProjects, previewProject, cachedProject } = session;
@@ -634,7 +637,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <IconButton label="Canvas" icon={GitMergeIcon} size={44} disabled={busy} onPress={() => onNavigate("/canvas", true)} />
         <IconButton label="Link projects" icon={Link04Icon} size={44} disabled={busy} onPress={() => onNavigate("/link-projects", true)} />
-        <IconButton label="Routines" icon={RepeatIcon} size={44} disabled={busy} onPress={() => onNavigate("/routines", true)} />
+        {routinesAvailable && <IconButton label="Routines" icon={RepeatIcon} size={44} disabled={busy} onPress={() => onNavigate("/routines", true)} />}
         <View>
           <IconButton label="Settings" icon={Settings01Icon} size={44} onPress={() => onNavigate("/settings", true)} />
           <UpdateSettingsBadge />

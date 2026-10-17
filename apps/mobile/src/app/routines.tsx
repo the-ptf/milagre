@@ -92,10 +92,10 @@ export default function RoutinesScreen() {
       {/* Stack.Toolbar takes its buttons as direct children (a Fragment is refused), so each slot picks its own element. */}
       <Stack.Toolbar placement="right">
         {Platform.OS === "ios" ? (
-          <Stack.Toolbar.Button icon="plus" accessibilityLabel="New routine" disabled={!client} onPress={newRoutine} />
+          <Stack.Toolbar.Button icon="plus" accessibilityLabel="New Routine" disabled={!client || !!routines.unavailable} onPress={newRoutine} />
         ) : (
           <Stack.Toolbar.View>
-            <HeaderButton label="New routine" icon={Add01Icon} onPress={client ? newRoutine : undefined} />
+            <HeaderButton label="New Routine" icon={Add01Icon} onPress={client && !routines.unavailable ? newRoutine : undefined} />
           </Stack.Toolbar.View>
         )}
       </Stack.Toolbar>
@@ -103,6 +103,11 @@ export default function RoutinesScreen() {
         {!client ? <Text style={styles.muted}>Connect to a Mac to see its Routines.</Text> : null}
         {routines.error ? <ErrorNotice message={routines.error} retry={() => void routines.refresh()} retryTitle="Reload" /> : null}
         {error ? <ErrorNotice message={error} /> : null}
+        {routines.unavailable ? (
+          <Text style={styles.muted}>
+            {routines.unavailable === "older" ? "Update Milagre on this Mac to use Routines." : "Routines aren't available on this connection."}
+          </Text>
+        ) : null}
         {routines.enabled === false ? (
           <View style={[styles.card, { gap: 8 }]}>
             <Text style={[styles.text, { fontWeight: "600" }]}>Routines are off on this Mac</Text>
@@ -164,10 +169,10 @@ export default function RoutinesScreen() {
             ))}
           </Group>
         ))}
-        {client && !routines.loading && !all.length && !routines.error ? (
-          <Text style={styles.muted}>No Routines yet. Tap + to add one, or ask an agent in a Chat to set a heartbeat.</Text>
+        {client && !routines.loading && !all.length && !routines.error && !routines.unavailable ? (
+          <Text style={styles.muted}>No Routines yet. Tap + to add one, or ask an agent in a Chat to set a Heartbeat.</Text>
         ) : null}
-        {client ? <Text style={[styles.caption, { paddingHorizontal: 4 }]}>{LID_HELP}</Text> : null}
+        {client && !routines.unavailable ? <Text style={[styles.caption, { paddingHorizontal: 4 }]}>{LID_HELP}</Text> : null}
       </PageScroll>
     </>
   );
@@ -217,8 +222,9 @@ function RoutineRow({
   const heartbeat = isHeartbeat(routine);
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+      {/* The label is what VoiceOver reads for the row: its name, meta and any paused reason or error. */}
       <PullDown
-        label={`Actions for ${routine.name}`}
+        label={`${routine.name}. ${meta}`}
         title={routine.name}
         style={{ flex: 1 }}
         sections={[

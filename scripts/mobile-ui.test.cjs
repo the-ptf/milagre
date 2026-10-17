@@ -2240,7 +2240,10 @@ const linksState = ({ links = [], projects = [], available = projects.length > 0
 });
 const chatLinks = () => load("chat-links.ts", { "@milagre/shared/chat-links": require("@milagre/shared/chat-links") });
 
-function navigationHost(opening, { session: extra = {}, alert = () => {}, calls = [], activeChatId, effects = false, links = linksState() } = {}) {
+function navigationHost(
+  opening,
+  { session: extra = {}, alert = () => {}, calls = [], activeChatId, effects = false, links = linksState(), routinesAvailable = true } = {},
+) {
   const react = hookHost({ effects });
   const linkRequests = [];
   const routes = [];
@@ -2334,6 +2337,7 @@ function navigationHost(opening, { session: extra = {}, alert = () => {}, calls 
     "./status-indicators": { ChatMarkIcon: "ChatMarkIcon" },
     "./use-chat-pull-requests": { useChatPullRequests: () => ({}) },
     "./use-linear": { useLinear: () => ({ active: false }) },
+    "./use-routines": { useRoutinesAvailable: () => routinesAvailable },
     "./use-worktree-linear-issues": { useWorktreeLinearIssues: () => ({}) },
     "@milagre/shared/chat-row": require("../packages/shared/src/chat-row.ts"),
     "./chat-row-store": {
@@ -10245,6 +10249,15 @@ test("the phone's project dock has four buttons, Routines before Settings, and R
   assert.deepEqual(nav.secondaryRoutes, [true], "Routines push onto the stack like Settings");
 });
 
+test("the phone's project dock leaves Routines out when the Mac can't offer them (an older Mac, a confined phone)", () => {
+  const nav = navigationHost(deferred().promise, { routinesAvailable: false });
+  assert.equal(
+    find(nav.render(), (node) => node.type === "IconButton" && node.props.label === "Routines"),
+    undefined,
+  );
+  assert.ok(find(nav.render(), (node) => node.type === "IconButton" && node.props.label === "Settings"));
+});
+
 const routineFixtures = () => [
   {
     id: "hb",
@@ -10277,20 +10290,29 @@ const routineFixtures = () => [
   },
 ];
 
-function routinesHost({ routines = routineFixtures(), enabled = true } = {}) {
+function routinesHost({ routines = routineFixtures(), enabled = true, refuse = false, confined = false, slowUpdates = false } = {}) {
   const react = hookHost();
   const effects = [];
   const focused = [];
   const calls = [];
   const routes = [];
   let list = routines;
+  const sockets = [];
+  const updates = [];
   const client = {
     url: "ws://mac",
-    live: () => ({ close() {} }),
+    live: (path) => (sockets.push(path), { close() {} }),
     async call(method, args) {
       calls.push([method, args]);
+      if (refuse && method.startsWith("routines:")) throw new Error(`${method} is not available from mobile`);
+      if (confined && (method === "routines:enabled:read" || method === "routines:list")) return [];
       if (method === "routines:enabled:read") return { enabled };
       if (method === "routines:list") return { routines: list };
+      if (method === "routines:update" && slowUpdates) {
+        const gate = deferred();
+        updates.push(gate);
+        await gate.promise;
+      }
       if (method === "routines:update") {
         list = list.map((routine) => (routine.id === args[0] ? { ...routine, ...args[1] } : routine));
         return list.find((routine) => routine.id === args[0]);
@@ -10341,7 +10363,7 @@ function routinesHost({ routines = routineFixtures(), enabled = true } = {}) {
   // The rows are components of their own; render each to read what it shows.
   const rows = (tree) => allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "RoutineRow").map((row) => row.type(row.props));
   const groups = (tree) => allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "Group").map((group) => group.props.title);
-  return { render, settle, calls, routes, rows, groups };
+  return { render, settle, calls, routes, rows, groups, sockets, updates };
 }
 
 test("the phone Routines screen groups heartbeats and triggers, says why a trigger paused, and opens a row's actions", async () => {
@@ -10538,4 +10560,77 @@ test("the phone routine form shows a refused field's problem and sends nothing",
   );
   const problems = allNodes(host.render(), (node) => typeof node.type === "function" && node.type.name === "Problem").map((node) => node.props.text);
   assert.ok(problems.includes("Pick the label to watch"), "the problem shows under the Linear card");
+});
+
+test("opening the phone Routines screen reads once and opens one live socket", async () => {
+  const host = routinesHost();
+  host.render();
+  await host.settle();
+  assert.equal(host.calls.filter(([method]) => method === "routines:list").length, 1);
+  assert.deepEqual(host.sockets, [""]);
+});
+
+test("on a Mac without Routines the phone screen asks to update Milagre there, with no raw error and no socket", async () => {
+  const host = routinesHost({ refuse: true });
+  host.render();
+  await host.settle();
+  const tree = host.render();
+  const texts = allNodes(tree, (node) => node.type === "Text").map(textOf);
+  assert.ok(texts.includes("Update Milagre on this Mac to use Routines."));
+  assert.ok(!texts.includes("Routines are off on this Mac"));
+  assert.equal(
+    find(tree, (node) => node.type === "ErrorNotice"),
+    undefined,
+  );
+  assert.deepEqual(host.sockets, []);
+});
+
+test("a confined phone is never told Routines are off, and opens no Project-less socket", async () => {
+  const host = routinesHost({ confined: true });
+  host.render();
+  await host.settle();
+  const texts = allNodes(host.render(), (node) => node.type === "Text").map(textOf);
+  assert.ok(!texts.includes("Routines are off on this Mac"));
+  assert.ok(texts.includes("Routines aren't available on this connection."));
+  assert.deepEqual(host.sockets, []);
+});
+
+test("two quick flips of one Routine on the phone keep the second value until its own write settles", async () => {
+  const host = routinesHost({ slowUpdates: true });
+  host.render();
+  await host.settle();
+  const switchOf = () => find(host.rows(host.render())[0], (node) => node.type === "RowSwitch");
+  switchOf().props.onPress();
+  assert.equal(switchOf().props.selected, false);
+  switchOf().props.onPress();
+  assert.equal(switchOf().props.selected, true);
+  await host.settle();
+  host.updates[0].resolve();
+  await host.settle();
+  assert.equal(switchOf().props.selected, true, "the first write's end doesn't drop the second flip");
+  host.updates[1].resolve();
+  await host.settle();
+});
+
+test("useRoutinesAvailable is true on a Mac with Routines, switched off or on, and false on an older Mac or a confined phone", async () => {
+  const check = async (answer) => {
+    const react = hookHost();
+    const focused = [];
+    const { useRoutinesAvailable } = load("use-routines.ts", {
+      react,
+      "react-native": { AppState: { addEventListener: () => ({ remove() {} }) } },
+      "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+    });
+    const client = { call: async () => (answer instanceof Error ? Promise.reject(answer) : answer) };
+    react.begin();
+    useRoutinesAvailable(client);
+    for (const fn of focused.splice(0)) fn();
+    await new Promise((resolve) => setImmediate(resolve));
+    react.begin();
+    return useRoutinesAvailable(client);
+  };
+  assert.equal(await check({ enabled: false }), true);
+  assert.equal(await check({ enabled: true }), true);
+  assert.equal(await check(new Error("routines:enabled:read is not available from mobile")), false);
+  assert.equal(await check([]), false);
 });
