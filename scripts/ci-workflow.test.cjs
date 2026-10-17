@@ -7,7 +7,12 @@ const YAML = require("yaml");
 const read = (name) => YAML.parse(fs.readFileSync(path.join(__dirname, "../.github/workflows", name), "utf8"));
 const ci = read("ci.yml");
 const installAction = ".github/actions/install-dependencies";
-const runs = (job) => job.steps.map((step) => step.run).filter(Boolean);
+/** A job's steps with every `parallel` group unfolded into its members. */
+const steps = (job) => job.steps.flatMap((step) => step.parallel ?? [step]);
+const runs = (job) =>
+  steps(job)
+    .map((step) => step.run)
+    .filter(Boolean);
 const candidates = read("package-candidates.yml");
 
 test("CI and candidate runs on one ref cancel the previous PR run but never a main run", () => {
@@ -21,11 +26,17 @@ test("every CI job has a timeout", () => {
   for (const [name, job] of Object.entries(ci.jobs)) assert.ok(Number.isInteger(job["timeout-minutes"]), `${name} needs timeout-minutes`);
 });
 
+test("a run is at most 14 jobs, so a second run starts six of its jobs under the account's 20 concurrent jobs", () => {
+  const jobs = Object.entries(ci.jobs).filter(([name]) => name !== "release");
+  const total = jobs.reduce((sum, [, job]) => sum + (job.strategy?.matrix?.shard?.length ?? 1), 0);
+  assert.ok(total <= 14, `${total} jobs per run`);
+});
+
 test("CI typechecks once and builds the renderer without a second typecheck", () => {
-  const steps = new Set(runs(ci.jobs.static));
-  assert.ok(steps.has("npm run typecheck"));
-  assert.ok(steps.has("npm run build:renderer --workspace milagre"));
-  assert.ok(!steps.has("npm run build"));
+  const commands = new Set(runs(ci.jobs.javascript));
+  assert.ok(commands.has("npm run typecheck"));
+  assert.ok(commands.has("npm run build:renderer --workspace milagre"));
+  assert.ok(!commands.has("npm run build"));
 });
 
 test("desktop agent tests do not repeat the renderer logic tests", () => {
@@ -51,43 +62,62 @@ test("the release job waits for the required checks, not the change filter or de
   assert.ok(!needs.includes("changes"));
 });
 
-test("CI runs the unit suite through the single test command, one shard per matrix leg", () => {
-  const job = ci.jobs.unit;
-  const shards = job.strategy.matrix.shard;
+test("CI runs the unit suite through the single test command, two shards side by side after the quick checks", () => {
+  const groups = ci.jobs.javascript.steps.filter((step) => step.parallel);
+  assert.equal(groups.length, 2, "quick checks, then the unit shards");
+  const shards = groups[1].parallel.map((step) => step.run);
+  // The shard count is the group's size, so the two cannot drift apart.
   assert.deepEqual(
     shards,
-    Array.from({ length: shards.length }, (_, i) => i + 1),
+    shards.map((_, i) => `npm test -- --unit --shard ${i + 1}/${shards.length}`),
   );
-  // The shard count comes from the matrix itself, so the two cannot drift apart.
-  assert.ok(runs(job).includes("npm test -- --unit --shard ${{ matrix.shard }}/${{ strategy.job-total }}"));
-  assert.ok(!Object.values(ci.jobs).some((other) => runs(other).some((run) => /npm run test:/.test(run))), "no per-suite scripts left in CI");
+  // Inside the quick-check group the suite took three times as long and its timing-sensitive tests failed.
+  assert.ok(!groups[0].parallel.some((step) => /--unit/.test(step.run)), "no unit tests among the quick checks");
+  const every = Object.values(ci.jobs).flatMap((job) => runs(job));
+  assert.ok(!every.some((run) => /npm run test:/.test(run)), "no per-suite scripts left in CI");
 });
 
-test("the required javascript check passes only when every JavaScript job passed", () => {
-  const gate = ci.jobs.javascript;
-  assert.equal(gate.if, "always()");
-  assert.deepEqual(gate.needs, ["static", "supply-chain", "unit"]);
-  // A skipped or cancelled job must fail the gate, or branch protection would accept a PR whose checks never ran.
-  const script = runs(gate).join("\n");
-  for (const need of gate.needs) assert.ok(gate.steps[0].env.RESULTS.includes(`needs.${need}.result`), need);
-  assert.match(script, /\[ "\$result" = success \] \|\| exit 1/);
+test("the required javascript check is one job whose quick checks run as parallel steps, each with its own log", () => {
+  const job = ci.jobs.javascript;
+  assert.equal(job.needs, undefined);
+  assert.equal(job.if, undefined, "javascript always runs");
+  const group = job.steps.find((step) => step.parallel);
+  assert.ok(group, "the checks form a parallel group");
+  const commands = group.parallel.map((step) => step.run);
+  for (const command of [
+    "npm run typecheck",
+    "npm run lint",
+    "npm run format:check",
+    "npm run knip",
+    "npm run typecheck:mobile",
+    "npm run typecheck:relay",
+    "npm run typecheck:site",
+    "npm run build:site",
+    "npm run build:renderer --workspace milagre",
+    "npm audit signatures",
+  ])
+    assert.ok(commands.includes(command), command);
+  for (const step of group.parallel) assert.ok(step.name && step.run, "every parallel step is named and runs a command");
+  // The gate job went with the jobs it gathered.
+  for (const name of ["static", "supply-chain", "unit"]) assert.equal(ci.jobs[name], undefined, `${name} folded into javascript`);
 });
 
-test("Windows and Linux native tests run on PRs without building an installer", () => {
+test("Windows native tests run on PRs without building an installer; Linux repository signing is a javascript step", () => {
   const job = ci.jobs["native-tests"];
-  assert.deepEqual(
-    job.strategy.matrix.include.map((item) => item.os),
-    ["windows-latest", "ubuntu-24.04"],
-  );
-  const runs = JSON.stringify(job.steps);
+  assert.equal(job["runs-on"], "windows-latest");
+  assert.equal(job.strategy, undefined, "one leg, no matrix");
+  const text = JSON.stringify(job.steps);
   assert.ok(
-    runs.includes("windows-runtime.test.cjs") &&
-      runs.includes("windows-transport.test.cjs") &&
-      runs.includes("process-tree.test.cjs") &&
-      runs.includes("ownership.test.cjs"),
+    text.includes("windows-runtime.test.cjs") &&
+      text.includes("windows-transport.test.cjs") &&
+      text.includes("process-tree.test.cjs") &&
+      text.includes("ownership.test.cjs"),
   );
-  assert.ok(runs.includes("MILAGRE_LINUX_REPOSITORY_INTEGRATION=1"));
-  assert.ok(!runs.includes("package:"), "native tests never package");
+  assert.ok(!text.includes("package:"), "native tests never package");
+  const signing = steps(ci.jobs.javascript).find((step) => step.name === "Test real Linux repository signing");
+  assert.match(signing.run, /MILAGRE_LINUX_REPOSITORY_INTEGRATION=1 node --test scripts\/linux-repository\.test\.cjs/);
+  assert.match(signing.run, /apt-get install .*rpm createrepo-c gnupg/);
+  assert.match(signing.run, /rm -rf "\$GNUPGHOME"/);
 });
 
 test("native tests and Electron checks run only when a PR touches desktop code; the JavaScript job always runs", () => {
@@ -105,7 +135,7 @@ test("native tests and Electron checks run only when a PR touches desktop code; 
     assert.equal(ci.jobs[name].needs, "changes", `${name} waits for the change detection`);
     assert.equal(ci.jobs[name].if, "needs.changes.outputs.desktop == 'true'", `${name} is skipped on PRs without desktop changes`);
   }
-  for (const name of ["static", "supply-chain", "unit"]) assert.equal(ci.jobs[name].if, undefined, `${name} always runs`);
+  assert.equal(ci.jobs.javascript.if, undefined, "javascript always runs");
 });
 
 test("installers build on main, on dispatch, and on PRs only with the preview:installers label", () => {
@@ -134,6 +164,8 @@ test("Electron checks run on Ubuntu under xvfb, one shard per matrix leg, with s
   const occurrences = JSON.stringify(job.steps).split("--shard ").slice(1);
   assert.ok(occurrences.length >= 2, "the ffmpeg lookup and the test run both name the shard");
   for (const rest of occurrences) assert.ok(rest.startsWith("${{ matrix.shard }}/${{ strategy.job-total }}"), rest.slice(0, 40));
+  // One Electron stream per runner: two streams were measured 30 s slower with three to eight retries a run.
+  assert.ok(!job.steps.some((step) => step.parallel), "no parallel group in the Electron job");
   const upload = job.steps.find((step) => step.uses?.startsWith("actions/upload-artifact"));
   assert.equal(upload.if, "always()");
   // upload-artifact v4 rejects a second artifact with the same name in one run.
@@ -142,9 +174,9 @@ test("Electron checks run on Ubuntu under xvfb, one shard per matrix leg, with s
 });
 
 test("CI lints every workspace with oxlint, which carries the Expo rules for mobile", () => {
-  const steps = new Set(runs(ci.jobs.static));
-  assert.ok(steps.has("npm run lint"));
-  assert.ok(!steps.has("npm run lint --workspace @milagre/mobile"));
+  const commands = new Set(runs(ci.jobs.javascript));
+  assert.ok(commands.has("npm run lint"));
+  assert.ok(!commands.has("npm run lint --workspace @milagre/mobile"));
   const config = JSON.parse(fs.readFileSync(path.join(__dirname, "../.oxlintrc.json"), "utf8"));
   const mobile = config.overrides.find((override) => override.files.includes("apps/mobile/**"));
   assert.deepEqual(mobile.jsPlugins, ["./apps/mobile/lint/expo-env.mjs"]);
@@ -153,30 +185,24 @@ test("CI lints every workspace with oxlint, which carries the Expo rules for mob
   }
 });
 
-test("CI checks formatting right after linting", () => {
-  const steps = ci.jobs.static.steps;
-  const lint = steps.findIndex((step) => step.run === "npm run lint");
-  assert.equal(steps[lint + 1].name, "Format check");
-  assert.equal(steps[lint + 1].run, "npm run format:check");
-  assert.equal(require("../package.json").scripts["format:check"], "oxfmt --check .");
-});
-
-test("CI looks for dead code right after the format check", () => {
-  const steps = ci.jobs.static.steps;
-  const format = steps.findIndex((step) => step.run === "npm run format:check");
-  assert.equal(steps[format + 1].name, "Dead code");
-  assert.equal(steps[format + 1].run, "npm run knip");
-  assert.equal(require("../package.json").scripts.knip, "knip");
+test("lint, format check and dead code are parallel steps of the javascript job, on the repo's oxfmt and knip scripts", () => {
+  const commands = runs(ci.jobs.javascript);
+  for (const command of ["npm run lint", "npm run format:check", "npm run knip"]) assert.ok(commands.includes(command), command);
+  const scripts = require("../package.json").scripts;
+  assert.equal(scripts["format:check"], "oxfmt --check .");
+  assert.equal(scripts.knip, "knip");
 });
 
 test("CI lints the lockfile before installing and verifies signatures after", () => {
-  const steps = ci.jobs["supply-chain"].steps;
-  const install = steps.findIndex((step) => step.uses === `./${installAction}`);
+  const job = ci.jobs.javascript;
+  const install = job.steps.findIndex((step) => step.uses === `./${installAction}`);
   assert.equal(
-    steps[install - 1].run,
+    job.steps[install - 1].run,
     "npx --yes lockfile-lint@5.0.1 --path package-lock.json --type npm --allowed-hosts npm --validate-https --validate-integrity",
   );
-  assert.equal(steps[install + 1].run, "npm audit signatures");
+  const group = job.steps.findIndex((step) => step.parallel);
+  assert.ok(group > install, "the checks, signatures among them, run after the install");
+  assert.ok(runs(job).includes("npm audit signatures"));
 });
 
 test("a cached install is keyed on the lockfile and installs with npm ci only on a miss", () => {
