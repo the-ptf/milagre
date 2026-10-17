@@ -342,6 +342,50 @@ test("a Delegation queued behind an Antigravity turn survives a restart, runs af
   );
 });
 
+test("a quit right after a Delegation is queued waits for its waiting flag to save, so the restart keeps it", async (t) => {
+  // The queued message is visible (and saved by the Chat) before the Delegation records that it waits there. A quit in
+  // between used to load the record without the flag on the next start and report the Delegation cancelled.
+  const fixture = await linkedProjects(t);
+  let release;
+  let saving = false;
+  const renamed = fs.rename;
+  t.mock.method(fs, "rename", async (...args) => {
+    if (!saving && path.basename(String(args[1])) === "delegations.json" && /"waiting": true/.test(await fs.readFile(args[0], "utf8"))) {
+      saving = true;
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+    }
+    return renamed(...args);
+  });
+  fixture.scripts.web = async () => {};
+  await fixture.send("web", "Long user task", "full", { provider: "antigravity", model: "gemini-test" });
+  await waitFor(() => fixture.sessionOf("web")?.turnActive);
+  fixture.scripts.api = async (session) => {
+    await session.call("delegate", delegation(fixture));
+    session.finish("Asked web.");
+  };
+  await fixture.send("api", "Ask web");
+  await waitFor(() => saving);
+  let closed = false;
+  const closing = fixture.runtime.close().then(() => {
+    closed = true;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(closed, false, "the quit waits for the Delegation's waiting flag to reach disk");
+  } finally {
+    release();
+    await closing;
+  }
+  // The quit cut api's turn inside its delegate call; resumed, that turn must not delegate a second time.
+  fixture.scripts.api = async (session) => session.finish("Resumed.");
+  fixture.scripts.web = async (session, prompt) => session.finish(/Delegation from api/.test(prompt) ? "Added GET /health." : "Resumed the long task.");
+  await fixture.restart();
+  const report = await findMessage(fixture, "api", "delegation-report");
+  assert.deepEqual([report.body, report.context.status], ["Added GET /health.", "done"]);
+});
+
 test('"new" opens a Chat in the linked Worktree on the Project\'s last used agent', async (t) => {
   const fixture = await linkedProjects(t);
   await fixture.send("web", "An earlier conversation");

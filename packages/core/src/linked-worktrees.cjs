@@ -339,7 +339,10 @@ function createLinkedWorktrees({
     stop: (target) => delegations.stop(target),
     snapshot,
     suspend: () => delegations.suspend(),
-    close: () => mcp.close(),
+    close: async () => {
+      await mcp.close();
+      await delegations.idle();
+    },
   };
 }
 

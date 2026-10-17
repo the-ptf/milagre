@@ -84,6 +84,10 @@ function jsonFileStore(file) {
         });
       return queue;
     },
+    /** Resolves once every save requested so far is on disk; a quit waits on it before the next start can load. */
+    idle() {
+      return queue.catch(() => {});
+    },
   };
 }
 
@@ -176,6 +180,15 @@ class Delegations {
     this.data.negotiations = trim(this.data.negotiations, (item) => item.status === "running");
     this.ports.changed(this.snapshot());
     return this.store.save(this.data).catch((error) => console.warn("Milagre couldn't save Delegations:", error.message));
+  }
+
+  /**
+   * Resolves once pending saves are on disk. A `delegate` call records that its message waits in the receiving Chat's
+   * queue only after that Chat saved the message, so a quit in between must wait here, or the next start loads the
+   * record without the flag and reports the Delegation cancelled.
+   */
+  idle() {
+    return this.store.idle?.() ?? Promise.resolve();
   }
 
   /** The `delegate` tool. Resolves to what the requesting agent is told; refusals throw. */
