@@ -357,10 +357,14 @@ async function browserChecks() {
       if (unchanged === 5) break;
       if (attempt === 3) throw new Error(`the unfolded group never settled: aria-expanded=${await expanded()} rows=${last}`);
     }
-    const centre = (selector) =>
-      evaluate(
-        `(() => { const node = document.querySelector(${JSON.stringify(selector)}); if (!node) throw new Error("missing: " + ${JSON.stringify(selector)}); const r = node.getBoundingClientRect(); return { x: Math.round(r.left + 60), y: Math.round(r.top + r.height / 2), bottom: r.bottom }; })()`,
+    // A row is away for a moment while the list mounts again (a press that ended as a click on it does that too), so a
+    // row is measured once it is back, not assumed.
+    const centre = async (selector) => {
+      await waitFor(`!!document.querySelector(${JSON.stringify(selector)})`);
+      return evaluate(
+        `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.left + 60), y: Math.round(r.top + r.height / 2), bottom: r.bottom }; })()`,
       );
+    };
     const mouse = (type, x, y) => window.webContents.sendInputEvent({ type, x, y, button: "left", clickCount: 1 });
     const target = () => centre(row7);
     // On the CI runner the press sometimes never became a drag (its timeout dump showed no data-chat-drag with the
