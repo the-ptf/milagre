@@ -11,7 +11,7 @@ const CONCURRENT_RUNS = 3;
 // How long a comment whose Chat is busy waits before it tries again.
 const COMMENT_RETRY_MS = 15_000;
 const NO_CHAT = "issue has no Chat";
-const RUN_NOW_EVENTS = "Run now works for schedules and heartbeats";
+const RUN_NOW_EVENTS = "Run now works for schedules and Heartbeats";
 const AUTHOR_MAX = 80;
 
 const errorText = (error) => error?.message ?? String(error);

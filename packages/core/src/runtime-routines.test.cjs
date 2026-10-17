@@ -877,3 +877,15 @@ test("routines:targets within a folder reads only the Projects inside it", async
   const elsewhere = await f.runtime.invoke("routines:targets", [{ within: path.join(f.dir, "elsewhere") }]);
   assert.deepEqual(elsewhere.projects, []);
 });
+
+test("an agent's routine_delete of a webhook Routine forgets its URL secret too", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const { routine, hookUrl } = await createWebhook(f);
+  const secrets = async () => JSON.parse(await fs.readFile(hookFile(f), "utf8")).secrets;
+  assert.ok((await secrets())[routine.id], "the secret is stored");
+  const deleted = await runTool(f.tool("routine_delete"), { id: routine.id });
+  assert.equal(deleted.isError, false, deleted.text);
+  assert.equal((await secrets())[routine.id], undefined, "the secret is gone");
+  assert.ok(!(await fs.readFile(hookFile(f), "utf8")).includes(secretOf(hookUrl)));
+});

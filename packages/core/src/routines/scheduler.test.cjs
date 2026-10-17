@@ -1211,8 +1211,8 @@ test("runNow refuses a Linear or webhook trigger: there is no event to run with"
   const ctx = triggers();
   const hook = createHook(ctx);
   const comments = createComments(ctx);
-  await assert.rejects(() => ctx.scheduler.runNow(hook.id), { message: "Run now works for schedules and heartbeats" });
-  await assert.rejects(() => ctx.scheduler.runNow(comments.id), { message: "Run now works for schedules and heartbeats" });
+  await assert.rejects(() => ctx.scheduler.runNow(hook.id), { message: "Run now works for schedules and Heartbeats" });
+  await assert.rejects(() => ctx.scheduler.runNow(comments.id), { message: "Run now works for schedules and Heartbeats" });
   assert.deepEqual(ctx.store.runs(hook.id), []);
   assert.deepEqual(ctx.store.runs(comments.id), []);
   assert.equal(ctx.calls.start.length, 0);

@@ -2100,3 +2100,23 @@ test("a queue that can't move on this tick is checked without copying the store"
   assert.equal(fs.readFileSync(file, "utf8"), before);
   assert.equal(fs.statSync(file).mtimeMs, written);
 });
+
+test("the store says which Routines its upkeep purged, so their webhook secrets go with them", () => {
+  const { options, clock } = setup();
+  const purged = [];
+  const store = createRoutineStore({ ...options, onPurged: (ids) => purged.push(...ids) });
+  store.setEnabled(true);
+  const hook = store.create({ ...spec });
+  store.complete(hook.id, "done");
+  // 30 days on, the hourly upkeep purges it on the next write.
+  clock.t += 31 * 864e5;
+  store.create({ ...spec, name: "other", trigger: webhook(OTHER_HOOK) });
+  assert.deepEqual(purged, [hook.id]);
+  // A purge on load says so too.
+  const loaded = [];
+  const other = store.list()[0];
+  store.complete(other.id, "done");
+  clock.t += 31 * 864e5;
+  createRoutineStore({ ...options, onPurged: (ids) => loaded.push(...ids) });
+  assert.deepEqual(loaded, [other.id]);
+});

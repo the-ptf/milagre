@@ -303,9 +303,10 @@ function pruneSeen(state, routineId, at) {
 
 // Upkeep, on load and at most hourly after: a Routine completed 30 days ago goes, with its Runs, queue, seen keys and any
 // Linear cursor no other Routine reads; seen keys past their age go. Says whether anything went.
-function maintain(state, at) {
+function maintain(state, at, purgedIds = []) {
   let changed = false;
   const purged = state.routines.filter((routine) => finite(routine.completedAt) && routine.completedAt + PURGE_AFTER_MS <= at);
+  purgedIds.push(...purged.map((routine) => routine.id));
   if (purged.length) {
     changed = true;
     state.routines = state.routines.filter((routine) => !purged.includes(routine));
@@ -369,8 +370,10 @@ function indexRuns(state) {
  * in memory. Every mutation is synchronous and goes through `transact`: it changes a copy, writes the whole file once
  * (temp file plus rename, like limit-switch.cjs), and only then makes the copy current, so a failed write changes nothing.
  * A file it can't read (other than a missing one) or doesn't understand is never written: the store opens read-only.
+ * `onPurged(ids)` hears which Routines upkeep purged (on load, and after the write that purged them), so what lives
+ * outside the store, a webhook's secret, can go with them.
  */
-function createRoutineStore({ file, now = Date.now, id = () => crypto.randomBytes(4).toString("hex") }) {
+function createRoutineStore({ file, now = Date.now, id = () => crypto.randomBytes(4).toString("hex"), onPurged = () => {} }) {
   // Why every mutation is refused, or null.
   let readOnly = null;
   let maintainedAt = now();
@@ -378,8 +381,18 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
   let runIndex;
   let positions;
   publish(load());
-  maintain(data, maintainedAt);
+  const purgedOnLoad = [];
+  maintain(data, maintainedAt, purgedOnLoad);
   publish(data);
+  if (purgedOnLoad.length) told(purgedOnLoad);
+
+  function told(ids) {
+    try {
+      onPurged(ids);
+    } catch (error) {
+      console.warn("[routines] couldn't clear up after purged Routines", error);
+    }
+  }
 
   function publish(state) {
     data = state;
@@ -521,11 +534,13 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     const result = change(draft, tx);
     const at = now();
     const upkeep = at - maintainedAt >= MAINTAIN_EVERY_MS;
-    if (upkeep && maintain(draft, at)) tx.changed = true;
+    const purgedIds = [];
+    if (upkeep && maintain(draft, at, purgedIds)) tx.changed = true;
     if (tx.changed) {
       write(draft);
       publish(draft);
     }
+    if (purgedIds.length) told(purgedIds);
     if (upkeep) maintainedAt = at;
     return result;
   }

@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { createRoutines, routineChats, routineReply } = require("./runtime-adapter.cjs");
+const { createRoutines, routineChats, routineReply, routineTargets } = require("./runtime-adapter.cjs");
 
 const chatId = "/project#2";
 const baseState = {
@@ -825,7 +825,6 @@ test("start recovers the Runs a stop cut short even while Routines are off", asy
 });
 
 test("the agent tools refuse a Heartbeat or a Routine from a Chat outside the Projects Milagre lists, or in a Link", async (t) => {
-  const { routineTargets } = require("./runtime-adapter.cjs");
   const { createRoutineStore } = require("./store.cjs");
   const { createRoutineTools } = require("./tools.cjs");
   const { runTool } = require("../linked-tools.cjs");
@@ -1110,4 +1109,75 @@ test("a rotate whose last secret write fails still tells the relay about the new
   // The entry matching the new hook id is the one that answers.
   const { url } = webhooks.hook(routine.id);
   assert.equal(require("node:crypto").createHash("sha256").update(url.split("/hook/")[1]).digest("hex"), rotated.trigger.hookId);
+});
+
+// A Project folder on disk, listed, that the test can swap for a symlink after a Routine was made for it.
+function swappableProject(t) {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "routine-start-check-")));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const project = path.join(dir, "project");
+  fs.mkdirSync(project);
+  const swap = () => {
+    const moved = path.join(dir, "elsewhere");
+    fs.renameSync(project, moved);
+    fs.symlinkSync(moved, project);
+  };
+  return { project, swap };
+}
+
+test("a Run checks its target again as it starts: a Project folder swapped for a symlink fails the Run", async (t) => {
+  const { project, swap } = swappableProject(t);
+  const state = { worktrees: { 1: { id: 1, path: project } }, sessions: { 2: { id: 2, worktree_id: 1 } }, messages: [] };
+  const created = [];
+  const adapter = routineChats({
+    chats: {
+      runs: {},
+      isBusy: () => false,
+      turnSettings: () => null,
+      emptyChat: async () => 4,
+      send: async (request) => ({ sessionId: request.sessionId, started: Promise.resolve({ turnId: "t" }) }),
+    },
+    cachedState: () => state,
+    openState: async () => state,
+    isClosing: () => false,
+    worktrees: { projectWorktree: async () => 1, create: async (request) => (created.push(request), { worktreeId: 7 }), base: async () => "main" },
+    projects: async () => [{ path: project }],
+    projectState: async () => state,
+    startCheck: routineTargets({ projects: async () => [{ path: project }], openState: async () => state }).atStart,
+  });
+  const routine = { ...triage("project"), target: { kind: "new-chat", projectPath: project, workspace: "project" } };
+  // Before the swap the Run starts, and a beat goes into the Chat.
+  await adapter.startChat({ routine, run: { id: "run-1" } });
+  await adapter.send(`${project}#2`, { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r1", runId: "run-2" } });
+  swap();
+  await assert.rejects(adapter.startChat({ routine, run: { id: "run-3" } }), /Project folder/);
+  await assert.rejects(
+    adapter.send(`${project}#2`, { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r1", runId: "run-4" } }),
+    /Project folder/,
+  );
+  assert.deepEqual(created, [], "no Worktree made");
+});
+
+test("a Run whose Project is no longer listed fails as it starts", async (t) => {
+  const { project } = swappableProject(t);
+  const state = { worktrees: { 1: { id: 1, path: project } }, sessions: { 2: { id: 2, worktree_id: 1 } }, messages: [] };
+  const adapter = routineChats({
+    chats: { runs: {}, isBusy: () => false, turnSettings: () => null, emptyChat: async () => 4 },
+    cachedState: () => state,
+    openState: async () => state,
+    isClosing: () => false,
+    worktrees: { projectWorktree: async () => 1 },
+    projects: async () => [],
+    projectState: async () => state,
+    startCheck: routineTargets({ projects: async () => [], openState: async () => state }).atStart,
+  });
+  const routine = { ...triage("project"), target: { kind: "new-chat", projectPath: project, workspace: "project" } };
+  await assert.rejects(adapter.startChat({ routine, run: { id: "run-1" } }), /Project Milagre lists/);
+});
+
+test("the Routines commands name a Routine with a capital R in their errors", async (t) => {
+  const { routines } = timedRoutines(t);
+  assert.throws(() => routines.remove(""), { message: "Choose a Routine." });
+  await assert.rejects(routines.update("", {}), { message: "Choose a Routine." });
+  await assert.rejects(routines.update("r1", null), { message: "A Routine change must be an object." });
 });

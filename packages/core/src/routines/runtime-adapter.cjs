@@ -89,6 +89,8 @@ function routineChats({
   projectState = async () => null,
   // The connected Linear workspaces' keys: with more than one, a link that names no workspace is ambiguous.
   linearWorkspaces = () => [],
+  // Checks a Run's stored target again as the Run starts (routineTargets().atStart); throws to fail the Run.
+  startCheck = async () => {},
   now = Date.now,
   timeoutMs = START_TIMEOUT_MS,
   hooks = () => null,
@@ -170,6 +172,7 @@ function routineChats({
     const at = now();
     const issue = run.event?.kind === "linear" ? run.event.issue : null;
     const body = firstMessage(routine, run, at);
+    await startCheck(routine.target);
     const { projectPath } = routine.target;
     const deliveryId = run.event?.kind === "webhook" ? run.event.deliveryId : null;
     let made;
@@ -266,6 +269,7 @@ function routineChats({
       const state = await openState(projectPath, sessionId);
       const target = state?.sessions?.[sessionId];
       if (!target) throw new Error("That Chat is no longer in its Project.");
+      await startCheck({ kind: "chat", chatId });
       // Opening the Project can resume a turn a quit stopped, and the user may have sent meanwhile.
       if (busy(chatId)) throw busyError();
       const latest = chats.turnSettings(chatId);
@@ -354,7 +358,23 @@ function routineTargets({ projects, openState }) {
     }
     throw new Error(UNLISTED);
   }
-  return async function checkTarget(target) {
+  /**
+   * The same check as a Run starts, for the target as stored: the Project is still listed, its folder is still the folder
+   * it was (its realpath is the stored path, so no symlink was swapped in), and a Heartbeat's Chat is still there. Throws
+   * what went wrong; the Run fails with it.
+   */
+  async function atStart(target) {
+    const folder = target?.kind === "new-chat" ? target.projectPath : target?.kind === "chat" ? projectOfKey(String(target.chatId ?? "")) : null;
+    if (typeof folder !== "string" || !path.isAbsolute(folder)) throw new Error(UNLISTED);
+    if ((await fs.realpath(folder).catch(() => null)) !== folder) throw new Error(`The Project folder ${folder} moved or is no longer a folder.`);
+    if (!(await projects()).some((project) => project.path === folder)) throw new Error(UNLISTED);
+    if (target.kind === "chat") {
+      const sessionId = sessionIdFromKey(target.chatId);
+      const session = (await openState(folder, sessionId))?.sessions?.[sessionId];
+      if (!session || session.archived) throw new Error(NO_CHAT);
+    }
+  }
+  async function checkTarget(target) {
     if (target?.kind === "new-chat") return { ...target, projectPath: await listedProject(target.projectPath) };
     if (target?.kind !== "chat") return target;
     if (typeof target.chatId !== "string" || !target.chatId.includes("#")) throw new Error("Choose a Chat.");
@@ -366,7 +386,8 @@ function routineTargets({ projects, openState }) {
     const session = (await openState(projectPath, sessionId))?.sessions?.[sessionId];
     if (!session || session.archived) throw new Error(NO_CHAT);
     return { kind: "chat", chatId: chatKey(projectPath, sessionId) };
-  };
+  }
+  return Object.assign(checkTarget, { atStart });
 }
 
 /**
@@ -392,7 +413,14 @@ function createRoutines({
   timers = {},
 }) {
   const now = timers.now ?? Date.now;
-  const store = createRoutineStore({ file, now });
+  // Routines purged before the webhooks below exist (on load) have their secrets forgotten once they do.
+  let webhooksReady = false;
+  const purgedEarly = [];
+  const forgetPurged = (ids) => {
+    if (!webhooksReady) return void purgedEarly.push(...ids);
+    for (const routineId of ids) webhooks.forget(routineId);
+  };
+  const store = createRoutineStore({ file, now, onPurged: forgetPurged });
   let poller = null;
   // Every change may add, remove or switch a Linear Routine, so the poller looks again (a cheap scan).
   const changed = () => {
@@ -411,6 +439,7 @@ function createRoutines({
     chats,
     projects,
     projectState,
+    startCheck: checkTarget.atStart,
     linearWorkspaces: () => linearWorkspaces(),
     cachedState,
     openState,
@@ -469,6 +498,7 @@ function createRoutines({
     store,
     scheduler,
     checkTarget,
+    remove: (routineId) => removeRoutine(routineId),
     chatSettings,
     defaultTimezone: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     linearWorkspaces,
@@ -476,6 +506,14 @@ function createRoutines({
   });
 
   const webhooks = createWebhooks({ store, scheduler, hooks: hooksNow, changed });
+  webhooksReady = true;
+  forgetPurged(purgedEarly.splice(0));
+  // A Routine deleted from anywhere (the form, an agent's routine_delete) takes its webhook secret with it.
+  function removeRoutine(routineId) {
+    const removed = store.remove(routineId);
+    if (removed) webhooks.forget(routineId);
+    return removed;
+  }
 
   return {
     enabled: () => store.enabled(),
@@ -548,8 +586,8 @@ function createRoutines({
       return routine;
     },
     async update(id, patch) {
-      if (typeof id !== "string" || !id) throw new Error("Choose a routine.");
-      if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("A routine change must be an object.");
+      if (typeof id !== "string" || !id) throw new Error("Choose a Routine.");
+      if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("A Routine change must be an object.");
       const checked = patch.target === undefined ? patch : { ...patch, target: await checkTarget(patch.target) };
       if (store.get(id)?.trigger.kind === "webhook") return webhooks.update(id, checked);
       const routine = store.update(id, checked);
@@ -557,12 +595,9 @@ function createRoutines({
       return routine;
     },
     remove(id) {
-      if (typeof id !== "string" || !id) throw new Error("Choose a routine.");
-      const removed = store.remove(id);
-      if (removed) {
-        webhooks.forget(id);
-        changed();
-      }
+      if (typeof id !== "string" || !id) throw new Error("Choose a Routine.");
+      const removed = removeRoutine(id);
+      if (removed) changed();
       return { removed };
     },
     hook: (id) => webhooks.hook(id),
@@ -574,7 +609,7 @@ function createRoutines({
     hookOwners: (ids) => webhooks.owners(ids),
     async runNow(id) {
       if (!store.enabled()) throw new Error(OFF);
-      if (typeof id !== "string" || !id) throw new Error("Choose a routine.");
+      if (typeof id !== "string" || !id) throw new Error("Choose a Routine.");
       return scheduler.runNow(id);
     },
   };
@@ -602,7 +637,7 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
     return current;
   };
   const webhookRoutine = (id) => {
-    if (typeof id !== "string" || !id) throw new Error("Choose a routine.");
+    if (typeof id !== "string" || !id) throw new Error("Choose a Routine.");
     const routine = store.get(id);
     if (!routine) throw new Error(`Routine not found: ${id}`);
     if (routine.trigger.kind !== "webhook") throw new Error("Only a webhook Routine has a URL.");
