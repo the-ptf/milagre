@@ -313,7 +313,26 @@ function steeringHost(t, overrides = {}) {
       { id: projectPath, path: projectPath },
       { id: otherPath, path: otherPath },
     ],
-    readProject: async (root) => ({ state: state(root) }),
+    // A second Worktree Milagre made, for worktree_remove, with any Chats a test puts on it.
+    readProject: async (root) => {
+      const base = state(root);
+      return {
+        state: {
+          ...base,
+          worktrees: {
+            ...base.worktrees,
+            2: {
+              id: 2,
+              path: path.join(root, "wt"),
+              name: "milagre/wt",
+              base: "main",
+              ...(overrides.sharedWorktree ? { sharedChat: { linkId: "l", sessionId: 1 } } : {}),
+            },
+          },
+          sessions: { ...base.sessions, ...overrides.sessions },
+        },
+      };
+    },
     scopeStates: { chatMessages: async () => [] },
     permissionMode: (chatId, fallback = "ask") => (chatId in modes ? modes[chatId] : fallback),
     chats: {
@@ -323,6 +342,7 @@ function steeringHost(t, overrides = {}) {
         calls.push(["send", request]);
         return { sessionId: 1 };
       },
+      ...(overrides.runs ? { runs: overrides.runs(projectPath) } : {}),
     },
     stopChat: async (chatId) => calls.push(["stop", chatId]),
     setPermissionMode: async (chatId, mode) => calls.push(["mode", chatId, mode]),
@@ -340,6 +360,8 @@ function steeringHost(t, overrides = {}) {
       claude: [{ id: "old", efforts: ["low", "high"], defaultEffort: "low" }],
       codex: [{ id: "new", efforts: ["medium", "high"], defaultEffort: "medium" }],
     }),
+    worktreeStatus: async () => ({ uncommitted: 0, unpushed: 0, branch: "milagre/wt", removable: true, ...overrides.status }),
+    removeWorktree: async (...args) => (calls.push(["remove", ...args]), { removed: true, branch: "milagre/wt", branchDeleted: true }),
     approve: async (chatId, request) => {
       calls.push(["approve", chatId, request.title]);
       return overrides.decision ?? "allow";
@@ -511,6 +533,46 @@ test("chat_start refuses an effort the model doesn't take, and drops a carried o
   );
   await host.startChat({ projectPath, chatId, prompt: "Go", provider: "codex", model: "new" }, "b", () => {});
   assert.equal(calls.at(-1)[1].effort, "medium");
+});
+
+test("worktree_remove removes a clean Worktree Milagre made, archiving its empty Chats, after the card in Ask mode", async (t) => {
+  const sessions = { 5: { id: 5, worktree_id: 2, title: "Worker", archived: true, summary: { count: 4 } }, 6: { id: 6, worktree_id: 2 } };
+  const { host, projectPath, caller, calls } = steeringHost(t, { sessions });
+  assert.deepEqual(await host.removeWorktree({ projectPath, worktreeId: 2 }, caller), { removed: true, branch: "milagre/wt", branchDeleted: true });
+  assert.deepEqual(
+    calls.map(([kind]) => kind),
+    ["approve", "patch", "remove"],
+  );
+  assert.deepEqual(calls[1], ["patch", projectPath, 6, { archived: true }], "the empty Chat is archived; the archived one is left alone");
+  assert.deepEqual(calls[2], ["remove", projectPath, path.join(projectPath, "wt")]);
+  // An outside client with the Project in scope, and an agent in Full permission, get no card.
+  const outside = steeringHost(t, { sessions });
+  await outside.host.removeWorktree({ projectPath: outside.projectPath, worktreeId: 2 });
+  assert.equal(outside.calls.filter(([kind]) => kind === "approve").length, 0);
+  const trusted = steeringHost(t, { sessions, modes: (root) => ({ [`${root}#2`]: "full" }) });
+  await trusted.host.removeWorktree({ projectPath: trusted.projectPath, worktreeId: 2 }, trusted.caller);
+  assert.equal(trusted.calls.filter(([kind]) => kind === "approve").length, 0);
+});
+
+test("worktree_remove keeps a Worktree that isn't safe to remove, and says why", async (t) => {
+  const refused = async (overrides, worktreeId = 2, asCaller = false) => {
+    const fixture = steeringHost(t, overrides);
+    const error = await fixture.host
+      .removeWorktree({ projectPath: fixture.projectPath, worktreeId }, asCaller ? fixture.caller : undefined)
+      .catch((caught) => caught);
+    assert.ok(error instanceof Error, "refused");
+    assert.equal(fixture.calls.filter(([kind]) => kind === "remove" || kind === "patch").length, 0, "nothing removed or archived");
+    return error.message;
+  };
+  assert.match(await refused({}, 1), /Milagre didn't create this Worktree/);
+  assert.match(await refused({ sharedWorktree: true }), /belongs to a shared Link Chat/);
+  assert.match(await refused({ sessions: { 2: { id: 2, worktree_id: 2 } } }, 2, true), /can't remove the Worktree it runs in/);
+  const worker = { 5: { id: 5, worktree_id: 2, title: "Worker", summary: { count: 2 } } };
+  assert.match(await refused({ sessions: worker, runs: (root) => ({ [`${root}#5`]: {} }) }), /Stop "Worker" .*#5\) first/);
+  assert.match(await refused({ sessions: worker }), /Archive "Worker" .*#5\) first/);
+  assert.match(await refused({ status: { uncommitted: 3, removable: false } }), /3 uncommitted files/);
+  assert.match(await refused({ status: { unpushed: 1, removable: false } }), /1 commit on neither main nor its upstream/);
+  assert.match(await refused({ status: { branch: null, removable: false } }), /detached HEAD/);
 });
 
 test("chat_read and chat_list show the messages queued behind a running turn, with the line the Chat shows", async (t) => {
