@@ -40,7 +40,7 @@ An archived **Chat** stays readable from a linked side but is never chosen to re
 _Avoid_: session, thread (the providers' names for the agent process behind a **Chat**)
 
 **Background task**:
-Work that outlives the **Chat**'s turn and reports back to it by itself: a background subagent, a command the agent ran in the background, an MCP task, or an advisor. A **Chat** whose turn ended while one still runs is "in the background", with how many still run, on every surface; a failed last turn shows as failed instead. Anything that would end the agent process (handing the **Chat** to another provider, Reload, a move to another folder) is refused until the background tasks running in that process finish.
+Work that outlives the **Chat**'s turn and reports back to it by itself: a background subagent, a command the agent ran in the background, an MCP task, or an advisor. A **Chat** whose turn ended while one still runs is "in the background", with how many still run, on every surface; a failed last turn shows as failed instead. Anything that would end the agent process (handing the **Chat** to another provider, Reload, a move to another folder) is refused until the background tasks running in that process finish. After a **Usage limit**, switching to another Account or provider stops the limited process's remaining tasks and continues the Chat from its saved progress.
 _Avoid_: job, child (Codex's term for a subagent)
 
 **Browser page**:

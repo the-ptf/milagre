@@ -1020,6 +1020,23 @@ function createRuntime(options) {
     // Undo is a convenience: a Worktree it can't capture still runs the task, with no checkpoint.
     beforeTask: (request) => checkpoints.begin(request).catch((error) => console.warn("Checkpoint start capture failed:", error.message)),
     beforeSend: async (request) => {
+      if (request.sessionId != null && request.context?.kind !== "compaction" && (!request.canStart || request.canStart())) {
+        const chatId = chatKey(request.projectPath, request.sessionId);
+        const accountId = accounts.selected(request.provider, request.projectPath);
+        await agents.releaseLimited(chatId, request.provider, accountId, async () => {
+          // Closing a provider stops its work. Fold the final state before ChatHost checks whether a handoff is safe.
+          const session = (await scopeStates.get(request.projectPath)).sessions[request.sessionId];
+          await chats.receive(chatId, { type: "background-tasks", tasks: [] });
+          for (const agent of session?.subagents ?? []) {
+            if (agent.source !== "milagre-advisor" && ["running", "initializing", "waiting"].includes(agent.status))
+              await chats.receive(chatId, { type: "subagent-update", agent: { ...agent, status: "cancelled", endedAt: Date.now(), updatedAt: Date.now() } });
+          }
+          agentNotes.set(chatId, [
+            ...(agentNotes.get(chatId) ?? []),
+            "The previous account hit its usage limit. Its background tasks were stopped to switch accounts or providers. Check their saved progress and restart unfinished work as needed.",
+          ]);
+        });
+      }
       if (request.context?.kind !== "advisor-result" && request.sessionId != null) await advisorDelivery?.resume(`${request.projectPath}#${request.sessionId}`);
     },
     onUnblocked: (chatId) => {
