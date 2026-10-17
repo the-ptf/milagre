@@ -5,7 +5,7 @@ const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const { killTree } = require("./process-tree.cjs");
 const {
-  milagreInstructions,
+  sessionInstructions,
   SUBAGENT_DESIGN_INSTRUCTIONS,
   SUBAGENT_PLAN_INSTRUCTIONS,
   RESUME_FAILED_MESSAGE,
@@ -18,7 +18,7 @@ const {
 const { PendingPermissions, WorkspaceAccess, claudeAccessRequest, claudeRequest, claudeResult, isUngatedMilagreTool } = require("./permissions.cjs");
 const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = require("./questions.cjs");
 const { mcpContent, runTool } = require("../linked-tools.cjs");
-const { advisorPolicy, ANALYSIS_INSTRUCTIONS } = require("./advisor-policy.cjs");
+const { advisorPolicy } = require("./advisor-policy.cjs");
 const { toClaudeConfig } = require("../mcp/definitions.cjs");
 
 // Milagre permission mode -> Claude Code permission mode. In Ask (`default`) Claude Code checks with
@@ -114,6 +114,7 @@ class ClaudeSession {
     workspaceInstructions,
     tldrEnabled = true,
     designsEnabled = true,
+    sharedLink = false,
     analysisOnly = false,
     linked = null,
     mcpExtras = null,
@@ -131,6 +132,7 @@ class ClaudeSession {
       workspaceInstructions,
       tldrEnabled,
       designsEnabled,
+      sharedLink,
       analysisOnly,
       linked,
       mcpExtras,
@@ -311,7 +313,8 @@ class ClaudeSession {
     this.query = sdk.query({
       prompt: this.inbox,
       options: {
-        // Headless Claude Code hides TaskCreate / TaskUpdate / TaskList, which feed the Chat's task list.
+        // Headless Claude Code hides TaskCreate / TaskUpdate / TaskList. Subagents keep their to-do lists in them (the
+        // Subagents panel), and the parent falls back to them when Milagre's task tools are missing (the Tasks pill).
         env: { ...(this.env ?? process.env), CLAUDE_CODE_ENABLE_TODO_TOOLS: "1" },
         cwd: this.cwd,
         ...(this.access.roots ? { additionalDirectories: this.access.roots.filter((root) => root !== this.cwd) } : {}),
@@ -327,9 +330,7 @@ class ClaudeSession {
         systemPrompt: {
           type: "preset",
           preset: "claude_code",
-          append: [milagreInstructions(this.tldrEnabled, this.workspaceInstructions, this.designsEnabled), this.analysisOnly ? ANALYSIS_INSTRUCTIONS : ""]
-            .filter(Boolean)
-            .join("\n\n"),
+          append: sessionInstructions(this),
         },
         ...linked,
         ...(Object.keys(extraServers).length ? { mcpServers: { ...extraServers, ...linked.mcpServers } } : {}),

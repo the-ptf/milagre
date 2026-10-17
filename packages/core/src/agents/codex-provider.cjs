@@ -10,9 +10,9 @@ const path = require("node:path");
 const { CodexRpc } = require("./codex-rpc.cjs");
 const { toCodexConfig } = require("../mcp/definitions.cjs");
 const { CODEX_FAST_TIER } = require("./models.cjs");
-const { advisorPolicy, advisorCodexConfig, ANALYSIS_INSTRUCTIONS } = require("./advisor-policy.cjs");
+const { advisorPolicy, advisorCodexConfig } = require("./advisor-policy.cjs");
 const {
-  milagreInstructions,
+  sessionInstructions,
   RESUME_FAILED_MESSAGE,
   crashMessage,
   failedWith,
@@ -144,6 +144,7 @@ class CodexSession {
     workspaceInstructions,
     tldrEnabled = true,
     designsEnabled = true,
+    sharedLink = false,
     analysisOnly = false,
     linked = null,
     mcpExtras = null,
@@ -161,6 +162,7 @@ class CodexSession {
       workspaceInstructions,
       tldrEnabled,
       designsEnabled,
+      sharedLink,
       analysisOnly,
       linked,
       mcpExtras,
@@ -348,12 +350,7 @@ class CodexSession {
       model,
       approvalPolicy: policy.approvalPolicy,
       sandbox: policy.sandbox,
-      developerInstructions: [
-        milagreInstructions(this.tldrEnabled, this.workspaceInstructions, this.designsEnabled),
-        this.analysisOnly ? ANALYSIS_INSTRUCTIONS : "",
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
+      developerInstructions: sessionInstructions(this),
       ...(this.analysisOnly ? { environments: [] } : {}),
       config,
     };

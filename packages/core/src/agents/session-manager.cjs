@@ -120,6 +120,8 @@ class SessionManager {
       workspaceRoots: request.workspaceRoots,
       access: entry.access,
       workspaceInstructions: request.workspaceInstructions,
+      // A shared Link Chat's agent can't link or delegate, so its system prompt leaves those out (chat-scopes.cjs).
+      ...(request.sharedLink ? { sharedLink: true } : {}),
       resumeId,
       tldrEnabled,
       designsEnabled,

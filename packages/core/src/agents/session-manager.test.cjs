@@ -80,6 +80,15 @@ test("createSession receives the turn's accountId", async (t) => {
   assert.equal(created[0].options.accountId, "work");
 });
 
+test("a shared Link Chat's session is told it is one, for its system prompt", async (t) => {
+  const { manager, created } = harness();
+  t.after(() => manager.closeAll());
+  await manager.startTurn(request("1", { sharedLink: true }));
+  await manager.startTurn(request("2"));
+  assert.equal(created[0].options.sharedLink, true);
+  assert.equal(created[1].options.sharedLink, undefined);
+});
+
 test("account switches keep active replies, then resume their history with the new account", async (t) => {
   const { manager, created } = harness();
   t.after(() => manager.closeAll());

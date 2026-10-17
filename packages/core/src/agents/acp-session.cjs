@@ -18,7 +18,7 @@ const {
   readConfigOptions,
   stopReasonEvent,
 } = require("./acp-events.cjs");
-const { milagreInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, loginMessage, missingCliMessage } = require("./events.cjs");
+const { sessionInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, loginMessage, missingCliMessage } = require("./events.cjs");
 const { PendingPermissions, WorkspaceAccess, capText, insideWorkspace, isAcpPlanToolPermission, unwrapShell } = require("./permissions.cjs");
 const { PendingQuestions } = require("./questions.cjs");
 const { antigravityAcp, makeTempDir } = require("./antigravity-acp.cjs");
@@ -118,6 +118,7 @@ class AcpSession {
     workspaceInstructions,
     tldrEnabled = true,
     designsEnabled = true,
+    sharedLink = false,
     linked = null,
     mcpExtras = null,
     clientVersion = "0.0.0",
@@ -137,6 +138,7 @@ class AcpSession {
       workspaceInstructions,
       tldrEnabled,
       designsEnabled,
+      sharedLink,
       linked,
       mcpExtras,
       clientVersion,
@@ -258,7 +260,7 @@ class AcpSession {
     if (!this.instructionsSent)
       blocks.push({
         type: "text",
-        text: `<milagre_instructions>\n${milagreInstructions(this.tldrEnabled, this.workspaceInstructions, this.designsEnabled)}\n\n${workspaceNote(this.cwd, this.access.roots)}\n</milagre_instructions>`,
+        text: `<milagre_instructions>\n${sessionInstructions(this)}\n\n${workspaceNote(this.cwd, this.access.roots)}\n</milagre_instructions>`,
       });
     blocks.push({ type: "text", text: prompt });
     for (const image of images) blocks.push({ type: "image", mimeType: image.mime, data: image.base64 ?? Buffer.from(image.bytes).toString("base64") });

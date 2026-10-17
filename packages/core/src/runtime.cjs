@@ -1620,7 +1620,8 @@ function createRuntime(options) {
       const sessionOptions = {
         cwd: context.cwd,
         workspaceRoots: context.workspaceRoots,
-        workspaceInstructions: context.workspaceInstructions,
+        // Its system prompt is the advisor's own (events.cjs advisorInstructions): the Chat's writing setting, its read tools.
+        tldrEnabled: context.settings?.tldrEnabled !== false,
         designsEnabled: artifacts.enabled(),
         analysisOnly: true,
         resumeId: record.nativeId,

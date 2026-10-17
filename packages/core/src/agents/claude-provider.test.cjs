@@ -1,7 +1,16 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { ClaudeSession } = require("./claude-provider.cjs");
-const { MILAGRE_INSTRUCTIONS, RESUME_FAILED_MESSAGE, crashMessage, isTerminal, loginMessage, missingCliMessage, failedWith } = require("./events.cjs");
+const {
+  MILAGRE_INSTRUCTIONS,
+  advisorInstructions,
+  RESUME_FAILED_MESSAGE,
+  crashMessage,
+  isTerminal,
+  loginMessage,
+  missingCliMessage,
+  failedWith,
+} = require("./events.cjs");
 const { DISMISSED_MESSAGE, UNSHOWN_MESSAGE } = require("./questions.cjs");
 const { waitUntil } = require("./test-helpers.cjs");
 
@@ -247,6 +256,8 @@ test("analysis-only Claude denies shell tools and cannot switch to Full", async 
   await session.startTurn({ ...TURN, permissionMode: "full" });
   await ended(events);
   assert.equal(calls.options.permissionMode, "dontAsk");
+  // An advisor's own short prompt, not the Chat's (events.cjs advisorInstructions).
+  assert.equal(calls.options.systemPrompt.append, advisorInstructions());
   assert.deepEqual(calls.options.tools, []);
   assert.deepEqual(calls.options.settingSources, []);
   assert.equal(calls.options.strictMcpConfig, true);
@@ -1275,6 +1286,7 @@ test("Claude's subagents are told to keep a to-do list as they start, and to des
       },
     });
   }
-  assert.match(SUBAGENT_DESIGN_INSTRUCTIONS, /design_show.*Never write HTML or image files/s);
-  assert.match(SUBAGENT_PLAN_INSTRUCTIONS, /TodoWrite.*Never use the milagre tasks_set/s);
+  assert.match(SUBAGENT_DESIGN_INSTRUCTIONS, /show a mockup or visual design \(not to implement UI in code\), use the milagre design_show tool/);
+  assert.match(SUBAGENT_DESIGN_INSTRUCTIONS, /Don't write HTML or image files.*names another design tool, use that one/s);
+  assert.match(SUBAGENT_PLAN_INSTRUCTIONS, /TodoWrite, or TaskCreate and TaskUpdate.*Never use the milagre tasks_set/s);
 });
