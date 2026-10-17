@@ -101,6 +101,42 @@ test("tasks capture once before execution; steering reuses the checkpoint; resto
   assert.doesNotMatch(prompts[3], /milagre_note/, "each undo is told once");
 });
 
+test("a checkpoint that can't be captured never blocks the message: the task runs without one", async (t) => {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "checkpoint-runtime-")));
+  const project = path.join(dir, "project");
+  await fs.mkdir(path.join(project, ".milagre", "checkpoint-ignore"), { recursive: true });
+  execFileSync("git", ["init", "-q", project]);
+  const prompts = [];
+  const runtime = createRuntime({
+    dataDir: path.join(dir, "data"),
+    environmentReady: Promise.resolve(),
+    titleModels: {},
+    agentCli: async () => ({ command: "fixture" }),
+    createSession: (_provider, options) => ({
+      turnActive: false,
+      async startTurn(request) {
+        prompts.push(request.prompt);
+        options.emit({ type: "turn-started", turnId: "turn" });
+        return { turnId: "turn" };
+      },
+      async close() {},
+      async interrupt() {},
+    }),
+  });
+  t.after(async () => {
+    await runtime.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+  const warn = t.mock.method(console, "warn", () => {});
+  const opened = await runtime.openProject(project);
+  const id = Object.values(opened.state.sessions)[0].id;
+  // A directory where the ignore file belongs fails the capture.
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: id, body: "edit", provider: "codex", model: "test", permissionMode: "ask" }]);
+  await waitUntil(() => prompts.length === 1);
+  assert.deepEqual(await runtime.invoke("checkpoint:list", [{ chatId: `${project}#${id}` }]), []);
+  assert.ok(warn.mock.calls.some((call) => /Checkpoint ignore file must be a regular file/.test(call.arguments.join(" "))));
+});
+
 test("the agent's note names the files undone, and says so for a Redo", () => {
   const { agentRestoreNote } = require("./checkpoint-runtime.cjs");
   assert.equal(

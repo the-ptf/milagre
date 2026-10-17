@@ -108,6 +108,21 @@ async function browserChecks() {
   const key = (name) =>
     evaluate(`document.querySelector("[data-undo-panel]").dispatchEvent(new KeyboardEvent("keydown", { key: "${name}", bubbles: true, cancelable: true }))`);
   const ringed = () => evaluate('[...document.querySelectorAll("article")].filter((node) => node.querySelector(".outline-accent")).map((node) => node.id)');
+  // How keyboard focus draws an element. Forced through DevTools: this hidden window never holds the real focus.
+  const focusRing = async (selector) => {
+    const devtools = window.webContents.debugger;
+    if (!devtools.isAttached()) devtools.attach("1.3");
+    await devtools.sendCommand("DOM.enable");
+    await devtools.sendCommand("CSS.enable");
+    const { root } = await devtools.sendCommand("DOM.getDocument");
+    const { nodeId } = await devtools.sendCommand("DOM.querySelector", { nodeId: root.nodeId, selector });
+    await devtools.sendCommand("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: ["focus-visible"] });
+    const style = await evaluate(
+      `(({ outlineStyle, borderTopLeftRadius }) => ({ outline: outlineStyle, radius: borderTopLeftRadius }))(getComputedStyle(document.querySelector(${JSON.stringify(selector)})))`,
+    );
+    await devtools.sendCommand("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] });
+    return style;
+  };
   try {
     await window.loadURL(process.argv[2]);
     // Each task that changed files gets an undo button under the message that started it.
@@ -131,6 +146,8 @@ async function browserChecks() {
     await escape();
     await wait('document.querySelector("[data-undo-panel]")?.dataset.undoPanel === "list" && document.querySelectorAll("[data-checkpoint-id]").length === 2');
     assert.deepEqual(await evaluate('[...document.querySelectorAll("[data-checkpoint-id]")].map((row) => row.dataset.checkpointId)'), ["task-2", "task-1"]);
+    // The panel takes the focus for its keys; the highlighted row shows where they go, so the panel draws no focus ring.
+    assert.deepEqual(await focusRing("[data-undo-panel]"), { outline: "none", radius: "14px" });
     await wait('document.querySelector("#message-13 .outline-accent") !== null');
     await shot("list");
     await key("ArrowDown");

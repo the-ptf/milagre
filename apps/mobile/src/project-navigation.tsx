@@ -296,10 +296,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
       const marked = Object.values(copy?.project.state.sessions || {}).map((chat) => {
         const run = copy?.runs.runs[`${copy.project.path}#${chat.id}`];
         const pending = pendingById.get(chat.id);
-        const sortId =
-          pending && !byChat.get(chat.id)?.some((message) => message.clientMessageId !== pending.preview.message.clientMessageId)
-            ? pending.preview.sortId
-            : chat.id;
+        const sortId = chatSummary(chat, byChat.get(chat.id)).firstId ?? chat.id;
         return {
           chat,
           title: chatTitle(chat, byChat.get(chat.id)),

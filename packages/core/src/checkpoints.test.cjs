@@ -355,3 +355,52 @@ test("a task checkpoint keeps the message that started it and counts its changes
   assert.equal(await f.read("a.txt"), "agent edit\n");
   assert.equal(await f.read("new.txt"), "agent new\n");
 });
+test("a file over 5 MiB stays out of the checkpoint instead of failing the capture", async (t) => {
+  const f = await fixture(t);
+  await f.write("recording.mov", Buffer.alloc(5 * 1024 * 1024 + 1));
+  const item = await f.store.begin({ chatId: f.chatId, roots: [f.root] });
+  assert.equal(item.excluded, 1);
+  await f.write("a.txt", "agent edit\n");
+  await f.write("recording.mov", "agent");
+  await f.store.finish(f.chatId);
+  const preview = await f.store.preview(f.chatId, item.id);
+  assert.deepEqual(
+    preview.files.map((file) => file.path),
+    ["a.txt"],
+  );
+});
+test("past the size budget the largest files stay out, and a Chat's Worktrees share one budget", async (t) => {
+  const f = await fixture(t);
+  const other = path.join(path.dirname(f.root), "other");
+  await fs.mkdir(other);
+  execFileSync("git", ["init", "-q", other]);
+  // a.txt holds 10 bytes. The 80-byte asset sorts before the source file, yet the source is the one an agent edits.
+  await f.write("assets.bin", "x".repeat(80));
+  await f.write("src.txt", "y".repeat(20));
+  await fs.writeFile(path.join(other, "notes.txt"), "z".repeat(75));
+  const store = createCheckpoints({ ...f.options, budget: 100 });
+  const item = await store.begin({ chatId: f.chatId, roots: [f.root, other] });
+  // 30 bytes fit from the first Worktree; the second gets the 70 left, short of its 75-byte file.
+  assert.equal(item.excluded, 2);
+  for (const name of ["a.txt", "assets.bin", "src.txt"]) await f.write(name, "agent");
+  await fs.writeFile(path.join(other, "notes.txt"), "agent");
+  await store.finish(f.chatId);
+  const preview = await store.preview(f.chatId, item.id);
+  assert.deepEqual(preview.files.map((file) => file.path).toSorted(), ["a.txt", "src.txt"]);
+});
+test("an undo saves its recovery copy of the files it writes, however full the Worktree is", async (t) => {
+  const f = await fixture(t);
+  const store = createCheckpoints({ ...f.options, budget: 100 });
+  const item = await store.begin({ chatId: f.chatId, roots: [f.root] });
+  await f.write("a.txt", "agent edit\n");
+  await store.finish(f.chatId);
+  // Smaller files written since would take the whole budget ahead of a.txt.
+  for (let n = 0; n < 10; n++) await f.write(`note-${n}.txt`, "x".repeat(10));
+  const preview = await store.preview(f.chatId, item.id);
+  const result = await store.restore(f.chatId, { token: preview.token, decisions: decisions(preview), approved: true });
+  assert.equal(result.restored, 1);
+  assert.equal(await f.read("a.txt"), "committed\n");
+  const back = await store.preview(f.chatId, result.recoveryId);
+  await store.restore(f.chatId, { token: back.token, decisions: decisions(back), approved: true });
+  assert.equal(await f.read("a.txt"), "agent edit\n");
+});

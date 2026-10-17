@@ -99,6 +99,43 @@ test("legacy acknowledgement requires an accepted target and a new untagged matc
   assert.equal(resolve({ ...saved, clientMessageId: "another-client" }), null);
 });
 
+test("a pending follow-up preserves an unloaded Chat's history and the latest pin settings", async () => {
+  const { createPendingChat, withPendingChat } = await import("./chats.mjs");
+  const summary = {
+    count: 50,
+    firstId: 3,
+    lastId: 80,
+    titleLine: "Original question",
+    lastAt: 123,
+    lastOutcome: "failed" as const,
+    pullRequests: ["https://github.com/a/b/pull/12"],
+    lastModel: "old-model",
+  };
+  const state: CoordinatorState = {
+    next_id: 100,
+    projects: {},
+    worktrees: {},
+    messages: [],
+    tasks: {},
+    sessions: { 1: { ...session, summary } },
+  };
+  const pending = createPendingChat({ state, worktreeId: 1, sessionId: 1, body: "Follow up", model: "new-model", provider: "codex" });
+  const current = { ...state, sessions: { 1: { ...state.sessions[1], pinned: true, pin_order: -1, title: "Renamed" } } };
+  const shown = withPendingChat(current, pending);
+  assert.deepEqual(shown.sessions[1].summary, {
+    ...summary,
+    count: 51,
+    lastId: 100,
+    lastAt: pending.startedAt,
+    lastModel: "new-model",
+    clientMessageIds: [pending.message.clientMessageId],
+  });
+  assert.equal(shown.sessions[1].pinned, true);
+  assert.equal(shown.sessions[1].pin_order, -1);
+  assert.equal(chatTitle(shown.sessions[1]), "Renamed");
+  assert.deepEqual(state.sessions[1].summary, summary);
+});
+
 test("comparePins puts pinned chats first in their order and leaves the rest alone", () => {
   const chats = [{ id: 1 }, { id: 2, pinned: true, pin_order: 5 }, { id: 3 }, { id: 4, pinned: true, pin_order: -1 }, { id: 5, pin_order: -9 }];
   assert.deepEqual(

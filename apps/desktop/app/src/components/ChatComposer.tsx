@@ -8,6 +8,7 @@ import { GenerativeUIProvider } from "./genui/GenerativeUI";
 import { AnswerCard } from "./agents/AnswerCard";
 import { PullRequestActionCard } from "./agents/PullRequestActionCard";
 import { LinearIssueCard } from "./agents/LinearIssueCard";
+import { AdvisorResultCard } from "./agents/AdvisorResultCard";
 import { UsageLimitCard } from "./agents/UsageLimitCard";
 import { isAccountSwitch, usageLimitOf } from "@milagre/shared/usage-limit";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
@@ -69,7 +70,7 @@ import { undoableTasks, type CheckpointApi } from "@milagre/shared/checkpoints";
 import { UndoPanel, type UndoIntent } from "./checkpoints/UndoPanel";
 import { bridgeForKey } from "../lib/computer-bridge";
 import { isModalOpen } from "../lib/modal";
-import { advisorResultLabel, messageSender } from "@milagre/shared/advisor-result";
+import { messageSender } from "@milagre/shared/advisor-result";
 import { LinkedMessageHeader, linkedContext } from "./LinkedMessage";
 import { isHandoff } from "@milagre/shared/handoff";
 import { isCompaction } from "@milagre/shared/compaction";
@@ -246,14 +247,9 @@ const MessageSection = memo(function MessageSection({
       className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-300 ${bubble || feedback || answered || prAction || issue ? "items-end pl-12" : ""}`}
       style={animate ? { animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" } : undefined}
     >
-      {advisor && (
-        <p data-advisor-result className="text-[11px] text-ink-3">
-          {advisorResultLabel(advisor)}
-        </p>
-      )}
       {linked && <LinkedMessageHeader context={linked} onOpenChat={onOpenChat} />}
       <div
-        className={`min-w-0 max-w-full text-[13px] leading-[1.55] text-ink ${bubble ? "relative rounded-xl bg-field px-3 py-1.5" : feedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "rounded-xl border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
+        className={`min-w-0 max-w-full text-[13px] leading-[1.55] text-ink ${advisor ? "w-full rounded-[14px]" : bubble ? "relative rounded-xl bg-field px-3 py-1.5" : feedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "rounded-xl border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
       >
         {/* Beside the bubble, not under it: showing it on hover never moves the transcript. */}
         {bubble && undoId && onUndo && (
@@ -277,7 +273,9 @@ const MessageSection = memo(function MessageSection({
           </div>
         )}
         <Attachments images={isUser ? message.images : message.images?.filter((image) => !image.sourcePath)} files={message.files} />
-        {prAction ? (
+        {advisor ? (
+          <AdvisorResultCard context={advisor} body={message.body} />
+        ) : prAction ? (
           <PullRequestActionCard action={prAction} />
         ) : issue ? (
           <LinearIssueCard issue={issue} />
