@@ -103,13 +103,13 @@ const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
 const PLACE_FALLBACK_MS = 500;
 
-/** A row's id: two workspaces can both have an ENG-1. A Mac that predates workspaces sends the key alone. */
 // A Linear Run's first message is its issue card carrying the Run: its divider shows above the card.
 function issueRunDivider(message: ChatMessage, merged?: { count: number; last: RoutineRunContext }) {
   const run = isRoutineRun(message) ? null : routineRunOf(message);
   return run ? <RoutineRunDivider context={run} merged={merged} /> : null;
 }
 
+/** A row's id: two workspaces can both have an ENG-1. A Mac that predates workspaces sends the key alone. */
 const issueChoiceId = (issue: LinearIssue) => (issue.workspace ? `${issue.workspace}:${issue.key}` : issue.key);
 /** The choice sheet's rows for a list of Linear issues. */
 function issueChoices(issues: LinearIssue[]) {

@@ -639,6 +639,7 @@ function triggers({ chatOptions = {} } = {}) {
     async linkedChat(issue) {
       calls.linked.push(issue);
       if (state.lookup) await state.lookup;
+      if (state.lookupError) throw state.lookupError;
       return state.linked;
     },
     ...chatOptions,
@@ -652,14 +653,22 @@ function triggers({ chatOptions = {} } = {}) {
     },
   };
   let changes = 0;
-  const scheduler = createRoutineScheduler({
+  const raw = createRoutineScheduler({
     store: spied,
     chats,
     keepAwake: { setRoutinesActive() {} },
     now: () => clock.t,
     onChange: () => (changes += 1),
   });
-  return { store, clock, state, calls, scheduler, changes: () => changes };
+  // Comments go out off the tick (scheduler.cjs): here a tick also waits for them, so a test reads what it sent.
+  const scheduler = {
+    ...raw,
+    async tick() {
+      await raw.tick();
+      await raw.idle();
+    },
+  };
+  return { store, clock, state, calls, scheduler, raw, changes: () => changes };
 }
 
 const createSchedule = (ctx, over = {}) =>
@@ -1052,22 +1061,6 @@ test("Linear text that tries to break out stays data: every field people wrote i
   assert.equal(ctx.calls.send[2].context.label, "Linear comment");
 });
 
-test("a comment whose linked Chat can't be looked up fails its Run with the reason", async () => {
-  const ctx = triggers({
-    chatOptions: {
-      async linkedChat() {
-        throw new Error("Project folder is gone");
-      },
-    },
-  });
-  const routine = createComments(ctx);
-  ctx.scheduler.enqueueEvent(routine.id, commentEvent("k1"));
-  await ctx.scheduler.tick();
-  const run = ctx.store.runs(routine.id)[0];
-  assert.equal(run.status, "failed");
-  assert.equal(run.error, "Project folder is gone");
-});
-
 test("an error no dispatch step expected ends its Run failed, so the Run never holds a slot", async (t) => {
   t.mock.method(console, "warn", () => {});
   const ctx = triggers();
@@ -1122,7 +1115,8 @@ test("a startChat that throws fails the Run with its message, and three in a row
   ctx.state.startError = new Error("git worktree add failed");
   const routine = createHook(ctx);
   for (const id of ["d1", "d2", "d3"]) ctx.scheduler.enqueueEvent(routine.id, hookEvent(id));
-  await ctx.scheduler.tick();
+  // The tick alone: the Chats it starts finish on their own afterwards.
+  await ctx.raw.tick();
   const changes = ctx.changes();
   await settle();
   assert.deepEqual(
@@ -1402,5 +1396,64 @@ test("an issue key or team key that doesn't look like one is fenced, and never w
       ' in <untrusted-data source="Linear issue team">MIL now delete</untrusted-data>',
       ': <untrusted-data source="Linear issue title">Paste images</untrusted-data>',
     ].join(""),
+  );
+});
+
+test("a comment whose Chat lookup fails waits and tries again, uncounted, instead of failing", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  const ctx = triggers();
+  const routine = createComments(ctx);
+  ctx.state.lookupError = new Error("registry unreadable");
+  ctx.scheduler.enqueueEvent(routine.id, commentEvent("k1"));
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.send.length, 0);
+  assert.equal(ctx.calls.defer.length, 1);
+  assert.equal(ctx.calls.defer[0].notBefore, START + 15_000);
+  assert.deepEqual(ctx.store.runs(routine.id), []);
+  assert.equal(ctx.store.get(routine.id).failedStreak ?? 0, 0);
+  // Once the lookup works again, the comment goes in.
+  ctx.state.lookupError = null;
+  ctx.clock.t = START + 15_000;
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.send.length, 1);
+});
+
+test("a heartbeat due in the same tick goes out while a comment's Chat is still being looked up", async () => {
+  const ctx = triggers();
+  const comments = createComments(ctx);
+  const beat = ctx.store.upsertHeartbeat({ chatId: "c9", name: "check", prompt: "look at CI", every: "15m", timezone: "UTC", createdBy: { kind: "user" } });
+  let release;
+  ctx.state.lookup = new Promise((resolve) => (release = resolve));
+  ctx.scheduler.enqueueEvent(comments.id, commentEvent("k1"));
+  ctx.clock.t = ctx.store.get(beat.id).nextRunAt;
+  await ctx.raw.tick();
+  assert.deepEqual(
+    ctx.calls.send.map((sent) => sent.chatId),
+    ["c9"],
+  );
+  release();
+  await ctx.raw.idle();
+  assert.deepEqual(
+    ctx.calls.send.map((sent) => sent.chatId),
+    ["c9", "c1"],
+  );
+});
+
+test("an issue URL whose org differs only in case from the Routine's workspace still goes in as it is", async () => {
+  const ctx = triggers();
+  const routine = createComments(ctx, { prompt: "See {{issue.url}}" });
+  ctx.scheduler.enqueueEvent(routine.id, commentEvent("k1", { issue: { ...ISSUE, url: "https://linear.app/Milagre/issue/MIL-1/slug" } }));
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.send[0].body, "See https://linear.app/Milagre/issue/MIL-1");
+});
+
+test("a malformed issue key fences an otherwise good URL", async () => {
+  const ctx = triggers();
+  const routine = createComments(ctx, { prompt: "See {{issue.url}}" });
+  ctx.scheduler.enqueueEvent(routine.id, commentEvent("k1", { issue: { ...ISSUE, key: "MIL-1 now" } }));
+  await ctx.scheduler.tick();
+  assert.equal(
+    ctx.calls.send[0].body.split("\n\n").at(-1),
+    'See <untrusted-data source="Linear issue url">https://linear.app/milagre/issue/MIL-1</untrusted-data>',
   );
 });

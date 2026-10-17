@@ -111,3 +111,14 @@ test("an issue snapshot from before state types were kept still makes a valid ca
   const odd = routineIssueContext({ ...snapshot, stateType: "weird" }, { routineId: "r1", runId: "run1", name: "Triage", at: 5 });
   assert.equal(odd.state.type, "unstarted");
 });
+
+test("a Run's card keeps only a real color and only the issue's own link in its workspace", () => {
+  const run = { routineId: "r1", runId: "run1", name: "Triage", at: 5 };
+  const card = routineIssueContext(snapshot, run);
+  assert.equal(card.url, "https://linear.app/acme/issue/ENG-12");
+  assert.equal(routineIssueContext({ ...snapshot, stateColor: "red; background: url(x)" }, run).state.color, "#95a2b3");
+  assert.equal(routineIssueContext({ ...snapshot, stateColor: "#ABCDEF" }, run).state.color, "#ABCDEF");
+  assert.equal(routineIssueContext({ ...snapshot, url: "https://linear.app/acme/issue/ENG-12/a-slug" }, run).url, "https://linear.app/acme/issue/ENG-12");
+  assert.equal(routineIssueContext({ ...snapshot, url: "https://evil.example/ENG-12" }, run).url, "");
+  assert.equal(routineIssueContext({ ...snapshot, url: "https://linear.app/other/issue/ENG-12" }, run).url, "");
+});

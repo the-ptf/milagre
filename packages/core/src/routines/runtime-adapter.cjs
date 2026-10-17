@@ -76,7 +76,7 @@ function routineReply(state, sessionId) {
  * when it isn't open; `openState(scope, sessionId)` opens it if needed and resolves with the Chat's messages loaded.
  * `worktrees` makes and removes a Run's Worktree (create, remove, removable, base, projectWorktree) and `archiveChat`
  * archives a Chat as the user would. `projects()` lists the Projects Milagre has and `projectState(path)` reads one (its
- * Worktrees and Chats), for finding the Chat a Linear issue's comments go into.
+ * Worktrees and Chats, without opening it), for finding the Chat a Linear issue's comments go into.
  */
 function routineChats({
   chats,
@@ -87,6 +87,8 @@ function routineChats({
   archiveChat,
   projects = async () => [],
   projectState = async () => null,
+  // The connected Linear workspaces' keys: with more than one, a link that names no workspace is ambiguous.
+  linearWorkspaces = () => [],
   now = Date.now,
   timeoutMs = START_TIMEOUT_MS,
   hooks = () => null,
@@ -209,16 +211,22 @@ function routineChats({
    * The Chat working on a Linear issue (`key`, `workspace`), where its comments go: one in the Worktree linked to the issue,
    * or one whose first message is the issue's card (a Chat started from the issue in the Project folder). Archived Chats
    * and Chats with no message yet (a Run's Chat whose first message hasn't gone) are left out; of the rest, the one
-   * active most recently. Null when there is none. A Project that can't be read rejects, so the comment is tried again.
+   * active most recently. Null when there is none. Workspaces compare without regard to case; a link that names none
+   * matches only while one Linear workspace is connected. The Projects are read side by side, and one that can't be read
+   * (a moved or deleted folder) is skipped; only a Project list that can't be read rejects, and the comment waits.
    */
   async function linkedChat({ key, workspace }) {
     const wanted = String(key ?? "").toUpperCase();
     if (!wanted) return null;
-    const same = (issueKey, issueWorkspace) =>
-      typeof issueKey === "string" && issueKey.toUpperCase() === wanted && (!workspace || !issueWorkspace || issueWorkspace === workspace);
+    const lower = (value) => String(value).toLowerCase();
+    const lenient = linearWorkspaces().length <= 1;
+    const sameWorkspace = (issueWorkspace) => !workspace || (issueWorkspace ? lower(issueWorkspace) === lower(workspace) : lenient);
+    const same = (issueKey, issueWorkspace) => typeof issueKey === "string" && issueKey.toUpperCase() === wanted && sameWorkspace(issueWorkspace);
+    const listed = await projects();
+    const states = await Promise.all(listed.map((project) => Promise.resolve(projectState(project.path)).catch(() => null)));
     let best = null;
-    for (const project of await projects()) {
-      const state = await projectState(project.path);
+    for (const [index, project] of listed.entries()) {
+      const state = states[index];
       for (const chat of Object.values(state?.sessions ?? {})) {
         if (chat.archived || !(chat.summary?.count > 0)) continue;
         const worktree = state.worktrees?.[chat.worktree_id];
@@ -399,7 +407,19 @@ function createRoutines({
     }
   };
   const checkTarget = routineTargets({ projects, openState });
-  const routineChatsView = routineChats({ chats, projects, projectState, cachedState, openState, isClosing, worktrees, archiveChat, now, hooks: hooksNow });
+  const routineChatsView = routineChats({
+    chats,
+    projects,
+    projectState,
+    linearWorkspaces: () => linearWorkspaces(),
+    cachedState,
+    openState,
+    isClosing,
+    worktrees,
+    archiveChat,
+    now,
+    hooks: hooksNow,
+  });
   const scheduler = createRoutineScheduler({
     store,
     chats: routineChatsView,

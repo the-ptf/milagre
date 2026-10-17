@@ -6,7 +6,8 @@ export function LinearIssueCard({ issue }: { issue: LinearIssueContext }) {
   return (
     <div data-slot="linear-issue" data-key={issue.key} className="flex w-full max-w-md flex-col gap-2">
       <a
-        href={issue.url}
+        // A Routine Run's card has no link when the issue's URL wasn't Linear's own.
+        href={issue.url || undefined}
         target="_blank"
         rel="noreferrer"
         aria-label={`Open Linear issue ${issue.key}: ${issue.title}`}

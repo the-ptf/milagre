@@ -1131,7 +1131,8 @@ function createRuntime(options) {
     hooks: () =>
       (routineHooks ??= { store: createHookStore({ file: path.join(dataDir, "routine-hooks.json") }), relayUrl: options.hookRelayUrl ?? HOOK_RELAY_URL }),
     projects: () => projectRegistry().list(),
-    projectState: (projectPath) => linkedState(projectPath),
+    // Read only: an open Project's state from memory, another's saved file, never opening it (no resume, no recovery).
+    projectState: (projectPath) => (states.has(projectPath) ? states.get(projectPath) : readRawState(projectPath)),
     timers: options.routines,
   });
   routines.start();
