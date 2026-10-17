@@ -41,7 +41,7 @@ jobs:
             start=$(date +%s)
             if xvfb-run -a -s "-screen 0 1600x1200x24 +extension GLX +render -noreset" node "scripts/${{ matrix.check }}.cjs" > "$RUNNER_TEMP/run-$i.log" 2>&1; then verdict=PASS; else verdict=FAIL; failed=$((failed + 1)); fi
             echo "$verdict ${{ matrix.check }} run $i ($(( $(date +%s) - start ))s)"
-            [ $verdict = FAIL ] && grep -E "Error|Timed out|AssertionError" "$RUNNER_TEMP/run-$i.log" | head -3
+            [ $verdict = FAIL ] && grep -vE "^\[[0-9]+:[0-9/.]+:INFO:CONSOLE" "$RUNNER_TEMP/run-$i.log" | tail -n 12
           done
           echo "### ${{ matrix.check }}: $failed of 16 failed" | tee -a "$GITHUB_STEP_SUMMARY"
           [ $failed -eq 0 ]

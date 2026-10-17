@@ -333,30 +333,35 @@ async function browserChecks() {
     // Dragging another Project's chat from its group into Pinned pins it there: the group and its pinned rows are one list.
     const scopeToggle = '[data-sidebar-scope="/work/shop"] [data-scope-toggle]';
     const row8 = '[data-sidebar-scope="/work/shop"] [data-chat-id="8"]';
+    const row7 = '[data-all-pinned] [data-pinned-scope="/work/shop"] [data-chat-id="7"]';
     const expanded = () => evaluate(`document.querySelector(${JSON.stringify(scopeToggle)}).getAttribute("aria-expanded")`);
-    const rectOf = (selector) => evaluate(`JSON.stringify(document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect() ?? null)`);
+    // Both rows' boxes, or "null" while either is missing: the pinned row comes and goes as the group unfolds.
+    const rects = () =>
+      evaluate(
+        `JSON.stringify([${JSON.stringify(row8)}, ${JSON.stringify(row7)}].map((selector) => document.querySelector(selector)?.getBoundingClientRect() ?? null))`,
+      );
     // Unfold the group, reading the toggle rather than assuming the fold above has landed (on the CI runner the row
-    // appeared and was gone again 100 ms later), and press only once its rows have stopped moving.
+    // appeared and was gone again 100 ms later), and press only once both rows have stopped moving.
     for (let attempt = 0; ; attempt++) {
       if ((await expanded()) !== "true") await click(scopeToggle);
       await waitFor(`document.querySelector(${JSON.stringify(row8)})?.getBoundingClientRect().height > 0`);
-      let last = await rectOf(row8);
+      let last = await rects();
       let stable = false;
       for (let i = 0; i < 20 && !stable; i++) {
         await delay(100);
-        const next = await rectOf(row8);
-        stable = next === last && next !== "null";
+        const next = await rects();
+        stable = next === last && !next.includes("null");
         last = next;
       }
       if (stable) break;
-      if (attempt === 3) throw new Error(`the unfolded group never settled: aria-expanded=${await expanded()} row=${last}`);
+      if (attempt === 3) throw new Error(`the unfolded group never settled: aria-expanded=${await expanded()} rows=${last}`);
     }
     const centre = (selector) =>
       evaluate(
-        `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.left + 60), y: Math.round(r.top + r.height / 2), bottom: r.bottom }; })()`,
+        `(() => { const node = document.querySelector(${JSON.stringify(selector)}); if (!node) throw new Error("missing: " + ${JSON.stringify(selector)}); const r = node.getBoundingClientRect(); return { x: Math.round(r.left + 60), y: Math.round(r.top + r.height / 2), bottom: r.bottom }; })()`,
       );
     const mouse = (type, x, y) => window.webContents.sendInputEvent({ type, x, y, button: "left", clickCount: 1 });
-    const target = () => centre('[data-all-pinned] [data-pinned-scope="/work/shop"] [data-chat-id="7"]');
+    const target = () => centre(row7);
     // On the CI runner the press sometimes never became a drag (its timeout dump showed no data-chat-drag with the
     // pointer resting on the right row), so the press is repeated until the page marks the drag as begun.
     const dragging = `document.documentElement.hasAttribute("data-chat-drag")`;
