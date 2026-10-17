@@ -27,9 +27,8 @@ function authorName(author) {
 }
 
 // A Linear Run's message: the Routine's prompt with the issue's fields filled in, and a comment's when there is one.
-// Everything people wrote in Linear (the title, description, labels, assignee, author and comment) reaches the agent as
-// data: a block, or inline with its braces and tags made harmless when it is one short line. The key, URL, state and team
-// are Linear's own.
+// Everything people wrote in Linear (the title, description, labels, state name, assignee, author and comment) reaches the
+// agent fenced as data, however short. Only the key, URL and team key, which are identifiers, go in as they are.
 function linearPrompt(template, issue, comment, author) {
   const values = {
     "issue.key": issue.key,
@@ -46,6 +45,8 @@ function linearPrompt(template, issue, comment, author) {
     "issue.description": `Linear issue ${issue.key} description`,
     "issue.labels": `Linear issue ${issue.key} labels`,
     "issue.assignee": `Linear issue ${issue.key} assignee`,
+    // A workflow state's name is text a Linear admin can set to anything.
+    "issue.state": `Linear issue ${issue.key} state`,
   };
   if (comment) {
     Object.assign(values, { "comment.body": comment.body, "comment.author": comment.author });

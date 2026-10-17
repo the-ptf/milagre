@@ -1098,24 +1098,19 @@ function createRuntime(options) {
     // Made further down; read when a Routine first needs them.
     linear: () => linear,
     hooks: () => null,
+    projects: () => projectRegistry().list(),
     timers: options.routines,
   });
   routines.start();
   commands.handle("routines:enabled:read", () => routines.read());
   commands.handle("routines:enabled:save", (_event, value) => routines.save(value === true));
   commands.handle("routines:list", () => routines.list());
+  // Create and change check a Routine's target the same way (routineTargets): a listed Project, a Chat that is there.
   commands.handle("routines:update", (_event, id, patch) => routines.update(id, patch));
   commands.handle("routines:delete", (_event, id) => routines.remove(id));
   commands.handle("routines:run-now", (_event, id) => routines.runNow(id));
-  // A Routine the user made in the Routines form. A new Chat's Project must be one Milagre lists.
-  commands.handle("routines:create", async (_event, input) => {
-    if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("A Routine needs its settings.");
-    if (input.target?.kind === "new-chat") {
-      const projects = await projectRegistry().list();
-      if (!projects.some((project) => project.path === input.target.projectPath)) throw new Error("Choose a Project Milagre lists.");
-    }
-    return { routine: routines.create(input) };
-  });
+  // A Routine the user made in the Routines form.
+  commands.handle("routines:create", async (_event, input) => ({ routine: await routines.create(input) }));
   // Where a Routine can run: each Project Milagre lists, with its latest Chats for a Heartbeat.
   commands.handle("routines:targets", async () => {
     const projects = await projectRegistry().list();
@@ -1469,8 +1464,12 @@ function createRuntime(options) {
 
   // The mode picked is the Chat's from now on: its running turn takes it at once, and a heartbeat's next beat runs in it.
   async function setPermissionMode(chatId, mode) {
-    await agents.setPermissionMode(chatId, mode);
-    await chats.notePermissionMode(chatId, mode);
+    try {
+      await agents.setPermissionMode(chatId, mode);
+    } finally {
+      // Saved even when the live session couldn't take it: the next turn and beat start in it.
+      await chats.notePermissionMode(chatId, mode);
+    }
   }
   commands.handle("agent:set-permission-mode", (_event, { chatId, mode }) => setPermissionMode(chatId, mode));
 

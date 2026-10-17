@@ -22,6 +22,13 @@ const realOrNull = async (file) => {
 };
 
 const chatProject = (chatId) => (typeof chatId === "string" ? projectOfKey(chatId) : null);
+// The Project a Routine runs in, or null when its target names none.
+const routineProject = (routine) => {
+  const target = routine?.target;
+  if (target?.kind === "new-chat") return target.projectPath;
+  if (target?.kind === "chat") return chatProject(target.chatId);
+  return null;
+};
 // A file the phone attached: inside the folder, or one it uploaded itself.
 const attached = (file) => ({ file });
 const none = () => [];
@@ -124,7 +131,8 @@ const PATHS = Object.freeze({
   // Auto-switch after a usage limit names no folder and reaches every Project's accounts: a confined phone only reads it.
   "limits:auto-switch:read": none,
   "limits:auto-switch:save": denied,
-  // Routines send prompts into any Chat on the Mac: a confined phone sees them and the switch, and changes nothing.
+  // Routines send prompts into any Chat on the Mac: a confined phone sees its own Project's (filterResult) and the switch,
+  // and changes nothing.
   "routines:enabled:read": none,
   "routines:list": none,
   "routines:targets": none,
@@ -296,6 +304,16 @@ function createConfinement({ allowedRoot, uploadsDir }) {
       const entries = Object.entries(result.runs);
       const kept = await Promise.all(entries.map(([chatId]) => allows(chatProject(chatId))));
       return { ...result, runs: Object.fromEntries(entries.filter((_entry, index) => kept[index])) };
+    }
+    // A Routine shows only when the Project it runs in (a new Chat's, or its Chat's) is inside the folder. One whose Project
+    // can't be told (a Link's Chat, a folder that's gone, a target it doesn't know) stays hidden.
+    if (method === "routines:list" && result && Array.isArray(result.routines)) {
+      const kept = await Promise.all(result.routines.map((routine) => allows(routineProject(routine))));
+      return { ...result, routines: result.routines.filter((_routine, index) => kept[index]) };
+    }
+    if (method === "routines:targets" && result && Array.isArray(result.projects)) {
+      const kept = await Promise.all(result.projects.map((project) => allows(project?.path)));
+      return { ...result, projects: result.projects.filter((_project, index) => kept[index]) };
     }
     if (method === "chat:inbox" && result) {
       const keep = async (items) => {

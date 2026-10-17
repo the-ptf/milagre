@@ -374,7 +374,8 @@ test("a Linear Run makes the issue's Worktree and names the Chat after the issue
   const chat = await adapter.startChat({ routine, run: { id: "run-9", event: { kind: "linear", key: "linear:i:h", change: "assigned", issue } } });
   assert.deepEqual(calls.created, [{ projectPath: "/project", baseBranch: "main", prompt: "", issueKey: "MIL-1", issueWorkspace: "w1" }]);
   assert.equal(calls.emptyChats[0].options.title, "MIL-1 Paste images");
-  assert.equal(chat.body, "Work on MIL-1: Paste images");
+  // The title is fenced as data, the key goes in as it is.
+  assert.ok(chat.body.endsWith('Work on MIL-1: <untrusted-data source="Linear issue MIL-1 title">Paste images</untrusted-data>'));
 });
 
 test("archive removes the Run's Worktree only when asked and it has nothing to keep", async () => {
@@ -425,6 +426,7 @@ function linearRoutines(t, linear, now) {
     cachedState: () => undefined,
     openState: async () => undefined,
     linear,
+    projects: async () => [{ path: "/project" }],
     timers: {
       ...(now ? { now } : {}),
       setInterval: () => ({ unref() {} }),
@@ -471,7 +473,7 @@ test("the Routines switch starts and stops Linear polling", async (t) => {
     },
   };
   const { routines, timers } = linearRoutines(t, () => fake);
-  routines.create({
+  await routines.create({
     name: "Assigned",
     prompt: "Look",
     trigger: { kind: "linear", workspace: "acme", event: "assigned" },
@@ -514,7 +516,7 @@ test("Linear polling runs on the Routines' clock", async (t) => {
     () => fake,
     () => clock,
   );
-  routines.create({
+  await routines.create({
     name: "Assigned",
     prompt: "Look",
     trigger: { kind: "linear", workspace: "acme", event: "assigned" },
@@ -646,6 +648,12 @@ test("a beat takes the mode saved on the Chat over its last turn's and the claim
   const fresh = fixture();
   await fresh.adapter.send(chatId, { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r1" }, settings });
   assert.equal(fresh.sent[0].permissionMode, "full");
+});
+
+test("a mode saved on the Chat that Milagre doesn't know falls back to the last turn's", async () => {
+  const { adapter, sent } = fixture({ turnSettings: { provider: "claude", model: "opus", permissionMode: "ask" }, sessionMode: "yolo" });
+  await adapter.send(chatId, { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r1" }, settings: { permissionMode: "full" } });
+  assert.equal(sent[0].permissionMode, "ask");
 });
 
 // createRoutines with its timer and clock in the test's hands.

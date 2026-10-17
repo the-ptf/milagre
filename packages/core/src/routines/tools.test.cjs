@@ -345,3 +345,37 @@ test("an uneven every is refused with the rule, by every tool that takes one, an
     .find((item) => item.name === "heartbeat_create");
   assert.match(JSON.stringify(inputSchema(tool)), /divide 60/);
 });
+
+test("routine_update changes a Linear trigger's filters and keeps every trigger field it wasn't given", async () => {
+  const { store, call } = setup();
+  await call("routine_create", { name: "triage", prompt: "p", trigger: "linear", linearEvent: "label-added", label: "agent", team: "MIL" });
+  const [routine] = store.list();
+  const relabeled = await call("routine_update", { id: routine.id, label: "bug" });
+  assert.equal(relabeled.isError, false, relabeled.text);
+  assert.deepEqual(store.get(routine.id).trigger, { kind: "linear", workspace: "acme", event: "label-added", label: "bug", team: "MIL" });
+
+  // Another event takes its own filter; the label goes with the event it belonged to.
+  assert.equal((await call("routine_update", { id: routine.id, linearEvent: "state" })).isError, true, "state needs a state");
+  assert.deepEqual(store.get(routine.id).trigger.label, "bug");
+  const moved = await call("routine_update", { id: routine.id, linearEvent: "state", state: "In Review" });
+  assert.equal(moved.isError, false, moved.text);
+  assert.deepEqual(store.get(routine.id).trigger, { kind: "linear", workspace: "acme", event: "state", state: "In Review", team: "MIL" });
+  const team = await call("routine_update", { id: routine.id, team: "ENG" });
+  assert.equal(team.isError, false, team.text);
+  assert.deepEqual(store.get(routine.id).trigger, { kind: "linear", workspace: "acme", event: "state", state: "In Review", team: "ENG" });
+
+  // A schedule has no Linear filters.
+  await call("heartbeat_create", create);
+  const beat = store.list().find((item) => item.trigger.kind === "schedule");
+  assert.equal((await call("routine_update", { id: beat.id, label: "bug" })).isError, true);
+});
+
+test("a Linear trigger without the filter its event needs is refused by the store, however it arrives", () => {
+  const { store } = setup();
+  const target = { kind: "new-chat", projectPath: "/code/app", workspace: "worktree" };
+  const make = (trigger) => store.create({ name: "x", prompt: "p", trigger, target, createdBy: { kind: "user" } });
+  assert.throws(() => make({ kind: "linear", workspace: "acme", event: "label-added" }), /label/);
+  assert.throws(() => make({ kind: "linear", workspace: "acme", event: "state" }), /state/);
+  const ok = make({ kind: "linear", workspace: "acme", event: "state", state: "Done" });
+  assert.throws(() => store.update(ok.id, { trigger: { kind: "linear", workspace: "acme", event: "label-added" } }), /label/);
+});

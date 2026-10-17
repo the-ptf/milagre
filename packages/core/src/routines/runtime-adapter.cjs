@@ -1,6 +1,9 @@
+const fs = require("node:fs/promises");
+const path = require("node:path");
 const { chatKey, lastUserModel, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { backgroundWork, holdsAnnouncement } = require("@milagre/shared/chat-activity");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
+const { PERMISSION_MODES } = require("../agents/permissions.cjs");
 const { createRoutineStore } = require("./store.cjs");
 const { createRoutineScheduler, linearPrompt, schedulePrompt } = require("./scheduler.cjs");
 const { createRoutineTools } = require("./tools.cjs");
@@ -9,9 +12,13 @@ const { createLinearPoller } = require("./linear-poller.cjs");
 const OFF = "Routines are off. Turn them on in Settings › Experimental.";
 const TOOLS_OFF = "Routines are turned off in Settings › Experimental.";
 const WEBHOOK_LATER = "Webhook Routines arrive in a later update.";
+const UNLISTED = "Choose a Project Milagre lists.";
+const NO_CHAT = "That Chat is no longer in its Project.";
 // What the scheduler records when a Chat got busy as a Run's message was about to go (scheduler.cjs BUSY).
 const BUSY = "chat was busy";
 const busyError = () => Object.assign(new Error(BUSY), { busy: true });
+// A mode saved on a Chat, or undefined when it isn't one Milagre knows (a stale or hand-edited value falls back).
+const knownMode = (mode) => (PERMISSION_MODES.has(mode) ? mode : undefined);
 // A hung git (a fetch, a setup step) fails the Run instead of holding its slot until the daemon restarts.
 const START_TIMEOUT_MS = 2 * 60 * 1000;
 // What a Chat a Routine started can't do: make Routines or start their Runs, so a Run never sets off another.
@@ -185,7 +192,7 @@ function routineChats({ chats, cachedState, openState, isClosing, worktrees, arc
       try {
         sending = await chats.send({
           ...settings,
-          permissionMode: target.permissionMode ?? latest?.permissionMode ?? claimed?.permissionMode ?? "auto",
+          permissionMode: knownMode(target.permissionMode) ?? latest?.permissionMode ?? claimed?.permissionMode ?? "auto",
           body,
           prompt,
           context,
@@ -232,6 +239,38 @@ function routineChats({ chats, cachedState, openState, isClosing, worktrees, arc
 }
 
 /**
+ * Where a Routine may run, checked the same way for the Routines form and the agent tools, on create and on change.
+ * `projects()` lists the Projects Milagre has. A new Chat's folder must be one of them once its symlinks and `..` are
+ * resolved, and is stored as Milagre lists it; a Heartbeat's Chat must be in one of them (not a Link's) and still there.
+ * Resolves with the target to store.
+ */
+function routineTargets({ projects, openState }) {
+  async function listedProject(input) {
+    if (typeof input !== "string" || !path.isAbsolute(input) || input.includes("\0")) throw new Error(UNLISTED);
+    const resolved = path.resolve(input);
+    const real = await fs.realpath(resolved).catch(() => resolved);
+    for (const project of await projects()) {
+      if (project.path === real) return project.path;
+      if ((await fs.realpath(project.path).catch(() => project.path)) === real) return project.path;
+    }
+    throw new Error(UNLISTED);
+  }
+  return async function checkTarget(target) {
+    if (target?.kind === "new-chat") return { ...target, projectPath: await listedProject(target.projectPath) };
+    if (target?.kind !== "chat") return target;
+    if (typeof target.chatId !== "string" || !target.chatId.includes("#")) throw new Error("Choose a Chat.");
+    const scope = projectOfKey(target.chatId);
+    // Heartbeats in a Named Link's Chats are out of scope (the spec's non-goals).
+    if (isLinkScopeKey(scope)) throw new Error(UNLISTED);
+    const projectPath = await listedProject(scope);
+    const sessionId = sessionIdFromKey(target.chatId);
+    const session = (await openState(projectPath, sessionId))?.sessions?.[sessionId];
+    if (!session || session.archived) throw new Error(NO_CHAT);
+    return { kind: "chat", chatId: chatKey(projectPath, sessionId) };
+  };
+}
+
+/**
  * Routines in the runtime: the store at `file`, the scheduler over the Chats, the agent tools and the `routines:*`
  * commands. Every write says `routines:changed`. `timers` ({ now, setInterval, clearInterval, setTimeout, clearTimeout }) is for tests.
  */
@@ -248,6 +287,8 @@ function createRoutines({
   // The Mac's Linear connections and (Task C2) webhooks, read lazily: the runtime makes them after this.
   linear: getLinear = () => null,
   hooks: _hooks = () => null,
+  // The Projects Milagre lists ([{ path }]): a Routine runs only in one of them.
+  projects = async () => [],
   timers = {},
 }) {
   const now = timers.now ?? Date.now;
@@ -258,6 +299,7 @@ function createRoutines({
     emit("routines:changed", { enabled: store.enabled() });
     poller?.sync();
   };
+  const checkTarget = routineTargets({ projects, openState });
   const routineChatsView = routineChats({ chats, cachedState, openState, isClosing, worktrees, archiveChat, now });
   const scheduler = createRoutineScheduler({
     store,
@@ -299,7 +341,7 @@ function createRoutines({
     return {
       provider: latest?.provider ?? session?.provider,
       model: latest?.model || (state ? lastUserModel(state, sessionIdFromKey(chatId)) : undefined) || undefined,
-      permissionMode: session?.permissionMode ?? latest?.permissionMode,
+      permissionMode: knownMode(session?.permissionMode) ?? latest?.permissionMode,
     };
   }
   // Read from the state in memory, as chatSettings is: the Chat's session is there when its agent asks for tools.
@@ -307,6 +349,7 @@ function createRoutines({
   const tools = createRoutineTools({
     store,
     scheduler,
+    checkTarget,
     chatSettings,
     defaultTimezone: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     linearWorkspaces,
@@ -371,17 +414,18 @@ function createRoutines({
     // store.list gives copies, so each takes its Runs in place.
     list: () => ({ routines: store.list().map((routine) => Object.assign(routine, { runs: store.runs(routine.id) })) }),
     // A Routine from the Routines form: always the user's, whatever the input says.
-    create(input) {
+    async create(input) {
       if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("A Routine needs its settings.");
       if (input.trigger?.kind === "webhook") throw new Error(WEBHOOK_LATER);
-      const routine = store.create({ ...input, createdBy: { kind: "user" } });
+      const target = await checkTarget(input.target);
+      const routine = store.create({ ...input, target, createdBy: { kind: "user" } });
       changed();
       return routine;
     },
-    update(id, patch) {
+    async update(id, patch) {
       if (typeof id !== "string" || !id) throw new Error("Choose a routine.");
       if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("A routine change must be an object.");
-      const routine = store.update(id, patch);
+      const routine = store.update(id, patch.target === undefined ? patch : { ...patch, target: await checkTarget(patch.target) });
       changed();
       return routine;
     },
@@ -399,4 +443,4 @@ function createRoutines({
   };
 }
 
-module.exports = { createRoutines, routineChats, routineReply };
+module.exports = { createRoutines, routineChats, routineReply, routineTargets };
