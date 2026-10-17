@@ -242,3 +242,29 @@ test("client setup uses the owning runtime and status never returns installed cr
   assert.equal((await fetch(connection.url, { method: "POST", headers: { authorization: `Bearer ${token}` } })).status, 401);
   assert.ok(!(await fs.readFile(result.configPath, "utf8")).includes(token));
 });
+
+test("host MCP removes a clean Worktree it made, and keeps one with uncommitted files", async (t) => {
+  const f = await fixture(t);
+  const grants = Object.fromEntries(
+    [
+      ["worktrees", ["read", "create"]],
+      ["chats", ["read", "create", "start"]],
+    ].map(([group, capabilities]) => [group, { projectPaths: [f.project], capabilities }]),
+  );
+  const connection = await f.runtime.invoke("local-mcp:create", [{ label: "Cleaner", grants }]);
+  const created = await call(connection, "worktree_create", { projectPath: f.project, baseBranch: "main", prompt: "", requestId: "worktree-1" });
+  const tree = (await call(connection, "worktree_list", { projectPath: f.project })).find((item) => item.id === created.worktreeId);
+  await fs.writeFile(path.join(tree.path, "draft.txt"), "work in progress");
+  await assert.rejects(call(connection, "worktree_remove", { projectPath: f.project, worktreeId: created.worktreeId }), /1 uncommitted file, so it is kept/);
+  assert.ok((await fs.stat(tree.path)).isDirectory(), "kept");
+  await fs.rm(path.join(tree.path, "draft.txt"));
+  const removed = await call(connection, "worktree_remove", { projectPath: f.project, worktreeId: created.worktreeId });
+  assert.equal(removed.removed, true);
+  assert.equal(removed.branchDeleted, true);
+  await assert.rejects(fs.stat(tree.path), { code: "ENOENT" });
+  assert.equal(
+    (await call(connection, "worktree_list", { projectPath: f.project })).some((item) => item.id === created.worktreeId),
+    false,
+  );
+  await assert.rejects(call(connection, "worktree_remove", { projectPath: f.project, worktreeId: 1 }), /Milagre didn't create this Worktree/);
+});

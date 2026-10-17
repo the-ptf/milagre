@@ -5,6 +5,8 @@ const path = require("node:path");
 const { projectOfKey, sessionIdFromKey, lastUserModel } = require("@milagre/shared/agent-runs");
 const { IMAGE_TYPES } = require("@milagre/shared/limits");
 const { chatActivity } = require("@milagre/shared/chat-activity");
+const { queueStatus } = require("@milagre/shared/queued-messages");
+const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
 
 // How much a permission mode allows, least first. A tool never gives a Chat more than its caller has without the user's say.
 const MODE_RANK = { ask: 0, auto: 1, full: 2 };
@@ -29,6 +31,8 @@ function attachmentPrompt(body, files) {
  * answerQuestion(chatId, requestId, answers, summary), patchChat(projectPath, sessionId, patch),
  * searchChats(projectPath, query, limit), links: { list(), add(a, b), remove(id) }, activeWorktrees(projectPath) -> paths,
  * models(projectPath) -> { [provider]: [{ id, efforts, defaultEffort }] }, the pickers' catalog,
+ * worktreeStatus(path, base) -> { uncommitted, unpushed, branch, removable } (worktree-cleanup.cjs),
+ * removeWorktree(projectPath, worktreePath) -> { removed, branch, branchDeleted }, the safe removal only,
  * approve(callerChat, request) -> "allow" | "allow-for-chat" | "deny" | "cancelled".
  * `caller` is the Chat whose agent called the tool; an outside client has none and counts as an Ask caller with nowhere
  * to show an approval card.
@@ -51,6 +55,8 @@ function createLocalMcpHost({
   activeWorktrees,
   approve,
   models = async () => ({}),
+  worktreeStatus,
+  removeWorktree,
 }) {
   const validateProject = async (projectPath) => {
     if (!(await projects()).some((project) => project.path === projectPath) || realpathSync(projectPath) !== projectPath)
@@ -83,8 +89,20 @@ function createLocalMcpHost({
       backgroundWork: background,
       approvals: run?.approvals?.length ?? 0,
       questions: run?.questions?.length ?? 0,
+      queued: session.queued?.length ?? 0,
     };
   };
+  // Messages waiting for the running turn to end, on a provider that can't steer (chat-host.cjs), with the line the
+  // Chat shows above them.
+  const queue = (chatId, session) =>
+    session.queued?.length
+      ? {
+          queue: {
+            status: queueStatus({ count: session.queued.length, held: Boolean(session.queueHeld), running: Boolean(chats.runs[chatId]) }),
+            messages: session.queued.map(({ id, body, provider, model, queuedAt }) => ({ id, body, provider, model, queuedAt })),
+          },
+        }
+      : {};
   const callerMode = (caller) => (caller ? permissionMode(caller, "ask") : "ask");
   // Past what the caller may do alone: the user decides on a card in the caller's Chat. An outside client has no Chat.
   const confirm = async (caller, request) => {
@@ -151,7 +169,12 @@ function createLocalMcpHost({
     async readChat({ projectPath, chatId, limit }) {
       const { session } = await chat(projectPath, chatId);
       const messages = await scopeStates.chatMessages(projectPath, [session.id]);
-      return { ...progress(chatId, session), ...pending(chatId), messages: messages.slice(-limit).map(({ id, role, body }) => ({ id, role, body })) };
+      return {
+        ...progress(chatId, session),
+        ...pending(chatId),
+        ...queue(chatId, session),
+        messages: messages.slice(-limit).map(({ id, role, body }) => ({ id, role, body })),
+      };
     },
     async createWorktree(args, operationId, assertActive) {
       const result = await createWorktree({ localMcp: { operationId, assertActive } }, args);
@@ -195,6 +218,7 @@ function createLocalMcpHost({
         }),
       );
       assertActive();
+      const waits = Boolean(chats.runs?.[chatId]) && !providerCapabilities(session.provider ?? chosenProvider).steer;
       const modeNow = () => asked ?? permissionMode(chatId, caller ? permissionMode(caller) : "ask");
       const mode = modeNow();
       const result = await chats.send({
@@ -218,7 +242,13 @@ function createLocalMcpHost({
       });
       // A running turn takes the asked mode at once, as the composer's switch does.
       if (asked) await setPermissionMode(chatId, asked);
-      return { chatId: `${projectPath}#${result.sessionId}`, accepted: true };
+      // MCP sends never join the Chat's queue (chat-host.cjs): an agent that can't steer takes this one as its next turn
+      // once the running one ends (acp-session.cjs), so the caller hears it waits.
+      return {
+        chatId: `${projectPath}#${result.sessionId}`,
+        accepted: true,
+        ...(waits ? { note: "This Chat's agent can't take a message mid-turn: it starts this one after its running turn ends." } : {}),
+      };
     },
     async stopChat({ projectPath, chatId }) {
       await chat(projectPath, chatId);
@@ -317,6 +347,47 @@ function createLocalMcpHost({
       if (!removable.length) throw Error("No Worktree Link joins these two. Project Links are removed on the canvas.");
       for (const link of removable) await links.remove(link.id);
       return { removed: removable.map((link) => link.id) };
+    },
+    // Only the safe removal (worktree-cleanup.cjs): a Worktree with uncommitted files, or commits on neither its base
+    // nor its upstream, is kept, so nothing is lost but the checkout and the Chats the caller archived.
+    async removeWorktree({ projectPath, worktreeId }, caller) {
+      const state = await project(projectPath);
+      const worktree = state.worktrees[worktreeId];
+      if (!worktree) throw Error(`Worktree ${worktreeId} isn't in ${projectPath}`);
+      if (!worktree.base) throw Error("Milagre didn't create this Worktree, so it is kept.");
+      if (worktree.sharedChat) throw Error("This Worktree belongs to a shared Link Chat. Archive that Chat to hide it.");
+      if (caller && projectOfKey(caller) === projectPath && state.sessions[sessionIdFromKey(caller)]?.worktree_id === worktree.id)
+        throw Error("A Chat can't remove the Worktree it runs in.");
+      const name = (session) => `"${session.title || session.generatedTitle || "Chat"}" (${projectPath}#${session.id})`;
+      const on = Object.values(state.sessions).filter((session) => session.worktree_id === worktree.id);
+      const running = on.filter((session) => chats.runs?.[`${projectPath}#${session.id}`]);
+      if (running.length) throw Error(`Stop ${running.map(name).join(", ")} first (chat_stop).`);
+      // An empty Chat (the one a Worktree reuses for its next send) has nothing to lose; one with messages the caller
+      // archives first, since its Chats go with the Worktree.
+      const used = (session) => (session.summary?.count ?? 0) > 0 || (state.messages ?? []).some((message) => message.session_id === session.id);
+      const open = on.filter((session) => !session.archived && used(session));
+      if (open.length) throw Error(`Archive ${open.map(name).join(", ")} first (chat_update archived: true): the Worktree's Chats go with it.`);
+      const status = await worktreeStatus(worktree.path, worktree.base);
+      if (!status.removable)
+        throw Error(
+          !status.branch
+            ? "It's on a detached HEAD, so it is kept."
+            : status.uncommitted
+              ? `It has ${status.uncommitted} uncommitted ${status.uncommitted === 1 ? "file" : "files"}, so it is kept. Commit or discard them first.`
+              : `Its branch has ${status.unpushed} ${status.unpushed === 1 ? "commit" : "commits"} on neither ${worktree.base} nor its upstream, so it is kept. Push or merge them first.`,
+        );
+      if (caller && callerMode(caller) === "ask")
+        await confirm(caller, {
+          title: `Remove the Worktree "${worktree.name}"?`,
+          description: "Its checkout goes, with its archived Chats. It has nothing uncommitted or unpushed.",
+          detail: JSON.stringify({ worktree: worktree.path, branch: status.branch }, null, 2),
+        });
+      for (const session of on.filter((item) => !item.archived)) await patchChat(projectPath, session.id, { archived: true });
+      const result = await removeWorktree(projectPath, worktree.path);
+      return {
+        removed: Boolean(result.removed),
+        ...(result.branch ? { branch: result.branch, branchDeleted: Boolean(result.branchDeleted) } : {}),
+      };
     },
     async reconcile(operation, args, operationId) {
       const state = await project(args.projectPath);
