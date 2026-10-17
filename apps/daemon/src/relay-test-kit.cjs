@@ -228,7 +228,7 @@ async function startLocalRelay(t, { autoPong = true, hostBehavior } = {}) {
       if (url.pathname === "/v1/host") {
         const index = hostSockets.length;
         hostSockets.push(ws);
-        if (hostBehavior?.(ws, index)) return;
+        if (hostBehavior?.(ws, index, id)) return;
         ws.on("message", (data, isBinary) => room.hostMessage(ws, payload(data, isBinary)));
         ws.on("close", () => room.hostClosed(ws));
         room.hostOpened(ws);
@@ -401,7 +401,7 @@ function fakePeerDaemon() {
  * on 127.0.0.1 (none with `lan: false`), and a clock the test moves (pairing windows). Never Victor's data folder, 8797
  * or 8798. `autoAllow`: this Mac's window allows every computer that asks, as its owner would.
  */
-async function startTestMac(t, { autoAllow = true, lan = true, runtime: runtimeExtra = {} } = {}) {
+async function startTestMac(t, { autoAllow = true, lan = true, runtime: runtimeExtra = {}, relay: relayOptions = {} } = {}) {
   const fs = require("node:fs/promises");
   const os = require("node:os");
   const path = require("node:path");
@@ -428,7 +428,7 @@ async function startTestMac(t, { autoAllow = true, lan = true, runtime: runtimeE
     }
   });
   execFileSync("git", ["init", "-b", "main", project], { stdio: "ignore" });
-  const relay = await startLocalRelay(t);
+  const relay = await startLocalRelay(t, relayOptions);
   daemon = await startDaemon({
     dataDir,
     homeDir: directory,

@@ -31,6 +31,7 @@ const HOOK_RETRY_MS = [2000, 10_000, 30_000, 60_000, 300_000];
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const HOST_OFFLINE = encoder.encode("host-offline");
+const EMPTY_SET = JSON.stringify({ hookIds: [] });
 // Headroom for one full phone response (lan-host.cjs MAX_BUFFERED) plus a desktop's own budget.
 const RELAY_PEER_BUDGET = 64 * 1024 * 1024 + PEER_BUDGET;
 const defaultRandom = (n) => new Uint8Array(randomBytes(n));
@@ -84,6 +85,7 @@ function startRelayHost({
   let attempt = 0;
   let retryTimer = null;
   let session = null; // the live relay socket and its phone connections
+  let drainedOnce = false;
 
   const setStatus = (next) => {
     if (status === next) return;
@@ -133,6 +135,16 @@ function startRelayHost({
     const refused = Array.isArray(result?.refused) ? result.refused.filter((id) => typeof id === "string") : [];
     const failed = Array.isArray(result?.failed) ? result.failed.filter((id) => typeof id === "string") : [];
     clearTimeout(current.hookRetry);
+    // A room a Reset retired, draining (`hooks.drained`): it registers nothing, and once it holds nothing more and every
+    // delivery it sent is acked, it is done. Relays from before `held` never say so; the Mac gives up on them in time.
+    if (hooks.drained && !drainedOnce && result?.held === 0 && current.hookSet === EMPTY_SET && current.hookBatch.length === 0 && current.receiving === 0) {
+      drainedOnce = true;
+      try {
+        hooks.drained();
+      } catch {
+        /* a listener must not break the host */
+      }
+    }
     // Refused although the set carried the owner key: say so on their Routines (a failed claim is only retried).
     try {
       hooks.refused(refused);
@@ -169,12 +181,17 @@ function startRelayHost({
     if (current.hookBatch.length > 1) return;
     setImmediate(async () => {
       const batch = current.hookBatch.splice(0);
+      current.receiving += 1;
       try {
         await hooks.receive(batch);
       } catch {
         return; // not acknowledged: the relay keeps them and sends them again after the next ready
+      } finally {
+        current.receiving -= 1;
       }
       for (const item of batch) sendRaw(current, frame(HOOK_ACK, 0n, encoder.encode(item.id)));
+      // Draining: ask again, so the room's answer says what it still holds after these acks.
+      if (hooks.drained) sendHookSet(current, true);
     });
   }
   function hookFrame(current, data) {
@@ -207,6 +224,7 @@ function startRelayHost({
       stableTimer: null,
       over: false,
       hookSet: null,
+      receiving: 0,
       hookBatch: [],
       hookRetry: null,
       hookAttempt: 0,

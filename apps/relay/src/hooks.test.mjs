@@ -31,13 +31,17 @@ function setup({ roomId = "room-1", directory = memoryHookDirectory(), clock = {
   let n = 0;
   const hooks = createHookRoom({ storage, directory, roomId, now: () => clock.now, randomId: () => `d${++n}` });
   const sent = []; // HOOK frames
-  const results = []; // HOOK_RESULT payloads
+  const results = []; // HOOK_RESULT payloads, without the held count (asserted on its own)
   const send = (bytes) => {
-    if (bytes[0] === HOOK_RESULT) results.push(JSON.parse(new TextDecoder().decode(unframe(bytes).payload)));
-    else sent.push(bytes);
+    if (bytes[0] === HOOK_RESULT) {
+      const { held, ...rest } = JSON.parse(new TextDecoder().decode(unframe(bytes).payload));
+      results.push(rest);
+      helds.push(held);
+    } else sent.push(bytes);
     return true;
   };
-  return { storage, directory, hooks, sent, results, send, clock };
+  const helds = [];
+  return { storage, directory, hooks, sent, results, helds, send, clock };
 }
 const setFrame = (ids) => encoder.encode(JSON.stringify({ hookIds: ids }));
 const request = (body = '{"ok":true}', extra = {}) => ({ headers: { "content-type": "application/json" }, query: {}, body: encoder.encode(body), ...extra });
@@ -310,7 +314,10 @@ test("a directory that can't be reached is reported as failed, not refused, and 
   const storage = memoryHookStorage();
   const results = [];
   const send = (bytes) => {
-    if (bytes[0] === HOOK_RESULT) results.push(JSON.parse(new TextDecoder().decode(unframe(bytes).payload)));
+    if (bytes[0] === HOOK_RESULT) {
+      const { held: _held, ...rest } = JSON.parse(new TextDecoder().decode(unframe(bytes).payload));
+      results.push(rest);
+    }
     return true;
   };
   const hooks = createHookRoom({
@@ -477,7 +484,7 @@ async function snapshotResponse(response) {
   return { status: response.status, headers: [...response.headers.entries()], body: new Uint8Array(await response.arrayBuffer()) };
 }
 
-test("a malformed secret, an unknown hook and a released hook answer the same bytes, each after one lookup", async () => {
+test("a malformed secret, an unknown hook and a released hook answer the same bytes", async () => {
   const { hops, room, lookups } = edge();
   const mac = room("room-1");
   const released = "R".repeat(43);
@@ -492,10 +499,17 @@ test("a malformed secret, an unknown hook and a released hook answer the same by
   mac.storage.hooks.delete(stillListedId);
   lookups.length = 0;
   const answers = [];
-  for (const path of ["/hook/bad-shape", `/hook/${"U".repeat(43)}`, `/hook/${released}`, `/hook/${stillListed}`, `/hook/${"A".repeat(42)}=`]) {
+  // A malformed secret is answered at the edge, before the body is read or the directory asked; the others ask once.
+  for (const [path, asks] of [
+    ["/hook/bad-shape", 0],
+    [`/hook/${"U".repeat(43)}`, 1],
+    [`/hook/${released}`, 1],
+    [`/hook/${stillListed}`, 1],
+    [`/hook/${"A".repeat(42)}=`, 0],
+  ]) {
     const before = lookups.length;
     answers.push(await snapshotResponse(await handleHookRequest(post(path), hops)));
-    assert.equal(lookups.length, before + 1, path);
+    assert.equal(lookups.length, before + asks, path);
   }
   for (const answer of answers.slice(1)) assert.deepEqual(answer, answers[0]);
   assert.equal(answers[0].status, 404);
@@ -599,4 +613,34 @@ test("a released hook with an owner key goes back only to that key", async () =>
   assert.equal(directory.room(), "mac-room");
   directory.release("mac-room");
   assert.equal(await directory.claim("new-room", { ownerKey }), true, "from any room, as after a Reset");
+});
+
+test("each hook result says how many deliveries the room still holds", async () => {
+  const { hooks, send, helds } = setup();
+  await hooks.onFrame(HOOK_SET, setFrame([A]), () => false);
+  await hooks.receive(A, request("one"));
+  await hooks.receive(A, request("two"));
+  await hooks.onFrame(HOOK_SET, setFrame([]), send);
+  assert.equal(helds.at(-1), 2, "released, but its deliveries still wait");
+  await hooks.onFrame(HOOK_ACK, encoder.encode("d1"), send);
+  await hooks.onFrame(HOOK_ACK, encoder.encode("d2"), send);
+  await hooks.onFrame(HOOK_SET, setFrame([]), send);
+  assert.equal(helds.at(-1), 0);
+});
+
+test("a malformed secret gets the uniform 404 even with a body past the cap, and nothing is read or asked", async () => {
+  const { hops, lookups } = edge();
+  let pulled = 0;
+  const body = new ReadableStream({
+    pull(controller) {
+      pulled += 1;
+      controller.enqueue(new Uint8Array(64 * 1024));
+      if (pulled > 10) controller.close();
+    },
+  });
+  const response = await handleHookRequest(post("/hook/nope", { body, duplex: "half" }), hops);
+  assert.equal(response.status, 404);
+  assert.equal(await response.text(), JSON.stringify(NOT_FOUND.json));
+  assert.deepEqual(lookups, []);
+  assert.ok(pulled <= 1, `read ${pulled} chunks`);
 });

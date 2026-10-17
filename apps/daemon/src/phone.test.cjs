@@ -1119,3 +1119,87 @@ test("with phone access off the webhooks-only host starts with the first webhook
   assert.ok(hosts[0].syncs > syncsBefore, "it tells the relay to let go before it stops");
   assert.equal(hosts[0].closed, true);
 });
+
+// A Reset leaves the old room holding deliveries the relay already accepted: the Mac drains it with the old identity.
+const { readDraining } = require("./relay-identity.cjs");
+const DRAIN_HOOKS = { ids: () => ["d".repeat(64)], receive: () => {}, refused: () => {}, owners: () => ({}) };
+const drainHosts = (retired) => retired.filter((host) => typeof host.options.hooks?.drained === "function");
+
+test("a Reset with webhooks and phone access off drains the old room through its own host, then lets the identity go", async (t) => {
+  const { phone, relays, retired, dataDir } = await fixture(t, { phoneOptions: { hooks: DRAIN_HOOKS } });
+  await phone.start();
+  await phone.settled();
+  const webhookHost = relays.find((host) => host.options.hooksOnly);
+  assert.ok(webhookHost, "phone off: the webhooks-only host runs");
+  const old = webhookHost.options.identity;
+  await phone.reset();
+  await phone.settled();
+  const [drain] = drainHosts(retired);
+  assert.ok(drain, "a host drains the old room");
+  assert.equal(drain.options.identity.hostId, old.hostId);
+  assert.equal(drain.options.retired, true);
+  assert.deepEqual(drain.options.hooks.ids(), [], "it registers nothing, so the room lets its hooks go");
+  assert.equal((await readDraining(dataDir, 0)).length, 1);
+  const newHost = relays.filter((host) => host.options.hooksOnly).at(-1);
+  assert.notEqual(newHost.options.identity.hostId, old.hostId, "webhooks go on through the new identity");
+  drain.options.hooks.drained();
+  await waitFor(() => drain.closed);
+  await waitFor(async () => (await readDraining(dataDir, 0)).length === 0);
+});
+
+test("a Reset with webhooks drains the old room with phone access on and no paired phones", async (t) => {
+  const { phone, retired, dataDir } = await fixture(t, { phoneOptions: { hooks: DRAIN_HOOKS } });
+  await phone.setEnabled(true);
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  const drains = drainHosts(retired);
+  assert.equal(drains.length, 1);
+  assert.equal((await readDraining(dataDir, 0)).length, 1);
+});
+
+test("a Reset without webhooks keeps nothing to drain", async (t) => {
+  const { phone, retired, dataDir } = await fixture(t, { phoneOptions: { hooks: { ...DRAIN_HOOKS, ids: () => [] } } });
+  await phone.setEnabled(true);
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  assert.equal(drainHosts(retired).length, 0);
+  assert.deepEqual(await readDraining(dataDir, 0), []);
+});
+
+test("an old room that is both retired (paired phones) and draining gets one host, still held for its phones once drained", async (t) => {
+  const { phone, relays, retired, dataDir } = await fixture(t, { phoneOptions: { hooks: DRAIN_HOOKS } });
+  await phone.setEnabled(true);
+  await phone.settled();
+  await relays.find((host) => !host.options.hooksOnly).options.phones.add("phoneA");
+  await phone.reset();
+  await phone.settled();
+  const open = () => retired.filter((host) => !host.closed);
+  assert.equal(open().length, 1, "one host per old identity");
+  const [host] = open();
+  host.options.hooks.drained();
+  await waitFor(async () => (await readDraining(dataDir, 0)).length === 0);
+  await delay(20);
+  assert.equal(open().length, 1, "its phones still hear the Mac was reset");
+  await phone.setEnabled(false);
+  await phone.settled();
+  assert.equal(open().length, 0, "phone off and nothing to drain: let go");
+});
+
+test("a drain gives up once the relay can no longer hold anything (25 h)", async (t) => {
+  const clock = { now: 0 };
+  const { phone, retired, create } = await fixture(t, { clock, phoneOptions: { hooks: DRAIN_HOOKS } });
+  await phone.start();
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  assert.equal(drainHosts(retired).length, 1);
+  await phone.close();
+  clock.now = 25 * 3600_000;
+  const later = create();
+  t.after(() => later.close());
+  await later.start();
+  await later.settled();
+  assert.equal(drainHosts(retired).length, 1, "no new drain host after the limit");
+});
