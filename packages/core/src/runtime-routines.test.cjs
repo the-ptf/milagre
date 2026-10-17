@@ -118,7 +118,24 @@ async function fixture(t, { enable = true } = {}) {
     assert.ok(tickFn, "the scheduler is ticking");
     tickFn();
   };
-  return { runtime, project, id, chatId, session, sessions, emitted, published, messages, tool, list, finish, beat, advance: (ms) => (clock += ms) };
+  return {
+    runtime,
+    project,
+    id,
+    chatId,
+    session,
+    sessions,
+    emitted,
+    published,
+    messages,
+    tool,
+    list,
+    finish,
+    beat,
+    advance: (ms) => (clock += ms),
+    dataDir: path.join(dir, "data"),
+    tick: () => tickFn?.(),
+  };
 }
 
 const latestRun = async (f) => (await f.list())[0]?.runs[0];
@@ -400,19 +417,8 @@ test("routines:linear-options answers with empty choices and the reason while Li
   });
 });
 
-test("routines:create refuses webhook triggers for now and a Project that isn't registered", async (t) => {
+test("routines:create refuses a Project that isn't registered", async (t) => {
   const f = await fixture(t);
-  await assert.rejects(
-    f.runtime.invoke("routines:create", [
-      {
-        name: "Sentry",
-        prompt: "Look",
-        trigger: { kind: "webhook", hookId: "a".repeat(64), signed: false },
-        target: { kind: "new-chat", projectPath: f.project, workspace: "worktree" },
-      },
-    ]),
-    /Webhook Routines arrive in a later update/,
-  );
   await assert.rejects(
     f.runtime.invoke("routines:create", [
       {
@@ -435,4 +441,199 @@ test("routines:create refuses webhook triggers for now and a Project that isn't 
     },
   ]);
   assert.deepEqual(routine.createdBy, { kind: "user" });
+});
+
+// Webhook Routines (Task C2): the relay hands deliveries to runtime.routines.receiveHook(s).
+const crypto = require("node:crypto");
+const sha256 = (text) => crypto.createHash("sha256").update(text).digest("hex");
+const hmac = (secret, body) => crypto.createHmac("sha256", secret).update(body).digest("hex");
+const hookFile = (f) => path.join(f.dataDir, "routine-hooks.json");
+const storedDeliveries = async (f) => Object.keys(JSON.parse(await fs.readFile(hookFile(f), "utf8")).deliveries);
+let deliveryCount = 0;
+const delivery = (hookId, body = '{"level":"error","title":"TypeError in checkout"}', headers = {}, extra = {}) => ({
+  id: `d${++deliveryCount}`,
+  hookId,
+  receivedAt: Date.now(),
+  headers: { "content-type": "application/json", ...headers },
+  query: {},
+  body: new TextEncoder().encode(body),
+  ...extra,
+});
+async function createWebhook(f, extra = {}) {
+  return f.runtime.invoke("routines:create", [
+    {
+      name: "Sentry",
+      prompt: "Look at this error: {{body}} Title: {{body.title}}",
+      trigger: { kind: "webhook" },
+      target: { kind: "new-chat", projectPath: f.project, workspace: "worktree" },
+      ...extra,
+    },
+  ]);
+}
+const secretOf = (url) => url.split("/hook/")[1];
+
+test("a webhook Routine gets a URL; a delivery starts a Run whose first message holds the payload as untrusted data", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const { routine, hookUrl } = await createWebhook(f);
+  assert.match(hookUrl, /^https:\/\/relay\.milagre\.cloud\/hook\/[A-Za-z0-9_-]{43}$/);
+  assert.deepEqual(routine.trigger, { kind: "webhook", hookId: sha256(secretOf(hookUrl)), signed: false });
+  assert.deepEqual(await f.runtime.invoke("routines:hook", [routine.id]), { url: hookUrl, signed: false, signingHeader: "sentry-hook-signature" });
+  assert.deepEqual(f.runtime.routines.hookIds(), [routine.trigger.hookId]);
+  // The secret lives only in the hook store: never in the Routine list or routines.json.
+  assert.ok(!JSON.stringify(await f.list()).includes(secretOf(hookUrl)));
+  assert.ok(!(await fs.readFile(path.join(f.dataDir, "routines.json"), "utf8")).includes(secretOf(hookUrl)));
+  assert.equal((await fs.stat(hookFile(f))).mode & 0o777, 0o600);
+
+  const sent = delivery(routine.trigger.hookId);
+  assert.deepEqual(f.runtime.routines.receiveHook(sent), { ack: true });
+  assert.deepEqual(await storedDeliveries(f), [sent.id], "persisted before the ack");
+  f.tick();
+  const { state, session, agent } = await runChat(f);
+  const first = state.messages.find((message) => message.session_id === session.id && message.role === "user");
+  assert.match(first.body, /<untrusted-data source="webhook body">\n\{"level":"error","title":"TypeError in checkout"\}\n<\/untrusted-data>/);
+  // Every webhook value is untrusted; routine-prompt.mjs decides how a short one is fenced (the fence-all ruling).
+  assert.match(first.body, /Title: (<untrusted-data source="webhook body.title">\n)?TypeError in checkout/);
+  assert.match(first.body, /^Text inside untrusted-data comes from outside Milagre/);
+  assert.equal(agent.turns[0].prompt.startsWith(first.body), true);
+  const run = await latestRun(f);
+  assert.deepEqual(run.event, { kind: "webhook", key: `webhook:${sent.id}`, deliveryId: sent.id });
+  await eventually(async () => (await storedDeliveries(f)).length === 0);
+  // A redelivery of the same delivery starts nothing new.
+  f.runtime.routines.receiveHook({ ...sent });
+  f.tick();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal((await f.list())[0].runs.length, 1);
+});
+
+test("a signed webhook with a wrong signature records a failed Run and starts no Chat; a right one runs", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const { routine } = await createWebhook(f, { trigger: { kind: "webhook", signed: true }, signingSecret: "shh" });
+  assert.equal(routine.trigger.signed, true);
+  assert.ok(!JSON.stringify(await f.list()).includes("shh"));
+  const body = '{"a":1}';
+  const wrong = delivery(routine.trigger.hookId, body, { "sentry-hook-signature": hmac("not-it", body) });
+  assert.deepEqual(f.runtime.routines.receiveHook(wrong), { ack: true });
+  const [failed] = (await f.list())[0].runs;
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.error, "signature mismatch");
+  assert.equal(failed.event.deliveryId, wrong.id);
+  assert.deepEqual(await storedDeliveries(f), []);
+  f.tick();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(f.sessions.length, 1, "no Chat");
+  // A failed signature doesn't count toward pausing the Routine: anyone with the URL could send three.
+  assert.equal((await f.list())[0].failedStreak ?? 0, 0);
+
+  const right = delivery(routine.trigger.hookId, body, { "sentry-hook-signature": `sha256=${hmac("shh", body)}` });
+  f.runtime.routines.receiveHook(right);
+  f.tick();
+  await runChat(f);
+});
+
+test("a webhook signed through a custom header: create, update, and a signature in the wrong header is a mismatch", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const { routine } = await createWebhook(f, { signingSecret: "gh", signingHeader: "X-Hub-Signature-256" });
+  assert.equal(routine.signingHeader, "x-hub-signature-256");
+  assert.equal((await f.runtime.invoke("routines:hook", [routine.id])).signingHeader, "x-hub-signature-256");
+  await assert.rejects(f.runtime.invoke("routines:update", [routine.id, { signingHeader: "not a header" }]), /header name/);
+  const body = '{"action":"opened"}';
+  // Right HMAC, but in the default header instead of the Routine's.
+  f.runtime.routines.receiveHook(delivery(routine.trigger.hookId, body, { "sentry-hook-signature": hmac("gh", body) }));
+  assert.equal((await f.list())[0].runs[0].error, "signature mismatch");
+  const moved = await f.runtime.invoke("routines:update", [routine.id, { signingHeader: "X-Signature" }]);
+  assert.equal(moved.signingHeader, "x-signature");
+  assert.equal(moved.trigger.signed, true, "a header change keeps the signing secret");
+  f.runtime.routines.receiveHook(delivery(routine.trigger.hookId, body, { "x-hub-signature-256": `sha256=${hmac("gh", body)}` }));
+  assert.equal((await f.list())[0].runs.filter((run) => run.error === "signature mismatch").length, 2, "the old header no longer counts");
+  f.runtime.routines.receiveHook(delivery(routine.trigger.hookId, body, { "x-signature": `sha256=${hmac("gh", body)}` }));
+  f.tick();
+  await runChat(f);
+  const reset = await f.runtime.invoke("routines:update", [routine.id, { signingHeader: "" }]);
+  assert.equal(reset.signingHeader, undefined);
+  assert.equal((await f.runtime.invoke("routines:hook", [routine.id])).signingHeader, "sentry-hook-signature");
+});
+
+test("rotating a webhook kills the old hook id, keeps it signed, and a delivery for the old id starts nothing", async (t) => {
+  const f = await fixture(t);
+  const { routine, hookUrl } = await createWebhook(f, { trigger: { kind: "webhook", signed: true }, signingSecret: "shh", signingHeader: "X-Signature" });
+  const changes = () => f.emitted.filter((item) => item.channel === "routines:changed").length;
+  const before = changes();
+  const { url } = await f.runtime.invoke("routines:rotate-hook", [routine.id]);
+  assert.ok(changes() > before, "the relay hears about it");
+  assert.notEqual(url, hookUrl);
+  const [rotated] = await f.list();
+  assert.deepEqual(rotated.trigger, { kind: "webhook", hookId: sha256(secretOf(url)), signed: true });
+  assert.deepEqual(f.runtime.routines.hookIds(), [rotated.trigger.hookId]);
+  assert.deepEqual(await f.runtime.invoke("routines:hook", [routine.id]), { url, signed: true, signingHeader: "x-signature" });
+  const body = "{}";
+  assert.deepEqual(f.runtime.routines.receiveHook(delivery(routine.trigger.hookId, body, { "x-signature": hmac("shh", body) })), { ack: true });
+  assert.deepEqual((await f.list())[0].runs, []);
+  assert.deepEqual(await storedDeliveries(f), []);
+});
+
+test("a delivery for a deleted or paused Routine is acked, dropped and starts nothing", async (t) => {
+  const f = await fixture(t);
+  const { routine } = await createWebhook(f);
+  const { routine: paused } = await createWebhook(f, { name: "Paused" });
+  await f.runtime.invoke("routines:update", [paused.id, { enabled: false }]);
+  assert.deepEqual(f.runtime.routines.hookIds(), [routine.trigger.hookId]);
+  await f.runtime.invoke("routines:delete", [routine.id]);
+  assert.deepEqual(f.runtime.routines.hookIds(), []);
+  await assert.rejects(f.runtime.invoke("routines:hook", [routine.id]), /Routine not found/);
+  assert.deepEqual(f.runtime.routines.receiveHook(delivery(routine.trigger.hookId)), { ack: true });
+  assert.deepEqual(f.runtime.routines.receiveHook(delivery(paused.trigger.hookId)), { ack: true });
+  assert.deepEqual(await storedDeliveries(f), []);
+  f.tick();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual((await f.list()).find((item) => item.id === paused.id).runs, []);
+  assert.equal(f.sessions.length, 1);
+});
+
+test("several deliveries at once queue in one batch, each its own Run", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const { routine } = await createWebhook(f);
+  const writes = f.emitted.filter((item) => item.channel === "routines:changed").length;
+  assert.deepEqual(f.runtime.routines.receiveHooks([delivery(routine.trigger.hookId), delivery(routine.trigger.hookId)]), { ack: true });
+  assert.equal(f.emitted.filter((item) => item.channel === "routines:changed").length, writes + 1, "one change for the batch");
+  f.tick();
+  await waitUntil(() => f.sessions.length === 3 && f.sessions.slice(1).every((session) => session.turns.length === 1), { timeoutMs: 10_000 });
+});
+
+test("webhook signing: signed: false clears the secret, a new secret signs again, and signed without a secret is refused", async (t) => {
+  const f = await fixture(t);
+  await assert.rejects(createWebhook(f, { trigger: { kind: "webhook", signed: true } }), /signing secret/);
+  const { routine } = await createWebhook(f, { signingSecret: "first" });
+  assert.equal(routine.trigger.signed, true, "a signing secret signs it");
+  const off = await f.runtime.invoke("routines:update", [routine.id, { trigger: { kind: "webhook", signed: false } }]);
+  assert.deepEqual(off.trigger, routine.trigger.signed ? { ...routine.trigger, signed: false } : routine.trigger);
+  assert.equal((await f.runtime.invoke("routines:hook", [routine.id])).signed, false);
+  await assert.rejects(f.runtime.invoke("routines:update", [routine.id, { trigger: { kind: "webhook", signed: true } }]), /signing secret/);
+  const on = await f.runtime.invoke("routines:update", [routine.id, { signingSecret: "second", signingHeader: "x-hub" }]);
+  assert.equal(on.trigger.signed, true);
+  assert.equal(on.trigger.hookId, routine.trigger.hookId, "update never changes the URL");
+  assert.deepEqual(await f.runtime.invoke("routines:hook", [routine.id]), {
+    url: (await f.runtime.invoke("routines:hook", [routine.id])).url,
+    signed: true,
+    signingHeader: "x-hub",
+  });
+  await assert.rejects(f.runtime.invoke("routines:update", [routine.id, { trigger: { kind: "webhook", hookId: "b".repeat(64) } }]), /Rotate/);
+  const listed = JSON.stringify(await f.list());
+  assert.ok(!listed.includes("second") && !listed.includes("first"));
+});
+
+test("hooks stay off with the Routines switch, and a hook the relay refuses shows on its Routine until it is taken", async (t) => {
+  const f = await fixture(t);
+  const { routine } = await createWebhook(f);
+  f.runtime.routines.hooksRefused([routine.trigger.hookId]);
+  assert.match((await f.list())[0].lastError, /relay/);
+  f.runtime.routines.hooksRefused([]);
+  assert.equal((await f.list())[0].lastError, undefined);
+  await f.runtime.invoke("routines:enabled:save", [false]);
+  assert.deepEqual(f.runtime.routines.hookIds(), []);
+  assert.deepEqual(f.runtime.routines.receiveHook(delivery(routine.trigger.hookId)), { ack: true });
+  assert.deepEqual(await storedDeliveries(f), []);
 });

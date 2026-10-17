@@ -53,6 +53,10 @@ const message = (error) => (error instanceof Error ? error.message : String(erro
  * A computer's first pairing waits for its owner: `allowComputer` (handed to the relay host with `openPeer`) holds the
  * request until `allowDevice` or `denyDevice`, the end of the pairing window it arrived in, or its channel closing.
  * `onPending(requests)` hears the list of waiting `{ key, name, at }` after each change; `pendingDevices()` reads it.
+ * `hooks` ({ ids, receive, refused, proofs }, see relay-host.cjs) are the Mac's webhook Routines: the relay host carries
+ * them whenever phone access is on, and while it is off a relay host runs for them alone as long as `ids()` has any. Call
+ * `syncHooks()` when they change. A retiring room (after a Reset) lets go of its hooks and hands over what it still held.
+ * A confined phone never takes webhooks.
  */
 function createPhone({
   dataDir,
@@ -74,6 +78,7 @@ function createPhone({
   lanHostname = "0.0.0.0",
   addresses = lanAddresses,
   openPeer,
+  hooks,
 }) {
   const file = path.join(dataDir, "mobile.json");
   let config; // { enabled, token | null, lan }, read once
@@ -93,6 +98,18 @@ function createPhone({
   const lanAllowed = lanPort !== null && allowedRoot === undefined;
   // What the relay and LAN hosts get to serve paired desktops: nothing on a confined phone.
   const peer = openPeer && allowedRoot === undefined ? { openPeer, allowComputer } : {};
+  // Webhooks reach only an unconfined Mac.
+  const relayHooks = hooks && allowedRoot === undefined ? hooks : undefined;
+  // A room a Reset retired registers no hooks (so the directory lets the new room have them) and still takes what it held.
+  const retiringHooks = relayHooks && { ids: () => [], receive: (deliveries) => relayHooks.receive(deliveries), refused: () => {}, proofs: () => ({}) };
+  let hookHost = null; // the relay host for webhooks alone, while phone access is off
+  const wantsHooks = () => {
+    try {
+      return Boolean(relayHooks) && relayHooks.ids().length > 0;
+    } catch {
+      return false;
+    }
+  };
   /** Computers waiting for Allow, by key, oldest first: { key, name, at, settle(verdict) }. */
   const pending = new Map();
   const pendingList = () => [...pending.values()].map(({ key, name, at }) => ({ key, name, at }));
@@ -257,7 +274,12 @@ function createPhone({
     for (const old of await readRetired(dataDir, now())) {
       // A reset that failed after saving the retired key may still use it: two hosts on one id would knock each other off.
       if (old.hostId === current.hostId) continue;
-      const host = startRelay({ relayUrl, identity: { hostId: old.hostId, sign: old.sign }, retired: true });
+      const host = startRelay({
+        relayUrl,
+        identity: { hostId: old.hostId, sign: old.sign },
+        retired: true,
+        ...(retiringHooks ? { hooks: retiringHooks } : {}),
+      });
       const timer = setTimeout(
         () => {
           void host.close().catch(() => {});
@@ -270,6 +292,19 @@ function createPhone({
     return held;
   }
 
+  /** With phone access off: the relay host for webhooks alone, started while any are wanted. */
+  async function startHookHost() {
+    if (hookHost || closed || !wantsHooks()) return;
+    const identity = await readIdentity(dataDir);
+    if (hookHost || closed) return;
+    hookHost = startRelay({ relayUrl, identity, hooks: relayHooks, hooksOnly: true });
+  }
+  async function stopHookHost() {
+    const host = hookHost;
+    hookHost = null;
+    await host?.close().catch(() => {});
+  }
+
   async function teardown() {
     // Their channels close with the hosts; a request whose channel outlives this run must not be answerable.
     for (const entry of [...pending.values()]) entry.settle("dropped");
@@ -279,6 +314,7 @@ function createPhone({
     live = undefined;
     relayStatus = "offline";
     await closeLive(old);
+    await stopHookHost();
   }
 
   /** Listens on the local network for `current`. A port that is taken is reported in `lan.error`, never thrown. */
@@ -373,6 +409,7 @@ function createPhone({
         bridgeUrl: bridge.url,
         canPair: (key) => mayPair(key),
         ...peer,
+        ...(relayHooks ? { hooks: relayHooks } : {}),
         onStatus: (next) => {
           if (mine !== generation) return;
           relayStatus = next;
@@ -429,7 +466,10 @@ function createPhone({
       await teardown();
       if (closed) return;
       if (config.enabled) await launch();
-      else set("off");
+      else {
+        set("off");
+        await startHookHost();
+      }
     });
   }
 
@@ -537,7 +577,11 @@ function createPhone({
         if (config.enabled) {
           attempts = 0;
           void apply().catch(() => {});
-        } else set("off");
+        } else {
+          set("off");
+          // Webhooks go on through the new identity's room.
+          await startHookHost();
+        }
       });
       return status();
     },
@@ -578,9 +622,24 @@ function createPhone({
         if (config.enabled && !closed) {
           set("starting");
           void apply().catch(() => {});
-        }
+        } else await startHookHost();
       });
       return status();
+    },
+    /**
+     * The webhook set changed. A running relay host tells the relay now; with phone access off, the webhooks-only host
+     * starts for the first webhook and, after telling the relay to let go, stops with the last.
+     */
+    syncHooks() {
+      if (!relayHooks) return Promise.resolve();
+      live?.relay?.syncHooks?.();
+      hookHost?.syncHooks?.();
+      return enqueue(async () => {
+        await load();
+        if (closed || config.enabled) return;
+        if (!hookHost) await startHookHost();
+        else if (!wantsHooks()) await stopHookHost();
+      });
     },
     async close() {
       closed = true;

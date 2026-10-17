@@ -130,6 +130,8 @@ Then start the host with `npm run mobile:host -- --cloudflare --desktop` and sca
 
 For a named Cloudflare tunnel, TLS ends at Cloudflare's edge and Cloudflare can see the traffic. The default public relay forwards encrypted frames and cannot read Chat traffic.
 
+Webhook Routines are the exception: their payloads are not end-to-end encrypted. A webhook Routine's URL (`https://relay.milagre.cloud/hook/<secret>`) is public so services such as Sentry can POST to it. The relay stores each delivery (body, headers and query, up to 256 KiB) before it answers 202, forwards it over the Mac's relay connection, and deletes it once the Mac acknowledges it. A Mac that is offline gets the delivery when it reconnects; the relay holds it for up to 24 hours, then deletes it unread. The relay never sees the optional signing secret: the Mac checks signatures. While any webhook Routine is on, the daemon keeps its relay connection open even with phone access off. Rotating the URL in the Routines form stops the old one at once.
+
 ## Connect through your own HTTPS endpoint
 
 Use an HTTPS endpoint from your own reverse proxy, VPN or configured tunnel. It must forward to the loopback bridge and rewrite the Host header to that bridge's address. For an already configured ngrok account:

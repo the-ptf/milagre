@@ -262,16 +262,18 @@ test("a Chat on a Named Link gets no routine tools", (t) => {
 });
 
 // The adapter's half of a Run in a Chat of its own: Worktrees and Chats faked, with what each call got.
-function newChatFixture({ removable = true, failChat = false, createDelayMs = 0, timeoutMs } = {}) {
+function newChatFixture({ removable = true, failChat = false, createDelayMs = 0, timeoutMs, hooks, send } = {}) {
   const calls = { created: [], removed: [], archived: [], emptyChats: [] };
   const projectState = {
     worktrees: { 1: { id: 1, path: "/project" }, 7: { id: 7, path: "/worktrees/seven", base: "main" } },
     sessions: { 4: { id: 4, worktree_id: 7 } },
+    messages: [],
   };
   const chats = {
     runs: {},
     isBusy: () => false,
     turnSettings: () => null,
+    ...(send ? { send } : {}),
     emptyChat: async (projectPath, worktreeId, options) => {
       calls.emptyChats.push({ projectPath, worktreeId, options });
       if (failChat) throw new Error("no chat");
@@ -301,6 +303,7 @@ function newChatFixture({ removable = true, failChat = false, createDelayMs = 0,
     archiveChat: async (chatId) => calls.archived.push(chatId),
     now: () => Date.UTC(2026, 9, 16, 11, 5),
     ...(timeoutMs ? { timeoutMs } : {}),
+    ...(hooks ? { hooks } : {}),
   });
   return { adapter, calls };
 }
@@ -360,16 +363,31 @@ test("a Worktree that takes too long fails the Run, and goes once it is made", a
   assert.deepEqual(calls.emptyChats, []);
 });
 
-test("a webhook Run isn't supported yet", async () => {
+test("a webhook Run whose delivery is gone fails before making anything", async () => {
   const { adapter, calls } = newChatFixture();
   await assert.rejects(
     adapter.startChat({
       routine: triage("worktree", { kind: "webhook", hookId: "h", signed: false }),
       run: { id: "r", event: { kind: "webhook", key: "k", deliveryId: "d" } },
     }),
-    /Webhook Routines arrive in a later update/,
+    /no longer on this Mac/,
   );
   assert.deepEqual(calls.created, []);
+});
+
+test("a webhook Run words its first message from the delivery and deletes the delivery once that message is sent", async () => {
+  const deliveries = new Map([
+    ["d1", { id: "d1", hookId: "h", receivedAt: 1, headers: { "x-env": "prod" }, query: {}, body: new TextEncoder().encode('{"a":1}') }],
+  ]);
+  const store = { getDelivery: (id) => deliveries.get(id) ?? null, takeDelivery: (id) => deliveries.delete(id) };
+  const { adapter } = newChatFixture({ hooks: () => ({ store, relayUrl: "wss://relay" }), send: async () => ({ started: true }) });
+  const routine = { ...triage("worktree", { kind: "webhook", hookId: "h", signed: false }), prompt: "Body {{body}} env {{headers.x-env}}" };
+  const chat = await adapter.startChat({ routine, run: { id: "run-1", event: { kind: "webhook", key: "webhook:d1", deliveryId: "d1" } } });
+  assert.match(chat.body, /<untrusted-data source="webhook body">\n\{"a":1\}\n<\/untrusted-data>/);
+  assert.match(chat.body, /prod/);
+  assert.ok(deliveries.has("d1"), "kept until the message is sent");
+  await adapter.send(chat.chatId, { body: chat.body, prompt: chat.prompt, context: chat.context });
+  assert.equal(deliveries.has("d1"), false);
 });
 
 test("a Linear Run makes the issue's Worktree and names the Chat after the issue", async () => {

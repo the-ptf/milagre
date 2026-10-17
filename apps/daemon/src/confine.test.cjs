@@ -758,3 +758,9 @@ test("the Mac-only MCP commands are not phone methods at all", async () => {
     await assert.rejects(confine.checkCall(method, []), { status: 403, message: REFUSED });
   }
 });
+
+test("a confined phone can neither read a webhook Routine's URL nor rotate it", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await assert.rejects(confine.checkCall("routines:hook", ["r1"]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:rotate-hook", ["r1"]), { status: 403, message: REFUSED });
+});

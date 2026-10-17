@@ -7,6 +7,7 @@ const { createRoutineStore } = require("./store.cjs");
 const { createRoutineScheduler, linearPrompt } = require("./scheduler.cjs");
 const { createRoutineTools } = require("./tools.cjs");
 const { createLinearPoller } = require("./linear-poller.cjs");
+const { DEFAULT_SIGNING_HEADER, newHookSecret, hookUrl, verifySignature, webhookPrompt } = require("./webhook.cjs");
 
 const OFF = "Routines are off. Turn them on in Settings › Experimental.";
 const TOOLS_OFF = "Routines are turned off in Settings › Experimental.";
@@ -18,6 +19,9 @@ const busyError = () => Object.assign(new Error(BUSY), { busy: true });
 const START_TIMEOUT_MS = 2 * 60 * 1000;
 // What a Chat a Routine started can't do: make Routines or start their Runs, so a Run never sets off another.
 const WITHHELD = new Set(["heartbeat_create", "routine_create", "routine_run_now"]);
+// What a webhook Routine shows while the relay keeps its URL with another room (this Mac's own before a Reset).
+const HOOK_REFUSED = "The relay won't take this webhook's URL yet. Rotate the URL if this stays.";
+const SIGNED_NEEDS_SECRET = "A signed webhook needs a signing secret.";
 
 // `work`, or a rejection after `ms`. `late` gets what `work` resolves with when that comes after the timeout.
 function withTimeout(work, ms, message, late) {
@@ -65,7 +69,27 @@ function routineReply(state, sessionId) {
  * `worktrees` makes and removes a Run's Worktree (create, remove, removable, base, projectWorktree) and `archiveChat`
  * archives a Chat as the user would.
  */
-function routineChats({ chats, store, cachedState, openState, isClosing, worktrees, archiveChat, now = Date.now, timeoutMs = START_TIMEOUT_MS }) {
+function routineChats({
+  chats,
+  store,
+  cachedState,
+  openState,
+  isClosing,
+  worktrees,
+  archiveChat,
+  now = Date.now,
+  timeoutMs = START_TIMEOUT_MS,
+  hooks = () => null,
+}) {
+  // runId -> the webhook delivery its first message was worded from, deleted once that message is sent.
+  const webhookRuns = new Map();
+  const dropDelivery = (deliveryId) => {
+    try {
+      hooks()?.store.takeDelivery(deliveryId);
+    } catch (error) {
+      console.warn("[routines] couldn't delete a webhook delivery", error?.message ?? error);
+    }
+  };
   const session = (chatId) => cachedState(projectOfKey(chatId))?.sessions?.[sessionIdFromKey(chatId)];
   // What makes a Run's message wait, other than a turn starting: a turn running or preparing, an approval or a question,
   // a message waiting in the Chat's queue for the next turn, or background work whose result comes back to the Chat (a
@@ -115,7 +139,12 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
   // The first message of a Run in a Chat of its own: the Routine's prompt with the trigger's values filled in.
   function firstMessage(routine, run, at) {
     const event = run.event;
-    if (event?.kind === "webhook" || routine.trigger.kind === "webhook") throw new Error(WEBHOOK_LATER);
+    if (event?.kind === "webhook") {
+      const delivery = hooks()?.store.getDelivery(event.deliveryId);
+      if (!delivery) throw new Error("The webhook delivery is no longer on this Mac.");
+      return webhookPrompt(routine.prompt, delivery);
+    }
+    if (routine.trigger.kind === "webhook") throw new Error(WEBHOOK_LATER);
     if (event?.kind === "linear") return linearPrompt(routine.prompt, event.issue);
     const [date, time] = clock(at, routine.trigger.timezone, true).split(" ");
     return renderRoutinePrompt(routine.prompt, { date, time });
@@ -131,7 +160,17 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
     const issue = run.event?.kind === "linear" ? run.event.issue : null;
     const body = firstMessage(routine, run, at);
     const { projectPath } = routine.target;
-    const { worktreeId, createdWorktree } = await workspaceFor(routine, issue);
+    const deliveryId = run.event?.kind === "webhook" ? run.event.deliveryId : null;
+    let made;
+    try {
+      made = await workspaceFor(routine, issue);
+    } catch (error) {
+      // The Run fails; nothing will word a message from its delivery again.
+      if (deliveryId) dropDelivery(deliveryId);
+      throw error;
+    }
+    const { worktreeId, createdWorktree } = made;
+    if (deliveryId) webhookRuns.set(run.id, deliveryId);
     try {
       const sessionId = await chats.emptyChat(projectPath, worktreeId, {
         origin: { routineId: routine.id, runId: run.id },
@@ -146,6 +185,10 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
     } catch (error) {
       // Nothing can fail once the Chat is made, so only the Worktree is left to take back.
       if (createdWorktree) await dropWorktree(projectPath, worktreeId);
+      if (deliveryId) {
+        webhookRuns.delete(run.id);
+        dropDelivery(deliveryId);
+      }
       throw error;
     }
   }
@@ -213,6 +256,12 @@ function routineChats({ chats, store, cachedState, openState, isClosing, worktre
         throw error;
       }
       const { started } = sending;
+      // A webhook Run's payload now lives in its Chat's first message: the copy kept for it goes.
+      const deliveryId = webhookRuns.get(context?.runId);
+      if (deliveryId) {
+        webhookRuns.delete(context.runId);
+        dropDelivery(deliveryId);
+      }
       // Whether the Chat was unread before the beat, so a quiet one can leave it that way.
       return { started, unread: target.unread === true };
     },
@@ -249,9 +298,9 @@ function createRoutines({
   isClosing = () => false,
   worktrees,
   archiveChat = async () => {},
-  // The Mac's Linear connections and (Task C2) webhooks, read lazily: the runtime makes them after this.
+  // The Mac's Linear connections and webhooks ({ store: hook-store.cjs, relayUrl }), read lazily: the runtime makes them after this.
   linear: getLinear = () => null,
-  hooks: _hooks = () => null,
+  hooks: getHooks = () => null,
   timers = {},
 }) {
   const now = timers.now ?? Date.now;
@@ -262,7 +311,14 @@ function createRoutines({
     emit("routines:changed", { enabled: store.enabled() });
     poller?.sync();
   };
-  const routineChatsView = routineChats({ chats, store, cachedState, openState, isClosing, worktrees, archiveChat, now });
+  const hooksNow = () => {
+    try {
+      return getHooks() ?? null;
+    } catch {
+      return null;
+    }
+  };
+  const routineChatsView = routineChats({ chats, store, cachedState, openState, isClosing, worktrees, archiveChat, now, hooks: hooksNow });
   const scheduler = createRoutineScheduler({
     store,
     chats: routineChatsView,
@@ -316,6 +372,8 @@ function createRoutines({
     linearWorkspaces,
     now,
   });
+
+  const webhooks = createWebhooks({ store, scheduler, hooks: hooksNow, changed });
 
   return {
     enabled: () => store.enabled(),
@@ -375,7 +433,7 @@ function createRoutines({
     // A Routine from the Routines form: always the user's, whatever the input says.
     create(input) {
       if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("A Routine needs its settings.");
-      if (input.trigger?.kind === "webhook") throw new Error(WEBHOOK_LATER);
+      if (input.trigger?.kind === "webhook") return webhooks.create(input);
       const routine = store.create({ ...input, createdBy: { kind: "user" } });
       changed();
       return routine;
@@ -383,6 +441,7 @@ function createRoutines({
     update(id, patch) {
       if (typeof id !== "string" || !id) throw new Error("Choose a routine.");
       if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("A routine change must be an object.");
+      if (store.get(id)?.trigger.kind === "webhook") return webhooks.update(id, patch);
       const routine = store.update(id, patch);
       changed();
       return routine;
@@ -390,13 +449,216 @@ function createRoutines({
     remove(id) {
       if (typeof id !== "string" || !id) throw new Error("Choose a routine.");
       const removed = store.remove(id);
-      if (removed) changed();
+      if (removed) {
+        webhooks.forget(id);
+        changed();
+      }
       return { removed };
     },
+    hook: (id) => webhooks.hook(id),
+    rotateHook: (id) => webhooks.rotate(id),
+    hookIds: () => webhooks.hookIds(),
+    receiveHook: (delivery) => webhooks.receive([delivery]),
+    receiveHooks: (deliveries) => webhooks.receive(deliveries),
+    hooksRefused: (ids) => webhooks.refused(ids),
+    hookProofs: (ids) => webhooks.proofs(ids),
     async runNow(id) {
       if (!store.enabled()) throw new Error(OFF);
       if (typeof id !== "string" || !id) throw new Error("Choose a routine.");
       return scheduler.runNow(id);
+    },
+  };
+}
+
+const nonEmpty = (value) => (typeof value === "string" && value.trim() !== "" ? value : undefined);
+const isDelivery = (value) =>
+  value !== null &&
+  typeof value === "object" &&
+  typeof value.id === "string" &&
+  value.id !== "" &&
+  typeof value.hookId === "string" &&
+  Number.isFinite(value.receivedAt) &&
+  value.body instanceof Uint8Array;
+
+/**
+ * Webhook Routines: their URL secrets and waiting deliveries in the hook store (`hooks()` → { store, relayUrl }), and the
+ * Routines themselves in the routine store, which only ever holds the hook id. Secrets, URLs and signing secrets are never
+ * logged and never returned, except the URL by `hook` and `rotate`, for the Routines form.
+ */
+function createWebhooks({ store, scheduler, hooks, changed }) {
+  const ready = () => {
+    const current = hooks();
+    if (!current) throw new Error("Webhooks aren't ready on this Mac yet.");
+    return current;
+  };
+  const webhookRoutine = (id) => {
+    if (typeof id !== "string" || !id) throw new Error("Choose a routine.");
+    const routine = store.get(id);
+    if (!routine) throw new Error(`Routine not found: ${id}`);
+    if (routine.trigger.kind !== "webhook") throw new Error("Only a webhook Routine has a URL.");
+    return routine;
+  };
+  const live = (routine) => routine.enabled && !routine.completedAt && routine.trigger.kind === "webhook";
+  return {
+    /** From the Routines form: the Mac makes the URL. Signed exactly when a signing secret comes with it. */
+    create(input) {
+      const { store: secrets } = ready();
+      const { signingSecret, signingHeader, ...rest } = input;
+      const signing = nonEmpty(signingSecret);
+      if (input.trigger.signed === true && !signing) throw new Error(SIGNED_NEEDS_SECRET);
+      const { secret, hookId } = newHookSecret();
+      const routine = store.create({
+        ...rest,
+        // Blank means the default header (DEFAULT_SIGNING_HEADER); the store checks and lowercases a named one.
+        ...(nonEmpty(signingHeader) ? { signingHeader } : {}),
+        trigger: { kind: "webhook", hookId, signed: Boolean(signing) },
+        createdBy: { kind: "user" },
+      });
+      try {
+        secrets.setSecret(routine.id, { secret, signingSecret: signing });
+      } catch (error) {
+        store.remove(routine.id);
+        throw error;
+      }
+      changed();
+      return routine;
+    },
+    /**
+     * A change to a webhook Routine. Its URL never changes here (rotate does that). `trigger.signed: false` drops the
+     * signing secret; a new `signingSecret` signs it; `signed: true` keeps the secret it has.
+     */
+    update(id, patch) {
+      const { store: secrets } = ready();
+      const routine = webhookRoutine(id);
+      const { signingSecret, ...rest } = patch;
+      // A blank header goes back to the default.
+      if (typeof rest.signingHeader === "string" && rest.signingHeader.trim() === "") rest.signingHeader = null;
+      const touchesSigning = rest.trigger !== undefined || signingSecret !== undefined;
+      if (!touchesSigning) {
+        const updated = store.update(id, rest);
+        changed();
+        return updated;
+      }
+      if (rest.trigger !== undefined && (rest.trigger === null || typeof rest.trigger !== "object" || rest.trigger.kind !== "webhook")) {
+        throw new Error("Can't change a Routine's trigger kind");
+      }
+      if (rest.trigger?.hookId !== undefined && rest.trigger.hookId !== routine.trigger.hookId) {
+        throw new Error("Rotate the webhook URL to change it.");
+      }
+      const current = secrets.secretFor(id);
+      if (!current) throw new Error("This webhook has no URL. Rotate it to make one.");
+      const fresh = nonEmpty(signingSecret);
+      const signed = rest.trigger?.signed !== undefined ? rest.trigger.signed === true : fresh ? true : routine.trigger.signed;
+      const kept = signed ? (fresh ?? current.signingSecret) : undefined;
+      if (signed && !kept) throw new Error(SIGNED_NEEDS_SECRET);
+      const updated = store.update(id, { ...rest, trigger: { kind: "webhook", hookId: routine.trigger.hookId, signed } });
+      secrets.setSecret(id, { secret: current.secret, signingSecret: kept });
+      changed();
+      return updated;
+    },
+    forget(id) {
+      try {
+        hooks()?.store.removeSecret(id);
+      } catch (error) {
+        console.warn("[routines] couldn't forget a webhook secret", error?.message ?? error);
+      }
+    },
+    hook(id) {
+      const { store: secrets, relayUrl } = ready();
+      const routine = webhookRoutine(id);
+      const current = secrets.secretFor(id);
+      if (!current) throw new Error("This webhook has no URL. Rotate it to make one.");
+      return { url: hookUrl(relayUrl, current.secret), signed: routine.trigger.signed, signingHeader: routine.signingHeader ?? DEFAULT_SIGNING_HEADER };
+    },
+    /** A new URL; the old one stops at the relay as soon as it hears the new set. Signing stays as it was. */
+    rotate(id) {
+      const { store: secrets, relayUrl } = ready();
+      const routine = webhookRoutine(id);
+      const current = secrets.secretFor(id);
+      const { secret, hookId } = newHookSecret();
+      store.update(id, { trigger: { kind: "webhook", hookId, signed: routine.trigger.signed } });
+      secrets.setSecret(id, { secret, signingSecret: current?.signingSecret });
+      changed();
+      return { url: hookUrl(relayUrl, secret) };
+    },
+    /** The hooks the relay should hold deliveries for: none while the Routines switch is off. */
+    hookIds: () => (store.enabled() ? store.hookIds() : []),
+    /**
+     * Deliveries from the relay. Each is on disk before this returns (the relay deletes its copy on the ack that follows),
+     * then dropped when no live webhook Routine has its hook, failed when its signature doesn't match, or queued. A throw
+     * means nothing may be acked.
+     */
+    receive(deliveries) {
+      const list = (Array.isArray(deliveries) ? deliveries : []).filter(isDelivery);
+      if (list.length === 0) return { ack: true };
+      const { store: secrets } = ready();
+      secrets.putDeliveries(list);
+      const drop = (id) => {
+        try {
+          secrets.takeDelivery(id);
+        } catch (error) {
+          console.warn("[routines] couldn't delete a webhook delivery", error?.message ?? error);
+        }
+      };
+      const routines = store.enabled() ? store.list().filter(live) : [];
+      const items = [];
+      let rejected = false;
+      for (const delivery of list) {
+        const routine = routines.find((item) => item.trigger.hookId === delivery.hookId);
+        if (!routine) {
+          drop(delivery.id);
+          continue;
+        }
+        const event = { kind: "webhook", key: `webhook:${delivery.id}`, deliveryId: delivery.id };
+        if (routine.trigger.signed) {
+          const current = secrets.secretFor(routine.id);
+          const header = routine.signingHeader ?? DEFAULT_SIGNING_HEADER;
+          if (!verifySignature({ body: delivery.body, headers: delivery.headers, header, signingSecret: current?.signingSecret })) {
+            if (store.rejectEvent(routine.id, event, "signature mismatch")) rejected = true;
+            drop(delivery.id);
+            continue;
+          }
+        }
+        items.push({ routineId: routine.id, event });
+      }
+      const results = items.length ? scheduler.enqueueEvents(items) : [];
+      // A redelivery ("seen") may still be waiting for its Run, so its copy stays; the store forgets it in 48 h at most.
+      results.forEach((result, index) => {
+        if (!result.queued && result.reason !== "seen") drop(items[index].event.deliveryId);
+      });
+      if (rejected) changed();
+      return { ack: true };
+    },
+    /** The relay's answer to the last hook set: the ids another room still holds show on their Routines until taken. */
+    refused(ids) {
+      const held = new Set(Array.isArray(ids) ? ids : []);
+      let any = false;
+      for (const routine of store.list()) {
+        if (routine.trigger.kind !== "webhook") continue;
+        if (held.has(routine.trigger.hookId)) {
+          if (routine.lastError !== HOOK_REFUSED) {
+            store.setLastError(routine.id, HOOK_REFUSED);
+            any = true;
+          }
+        } else if (routine.lastError === HOOK_REFUSED) {
+          store.setLastError(routine.id, null);
+          any = true;
+        }
+      }
+      if (any) changed();
+    },
+    /** The URL secrets of `ids`, as proof for the relay that this Mac made them (sent only on its own host connection). */
+    proofs(ids) {
+      const wanted = new Set(Array.isArray(ids) ? ids : []);
+      const current = hooks();
+      const out = {};
+      if (!current) return out;
+      for (const routine of store.list()) {
+        if (routine.trigger.kind !== "webhook" || !wanted.has(routine.trigger.hookId)) continue;
+        const secret = current.store.secretFor(routine.id)?.secret;
+        if (secret) out[routine.trigger.hookId] = secret;
+      }
+      return out;
     },
   };
 }

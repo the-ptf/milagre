@@ -1986,3 +1986,62 @@ test("startup recovery with a schedule that has no next run does not throw", () 
   assert.equal(ctx.store.get(ctx.good.id).nextRunAt, ctx.good.nextRunAt + 3 * 3600_000);
   assert.ok(store.get(good.id).enabled && !store.get(bad.id).enabled);
 });
+
+test("an event is only queued for a Routine whose trigger is of its kind", () => {
+  const { store } = setup();
+  store.setEnabled(true);
+  const schedule = store.create({ ...spec, name: "s", trigger: { kind: "schedule", cron: "0 8 * * *", timezone: "UTC" } });
+  const linear = store.create({ ...spec, name: "l", trigger: { kind: "linear", workspace: "acme", event: "assigned" } });
+  const hook = store.create({ ...spec, name: "w" });
+  assert.deepEqual(store.enqueue(schedule.id, delivery(1)), { queued: false, reason: "kind" });
+  assert.deepEqual(store.enqueue(linear.id, delivery(2)), { queued: false, reason: "kind" });
+  assert.deepEqual(
+    store.enqueueMany([
+      { routineId: hook.id, event: { kind: "linear", key: "linear:i:h", change: "assigned", issue: {} } },
+      { routineId: hook.id, event: delivery(3) },
+    ]),
+    [{ queued: false, reason: "kind" }, { queued: true }],
+  );
+  assert.deepEqual(store.runs(schedule.id), []);
+});
+
+test("rejectEvent records a failed Run that doesn't count toward a pause, and remembers its key", () => {
+  const { store, clock } = setup();
+  store.setEnabled(true);
+  const hook = store.create({ ...spec, trigger: webhook(HOOK, true) });
+  for (let n = 1; n <= 4; n += 1) {
+    clock.t += 1000;
+    const run = store.rejectEvent(hook.id, delivery(n), "signature mismatch");
+    assert.equal(run.status, "failed");
+    assert.equal(run.error, "signature mismatch");
+    assert.equal(run.startedAt, clock.t);
+    assert.equal(run.endedAt, clock.t);
+    assert.deepEqual(run.event, delivery(n));
+  }
+  const routine = store.get(hook.id);
+  assert.equal(routine.enabled, true, "not paused");
+  assert.equal(routine.failedStreak ?? 0, 0);
+  assert.equal(routine.runCount, 0);
+  assert.equal(store.runs(hook.id).length, 4);
+  assert.deepEqual(store.enqueue(hook.id, delivery(1)), { queued: false, reason: "seen" });
+  assert.equal(store.rejectEvent(hook.id, delivery(1), "signature mismatch"), null, "a redelivery adds no second Run");
+  assert.equal(store.runs(hook.id).length, 4);
+  assert.equal(store.rejectEvent("missing", delivery(9), "signature mismatch"), null);
+  const schedule = store.create({ ...spec, name: "s", trigger: { kind: "schedule", cron: "0 8 * * *", timezone: "UTC" } });
+  assert.equal(store.rejectEvent(schedule.id, delivery(10), "signature mismatch"), null);
+});
+
+test("a webhook Routine keeps the header its signature comes in, lowercased; only webhooks take one", () => {
+  const { store, options } = setup();
+  const hook = store.create({ ...spec, trigger: webhook(HOOK, true), signingHeader: "X-Hub-Signature-256" });
+  assert.equal(hook.signingHeader, "x-hub-signature-256");
+  assert.equal(createRoutineStore(options).get(hook.id).signingHeader, "x-hub-signature-256");
+  assert.equal(store.create({ ...spec, name: "plain", trigger: webhook(OTHER_HOOK) }).signingHeader, undefined);
+  assert.equal(store.update(hook.id, { signingHeader: "Sentry-Hook-Signature" }).signingHeader, "sentry-hook-signature");
+  assert.equal(store.update(hook.id, { signingHeader: null }).signingHeader, undefined);
+  assert.throws(() => store.update(hook.id, { signingHeader: "bad header" }), /header name/);
+  assert.throws(() => store.create({ ...spec, name: "bad", trigger: webhook("ef".repeat(32)), signingHeader: "a:b" }), /header name/);
+  const schedule = store.create({ ...spec, name: "s", trigger: HOURLY });
+  assert.throws(() => store.update(schedule.id, { signingHeader: "x-sig" }), /webhook/);
+  assert.throws(() => store.create({ ...spec, name: "s2", trigger: HOURLY, signingHeader: "x-sig" }), /webhook/);
+});

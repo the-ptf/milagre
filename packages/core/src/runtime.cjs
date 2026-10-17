@@ -82,6 +82,9 @@ const { createLinkedWorktrees } = require("./linked-worktrees.cjs");
 const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsage, readAntigravityUsage } = require("./usage.cjs");
 const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 const { createRoutines } = require("./routines/runtime-adapter.cjs");
+const { createHookStore } = require("./routines/hook-store.cjs");
+// Where webhook URLs point unless the daemon says otherwise (its phone's relay).
+const HOOK_RELAY_URL = "wss://relay.milagre.cloud";
 const { chatTitle } = require("@milagre/shared/chats");
 // The Chats routines:targets lists per Project, newest first.
 const ROUTINE_TARGET_CHATS = 50;
@@ -1060,6 +1063,7 @@ function createRuntime(options) {
   });
 
   // Heartbeats: the daemon sends a Chat's routine prompt back into it on a schedule (routines/runtime-adapter.cjs).
+  let routineHooks = null;
   routines = createRoutines({
     file: path.join(dataDir, "routines.json"),
     chats,
@@ -1096,7 +1100,9 @@ function createRuntime(options) {
     archiveChat: (chatId) => track(() => archiveChat(projectOfKey(chatId), sessionIdFromKey(chatId)), background),
     // Made further down; read when a Routine first needs them.
     linear: () => linear,
-    hooks: () => null,
+    // Webhook secrets and waiting deliveries, beside routines.json; URLs are on the relay the phone uses.
+    hooks: () =>
+      (routineHooks ??= { store: createHookStore({ file: path.join(dataDir, "routine-hooks.json") }), relayUrl: options.hookRelayUrl ?? HOOK_RELAY_URL }),
     timers: options.routines,
   });
   routines.start();
@@ -1113,8 +1119,12 @@ function createRuntime(options) {
       const projects = await projectRegistry().list();
       if (!projects.some((project) => project.path === input.target.projectPath)) throw new Error("Choose a Project Milagre lists.");
     }
-    return { routine: routines.create(input) };
+    const routine = routines.create(input);
+    // A webhook's URL goes to the form that made it; after that, routines:hook reads it.
+    return routine.trigger.kind === "webhook" ? { routine, hookUrl: routines.hook(routine.id).url } : { routine };
   });
+  commands.handle("routines:hook", (_event, id) => routines.hook(id));
+  commands.handle("routines:rotate-hook", (_event, id) => routines.rotateHook(id));
   // Where a Routine can run: each Project Milagre lists, with its latest Chats for a Heartbeat.
   commands.handle("routines:targets", async () => {
     const projects = await projectRegistry().list();
@@ -2054,6 +2064,14 @@ function createRuntime(options) {
     resumeRecentProjects: () => accept(resumeRecentProjects),
     environmentReady,
     isClosing: () => closing,
+    // Webhook Routines for the daemon's relay host: the hooks to register, deliveries in, the relay's refusals, proofs.
+    routines: {
+      hookIds: () => routines.hookIds(),
+      receiveHook: (delivery) => routines.receiveHook(delivery),
+      receiveHooks: (deliveries) => routines.receiveHooks(deliveries),
+      hooksRefused: (ids) => routines.hooksRefused(ids),
+      hookProofs: (ids) => routines.hookProofs(ids),
+    },
     // Synchronous capture: the socket serializes this before another event can
     // mutate state, so its event watermark and run sequence describe one instant.
     snapshot: () => ({

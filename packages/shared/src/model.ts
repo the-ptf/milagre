@@ -417,6 +417,8 @@ export interface Routine {
   pausedReason?: string;
   /** The latest system error about the Routine itself, apart from its Runs (e.g. "Linear sign-in needed"); cleared when it is fixed. */
   lastError?: string;
+  /** A signed webhook's signature header, lowercased; "sentry-hook-signature" when absent. The signing secret never leaves the Mac. */
+  signingHeader?: string;
   completedAt?: number;
   createdAt: number;
   updatedAt: number;

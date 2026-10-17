@@ -134,6 +134,9 @@ const PATHS = Object.freeze({
   "routines:delete": denied,
   "routines:run-now": denied,
   "routines:create": denied,
+  // A webhook URL reaches this Mac from anywhere: a confined phone neither reads nor makes one.
+  "routines:hook": denied,
+  "routines:rotate-hook": denied,
   // Issues name no folder. A Project's worktree issues name the Project's folder, like its other reads.
   "linear:issues": none,
   "linear:worktree-issues": ([projectPath]) => [projectPath],
