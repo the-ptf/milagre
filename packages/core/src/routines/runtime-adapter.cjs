@@ -24,8 +24,8 @@ const busyError = () => Object.assign(new Error(BUSY), { busy: true });
 const knownMode = (mode) => (PERMISSION_MODES.has(mode) ? mode : undefined);
 // A hung git (a fetch, a setup step) fails the Run instead of holding its slot until the daemon restarts.
 const START_TIMEOUT_MS = 2 * 60 * 1000;
-// What a Chat a Routine started can't do: make Routines or start their Runs, so a Run never sets off another.
-const WITHHELD = new Set(["heartbeat_create", "routine_create", "routine_run_now"]);
+// What a Chat a Routine started can't do: make, change or delete Routines, or start their Runs, so a Run never sets off another.
+const WITHHELD = new Set(["heartbeat_create", "routine_create", "routine_run_now", "routine_update", "routine_delete"]);
 // What a webhook Routine shows while the relay keeps its URL with another room (this Mac's own before a Reset).
 const HOOK_REFUSED = "The relay won't take this webhook's URL yet. Rotate the URL if this stays.";
 const SIGNED_NEEDS_SECRET = "A signed webhook needs a signing secret.";

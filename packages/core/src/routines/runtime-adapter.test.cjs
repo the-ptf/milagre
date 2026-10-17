@@ -491,7 +491,8 @@ test("a Chat a Routine started gets no tools that make or start Routines", (t) =
   const names = (chatId) => routines.definitions(chatId).map((tool) => tool.name);
   assert.ok(names("/project#2").includes("heartbeat_create"));
   assert.ok(names("/project#2").includes("routine_run_now"));
-  for (const name of ["heartbeat_create", "routine_create", "routine_run_now"]) assert.ok(!names("/project#3").includes(name), name);
+  for (const name of ["heartbeat_create", "routine_create", "routine_run_now", "routine_update", "routine_delete"])
+    assert.ok(!names("/project#3").includes(name), name);
   assert.ok(names("/project#3").includes("routine_list"));
 });
 

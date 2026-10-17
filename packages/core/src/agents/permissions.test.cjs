@@ -59,10 +59,15 @@ const codexApproval = (tool, extra = {}) => ({
   ...extra,
 });
 
-test("Codex: only Milagre's own plan and routine tools are auto-approved", () => {
+// Routine writes (heartbeat_create, routine_create, routine_update, routine_delete, routine_run_now) follow the Chat's
+// permission mode like any tool that changes something; only listing Routines runs without a card.
+const ROUTINE_WRITES = ROUTINE_TOOL_NAMES.filter((name) => name !== "routine_list");
+
+test("Codex: only Milagre's own plan tools and routine_list are auto-approved; routine writes follow the mode", () => {
   const params = codexApproval;
   assert.deepEqual(PLAN_TOOL_NAMES, ["tasks_set", "task_update", "tasks_read", "phase_set"]);
-  for (const name of [...PLAN_TOOL_NAMES, ...ROUTINE_TOOL_NAMES]) assert.equal(isCodexPlanToolApproval(params(name)), true, name);
+  for (const name of [...PLAN_TOOL_NAMES, "routine_list"]) assert.equal(isCodexPlanToolApproval(params(name)), true, name);
+  for (const name of ROUTINE_WRITES) assert.equal(isCodexPlanToolApproval(params(name)), false, name);
   for (const name of ["worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"])
     assert.equal(isCodexPlanToolApproval(params(name)), true, `${name} asks on its own card`);
   assert.equal(isCodexPlanToolApproval(params("design_delete")), false);
@@ -94,11 +99,12 @@ test("Codex: only Milagre's own plan and routine tools are auto-approved", () =>
   );
 });
 
-test("ACP: only Milagre's own plan and routine tools are auto-approved", () => {
+test("ACP: only Milagre's own plan tools and routine_list are auto-approved; routine writes follow the mode", () => {
   const call = (server, tool) => ({
     toolCall: { toolCallId: "c1", kind: "other", status: "pending", title: `${server}_${tool}`, _meta: { mcp: { server, tool }, is_mcp_tool_call: true } },
   });
-  for (const name of [...PLAN_TOOL_NAMES, ...ROUTINE_TOOL_NAMES]) assert.equal(isAcpPlanToolPermission(call("milagre", name)), true, name);
+  for (const name of [...PLAN_TOOL_NAMES, "routine_list"]) assert.equal(isAcpPlanToolPermission(call("milagre", name)), true, name);
+  for (const name of ROUTINE_WRITES) assert.equal(isAcpPlanToolPermission(call("milagre", name)), false, name);
   assert.equal(isAcpPlanToolPermission(call("milagre", "design_delete")), false);
   assert.equal(isAcpPlanToolPermission(call("other", "tasks_set")), false);
   assert.equal(isAcpPlanToolPermission({ toolCall: { title: "milagre_tasks_set", kind: "other" } }), false);
@@ -114,8 +120,9 @@ test("the Milagre tools every provider runs without its own card: reads, plan, o
     // Codex in Ask or Auto, and Antigravity, get Milagre's answer instead of a card.
     assert.equal(isCodexPlanToolApproval(codexApproval(name)), true, name);
   }
-  for (const name of ["linear_create_issue", "linear_comment", "chat_stop", "chat_update", "worktree_create", "design_delete", "chat_start"])
+  for (const name of ["linear_create_issue", "linear_comment", "chat_stop", "chat_update", "worktree_create", "design_delete", "chat_start", ...ROUTINE_WRITES])
     assert.equal(ungated(name), false, name);
+  assert.equal(ungated("routine_list", true), true);
   assert.ok(MODE_RANK.ask < MODE_RANK.auto && MODE_RANK.auto < MODE_RANK.full);
 });
 
