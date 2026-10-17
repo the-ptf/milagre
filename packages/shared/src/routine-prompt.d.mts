@@ -17,13 +17,14 @@ export function placeholdersFor(trigger: RoutineTrigger): Array<{ name: string; 
 export function renderRoutinePrompt(template: string, values: Record<string, string | undefined>, untrusted: Record<string, string>): string;
 
 /**
- * The placeholder being typed at `caret`, or null when the caret isn't in an unclosed `{{`. `start` is where that `{{` is,
- * `query` the text after it, `matches` the `names` that begin with it (case-insensitive), in the order given.
+ * The placeholder being typed at `caret`, or null when the caret isn't in an unclosed `{{`. `start` is where that `{{` is
+ * (the first brace of a longer run), `query` the name typed after it (spaces right after the `{{` are allowed, as the
+ * renderer allows them), `matches` the `names` that begin with it (case-insensitive), in the order given.
  */
 export function placeholderQuery(text: string, caret: number, names: string[]): { start: number; query: string; matches: string[] } | null;
 
 /**
- * Replaces the text from `start` (the `{{`) to `caret` with `{{name}}`; the caret goes after the `}}`. A `}}` already
- * following the caret is taken, so it isn't doubled.
+ * Replaces the text from `start` (the `{{`) to `caret` with `{{name}}`; the caret goes after the `}}`. The rest of a name
+ * and one or two closing braces already following the caret are taken, so nothing is doubled or left behind.
  */
 export function insertPlaceholder(text: string, start: number, caret: number, name: string): { text: string; caret: number };

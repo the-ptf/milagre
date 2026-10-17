@@ -112,21 +112,28 @@ export function renderRoutinePrompt(template, values, untrusted) {
 export function placeholderQuery(text, caret, names = []) {
   const source = String(text ?? "");
   const before = source.slice(0, Math.min(Math.max(caret, 0), source.length));
-  const start = before.lastIndexOf("{{");
-  if (start === -1) return null;
-  const query = before.slice(start + 2);
-  if (/[\s{}]/.test(query)) return null;
+  const last = before.lastIndexOf("{{");
+  if (last === -1) return null;
+  // Spaces may follow the "{{", as the renderer reads `{{ issue.key }}`; a name holds no space, brace or line break.
+  const typed = /^[ \t]*([^\s{}]*)$/.exec(before.slice(last + 2));
+  if (!typed) return null;
+  // A run of three or more opening braces starts at its first, so inserting replaces all of them.
+  let start = last;
+  while (start > 0 && before[start - 1] === "{") start -= 1;
+  const query = typed[1];
   const prefix = query.toLowerCase();
   return { start, query, matches: names.filter((name) => name.toLowerCase().startsWith(prefix)) };
 }
 
 /**
- * Replaces what was typed from `start` (the "{{") to `caret` with the placeholder, and puts the caret after its "}}". A "}}"
- * that already followed the caret is taken, so finishing a placeholder in the middle of a closed one doesn't double it.
+ * Replaces what was typed from `start` (the "{{") to `caret` with the placeholder, and puts the caret after its "}}". The
+ * rest of a name and the closing braces that already followed the caret are taken, so finishing a placeholder in the
+ * middle of a closed one, or one with a single "}" typed, leaves nothing behind.
  */
 export function insertPlaceholder(text, start, caret, name) {
   const source = String(text ?? "");
   const placeholder = `{{${name}}}`;
   const tail = source.slice(caret);
-  return { text: source.slice(0, start) + placeholder + (tail.startsWith("}}") ? tail.slice(2) : tail), caret: start + placeholder.length };
+  const closed = /^[^\s{}]*\}{1,2}/.exec(tail);
+  return { text: source.slice(0, start) + placeholder + (closed ? tail.slice(closed[0].length) : tail), caret: start + placeholder.length };
 }
