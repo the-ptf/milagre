@@ -627,6 +627,7 @@ function createRuntime(options) {
     if (states.has(projectPath)) await readProject(projectPath);
     if (result.removed) {
       await Promise.all(goneChats.map((id) => artifacts.removeChat(id).catch(() => {})));
+      for (const id of goneChats) chats.forget(id);
       await pruneLinks();
     }
     return result;
@@ -1468,8 +1469,8 @@ function createRuntime(options) {
 
   // The mode picked is the Chat's from now on: its running turn takes it at once, and a heartbeat's next beat runs in it.
   async function setPermissionMode(chatId, mode) {
-    chats.notePermissionMode(chatId, mode);
-    return agents.setPermissionMode(chatId, mode);
+    await agents.setPermissionMode(chatId, mode);
+    await chats.notePermissionMode(chatId, mode);
   }
   commands.handle("agent:set-permission-mode", (_event, { chatId, mode }) => setPermissionMode(chatId, mode));
 

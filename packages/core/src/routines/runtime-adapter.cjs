@@ -161,9 +161,10 @@ function routineChats({ chats, cachedState, openState, isClosing, worktrees, arc
     archived: (chatId) => session(chatId)?.archived === true,
     busy: (chatId) => busy(chatId),
     // A message goes in on the Chat's current settings, as the user's next message would: its latest turn's provider,
-    // model and effort, and the permission mode its composer last set (ChatHost.chatPermissionMode). A Chat with no turn
-    // this run (a Run's new Chat, or after a restart) takes its own provider and last model, else `settings`: what the
-    // Routine said when its Run was claimed (never what it says now, which an edit since may have changed).
+    // model and effort, and the permission mode its composer last set, saved on the Chat (AgentSession.permissionMode,
+    // see ChatHost.notePermissionMode) so a restart keeps it. A Chat with no turn this run (a Run's new Chat, or after a
+    // restart) takes its own provider and last model; what's still missing comes from `settings`, what the Routine said
+    // when its Run was claimed (never what it says now, which an edit since may have changed).
     async send(chatId, { body, prompt, context, settings: claimed }) {
       if (isClosing()) throw new Error("Milagre is closing.");
       const projectPath = projectOfKey(chatId);
@@ -184,7 +185,7 @@ function routineChats({ chats, cachedState, openState, isClosing, worktrees, arc
       try {
         sending = await chats.send({
           ...settings,
-          permissionMode: chats.chatPermissionMode?.(chatId) ?? latest?.permissionMode ?? claimed?.permissionMode ?? "auto",
+          permissionMode: target.permissionMode ?? latest?.permissionMode ?? claimed?.permissionMode ?? "auto",
           body,
           prompt,
           context,
@@ -298,7 +299,7 @@ function createRoutines({
     return {
       provider: latest?.provider ?? session?.provider,
       model: latest?.model || (state ? lastUserModel(state, sessionIdFromKey(chatId)) : undefined) || undefined,
-      permissionMode: chats.chatPermissionMode?.(chatId) ?? latest?.permissionMode,
+      permissionMode: session?.permissionMode ?? latest?.permissionMode,
     };
   }
   // Read from the state in memory, as chatSettings is: the Chat's session is there when its agent asks for tools.

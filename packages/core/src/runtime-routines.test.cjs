@@ -555,3 +555,21 @@ test("a heartbeat and a Chat of its own fill in {{date}} and {{time}} the same w
   assert.equal(divider.body, expected(beatAt));
   assert.equal(first.body, expected(f.clock()));
 });
+
+test("the mode the user switched the Chat to holds for its beats after a restart", async (t) => {
+  const f = await fixture(t);
+  await runTool(f.tool("heartbeat_create"), { name: "Babysit", prompt: "Check CI", every: "5m" });
+  await f.finish("Watching.");
+  assert.equal((await f.list())[0].permissionMode, "full");
+  await f.runtime.invoke("agent:set-permission-mode", [{ chatId: f.chatId, mode: "ask" }]);
+  await f.runtime.close();
+
+  const g = await fixture(t, { restart: { dir: f.dir, clock: f.clock() } });
+  try {
+    await g.beat();
+    await waitUntil(() => g.sessions.length === 1 && g.sessions[0].turns.length === 1);
+    assert.equal(g.sessions[0].turns[0].permissionMode, "ask");
+  } finally {
+    await g.runtime.close();
+  }
+});

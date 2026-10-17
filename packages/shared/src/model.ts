@@ -160,6 +160,8 @@ export interface AgentSession {
   contextUsage?: ContextUsage;
   /** The Routine and Run that started this Chat; set only on a Chat a Run created. */
   routine?: { routineId: string; runId: string };
+  /** The permission mode the Chat's composer last set (a pick, or a person's message); a heartbeat's beat runs in it. */
+  permissionMode?: PermissionMode;
   /**
    * Messages sent while a turn ran on a provider that can't steer (provider-capabilities `steer`), oldest first. Each
    * starts a turn of its own when the one before it completes; Send now and Remove act on one (chat-host.cjs).

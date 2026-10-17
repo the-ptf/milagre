@@ -962,22 +962,37 @@ test("a quit saves no resume for a Routine's turn, which the scheduler owns; a u
   assert.equal(saved.get(BETA).sessions[user.sessionId].resumeTurn.prompt, "fix the api");
 });
 
-test("a mode picked in the composer becomes the Chat's mode, with or without a turn this run", async (t) => {
-  const { host, manager, session } = harness();
+test("the Chat keeps the mode its composer last set, saved with it: a pick, or the mode a person's message carried", async (t) => {
+  const { host, manager, saved, session } = harness();
   t.after(() => manager.closeAll());
-  assert.equal(host.chatPermissionMode(`${ALPHA}#5`), undefined);
-  host.notePermissionMode(`${ALPHA}#5`, "ask");
-  assert.equal(host.chatPermissionMode(`${ALPHA}#5`), "ask");
-  assert.throws(() => host.notePermissionMode(`${ALPHA}#5`, "yolo"), /Unknown permission mode/);
-
   const chat = await host.send(message(ALPHA, "fix the api", { permissionMode: "full" }));
   const chatId = `${ALPHA}#${chat.sessionId}`;
   await waitUntil(() => session(ALPHA));
-  assert.equal(host.chatPermissionMode(chatId), "full");
-  host.notePermissionMode(chatId, "ask");
-  assert.equal(host.chatPermissionMode(chatId), "ask");
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[chat.sessionId].permissionMode, "full");
+
+  await host.notePermissionMode(chatId, "ask");
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[chat.sessionId].permissionMode, "ask");
   // The turn a quit stops starts again in the mode the Chat has now.
   assert.equal(host.turnSettings(chatId).permissionMode, "ask");
+  await assert.rejects(host.notePermissionMode(chatId, "yolo"), /Unknown permission mode/);
+  // A Chat that isn't there changes nothing.
+  await host.notePermissionMode(`${ALPHA}#999`, "ask");
+  assert.equal(saved.get(ALPHA).sessions[999], undefined);
+
+  // A Routine's message isn't the composer's: it leaves the saved mode alone.
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => !host.runs[chatId]);
+  const context = { kind: "routine-run", routineId: "r1", runId: "run-1", name: "Babysit", at: NOW };
+  await host.send(message(ALPHA, "Check CI", { sessionId: chat.sessionId, permissionMode: "full", context }));
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[chat.sessionId].permissionMode, "ask");
+  // A deleted Chat leaves nothing of its Routine turn behind.
+  assert.equal(host.routineTurns.has(chatId), true);
+  host.forget(chatId);
+  assert.equal(host.routineTurns.has(chatId), false);
 });
 
 test("a chat a quit stopped continues once on its saved session when its project opens", async (t) => {

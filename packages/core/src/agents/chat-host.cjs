@@ -191,8 +191,6 @@ class ChatHost {
     // Chats whose latest turn a Routine started (a beat, a Run's first message): the scheduler owns those, so a quit
     // saves no resume for them (see suspendRunning).
     this.routineTurns = new Set();
-    // The permission mode picked in a chat's composer since its latest turn this run (see notePermissionMode).
-    this.modes = new Map();
     this.quitting = false;
     // Chats whose message was saved and whose turn is about to start, by chat key: the provider it starts on. A message
     // sent meanwhile to one that can't steer queues behind it, as it would behind the running turn.
@@ -221,19 +219,31 @@ class ChatHost {
   }
 
   /**
-   * The composer's mode picker: `mode` is the chat's permission mode from now on, for the turn a quit stops and for
-   * whatever Milagre sends into the chat next (a heartbeat's beat), as it is for the user's next message.
+   * The composer's mode picker: `mode` is the chat's permission mode from now on, saved with it
+   * (AgentSession.permissionMode) so it outlives a restart, for the turn a quit stops and for whatever Milagre sends into
+   * the chat next (a heartbeat's beat), as it is for the user's next message. A chat that isn't there changes nothing.
    */
-  notePermissionMode(chatId, mode) {
+  async notePermissionMode(chatId, mode) {
     if (!PERMISSION_MODES.has(mode)) throw new Error(`Unknown permission mode: ${mode}`);
-    this.modes.set(chatId, mode);
     const turn = this.turns.get(chatId);
     if (turn) this.turns.set(chatId, { ...turn, permissionMode: mode });
+    const projectPath = projectOfKey(chatId);
+    const sessionId = sessionIdFromKey(chatId);
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        const session = latest.sessions[sessionId];
+        if (!session || session.permissionMode === mode) return latest;
+        return { ...latest, sessions: { ...latest.sessions, [sessionId]: { ...session, permissionMode: mode } } };
+      },
+      { chats: [] },
+    );
+    if (changed) this.broadcast(projectPath, state);
   }
 
-  /** The chat's permission mode as its composer last set it this run (a pick, or its latest turn's), or undefined. */
-  chatPermissionMode(chatId) {
-    return this.modes.get(chatId) ?? this.turns.get(chatId)?.permissionMode;
+  /** Forgets what this run knows of a chat that was deleted. */
+  forget(chatId) {
+    this.routineTurns.delete(chatId);
   }
 
   /**
@@ -780,6 +790,8 @@ class ChatHost {
         stagedSession = {
           ...withoutDraft(session),
           provider: runProvider,
+          // The mode a person's message carries is the one its composer shows; a Routine's message isn't theirs.
+          ...(PERMISSION_MODES.has(request.permissionMode) && request.context?.kind !== "routine-run" ? { permissionMode: request.permissionMode } : {}),
           ...(firstMessage && body?.trim() && !session.title && !session.generatedTitle ? { titlePending: true } : {}),
         };
         if (handoff === "switch") {
@@ -902,7 +914,6 @@ class ChatHost {
       prompt: brief !== undefined ? withLead(brief, request.prompt || body) : request.prompt || body || "Describe the attached images.",
     };
     this.turns.set(target.chatId, turn);
-    this.modes.delete(target.chatId);
     // A person's message steered into a Routine's turn makes it theirs too.
     if (request.context?.kind === "routine-run") this.routineTurns.add(target.chatId);
     else this.routineTurns.delete(target.chatId);

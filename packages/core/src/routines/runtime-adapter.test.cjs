@@ -6,7 +6,7 @@ const path = require("node:path");
 const { createRoutines, routineChats, routineReply } = require("./runtime-adapter.cjs");
 
 const chatId = "/project#2";
-const state = {
+const baseState = {
   sessions: { 2: { id: 2, worktree_id: 1, provider: "codex" }, 3: { id: 3, worktree_id: 1, archived: true } },
   messages: [
     { id: 1, session_id: 2, role: "user", body: "Watch CI", context: null, model: "gpt-x" },
@@ -17,14 +17,15 @@ const state = {
   ],
 };
 
-function fixture({ turnSettings = null, permissionMode, runs = {}, busy = false, open = true } = {}) {
+// `sessionMode` is the permission mode saved on the Chat (AgentSession.permissionMode), as the composer last set it.
+function fixture({ turnSettings = null, sessionMode, runs = {}, busy = false, open = true } = {}) {
   const sent = [];
   const patched = [];
+  const state = sessionMode ? { ...baseState, sessions: { ...baseState.sessions, 2: { ...baseState.sessions[2], permissionMode: sessionMode } } } : baseState;
   const chats = {
     runs,
     isBusy: () => busy,
     turnSettings: () => turnSettings,
-    chatPermissionMode: () => permissionMode ?? turnSettings?.permissionMode,
     send: async (request) => {
       sent.push(request);
       return { sessionId: request.sessionId, started: Promise.resolve({ turnId: "t" }) };
@@ -150,15 +151,16 @@ test("a beat into a Chat whose turn started as its Project opened rejects as bus
   assert.equal(sent.length, 0);
 });
 
-test("after a restart a beat runs on the Chat's own provider and last model, with the permission mode its Run was claimed with", async () => {
-  const { adapter, sent } = fixture();
+test("after a restart a beat runs on the Chat's own provider and last model, and the mode its composer last set", async () => {
+  const { adapter, sent } = fixture({ sessionMode: "ask" });
   const context = { kind: "routine-run", routineId: "r1", runId: "run-2" };
   const settings = { provider: "claude", model: "cm", permissionMode: "full" };
   const { started } = await adapter.send(chatId, { body: "Check CI", prompt: "Check CI + hint", context, settings });
   assert.deepEqual(await started, { turnId: "t" });
   assert.equal(sent[0].provider, "codex");
   assert.equal(sent[0].model, "gpt-x");
-  assert.equal(sent[0].permissionMode, "full");
+  // Saved on the Chat, so it outlives the restart; the mode the Run was claimed with is only the last resort.
+  assert.equal(sent[0].permissionMode, "ask");
   assert.equal(sent[0].projectPath, "/project");
   assert.equal(sent[0].sessionId, 2);
   assert.equal(sent[0].worktreeId, 1);
@@ -223,7 +225,7 @@ test("patchRunContext patches the divider of that Run", async () => {
   assert.equal(sessionId, 2);
   assert.deepEqual(patch, { quiet: true, summary: "CI green" });
   assert.deepEqual(
-    state.messages.filter(match).map((message) => message.id),
+    baseState.messages.filter(match).map((message) => message.id),
     [3],
   );
 });
@@ -633,16 +635,17 @@ test("a Run's message carries the settings its Routine had when it was claimed, 
   assert.deepEqual([sent[0].provider, sent[0].model, sent[0].permissionMode], ["codex", "gpt-6", "ask"]);
 });
 
-test("a beat takes the mode the user picked since the Chat's last turn, and the mode picked before any turn", async () => {
+test("a beat takes the mode saved on the Chat over its last turn's and the claimed one; without one, the claimed mode", async () => {
   const { adapter, sent } = fixture({
     turnSettings: { provider: "claude", model: "opus", permissionMode: "full", effort: "high" },
-    permissionMode: "ask",
+    sessionMode: "ask",
   });
-  await adapter.send(chatId, { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r1" } });
+  const settings = { provider: "claude", model: "cm", permissionMode: "full" };
+  await adapter.send(chatId, { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r1" }, settings });
   assert.equal(sent[0].permissionMode, "ask");
-  const fresh = fixture({ permissionMode: "ask" });
-  await fresh.adapter.send(chatId, { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r1" } });
-  assert.equal(fresh.sent[0].permissionMode, "ask");
+  const fresh = fixture();
+  await fresh.adapter.send(chatId, { body: "b", prompt: "p", context: { kind: "routine-run", routineId: "r1" }, settings });
+  assert.equal(fresh.sent[0].permissionMode, "full");
 });
 
 // createRoutines with its timer and clock in the test's hands.
