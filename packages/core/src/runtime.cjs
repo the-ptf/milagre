@@ -1091,6 +1091,9 @@ function createRuntime(options) {
 
   // Heartbeats: the daemon sends a Chat's routine prompt back into it on a schedule (routines/runtime-adapter.cjs).
   let routineHooks = null;
+  // A Project's state for a lookup that must change nothing: an open one from memory, another from its saved file. It is
+  // never opened, so nothing a quit stopped resumes and no recovery or diff refresh runs (Routines' targets and comment lookups).
+  const projectStateReadOnly = (projectPath) => (states.has(projectPath) ? states.get(projectPath) : readRawState(projectPath));
   routines = createRoutines({
     file: path.join(dataDir, "routines.json"),
     chats,
@@ -1132,7 +1135,7 @@ function createRuntime(options) {
       (routineHooks ??= { store: createHookStore({ file: path.join(dataDir, "routine-hooks.json") }), relayUrl: options.hookRelayUrl ?? HOOK_RELAY_URL }),
     projects: () => projectRegistry().list(),
     // Read only: an open Project's state from memory, another's saved file, never opening it (no resume, no recovery).
-    projectState: (projectPath) => (states.has(projectPath) ? states.get(projectPath) : readRawState(projectPath)),
+    projectState: (projectPath) => projectStateReadOnly(projectPath),
     timers: options.routines,
   });
   routines.start();
@@ -1152,13 +1155,15 @@ function createRuntime(options) {
   });
   commands.handle("routines:hook", (_event, id) => routines.hook(id));
   commands.handle("routines:rotate-hook", (_event, id) => routines.rotateHook(id));
-  // Where a Routine can run: each Project Milagre lists, with its latest Chats for a Heartbeat.
-  commands.handle("routines:targets", async () => {
-    const projects = await projectRegistry().list();
+  // Where a Routine can run: each Project Milagre lists, with its latest Chats for a Heartbeat. `within` (a folder, as a
+  // confined phone's bridge passes it) keeps to the Projects inside it before any is read.
+  commands.handle("routines:targets", async (_event, filter) => {
+    const within = typeof filter?.within === "string" && path.isAbsolute(filter.within) ? filter.within : null;
+    const projects = (await projectRegistry().list()).filter((project) => !within || project.path === within || project.path.startsWith(within + path.sep));
     return {
       projects: await Promise.all(
         projects.map(async (project) => {
-          const state = await linkedState(project.path).catch(() => null);
+          const state = await Promise.resolve(projectStateReadOnly(project.path)).catch(() => null);
           const chats = Object.values(state?.sessions ?? {})
             .filter((session) => !session.archived && (session.summary?.count ?? 0) > 0)
             .toSorted((a, b) => (b.summary?.lastAt ?? 0) - (a.summary?.lastAt ?? 0) || b.id - a.id)

@@ -20,7 +20,7 @@ async function eventually(check, { timeoutMs = 3000 } = {}) {
 // A runtime with one Chat on a fake agent, the routine clock and timer in the test's hands.
 // `restart` ({ dir, clock }) starts a second runtime on the data an earlier one left, as Milagre does after a quit: it
 // sends nothing of its own.
-async function fixture(t, { enable = true, restart } = {}) {
+async function fixture(t, { enable = true, restart, open = true } = {}) {
   const dir = restart?.dir ?? (await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "runtime-routines-"))));
   const project = path.join(dir, "project");
   if (!restart) {
@@ -104,8 +104,9 @@ async function fixture(t, { enable = true, restart } = {}) {
     if (!restart) await fs.rm(dir, { recursive: true, force: true });
   });
   if (enable && !restart) assert.deepEqual(await runtime.invoke("routines:enabled:save", [true]), { enabled: true });
-  const opened = await runtime.openProject(project);
-  const id = Object.values(opened.state.sessions)[0].id;
+  // `open: false` leaves the Project as a restart leaves it: listed, not opened by anyone yet.
+  const opened = open ? await runtime.openProject(project) : null;
+  const id = opened ? Object.values(opened.state.sessions)[0].id : null;
   const chatId = `${project}#${id}`;
   if (!restart) {
     await runtime.invoke("chat:send", [{ projectPath: project, sessionId: id, body: "Watch CI", provider: "claude", model: "cm", permissionMode: "full" }]);
@@ -841,4 +842,38 @@ test("a redelivery of one still waiting in the queue keeps the copy its Run need
   assert.deepEqual(await storedDeliveries(f), [sent.id]);
   f.tick();
   await runChat(f);
+});
+
+test("routines:targets lists a Project's Chats without opening it, so nothing a quit stopped resumes", async (t) => {
+  const f = await fixture(t);
+  // The user's turn is running when Milagre quits: it is saved to resume once its Project opens.
+  await f.runtime.close();
+  const g = await fixture(t, { restart: { dir: f.dir, clock: f.clock() }, open: false });
+  try {
+    const { projects } = await g.runtime.invoke("routines:targets");
+    const project = projects.find((item) => item.path === f.project);
+    assert.ok(project, "the Project is listed");
+    assert.deepEqual(
+      project.chats.map((chat) => chat.chatId),
+      [f.chatId],
+    );
+    // Opening a Project resumes what a quit stopped before it answers (resumeInterrupted saves the resume message and
+    // the Chat's run starts with it), so a run here means the lookup opened the Project.
+    assert.equal(g.runtime.snapshot().runs.runs[f.chatId], undefined, "nothing resumed");
+    assert.equal(g.sessions.length, 0, "no agent started");
+  } finally {
+    await g.runtime.close();
+  }
+});
+
+test("routines:targets within a folder reads only the Projects inside it", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const inside = await f.runtime.invoke("routines:targets", [{ within: f.project }]);
+  assert.deepEqual(
+    inside.projects.map((project) => project.path),
+    [f.project],
+  );
+  const elsewhere = await f.runtime.invoke("routines:targets", [{ within: path.join(f.dir, "elsewhere") }]);
+  assert.deepEqual(elsewhere.projects, []);
 });
