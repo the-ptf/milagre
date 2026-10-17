@@ -43,14 +43,15 @@ export interface HookStorage {
   };
 }
 export interface HookDirectoryClient {
-  claim(hookId: string, roomId: string): boolean | Promise<boolean>;
+  /** `secret`: the hook's URL secret, proving the claiming room's Mac made it; moves a hook another room holds. */
+  claim(hookId: string, roomId: string, secret?: string): boolean | Promise<boolean>;
   release(hookId: string, roomId: string): void | Promise<void>;
 }
 export type HookSend = (bytes: Uint8Array) => boolean;
 export interface HookRoom {
   receive(hookId: string, request: HookRequest): HookAnswer;
   onHostReady(send?: HookSend): void;
-  /** HOOK_SET returns its settle; HOOK_ACK and anything else return undefined. After each set the room sends HOOK_RESULT `{ refused }`. */
+  /** HOOK_SET returns its settle; HOOK_ACK and anything else return undefined. After each set the room sends HOOK_RESULT `{ refused, failed }`: held by another room, or the directory couldn't be asked. */
   onFrame(type: number, payload: Uint8Array, send?: HookSend): Promise<void> | undefined;
   expire(at: number): number | null;
 }
@@ -63,7 +64,7 @@ export function createHookRoom(options: {
   send?: HookSend;
 }): HookRoom;
 export function createHookDirectory(options: { storage: { get(key: string): unknown; put(key: string, value: string): void; delete(key: string): unknown } }): {
-  claim(roomId: string): boolean;
+  claim(roomId: string, proof?: { hookId: string; secret: string }): Promise<boolean>;
   release(roomId: string): void;
   room(): string | null;
 };

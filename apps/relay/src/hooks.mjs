@@ -204,12 +204,22 @@ function hookFrame(delivery) {
   return frame(HOOK, 0n, payload);
 }
 
-/** The full hook set from a HOOK_SET payload, or null when it is malformed (then nothing changes). */
+/**
+ * The full hook set from a HOOK_SET payload, `{ hookIds, proofs? }`, or null when it is malformed (then nothing changes).
+ * `proofs` maps a hook id to its URL secret, sent only over the Mac's proven connection, so a hook another room still holds
+ * (this Mac's room before a Reset) can move here.
+ */
 function hookSetOf(payload) {
   try {
-    const ids = JSON.parse(decoder.decode(payload))?.hookIds;
+    const message = JSON.parse(decoder.decode(payload));
+    const ids = message?.hookIds;
     if (!Array.isArray(ids) || ids.length > MAX_HOOKS || !ids.every((id) => typeof id === "string" && HOOK_ID.test(id))) return null;
-    return new Set(ids);
+    const proofs = new Map();
+    const given = message.proofs;
+    if (given && typeof given === "object" && !Array.isArray(given)) {
+      for (const id of ids) if (Object.hasOwn(given, id) && typeof given[id] === "string" && SECRET.test(given[id])) proofs.set(id, given[id]);
+    }
+    return { ids: new Set(ids), proofs };
   } catch {
     return null;
   }
@@ -248,7 +258,7 @@ export function createHookRoom({ storage, directory, roomId, now = Date.now, ran
         () => unreleased.delete(id),
         () => unreleased.add(id),
       );
-  async function settle(removed) {
+  async function settle(removed, proofs) {
     const roomNow = room();
     for (const id of removed) unreleased.add(id);
     // Releases that failed before are tried again on every set; a hook wanted again is still this room's.
@@ -257,14 +267,17 @@ export function createHookRoom({ storage, directory, roomId, now = Date.now, ran
       else await release(id, roomNow);
     }
     const refused = [];
+    const failed = [];
     for (const id of desired) {
       if (storage.hooks.has(id)) continue;
+      const secret = proofs.get(id);
       const claimed = await Promise.resolve()
-        .then(() => directory.claim(id, roomNow))
-        .catch(() => false);
+        .then(() => (secret ? directory.claim(id, roomNow, secret) : directory.claim(id, roomNow)))
+        .catch(() => null);
       if (claimed !== true) {
-        // Another room holds it (this Mac before a Reset, until its old room lets go). The next set tries again.
-        if (desired.has(id)) refused.push(id);
+        // false: another room holds it (this Mac before a Reset, until its old room lets go or a proof moves it here).
+        // null: the directory couldn't be asked. Either way the next set tries again.
+        if (desired.has(id)) (claimed === null ? failed : refused).push(id);
         continue;
       }
       // A later HOOK_SET may have dropped it while the claim was in flight.
@@ -272,7 +285,7 @@ export function createHookRoom({ storage, directory, roomId, now = Date.now, ran
       else await release(id, roomNow);
     }
     try {
-      send(frame(HOOK_RESULT, 0n, encoder.encode(JSON.stringify({ refused }))));
+      send(frame(HOOK_RESULT, 0n, encoder.encode(JSON.stringify({ refused, failed }))));
     } catch {
       /* the Mac is gone; it sends its set again on the next ready */
     }
@@ -319,11 +332,12 @@ export function createHookRoom({ storage, directory, roomId, now = Date.now, ran
       if (type !== HOOK_SET) return undefined;
       const next = hookSetOf(payload);
       if (!next) return undefined;
-      desired = next;
+      desired = next.ids;
       // Removals now, before any directory call: a rotated hook is dead at once.
-      const removed = [...storage.hooks].filter((id) => !next.has(id));
+      const removed = [...storage.hooks].filter((id) => !next.ids.has(id));
       for (const id of removed) storage.hooks.delete(id);
-      applying = applying.then(() => settle(removed));
+      // A settle that fails (no room id yet, storage trouble) must not stop every later set from applying.
+      applying = applying.then(() => settle(removed, next.proofs)).catch(() => {});
       return applying;
     },
     /** Deletes deliveries held 24 h by `at`; returns when the next one expires, or null when none is left. */
@@ -345,10 +359,24 @@ export function createHookRoom({ storage, directory, roomId, now = Date.now, ran
 export function createHookDirectory({ storage }) {
   const owner = () => storage.get("room") ?? null;
   return {
-    claim(roomId) {
+    /**
+     * `proof` ({ hookId, secret }) moves the hook here from another room when sha256(secret) is this entry's hook id: the
+     * Mac that made the URL takes it back after a Reset left its old room holding it. Without a valid proof a hook another
+     * room holds stays there.
+     */
+    async claim(roomId, proof) {
       const current = owner();
-      if (current && current !== roomId) return false;
-      if (!current) storage.put("room", roomId);
+      const known = storage.get("hook") ?? null;
+      if (!current || current === roomId) {
+        if (!current) storage.put("room", roomId);
+        if (!known && proof && HOOK_ID.test(String(proof.hookId))) storage.put("hook", proof.hookId);
+        return true;
+      }
+      if (!proof || typeof proof.secret !== "string" || !SECRET.test(proof.secret)) return false;
+      if (known && known !== proof.hookId) return false;
+      if ((await hookIdOf(proof.secret)) !== proof.hookId) return false;
+      storage.put("room", roomId);
+      storage.put("hook", proof.hookId);
       return true;
     },
     release(roomId) {
@@ -397,7 +425,7 @@ export function memoryHookDirectory() {
     return entries.get(hookId);
   };
   return {
-    claim: (hookId, roomId) => entry(hookId).claim(roomId),
+    claim: (hookId, roomId, secret) => entry(hookId).claim(roomId, secret ? { hookId, secret } : undefined),
     release: (hookId, roomId) => entry(hookId).release(roomId),
     owner: (hookId) => entry(hookId).room(),
   };

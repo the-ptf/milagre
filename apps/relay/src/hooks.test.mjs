@@ -225,18 +225,91 @@ test("a malformed HOOK_SET or HOOK_ACK changes nothing", async () => {
   assert.deepEqual(await hooks.receive("nothex", request()), NOT_FOUND);
 });
 
-test("the directory keeps the first room that claims a hook and lets only it release", () => {
+test("the directory keeps the first room that claims a hook and lets only it release", async () => {
   const kv = new Map();
   const storage = { get: (k) => kv.get(k), put: (k, v) => kv.set(k, v), delete: (k) => kv.delete(k) };
   const directory = createHookDirectory({ storage });
-  assert.equal(directory.claim("room-1"), true);
-  assert.equal(directory.claim("room-1"), true, "claiming again is fine");
-  assert.equal(directory.claim("room-2"), false);
+  assert.equal(await directory.claim("room-1"), true);
+  assert.equal(await directory.claim("room-1"), true, "claiming again is fine");
+  assert.equal(await directory.claim("room-2"), false);
   directory.release("room-2");
   assert.equal(directory.room(), "room-1");
   directory.release("room-1");
   assert.equal(directory.room(), null);
-  assert.equal(directory.claim("room-2"), true);
+  assert.equal(await directory.claim("room-2"), true);
+});
+
+test("a room that proves it holds the secret takes a hook over from the room that has it; a wrong proof doesn't", async () => {
+  const kv = new Map();
+  const storage = { get: (k) => kv.get(k), put: (k, v) => kv.set(k, v), delete: (k) => kv.delete(k) };
+  const directory = createHookDirectory({ storage });
+  const secret = "P".repeat(43);
+  const hookId = await hookIdOf(secret);
+  assert.equal(await directory.claim("old-room", { hookId, secret }), true);
+  assert.equal(await directory.claim("new-room", { hookId, secret: "Q".repeat(43) }), false, "wrong secret");
+  assert.equal(await directory.claim("new-room", { hookId: await hookIdOf("Q".repeat(43)), secret: "Q".repeat(43) }), false, "another hook's proof");
+  assert.equal(directory.room(), "old-room");
+  assert.equal(await directory.claim("new-room", { hookId, secret }), true);
+  assert.equal(directory.room(), "new-room");
+  directory.release("old-room");
+  assert.equal(directory.room(), "new-room", "the old room can't release it any more");
+});
+
+test("a hook the old room never releases moves to the new room with proof, and the next POST reaches it", async () => {
+  const { hops, room, directory } = edge();
+  const secret = "T".repeat(43);
+  const hookId = await hookIdOf(secret);
+  const old = room("old-room");
+  await old.hooks.onFrame(HOOK_SET, setFrame([hookId]), old.send);
+  // The old host crashed and never says []. The Mac's new room asks without proof first, then with it.
+  const fresh = room("new-room");
+  await fresh.hooks.onFrame(HOOK_SET, setFrame([hookId]), fresh.send);
+  assert.deepEqual(fresh.results.at(-1), { refused: [hookId], failed: [] });
+  await fresh.hooks.onFrame(HOOK_SET, encoder.encode(JSON.stringify({ hookIds: [hookId], proofs: { [hookId]: "U".repeat(43) } })), fresh.send);
+  assert.deepEqual(fresh.results.at(-1), { refused: [hookId], failed: [] }, "a wrong proof changes nothing");
+  await fresh.hooks.onFrame(HOOK_SET, encoder.encode(JSON.stringify({ hookIds: [hookId], proofs: { [hookId]: secret } })), fresh.send);
+  assert.deepEqual(fresh.results.at(-1), { refused: [], failed: [] });
+  assert.equal(directory.owner(hookId), "new-room");
+  fresh.hooks.onHostReady(fresh.send);
+  assert.equal((await handleHookRequest(post(`/hook/${secret}`), hops)).status, 202);
+  assert.equal(fresh.sent.length, 1);
+  assert.equal(old.sent.length, 0);
+});
+
+test("a directory that can't be reached is reported as failed, not refused, and the chain survives a settle that throws", async () => {
+  let reachable = false;
+  const inner = memoryHookDirectory();
+  const directory = {
+    claim: (id, room, secret) => {
+      if (!reachable) throw new Error("directory down");
+      return inner.claim(id, room, secret);
+    },
+    release: (id, room) => inner.release(id, room),
+  };
+  let roomThrows = true;
+  const storage = memoryHookStorage();
+  const results = [];
+  const send = (bytes) => {
+    if (bytes[0] === HOOK_RESULT) results.push(JSON.parse(new TextDecoder().decode(unframe(bytes).payload)));
+    return true;
+  };
+  const hooks = createHookRoom({
+    storage,
+    directory,
+    roomId: () => {
+      if (roomThrows) throw new Error("no room id yet");
+      return "room-1";
+    },
+    send,
+  });
+  await hooks.onFrame(HOOK_SET, setFrame([A]), send);
+  roomThrows = false;
+  await hooks.onFrame(HOOK_SET, setFrame([A]), send);
+  assert.deepEqual(results.at(-1), { refused: [], failed: [A] });
+  reachable = true;
+  await hooks.onFrame(HOOK_SET, setFrame([A]), send);
+  assert.deepEqual(results.at(-1), { refused: [], failed: [] });
+  assert.equal(storage.hooks.has(A), true);
 });
 
 test("hookIdOf is the hex sha256 of the secret, and only a 43-char base64url secret parses", async () => {
@@ -316,15 +389,15 @@ test("each HOOK_SET is answered with the ids another room still holds, and a lat
   const old = setup({ directory, roomId: "old-room" });
   const fresh = setup({ directory, roomId: "new-room" });
   await old.hooks.onFrame(HOOK_SET, setFrame([A, B]), old.send);
-  assert.deepEqual(old.results, [{ refused: [] }]);
+  assert.deepEqual(old.results, [{ refused: [], failed: [] }]);
   await fresh.hooks.onFrame(HOOK_SET, setFrame([A, B]), fresh.send);
-  assert.deepEqual(fresh.results.at(-1), { refused: [A, B] });
+  assert.deepEqual(fresh.results.at(-1), { refused: [A, B], failed: [] });
   assert.deepEqual(await fresh.hooks.receive(A, request()), NOT_FOUND);
   // The retiring host lets go, then the new one sends its set again.
   await old.hooks.onFrame(HOOK_SET, setFrame([]), old.send);
   assert.deepEqual(await old.hooks.receive(A, request()), NOT_FOUND);
   await fresh.hooks.onFrame(HOOK_SET, setFrame([A, B]), fresh.send);
-  assert.deepEqual(fresh.results.at(-1), { refused: [] });
+  assert.deepEqual(fresh.results.at(-1), { refused: [], failed: [] });
   assert.equal(directory.owner(A), "new-room");
   assert.equal((await fresh.hooks.receive(A, request())).status, 202);
 });
