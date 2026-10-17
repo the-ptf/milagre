@@ -1816,6 +1816,7 @@ function chatHost({
     "../icons": { Icon: "Icon" },
     "../bottom-fade": { BottomFade: "BottomFade", EdgeFade: "EdgeFade" },
     "../side-panels": { useSidePanels: () => panels, PanelSwipe: "PanelSwipe" },
+    "../read-open-chat": { useReadOpenChat() {} },
     "../loading-logo": { LoadingLogo: "LoadingLogo" },
     "../use-open-project": load("use-open-project.ts", {
       react,
