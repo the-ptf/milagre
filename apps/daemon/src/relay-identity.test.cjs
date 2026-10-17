@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { readIdentity, rotateIdentity, readRetired } = require("./relay-identity.cjs");
+const { readIdentity, rotateIdentity, readRetired, readDraining, dropDraining } = require("./relay-identity.cjs");
 
 test("identity is created once, private, and stable", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "relay-id-"));
@@ -62,5 +62,34 @@ test("a plain rotation retires nothing, and only the last three retired identiti
   assert.deepEqual(
     (await readRetired(dir, 0)).map((entry) => entry.hostId),
     ids.slice(1),
+  );
+});
+
+test("a Reset can keep the old identity to drain its room's webhooks, privately, until it is dropped or expires", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "relay-drain-"));
+  const first = await readIdentity(dir);
+  await rotateIdentity(dir, { drainUntil: 5000, now: 1000 });
+  assert.deepEqual(await readRetired(dir, 1000), [], "draining is not retiring");
+  const draining = await readDraining(dir, 1000);
+  assert.equal(draining.length, 1);
+  assert.equal(draining[0].hostId, first.hostId);
+  assert.deepEqual(draining[0].sign.publicKey, first.sign.publicKey);
+  assert.equal(draining[0].until, 5000);
+  assert.equal((await fs.stat(path.join(dir, "relay-draining.json"))).mode & 0o777, 0o600);
+  assert.deepEqual(await readDraining(dir, 5000), [], "past its limit");
+  const second = await readIdentity(dir);
+  await rotateIdentity(dir, { drainUntil: 9000, retireUntil: 9000, now: 2000 });
+  assert.deepEqual(
+    (await readDraining(dir, 2000)).map((entry) => entry.hostId),
+    [first.hostId, second.hostId],
+  );
+  assert.deepEqual(
+    (await readRetired(dir, 2000)).map((entry) => entry.hostId),
+    [second.hostId],
+  );
+  await dropDraining(dir, first.hostId);
+  assert.deepEqual(
+    (await readDraining(dir, 2000)).map((entry) => entry.hostId),
+    [second.hostId],
   );
 });

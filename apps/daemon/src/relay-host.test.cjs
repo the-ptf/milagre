@@ -1001,3 +1001,44 @@ test("with phone access off, a phone that dials the webhooks-only host hears the
   t.after(() => phone.close());
   assert.deepEqual(await phone.closed, { code: 4404, reason: "host-offline" });
 });
+
+test("a draining host says drained once it has acked everything its room held, and not before", async (t) => {
+  const relay = await startRelay(t);
+  const first = await hookMac(t, relay, hookSet([HOOK_ID], { owners: () => ({ [HOOK_ID]: "K".repeat(43) }) }));
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === first.identity.hostId, "registered");
+  await first.host.close();
+  for (const n of [1, 2]) assert.equal((await relay.postHook(hookUrlFor(relay, HOOK_SECRET), JSON.stringify({ n }))).status, 202);
+  const received = [];
+  let drained = 0;
+  let heldWhenDrained = null;
+  const draining = startRelayHost({
+    relayUrl: relay.url,
+    identity: first.identity,
+    retired: true,
+    hooks: hookSet([], {
+      receive: (list) => received.push(...list),
+      drained: () => {
+        drained += 1;
+        heldWhenDrained = roomOf(relay, first.identity).storage.deliveries.size();
+      },
+    }),
+  });
+  t.after(() => draining.close());
+  await until(() => drained === 1, "drained", 6000);
+  assert.equal(received.length, 2);
+  assert.equal(heldWhenDrained, 0);
+  assert.equal(relay.hooks.directory.owner(HOOK_ID), null, "its hooks released");
+  await sleep(300);
+  assert.equal(drained, 1, "once");
+});
+
+test("a draining host whose room holds nothing says drained at once", async (t) => {
+  const relay = await startRelay(t);
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "relay-host-drain-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const identity = await readIdentity(dir);
+  let drained = 0;
+  const host = startRelayHost({ relayUrl: relay.url, identity, retired: true, hooks: hookSet([], { drained: () => (drained += 1) }) });
+  t.after(() => host.close());
+  await until(() => drained === 1, "drained");
+});

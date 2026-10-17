@@ -7,7 +7,7 @@ const { startMobileBridge } = require("./mobile-bridge.cjs");
 const { readCloudflare } = require("./mobile-cloudflare.cjs");
 const { pairingLink, relayPairingLink, computerName } = require("./mobile-pairing.cjs");
 const { startRelayHost } = require("./relay-host.cjs");
-const { readIdentity, rotateIdentity, readRetired } = require("./relay-identity.cjs");
+const { readIdentity, rotateIdentity, readRetired, readDraining, dropDraining } = require("./relay-identity.cjs");
 const { createDevices } = require("./devices.cjs");
 const { b64url } = require("@milagre/shared/relay-crypto");
 const defaultTunnels = require("./mobile-tunnel.cjs");
@@ -22,6 +22,8 @@ const PAIRING_WINDOW_MS = 10 * 60 * 1000;
 // After a Reset, the old relay room keeps answering for this long, so a phone paired before hears "this Mac was reset".
 const RETIRED_MS = 14 * 24 * 60 * 60 * 1000;
 const RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 16000];
+// After a Reset the old room may still hold webhook deliveries; the relay keeps one 24 h, so the Mac stops trying after this.
+const DRAIN_MS = 25 * 60 * 60 * 1000;
 const TOKEN = /^[a-f0-9]{64}$/;
 const PHONE_KEY = /^[A-Za-z0-9_-]{43}$/;
 // Computers waiting for Allow at once; more are turned away ("busy") so a leaked link can't flood the window's prompt.
@@ -103,6 +105,10 @@ function createPhone({
   // A room a Reset retired registers no hooks (so the directory lets the new room have them) and still takes what it held.
   const retiringHooks = relayHooks && { ids: () => [], receive: (deliveries) => relayHooks.receive(deliveries), refused: () => {}, owners: () => ({}) };
   let hookHost = null; // the relay host for webhooks alone, while phone access is off
+  // Old rooms a Reset left with webhook deliveries in them, each drained by a host of its own: hostId -> { host, timer }.
+  // A room the phone already holds as retired (paired phones, phone on) drains through that host instead.
+  const drains = new Map();
+  const drainHooks = (hostId) => retiringHooks && { ...retiringHooks, drained: () => void finishDrain(hostId) };
   const wantsHooks = () => {
     try {
       return Boolean(relayHooks) && relayHooks.ids().length > 0;
@@ -271,25 +277,86 @@ function createPhone({
   /** The old rooms a Reset left behind, each held until it expires (see RETIRED_MS). */
   async function holdRetired(current) {
     const held = [];
+    const draining = new Set((await readDraining(dataDir, now())).map((entry) => entry.hostId));
     for (const old of await readRetired(dataDir, now())) {
       // A reset that failed after saving the retired key may still use it: two hosts on one id would knock each other off.
-      if (old.hostId === current.hostId) continue;
-      const host = startRelay({
-        relayUrl,
-        identity: { hostId: old.hostId, sign: old.sign },
-        retired: true,
-        ...(retiringHooks ? { hooks: retiringHooks } : {}),
-      });
-      const timer = setTimeout(
-        () => {
-          void host.close().catch(() => {});
-        },
-        Math.min(old.until - now(), 2 ** 31 - 1),
-      );
-      timer.unref?.();
-      held.push({ host, timer });
+      // Nor may a room a drain host already serves get a second one.
+      if (old.hostId === current.hostId || drains.has(old.hostId)) continue;
+      held.push(holdOne(old, draining.has(old.hostId)));
     }
     return held;
+  }
+  function holdOne(old, draining) {
+    const host = startRelay({
+      relayUrl,
+      identity: { hostId: old.hostId, sign: old.sign },
+      retired: true,
+      ...(retiringHooks ? { hooks: draining ? drainHooks(old.hostId) : retiringHooks } : {}),
+    });
+    const timer = setTimeout(
+      () => {
+        void host.close().catch(() => {});
+      },
+      Math.min(old.until - now(), 2 ** 31 - 1),
+    );
+    timer.unref?.();
+    return { host, timer, hostId: old.hostId };
+  }
+
+  /**
+   * Starts a host for each old room still listed to drain (relay-identity.cjs readDraining) that nothing serves yet, and
+   * stops those no longer listed. Runs whatever the phone setting, and with or without paired phones.
+   */
+  async function syncDrains() {
+    if (!retiringHooks || closed) return;
+    const listed = await readDraining(dataDir, now());
+    const current = (await readIdentity(dataDir).catch(() => null))?.hostId;
+    const heldAsRetired = new Set((live?.retired ?? []).map((entry) => entry.hostId));
+    const wanted = new Map(listed.filter((entry) => entry.hostId !== current && !heldAsRetired.has(entry.hostId)).map((entry) => [entry.hostId, entry]));
+    for (const [hostId, entry] of drains) {
+      if (wanted.has(hostId)) continue;
+      drains.delete(hostId);
+      clearTimeout(entry.timer);
+      await entry.host.close().catch(() => {});
+    }
+    for (const [hostId, entry] of wanted) {
+      if (drains.has(hostId)) continue;
+      const host = startRelay({ relayUrl, identity: { hostId, sign: entry.sign }, retired: true, hooks: drainHooks(hostId) });
+      // Past the relay's retention there is nothing left to take.
+      const timer = setTimeout(
+        () => {
+          void enqueue(async () => {
+            if (drains.get(hostId)?.host !== host) return;
+            drains.delete(hostId);
+            await host.close().catch(() => {});
+          });
+        },
+        Math.min(Math.max(entry.until - now(), 0), 2 ** 31 - 1),
+      );
+      timer.unref?.();
+      drains.set(hostId, { host, timer });
+    }
+  }
+  async function stopDrains() {
+    for (const [hostId, entry] of [...drains]) {
+      drains.delete(hostId);
+      clearTimeout(entry.timer);
+      await entry.host.close().catch(() => {});
+    }
+  }
+  /** The old room holds nothing more: its identity goes, and so does its host unless the phone holds the room for its phones. */
+  async function finishDrain(hostId) {
+    await dropDraining(dataDir, hostId).catch(() => {});
+    await enqueue(async () => {
+      const entry = drains.get(hostId);
+      if (!entry) return;
+      drains.delete(hostId);
+      clearTimeout(entry.timer);
+      await entry.host.close().catch(() => {});
+      if (!live || closed || live.retired?.some((held) => held.hostId === hostId)) return;
+      const old = (await readRetired(dataDir, now())).find((item) => item.hostId === hostId);
+      if (old) live.retired.push(holdOne(old, false));
+    });
   }
 
   /** With phone access off: the relay host for webhooks alone, started while any are wanted. */
@@ -470,6 +537,7 @@ function createPhone({
         set("off");
         await startHookHost();
       }
+      await syncDrains();
     });
   }
 
@@ -564,7 +632,13 @@ function createPhone({
           await relayPhones.clear();
           // A new host id and key too: an old link can no longer reach this Mac. The old room stays held for a while,
           // only to tell the phones that paired there to scan the new code.
-          await rotateIdentity(dataDir, hadPhones ? { retireUntil: now() + retiredMs, now: now() } : {});
+          // The old room may hold webhook deliveries the relay already accepted: keep its key to drain them.
+          const drainOld = wantsHooks();
+          await rotateIdentity(dataDir, {
+            now: now(),
+            ...(hadPhones ? { retireUntil: now() + retiredMs } : {}),
+            ...(drainOld ? { drainUntil: now() + DRAIN_MS } : {}),
+          });
           openPairing();
         } catch (failure) {
           if (config.enabled) {
@@ -579,8 +653,9 @@ function createPhone({
           void apply().catch(() => {});
         } else {
           set("off");
-          // Webhooks go on through the new identity's room.
+          // Webhooks go on through the new identity's room, and the old one is drained.
           await startHookHost();
+          await syncDrains();
         }
       });
       return status();
@@ -622,7 +697,10 @@ function createPhone({
         if (config.enabled && !closed) {
           set("starting");
           void apply().catch(() => {});
-        } else await startHookHost();
+        } else {
+          await startHookHost();
+          await syncDrains();
+        }
       });
       return status();
     },
@@ -644,7 +722,10 @@ function createPhone({
     async close() {
       closed = true;
       await queue;
-      await enqueue(teardown);
+      await enqueue(async () => {
+        await teardown();
+        await stopDrains();
+      });
     },
   };
 }

@@ -106,21 +106,27 @@ export function hookResponse(answer) {
 }
 
 /**
- * `POST /hook/<secret>` at the edge. 405 and 413 are decided before anything about the hook is looked at. Then every path
- * is hashed, well-formed or not, and its directory entry is asked once (`lookupRoom(hookId)` → room id or null), so a
- * malformed secret, an unknown hook and a released one take the same steps to the same 404. A hook with a room goes on
+ * `POST /hook/<secret>` at the edge. 405 comes first; a malformed secret then gets the uniform 404 at once; 413 is decided
+ * before anything about the hook is looked at. A well-formed secret is hashed and its directory entry asked once
+ * (`lookupRoom(hookId)` → room id or null), so an unknown hook and a released one answer the same bytes as a malformed one. A hook with a room goes on
  * to it (`forwardToRoom(roomId, hookId, packed)` → Response), which answers 404 itself when the hook isn't registered there.
  * Nothing here logs the secret, the URL or the body.
  */
 export async function handleHookRequest(request, { lookupRoom, forwardToRoom }) {
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { allow: "POST" } });
   const url = new URL(request.url);
+  // A secret that can't be one is answered here, with the same bytes as an unknown hook, before any body is read or any
+  // directory is asked: a probe costs no Durable Object request.
+  const secret = hookSecretOf(url.pathname);
+  if (!secret) {
+    await request.body?.cancel().catch(() => {});
+    return hookResponse(NOT_FOUND);
+  }
   const body = await readHookBody(request);
   if (!body) return hookResponse(TOO_LARGE);
-  const secret = hookSecretOf(url.pathname);
-  const hookId = await hookIdOf(secret ?? url.pathname);
+  const hookId = await hookIdOf(secret);
   const roomId = await lookupRoom(hookId);
-  if (!secret || typeof roomId !== "string" || roomId === "") return hookResponse(NOT_FOUND);
+  if (typeof roomId !== "string" || roomId === "") return hookResponse(NOT_FOUND);
   return forwardToRoom(roomId, hookId, packHookRequest({ headers: pickHookHeaders(request.headers.entries()), query: pickHookQuery(url.search), body }));
 }
 
@@ -285,7 +291,8 @@ export function createHookRoom({ storage, directory, roomId, now = Date.now, ran
       else await release(id, roomNow);
     }
     try {
-      send(frame(HOOK_RESULT, 0n, encoder.encode(JSON.stringify({ refused, failed }))));
+      // `held`: deliveries still waiting here, so a room a Reset retired knows when nothing is left to drain.
+      send(frame(HOOK_RESULT, 0n, encoder.encode(JSON.stringify({ refused, failed, held: storage.deliveries.size() }))));
     } catch {
       /* the Mac is gone; it sends its set again on the next ready */
     }

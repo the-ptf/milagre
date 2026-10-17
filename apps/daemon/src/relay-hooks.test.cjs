@@ -11,9 +11,10 @@ const hookIdOfUrl = (url) => sha256(url.split("/hook/")[1]);
  * A throwaway Mac on the local relay with Routines on and its Project open. Agents are fakes that take a turn and do
  * nothing, so a Run's first message is saved and no agent CLI ever starts.
  */
-async function webhookMac(t) {
+async function webhookMac(t, extra = {}) {
   const turns = [];
   const mac = await startTestMac(t, {
+    ...extra,
     lan: false,
     runtime: {
       registryRoots: [],
@@ -47,7 +48,17 @@ async function webhookMac(t) {
     Object.values((await mac.client.call("project:snapshot", [mac.project])).state.sessions).filter((session) => session.routine);
   // The relay has registered the hook for this Mac's room.
   const registered = (hookId) => until(() => mac.relay.hooks.directory.owner(hookId) === mac.identity.hostId, "the relay to register the hook", 5000);
-  return { ...mac, turns, create, list, runsOf, routineChats, registered };
+  const storedOnMac = async () => {
+    try {
+      return Object.keys(
+        JSON.parse(await require("node:fs/promises").readFile(require("node:path").join(mac.dataDir, "routine-hooks.json"), "utf8")).deliveries,
+      );
+    } catch {
+      return [];
+    }
+  };
+  const heldAt = (hostId) => mac.relay.hooks.rooms.get(hostId)?.storage.deliveries.size() ?? 0;
+  return { ...mac, turns, create, list, runsOf, routineChats, registered, storedOnMac, heldAt };
 }
 
 test("a webhook Routine's URL takes a JSON POST with 202 and starts a Run whose first message holds the body as untrusted data", async (t) => {
@@ -101,9 +112,25 @@ test("a signed webhook Routine with a wrong signature records a failed Run, sign
   );
   assert.equal(run.status, "failed");
   assert.equal(run.error, "signature mismatch");
-  await new Promise((resolve) => setTimeout(resolve, 1500)); // a tick or more
+  // Settled: the relay has its ack and the Mac kept no copy, so nothing is left that could start a Chat.
+  await until(() => mac.heldAt(mac.identity.hostId) === 0, "the relay to have the ack");
+  assert.deepEqual(await mac.storedOnMac(), []);
   assert.deepEqual(await mac.routineChats(), []);
-  assert.equal(mac.turns.length, 0);
+  // A rightly signed one after it does start a Chat, and it is the only one.
+  const signed = await mac.relay.postHook(hookUrl, body, { "x-hub-signature-256": `sha256=${hmac("shh", body)}` });
+  assert.equal(signed.status, 202);
+  const chats = await until(
+    async () => {
+      const found = await mac.routineChats();
+      return found.length ? found : null;
+    },
+    "the signed delivery's Chat",
+    10_000,
+  );
+  assert.equal(chats.length, 1);
+  const runs = await mac.runsOf(routine.id);
+  assert.deepEqual(runs.map((item) => item.event?.deliveryId).toSorted(), [answer.json.id, signed.json.id].toSorted());
+  assert.equal(runs.find((item) => item.event.deliveryId === answer.json.id).status, "failed");
 });
 
 test("after routines:rotate-hook the old URL gives 404 and the new one 202", async (t) => {
@@ -136,9 +163,23 @@ test("a delivery that reaches the Mac after its Routine was deleted is acked and
   await until(() => mac.relay.hooks.rooms.get(mac.identity.hostId).storage.deliveries.size() === 0, "the delivery to be acked", 10_000);
   await until(() => mac.relay.hooks.directory.owner(routine.trigger.hookId) === null, "the hook to be released");
   assert.equal((await mac.relay.postHook(hookUrl, "{}")).status, 404);
-  await new Promise((resolve) => setTimeout(resolve, 1200));
-  assert.deepEqual(await mac.routineChats(), []);
+  // Settled: acked, and the Mac kept no copy of it.
+  assert.deepEqual(await mac.storedOnMac(), []);
   assert.deepEqual(await mac.list(), []);
+  // Proof the Mac would have started a Chat had there been a Routine: the next webhook Routine's delivery does, alone.
+  const { routine: next, hookUrl: nextUrl } = await mac.create({ name: "Next" });
+  await mac.registered(next.trigger.hookId);
+  assert.equal((await mac.relay.postHook(nextUrl, '{"next":true}')).status, 202);
+  const chats = await until(
+    async () => {
+      const found = await mac.routineChats();
+      return found.length ? found : null;
+    },
+    "the next Routine's Chat",
+    10_000,
+  );
+  assert.equal(chats.length, 1);
+  assert.equal(chats[0].routine.routineId, next.id);
 });
 
 test("with phone access off, a relay host runs for webhooks alone and stops with the last one", async (t) => {
@@ -171,4 +212,72 @@ test("after a Phone Reset the Mac's new room takes its hooks back with their own
   assert.equal((await mac.relay.postHook(hookUrl, '{"after":"reset"}')).status, 202);
   await until(async () => (await mac.routineChats()).length > 0, "the Run's Chat", 10_000);
   assert.equal((await mac.list())[0].lastError, undefined);
+});
+
+/**
+ * A Mac whose relay connection drops for the old identity: a POST then waits in the old room. `blocked` keeps that room's
+ * host from reconnecting until the test lets it.
+ */
+async function resetWithWaitingDelivery(t, { phoneOff }) {
+  const blocked = new Set();
+  const mac = await webhookMac(t, {
+    relay: {
+      hostBehavior: (ws, _index, id) => {
+        if (!blocked.has(id)) return false;
+        ws.close(1011, "blocked");
+        return true;
+      },
+    },
+  });
+  const { routine, hookUrl } = await mac.create();
+  await mac.registered(routine.trigger.hookId);
+  const oldRoom = mac.identity.hostId;
+  if (phoneOff) {
+    const hosts = mac.relay.hostSockets.length;
+    await mac.client.call("phone:set-enabled", [false]);
+    await until(() => mac.relay.hostSockets.length > hosts && mac.relay.hostSockets.at(-1).readyState === 1, "the webhooks-only host", 5000);
+  }
+  blocked.add(oldRoom);
+  const socket = mac.relay.hostSockets.at(-1);
+  socket.terminate();
+  await until(() => socket.readyState === 3, "the old host to drop");
+  const waiting = await mac.relay.postHook(hookUrl, '{"before":"reset"}');
+  assert.equal(waiting.status, 202);
+  assert.equal(mac.heldAt(oldRoom), 1, "it waits in the old room");
+  await mac.client.call("phone:reset");
+  const { readIdentity, readDraining } = require("./relay-identity.cjs");
+  const fresh = await readIdentity(mac.dataDir);
+  assert.notEqual(fresh.hostId, oldRoom);
+  assert.deepEqual(
+    (await readDraining(mac.dataDir, mac.clock.now)).map((entry) => entry.hostId),
+    [oldRoom],
+    "the old identity is kept to drain its room",
+  );
+  blocked.delete(oldRoom);
+  // The waiting delivery reaches its Run; the old room is acked, lets the hook go, and its identity is dropped.
+  await until(async () => (await mac.runsOf(routine.id)).some((run) => run.event?.deliveryId === waiting.json.id), "the waiting delivery's Run", 15_000);
+  await until(() => mac.heldAt(oldRoom) === 0, "the old room to be drained", 10_000);
+  await until(async () => (await readDraining(mac.dataDir, mac.clock.now)).length === 0, "the old identity to be dropped", 10_000);
+  await until(() => mac.relay.hooks.directory.owner(routine.trigger.hookId) === fresh.hostId, "the hook in the new room", 10_000);
+  // A second delivery through the new room: both Runs exist, the first delivery's exactly once.
+  const after = await mac.relay.postHook(hookUrl, '{"after":"reset"}');
+  assert.equal(after.status, 202);
+  const runs = await until(
+    async () => {
+      const all = await mac.runsOf(routine.id);
+      return all.some((run) => run.event?.deliveryId === after.json.id) ? all : null;
+    },
+    "the second delivery's Run",
+    15_000,
+  );
+  assert.equal(runs.filter((run) => run.event?.deliveryId === waiting.json.id).length, 1);
+  assert.equal(runs.length, 2);
+}
+
+test("after a Phone Reset with no paired phones, a delivery waiting in the old room reaches its Run exactly once", async (t) => {
+  await resetWithWaitingDelivery(t, { phoneOff: false });
+});
+
+test("after a Phone Reset with phone access off, a delivery waiting in the old room reaches its Run exactly once", async (t) => {
+  await resetWithWaitingDelivery(t, { phoneOff: true });
 });
