@@ -239,41 +239,61 @@ test("the directory keeps the first room that claims a hook and lets only it rel
   assert.equal(await directory.claim("room-2"), true);
 });
 
-test("a room that proves it holds the secret takes a hook over from the room that has it; a wrong proof doesn't", async () => {
+test("only the hook's owner key moves it to another room; the URL secret doesn't", async () => {
   const kv = new Map();
   const storage = { get: (k) => kv.get(k), put: (k, v) => kv.set(k, v), delete: (k) => kv.delete(k) };
   const directory = createHookDirectory({ storage });
-  const secret = "P".repeat(43);
-  const hookId = await hookIdOf(secret);
-  assert.equal(await directory.claim("old-room", { hookId, secret }), true);
-  assert.equal(await directory.claim("new-room", { hookId, secret: "Q".repeat(43) }), false, "wrong secret");
-  assert.equal(await directory.claim("new-room", { hookId: await hookIdOf("Q".repeat(43)), secret: "Q".repeat(43) }), false, "another hook's proof");
+  const ownerKey = "K".repeat(43);
+  const secret = "P".repeat(43); // the URL secret
+  assert.equal(await directory.claim("old-room", { ownerKey }), true, "the first claim registers the owner key's hash");
+  assert.equal(kv.get("owner"), createHash("sha256").update(ownerKey).digest("hex"));
+  assert.ok(![...kv.values()].includes(ownerKey), "the key itself is never stored");
+  assert.equal(await directory.claim("new-room", { ownerKey: secret }), false, "the URL secret is not the owner key");
+  assert.equal(await directory.claim("new-room", { ownerKey: "Q".repeat(43) }), false, "a wrong key");
+  assert.equal(await directory.claim("new-room"), false, "no key");
   assert.equal(directory.room(), "old-room");
-  assert.equal(await directory.claim("new-room", { hookId, secret }), true);
+  assert.equal(await directory.claim("new-room", { ownerKey }), true);
   assert.equal(directory.room(), "new-room");
   directory.release("old-room");
   assert.equal(directory.room(), "new-room", "the old room can't release it any more");
 });
 
-test("a hook the old room never releases moves to the new room with proof, and the next POST reaches it", async () => {
+test("a claim made without an owner key gets one from its owner's next keyed claim, and other rooms can't set it", async () => {
+  const kv = new Map();
+  const storage = { get: (k) => kv.get(k), put: (k, v) => kv.set(k, v), delete: (k) => kv.delete(k) };
+  const directory = createHookDirectory({ storage });
+  assert.equal(await directory.claim("old-room"), true);
+  assert.equal(kv.get("owner"), undefined);
+  assert.equal(await directory.claim("thief-room", { ownerKey: "T".repeat(43) }), false, "a keyless claim isn't anyone's to take");
+  assert.equal(kv.get("owner"), undefined);
+  assert.equal(await directory.claim("old-room", { ownerKey: "K".repeat(43) }), true);
+  assert.equal(await directory.claim("new-room", { ownerKey: "K".repeat(43) }), true);
+  assert.equal(directory.room(), "new-room");
+});
+
+test("a room holding only the URL secret can't take a hook over; the Mac with the owner key can, and the next POST reaches it", async () => {
   const { hops, room, directory } = edge();
   const secret = "T".repeat(43);
   const hookId = await hookIdOf(secret);
+  const ownerKey = "O".repeat(43);
+  const keyed = (ids, owners) => encoder.encode(JSON.stringify({ hookIds: ids, owners }));
   const old = room("old-room");
-  await old.hooks.onFrame(HOOK_SET, setFrame([hookId]), old.send);
-  // The old host crashed and never says []. The Mac's new room asks without proof first, then with it.
+  await old.hooks.onFrame(HOOK_SET, keyed([hookId], { [hookId]: ownerKey }), old.send);
+  // Someone who saw the URL tries to take it with the secret.
+  const thief = room("thief-room");
+  await thief.hooks.onFrame(HOOK_SET, keyed([hookId], { [hookId]: secret }), thief.send);
+  assert.deepEqual(thief.results.at(-1), { refused: [hookId], failed: [] });
+  assert.equal(directory.owner(hookId), "old-room");
+  // The Mac's new room after a Reset, with the key it kept.
   const fresh = room("new-room");
-  await fresh.hooks.onFrame(HOOK_SET, setFrame([hookId]), fresh.send);
-  assert.deepEqual(fresh.results.at(-1), { refused: [hookId], failed: [] });
-  await fresh.hooks.onFrame(HOOK_SET, encoder.encode(JSON.stringify({ hookIds: [hookId], proofs: { [hookId]: "U".repeat(43) } })), fresh.send);
-  assert.deepEqual(fresh.results.at(-1), { refused: [hookId], failed: [] }, "a wrong proof changes nothing");
-  await fresh.hooks.onFrame(HOOK_SET, encoder.encode(JSON.stringify({ hookIds: [hookId], proofs: { [hookId]: secret } })), fresh.send);
+  await fresh.hooks.onFrame(HOOK_SET, keyed([hookId], { [hookId]: ownerKey }), fresh.send);
   assert.deepEqual(fresh.results.at(-1), { refused: [], failed: [] });
   assert.equal(directory.owner(hookId), "new-room");
   fresh.hooks.onHostReady(fresh.send);
   assert.equal((await handleHookRequest(post(`/hook/${secret}`), hops)).status, 202);
   assert.equal(fresh.sent.length, 1);
   assert.equal(old.sent.length, 0);
+  assert.equal(thief.sent.length, 0);
 });
 
 test("a directory that can't be reached is reported as failed, not refused, and the chain survives a settle that throws", async () => {

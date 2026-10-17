@@ -123,11 +123,11 @@ export class Room implements DurableObject {
     const storage = sqlHookStorage(this.state.storage.sql);
     const directory = {
       // A 409 is a refusal; anything else that isn't ok means the directory couldn't answer, and throws.
-      claim: async (hookId: string, roomId: string, secret?: string) => {
+      claim: async (hookId: string, roomId: string, ownerKey?: string) => {
         if (!ID.test(roomId)) return false;
         const response = await this.env.HOOKS.get(this.env.HOOKS.idFromName(hookId)).fetch(`${INTERNAL}/claim`, {
           method: "POST",
-          body: JSON.stringify({ roomId, hookId, ...(secret ? { secret } : {}) }),
+          body: JSON.stringify({ roomId, ...(ownerKey ? { ownerKey } : {}) }),
         });
         if (response.status === 409) return false;
         if (!response.ok) throw new Error(`Hook directory answered ${response.status}`);
@@ -230,7 +230,7 @@ export class HookDirectory implements DurableObject {
       return room ? new Response(room) : new Response("", { status: 404 });
     }
     if (path === "/claim") {
-      let body: { roomId?: unknown; hookId?: unknown; secret?: unknown } = {};
+      let body: { roomId?: unknown; ownerKey?: unknown } = {};
       try {
         body = request.method === "POST" ? await request.json() : {};
       } catch {
@@ -238,7 +238,7 @@ export class HookDirectory implements DurableObject {
       }
       const roomId = typeof body.roomId === "string" ? body.roomId : "";
       if (!ID.test(roomId)) return new Response("", { status: 400 });
-      const proof = typeof body.secret === "string" && typeof body.hookId === "string" ? { hookId: body.hookId, secret: body.secret } : undefined;
+      const proof = typeof body.ownerKey === "string" ? { ownerKey: body.ownerKey } : undefined;
       return new Response("", { status: (await directory.claim(roomId, proof)) ? 200 : 409 });
     }
     const roomId = request.method === "POST" ? await request.text() : "";

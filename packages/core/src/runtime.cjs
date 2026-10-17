@@ -2064,13 +2064,13 @@ function createRuntime(options) {
     resumeRecentProjects: () => accept(resumeRecentProjects),
     environmentReady,
     isClosing: () => closing,
-    // Webhook Routines for the daemon's relay host: the hooks to register, deliveries in, the relay's refusals, proofs.
+    // Webhook Routines for the daemon's relay host: the hooks to register, deliveries in, the relay's refusals, owner keys.
     routines: {
       hookIds: () => routines.hookIds(),
       receiveHook: (delivery) => routines.receiveHook(delivery),
       receiveHooks: (deliveries) => routines.receiveHooks(deliveries),
       hooksRefused: (ids) => routines.hooksRefused(ids),
-      hookProofs: (ids) => routines.hookProofs(ids),
+      hookOwners: (ids) => routines.hookOwners(ids),
     },
     // Synchronous capture: the socket serializes this before another event can
     // mutate state, so its event watermark and run sequence describe one instant.

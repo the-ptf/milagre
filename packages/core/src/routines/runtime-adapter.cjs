@@ -7,7 +7,7 @@ const { createRoutineStore } = require("./store.cjs");
 const { createRoutineScheduler, linearPrompt } = require("./scheduler.cjs");
 const { createRoutineTools } = require("./tools.cjs");
 const { createLinearPoller } = require("./linear-poller.cjs");
-const { DEFAULT_SIGNING_HEADER, newHookSecret, hookUrl, verifySignature, webhookPrompt } = require("./webhook.cjs");
+const { DEFAULT_SIGNING_HEADER, hookIdOf, newHookSecret, hookUrl, verifySignature, webhookPrompt } = require("./webhook.cjs");
 
 const OFF = "Routines are off. Turn them on in Settings › Experimental.";
 const TOOLS_OFF = "Routines are turned off in Settings › Experimental.";
@@ -252,6 +252,12 @@ function routineChats({
           },
         });
       } catch (error) {
+        // A webhook Run that fails here isn't tried again: its delivery goes, as after a failed start.
+        const failedDelivery = webhookRuns.get(context?.runId);
+        if (failedDelivery) {
+          webhookRuns.delete(context.runId);
+          dropDelivery(failedDelivery);
+        }
         if (waited) throw busyError();
         throw error;
       }
@@ -461,7 +467,7 @@ function createRoutines({
     receiveHook: (delivery) => webhooks.receive([delivery]),
     receiveHooks: (deliveries) => webhooks.receive(deliveries),
     hooksRefused: (ids) => webhooks.refused(ids),
-    hookProofs: (ids) => webhooks.proofs(ids),
+    hookOwners: (ids) => webhooks.owners(ids),
     async runNow(id) {
       if (!store.enabled()) throw new Error(OFF);
       if (typeof id !== "string" || !id) throw new Error("Choose a routine.");
@@ -499,6 +505,17 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
     return routine;
   };
   const live = (routine) => routine.enabled && !routine.completedAt && routine.trigger.kind === "webhook";
+  /**
+   * The saved secret that goes with the Routine's hook id. A rotation saves the new secret first and keeps the old one as
+   * `previous` until the Routine has the new id, so after a crash between the two writes the old URL still works.
+   */
+  const secretOf = (secrets, routine) => {
+    const saved = secrets.secretFor(routine.id);
+    if (!saved) return null;
+    const { previous, ...current } = saved;
+    if (previous && hookIdOf(current.secret) !== routine.trigger.hookId && hookIdOf(previous.secret) === routine.trigger.hookId) return previous;
+    return current;
+  };
   return {
     /** From the Routines form: the Mac makes the URL. Signed exactly when a signing secret comes with it. */
     create(input) {
@@ -506,7 +523,7 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
       const { signingSecret, signingHeader, ...rest } = input;
       const signing = nonEmpty(signingSecret);
       if (input.trigger.signed === true && !signing) throw new Error(SIGNED_NEEDS_SECRET);
-      const { secret, hookId } = newHookSecret();
+      const { secret, hookId, ownerKey } = newHookSecret();
       const routine = store.create({
         ...rest,
         // Blank means the default header (DEFAULT_SIGNING_HEADER); the store checks and lowercases a named one.
@@ -515,7 +532,7 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
         createdBy: { kind: "user" },
       });
       try {
-        secrets.setSecret(routine.id, { secret, signingSecret: signing });
+        secrets.setSecret(routine.id, { secret, ownerKey, signingSecret: signing });
       } catch (error) {
         store.remove(routine.id);
         throw error;
@@ -545,14 +562,14 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
       if (rest.trigger?.hookId !== undefined && rest.trigger.hookId !== routine.trigger.hookId) {
         throw new Error("Rotate the webhook URL to change it.");
       }
-      const current = secrets.secretFor(id);
+      const current = secretOf(secrets, routine);
       if (!current) throw new Error("This webhook has no URL. Rotate it to make one.");
       const fresh = nonEmpty(signingSecret);
       const signed = rest.trigger?.signed !== undefined ? rest.trigger.signed === true : fresh ? true : routine.trigger.signed;
       const kept = signed ? (fresh ?? current.signingSecret) : undefined;
       if (signed && !kept) throw new Error(SIGNED_NEEDS_SECRET);
       const updated = store.update(id, { ...rest, trigger: { kind: "webhook", hookId: routine.trigger.hookId, signed } });
-      secrets.setSecret(id, { secret: current.secret, signingSecret: kept });
+      secrets.setSecret(id, { secret: current.secret, ownerKey: current.ownerKey, signingSecret: kept });
       changed();
       return updated;
     },
@@ -566,7 +583,7 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
     hook(id) {
       const { store: secrets, relayUrl } = ready();
       const routine = webhookRoutine(id);
-      const current = secrets.secretFor(id);
+      const current = secretOf(secrets, routine);
       if (!current) throw new Error("This webhook has no URL. Rotate it to make one.");
       return { url: hookUrl(relayUrl, current.secret), signed: routine.trigger.signed, signingHeader: routine.signingHeader ?? DEFAULT_SIGNING_HEADER };
     },
@@ -574,10 +591,20 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
     rotate(id) {
       const { store: secrets, relayUrl } = ready();
       const routine = webhookRoutine(id);
-      const current = secrets.secretFor(id);
-      const { secret, hookId } = newHookSecret();
-      store.update(id, { trigger: { kind: "webhook", hookId, signed: routine.trigger.signed } });
-      secrets.setSecret(id, { secret, signingSecret: current?.signingSecret });
+      const current = secretOf(secrets, routine);
+      // A new owner key too: whoever held the old one can't move the new hook.
+      const { secret, hookId, ownerKey } = newHookSecret();
+      const next = { secret, ownerKey, signingSecret: current?.signingSecret };
+      // The new secret is on disk before the Routine points at it, with the old one kept until it does.
+      secrets.setSecret(id, { ...next, ...(current ? { previous: current } : {}) });
+      try {
+        store.update(id, { trigger: { kind: "webhook", hookId, signed: routine.trigger.signed } });
+      } catch (error) {
+        if (current) secrets.setSecret(id, current);
+        else secrets.removeSecret(id);
+        throw error;
+      }
+      secrets.setSecret(id, next);
       changed();
       return { url: hookUrl(relayUrl, secret) };
     },
@@ -592,6 +619,9 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
       const list = (Array.isArray(deliveries) ? deliveries : []).filter(isDelivery);
       if (list.length === 0) return { ack: true };
       const { store: secrets } = ready();
+      // A copy already here belongs to an earlier arrival whose Run hasn't used it yet (it goes once the Run's first message
+      // is out, or the Run fails).
+      const waiting = new Set(list.filter((delivery) => secrets.getDelivery(delivery.id)).map((delivery) => delivery.id));
       secrets.putDeliveries(list);
       const drop = (id) => {
         try {
@@ -611,7 +641,7 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
         }
         const event = { kind: "webhook", key: `webhook:${delivery.id}`, deliveryId: delivery.id };
         if (routine.trigger.signed) {
-          const current = secrets.secretFor(routine.id);
+          const current = secretOf(secrets, routine);
           const header = routine.signingHeader ?? DEFAULT_SIGNING_HEADER;
           if (!verifySignature({ body: delivery.body, headers: delivery.headers, header, signingSecret: current?.signingSecret })) {
             if (store.rejectEvent(routine.id, event, "signature mismatch")) rejected = true;
@@ -622,9 +652,12 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
         items.push({ routineId: routine.id, event });
       }
       const results = items.length ? scheduler.enqueueEvents(items) : [];
-      // A redelivery ("seen") may still be waiting for its Run, so its copy stays; the store forgets it in 48 h at most.
+      // A redelivery ("seen") keeps its copy only while the first arrival's Run still needs it.
       results.forEach((result, index) => {
-        if (!result.queued && result.reason !== "seen") drop(items[index].event.deliveryId);
+        if (result.queued) return;
+        const { deliveryId } = items[index].event;
+        if (result.reason === "seen" && waiting.has(deliveryId)) return;
+        drop(deliveryId);
       });
       if (rejected) changed();
       return { ack: true };
@@ -647,20 +680,20 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
       }
       if (any) changed();
     },
-    /** The URL secrets of `ids`, as proof for the relay that this Mac made them (sent only on its own host connection). */
-    proofs(ids) {
+    /** The owner keys of `ids`, for the relay host's hook sets (sent only on this Mac's own connection; the relay keeps a hash). */
+    owners(ids) {
       const wanted = new Set(Array.isArray(ids) ? ids : []);
       const current = hooks();
       const out = {};
       if (!current) return out;
       for (const routine of store.list()) {
         if (routine.trigger.kind !== "webhook" || !wanted.has(routine.trigger.hookId)) continue;
-        const secret = current.store.secretFor(routine.id)?.secret;
-        if (secret) out[routine.trigger.hookId] = secret;
+        const ownerKey = secretOf(current.store, routine)?.ownerKey;
+        if (ownerKey) out[routine.trigger.hookId] = ownerKey;
       }
       return out;
     },
   };
 }
 
-module.exports = { createRoutines, routineChats, routineReply };
+module.exports = { createRoutines, createWebhooks, routineChats, routineReply };

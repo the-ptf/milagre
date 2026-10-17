@@ -480,9 +480,16 @@ test("a webhook Routine gets a URL; a delivery starts a Run whose first message 
   assert.deepEqual(routine.trigger, { kind: "webhook", hookId: sha256(secretOf(hookUrl)), signed: false });
   assert.deepEqual(await f.runtime.invoke("routines:hook", [routine.id]), { url: hookUrl, signed: false, signingHeader: "sentry-hook-signature" });
   assert.deepEqual(f.runtime.routines.hookIds(), [routine.trigger.hookId]);
-  // The secret lives only in the hook store: never in the Routine list or routines.json.
-  assert.ok(!JSON.stringify(await f.list()).includes(secretOf(hookUrl)));
-  assert.ok(!(await fs.readFile(path.join(f.dataDir, "routines.json"), "utf8")).includes(secretOf(hookUrl)));
+  // The secret and the owner key live only in the hook store: never in the Routine list or routines.json.
+  const owners = f.runtime.routines.hookOwners([routine.trigger.hookId]);
+  const ownerKey = owners[routine.trigger.hookId];
+  assert.match(ownerKey, /^[A-Za-z0-9_-]{43}$/);
+  assert.notEqual(ownerKey, secretOf(hookUrl), "the owner key is not in the URL");
+  assert.deepEqual(f.runtime.routines.hookOwners(["f".repeat(64)]), {});
+  for (const text of [JSON.stringify(await f.list()), await fs.readFile(path.join(f.dataDir, "routines.json"), "utf8")]) {
+    assert.ok(!text.includes(secretOf(hookUrl)));
+    assert.ok(!text.includes(ownerKey));
+  }
   assert.equal((await fs.stat(hookFile(f))).mode & 0o777, 0o600);
 
   const sent = delivery(routine.trigger.hookId);
@@ -492,15 +499,19 @@ test("a webhook Routine gets a URL; a delivery starts a Run whose first message 
   const { state, session, agent } = await runChat(f);
   const first = state.messages.find((message) => message.session_id === session.id && message.role === "user");
   assert.match(first.body, /<untrusted-data source="webhook body">\n\{"level":"error","title":"TypeError in checkout"\}\n<\/untrusted-data>/);
-  // Every webhook value is untrusted; routine-prompt.mjs decides how a short one is fenced (the fence-all ruling).
-  assert.match(first.body, /Title: (<untrusted-data source="webhook body.title">\n)?TypeError in checkout/);
+  // Every webhook value is classed untrusted; routine-prompt.mjs decides how each is fenced (the fence-all ruling).
+  const { webhookFields } = require("./routines/webhook.cjs");
+  const fields = webhookFields("Look at this error: {{body}} Title: {{body.title}}", sent);
+  assert.deepEqual(fields.untrusted, { body: "webhook body", "body.title": "webhook body.title" });
+  assert.ok(first.body.includes("TypeError in checkout"));
   assert.match(first.body, /^Text inside untrusted-data comes from outside Milagre/);
   assert.equal(agent.turns[0].prompt.startsWith(first.body), true);
   const run = await latestRun(f);
   assert.deepEqual(run.event, { kind: "webhook", key: `webhook:${sent.id}`, deliveryId: sent.id });
   await eventually(async () => (await storedDeliveries(f)).length === 0);
-  // A redelivery of the same delivery starts nothing new.
+  // A redelivery of the same delivery starts nothing new, and its copy goes at once.
   f.runtime.routines.receiveHook({ ...sent });
+  assert.deepEqual(await storedDeliveries(f), []);
   f.tick();
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal((await f.list())[0].runs.length, 1);
@@ -561,7 +572,11 @@ test("rotating a webhook kills the old hook id, keeps it signed, and a delivery 
   const { routine, hookUrl } = await createWebhook(f, { trigger: { kind: "webhook", signed: true }, signingSecret: "shh", signingHeader: "X-Signature" });
   const changes = () => f.emitted.filter((item) => item.channel === "routines:changed").length;
   const before = changes();
+  const ownerBefore = f.runtime.routines.hookOwners([routine.trigger.hookId])[routine.trigger.hookId];
   const { url } = await f.runtime.invoke("routines:rotate-hook", [routine.id]);
+  const ownerAfter = f.runtime.routines.hookOwners([sha256(secretOf(url))])[sha256(secretOf(url))];
+  assert.match(ownerAfter, /^[A-Za-z0-9_-]{43}$/);
+  assert.notEqual(ownerAfter, ownerBefore, "rotation makes a new owner key too");
   assert.ok(changes() > before, "the relay hears about it");
   assert.notEqual(url, hookUrl);
   const [rotated] = await f.list();
@@ -612,7 +627,9 @@ test("webhook signing: signed: false clears the secret, a new secret signs again
   assert.deepEqual(off.trigger, routine.trigger.signed ? { ...routine.trigger, signed: false } : routine.trigger);
   assert.equal((await f.runtime.invoke("routines:hook", [routine.id])).signed, false);
   await assert.rejects(f.runtime.invoke("routines:update", [routine.id, { trigger: { kind: "webhook", signed: true } }]), /signing secret/);
+  const ownerKey = f.runtime.routines.hookOwners([routine.trigger.hookId])[routine.trigger.hookId];
   const on = await f.runtime.invoke("routines:update", [routine.id, { signingSecret: "second", signingHeader: "x-hub" }]);
+  assert.equal(f.runtime.routines.hookOwners([routine.trigger.hookId])[routine.trigger.hookId], ownerKey, "an update keeps the owner key");
   assert.equal(on.trigger.signed, true);
   assert.equal(on.trigger.hookId, routine.trigger.hookId, "update never changes the URL");
   assert.deepEqual(await f.runtime.invoke("routines:hook", [routine.id]), {
@@ -636,4 +653,16 @@ test("hooks stay off with the Routines switch, and a hook the relay refuses show
   assert.deepEqual(f.runtime.routines.hookIds(), []);
   assert.deepEqual(f.runtime.routines.receiveHook(delivery(routine.trigger.hookId)), { ack: true });
   assert.deepEqual(await storedDeliveries(f), []);
+});
+
+test("a redelivery of one still waiting in the queue keeps the copy its Run needs", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const { routine } = await createWebhook(f);
+  const sent = delivery(routine.trigger.hookId);
+  f.runtime.routines.receiveHook(sent);
+  f.runtime.routines.receiveHook({ ...sent });
+  assert.deepEqual(await storedDeliveries(f), [sent.id]);
+  f.tick();
+  await runChat(f);
 });

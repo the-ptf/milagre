@@ -495,7 +495,7 @@ async function startDaemon({
       ids: () => runtime.routines.hookIds(),
       receive: (deliveries) => runtime.routines.receiveHooks(deliveries),
       refused: (ids) => runtime.routines.hooksRefused(ids),
-      proofs: (ids) => runtime.routines.hookProofs(ids),
+      owners: (ids) => runtime.routines.hookOwners(ids),
     },
     ...phoneOptions,
   });

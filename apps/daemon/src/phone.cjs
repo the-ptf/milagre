@@ -53,7 +53,7 @@ const message = (error) => (error instanceof Error ? error.message : String(erro
  * A computer's first pairing waits for its owner: `allowComputer` (handed to the relay host with `openPeer`) holds the
  * request until `allowDevice` or `denyDevice`, the end of the pairing window it arrived in, or its channel closing.
  * `onPending(requests)` hears the list of waiting `{ key, name, at }` after each change; `pendingDevices()` reads it.
- * `hooks` ({ ids, receive, refused, proofs }, see relay-host.cjs) are the Mac's webhook Routines: the relay host carries
+ * `hooks` ({ ids, receive, refused, owners }, see relay-host.cjs) are the Mac's webhook Routines: the relay host carries
  * them whenever phone access is on, and while it is off a relay host runs for them alone as long as `ids()` has any. Call
  * `syncHooks()` when they change. A retiring room (after a Reset) lets go of its hooks and hands over what it still held.
  * A confined phone never takes webhooks.
@@ -101,7 +101,7 @@ function createPhone({
   // Webhooks reach only an unconfined Mac.
   const relayHooks = hooks && allowedRoot === undefined ? hooks : undefined;
   // A room a Reset retired registers no hooks (so the directory lets the new room have them) and still takes what it held.
-  const retiringHooks = relayHooks && { ids: () => [], receive: (deliveries) => relayHooks.receive(deliveries), refused: () => {}, proofs: () => ({}) };
+  const retiringHooks = relayHooks && { ids: () => [], receive: (deliveries) => relayHooks.receive(deliveries), refused: () => {}, owners: () => ({}) };
   let hookHost = null; // the relay host for webhooks alone, while phone access is off
   const wantsHooks = () => {
     try {

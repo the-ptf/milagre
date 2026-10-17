@@ -43,8 +43,8 @@ export interface HookStorage {
   };
 }
 export interface HookDirectoryClient {
-  /** `secret`: the hook's URL secret, proving the claiming room's Mac made it; moves a hook another room holds. */
-  claim(hookId: string, roomId: string, secret?: string): boolean | Promise<boolean>;
+  /** `ownerKey`: the key the Mac made with the hook (never in the URL); registers on first claim, then moves the hook between rooms. */
+  claim(hookId: string, roomId: string, ownerKey?: string): boolean | Promise<boolean>;
   release(hookId: string, roomId: string): void | Promise<void>;
 }
 export type HookSend = (bytes: Uint8Array) => boolean;
@@ -64,7 +64,7 @@ export function createHookRoom(options: {
   send?: HookSend;
 }): HookRoom;
 export function createHookDirectory(options: { storage: { get(key: string): unknown; put(key: string, value: string): void; delete(key: string): unknown } }): {
-  claim(roomId: string, proof?: { hookId: string; secret: string }): Promise<boolean>;
+  claim(roomId: string, proof?: { ownerKey: string }): Promise<boolean>;
   release(roomId: string): void;
   room(): string | null;
 };

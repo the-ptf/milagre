@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { randomUUID } = require("node:crypto");
+const { randomUUID, randomBytes } = require("node:crypto");
 
 // A relay holds a delivery 24 h and a Routine remembers its key 48 h (store.cjs); a delivery nothing came back for in that
 // time (its Run failed before its first message, a redelivery of one already handled) goes when the file is next read.
@@ -30,18 +30,24 @@ const readDelivery = (entry) => ({ ...entry, body: new Uint8Array(Buffer.from(en
 /**
  * Webhook secrets and the deliveries the Mac has acknowledged but not yet turned into a Run's first message, in one file
  * only this user can read (0600 in a 0700 folder; written to a temporary file, synced, then renamed, as the Linear sign-ins
- * are). A secret is `{ secret, signingSecret? }` per Routine: `secret` is the one in the hook URL, the
- * signing secret checks a sender's HMAC and never leaves the Mac. Every write is synchronous and on disk before it returns,
+ * are). A secret is `{ secret, ownerKey?, signingSecret?, previous? }` per Routine: `secret` is the one in the hook
+ * URL, the owner key proves to the relay that this Mac owns the hook (only over its own host connection, never in the URL),
+ * and the signing secret checks a sender's HMAC and never leaves the Mac. Every write is synchronous and on disk before it returns,
  * so a delivery acknowledged to the relay survives a restart. Nothing here logs.
  */
 function createHookStore({ file, now = Date.now }) {
+  // Set when the file exists but couldn't be read: every write is refused, so a passing EACCES or EIO can't replace the
+  // secrets with an empty store.
+  let unreadable = null;
   let data = load();
+  mintOwnerKeys();
 
   function load() {
     let raw;
     try {
       raw = fs.readFileSync(file, "utf8");
-    } catch {
+    } catch (error) {
+      if (error?.code !== "ENOENT") unreadable = error?.code ?? "error";
       return { version: VERSION, secrets: {}, deliveries: {} };
     }
     try {
@@ -63,7 +69,21 @@ function createHookStore({ file, now = Date.now }) {
     }
   }
 
+  // A hook saved before owner keys gets one now, so the relay can register its hash on the next hook set.
+  function mintOwnerKeys() {
+    const missing = Object.entries(data.secrets).filter(([, entry]) => isObject(entry) && text(entry.secret) && !text(entry.ownerKey));
+    if (missing.length === 0 || unreadable) return;
+    try {
+      change((next) => {
+        for (const [routineId, entry] of missing) next.secrets[routineId] = { ...entry, ownerKey: randomBytes(32).toString("base64url") };
+      });
+    } catch (error) {
+      console.warn("[routines] couldn't give a webhook its owner key", error?.code ?? "error");
+    }
+  }
+
   function write(next) {
+    if (unreadable) throw new Error(`The webhook store couldn't be read (${unreadable}), so nothing was changed.`);
     const directory = path.dirname(file);
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
     const temp = path.join(directory, `.${path.basename(file)}.${randomUUID()}.tmp`);
@@ -83,27 +103,41 @@ function createHookStore({ file, now = Date.now }) {
     data = next;
   }
   // Every write also lets go of deliveries past their age, so a daemon that runs for weeks doesn't keep them.
-  const change = (edit) => {
+  function change(edit) {
     const oldest = now() - HOOK_DELIVERY_MAX_AGE_MS;
     const deliveries = Object.fromEntries(Object.entries(data.deliveries).filter(([, entry]) => entry.receivedAt >= oldest));
     const next = { version: VERSION, secrets: { ...data.secrets }, deliveries };
     edit(next);
     write(next);
-  };
+  }
+  const readSecret = (entry) =>
+    isObject(entry) && text(entry.secret)
+      ? {
+          secret: entry.secret,
+          ...(text(entry.ownerKey) ? { ownerKey: entry.ownerKey } : {}),
+          ...(text(entry.signingSecret) ? { signingSecret: entry.signingSecret } : {}),
+        }
+      : null;
+  const cleanSecret = ({ secret, ownerKey, signingSecret }) => ({
+    secret,
+    ...(text(ownerKey) ? { ownerKey } : {}),
+    ...(text(signingSecret) ? { signingSecret } : {}),
+  });
 
   return {
+    /** `previous`: the entry a rotation is replacing, kept until the Routine has the new hook id (see runtime-adapter.cjs). */
     secretFor(routineId) {
       const entry = data.secrets[routineId];
-      if (!isObject(entry) || !text(entry.secret)) return null;
-      return {
-        secret: entry.secret,
-        ...(text(entry.signingSecret) ? { signingSecret: entry.signingSecret } : {}),
-      };
+      const current = readSecret(entry);
+      if (!current) return null;
+      const previous = readSecret(entry.previous);
+      return previous ? { ...current, previous } : current;
     },
-    setSecret(routineId, { secret, signingSecret } = {}) {
+    setSecret(routineId, { secret, ownerKey, signingSecret, previous } = {}) {
       if (!text(routineId) || !text(secret)) throw new Error("A webhook secret needs a Routine and a secret");
+      if (previous !== undefined && !readSecret(previous)) throw new Error("A replaced webhook secret needs its secret");
       change((next) => {
-        next.secrets[routineId] = { secret, ...(text(signingSecret) ? { signingSecret } : {}) };
+        next.secrets[routineId] = { ...cleanSecret({ secret, ownerKey, signingSecret }), ...(previous ? { previous: cleanSecret(previous) } : {}) };
       });
     },
     removeSecret(routineId) {

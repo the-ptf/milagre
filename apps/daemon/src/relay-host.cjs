@@ -26,10 +26,11 @@ const HOOK = 4,
   HOOK_SET = 5,
   HOOK_ACK = 6,
   HOOK_RESULT = 7;
-// After a set the relay couldn't fully apply, the set goes again: the first time at once with proofs, then slower.
-const HOOK_RETRY_MS = [0, 2000, 10_000, 30_000, 60_000, 300_000];
+// After a set the relay couldn't fully apply, the set goes again, slower each time.
+const HOOK_RETRY_MS = [2000, 10_000, 30_000, 60_000, 300_000];
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const HOST_OFFLINE = encoder.encode("host-offline");
 // Headroom for one full phone response (lan-host.cjs MAX_BUFFERED) plus a desktop's own budget.
 const RELAY_PEER_BUDGET = 64 * 1024 * 1024 + PEER_BUDGET;
 const defaultRandom = (n) => new Uint8Array(randomBytes(n));
@@ -99,28 +100,28 @@ function startRelayHost({
   }
 
   /**
-   * Webhooks (`hooks`: { ids(), receive(deliveries), refused(ids), proofs(ids) }). The relay holds deliveries for the ids
-   * in the last HOOK_SET, sent after every ready and whenever they change. Deliveries arriving together are handed over as
-   * one batch and acknowledged only once `receive` has them on disk; a throw leaves them at the relay for the next ready.
-   * A hook the relay says another room holds (this Mac's own room before a Reset) is asked for again with its secret as
-   * proof; one still refused then shows on its Routine. Nothing here logs ids, secrets or payloads.
+   * Webhooks (`hooks`: { ids(), receive(deliveries), refused(ids), owners(ids) }). The relay holds deliveries for the ids
+   * in the last HOOK_SET, sent after every ready and whenever they change, each with its owner key (made with the hook,
+   * never in its URL): the relay keeps the key's hash, and the key moves a hook another room holds (this Mac's own room
+   * before a Reset) to this one. A hook refused even so shows on its Routine and is asked for again, slower each time.
+   * Deliveries arriving together are handed over as one batch and acknowledged only once `receive` has them on disk; a
+   * throw leaves them at the relay for the next ready. Nothing here logs ids, keys, secrets or payloads.
    */
-  function sendHookSet(current, proofIds = []) {
+  function sendHookSet(current, force = false) {
     if (!hooks || !current.ready || current.over) return;
     let ids;
+    let owners;
     try {
       ids = [...new Set(hooks.ids())].toSorted();
+      const set = JSON.stringify({ hookIds: ids });
+      if (!force && set === current.hookSet) return;
+      current.hookSet = set;
+      owners = ids.length ? hooks.owners(ids) : {};
     } catch {
       return;
     }
-    const set = JSON.stringify({ hookIds: ids });
-    const wanted = proofIds.filter((id) => ids.includes(id));
-    if (wanted.length === 0 && set === current.hookSet) return;
-    current.hookSet = set;
-    current.hookProofs = wanted;
-    const proofs = wanted.length ? hooks.proofs(wanted) : {};
-    const message = Object.keys(proofs).length ? JSON.stringify({ hookIds: ids, proofs }) : set;
-    sendRaw(current, frame(HOOK_SET, 0n, encoder.encode(message)));
+    const message = Object.keys(owners).length ? { hookIds: ids, owners } : { hookIds: ids };
+    sendRaw(current, frame(HOOK_SET, 0n, encoder.encode(JSON.stringify(message))));
   }
   function hookResult(current, payload) {
     let result;
@@ -132,10 +133,9 @@ function startRelayHost({
     const refused = Array.isArray(result?.refused) ? result.refused.filter((id) => typeof id === "string") : [];
     const failed = Array.isArray(result?.failed) ? result.failed.filter((id) => typeof id === "string") : [];
     clearTimeout(current.hookRetry);
-    // Refused although this Mac proved it made them: say so on their Routines. Not proved yet: try with proof first.
-    const proved = refused.every((id) => current.hookProofs.includes(id));
+    // Refused although the set carried the owner key: say so on their Routines (a failed claim is only retried).
     try {
-      hooks.refused(proved ? refused : []);
+      hooks.refused(refused);
     } catch {
       /* a listener must not break the host */
     }
@@ -143,8 +143,8 @@ function startRelayHost({
       current.hookAttempt = 0;
       return;
     }
-    const delay = proved ? HOOK_RETRY_MS[Math.min(++current.hookAttempt, HOOK_RETRY_MS.length - 1)] : 0;
-    current.hookRetry = setTimeout(() => sendHookSet(current, refused), delay);
+    const delay = HOOK_RETRY_MS[Math.min(current.hookAttempt++, HOOK_RETRY_MS.length - 1)];
+    current.hookRetry = setTimeout(() => sendHookSet(current, true), delay);
     current.hookRetry.unref?.();
   }
   function takeHook(current, payload) {
@@ -185,11 +185,12 @@ function startRelayHost({
     else return false;
     return true;
   }
-  // Phone access off: a phone that dials this room is closed at once, as it would find no Mac at all.
+  // Phone access off: a phone that dials this room is closed at once with "host-offline", the answer it gets when no Mac
+  // is connected (relays from before that word close it as closed-by-host).
   function hooksOnlyFrame(current, data) {
     const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
     if (bytes.length < 9 || bytes[0] !== OPEN) return;
-    sendRaw(current, frame(CLOSE, new DataView(bytes.buffer, bytes.byteOffset).getBigUint64(1)));
+    sendRaw(current, frame(CLOSE, new DataView(bytes.buffer, bytes.byteOffset).getBigUint64(1), HOST_OFFLINE));
   }
 
   function connect() {
@@ -206,7 +207,6 @@ function startRelayHost({
       stableTimer: null,
       over: false,
       hookSet: null,
-      hookProofs: [],
       hookBatch: [],
       hookRetry: null,
       hookAttempt: 0,

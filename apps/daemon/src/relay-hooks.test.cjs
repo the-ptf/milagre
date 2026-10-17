@@ -155,7 +155,7 @@ test("with phone access off, a relay host runs for webhooks alone and stops with
   await until(() => mac.relay.hostSockets.at(-1).readyState === 3, "the webhooks-only host to close", 5000);
 });
 
-test("after a Phone Reset the Mac's new room takes its hooks back with proof, and the next POST reaches it", async (t) => {
+test("after a Phone Reset the Mac's new room takes its hooks back with their owner keys, and the next POST reaches it", async (t) => {
   const mac = await webhookMac(t);
   const { routine, hookUrl } = await mac.create();
   await mac.registered(routine.trigger.hookId);
@@ -166,7 +166,7 @@ test("after a Phone Reset the Mac's new room takes its hooks back with proof, an
     const identity = await readIdentity(mac.dataDir);
     return identity.hostId !== oldRoom ? identity : null;
   }, "the new identity");
-  // The old room never let go (no phone was paired, so nothing holds it to release); the proof moves the hook.
+  // The old room never let go (no phone was paired, so nothing holds it to release); the owner key moves the hook.
   await until(() => mac.relay.hooks.directory.owner(routine.trigger.hookId) === fresh.hostId, "the hook to move to the new room", 10_000);
   assert.equal((await mac.relay.postHook(hookUrl, '{"after":"reset"}')).status, 202);
   await until(async () => (await mac.routineChats()).length > 0, "the Run's Chat", 10_000);

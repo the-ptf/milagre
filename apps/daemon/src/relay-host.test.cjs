@@ -853,12 +853,12 @@ async function hookMac(t, relay, hooks, identityDir) {
   return { host, identity, dir };
 }
 function hookSet(ids, extra = {}) {
-  return { ids: () => ids, receive: () => ({ ack: true }), refused: () => {}, proofs: () => ({}), ...extra };
+  return { ids: () => ids, receive: () => ({ ack: true }), refused: () => {}, owners: () => ({}), ...extra };
 }
 const roomOf = (relay, identity) => relay.hooks.rooms.get(identity.hostId);
 const hookUrlFor = (relay, secret) => `${relay.url.replace(/^ws:/, "http:")}/hook/${secret}`;
 
-test("deliveries that wait for the Mac arrive as one batch and are acked only once receive has them", async (t) => {
+test("deliveries that wait for the Mac arrive in order, in batches, and are acked only once receive has them", async (t) => {
   const relay = await startRelay(t);
   const batches = [];
   const hooks = hookSet([HOOK_ID], { receive: (list) => batches.push(list) });
@@ -869,13 +869,15 @@ test("deliveries that wait for the Mac arrive as one batch and are acked only on
   assert.equal(roomOf(relay, first.identity).storage.deliveries.size(), 3);
   await hookMac(t, relay, hooks, first.dir);
   await until(() => roomOf(relay, first.identity).storage.deliveries.size() === 0, "all acked");
-  assert.equal(batches.length, 1, "one batch");
+  // Frames that land in one read are one batch; a busy machine may split them, never reorder them.
+  assert.ok(batches.length >= 1 && batches.length <= 3);
+  const all = batches.flat();
   assert.deepEqual(
-    batches[0].map((delivery) => JSON.parse(new TextDecoder().decode(delivery.body)).n),
+    all.map((delivery) => JSON.parse(new TextDecoder().decode(delivery.body)).n),
     [1, 2, 3],
   );
-  assert.equal(batches[0][0].hookId, HOOK_ID);
-  assert.equal(batches[0][0].headers["content-type"], "application/json");
+  assert.equal(all[0].hookId, HOOK_ID);
+  assert.equal(all[0].headers["content-type"], "application/json");
 });
 
 test("a receive that throws acks nothing, so the relay keeps the delivery", async (t) => {
@@ -898,31 +900,38 @@ test("a receive that throws acks nothing, so the relay keeps the delivery", asyn
   assert.equal(roomOf(relay, mac.identity).storage.deliveries.size(), 1);
 });
 
-test("a hook another room holds is asked for again with proof; refused even then, it shows on its Routine", async (t) => {
+test("every hook set carries the owner keys; a hook another room holds moves only for the right key, else it shows on its Routine", async (t) => {
   const relay = await startRelay(t);
-  relay.hooks.directory.claim(HOOK_ID, "someone-else");
+  const OWNER = "K".repeat(43);
+  await relay.hooks.directory.claim(HOOK_ID, "someone-else", OWNER);
   const refusals = [];
-  // A wrong proof: this Mac doesn't hold the secret.
-  const wrong = await hookMac(t, relay, hookSet([HOOK_ID], { proofs: () => ({ [HOOK_ID]: "W".repeat(43) }), refused: (ids) => refusals.push(ids) }));
-  await until(() => refusals.some((ids) => ids.length === 1), "the refusal to be reported");
+  // Only the URL secret: not enough.
+  const wrong = await hookMac(t, relay, hookSet([HOOK_ID], { owners: () => ({ [HOOK_ID]: HOOK_SECRET }), refused: (ids) => refusals.push(ids) }));
+  // Reported on the first answer and on the retry after it, never cleared in between (no flicker on the Routine).
+  await until(() => refusals.length >= 2, "the retry's answer", 6000);
   assert.deepEqual(
-    refusals.find((ids) => ids.length === 1),
-    [HOOK_ID],
+    refusals,
+    refusals.map(() => [HOOK_ID]),
   );
   assert.equal(relay.hooks.directory.owner(HOOK_ID), "someone-else");
   await wrong.host.close();
 
   const taken = [];
+  const asked = [];
   const right = await hookMac(
     t,
     relay,
-    hookSet([HOOK_ID], { proofs: (ids) => (ids.includes(HOOK_ID) ? { [HOOK_ID]: HOOK_SECRET } : {}), refused: (ids) => taken.push(ids) }),
+    hookSet([HOOK_ID], {
+      owners: (ids) => {
+        asked.push(ids);
+        return { [HOOK_ID]: OWNER };
+      },
+      refused: (ids) => taken.push(ids),
+    }),
   );
   await until(() => relay.hooks.directory.owner(HOOK_ID) === right.identity.hostId, "the hook to move here");
-  assert.ok(
-    taken.every((ids) => ids.length === 0),
-    "never reported refused once proved",
-  );
+  assert.deepEqual(asked[0], [HOOK_ID], "the first set already carries the key");
+  assert.ok(taken.every((ids) => ids.length === 0));
   assert.equal((await relay.postHook(hookUrlFor(relay, HOOK_SECRET), "{}")).status, 202);
 });
 
@@ -948,4 +957,47 @@ test("a host without hooks ignores hook frames and never registers anything", as
   assert.equal(room.storage.deliveries.size(), 1, "never acked");
   assert.equal(relay.hooks.directory.owner(HOOK_ID), null);
   assert.equal(mac.host.status(), "online");
+});
+
+test("a claim the directory failed is asked for again until it lands", async (t) => {
+  const relay = await startRelay(t);
+  const directory = relay.hooks.directory;
+  const claim = directory.claim;
+  let calls = 0;
+  directory.claim = (...args) => {
+    calls += 1;
+    if (calls === 1) throw new Error("directory down");
+    return claim(...args);
+  };
+  const mac = await hookMac(t, relay, hookSet([HOOK_ID], { owners: () => ({ [HOOK_ID]: "K".repeat(43) }) }));
+  await until(() => directory.owner(HOOK_ID) === mac.identity.hostId, "the hook to be registered after the failure", 6000);
+  assert.ok(calls >= 2);
+});
+
+test("a retired room's host registers no hooks, so its room lets them go, and still acks what waited there", async (t) => {
+  const relay = await startRelay(t);
+  const received = [];
+  const first = await hookMac(t, relay, hookSet([HOOK_ID], { owners: () => ({ [HOOK_ID]: "K".repeat(43) }) }));
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === first.identity.hostId, "registered");
+  await first.host.close();
+  assert.equal((await relay.postHook(hookUrlFor(relay, HOOK_SECRET), "{}")).status, 202);
+  // The same identity, now retired by a Reset (phone.cjs hands it hooks with no ids).
+  const retired = startRelayHost({
+    relayUrl: relay.url,
+    identity: first.identity,
+    retired: true,
+    hooks: hookSet([], { receive: (list) => received.push(...list) }),
+  });
+  t.after(() => retired.close());
+  await until(() => relay.hooks.directory.owner(HOOK_ID) === null, "the old room to let go");
+  await until(() => received.length === 1, "the waiting delivery");
+  await until(() => roomOf(relay, first.identity).storage.deliveries.size() === 0, "acked");
+});
+
+test("with phone access off, a phone that dials the webhooks-only host hears the Mac is offline", async (t) => {
+  const relay = await startRelay(t);
+  const mac = await hookMac(t, relay, hookSet([HOOK_ID]));
+  const phone = connectPhone({ relayUrl: relay.url, identity: mac.identity });
+  t.after(() => phone.close());
+  assert.deepEqual(await phone.closed, { code: 4404, reason: "host-offline" });
 });

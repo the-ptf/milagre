@@ -14,6 +14,8 @@ export const HOOK = 4,
   HOOK_ACK = 6,
   HOOK_RESULT = 7;
 
+const HOST_OFFLINE = new TextEncoder().encode("host-offline");
+
 export function frame(type, conn, payload = new Uint8Array()) {
   const out = new Uint8Array(9 + payload.length);
   out[0] = type;
@@ -166,7 +168,10 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
         toHost(frame(CLOSE, conn));
       } else if (type === CLOSE) {
         forgetPhone(conn, phone);
-        drop(phone, 1000, "closed-by-host");
+        // A Mac whose phone access is off (it is connected for webhooks alone) says so, and the phone hears what it would
+        // with no Mac here at all, so it waits instead of dialing again at once.
+        if (payload.byteLength === HOST_OFFLINE.byteLength && payload.every((byte, index) => byte === HOST_OFFLINE[index])) drop(phone, 4404, "host-offline");
+        else drop(phone, 1000, "closed-by-host");
       }
     },
     hostClosed(socket) {

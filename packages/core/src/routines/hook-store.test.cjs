@@ -24,11 +24,11 @@ test("the file is private (0600) and secrets survive a new store on the same fil
   const file = tempFile(t);
   const store = createHookStore({ file });
   assert.equal(store.secretFor("r1"), null);
-  store.setSecret("r1", { secret: "s".repeat(43), signingSecret: "shh" });
+  store.setSecret("r1", { secret: "s".repeat(43), ownerKey: "o".repeat(43), signingSecret: "shh" });
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.equal(fs.statSync(path.dirname(file)).mode & 0o777, 0o700);
   const again = createHookStore({ file });
-  assert.deepEqual(again.secretFor("r1"), { secret: "s".repeat(43), signingSecret: "shh" });
+  assert.deepEqual(again.secretFor("r1"), { secret: "s".repeat(43), ownerKey: "o".repeat(43), signingSecret: "shh" });
   again.removeSecret("r1");
   assert.equal(createHookStore({ file }).secretFor("r1"), null);
 });
@@ -95,4 +95,35 @@ test("a write lets go of deliveries past 48 h, without a restart", (t) => {
     store.listDeliveries().map((item) => item.id),
     ["new"],
   );
+});
+
+test("only a missing file is an empty store: any other read error refuses writes, so no secret is ever wiped", (t) => {
+  const file = tempFile(t);
+  fs.mkdirSync(file, { recursive: true }); // reading it fails with EISDIR, not ENOENT
+  const store = createHookStore({ file });
+  assert.equal(store.secretFor("r1"), null);
+  assert.throws(() => store.setSecret("r1", { secret: "s".repeat(43) }), /couldn't be read/);
+  assert.throws(() => store.putDelivery(delivery("d1")), /couldn't be read/);
+  assert.ok(fs.statSync(file).isDirectory(), "left as it was");
+});
+
+test("a stored hook without an owner key gets one on load, and keeps it", (t) => {
+  const file = tempFile(t);
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(file, JSON.stringify({ version: 1, secrets: { r1: { secret: "s".repeat(43), signingSecret: "shh" } }, deliveries: {} }), { mode: 0o600 });
+  const minted = createHookStore({ file }).secretFor("r1");
+  assert.match(minted.ownerKey, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(minted.signingSecret, "shh");
+  assert.equal(createHookStore({ file }).secretFor("r1").ownerKey, minted.ownerKey);
+});
+
+test("a secret can keep the entry it replaces until the Routine catches up", (t) => {
+  const file = tempFile(t);
+  const store = createHookStore({ file });
+  const old = { secret: "a".repeat(43), ownerKey: "b".repeat(43), signingSecret: "shh" };
+  store.setSecret("r1", old);
+  store.setSecret("r1", { secret: "c".repeat(43), ownerKey: "d".repeat(43), signingSecret: "shh", previous: old });
+  assert.deepEqual(createHookStore({ file }).secretFor("r1").previous, old);
+  store.setSecret("r1", { secret: "c".repeat(43), ownerKey: "d".repeat(43), signingSecret: "shh" });
+  assert.equal(createHookStore({ file }).secretFor("r1").previous, undefined);
 });

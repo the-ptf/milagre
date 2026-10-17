@@ -8,11 +8,15 @@ const decoder = new TextDecoder();
 
 const hookIdOf = (secret) => crypto.createHash("sha256").update(secret).digest("hex");
 
-/** A new URL secret (32 random bytes, base64url, 43 characters) and its hook id, the secret's hex sha256. */
+/**
+ * A new URL secret (32 random bytes, base64url, 43 characters), its hook id (the secret's hex sha256), and an owner key of
+ * its own: never in the URL, it is what moves the hook to this Mac's room at the relay (after a Reset, say).
+ */
 function newHookSecret() {
   const secret = crypto.randomBytes(32).toString("base64url");
-  return { secret, hookId: hookIdOf(secret) };
+  return { secret, hookId: hookIdOf(secret), ownerKey: newOwnerKey() };
 }
+const newOwnerKey = () => crypto.randomBytes(32).toString("base64url");
 
 /** The public URL for a secret, on the relay the Mac's phone access uses (`wss://` becomes `https://`). */
 function hookUrl(relayUrl, secret) {
@@ -47,11 +51,12 @@ function atPath(value, segments) {
 const asText = (value) => (value === undefined || value === null ? "" : typeof value === "string" ? value : JSON.stringify(value));
 
 /**
- * A webhook Run's first message: the Routine's prompt with `{{body}}`, `{{request}}`, `{{body.<path>}}` (JSON),
- * `{{headers.<name>}}` and `{{query.<name>}}` filled from the delivery. Every one of them is text from outside Milagre,
- * so every one is untrusted data (routine-prompt.mjs fences it). The URL secret is never part of it.
+ * The values a delivery gives the prompt's placeholders: `{{body}}`, `{{request}}`, `{{body.<path>}}` (JSON),
+ * `{{headers.<name>}}` and `{{query.<name>}}`. Every one is text from outside Milagre, so every one is in `untrusted`,
+ * labelled with the placeholder itself (which the Routine's author wrote), never a name taken from the request. The URL
+ * secret is never part of them.
  */
-function webhookPrompt(template, delivery) {
+function webhookFields(template, delivery) {
   const body = decoder.decode(delivery.body);
   let parsed;
   let parsedOnce = false;
@@ -70,27 +75,32 @@ function webhookPrompt(template, delivery) {
   const query = delivery.query ?? {};
   const values = {};
   const untrusted = {};
-  const put = (name, value, label) => {
-    values[name] = value;
-    untrusted[name] = label;
-  };
   for (const [, name] of String(template ?? "").matchAll(PLACEHOLDER)) {
     if (Object.hasOwn(values, name)) continue;
-    if (name === "body") put(name, body, "webhook body");
+    let value;
+    if (name === "body") value = body;
     else if (name === "request") {
       const search = new URLSearchParams(query).toString();
-      const lines = Object.entries(headers).map(([key, value]) => `${key}: ${value}`);
-      put(name, [`POST${search ? ` ?${search}` : ""}`, ...lines, "", body].join("\n"), "webhook request");
-    } else if (name.startsWith("body.")) put(name, asText(atPath(json(), name.slice(5).split("."))), `webhook ${name}`);
+      const lines = Object.entries(headers).map(([key, item]) => `${key}: ${item}`);
+      value = [`POST${search ? ` ?${search}` : ""}`, ...lines, "", body].join("\n");
+    } else if (name.startsWith("body.")) value = asText(atPath(json(), name.slice(5).split(".")));
     else if (name.startsWith("headers.")) {
       const key = name.slice(8).toLowerCase();
-      put(name, Object.hasOwn(headers, key) ? headers[key] : "", `webhook header ${key}`);
+      value = Object.hasOwn(headers, key) ? headers[key] : "";
     } else if (name.startsWith("query.")) {
       const key = name.slice(6);
-      put(name, Object.hasOwn(query, key) ? query[key] : "", `webhook query ${key}`);
-    }
+      value = Object.hasOwn(query, key) ? query[key] : "";
+    } else continue;
+    values[name] = value;
+    untrusted[name] = `webhook ${name}`;
   }
+  return { values, untrusted };
+}
+
+/** A webhook Run's first message: the Routine's prompt filled from the delivery, every value as untrusted data. */
+function webhookPrompt(template, delivery) {
+  const { values, untrusted } = webhookFields(template, delivery);
   return renderRoutinePrompt(template, values, untrusted);
 }
 
-module.exports = { DEFAULT_SIGNING_HEADER, hookIdOf, newHookSecret, hookUrl, verifySignature, webhookPrompt };
+module.exports = { DEFAULT_SIGNING_HEADER, hookIdOf, newHookSecret, newOwnerKey, hookUrl, verifySignature, webhookFields, webhookPrompt };

@@ -1057,7 +1057,7 @@ test("webhooks ride the relay host, and a confined phone never takes them", asyn
   t.after(() => fs.rm(dataDir, { recursive: true, force: true }));
   const startBridge = async (options) => ({ url: `http://127.0.0.1:${options.port}`, lost: new Promise(() => {}), close: async () => {} });
   const received = [];
-  const hooks = { ids: () => ["a".repeat(64)], receive: (list) => received.push(list), refused: () => {}, proofs: () => ({}) };
+  const hooks = { ids: () => ["a".repeat(64)], receive: (list) => received.push(list), refused: () => {}, owners: () => ({}) };
   for (const [extra, expectHooks] of [
     [{ allowedRoot: "/demo/project" }, false],
     [{}, true],
@@ -1092,7 +1092,7 @@ test("with phone access off the webhooks-only host starts with the first webhook
   const dataDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-phone-")));
   t.after(() => fs.rm(dataDir, { recursive: true, force: true }));
   let ids = [];
-  const hooks = { ids: () => ids, receive: () => {}, refused: () => {}, proofs: () => ({}) };
+  const hooks = { ids: () => ids, receive: () => {}, refused: () => {}, owners: () => ({}) };
   const hosts = [];
   const startRelay = (options) => {
     const host = { options, closed: false, syncs: 0, status: () => "online", syncHooks: () => (host.syncs += 1), close: async () => (host.closed = true) };
