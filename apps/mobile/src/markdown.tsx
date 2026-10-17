@@ -1,4 +1,6 @@
 import { isGenuiFence } from "@milagre/shared/genui";
+import { isMermaidFence } from "@milagre/shared/diagram";
+import { MermaidBlock } from "./diagram";
 import { GenerativeUI, MarkdownStreamingContext } from "./genui/GenerativeUI";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, Linking, Pressable, Text, View, type ImageSourcePropType, type TextStyle, type ViewInstance } from "react-native";
@@ -224,7 +226,13 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
       );
       return (
         <View key={key}>
-          {token.type === "fence" && isGenuiFence(token.info) ? <GenerativeUI code={token.content.replace(/\n$/, "")} fallback={plain} /> : plain}
+          {token.type === "fence" && isGenuiFence(token.info) ? (
+            <GenerativeUI code={token.content.replace(/\n$/, "")} fallback={plain} />
+          ) : token.type === "fence" && isMermaidFence(token.info) ? (
+            <MermaidBlock code={token.content.replace(/\n$/, "")} plain={plain} />
+          ) : (
+            plain
+          )}
         </View>
       );
     }

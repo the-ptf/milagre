@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Alert, AppState, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, AppState, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
   FadeOut,
   useAnimatedProps,
@@ -15,25 +15,27 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
-import { Cancel01Icon, CheckmarkCircle02Icon, DashboardSquare01Icon, MoreHorizontalIcon, Sent02Icon, Share08Icon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, DashboardSquare01Icon, MoreHorizontalIcon, Share08Icon } from "@hugeicons/core-free-icons";
 import {
   artifactDocument,
   designFeedbackMessage,
   designGroups,
   designsCanvasShell,
   newCommentId,
+  sentNumbers,
   type Artifact,
   type ArtifactComment,
   type ArtifactSummary,
   type DesignComment,
 } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "@milagre/shared/model";
-import { Icon, type IconData } from "./icons";
 import { postDesignMessage } from "./design-outbox";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
 import { PillButton, PullDown, tap, useStyles, type MenuSection } from "./ui";
 import { markDesignDeleted } from "./use-design-catalog";
+import { onShareAvailability } from "./share-availability";
+import { CommentBox, RoundButton, SendButton } from "./viewer-chrome";
 
 /** A comment waiting for Send, pinned where the user held the design. */
 type Note = DesignComment & { key: string };
@@ -49,25 +51,7 @@ type CanvasCommand = Record<string, unknown> & { t: string };
  */
 const unsent = new Map<string, { notes: Note[]; choice: ArtifactRef | null }>();
 
-/** The Share sheet, a route of its own, tells the designs it opened from whether sharing works, by host and Chat. */
-const shareListeners = new Map<string, (available: boolean | null) => void>();
-export function shareAvailabilityChanged(hostId: string, chatId: string, available: boolean | null) {
-  shareListeners.get(`${hostId}|${chatId}`)?.(available);
-}
-
 const refOf = (design: Artifact): ArtifactRef => ({ id: design.id, version: design.version, title: design.title, format: design.format });
-
-/** Sent comments are numbered within the message that carried them, as on the desktop canvas. */
-function sentNumbers(comments: ArtifactComment[]) {
-  const numbers = new Map<string, number>();
-  const batches = new Map<number, number>();
-  for (const comment of comments) {
-    const next = (batches.get(comment.createdAt) ?? 0) + 1;
-    batches.set(comment.createdAt, next);
-    numbers.set(comment.id, next);
-  }
-  return numbers;
-}
 
 /**
  * The Chat's designs full screen, on one canvas. The design the card opened fills the screen; pinching out (or the
@@ -167,15 +151,10 @@ export function DesignsSheet({ hostId, chatId, id, version, chosen }: { hostId?:
   const sharing = !!source && sharingAvailable === sharingScope;
   useEffect(() => {
     if (!hostId || !chatId) return;
-    const key = `${hostId}|${chatId}`;
-    const listener = (available: boolean | null) => {
+    return onShareAvailability(hostId, chatId, "designs", (available) => {
       sharingRequest.current++;
       setSharingAvailable(available === true ? sharingScope : null);
-    };
-    shareListeners.set(key, listener);
-    return () => {
-      if (shareListeners.get(key) === listener) shareListeners.delete(key);
-    };
+    });
   }, [hostId, chatId, sharingScope]);
   // Share opens as a bottom sheet over the designs.
   const openShare = () => {
@@ -562,192 +541,6 @@ function DrawingDesignIcon() {
         <AnimatedCircle cx={7} cy={15} r={0.25} strokeDasharray={DOT_LENGTH} animatedProps={dot} />
       </Svg>
     </Animated.View>
-  );
-}
-
-/** A 34pt round header button, like the in-app browser's. `on` marks the squares while the whole board shows. */
-function RoundButton({ label, icon, onPress, on = false }: { label: string; icon: IconData; onPress?: () => void; on?: boolean }) {
-  const { colors } = useTheme();
-  const body = (
-    <View style={{ width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: on ? colors.ink : colors.field }}>
-      <Icon icon={icon} size={17} tone={on ? "page" : "ink"} />
-    </View>
-  );
-  if (!onPress) return body;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ selected: on }}
-      hitSlop={6}
-      onPress={() => {
-        tap();
-        onPress();
-      }}
-      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-    >
-      {body}
-    </Pressable>
-  );
-}
-
-/** Send, as an icon with the number of comments (and the choice) waiting. */
-function SendButton({ count, onPress }: { count: number; onPress: () => void }) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Send ${count} to the agent`}
-      hitSlop={6}
-      onPress={() => {
-        tap();
-        onPress();
-      }}
-      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-    >
-      <View style={{ width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: colors.ink }}>
-        <Icon icon={Sent02Icon} size={17} tone="onInk" />
-      </View>
-      <View
-        style={{
-          position: "absolute",
-          top: -5,
-          right: -5,
-          minWidth: 18,
-          height: 18,
-          paddingHorizontal: 4,
-          borderRadius: 9,
-          borderWidth: 2,
-          borderColor: colors.surface,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: colors.accent,
-        }}
-      >
-        <Text style={{ color: colors.onAccent, fontSize: 10, fontWeight: "700", fontVariant: ["tabular-nums"] }}>{count}</Text>
-      </View>
-    </Pressable>
-  );
-}
-
-/**
- * The comment on a pin, opened from its point as on desktop: the box's square corner sits where the pin pointed. A new
- * or waiting comment is written here; a sent one is read, with the agent's note once it resolved it.
- */
-function CommentBox({
-  at,
-  kind,
-  note,
-  sentComment,
-  number,
-  onChange,
-  onCancel,
-  onDone,
-}: {
-  at: { x: number; y: number };
-  kind: Composer["kind"];
-  note?: Note;
-  sentComment?: ArtifactComment;
-  number: number;
-  onChange: (text: string) => void;
-  onCancel: () => void;
-  onDone: () => void;
-}) {
-  const { colors } = useTheme();
-  const styles = useStyles();
-  const [text, setText] = useState(note?.text ?? "");
-  return (
-    <View
-      accessibilityViewIsModal
-      style={{
-        position: "absolute",
-        left: at.x,
-        top: at.y,
-        width: 272,
-        padding: 12,
-        gap: 10,
-        borderRadius: 12,
-        borderTopLeftRadius: 3,
-        borderCurve: "continuous",
-        borderWidth: 1.5,
-        borderColor: colors.accent,
-        backgroundColor: colors.surface,
-        shadowColor: "#000",
-        shadowOpacity: 0.25,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 4 },
-      }}
-    >
-      {sentComment ? (
-        <>
-          <Text selectable style={{ color: colors.ink, fontSize: 15, lineHeight: 21 }}>
-            {sentComment.text}
-          </Text>
-          {sentComment.resolved ? (
-            <View style={{ flexDirection: "row", gap: 4, alignItems: "flex-start" }}>
-              <Icon icon={CheckmarkCircle02Icon} tone="green" size={14} />
-              <Text selectable style={{ flex: 1, color: colors.green, fontSize: 13 }}>
-                {sentComment.resolved.note}
-              </Text>
-            </View>
-          ) : (
-            <Text style={{ color: colors.ink3, fontSize: 12 }}>Sent · waiting for the agent</Text>
-          )}
-          <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
-            <SmallButton title="Close" onPress={onDone} />
-          </View>
-        </>
-      ) : (
-        <>
-          <TextInput
-            // Uncontrolled to the parent: each keystroke updates the comment without writing the value back.
-            accessibilityLabel={`Comment ${number}`}
-            autoFocus
-            multiline
-            defaultValue={note?.text ?? ""}
-            onChangeText={(value) => {
-              setText(value);
-              onChange(value);
-            }}
-            placeholder="What should change here?"
-            placeholderTextColor={colors.ink3}
-            selectionColor={colors.accent}
-            style={[styles.input, { maxHeight: 120, minHeight: 40 }]}
-          />
-          <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
-            <SmallButton title={kind === "new" ? "Cancel" : "Delete"} onPress={onCancel} />
-            <SmallButton title={kind === "new" ? "Add" : "Done"} primary disabled={kind === "new" && !text.trim()} onPress={onDone} />
-          </View>
-        </>
-      )}
-    </View>
-  );
-}
-
-function SmallButton({ title, onPress, primary = false, disabled = false }: { title: string; onPress: () => void; primary?: boolean; disabled?: boolean }) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={() => {
-        tap();
-        onPress();
-      }}
-      style={({ pressed }) => ({
-        height: 32,
-        paddingHorizontal: 14,
-        borderRadius: 16,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: primary ? colors.ink : colors.hover,
-        opacity: disabled ? 0.4 : pressed ? 0.7 : 1,
-      })}
-    >
-      <Text style={{ color: primary ? colors.onInk : colors.ink, fontSize: 14, fontWeight: "600" }}>{title}</Text>
-    </Pressable>
   );
 }
 
