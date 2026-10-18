@@ -43,9 +43,9 @@ export function resolveModel(models: ModelOption[], wanted: string | undefined, 
   );
 }
 
-/** The provider an id belongs to, for an id no list offers any more (Claude ids start with "claude", Antigravity ids with "gemini"). */
+/** The provider of an id no list offers any more. Antigravity partner families carry a provider prefix. */
 export function providerForId(id: string | undefined): ModelProvider {
-  if (id?.startsWith("gemini")) return "antigravity";
+  if (id?.startsWith("gemini") || id?.startsWith("antigravity:")) return "antigravity";
   return id?.startsWith("claude") ? "claude" : "codex";
 }
 

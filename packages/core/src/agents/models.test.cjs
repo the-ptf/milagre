@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const os = require("node:os");
 const path = require("node:path");
+const fs = require("node:fs");
 const { CodexRpc } = require("./codex-rpc.cjs");
 const {
   claudeCapability,
@@ -267,24 +268,24 @@ test("each agent is asked once per run; a missing CLI or a failed lookup is aske
   assert.deepEqual(asked, { claude: 1, codex: 2 });
 });
 
-test("Antigravity lists the catalog's families until a session reports models, then that account's grouped list", () => {
+test("Antigravity lists the catalog's families until a session reports models, then that account's grouped list", async () => {
   forgetAntigravityModels();
-  const fallback = listAntigravityModels({ accountId: "work" });
+  const fallback = await listAntigravityModels({ accountId: "work" });
   assert.deepEqual(
     fallback.map((model) => model.id),
-    ["gemini-3.8-flash", "gemini-3.1-pro", "gemini-3.7-flash", "gemini-3.6-flash"],
+    ["gemini-4-argon", "gemini-3.8-flash"],
   );
   assert.deepEqual(fallback[0], {
-    id: "gemini-3.8-flash",
-    name: "Gemini 3.8 Flash",
-    description: "Fast",
+    id: "gemini-4-argon",
+    name: "Gemini 4 Argon",
+    description: "For complex work",
     recommended: true,
     efforts: ["low", "medium", "high"],
     defaultEffort: "high",
     ultracode: false,
     fastMode: false,
   });
-  assert.deepEqual(fallback[1].efforts, ["low", "high"]);
+  assert.deepEqual(fallback[1].efforts, ["low", "medium", "high"]);
   assert.equal(fallback[1].recommended, true);
   recordAntigravityModels(
     "work",
@@ -296,7 +297,7 @@ test("Antigravity lists the catalog's families until a session reports models, t
     ],
     "gemini-3.8-flash-low",
   );
-  assert.deepEqual(listAntigravityModels({ accountId: "work" }), [
+  assert.deepEqual(await listAntigravityModels({ accountId: "work" }), [
     {
       id: "gemini-3.8-flash",
       name: "Gemini 3.8 Flash",
@@ -311,17 +312,125 @@ test("Antigravity lists the catalog's families until a session reports models, t
     { id: "gemini-5", name: "Gemini 5", description: "Next generation", recommended: false, efforts: [], ultracode: false, fastMode: false },
   ]);
   // Another account, and an account the app doesn't name, keep their own lists.
-  assert.deepEqual(listAntigravityModels({ accountId: "home" }), fallback);
-  assert.deepEqual(listAntigravityModels(), fallback);
+  assert.deepEqual(await listAntigravityModels({ accountId: "home" }), fallback);
+  assert.deepEqual(await listAntigravityModels(), fallback);
   recordAntigravityModels(undefined, [{ value: "x", name: "X" }]);
-  assert.equal(listAntigravityModels({ accountId: "default" })[0].id, "x");
+  assert.equal((await listAntigravityModels({ accountId: "default" }))[0].id, "x");
   recordAntigravityModels("work", []);
-  assert.equal(listAntigravityModels({ accountId: "work" }).length, 3);
+  assert.equal((await listAntigravityModels({ accountId: "work" })).length, 3);
   assert.deepEqual(
     antigravityModels(null).map((model) => model.id),
     fallback.map((model) => model.id),
   );
   forgetAntigravityModels();
+});
+
+test("Antigravity discovers an account's partner models before any Chat, once per account, and refreshes on invalidation", async (t) => {
+  forgetAntigravityModels();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-model-account-"));
+  fs.mkdirSync(path.join(home, "antigravity-acp"));
+  fs.writeFileSync(path.join(home, "antigravity-acp/acp_token.json"), "{}");
+  t.after(() => {
+    forgetAntigravityModels();
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+  const calls = [];
+  const discover = async ({ accountId, env }) => {
+    calls.push([accountId, env.GEMINI_HOME]);
+    return {
+      offered:
+        accountId === "paid"
+          ? [
+              { value: "sonnet-high", name: "Claude Sonnet 5.5 (High)" },
+              { value: "sonnet-low", name: "Claude Sonnet 5.5 (Low)" },
+            ]
+          : [{ value: "flash-high", name: "Gemini 3.8 Flash (High)" }],
+      current: accountId === "paid" ? "sonnet-low" : "flash-high",
+    };
+  };
+  const options = (accountId) => ({ accountId, command: "/agent", env: { GEMINI_HOME: home }, discover });
+  const [paid, again, free] = await Promise.all([
+    listAntigravityModels(options("paid")),
+    listAntigravityModels(options("paid")),
+    listAntigravityModels(options("free")),
+  ]);
+  assert.deepEqual(
+    paid.map(({ name, efforts, defaultEffort }) => ({ name, efforts, defaultEffort })),
+    [{ name: "Claude Sonnet 5.5", efforts: ["low", "high"], defaultEffort: "low" }],
+  );
+  assert.deepEqual(again, paid);
+  assert.deepEqual(
+    free.map((model) => model.name),
+    ["Gemini 3.8 Flash"],
+  );
+  assert.deepEqual(calls, [
+    ["paid", home],
+    ["free", home],
+  ]);
+  // A Chat's newer report replaces discovery immediately.
+  recordAntigravityModels("paid", [{ value: "opus", name: "Claude Opus 5.5" }]);
+  assert.equal((await listAntigravityModels(options("paid")))[0].name, "Claude Opus 5.5");
+  const read = createModelCache({
+    cli: async (provider) => (provider === "antigravity" ? options("paid") : { command: null, problem: "missing" }),
+    list: { antigravity: (resolved) => listAntigravityModels({ ...resolved, discover }) },
+  });
+  read.invalidate("antigravity");
+  assert.deepEqual((await read()).antigravity, paid);
+  assert.equal(calls.length, 3);
+});
+
+test("an Antigravity discovery finishing after a Chat report or invalidation cannot replace it", async (t) => {
+  forgetAntigravityModels();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-model-race-"));
+  fs.mkdirSync(path.join(home, "antigravity-acp"));
+  fs.writeFileSync(path.join(home, "antigravity-acp/acp_token.json"), "{}");
+  t.after(() => {
+    forgetAntigravityModels();
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+  for (const invalidated of [false, true]) {
+    let finish;
+    const result = new Promise((resolve) => {
+      finish = resolve;
+    });
+    const lookup = listAntigravityModels({ accountId: "racing", command: "/agent", env: { GEMINI_HOME: home }, discover: () => result });
+    if (invalidated) forgetAntigravityModels("racing");
+    else recordAntigravityModels("racing", [{ value: "opus", name: "Claude Opus 5.5" }]);
+    finish({ offered: [{ value: "stale", name: "Stale" }] });
+    const models = await lookup;
+    assert.equal(
+      models.some((model) => model.name === "Stale"),
+      false,
+    );
+    assert.equal(models[0].name, invalidated ? "Gemini 4 Argon" : "Claude Opus 5.5");
+    forgetAntigravityModels();
+  }
+});
+
+test("a failed Antigravity discovery falls back and retries; a signed-out account starts no agent", async (t) => {
+  forgetAntigravityModels();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-model-retry-"));
+  t.after(() => {
+    forgetAntigravityModels();
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+  let calls = 0;
+  const options = {
+    accountId: "retry",
+    command: "/agent",
+    env: { GEMINI_HOME: home },
+    discover: async () => {
+      calls++;
+      throw new Error("unavailable");
+    },
+  };
+  assert.ok((await listAntigravityModels(options)).length > 0);
+  assert.equal(calls, 0);
+  fs.mkdirSync(path.join(home, "antigravity-acp"));
+  fs.writeFileSync(path.join(home, "antigravity-acp/acp_token.json"), "{}");
+  assert.ok((await listAntigravityModels(options)).length > 0);
+  assert.ok((await listAntigravityModels(options)).length > 0);
+  assert.equal(calls, 2);
 });
 
 test("the model cache always has an Antigravity list, even for a missing or logged-out agent, keyed by the account", async () => {
