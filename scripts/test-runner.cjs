@@ -25,6 +25,8 @@ const MANIFEST = {
   "test-chat-attachments.cjs": { seconds: 24 },
   "test-site.cjs": { seconds: 23 },
   "test-task-track.cjs": { seconds: 20 },
+  // Darwin-only until #526: 19.6 s on its first Linux run.
+  "test-subagents.cjs": { seconds: 20 },
   "test-chat-pins.cjs": { seconds: 17 },
   "test-sidebar-links.cjs": { seconds: 16 },
   "test-usage-limit.cjs": { seconds: 14 },
