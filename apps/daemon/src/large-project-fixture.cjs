@@ -1,7 +1,8 @@
 // A large Project made up at test time, shaped like the big one #300 and #321 measured (a copy of milagre-ade's own
 // state): 79 Chats, 881 messages (5.3 MB), 94 subagents of which 81 are archived, transcripts of up to 100 entries
-// (12 MB), and the communications, latest activity and prompts beside them. The same seed gives the same Project, byte
-// for byte, so sizes measured on it can be held to exact budgets (perf-budget.test.cjs).
+// (12 MB), and the communications (saved before the subagent canvas went), latest activity and prompts beside them.
+// The same seed gives the same Project, byte for byte, so sizes measured on it can be held to exact budgets
+// (perf-budget.test.cjs).
 
 const BASE_TIME = 1_790_000_000_000;
 

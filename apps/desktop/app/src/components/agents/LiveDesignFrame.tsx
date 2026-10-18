@@ -6,7 +6,7 @@ import { DESIGN_LIVE_RECEIVER_SCRIPT } from "@milagre/shared/design-draft";
 import type { ArtifactRef } from "../../model";
 import { AgentCursor } from "./AgentCursor";
 import { finishLiveDesign, useDraftFrameShown, useLiveCrew, useLiveDesigns, type LiveDesign } from "./design-live";
-import { SUBAGENT_TINTS, subagentPersona } from "./subagent-canvas-layout";
+import { SUBAGENT_TINTS, subagentPersona } from "./subagent-persona";
 
 // The live frame's page: an empty design root and the receiver (DESIGN_LIVE_RECEIVER_SCRIPT) that swaps the design in
 // place from the canvas's messages. It never reloads, so a design being written doesn't flash.
@@ -87,7 +87,7 @@ type Persona = { name: string; color: string; ink: string; task?: string };
 
 /**
  * The agent at work on a piece of design work: the Chat's agent in its provider's colour, or a subagent with the name
- * and bot colour the Subagents view gives it (subagentPersona), its task in the cursor's tooltip.
+ * and colour subagentPersona gives it, its task in the cursor's tooltip.
  */
 function usePersona(chatId: string, by: string | undefined): Persona {
   const { agent, crew } = useLiveCrew(chatId);

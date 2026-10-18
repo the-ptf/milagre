@@ -84,24 +84,6 @@ const Artifacts = createContext<ArtifactsValue>({
 });
 
 /**
- * Opens the Chat's Designs from elsewhere in it (the Subagents view): on one design, by id, or on all of them while the
- * design isn't saved yet. Null while Designs are off or the Chat's designs can't be read.
- */
-export function useDesignsOpener(): ((id: string | null) => void) | null {
-  const { enabled, chatId, latest, open, openAll } = useContext(Artifacts);
-  if (!enabled || !chatId) return null;
-  return (id) => {
-    const ref = id ? latest.get(id) : undefined;
-    if (ref?.format === "design") open(ref);
-    else
-      openAll(
-        [...latest.values()].filter((design) => design.format === "design"),
-        "designs",
-      );
-  };
-}
-
-/**
  * The comments the host kept for the Chat and the agent's notes on the ones it resolved, by comment id, read again
  * when `moved` (designActivity) changes: the agent resolves comments with a tool call, which the transcript shows as a
  * step. `reread` reads them again, once the host has recorded comments just sent.

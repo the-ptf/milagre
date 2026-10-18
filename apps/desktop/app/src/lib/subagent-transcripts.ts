@@ -8,7 +8,7 @@ import { bridgeForKey } from "./computer-bridge";
 // - a subagent with only the end of its transcript (subagent-tails-v1): its whole transcript, read once, then kept
 //   current from the tails each update brings;
 // - an archived subagent's summary (archived-subagent-summaries-v1): the whole subagent (prompt, latest activity,
-//   communications and transcript), read when the panel opens it and again when the summary changes.
+//   transcript), read when the panel opens it and again when the summary changes.
 // A read that fails (the computer is offline) is not kept: the panel says so, and opening the subagent again reads again.
 
 type Whole = { agent: Subagent; transcript: SubagentTranscriptEntry[] };
@@ -115,7 +115,6 @@ export function useSubagentDetails(chatKey: string | null | undefined, agent: Su
       ...shown,
       prompt: details.prompt,
       latestActivity: details.latestActivity,
-      communications: details.communications,
       transcript: details.transcript,
     },
     transcript: details.transcript,

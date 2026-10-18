@@ -1015,7 +1015,6 @@ test("a client that reads archived subagents on demand gets each as a summary, i
     archived: true,
     prompt: "Check the auth flow",
     latestActivity: "Reading auth.ts",
-    communications: [{ id: "c1", fromId: null, toId: "child", text: "Look at the tests too", at: 1 }],
     transcript,
   };
   const live = { id: "live", title: "Tests", status: "completed", startedAt: 1, updatedAt: 2, latestActivity: "Finished", transcript: [entry(1)] };
@@ -1064,7 +1063,6 @@ test("a client that reads archived subagents on demand gets each as a summary, i
   const read = await desktop.call("chat:subagent", [project, 2, "child"]);
   assert.equal(read.prompt, "Check the auth flow");
   assert.equal(read.latestActivity, "Reading auth.ts");
-  assert.deepEqual(read.communications, child.communications);
   assert.deepEqual(read.transcript, transcript);
 
   // Restoring it sends its details as a patch on the summary; archiving it again takes them back out.

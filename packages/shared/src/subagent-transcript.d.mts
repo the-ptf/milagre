@@ -6,7 +6,7 @@ export const TRANSCRIPT_LIMIT: number;
 export function withTranscriptTail<T extends Subagent>(agent: T): T;
 /** `session` with each subagent's transcript cut to its tail; the same object for the same session. */
 export function sessionWithTranscriptTails<T extends Pick<AgentSession, "subagents">>(session: T): T;
-/** An archived `agent` as a summary (no prompt, latest activity, communications or transcript), the same object each time; any other agent as it is. */
+/** An archived `agent` as a summary (no prompt, latest activity or transcript), the same object each time; any other agent as it is. */
 export function withArchivedSummary<T extends Subagent>(agent: T): T;
 /** `session` with each archived subagent as a summary; the same object for the same session. */
 export function sessionWithArchivedSummaries<T extends Pick<AgentSession, "subagents">>(session: T): T;
