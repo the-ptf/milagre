@@ -118,12 +118,13 @@ export function AttentionPill({ projectPath, bottom }: { projectPath: string; bo
     </View>
   );
   const place = { position: "absolute" as const, top: insets.top + 52, right: 12 };
-  if (waiting.length === 1)
+  const first = waiting[0];
+  if (waiting.length === 1 && first)
     return (
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${label}. Open the Chat.`}
-        onPress={() => open(waiting[0])}
+        onPress={() => open(first)}
         style={({ pressed }) => [place, { opacity: pressed ? 0.6 : 1 }]}
       >
         {pill}

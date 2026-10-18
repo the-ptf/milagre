@@ -51,9 +51,10 @@ async function fixture(t, { runtimeOptions = {}, bridgeOptions = {} } = {}) {
     runtimeOptions: {
       environmentReady: Promise.resolve(),
       titleModels: {},
-      worktreeRoot: path.join(root, "worktrees"),
       agentCli: Object.assign(async () => ({ command: null, problem: "Test has no provider" }), { invalidate() {} }),
       ...runtimeOptions,
+      // Fixture-owned paths must win over demo options, including an undefined worktreeRoot.
+      worktreeRoot: path.join(root, "worktrees"),
     },
   });
   const token = randomBytes(32).toString("hex");
@@ -181,6 +182,11 @@ test("a phone opens a named Link and sends one shared Chat with two owned Worktr
   const link = (await made.json()).result;
   const desktopReader = await connect({ dataDir });
   try {
+    assert.deepEqual(
+      await desktopReader.call("worktree:roots"),
+      [path.join(path.dirname(project), "worktrees")],
+      "Undefined demo options must not replace the fixture's temporary Worktree root",
+    );
     const hidden = await rpc("link:update", [{ ...link, hidden: true }]);
     assert.equal(hidden.status, 200);
     assert.equal((await desktopReader.call("link:list"))[0].hidden, true, "A phone visibility change reaches the desktop registry");
@@ -231,6 +237,10 @@ test("a phone opens a named Link and sends one shared Chat with two owned Worktr
   const png = Buffer.from("89504e470d0a1a0a00000000", "hex");
   const media = (file) => request(`/media?projectPath=${encodeURIComponent(owner)}&path=${encodeURIComponent(file)}`);
   for (const member of saved.link.state.sessions[id].worktrees) {
+    assert.ok(
+      (await fs.realpath(member.worktreePath)).startsWith(path.join(path.dirname(project), "worktrees") + path.sep),
+      "Every owned Worktree stays inside the fixture so teardown removes it",
+    );
     const image = path.join(member.worktreePath, "screenshot.png");
     await fs.writeFile(image, png);
     assert.equal((await media(image)).status, 200, "Images in either owned Worktree are available to the shared Chat");

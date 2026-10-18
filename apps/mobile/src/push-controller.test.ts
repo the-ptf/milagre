@@ -176,7 +176,9 @@ test("Forget persists removal without waiting for a suspended unregister", async
   await controller.enable();
   try {
     await Promise.race([controller.forget(host), new Promise((_, reject) => setTimeout(() => reject(new Error("Forget waited for network")), 100))]);
-    assert.equal((await store.read()).pending[0].id, host.id);
+    const [pending] = (await store.read()).pending;
+    assert.ok(pending);
+    assert.equal(pending.id, host.id);
   } finally {
     release();
   }

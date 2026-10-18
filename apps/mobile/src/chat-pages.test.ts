@@ -11,7 +11,8 @@ test("the Chat's last turns read again replace the window's, keeping what came b
   const current = page([1, 2, 3, 4], true, 10);
   assert.deepEqual(ids(mergeTail(current, page([3, 4, 5], true, 11))), [1, 2, 3, 4, 5]);
   const edited = mergeTail(current, { messages: [message(3, "edited"), message(4)], hasMore: true, total: 10 });
-  assert.equal(edited?.messages[2].body, "edited");
+  assert.ok(edited?.messages[2]);
+  assert.equal(edited.messages[2].body, "edited");
   assert.deepEqual(ids(mergeTail(current, page([3], true, 9))), [1, 2, 3], "a removed message goes");
 });
 

@@ -64,7 +64,7 @@ export function openLive(
       up = false;
       onStatus(false);
     }
-    const wait = unsupported ? UNSUPPORTED : BACKOFF[Math.min(failures, BACKOFF.length - 1)];
+    const wait = unsupported ? UNSUPPORTED : (BACKOFF[Math.min(failures, BACKOFF.length - 1)] ?? 30000);
     failures++;
     unsupported = false;
     // Jitter, so a Mac coming back is not met by every socket at once.
