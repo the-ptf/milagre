@@ -26,7 +26,7 @@ export function markdownChunks(text: string): string[] {
       current = [];
     }
     current.push(line);
-    if (marker && !fence) fence = marker[0];
+    if (marker && !fence) fence = marker.charAt(0);
     else if (marker && marker[0] === fence) fence = "";
     blank = !fence && line.trim() === "";
   }

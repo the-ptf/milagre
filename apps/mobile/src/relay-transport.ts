@@ -333,7 +333,7 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
   function retryLater(live: LiveState) {
     // A refused phone has nothing to gain from asking again.
     if (live.closed || refused) return;
-    const wait = BACKOFF[Math.min(live.failures, BACKOFF.length - 1)] * (0.8 + 0.4 * jitter());
+    const wait = (BACKOFF[Math.min(live.failures, BACKOFF.length - 1)] ?? 30000) * (0.8 + 0.4 * jitter());
     live.failures++;
     live.retry = timers.setTimeout(() => subscribe(live), wait);
   }

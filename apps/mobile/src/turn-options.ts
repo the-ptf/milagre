@@ -27,7 +27,10 @@ export function modelsFor(provider: ModelProvider, reported?: AgentModels | null
 }
 export function selectedModel(provider: ModelProvider, wanted: string, reported?: AgentModels | null): MobileModel {
   const models = modelsFor(provider, reported);
-  if (!wanted) return models.find((model) => model.recommended) || models[0];
+  if (!wanted) {
+    const preferred = models.find((model) => model.recommended) ?? models[0];
+    if (preferred) return preferred;
+  }
   const known = models.find((model) => model.id === wanted);
   if (known) return known;
   const saved = { provider, id: wanted, name: wanted, description: "Previously used in this Chat" };

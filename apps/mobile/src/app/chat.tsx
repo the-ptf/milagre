@@ -392,8 +392,10 @@ export default function ChatScreen() {
   const shownEntries = useMemo(() => groupedMessages.filter((entry) => !entry.hidden), [groupedMessages]);
   const navigationItems = useMemo(
     () =>
-      messageNavigationIndices(shownEntries.length).map((index) => {
-        const { message, merged } = shownEntries[index];
+      messageNavigationIndices(shownEntries.length).flatMap((index) => {
+        const entry = shownEntries[index];
+        if (!entry) return [];
+        const { message, merged } = entry;
         const position = `${index + 1} of ${shownEntries.length}`;
         // A routine-run divider, or a Linear Run's issue card carrying its Run.
         const run = routineRunOf(message);
@@ -427,7 +429,7 @@ export default function ChatScreen() {
   const navigateToMessage = (stop: number) => {
     const target = shownEntries[stop]?.message;
     const index = target ? messages.indexOf(target) : -1;
-    if (index < 0) return;
+    if (!target || index < 0) return;
     if (stop === shownEntries.length - 1) {
       navigationTarget.current = null;
       following.current = true;
@@ -436,7 +438,7 @@ export default function ChatScreen() {
     }
     following.current = false;
     scrollingToBottom.current = false;
-    const id = messages[index].id;
+    const id = target.id;
     navigationTarget.current = id;
     if (index < messages.length - visible) {
       messagePositions.current.clear();

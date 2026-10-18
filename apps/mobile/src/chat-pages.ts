@@ -32,11 +32,14 @@ function set(key: string, next: ChatWindow) {
  * messages are added, removed ones go. Null when the tail starts after the window ends (more changed than the tail holds).
  */
 export function mergeTail(current: ChatPage, tail: ChatPage): ChatPage | null {
-  if (!tail.messages.length) return { ...current, messages: [], hasMore: false, total: tail.total };
-  const start = current.messages.findIndex((message) => message.id === tail.messages[0].id);
+  const first = tail.messages[0];
+  if (!first) return { ...current, messages: [], hasMore: false, total: tail.total };
+  const start = current.messages.findIndex((message) => message.id === first.id);
   if (start < 0) return current.messages.length && tail.hasMore ? null : { ...tail };
   const messages = [...current.messages.slice(0, start), ...tail.messages];
-  const same = messages.length === current.messages.length && messages.every((message, index) => sameMessage(message, current.messages[index]));
+  const same =
+    messages.length === current.messages.length &&
+    messages.every((message, index) => current.messages[index] !== undefined && sameMessage(message, current.messages[index]));
   return same && tail.total === current.total
     ? current
     : { messages, hasMore: current.hasMore || start > 0 ? current.hasMore : tail.hasMore, total: tail.total };
@@ -117,9 +120,10 @@ export function useChatPage(
     const pending = earlierLoads.get(key);
     if (pending) return pending;
     const current = windows.get(key);
-    if (!current?.hasMore || !current.messages.length) return Promise.resolve();
+    const first = current?.messages[0];
+    if (!current?.hasMore || !first) return Promise.resolve();
     const request = client!
-      .chatMessages(projectPath!, chatId!, { before: current.messages[0].id, turns: TURNS })
+      .chatMessages(projectPath!, chatId!, { before: first.id, turns: TURNS })
       .then((earlier) => {
         const latest = windows.get(key) ?? current;
         const known = new Set(latest.messages.map((message) => message.id));

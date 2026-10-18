@@ -348,7 +348,7 @@ export const ChatReply = memo(function ChatReply({
             <Markdown key={`text-${index}`} text={entry.text} media={savedMedia} basePath={basePath} />
           ),
         )
-      ) : reply.activity.length === 1 && reply.activity[0].type === "step" ? (
+      ) : reply.activity.length === 1 && reply.activity[0]?.type === "step" ? (
         <ToolRow step={reply.activity[0].step} live={!!run} waiting={waiting} onPress={openActivity} />
       ) : (
         reply.activity.length > 0 && (
