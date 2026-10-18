@@ -10998,6 +10998,51 @@ test("the phone routine form in Linear mode shows the When, Label and Team rows 
   assert.equal(find(tree, (node) => node.type === "PillButton").props.title, "Create Routine");
 });
 
+test("a new phone Heartbeat can pick a Project, change it, and save its selected Chat", async () => {
+  const host = routineFormHost({
+    answers: {
+      "routines:targets": {
+        projects: [
+          { path: "/p", name: "First", chats: [{ chatId: "/p#4", title: "Babysit", lastAt: 1 }] },
+          { path: "/q", name: "Second", chats: [{ chatId: "/q#9", title: "Watch CI", lastAt: 2 }] },
+        ],
+      },
+    },
+  });
+  host.pick(host.render(), "Works in").props.onSelect("chat");
+  host.pick(host.render(), "Project").props.onSelect("/p");
+  assert.deepEqual(
+    host.pick(host.render(), "Chat").props.sections[0].items.map((item) => item.id),
+    ["/p#4"],
+  );
+  host.pick(host.render(), "Chat").props.onSelect("/p#4");
+  host.pick(host.render(), "Project").props.onSelect("/q");
+  assert.deepEqual(
+    host.pick(host.render(), "Chat").props.sections[0].items.map((item) => item.id),
+    ["/q#9"],
+  );
+  host.pick(host.render(), "Chat").props.onSelect("/q#9");
+  find(host.render(), (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Watch CI");
+  find(host.render(), (node) => node.type === "PlaceholderField").props.onChangeText("Check this PR");
+  find(host.render(), (node) => node.type === "PillButton").props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  const create = host.calls.find(([method]) => method === "routines:create");
+  assert.deepEqual(create?.[1][0].target, { kind: "chat", chatId: "/q#9" });
+  assert.deepEqual(host.routes, ["back"]);
+});
+
+test("the phone offers comment placeholders only for a Linear comment Routine", () => {
+  const host = routineFormHost();
+  find(host.render(), (node) => node.props?.accessibilityLabel === "Linear" && node.props.accessibilityRole === "radio").props.onPress();
+  host.pick(host.render(), "When").props.onSelect("comment");
+  const names = () => find(host.render(), (node) => node.type === "PlaceholderField").props.placeholders.map((item) => item.name);
+  assert.ok(names().includes("comment.body"));
+  assert.ok(names().includes("comment.author"));
+  host.pick(host.render(), "When").props.onSelect("assigned");
+  assert.ok(!names().includes("comment.body"));
+  assert.ok(!names().includes("comment.author"));
+});
+
 test("the phone prompt field suggests {{issue.key}} while typing {{iss, and choosing it inserts the placeholder", () => {
   const react = hookHost();
   const changes = [];

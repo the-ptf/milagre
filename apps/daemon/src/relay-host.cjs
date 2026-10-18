@@ -118,6 +118,7 @@ function startRelayHost({
       const set = JSON.stringify({ hookIds: ids });
       if (!force && set === current.hookSet) return;
       current.hookSet = set;
+      if (ids.length) drainedOnce = false;
       owners = ids.length ? hooks.owners(ids) : {};
     } catch {
       return;

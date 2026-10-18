@@ -1059,6 +1059,60 @@ test("a webhook Run whose target fails its start check deletes its delivery, as 
   assert.equal(deliveries.has("d2"), false);
 });
 
+test("a failed signing-secret write restores the persisted signing configuration and still accepts its deliveries", (t) => {
+  const { createWebhooks } = require("./runtime-adapter.cjs");
+  const { createRoutineStore } = require("./store.cjs");
+  const { createHookStore } = require("./hook-store.cjs");
+  const crypto = require("node:crypto");
+  for (const signed of [false, true]) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "signing-write-"));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const file = path.join(dir, "routines.json");
+    const hooksFile = path.join(dir, "routine-hooks.json");
+    const store = createRoutineStore({ file });
+    store.setEnabled(true);
+    const real = createHookStore({ file: hooksFile });
+    let fail = false;
+    const secrets = {
+      ...real,
+      setSecret: (...args) => {
+        if (fail) throw new Error("secret write failed");
+        return real.setSecret(...args);
+      },
+    };
+    let changes = 0;
+    const webhooks = createWebhooks({
+      store,
+      scheduler: { enqueueEvents: (items) => store.enqueueMany(items) },
+      hooks: () => ({ store: secrets, relayUrl: "wss://relay" }),
+      changed: () => (changes += 1),
+    });
+    const routine = webhooks.create({
+      name: "Sentry",
+      prompt: "{{body}}",
+      trigger: { kind: "webhook" },
+      target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
+      ...(signed ? { signingSecret: "original", signingHeader: "x-original" } : {}),
+    });
+    const before = changes;
+    fail = true;
+    assert.throws(
+      () => webhooks.update(routine.id, { trigger: { kind: "webhook", signed: true }, signingSecret: "replacement", signingHeader: "x-replacement" }),
+      /secret write failed/,
+    );
+    const reopened = createRoutineStore({ file }).get(routine.id);
+    assert.equal(reopened.trigger.signed, signed, "a failed edit preserves the old signing mode after reopening");
+    assert.equal(reopened.signingHeader, signed ? "x-original" : undefined);
+    assert.equal(createHookStore({ file: hooksFile }).secretFor(routine.id).signingSecret, signed ? "original" : undefined);
+    assert.ok(changes > before, "clients hear about the final persisted state even after a failed edit");
+    fail = false;
+    const body = new TextEncoder().encode("{}");
+    const headers = signed ? { "x-original": crypto.createHmac("sha256", "original").update(body).digest("hex") } : {};
+    webhooks.receive([{ id: "d1", hookId: routine.trigger.hookId, receivedAt: Date.now(), body, headers }]);
+    assert.equal(store.claimQueued(Date.now())[0]?.run.event.deliveryId, "d1", "a legitimate delivery still queues after the failed edit");
+  }
+});
+
 test("rotating writes the new secret first and puts the old one back when the Routine can't be updated", async (t) => {
   const fs = require("node:fs");
   const os = require("node:os");

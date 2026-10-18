@@ -215,7 +215,7 @@ export default function RoutineFormSheet() {
   }
 
   const projects = targets?.projects ?? [];
-  const project = projects.find((item) => item.path === (form.runIn === "chat" ? chatProject(form.chatId, projects) : form.projectPath));
+  const project = projects.find((item) => item.path === (form.runIn === "chat" && form.chatId ? chatProject(form.chatId, projects) : form.projectPath));
   const chat = projects.flatMap((item) => item.chats).find((item) => item.chatId === form.chatId);
   const providers = pickerProviders(session.cliStatus, ...(form.provider ? [form.provider] : []));
   const models = providers.flatMap((provider) => modelsFor(provider, session.models).map((model) => ({ ...model, provider })));
@@ -223,7 +223,11 @@ export default function RoutineFormSheet() {
   const mode = PERMISSION_MODES.find((item) => item.id === form.permissionMode);
   const zones = timezones();
   const placeholders = placeholdersFor(
-    (form.trigger === "webhook" ? { kind: "webhook", hookId: "", signed: false } : { kind: form.trigger }) as RoutineTrigger,
+    (form.trigger === "linear"
+      ? { kind: "linear", workspace: resolved.linear.workspace, event: form.linear.event }
+      : form.trigger === "webhook"
+        ? { kind: "webhook", hookId: "", signed: false }
+        : { kind: "schedule", cron: "", timezone: form.schedule.timezone }) as RoutineTrigger,
   );
   const workspaceName = linearOptions?.workspaces.find((item) => item.id === resolved.linear.workspace)?.name ?? resolved.linear.workspace;
   const team = linearOptions?.teams.find((item) => item.key === form.linear.team);

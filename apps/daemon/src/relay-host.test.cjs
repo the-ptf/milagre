@@ -1042,6 +1042,23 @@ test("a draining host says drained once it has acked everything its room held, a
   assert.equal(drained, 1, "once");
 });
 
+test("a webhook host can confirm an empty room again after hooks are added back", async (t) => {
+  const relay = await startRelay(t);
+  let ids = [HOOK_ID];
+  let drained = 0;
+  const mac = await hookMac(t, relay, hookSet(null, { ids: () => ids, drained: () => (drained += 1) }));
+  await until(() => relay.hooks.directory.owner(HOOK_ID), "registered");
+  ids = [];
+  mac.host.syncHooks();
+  await until(() => drained === 1, "first empty room confirmed");
+  ids = [HOOK_ID];
+  mac.host.syncHooks();
+  await until(() => relay.hooks.directory.owner(HOOK_ID), "registered again");
+  ids = [];
+  mac.host.syncHooks();
+  await until(() => drained === 2, "second empty room confirmed");
+});
+
 test("a draining host whose room holds nothing says drained at once", async (t) => {
   const relay = await startRelay(t);
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "relay-host-drain-"));

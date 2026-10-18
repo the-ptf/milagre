@@ -376,7 +376,22 @@ function createPhone({
     if (hookHost || closed || !wantsHooks()) return;
     const identity = await readIdentity(dataDir);
     if (hookHost || closed) return;
-    hookHost = startRelay({ relayUrl, identity, hooks: relayHooks, hooksOnly: true });
+    const host = startRelay({
+      relayUrl,
+      identity,
+      hooks: {
+        ...relayHooks,
+        // A reconnecting host cannot send the empty set yet. Keep it until the relay confirms release and every
+        // accepted delivery is acked. Re-check in the phone queue: a new hook or phone launch may have won meanwhile.
+        drained: () =>
+          void enqueue(async () => {
+            if (hookHost !== host || closed || config.enabled || wantsHooks()) return;
+            await stopHookHost();
+          }).catch((failure) => console.warn("[phone] couldn't finish releasing webhooks:", message(failure))),
+      },
+      hooksOnly: true,
+    });
+    hookHost = host;
   }
   async function stopHookHost() {
     const host = hookHost;
@@ -728,7 +743,7 @@ function createPhone({
         await load();
         if (closed || config.enabled) return;
         if (!hookHost) await startHookHost();
-        else if (!wantsHooks()) await stopHookHost();
+        // With no hooks left, the host's drained callback closes it after the relay confirms release.
       });
     },
     async close() {

@@ -1108,7 +1108,7 @@ test("with phone access off the webhooks-only host starts with the first webhook
   await phone.syncHooks();
   assert.equal(hosts.length, 1);
   assert.equal(hosts[0].options.hooksOnly, true);
-  assert.equal(hosts[0].options.hooks, hooks);
+  assert.deepEqual(hosts[0].options.hooks.ids(), ["b".repeat(64)]);
   ids = ["b".repeat(64), "c".repeat(64)];
   await phone.syncHooks();
   assert.equal(hosts.length, 1);
@@ -1117,7 +1117,62 @@ test("with phone access off the webhooks-only host starts with the first webhook
   const syncsBefore = hosts[0].syncs;
   await phone.syncHooks();
   assert.ok(hosts[0].syncs > syncsBefore, "it tells the relay to let go before it stops");
+  assert.equal(hosts[0].closed, false, "it stays connected until the relay confirms the empty room");
+  hosts[0].options.hooks.drained();
+  await phone.settled();
   assert.equal(hosts[0].closed, true);
+});
+
+test("removing the last webhook during reconnect waits for the relay to release its URL before closing", async (t) => {
+  const { startLocalRelay: startRelay, until } = require("./relay-test-kit.cjs");
+  const { startRelayHost } = require("./relay-host.cjs");
+  const { WebSocket } = require("ws");
+  const crypto = require("node:crypto");
+  const relay = await startRelay(t);
+  const dataDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-hook-release-")));
+  const secret = "R".repeat(43);
+  const hookId = crypto.createHash("sha256").update(secret).digest("hex");
+  let ids = [hookId];
+  let holdReady = false;
+  let releaseReady;
+  class DelayedReady extends WebSocket {
+    emit(event, ...args) {
+      if (holdReady && event === "message" && !args[1] && JSON.parse(args[0]).t === "ready") {
+        releaseReady = () => {
+          holdReady = false;
+          super.emit(event, ...args);
+        };
+        return true;
+      }
+      return super.emit(event, ...args);
+    }
+  }
+  let host;
+  const phone = createPhone({
+    dataDir,
+    relayUrl: relay.url,
+    lanPort: null,
+    hooks: { ids: () => ids, receive: () => {}, refused: () => {}, owners: () => ({}) },
+    startRelay: (options) => (host = startRelayHost({ ...options, WebSocket: DelayedReady, timing: { backoff: [1], jitter: false } })),
+    startBridge: async () => assert.fail("phone access is off"),
+  });
+  t.after(async () => {
+    await phone.close();
+    await fs.rm(dataDir, { recursive: true, force: true });
+  });
+  await phone.start();
+  await until(() => relay.hooks.directory.owner(hookId), "hook registered");
+  holdReady = true;
+  relay.hostSockets.at(-1).terminate();
+  await until(() => releaseReady, "reconnection paused before ready");
+  ids = [];
+  await phone.syncHooks();
+  assert.notEqual(host.status(), "offline", "the reconnecting host must stay open to release the hook");
+  releaseReady();
+  await until(() => host.status() === "offline", "empty room confirmed and host closed");
+  assert.equal(relay.hooks.directory.owner(hookId), null);
+  const url = `${relay.url.replace(/^ws:/, "http:")}/hook/${secret}`;
+  assert.equal((await relay.postHook(url, "{}")).status, 404);
 });
 
 // A Reset leaves the old room holding deliveries the relay already accepted: the Mac drains it with the old identity.

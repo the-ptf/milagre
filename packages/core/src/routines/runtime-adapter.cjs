@@ -723,8 +723,16 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
       const kept = signed ? (fresh ?? current.signingSecret) : undefined;
       if (signed && !kept) throw new Error(SIGNED_NEEDS_SECRET);
       const updated = store.update(id, { ...rest, trigger: { kind: "webhook", hookId: routine.trigger.hookId, signed } });
-      secrets.setSecret(id, { secret: current.secret, ownerKey: current.ownerKey, signingSecret: kept });
-      changed();
+      try {
+        secrets.setSecret(id, { secret: current.secret, ownerKey: current.ownerKey, signingSecret: kept });
+      } catch (error) {
+        // The secret write left its old entry intact. Restore the matching signing settings too, so a failed edit
+        // doesn't strand a signed Routine without a secret (or make an existing secret use the wrong header).
+        store.update(id, { trigger: routine.trigger, signingHeader: routine.signingHeader ?? null });
+        throw error;
+      } finally {
+        changed();
+      }
       return updated;
     },
     forget(id) {
