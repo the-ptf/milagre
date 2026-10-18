@@ -1303,6 +1303,16 @@ test("Designs setting changes reach every phone, including Settings without a se
   await until(() => settingsPhone.messages.filter((type) => type === "designs").length === 2);
 });
 
+test("Routines changes reach every phone as a routines signal, Settings included", async (t) => {
+  const { project, bridge, rpc, token } = await fixture(t);
+  const auth = { authorization: `Bearer ${token}` };
+  const projectPhone = await openLive(bridge, project, auth);
+  const settingsPhone = await openLive(bridge, "", auth);
+  assert.equal((await rpc("routines:enabled:save", [true])).status, 200);
+  await until(() => projectPhone.messages.includes("routines") && settingsPhone.messages.includes("routines"));
+  assert.equal(settingsPhone.messages.filter((type) => type === "routines").length, 1);
+});
+
 test("confined phones receive Designs changes on their permitted Project socket", async (t) => {
   const { project, dataDir, rpc, token } = await fixture(t);
   await rpc("project:open", [project]);
@@ -1657,4 +1667,8 @@ test("phone checkpoint RPCs preview and restore a task with explicit confirmatio
   } finally {
     desktop.close();
   }
+});
+
+test("a phone may read a webhook Routine's URL and rotate it", () => {
+  for (const method of ["routines:hook", "routines:rotate-hook"]) assert.ok(METHODS.has(method), method);
 });

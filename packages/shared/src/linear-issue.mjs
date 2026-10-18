@@ -41,6 +41,41 @@ export function linearIssueContext(issue, note) {
   };
 }
 
+// A state an older snapshot didn't keep the type or color of (or kept a color that isn't one): not started, in Linear's gray.
+const UNKNOWN_STATE = { type: "unstarted", color: "#95a2b3" };
+const HEX_COLOR = /^#[0-9a-f]{3,8}$/i;
+const LINEAR_ISSUE_URL = /^https:\/\/linear\.app\/([A-Za-z0-9_-]+)\/issue\/([A-Za-z][A-Za-z0-9]*-\d+)(?=$|[/?#])/;
+
+/**
+ * An issue's URL up to its key, https://linear.app/<workspace>/issue/<KEY>, when `url` is that issue's in `workspace` (both
+ * compared without regard to case); null otherwise. What Linear puts after the key (the title slug) is text anyone who can
+ * rename the issue writes, so it is dropped.
+ */
+export function linearIssueUrl(url, key, workspace) {
+  const match = LINEAR_ISSUE_URL.exec(String(url ?? ""));
+  if (!match || !workspace || match[2].toUpperCase() !== String(key ?? "").toUpperCase()) return null;
+  return match[1].toLowerCase() === String(workspace).toLowerCase() ? match[0] : null;
+}
+
+/**
+ * The card a Linear Routine's Run opens its Chat with: the issue as the poll saw it (LinearIssueSnapshot), carrying the
+ * Run (`routine`: routineId, runId, name, at) and its divider's label, "Routine · <name>".
+ */
+export function routineIssueContext(issue, routine) {
+  const type = STATE_TYPES.has(issue.stateType) ? issue.stateType : UNKNOWN_STATE.type;
+  const color = typeof issue.stateColor === "string" && HEX_COLOR.test(issue.stateColor) ? issue.stateColor : UNKNOWN_STATE.color;
+  return {
+    kind: "linear-issue",
+    key: issue.key,
+    title: issue.title,
+    // Only the issue's own link in its workspace; the card shows no link otherwise.
+    url: linearIssueUrl(issue.url, issue.key, issue.workspace) ?? "",
+    state: { name: issue.state || "Unknown", type, color },
+    ...(issue.workspace ? { workspace: issue.workspace } : {}),
+    routine: { routineId: routine.routineId, runId: routine.runId, name: routine.name, at: routine.at, label: `Routine · ${routine.name}` },
+  };
+}
+
 /**
  * What the agent reads: what the user typed first, then the issue as data its author wrote, then where to get the rest
  * of it. The Chat shows `issueFirstMessage` instead; the issue text is not the user's own words.

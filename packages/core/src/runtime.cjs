@@ -81,6 +81,13 @@ const { createProjectRegistry } = require("./project-registry.cjs");
 const { createLinkedWorktrees } = require("./linked-worktrees.cjs");
 const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsage, readAntigravityUsage } = require("./usage.cjs");
 const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
+const { createRoutines } = require("./routines/runtime-adapter.cjs");
+const { createHookStore } = require("./routines/hook-store.cjs");
+// Where webhook URLs point unless the daemon says otherwise (its phone's relay).
+const HOOK_RELAY_URL = "wss://relay.milagre.cloud";
+const { chatTitle } = require("@milagre/shared/chats");
+// The Chats routines:targets lists per Project, newest first.
+const ROUTINE_TARGET_CHATS = 50;
 
 const { createFileSearch } = require("./project-files.cjs");
 const git = createGit().read;
@@ -632,6 +639,7 @@ function createRuntime(options) {
     if (states.has(projectPath)) await readProject(projectPath);
     if (result.removed) {
       await Promise.all(goneChats.map((id) => artifacts.removeChat(id).catch(() => {})));
+      for (const id of goneChats) chats.forget(id);
       await pruneLinks();
     }
     return result;
@@ -882,7 +890,11 @@ function createRuntime(options) {
 
   // Set up with the accounts below; agent events only arrive after start.
   let limitSwitch = null;
+  // Set up once the Chats are (below); agent events only arrive after start.
+  let routines = null;
   function publishAgentEvent(chatId, event, state, seq) {
+    // First, before anyone hears the event: a heartbeat's "(pass)" marks its turn's end quiet, so no push goes out.
+    routines?.observe(chatId, event);
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type))
       void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
     options.observeAgentEvent?.(chatId, event);
@@ -1095,6 +1107,92 @@ function createRuntime(options) {
     },
   });
 
+  // Heartbeats: the daemon sends a Chat's routine prompt back into it on a schedule (routines/runtime-adapter.cjs).
+  let routineHooks = null;
+  // A Project's state for a lookup that must change nothing: an open one from memory, another from its saved file. It is
+  // never opened, so nothing a quit stopped resumes and no recovery or diff refresh runs (Routines' targets and comment lookups).
+  const projectStateReadOnly = (projectPath) => (states.has(projectPath) ? states.get(projectPath) : readRawState(projectPath));
+  routines = createRoutines({
+    file: path.join(dataDir, "routines.json"),
+    chats,
+    keepAwake,
+    emit,
+    cachedState: (scope) =>
+      isLinkScopeKey(scope) ? (linkStore.has(scopeFromKey(scope).linkId) ? linkStore.cached(scopeFromKey(scope).linkId) : undefined) : states.states.get(scope),
+    // A Project not open yet opens here, as a Delegation's does.
+    openState: async (scope, sessionId) => {
+      await linkedState(scope);
+      return scopeStates.load(scope, [sessionId]);
+    },
+    isClosing: () => closing,
+    // A Run's Worktree goes through the same steps as one the user makes, and only ever leaves when nothing in it is
+    // worth keeping (worktree-cleanup.cjs; never forced).
+    worktrees: {
+      create: async (request) => ({ worktreeId: (await handlers.get("worktree:create")({}, request)).worktreeId }),
+      // Tracked, so closing waits for a removal under way rather than leave it half done.
+      remove: (projectPath, worktreeId, chatId) =>
+        track(async () => {
+          const worktree = (await states.get(projectPath)).worktrees[worktreeId];
+          if (worktree) await handlers.get("worktree:remove")({}, worktree.path, { projectPath, ...(chatId ? { chatId } : {}) });
+        }, background),
+      async removable(projectPath, worktreeId) {
+        if (!states.has(projectPath)) return false;
+        const worktree = (await states.get(projectPath)).worktrees[worktreeId];
+        if (!worktree?.base || worktree.path === projectPath) return false;
+        await environmentReady;
+        return (await worktreeStatus(worktree.path, worktree.base).catch(() => null))?.removable === true;
+      },
+      base: async (projectPath) => (await git.resolveBase(projectPath).catch(() => ({ name: "main" }))).name,
+      projectWorktree: async (projectPath) => Object.values((await linkedState(projectPath)).worktrees).find((worktree) => worktree.path === projectPath)?.id,
+    },
+    archiveChat: (chatId) => track(() => archiveChat(projectOfKey(chatId), sessionIdFromKey(chatId)), background),
+    // Made further down; read when a Routine first needs them.
+    linear: () => linear,
+    // Webhook secrets and waiting deliveries, beside routines.json; URLs are on the relay the phone uses.
+    hooks: () =>
+      (routineHooks ??= { store: createHookStore({ file: path.join(dataDir, "routine-hooks.json") }), relayUrl: options.hookRelayUrl ?? HOOK_RELAY_URL }),
+    projects: () => projectRegistry().list(),
+    // Read only: an open Project's state from memory, another's saved file, never opening it (no resume, no recovery).
+    projectState: (projectPath) => projectStateReadOnly(projectPath),
+    timers: options.routines,
+  });
+  routines.start();
+  commands.handle("routines:enabled:read", () => routines.read());
+  commands.handle("routines:enabled:save", (_event, value) => routines.save(value === true));
+  commands.handle("routines:list", () => routines.list());
+  // Create and change check a Routine's target the same way (routineTargets): a listed Project, a Chat that is there.
+  commands.handle("routines:update", (_event, id, patch) => routines.update(id, patch));
+  commands.handle("routines:delete", (_event, id) => routines.remove(id));
+  commands.handle("routines:run-now", (_event, id) => routines.runNow(id));
+  // A Routine the user made in the Routines form; routines.create checks its target (a Project Milagre lists).
+  commands.handle("routines:create", async (_event, input) => {
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("A Routine needs its settings.");
+    const routine = await routines.create(input);
+    // A webhook's URL goes to the form that made it; after that, routines:hook reads it.
+    return routine.trigger.kind === "webhook" ? { routine, hookUrl: routines.hook(routine.id).url } : { routine };
+  });
+  commands.handle("routines:hook", (_event, id) => routines.hook(id));
+  commands.handle("routines:rotate-hook", (_event, id) => routines.rotateHook(id));
+  // Where a Routine can run: each Project Milagre lists, with its latest Chats for a Heartbeat. `within` (a folder, as a
+  // confined phone's bridge passes it) keeps to the Projects inside it before any is read.
+  commands.handle("routines:targets", async (_event, filter) => {
+    const within = typeof filter?.within === "string" && path.isAbsolute(filter.within) ? filter.within : null;
+    const projects = (await projectRegistry().list()).filter((project) => !within || project.path === within || project.path.startsWith(within + path.sep));
+    return {
+      projects: await Promise.all(
+        projects.map(async (project) => {
+          const state = await Promise.resolve(projectStateReadOnly(project.path)).catch(() => null);
+          const chats = Object.values(state?.sessions ?? {})
+            .filter((session) => !session.archived && (session.summary?.count ?? 0) > 0)
+            .toSorted((a, b) => (b.summary?.lastAt ?? 0) - (a.summary?.lastAt ?? 0) || b.id - a.id)
+            .slice(0, ROUTINE_TARGET_CHATS)
+            .map((session) => ({ chatId: chatKey(project.path, session.id), title: chatTitle(session), lastAt: session.summary?.lastAt ?? 0 }));
+          return { path: project.path, name: project.name || projectName(project.path), chats };
+        }),
+      ),
+    };
+  });
+
   // A Chat stays in memory while its turn runs or prepares, and while a window shows it.
   busyChat = (chatId) => chats.isBusy(chatId) || Boolean(options.isChatFocused?.(chatId));
 
@@ -1189,6 +1287,8 @@ function createRuntime(options) {
   // Issues are read through the same connection; both answer without throwing (see linear/issues.cjs).
   const linearIssues = createLinearIssues({ linear });
   const linearTools = createLinearTools({ linear, issues: linearIssues });
+  // The Routines form's Linear choices: workspaces, teams, and a team's labels and states. Never throws.
+  commands.handle("routines:linear-options", (_event, value) => linearIssues.routineOptions({ workspace: value?.workspace, team: value?.team }));
   commands.handle("linear:issues", (_event, value) => linearIssues.list(value?.query, { fresh: value?.fresh === true, workspace: value?.workspace }));
   commands.handle("linear:worktree-issues", async (_event, projectPath) => {
     try {
@@ -1279,13 +1379,20 @@ function createRuntime(options) {
     if (!scopeStates.has(projectPath)) throw new Error("Open the project before continuing its chats.");
     return chats.resumeChat(projectPath, Number(sessionId));
   });
+  // Archiving a Chat stops what runs for it (its Terminals, advisors, heartbeats), then saves the patch. The user's archive
+  // and a quiet Routine Run's both come here.
+  async function archiveChat(projectPath, sessionId, patch = { archived: true }) {
+    if (!scopeStates.has(projectPath)) return;
+    const chatId = `${projectPath}#${sessionId}`;
+    terminals.closeChat(chatId);
+    await advisorDelivery.stop(chatId);
+    await advisors.stopChat(chatId);
+    routines.chatArchived(chatId);
+    await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
+  }
   async function patchChat(projectPath, sessionId, patch) {
     if (!scopeStates.has(projectPath)) return;
-    if (patch?.archived) {
-      terminals.closeChat(`${projectPath}#${sessionId}`);
-      await advisorDelivery.stop(`${projectPath}#${sessionId}`);
-      await advisors.stopChat(`${projectPath}#${sessionId}`);
-    }
+    if (patch?.archived) return archiveChat(projectPath, sessionId, patch);
     await editProject(projectPath, (state) => patchSession(state, sessionId, patch ?? {}), { chats: [] });
   }
   commands.handle("chat:patch", (_event, projectPath, sessionId, patch) => patchChat(projectPath, sessionId, patch));
@@ -1421,7 +1528,10 @@ function createRuntime(options) {
     }
   });
 
-  commands.handle("agent:set-permission-mode", (_event, { chatId, mode }) => agents.setPermissionMode(chatId, mode));
+  // The mode picked is the Chat's from now on: its running turn takes it at once, and a heartbeat's next beat runs in it.
+  // Saved even when the live session couldn't take it: the next turn and beat start in it.
+  const setPermissionMode = (chatId, mode) => chats.setPermissionMode(chatId, mode, (id, picked) => agents.setPermissionMode(id, picked));
+  commands.handle("agent:set-permission-mode", (_event, { chatId, mode }) => setPermissionMode(chatId, mode));
 
   async function notifyIfWaiting(chatId, event) {
     const projectPath = projectOfKey(chatId);
@@ -1526,6 +1636,8 @@ function createRuntime(options) {
       ...require("./link-worktree-tools.cjs").linkWorktreeToolDefinitions(chatId, createLinkWorktree),
       // Milagre's own Linear sign-in, so agents don't reach for a Linear MCP or connector.
       ...(linear.enabled() ? linearToolDefinitions(linearTools) : []),
+      // Heartbeats on the agent's own Chat, while the Experimental switch is on (none in a Link's Chats).
+      ...(routines.enabled() ? routines.definitions(chatId) : []),
     ],
     createMcpServer: ({ toolsFor }) => ({ url: (chatId) => localMcp.chatUrl(chatId, toolsFor), close: async () => {} }),
   });
@@ -1954,7 +2066,7 @@ function createRuntime(options) {
       permissionMode: (chatId, fallback) => agents.permissionMode(chatId, fallback),
       createWorktree: (context, request) => handlers.get("worktree:create")(context, request),
       stopChat,
-      setPermissionMode: (chatId, mode) => agents.setPermissionMode(chatId, mode),
+      setPermissionMode,
       respondPermission: (chatId, requestId, decision) => handlers.get("agent:respond-permission")(null, { chatId, requestId, decision }),
       answerQuestion: (chatId, requestId, answers, summary) => handlers.get("agent:answer-question")(null, { chatId, requestId, answers, summary }),
       patchChat,
@@ -1982,8 +2094,11 @@ function createRuntime(options) {
 
   function close() {
     closing = true;
+    // A comment already on its way goes back to its queue before the rest closes.
+    const routinesStopped = routines.stop();
     linked.suspend();
     closed ??= (async () => {
+      await routinesStopped;
       await localMcp.close();
       await advisorDelivery.close();
       await advisors.close();
@@ -2039,6 +2154,17 @@ function createRuntime(options) {
     resumeRecentProjects: () => accept(resumeRecentProjects),
     environmentReady,
     isClosing: () => closing,
+    // Webhook Routines for the daemon's relay host: the hooks to register, deliveries in, the relay's refusals, owner keys.
+    routines: {
+      hookIds: () => routines.hookIds(),
+      receiveHook: (delivery) => routines.receiveHook(delivery),
+      receiveHooks: (deliveries) => routines.receiveHooks(deliveries),
+      hooksRefused: (ids) => routines.hooksRefused(ids),
+      hookOwners: (ids) => routines.hookOwners(ids),
+      // One tick now, and what it set going off the tick: a positive signal for checks that nothing started.
+      tick: () => routines.tick(),
+      idle: () => routines.idle(),
+    },
     // Synchronous capture: the socket serializes this before another event can
     // mutate state, so its event watermark and run sequence describe one instant.
     snapshot: () => ({

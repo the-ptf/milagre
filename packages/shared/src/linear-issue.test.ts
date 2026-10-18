@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isLinearIssueContext, issueFirstMessage, linearIssueContext, linearIssuePrompt, linearIssueRequest } from "./linear-issue.mjs";
+import { isLinearIssueContext, issueFirstMessage, linearIssueContext, linearIssuePrompt, linearIssueRequest, routineIssueContext } from "./linear-issue.mjs";
 import type { LinearIssue } from "./linear.ts";
 
 const issue: LinearIssue = {
@@ -72,4 +72,53 @@ test("the Chat still shows the issue's own first message, which names the title 
     issueFirstMessage(issue, "check Safari"),
     `Work on Linear issue ENG-12: Fix login redirect\n\nUsers bounce to /home.\n\n${issue.url}\n\ncheck Safari`,
   );
+});
+
+const snapshot = {
+  id: "i1",
+  key: "ENG-12",
+  title: "Fix login redirect",
+  description: "Users bounce to /home.",
+  url: "https://linear.app/acme/issue/ENG-12",
+  labels: ["bug"],
+  state: "In Review",
+  stateType: "started",
+  stateColor: "#f2c94c",
+  team: "ENG",
+  workspace: "acme",
+};
+
+test("a Linear Run's first message is the issue card carrying its Routine, labelled as a Routine", () => {
+  const context = routineIssueContext(snapshot, { routineId: "r1", runId: "run1", name: "Triage", at: 5 });
+  assert.deepEqual(context, {
+    kind: "linear-issue",
+    key: "ENG-12",
+    title: "Fix login redirect",
+    url: snapshot.url,
+    state: { name: "In Review", type: "started", color: "#f2c94c" },
+    workspace: "acme",
+    routine: { routineId: "r1", runId: "run1", name: "Triage", at: 5, label: "Routine · Triage" },
+  });
+  assert.equal(isLinearIssueContext(context), true);
+});
+
+test("an issue snapshot from before state types were kept still makes a valid card", () => {
+  const { stateType: _type, stateColor: _color, ...old } = snapshot;
+  const context = routineIssueContext({ ...old, state: "" }, { routineId: "r1", runId: "run1", name: "Triage", at: 5 });
+  assert.equal(isLinearIssueContext(context), true);
+  assert.equal(context.state.type, "unstarted");
+  assert.equal(context.state.name, "Unknown");
+  const odd = routineIssueContext({ ...snapshot, stateType: "weird" }, { routineId: "r1", runId: "run1", name: "Triage", at: 5 });
+  assert.equal(odd.state.type, "unstarted");
+});
+
+test("a Run's card keeps only a real color and only the issue's own link in its workspace", () => {
+  const run = { routineId: "r1", runId: "run1", name: "Triage", at: 5 };
+  const card = routineIssueContext(snapshot, run);
+  assert.equal(card.url, "https://linear.app/acme/issue/ENG-12");
+  assert.equal(routineIssueContext({ ...snapshot, stateColor: "red; background: url(x)" }, run).state.color, "#95a2b3");
+  assert.equal(routineIssueContext({ ...snapshot, stateColor: "#ABCDEF" }, run).state.color, "#ABCDEF");
+  assert.equal(routineIssueContext({ ...snapshot, url: "https://linear.app/acme/issue/ENG-12/a-slug" }, run).url, "https://linear.app/acme/issue/ENG-12");
+  assert.equal(routineIssueContext({ ...snapshot, url: "https://evil.example/ENG-12" }, run).url, "");
+  assert.equal(routineIssueContext({ ...snapshot, url: "https://linear.app/other/issue/ENG-12" }, run).url, "");
 });

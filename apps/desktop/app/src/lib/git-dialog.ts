@@ -1,4 +1,5 @@
 import { GIT_CODES, gitMessage, type GitCode } from "@milagre/shared/git-codes";
+import { isRoutineRun } from "@milagre/shared/routines";
 import type { ChatMessage, ModelProvider } from "../model";
 
 // What the "Commit and open PR" dialog shows and which steps its buttons run, from what git and gh
@@ -214,9 +215,9 @@ export function testCommandsFrom(messages: ChatMessage[]): GitTestCommand[] {
   return [...byCommand.values()].slice(-10);
 }
 
-/** The chat's title, its first user message, its last few other user messages and the tests it ran. */
+/** The chat's title, its first user message, its last few other user messages and the tests it ran. Heartbeat prompts aren't the user's. */
 export function gitChatContext(chatTitle: string, messages: ChatMessage[]): GitChatContext {
-  const userMessages = messages.filter((message) => message.role !== "assistant" && message.body.trim());
+  const userMessages = messages.filter((message) => message.role !== "assistant" && !isRoutineRun(message) && message.body.trim());
   return {
     chatTitle,
     firstMessage: userMessages[0]?.body ?? "",

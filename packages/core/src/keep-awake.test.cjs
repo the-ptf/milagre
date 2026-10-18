@@ -174,3 +174,15 @@ test("with the setting off a setup holds nothing", () => {
   awake.quit();
   assert.equal(blocker.held, 0);
 });
+
+test("enabled Routines hold the blocker with no turns until switched off", () => {
+  const blocker = fakeBlocker();
+  const awake = new KeepAwake({ powerSaveBlocker: blocker });
+  awake.setRoutinesActive(true);
+  assert.equal(blocker.held, 1);
+  awake.turnStarted("a");
+  awake.turnEnded("a");
+  assert.equal(blocker.held, 1);
+  awake.setRoutinesActive(false);
+  assert.equal(blocker.held, 0);
+});

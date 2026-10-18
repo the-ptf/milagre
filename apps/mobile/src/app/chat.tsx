@@ -2,7 +2,7 @@ import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Reanimated from "react-native-reanimated";
-import { Alert, Image, Keyboard, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { UltracodeGlow } from "../ultracode-glow";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
@@ -17,11 +17,12 @@ import {
   GitBranchIcon,
   GitForkIcon,
   LaptopIcon,
+  Pulse01Icon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
-import type { ChatMessage, LinkIssueResult, PullRequestActionContext } from "@milagre/shared/model";
+import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext } from "@milagre/shared/model";
 import { chatPullRequests, chatTitle, createPendingChat, createResendMemory, pendingChatSessionId, pullRequestRefs } from "@milagre/shared/chats";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
@@ -58,6 +59,8 @@ import { useCheckpoints } from "@milagre/shared/use-checkpoints";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import { UndoPanel, type UndoIntent } from "../undo-panel";
 import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
+import { RoutineRunDivider } from "../routine-run-divider";
+import { clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, routineRunOf, routineRunText } from "@milagre/shared/routines";
 import { CompactionDivider } from "../compaction-divider";
 import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
@@ -77,7 +80,7 @@ import { PanelSwipe, useSidePanels } from "../side-panels";
 import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
-import { ErrorNotice, GlassIconButton, IconButton, PageScroll, PillButton, PullDown, useStyles } from "../ui";
+import { ErrorNotice, GlassIconButton, HeaderButton, IconButton, PageScroll, PillButton, PullDown, useStyles } from "../ui";
 import { PromptField } from "../prompt-field";
 import { ContextRing } from "../context-ring";
 import { PlanPanel, PlanPill, usePlanPanel } from "../plan-pill";
@@ -90,6 +93,8 @@ import { useChatPage } from "../chat-pages";
 import { MessageNavigation } from "../message-navigation";
 import { AttentionPill } from "../attention";
 import { useLinear } from "../use-linear";
+import { useRoutines } from "../use-routines";
+import { useActivityClock } from "../chat-row-store";
 import { useWorktreeLinearIssues } from "../use-worktree-linear-issues";
 import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
@@ -97,6 +102,12 @@ import { showChoiceSheet } from "../choice-store";
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
 const PLACE_FALLBACK_MS = 500;
+
+// A Linear Run's first message is its issue card carrying the Run: its divider shows above the card.
+function issueRunDivider(message: ChatMessage, merged?: { count: number; last: RoutineRunContext }) {
+  const run = isRoutineRun(message) ? null : routineRunOf(message);
+  return run ? <RoutineRunDivider context={run} merged={merged} /> : null;
+}
 
 /** A row's id: two workspaces can both have an ENG-1. A Mac that predates workspaces sends the key alone. */
 const issueChoiceId = (issue: LinearIssue) => (issue.workspace ? `${issue.workspace}:${issue.key}` : issue.key);
@@ -252,6 +263,12 @@ export default function ChatScreen() {
   const projectPath = session.snapshot?.project.path;
   // Linear is read only while the Mac has it on and connected; a linked Chat has no Worktrees of its own.
   const { active: linearActive } = useLinear(connected);
+  // The Mac's Routines, for this Chat's Heartbeat: the header button and the Next check line.
+  // With the Mac's switch off nothing runs, so a listed Heartbeat promises no check.
+  const { routines, enabled: routinesOn } = useRoutines(connected);
+  const beating = routinesOn === true && routines.some((routine) => routine.enabled && routine.target.kind === "chat");
+  // Now, to the half minute, only while some Heartbeat could show a Next check.
+  const now = useActivityClock(beating);
   const linearIssues = useWorktreeLinearIssues(connected, linearActive && projectPath && !session.snapshot?.project.link ? [projectPath] : [], linkVersion);
   const targetMatches = (!params.projectPath || params.projectPath === projectPath) && (!params.hostId || params.hostId === connected?.url);
   const originChatId = `${projectPath}#${params.id ?? `new:${params.worktreeId}`}`;
@@ -345,6 +362,8 @@ export default function ChatScreen() {
   // Long Chats mount their newest messages first; earlier ones load on request.
   const [shown, setShown] = useState({ key: scrollKey, count: PAGE });
   const visible = shown.key === scrollKey ? shown.count : PAGE;
+  // Quiet heartbeats fold into one line and their replies drop out.
+  const groupedMessages = useMemo(() => groupQuietRuns(messages), [messages]);
   async function showEarlier() {
     if (historyRead.current || historyAnchor.current || messages.length + remote <= visible) return;
     const request = {};
@@ -354,7 +373,8 @@ export default function ChatScreen() {
     try {
       if (messages.length <= visible) await historyPage.loadEarlier();
       if (currentScrollKey.current !== scrollKey) return;
-      const first = messages[Math.max(0, messages.length - visible)];
+      // A hidden heartbeat reply never lays out, so anchor on the first message after it that does.
+      const first = groupedMessages.slice(Math.max(0, messages.length - visible)).find((entry) => !entry.hidden)?.message;
       const y = first && messagePositions.current.get(first.id);
       historyAnchor.current = first && y !== undefined ? { id: first.id, y, offset: scrollOffset.current, key: scrollKey } : null;
       setShown({ key: scrollKey, count: visible + PAGE });
@@ -368,25 +388,35 @@ export default function ChatScreen() {
     }
   }
   const handoffModels = useMemo(() => [...modelsFor("claude", session.models), ...modelsFor("codex", session.models)], [session.models]);
+  // The rail runs over what the transcript shows: hidden (pass) replies and merged-away quiet dividers are not stops.
+  const shownEntries = useMemo(() => groupedMessages.filter((entry) => !entry.hidden), [groupedMessages]);
   const navigationItems = useMemo(
     () =>
-      messageNavigationIndices(messages.length).map((index) => ({
-        index,
-        label: isHandoff(messages[index])
-          ? `Go to ${handoffSides(messages[index].context, handoffModels).restored ? "context restored" : "context handoff"} ${index + 1} of ${messages.length}.`
-          : isWorktreeLinked(messages[index])
-            ? `Go to ${worktreeLinkText(messages[index].context)}, ${index + 1} of ${messages.length}.`
-            : isCompaction(messages[index])
-              ? `Go to ${compactionText(messages[index].context)}, ${index + 1} of ${messages.length}.`
-              : isAccountSwitch(messages[index])
-                ? `Go to ${accountSwitchText(messages[index].context)}, ${index + 1} of ${messages.length}.`
-                : isChatReload(messages[index])
-                  ? `Go to ${RELOAD_TEXT}, ${index + 1} of ${messages.length}.`
-                  : isCheckpointRestore(messages[index])
-                    ? `Go to ${messages[index].body}, ${index + 1} of ${messages.length}.`
-                    : `Go to ${messageSender(messages[index])} message ${index + 1} of ${messages.length}. ${messages[index].body.slice(0, 88)}`,
-      })),
-    [messages, handoffModels],
+      messageNavigationIndices(shownEntries.length).map((index) => {
+        const { message, merged } = shownEntries[index];
+        const position = `${index + 1} of ${shownEntries.length}`;
+        // A routine-run divider, or a Linear Run's issue card carrying its Run.
+        const run = routineRunOf(message);
+        return {
+          index,
+          label: isHandoff(message)
+            ? `Go to ${handoffSides(message.context, handoffModels).restored ? "context restored" : "context handoff"} ${position}.`
+            : isWorktreeLinked(message)
+              ? `Go to ${worktreeLinkText(message.context)}, ${position}.`
+              : isCompaction(message)
+                ? `Go to ${compactionText(message.context)}, ${position}.`
+                : isAccountSwitch(message)
+                  ? `Go to ${accountSwitchText(message.context)}, ${position}.`
+                  : isChatReload(message)
+                    ? `Go to ${RELOAD_TEXT}, ${position}.`
+                    : run
+                      ? `Go to ${merged ? mergedRoutineRunText(merged) : routineRunText(run)}, ${position}.`
+                      : isCheckpointRestore(message)
+                        ? `Go to ${message.body}, ${position}.`
+                        : `Go to ${messageSender(message)} message ${position}. ${message.body.slice(0, 88)}`,
+        };
+      }),
+    [shownEntries, handoffModels],
   );
   const messagePositions = useRef(new Map<number, number>());
   const navigationTarget = useRef<number | null>(null);
@@ -394,8 +424,11 @@ export default function ChatScreen() {
     messagePositions.current.clear();
     navigationTarget.current = null;
   }, [params.id]);
-  const navigateToMessage = (index: number) => {
-    if (index === messages.length - 1) {
+  const navigateToMessage = (stop: number) => {
+    const target = shownEntries[stop]?.message;
+    const index = target ? messages.indexOf(target) : -1;
+    if (index < 0) return;
+    if (stop === shownEntries.length - 1) {
       navigationTarget.current = null;
       following.current = true;
       scrollToBottom(true);
@@ -544,6 +577,11 @@ export default function ChatScreen() {
   const attachments = composer.attachments[chatId] || [];
   const attachmentDisabled = busy || picking || attachments.length >= 4;
   const run = chat ? runs.runs[chatId] : undefined;
+  const heartbeat =
+    chat && beating
+      ? routines.find((routine) => routine.enabled && !routine.completedAt && routine.target.kind === "chat" && routine.target.chatId === chatId)
+      : undefined;
+  const openHeartbeat = () => heartbeat && router.push({ pathname: "/routine-form", params: { id: heartbeat.id } });
   const undoHighlight = (undo.view === "list" ? undo.tasks[0] : undo.view === "preview" ? undo.preview : null)?.messageId;
   // What the Chat is doing (chat-activity.mjs), the same as its sidebar row and desktop's composer show.
   const activity = chat ? chatActivity(chat, run) : undefined;
@@ -1028,6 +1066,16 @@ export default function ChatScreen() {
   );
   const more = (
     <Stack.Toolbar placement="right">
+      {/* Shown while this Chat has a Heartbeat on; it opens the Heartbeat's settings. */}
+      {heartbeat ? (
+        Platform.OS === "ios" ? (
+          <Stack.Toolbar.Button icon="waveform.path.ecg" accessibilityLabel="Heartbeat" onPress={openHeartbeat} />
+        ) : (
+          <Stack.Toolbar.View>
+            <HeaderButton label="Heartbeat" icon={Pulse01Icon} onPress={openHeartbeat} />
+          </Stack.Toolbar.View>
+        )
+      ) : null}
       <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="Chat actions">
         <Stack.Toolbar.MenuAction
           icon="doc.text.magnifyingglass"
@@ -1201,65 +1249,75 @@ export default function ChatScreen() {
                 style={{ alignSelf: "center" }}
               />
             )}
-            {messages.slice(-visible).flatMap((message) => [
+            {groupedMessages.slice(-visible).flatMap(({ message, hidden, merged }) => [
               ...(liveReply && message === pendingInput ? [liveReply] : []),
-              <View
-                key={message.clientMessageId ?? message.id}
-                nativeID={`chat-message-${message.id}`}
-                onLayout={({ nativeEvent: { layout } }) => {
-                  messagePositions.current.set(message.id, layout.y);
-                  const anchor = historyAnchor.current;
-                  if (anchor?.key === scrollKey && anchor.id === message.id) {
-                    historyAnchor.current = null;
-                    // From the offset when the page was asked for: the native position keeping may have moved it already.
-                    const y = Math.max(0, anchor.offset + layout.y - anchor.y);
-                    scrollOffset.current = y;
-                    scroll.current?.scrollTo({ y, animated: false });
-                  }
-                  if (navigationTarget.current === message.id) {
-                    navigationTarget.current = null;
-                    scroll.current?.scrollTo({ y: Math.max(0, layout.y - insets.top - 72), animated: true });
-                  }
-                }}
-              >
-                {isHandoff(message) ? (
-                  <HandoffDivider context={message.context} models={handoffModels} onOpen={openBrief} />
-                ) : isWorktreeLinked(message) ? (
-                  <WorktreeLinkDivider context={message.context} client={session.client} onOpen={(title, text) => openBrief(text, title)} />
-                ) : isCompaction(message) ? (
-                  <CompactionDivider context={message.context} />
-                ) : isAccountSwitch(message) ? (
-                  <AccountSwitchDivider context={message.context} />
-                ) : isChatReload(message) ? (
-                  <ChatReloadDivider />
-                ) : isCheckpointRestore(message) ? (
-                  <CheckpointRestoreDivider
-                    context={message.context}
-                    onPreview={
-                      run
-                        ? undefined
-                        : (recoveryId, intent) => {
-                            setUndoIntent(intent);
-                            void undo.inspect(recoveryId);
+              ...(hidden
+                ? []
+                : [
+                    <View
+                      key={message.clientMessageId ?? message.id}
+                      nativeID={`chat-message-${message.id}`}
+                      onLayout={({ nativeEvent: { layout } }) => {
+                        messagePositions.current.set(message.id, layout.y);
+                        const anchor = historyAnchor.current;
+                        if (anchor?.key === scrollKey && anchor.id === message.id) {
+                          historyAnchor.current = null;
+                          // From the offset when the page was asked for: the native position keeping may have moved it already.
+                          const y = Math.max(0, anchor.offset + layout.y - anchor.y);
+                          scrollOffset.current = y;
+                          scroll.current?.scrollTo({ y, animated: false });
+                        }
+                        if (navigationTarget.current === message.id) {
+                          navigationTarget.current = null;
+                          scroll.current?.scrollTo({ y: Math.max(0, layout.y - insets.top - 72), animated: true });
+                        }
+                      }}
+                    >
+                      {isHandoff(message) ? (
+                        <HandoffDivider context={message.context} models={handoffModels} onOpen={openBrief} />
+                      ) : isWorktreeLinked(message) ? (
+                        <WorktreeLinkDivider context={message.context} client={session.client} onOpen={(title, text) => openBrief(text, title)} />
+                      ) : isCompaction(message) ? (
+                        <CompactionDivider context={message.context} />
+                      ) : isAccountSwitch(message) ? (
+                        <AccountSwitchDivider context={message.context} />
+                      ) : isChatReload(message) ? (
+                        <ChatReloadDivider />
+                      ) : isRoutineRun(message) ? (
+                        <RoutineRunDivider context={message.context} merged={merged} />
+                      ) : isCheckpointRestore(message) ? (
+                        <CheckpointRestoreDivider
+                          context={message.context}
+                          onPreview={
+                            run
+                              ? undefined
+                              : (recoveryId, intent) => {
+                                  setUndoIntent(intent);
+                                  void undo.inspect(recoveryId);
+                                }
                           }
-                    }
-                  />
-                ) : (
-                  <ChatReply
-                    message={message}
-                    media={media}
-                    basePath={worktree?.path || project.path}
-                    chatId={chatId}
-                    designChoice={designChoice}
-                    designsMoved={designsMoved}
-                    // A limit card offers other accounts only on the Chat's last message, with no turn running.
-                    limitProjectPath={!run && !pending && message === messages[messages.length - 1] ? project.path : undefined}
-                    onActivity={openActivity}
-                    highlighted={message.id === undoHighlight}
-                    onOpenChat={openOtherChat}
-                  />
-                )}
-              </View>,
+                        />
+                      ) : (
+                        <>
+                          {/* A Linear Run's first message is its issue card carrying the Run: the divider, then the card. */}
+                          {issueRunDivider(message, merged)}
+                          <ChatReply
+                            message={message}
+                            media={media}
+                            basePath={worktree?.path || project.path}
+                            chatId={chatId}
+                            designChoice={designChoice}
+                            designsMoved={designsMoved}
+                            // A limit card offers other accounts only on the Chat's last message, with no turn running.
+                            limitProjectPath={!run && !pending && message === messages[messages.length - 1] ? project.path : undefined}
+                            onActivity={openActivity}
+                            highlighted={message.id === undoHighlight}
+                            onOpenChat={openOtherChat}
+                          />
+                        </>
+                      )}
+                    </View>,
+                  ]),
             ])}
             {!pendingInput && liveReply}
             {answerPreview && <ChatReply key="answers" message={answerPreview} media={media} chatId={chatId} onActivity={openActivity} />}
@@ -1272,6 +1330,9 @@ export default function ChatScreen() {
             {!run && !pending && activity?.activity === "background" && (
               <BackgroundIndicator count={activity.background} startedAt={activity.since} mark={<BackgroundRing count={activity.background} />} />
             )}
+            {heartbeat && !run && !pending && typeof heartbeat.nextRunAt === "number" && heartbeat.nextRunAt > now ? (
+              <Text style={{ color: colors.ink2, fontSize: 12, textAlign: "center" }}>{`Next check ${clock(heartbeat.nextRunAt)}`}</Text>
+            ) : null}
             {chat?.resumeTurn && !run && (
               <PillButton
                 title="Continue interrupted turn"

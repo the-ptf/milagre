@@ -43,3 +43,18 @@ test("summaries compare by what they say", () => {
   assert.ok(!sameSummary({ count: 1 }, { count: 2 }));
   assert.ok(!sameSummary({ count: 1, pullRequests: ["1"] }, { count: 1, pullRequests: ["2"] }));
 });
+
+test("a Chat that started from a Linear issue names the issue, so a comment on it can find the Chat", () => {
+  const card = message(3, {
+    role: "user",
+    body: "Look at ENG-12",
+    context: { kind: "linear-issue", key: "ENG-12", title: "T", url: "u", state: { name: "Todo", type: "unstarted", color: "#aaa" }, workspace: "acme" },
+  });
+  const summary = summarizeChat([card, message(4, { role: "assistant", body: "On it." })]);
+  assert.equal(summary.linearIssue, "ENG-12");
+  assert.equal(summary.linearWorkspace, "acme");
+  // Only the first message counts: a card further down is a different matter.
+  const later = summarizeChat([message(1, { role: "user", body: "hi" }), card]);
+  assert.equal(later.linearIssue, undefined);
+  assert.equal(sameSummary(summary, summarizeChat([card, message(4, { role: "assistant", body: "On it." })])), true);
+});

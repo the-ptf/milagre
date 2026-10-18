@@ -31,6 +31,7 @@ import {
   Link04Icon,
   MoreVerticalIcon,
   PencilEdit02Icon,
+  RepeatIcon,
   Search01Icon,
   Settings01Icon,
   SidebarLeft01Icon,
@@ -57,7 +58,17 @@ import { SidebarLinksProvider, useSidebarLinks, type LinkListHandle, type LinkSc
 import { updateSettings, useSettings } from "../lib/settings";
 import { UpdateSettingsBadge } from "./UpdateNotice";
 import { RECENT_PROJECTS_CHANGED } from "../lib/project-list";
-import { cachedProjectCopy, railLive, rememberScopeRows, scopeChats, useScopeStates } from "../lib/sidebar-scopes";
+import { useRoutines } from "../lib/routines";
+import {
+  cachedProjectCopy,
+  heartbeatKeys,
+  heartbeatLines,
+  railLive,
+  rememberScopeRows,
+  scopeChats,
+  useScopeStates,
+  withHeartbeats,
+} from "../lib/sidebar-scopes";
 import { ScopeRail, type RailScope } from "./sidebar/ScopeRail";
 import { bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 
@@ -128,6 +139,9 @@ type SidebarNavProps = {
   onOpenSettings?: () => void;
   onOpenCanvas?: () => void;
   canvasActive?: boolean;
+  /** Opens the Routines page; its button sits between Search and Filters. */
+  onOpenRoutines?: () => void;
+  routinesActive?: boolean;
   onOpenCommands?: () => void;
   hintsEnabled?: boolean;
   /** The project folder, for the project menu's reveal and copy path. */
@@ -494,6 +508,8 @@ export default memo(function SidebarNav({
   onOpenSettings,
   onOpenCanvas,
   canvasActive = false,
+  onOpenRoutines,
+  routinesActive = false,
   onOpenCommands,
   hintsEnabled = true,
   projectPath,
@@ -656,6 +672,20 @@ export default memo(function SidebarNav({
     }),
     [runningKeys, waitingKeys, askingKeys],
   );
+  // Chats an enabled heartbeat checks back on carry a pulse. The sidebar listens to Routines itself, so a Routine change
+  // re-renders it alone, not the App and its open Chat.
+  const { routines } = useRoutines();
+  const beatKeys = useMemo(() => heartbeatKeys(routines), [routines]);
+  const beats = useMemo(() => heartbeatLines(beatKeys), [beatKeys]);
+  // Per scope, the marked rows last built: the same rows and heartbeats give the same list, so ChatRow's memo holds.
+  const markedRows = useRef(new Map<string, { rows: SidebarRecent[]; keys: string; marked: SidebarRecent[] }>());
+  const withBeats = (scopeKey: string, rows: SidebarRecent[]) => {
+    const hit = markedRows.current.get(scopeKey);
+    if (hit && hit.rows === rows && hit.keys === beatKeys) return hit.marked;
+    const marked = withHeartbeats(scopeKey, rows, beats);
+    markedRows.current.set(scopeKey, { rows, keys: beatKeys, marked });
+    return marked;
+  };
   // Another Project's or Link's chats can be pinned from here; the row menu's other actions stay with the open one.
   // One object per scope, so its rows keep their memo.
   const scopeActions = useRef(new Map<string, ChatRowActions>());
@@ -692,7 +722,7 @@ export default memo(function SidebarNav({
         const current = scope.key === currentKey;
         // The Project just left has no read of its own yet; the copy it was shown from fills in until one arrives.
         const state = scopeStates[scope.key] ?? (scope.link ? undefined : cachedProjectCopy(scope.key)?.state);
-        const rows = current ? recents : state ? scopeChats(scope.key, state, chatOrder, marks) : [];
+        const rows = withBeats(scope.key, current ? recents : state ? scopeChats(scope.key, state, chatOrder, marks) : []);
         const list = current
           ? {
               isActive: (item: SidebarRecent) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle),
@@ -976,7 +1006,7 @@ export default memo(function SidebarNav({
       >
         <div className="flex min-h-0 w-full shrink-0 flex-col">
           <ScrollArea className="sidebar-scroll flex-1 overflow-x-hidden pt-2">
-            {/* Canvas, Search and Filters in one row; collapsed, a column on the rail. */}
+            {/* Canvas, Search, Routines and Filters in one row; collapsed, a column on the rail. */}
             <div data-sidebar-tools className={`mb-3 flex gap-1 ${collapsed ? "mx-auto w-8 flex-col items-center" : "mx-2 w-[calc(100%-16px)] items-center"}`}>
               {onOpenCanvas && (
                 <Tooltip label="Canvas" side="bottom" className={collapsed ? "" : "min-w-0 flex-1"}>
@@ -1008,6 +1038,20 @@ export default memo(function SidebarNav({
                   >
                     <IconMagnifyingGlass size={16} />
                     {!collapsed && <span className="sidebar-copy min-w-0 truncate">Search</span>}
+                  </button>
+                </Tooltip>
+              )}
+              {onOpenRoutines && (
+                <Tooltip label="Routines" side="bottom">
+                  <button
+                    type="button"
+                    aria-label="Routines"
+                    aria-pressed={routinesActive}
+                    data-sidebar-routines
+                    onClick={onOpenRoutines}
+                    className={`${TOOL_BUTTON} size-8 shrink-0 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
+                  >
+                    <HugeIcon icon={RepeatIcon} size={16} />
                   </button>
                 </Tooltip>
               )}

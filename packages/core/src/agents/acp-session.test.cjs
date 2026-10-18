@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { AcpRpc } = require("./acp-rpc.cjs");
 const { AcpSession } = require("./acp-session.cjs");
-const { acpDiff } = require("./acp-events.cjs");
+const { acpDiff, acpStepResult } = require("./acp-events.cjs");
 const { antigravityAcp, antigravityEnv, crashDetail } = require("./antigravity-acp.cjs");
 const { MILAGRE_INSTRUCTIONS, RESUME_FAILED_MESSAGE, crashMessage, failedWith, isTerminal, loginMessage, missingCliMessage } = require("./events.cjs");
 const { waitUntil } = require("./test-helpers.cjs");
@@ -577,4 +577,20 @@ test("a failing mcpExtras still starts the agent and is logged once", async (t) 
   assert.ok(events.some((event) => event.type === "turn-completed"));
   assert.equal(warn.mock.callCount(), 1);
   assert.match(String(warn.mock.calls[0].arguments.join(" ")), /boom/);
+});
+
+test("an ACP heartbeat_create result names its Heartbeat on the step and leaves the JSON line out of the detail", () => {
+  const call = {
+    toolCallId: "hb",
+    kind: "other",
+    status: "completed",
+    title: "milagre_heartbeat_create",
+    _meta: { mcp: { server: "milagre", tool: "heartbeat_create" }, is_mcp_tool_call: true },
+    content: [{ type: "content", content: { type: "text", text: '{"routine":{"id":"r1","name":"Babysit"}}\nHeartbeat set: every 15 min.' } }],
+  };
+  assert.deepEqual(acpStepResult(call), { id: "hb", status: "done", routine: { id: "r1", name: "Babysit" }, detail: "Heartbeat set: every 15 min." });
+  // Another tool's JSON first line stays as it is.
+  const other = { ...call, title: "milagre_routine_list", _meta: { mcp: { server: "milagre", tool: "routine_list" }, is_mcp_tool_call: true } };
+  assert.equal(acpStepResult(other).routine, undefined);
+  assert.match(acpStepResult(other).detail, /^\{"routine"/);
 });

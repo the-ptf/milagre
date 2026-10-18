@@ -12,6 +12,10 @@ import type {
   LinkSendRequest,
   TranscriptState,
   ChatMessage,
+  Routine,
+  RoutineRun,
+  RoutineTarget,
+  RoutineTrigger,
 } from "@milagre/shared/model";
 import type { Result } from "@milagre/shared/result";
 import type { StatePatch } from "@milagre/shared/state-patch";
@@ -57,6 +61,44 @@ import type {
 
 import type { WorktreeStatus } from "./lib/archive";
 import type { PullRequest } from "./model";
+
+/**
+ * What `updateRoutine` may change. `null` drops `maxRuns` or `expiresAt` (a heartbeat keeps at least one), and the provider,
+ * model or permission mode. A `trigger` or `target` replaces the stored one whole and keeps its kind.
+ */
+export type RoutineUpdate = Partial<Pick<Routine, "name" | "prompt" | "enabled">> & {
+  cron?: string;
+  timezone?: string;
+  maxRuns?: number | null;
+  expiresAt?: number | null;
+  provider?: ModelProvider | null;
+  model?: string | null;
+  permissionMode?: string | null;
+  trigger?: RoutineTrigger;
+  target?: RoutineTarget;
+  /** Webhook Routines: a new HMAC secret (write-only, never read back) and the header the signature comes in (null or blank: the default). */
+  signingSecret?: string;
+  signingHeader?: string | null;
+};
+
+/** A Routine the user makes in the Routines form. It is always theirs (`createdBy` is set by the Mac). */
+export type RoutineCreate = Pick<Routine, "name" | "prompt" | "trigger" | "target"> &
+  Partial<Pick<Routine, "provider" | "model" | "permissionMode" | "maxRuns" | "expiresAt">> & {
+    /** Webhook Routines: the HMAC secret, write-only (signs the Routine), and the header the signature comes in. */
+    signingSecret?: string;
+    signingHeader?: string;
+  };
+
+/** The Routines form's Linear choices. `error` says why a read failed. */
+export type RoutineLinearOptions = {
+  workspaces: Array<{ id: string; name: string }>;
+  teams: Array<{ key: string; name: string }>;
+  labels: string[];
+  states: Array<{ name: string; type: string }>;
+  error?: string;
+};
+/** Where a Routine can run: each Project Milagre lists, with up to 50 of its unarchived Chats, newest first. */
+export type RoutineTargets = { projects: Array<{ path: string; name: string; chats: Array<{ chatId: string; title: string; lastAt: number }> }> };
 
 /** Which patterns apply to new worktrees, and the files they match in the main checkout. */
 export type FilesToCopy = { source: "worktreeinclude" | "setting" | "default"; worktreeInclude: string | null; matches: string[] };
@@ -272,6 +314,24 @@ export type MilagreBridge = {
   /** Settings › Accounts: after a usage limit, move the Chat's Project to the next ready account and continue by itself. */
   readLimitAutoSwitch: () => Promise<{ autoSwitch: boolean }>;
   saveLimitAutoSwitch: (value: boolean) => Promise<{ autoSwitch: boolean }>;
+  /** Experimental: agents set heartbeats that send a prompt back into their Chat on a schedule. Off by default. */
+  readRoutinesEnabled: () => Promise<{ enabled: boolean }>;
+  saveRoutinesEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
+  /** This Mac's routines that haven't ended, newest first, each with its latest Runs first. */
+  listRoutines: () => Promise<{ routines: Array<Routine & { runs: RoutineRun[] }> }>;
+  updateRoutine: (id: string, patch: RoutineUpdate) => Promise<Routine>;
+  deleteRoutine: (id: string) => Promise<{ removed: boolean }>;
+  runRoutineNow: (id: string) => Promise<RoutineRun | undefined>;
+  /** `hookUrl` comes with a webhook Routine (a later update). */
+  createRoutine: (input: RoutineCreate) => Promise<{ routine: Routine; hookUrl?: string }>;
+  routineTargets: () => Promise<RoutineTargets>;
+  /** The Routines form's Linear choices: labels and states are the named team's. `error` says why a read failed. */
+  routineLinearOptions: (args?: { workspace?: string; team?: string }) => Promise<RoutineLinearOptions>;
+  /** A webhook Routine's URL (on the relay), whether it checks an HMAC, and the header that carries it. */
+  routineHook: (id: string) => Promise<{ url: string; signed: boolean; signingHeader: string }>;
+  /** A new URL for a webhook Routine; the old one stops at once. Signing stays as it was. */
+  rotateRoutineHook: (id: string) => Promise<{ url: string }>;
+  onRoutinesChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   saveLinearEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
   onLinearStatusChanged: (callback: (status: LinearStatus) => void) => () => void;
   mcp: {

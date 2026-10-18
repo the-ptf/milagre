@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ChatStep } from "../model";
-import { activitySummary, replyActivity, replyParts, titleSpans, unspokenThought } from "./reply-parts.ts";
+import { activitySummary, isHeartbeatCard, replyActivity, replyParts, titleSpans, unspokenThought } from "./reply-parts.ts";
 
 const step = (id: string, offset?: number): ChatStep => ({
   id,
@@ -83,13 +83,21 @@ test("a reply's last text is its answer; everything before it is activity, in or
     ],
     images: [],
     artifacts: [],
+    heartbeats: [],
     answer: "\n\nDone.",
   });
 });
 
 test("a reply without steps is all answer; steps alone are all activity", () => {
-  assert.deepEqual(replyActivity("Hello"), { setup: [], activity: [], images: [], artifacts: [], answer: "Hello" });
-  assert.deepEqual(replyActivity("", [step("a", 0)]), { setup: [], activity: [{ type: "step", step: step("a", 0) }], images: [], artifacts: [], answer: "" });
+  assert.deepEqual(replyActivity("Hello"), { setup: [], activity: [], images: [], artifacts: [], heartbeats: [], answer: "Hello" });
+  assert.deepEqual(replyActivity("", [step("a", 0)]), {
+    setup: [],
+    activity: [{ type: "step", step: step("a", 0) }],
+    images: [],
+    artifacts: [],
+    heartbeats: [],
+    answer: "",
+  });
 });
 
 test("text before steps that end the reply is still its answer", () => {
@@ -98,6 +106,7 @@ test("text before steps that end the reply is still its answer", () => {
     activity: [{ type: "step", step: step("a", 15) }],
     images: [],
     artifacts: [],
+    heartbeats: [],
     answer: "Running it now.",
   });
 });
@@ -168,11 +177,12 @@ test("the worktree setup is pulled out of the activity and left out of its summa
     ],
     images: [],
     artifacts: [],
+    heartbeats: [],
     answer: "Done.",
   });
   assert.deepEqual(activitySummary(steps), { text: "Thought for 4s · ran 1 command", failed: 0 });
   assert.deepEqual(activitySummary([setupStep("failed")]), { text: "", failed: 0 });
-  assert.deepEqual(replyActivity("", [setupStep()]), { setup: [setupStep()], activity: [], images: [], artifacts: [], answer: "" });
+  assert.deepEqual(replyActivity("", [setupStep()]), { setup: [setupStep()], activity: [], images: [], artifacts: [], heartbeats: [], answer: "" });
 });
 
 test("replyActivity: generated images come back apart from the activity", () => {
@@ -182,4 +192,23 @@ test("replyActivity: generated images come back apart from the activity", () => 
   assert.deepEqual(images, [image]);
   assert.deepEqual(activity, [{ type: "step", step: read }]);
   assert.equal(answer, "Done. Here it is.");
+});
+
+test("a heartbeat_create step that set a Heartbeat comes out of the activity as its own card", () => {
+  const beat: ChatStep = { ...step("hb", 0), kind: "other", title: "Set Heartbeat", routine: { id: "r1", name: "Babysit PR #473" } };
+  const reply = replyActivity("Opened #473. I'll check back.", [step("a", 0), beat]);
+  assert.deepEqual(reply.heartbeats, [beat]);
+  assert.deepEqual(reply.activity, [{ type: "step", step: step("a", 0) }]);
+  assert.equal(isHeartbeatCard(beat), true);
+  assert.equal(isHeartbeatCard(step("a", 0)), false);
+});
+
+test("only a finished heartbeat_create step is a card; a running or failed one stays in the activity", () => {
+  for (const status of ["running", "failed"] as const) {
+    const beat: ChatStep = { ...step("hb", 0), kind: "other", status, routine: { id: "r1", name: "Babysit" } };
+    assert.equal(isHeartbeatCard(beat), false);
+    const reply = replyActivity("Done.", [beat]);
+    assert.deepEqual(reply.heartbeats, []);
+    assert.deepEqual(reply.activity, [{ type: "step", step: beat }]);
+  }
 });

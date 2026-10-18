@@ -61,6 +61,8 @@ const MANIFEST = {
   "test-find-in-chat.cjs": { platforms: ["darwin"], reason: "presses Meta+G, the Mac-only find-next shortcut, #237" },
   "test-prompt-skills.cjs": { platforms: ["darwin"], reason: "skill tooltip never shows on hover under xvfb, #238" },
   "test-sidebar-resize.cjs": { platforms: ["darwin"], reason: "reads the width mid-transition on Linux, #239" },
+  // The Routines page, form and Chat surfaces on a Vite fixture (no build); about 6s on a Mac, so a Linux runner guess.
+  "test-routines.cjs": { seconds: 9 },
   "test-sidebar-usage.cjs": { platforms: ["darwin"], reason: "usage card text differs on Linux, #254" },
 };
 

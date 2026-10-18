@@ -24,6 +24,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, GitBranchIcon, GitForkIcon, GitPullRequestIcon, LaptopIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { LinearLogo } from "./ProviderLogo";
 import type { LinearIssue } from "@milagre/shared/linear";
+import type { RoutineRunContext } from "@milagre/shared/model";
 import type {
   AgentCliStatus,
   EffortLevel,
@@ -41,6 +42,8 @@ import { Attachments } from "./Attachments";
 import type { ImageDraft } from "./usePastedImages";
 import { PromptComposer } from "./PromptComposer";
 import { QueuedMessages } from "./QueuedMessages";
+import { HeartbeatCard } from "./routines/HeartbeatCard";
+import { NextCheck } from "./routines/NextCheck";
 import type { QueueControls } from "./QueuedMessages";
 import { PickerPanel, PickerRow } from "./primitives/Picker";
 import { LinearIssuePicker } from "./LinearIssuePicker";
@@ -55,6 +58,8 @@ import { WorktreeLinkDivider } from "./WorktreeLinkDivider";
 import { AccountSwitchDivider } from "./AccountSwitchDivider";
 import { ChatReloadDivider } from "./ChatReloadDivider";
 import { isChatReload } from "@milagre/shared/chat-reload";
+import { groupQuietRuns, isRoutineRun, routineRunOf } from "@milagre/shared/routines";
+import { RoutineRunDivider } from "./RoutineRunDivider";
 import { CompactionDivider } from "./CompactionDivider";
 import { CheckpointRestoreDivider } from "./CheckpointRestoreDivider";
 import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
@@ -123,7 +128,7 @@ function ReplyContent({
   asking?: boolean;
   waitingStepIds: string[];
 }) {
-  const { setup, activity, images, artifacts, answer } = replyActivity(body, steps);
+  const { setup, activity, images, artifacts, heartbeats, answer } = replyActivity(body, steps);
   const thought = !streaming || asking ? unspokenThought(body, steps) : "";
   return (
     <>
@@ -135,6 +140,9 @@ function ReplyContent({
         <GeneratedImage key={step.id} step={step} />
       ))}
       <ArtifactCards steps={artifacts} />
+      {heartbeats.map((step) => (
+        <HeartbeatCard key={step.id} step={step} />
+      ))}
       {answer.trim() && <div data-slot="message-content">{streaming ? <StreamingMarkdown text={answer} /> : <Markdown text={answer} />}</div>}
       {thought && (
         <div data-slot="message-thought" className="text-ink-2">
@@ -160,6 +168,7 @@ const MessageSection = memo(function MessageSection({
   limitInteractive = false,
   onOpenAccounts,
   models,
+  merged,
   undoId,
   undoLatest = false,
   undoDisabled = false,
@@ -168,6 +177,8 @@ const MessageSection = memo(function MessageSection({
   onCheckpointPreview,
 }: {
   message: AppChatMessage;
+  /** Quiet heartbeats folded into this one: how many, and the last. */
+  merged?: { count: number; last: RoutineRunContext };
   isUser: boolean;
   models: ModelOption[];
   /** The checkpoint of the task this message started, when it changed files: the hover button opens its preview. */
@@ -204,6 +215,7 @@ const MessageSection = memo(function MessageSection({
   if (isCompaction(message)) return <CompactionDivider context={message.context} />;
   if (isAccountSwitch(message)) return <AccountSwitchDivider context={message.context} />;
   if (isChatReload(message)) return <ChatReloadDivider />;
+  if (isRoutineRun(message)) return <RoutineRunDivider context={message.context} merged={merged} />;
   if (isCheckpointRestore(message)) return <CheckpointRestoreDivider context={message.context} onPreview={onCheckpointPreview} />;
   const linked = linkedContext(message);
   const advisor = typeof message.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
@@ -461,10 +473,12 @@ const MessageTranscript = memo(function MessageTranscript({
     isSending && (streamingText || streamingSteps?.length)
       ? { id: -1, session_id: messages.at(-1)?.session_id ?? -1, body: streamingText ?? "", context: null, role: "assistant", steps: streamingSteps }
       : undefined;
-  const transcript = messages.slice(start);
+  // Quiet heartbeats fold away; grouped over the whole Chat so a page boundary doesn't strand a hidden reply.
+  const grouped = useMemo(() => groupQuietRuns(messages), [messages]);
+  const transcript = grouped.slice(start).filter((entry) => !entry.hidden);
   if (streamingMessage) {
-    const pendingIndex = transcript.findIndex((message) => message.id === pendingMessageId);
-    transcript.splice(pendingIndex < 0 ? transcript.length : pendingIndex, 0, streamingMessage);
+    const pendingIndex = transcript.findIndex((entry) => entry.message.id === pendingMessageId);
+    transcript.splice(pendingIndex < 0 ? transcript.length : pendingIndex, 0, { message: streamingMessage });
   }
 
   const openingIds = openingMessages.current.ids;
@@ -488,32 +502,39 @@ const MessageTranscript = memo(function MessageTranscript({
           {historyLoading ? "Loading earlier messages..." : `Show earlier messages (${start + remote})`}
         </button>
       )}
-      {transcript.map((message) => (
-        <MessageSection
-          key={message.clientMessageId ?? message.id}
-          message={message}
-          isUser={message.role === "user"}
-          onRecommendationSelect={onRecommendationSelect}
-          onUpdateCli={onUpdateCli}
-          updatingCli={updatingCli}
-          cliStatus={cliStatus}
-          streaming={message === streamingMessage}
-          asking={message === streamingMessage && asking}
-          waitingStepIds={message === streamingMessage ? waitingStepIds : undefined}
-          animate={!message.clientMessageId && !openingIds.has(message.id)}
-          onOpenChat={onOpenLinkedChat}
-          limitInteractive={message.id === limitMessageId}
-          onOpenAccounts={onOpenAccounts}
-          models={models}
-          // Only the messages that show undo get its props: a send or turn end leaves the rest memoized.
-          undoId={message.role === "user" ? undoable?.get(message.id)?.id : undefined}
-          undoLatest={message.role === "user" && undoable?.get(message.id)?.latest}
-          undoDisabled={message.role === "user" && undoable?.has(message.id) && undoBlocked}
-          onUndo={message.role === "user" && undoable?.has(message.id) ? onUndo : undefined}
-          highlighted={message.id === highlightId}
-          onCheckpointPreview={isCheckpointRestore(message) && !undoBlocked ? onCheckpointPreview : undefined}
-        />
-      ))}
+      {transcript.map(({ message, merged }) => {
+        // A Linear Run's first message is its issue card carrying the Run: the divider comes first, then the card.
+        const issueRun = isRoutineRun(message) ? null : routineRunOf(message);
+        return (
+          <Fragment key={message.clientMessageId ?? message.id}>
+            {issueRun ? <RoutineRunDivider context={issueRun} merged={merged} /> : null}
+            <MessageSection
+              message={message}
+              merged={merged}
+              isUser={message.role === "user"}
+              onRecommendationSelect={onRecommendationSelect}
+              onUpdateCli={onUpdateCli}
+              updatingCli={updatingCli}
+              cliStatus={cliStatus}
+              streaming={message === streamingMessage}
+              asking={message === streamingMessage && asking}
+              waitingStepIds={message === streamingMessage ? waitingStepIds : undefined}
+              animate={!message.clientMessageId && !openingIds.has(message.id)}
+              onOpenChat={onOpenLinkedChat}
+              limitInteractive={message.id === limitMessageId}
+              onOpenAccounts={onOpenAccounts}
+              models={models}
+              // Only the messages that show undo get its props: a send or turn end leaves the rest memoized.
+              undoId={message.role === "user" ? undoable?.get(message.id)?.id : undefined}
+              undoLatest={message.role === "user" && undoable?.get(message.id)?.latest}
+              undoDisabled={message.role === "user" && undoable?.has(message.id) && undoBlocked}
+              onUndo={message.role === "user" && undoable?.has(message.id) ? onUndo : undefined}
+              highlighted={message.id === highlightId}
+              onCheckpointPreview={isCheckpointRestore(message) && !undoBlocked ? onCheckpointPreview : undefined}
+            />
+          </Fragment>
+        );
+      })}
     </>
   );
 });
@@ -1123,6 +1144,7 @@ export function ChatComposer({
                     />
                   </div>
                 )}
+                {runtimeChat && !isSending && <NextCheck chatKey={runtimeChat} />}
                 {resume && !isSending && (
                   <div data-resume-bar className="flex w-full items-center gap-3 rounded-control border border-line px-3 py-2 text-[12px] text-ink-2">
                     <span className="min-w-0 flex-1">Milagre closed while this chat was working.</span>

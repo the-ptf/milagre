@@ -963,6 +963,92 @@ test("a quit saves each running chat to resume, and its cancelled turn says so",
   assert.equal(saved.get(BETA).sessions[idle.sessionId].resumeTurn, undefined);
 });
 
+test("a quit saves no resume for a Routine's turn, which the scheduler owns; a user's turn still resumes", async (t) => {
+  const { host, manager, saved, session } = harness();
+  t.after(() => manager.closeAll());
+  const context = { kind: "routine-run", routineId: "r1", runId: "run-1", name: "Babysit", at: NOW };
+  const beat = await host.send(message(ALPHA, "Check CI", { context }));
+  const user = await host.send(message(BETA, "fix the api"));
+  await waitUntil(() => session(ALPHA) && session(BETA));
+  for (const cwd of [ALPHA, BETA]) session(cwd).emit({ type: "turn-started", turnId: "t1" });
+  await host.suspendRunning();
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[beat.sessionId].resumeTurn, undefined);
+  assert.equal(saved.get(BETA).sessions[user.sessionId].resumeTurn.prompt, "fix the api");
+});
+
+test("a Linear Run's first message, the issue card carrying its Routine, is a Routine's turn too: no resume, no saved mode", async (t) => {
+  const { host, manager, saved, session } = harness();
+  t.after(() => manager.closeAll());
+  const context = {
+    kind: "linear-issue",
+    key: "MIL-1",
+    title: "Paste",
+    url: "u",
+    state: { name: "Todo", type: "unstarted", color: "#aaa" },
+    routine: { routineId: "r1", runId: "run-1", name: "Triage", at: NOW },
+  };
+  const run = await host.send(message(ALPHA, "Look at MIL-1", { context, permissionMode: "full" }));
+  await waitUntil(() => session(ALPHA));
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  await host.suspendRunning();
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[run.sessionId].resumeTurn, undefined);
+  assert.equal(saved.get(ALPHA).sessions[run.sessionId].permissionMode, undefined);
+});
+
+test("the Chat keeps the mode its composer last set, saved with it: a pick, or the mode a person's message carried", async (t) => {
+  const { host, manager, saved, session } = harness();
+  t.after(() => manager.closeAll());
+  const chat = await host.send(message(ALPHA, "fix the api", { permissionMode: "full" }));
+  const chatId = `${ALPHA}#${chat.sessionId}`;
+  await waitUntil(() => session(ALPHA));
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[chat.sessionId].permissionMode, "full");
+
+  await host.notePermissionMode(chatId, "ask");
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[chat.sessionId].permissionMode, "ask");
+  // The turn a quit stops starts again in the mode the Chat has now.
+  assert.equal(host.turnSettings(chatId).permissionMode, "ask");
+  await assert.rejects(host.notePermissionMode(chatId, "yolo"), /Unknown permission mode/);
+  // A Chat that isn't there changes nothing.
+  await host.notePermissionMode(`${ALPHA}#999`, "ask");
+  assert.equal(saved.get(ALPHA).sessions[999], undefined);
+
+  // A Routine's message isn't the composer's: it leaves the saved mode alone.
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => !host.runs[chatId]);
+  const context = { kind: "routine-run", routineId: "r1", runId: "run-1", name: "Babysit", at: NOW };
+  await host.send(message(ALPHA, "Check CI", { sessionId: chat.sessionId, permissionMode: "full", context }));
+  await host.states.flush();
+  assert.equal(saved.get(ALPHA).sessions[chat.sessionId].permissionMode, "ask");
+  // A deleted Chat leaves nothing of its Routine turn behind.
+  assert.equal(host.routineTurns.has(chatId), true);
+  host.forget(chatId);
+  assert.equal(host.routineTurns.has(chatId), false);
+});
+
+test("a mode change saves the mode whatever the live agent says, and reports the agent's error first", async (t) => {
+  const { host, manager } = harness();
+  t.after(() => manager.closeAll());
+  const failing = async () => {
+    throw new Error("agent refused");
+  };
+  const noted = [];
+  host.notePermissionMode = async (chatId, mode) => {
+    noted.push([chatId, mode]);
+    throw new Error("save failed");
+  };
+  await assert.rejects(host.setPermissionMode(`${ALPHA}#1`, "ask", failing), /agent refused/);
+  assert.deepEqual(noted, [[`${ALPHA}#1`, "ask"]]);
+  await assert.rejects(
+    host.setPermissionMode(`${ALPHA}#1`, "ask", async () => {}),
+    /save failed/,
+  );
+});
+
 test("a chat a quit stopped continues once on its saved session when its project opens", async (t) => {
   const { host, manager, states, saved, session } = harness();
   t.after(() => manager.closeAll());

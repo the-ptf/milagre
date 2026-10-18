@@ -109,6 +109,9 @@ export interface ChatSummary {
   openHandoff?: number;
   /** The clientMessageId of the Chat's last few sends, so a window without messages finds the Chat its preview became. */
   clientMessageIds?: string[];
+  /** The Linear issue the Chat's first message is the card of (key and workspace), so a comment on it finds the Chat. */
+  linearIssue?: string;
+  linearWorkspace?: string;
 }
 
 export interface AgentSession {
@@ -158,6 +161,10 @@ export interface AgentSession {
   resumeTurn?: { stoppedAt?: number };
   /** How full the agent's context window was when its last turn ended. */
   contextUsage?: ContextUsage;
+  /** The Routine and Run that started this Chat; set only on a Chat a Run created. */
+  routine?: { routineId: string; runId: string };
+  /** The permission mode the Chat's composer last set (a pick, or a person's message); a heartbeat's beat runs in it. */
+  permissionMode?: PermissionMode;
   /**
    * Messages sent while a turn ran on a provider that can't steer (provider-capabilities `steer`), oldest first. Each
    * starts a turn of its own when the one before it completes; Send now and Remove act on one (chat-host.cjs).
@@ -320,7 +327,11 @@ export type PullRequestBlocker = "conflicts" | "changes-requested" | "checks-fai
 /** A PR-blocker pill the user clicked. Milagre wrote the message and the skill prompt the agent got. */
 export type PullRequestActionContext = { kind: "pr-action"; action: PullRequestBlocker; pr: number; url: string };
 
-/** A Chat started from a Linear issue. Milagre read the issue and wrote the message and prompt; `note` is what the user typed. */
+/**
+ * A Chat started from a Linear issue. Milagre read the issue and wrote the message and prompt; `note` is what the user typed.
+ * A Linear Routine's Run starts the same way, and its first message also carries `routine`: the divider (see
+ * RoutineRunContext, which `routineRunOf` in routines.mjs makes of it) shown with the issue card.
+ */
 export type LinearIssueContext = {
   kind: "linear-issue";
   key: string;
@@ -329,6 +340,7 @@ export type LinearIssueContext = {
   state: { name: string; type: "triage" | "backlog" | "unstarted" | "started" | "completed" | "canceled"; color: string };
   workspace?: string;
   note?: string;
+  routine?: { routineId: string; runId: string; name: string; at: number; quiet?: boolean; summary?: string; label?: string };
 };
 
 /**
@@ -348,6 +360,114 @@ export type WorktreeLinkedContext = {
 
 /** Where the user reloaded the Chat's agent: its process ended, and the next turn resumes the session in a new one. */
 export type ChatReloadContext = { kind: "reload" };
+
+/**
+ * What starts a Routine: the clock, a change in a Linear workspace, or a POST to its webhook URL. A webhook's `hookId` is
+ * the hex sha256 of the secret in the URL, so the Routine never holds the secret itself; `signed` says an HMAC is checked.
+ */
+export type RoutineTrigger =
+  | { kind: "schedule"; cron: string; timezone: string }
+  | { kind: "linear"; workspace: string; event: "assigned" | "label-added" | "state" | "comment"; team?: string; label?: string; state?: string }
+  | { kind: "webhook"; hookId: string; signed: boolean };
+
+/** Where a Routine's Run lands: an existing Chat (a heartbeat), or a new Chat for each Run. */
+export type RoutineTarget = { kind: "chat"; chatId: string } | { kind: "new-chat"; projectPath: string; workspace: "worktree" | "project" };
+
+/** The Linear issue a Run was started for, as it was when the change was seen. */
+export interface LinearIssueSnapshot {
+  id: string;
+  key: string;
+  title: string;
+  description: string;
+  url: string;
+  labels: string[];
+  state: string;
+  /** The state's type and color, for the issue card; absent on a snapshot taken before they were kept. */
+  stateType?: string;
+  stateColor?: string;
+  team: string;
+  assignee?: string;
+  workspace: string;
+}
+
+/** The Linear comment a Run was started for. `createdAt` is epoch milliseconds. */
+export interface LinearCommentSnapshot {
+  id: string;
+  body: string;
+  author: string;
+  createdAt: number;
+}
+
+/** What made a Routine run, kept on its Run. `key` identifies the event so one change never starts two Runs. */
+export type RoutineEvent =
+  | { kind: "schedule" }
+  | { kind: "linear"; key: string; change: "assigned" | "label-added" | "state" | "comment"; issue: LinearIssueSnapshot; comment?: LinearCommentSnapshot }
+  | { kind: "webhook"; key: string; deliveryId: string };
+
+export type RoutineRunStatus = "running" | "acted" | "quiet" | "failed" | "skipped-busy" | "missed";
+
+export interface Routine {
+  id: string;
+  name: string;
+  prompt: string;
+  trigger: RoutineTrigger;
+  target: RoutineTarget;
+  provider?: ModelProvider;
+  model?: string;
+  permissionMode?: string;
+  enabled: boolean;
+  createdBy: { kind: "agent"; chatId: string } | { kind: "user" };
+  maxRuns?: number;
+  expiresAt?: number;
+  nextRunAt?: number | null;
+  lastRunAt?: number;
+  runCount: number;
+  /** Counted Runs in a row that failed; three end a heartbeat and pause a trigger. Re-enabling a paused trigger clears it. */
+  failedStreak?: number;
+  /** Why a trigger was switched off by itself, e.g. "3 failed runs in a row: <last error>". Cleared when it is switched on again. */
+  pausedReason?: string;
+  /** The latest system error about the Routine itself, apart from its Runs (e.g. "Linear sign-in needed"); cleared when it is fixed. */
+  lastError?: string;
+  /** A signed webhook's signature header, lowercased; "sentry-hook-signature" when absent. The signing secret never leaves the Mac. */
+  signingHeader?: string;
+  completedAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface RoutineRun {
+  id: string;
+  routineId: string;
+  scheduledFor?: number;
+  startedAt: number;
+  endedAt?: number;
+  status: RoutineRunStatus;
+  chatId?: string;
+  /** The Worktree this Run's Chat was started in. */
+  worktreeId?: string;
+  /** What started this Run. */
+  event?: RoutineEvent;
+  summary?: string;
+  error?: string;
+  /** An event refused before it ran (a webhook whose signature didn't match); only the newest are kept. */
+  rejected?: boolean;
+}
+
+/**
+ * The divider a Routine's run leaves in its Chat. `quiet` and `summary` are set once the reply is known to be a "(pass)".
+ * `label` is what an acted divider says before the time, "Heartbeat" when it is left out: "Routine · <name>" on a new Chat's
+ * first message, "Linear comment · <author>" on a comment sent into a linked Chat.
+ */
+export type RoutineRunContext = {
+  kind: "routine-run";
+  routineId: string;
+  runId: string;
+  name: string;
+  at: number;
+  label?: string;
+  quiet?: boolean;
+  summary?: string;
+};
 
 /**
  * Undo changes wrote files: `restored` of them went back to how they were before the task (`checkpointId`), `kept` stayed
@@ -375,6 +495,7 @@ export type ChatContext =
   | UsageLimitContext
   | AccountSwitchContext
   | ChatReloadContext
+  | RoutineRunContext
   | CheckpointRestoreContext
   | "handover"
   | null;
@@ -470,6 +591,8 @@ export interface ChatStep {
   tool?: "design_show" | "design_apply" | "artifact_show";
   /** For an artifact step a subagent made, the subagent: the id of the Agent call that started it (Subagent.id). */
   agent?: string;
+  /** For a heartbeat_create step, the Routine it set (the tool result's first line names it), so the card can stop it. */
+  routine?: { id: string; name: string };
 }
 
 export interface ImageAttachment {
@@ -669,12 +792,23 @@ export type AgentEvent =
    * the subagent writing it, if one is. Not saved.
    */
   | { type: "step-draft"; id: string; tool: "design_show" | "design_apply"; offset: number; text: string; done?: boolean; agent?: string }
-  | { type: "step-completed"; id: string; status: "done" | "failed"; title?: string; note?: string; detail?: string; durationMs?: number; file?: string }
+  | {
+      type: "step-completed";
+      id: string;
+      status: "done" | "failed";
+      title?: string;
+      note?: string;
+      detail?: string;
+      durationMs?: number;
+      file?: string;
+      artifact?: ArtifactRef;
+      routine?: { id: string; name: string };
+    }
   | ({ type: "permission-request" } & PermissionRequest)
   | { type: "permission-resolved"; requestId: string; decision: PermissionDecision | "cancelled" }
   | ({ type: "question-request" } & QuestionRequest)
   | { type: "question-resolved"; requestId: string; outcome: QuestionOutcome }
-  | { type: "turn-completed" }
+  | { type: "turn-completed"; quiet?: boolean }
   | { type: "turn-cancelled"; quit?: boolean }
   /** `notice`: a message Milagre wrote (it names the CLI and the fix), shown as it is; otherwise it is the agent's own error. */
   | { type: "turn-failed"; message: string; notice?: boolean; login?: boolean; limit?: UsageLimit };

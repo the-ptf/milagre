@@ -1051,3 +1051,328 @@ test("a reset and a close drop waiting requests, and a replaced request's abort 
   assert.equal(await third.verdict, "dropped");
   assert.deepEqual(phone.pendingDevices(), []);
 });
+
+test("webhooks ride the relay host, and a confined phone never takes them", async (t) => {
+  const dataDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-phone-")));
+  t.after(() => fs.rm(dataDir, { recursive: true, force: true }));
+  const startBridge = async (options) => ({ url: `http://127.0.0.1:${options.port}`, lost: new Promise(() => {}), close: async () => {} });
+  const received = [];
+  const hooks = { ids: () => ["a".repeat(64)], receive: (list) => received.push(list), refused: () => {}, owners: () => ({}) };
+  for (const [extra, expectHooks] of [
+    [{ allowedRoot: "/demo/project" }, false],
+    [{}, true],
+  ]) {
+    const started = [];
+    const startRelay = (options) => {
+      started.push(options);
+      return { status: () => "connecting", close: async () => {}, syncHooks: () => {} };
+    };
+    const phone = createPhone({ dataDir, startBridge, startRelay, lanPort: null, name: () => "Test Mac", hooks, ...extra });
+    await phone.start();
+    await phone.setEnabled(true);
+    await phone.settled();
+    // Phone access on: the host serving phones carries the webhooks too.
+    const own = started.filter((options) => !options.retired && !options.hooksOnly);
+    assert.equal(own.length, 1);
+    assert.equal(own[0].hooks === hooks, expectHooks);
+    started.length = 0;
+    await phone.setEnabled(false);
+    await phone.settled();
+    await phone.syncHooks();
+    // Phone access off: a confined Mac starts nothing; the other keeps a host for webhooks alone.
+    assert.equal(
+      started.some((options) => options.hooksOnly),
+      expectHooks,
+    );
+    await phone.close();
+  }
+});
+
+test("with phone access off the webhooks-only host starts with the first webhook and stops with the last", async (t) => {
+  const dataDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-phone-")));
+  t.after(() => fs.rm(dataDir, { recursive: true, force: true }));
+  let ids = [];
+  const hooks = { ids: () => ids, receive: () => {}, refused: () => {}, owners: () => ({}) };
+  const hosts = [];
+  const startRelay = (options) => {
+    const host = { options, closed: false, syncs: 0, status: () => "online", syncHooks: () => (host.syncs += 1), close: async () => (host.closed = true) };
+    hosts.push(host);
+    return host;
+  };
+  const phone = createPhone({ dataDir, startBridge: async () => assert.fail("no bridge"), startRelay, lanPort: null, name: () => "Test Mac", hooks });
+  t.after(() => phone.close());
+  await phone.start();
+  await phone.settled();
+  assert.equal(hosts.length, 0, "no webhook, no host");
+  ids = ["b".repeat(64)];
+  await phone.syncHooks();
+  assert.equal(hosts.length, 1);
+  assert.equal(hosts[0].options.hooksOnly, true);
+  assert.deepEqual(hosts[0].options.hooks.ids(), ["b".repeat(64)]);
+  ids = ["b".repeat(64), "c".repeat(64)];
+  await phone.syncHooks();
+  assert.equal(hosts.length, 1);
+  assert.ok(hosts[0].syncs >= 1);
+  ids = [];
+  const syncsBefore = hosts[0].syncs;
+  await phone.syncHooks();
+  assert.ok(hosts[0].syncs > syncsBefore, "it tells the relay to let go before it stops");
+  assert.equal(hosts[0].closed, false, "it stays connected until the relay confirms the empty room");
+  hosts[0].options.hooks.drained();
+  await phone.settled();
+  assert.equal(hosts[0].closed, true);
+});
+
+test("removing the last webhook during reconnect waits for the relay to release its URL before closing", async (t) => {
+  const { startLocalRelay: startRelay, until } = require("./relay-test-kit.cjs");
+  const { startRelayHost } = require("./relay-host.cjs");
+  const { WebSocket } = require("ws");
+  const crypto = require("node:crypto");
+  const relay = await startRelay(t);
+  const dataDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-hook-release-")));
+  const secret = "R".repeat(43);
+  const hookId = crypto.createHash("sha256").update(secret).digest("hex");
+  let ids = [hookId];
+  let holdReady = false;
+  let releaseReady;
+  class DelayedReady extends WebSocket {
+    emit(event, ...args) {
+      if (holdReady && event === "message" && !args[1] && JSON.parse(args[0]).t === "ready") {
+        releaseReady = () => {
+          holdReady = false;
+          super.emit(event, ...args);
+        };
+        return true;
+      }
+      return super.emit(event, ...args);
+    }
+  }
+  let host;
+  const phone = createPhone({
+    dataDir,
+    relayUrl: relay.url,
+    lanPort: null,
+    hooks: { ids: () => ids, receive: () => {}, refused: () => {}, owners: () => ({}) },
+    startRelay: (options) => (host = startRelayHost({ ...options, WebSocket: DelayedReady, timing: { backoff: [1], jitter: false } })),
+    startBridge: async () => assert.fail("phone access is off"),
+  });
+  t.after(async () => {
+    await phone.close();
+    await fs.rm(dataDir, { recursive: true, force: true });
+  });
+  await phone.start();
+  await until(() => relay.hooks.directory.owner(hookId), "hook registered");
+  holdReady = true;
+  relay.hostSockets.at(-1).terminate();
+  await until(() => releaseReady, "reconnection paused before ready");
+  ids = [];
+  await phone.syncHooks();
+  assert.notEqual(host.status(), "offline", "the reconnecting host must stay open to release the hook");
+  releaseReady();
+  await until(() => host.status() === "offline", "empty room confirmed and host closed");
+  assert.equal(relay.hooks.directory.owner(hookId), null);
+  const url = `${relay.url.replace(/^ws:/, "http:")}/hook/${secret}`;
+  assert.equal((await relay.postHook(url, "{}")).status, 404);
+});
+
+// A Reset leaves the old room holding deliveries the relay already accepted: the Mac drains it with the old identity.
+const { readDraining } = require("./relay-identity.cjs");
+const DRAIN_HOOKS = { ids: () => ["d".repeat(64)], receive: () => {}, refused: () => {}, owners: () => ({}) };
+const drainHosts = (retired) => retired.filter((host) => typeof host.options.hooks?.drained === "function");
+
+test("a Reset with webhooks and phone access off drains the old room through its own host, then lets the identity go", async (t) => {
+  const { phone, relays, retired, dataDir } = await fixture(t, { phoneOptions: { hooks: DRAIN_HOOKS } });
+  await phone.start();
+  await phone.settled();
+  const webhookHost = relays.find((host) => host.options.hooksOnly);
+  assert.ok(webhookHost, "phone off: the webhooks-only host runs");
+  const old = webhookHost.options.identity;
+  await phone.reset();
+  await phone.settled();
+  const [drain] = drainHosts(retired);
+  assert.ok(drain, "a host drains the old room");
+  assert.equal(drain.options.identity.hostId, old.hostId);
+  assert.equal(drain.options.retired, true);
+  assert.deepEqual(drain.options.hooks.ids(), [], "it registers nothing, so the room lets its hooks go");
+  assert.equal((await readDraining(dataDir, 0)).length, 1);
+  const newHost = relays.filter((host) => host.options.hooksOnly).at(-1);
+  assert.notEqual(newHost.options.identity.hostId, old.hostId, "webhooks go on through the new identity");
+  drain.options.hooks.drained();
+  await waitFor(() => drain.closed);
+  await waitFor(async () => (await readDraining(dataDir, 0)).length === 0);
+});
+
+test("a Reset with webhooks drains the old room with phone access on and no paired phones", async (t) => {
+  const { phone, retired, dataDir } = await fixture(t, { phoneOptions: { hooks: DRAIN_HOOKS } });
+  await phone.setEnabled(true);
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  const drains = drainHosts(retired);
+  assert.equal(drains.length, 1);
+  assert.equal((await readDraining(dataDir, 0)).length, 1);
+});
+
+test("a Reset without webhooks keeps nothing to drain", async (t) => {
+  const { phone, retired, dataDir } = await fixture(t, { phoneOptions: { hooks: { ...DRAIN_HOOKS, ids: () => [] } } });
+  await phone.setEnabled(true);
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  assert.equal(drainHosts(retired).length, 0);
+  assert.deepEqual(await readDraining(dataDir, 0), []);
+});
+
+test("an old room that is both retired (paired phones) and draining gets one host, still held for its phones once drained", async (t) => {
+  const { phone, relays, retired, dataDir } = await fixture(t, { phoneOptions: { hooks: DRAIN_HOOKS } });
+  await phone.setEnabled(true);
+  await phone.settled();
+  await relays.find((host) => !host.options.hooksOnly).options.phones.add("phoneA");
+  await phone.reset();
+  await phone.settled();
+  const open = () => retired.filter((host) => !host.closed);
+  assert.equal(open().length, 1, "one host per old identity");
+  const [host] = open();
+  host.options.hooks.drained();
+  // The finish runs in the phone's queue: once that is through, the drop and whatever it closes are done.
+  await phone.settled();
+  assert.deepEqual(await readDraining(dataDir, 0), []);
+  assert.equal(open().length, 1, "its phones still hear the Mac was reset");
+  await phone.setEnabled(false);
+  await phone.settled();
+  assert.equal(open().length, 0, "phone off and nothing to drain: let go");
+});
+
+test("a drain gives up once the relay can no longer hold anything (25 h)", async (t) => {
+  const clock = { now: 0 };
+  const { phone, retired, create } = await fixture(t, { clock, phoneOptions: { hooks: DRAIN_HOOKS } });
+  await phone.start();
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  assert.equal(drainHosts(retired).length, 1);
+  await phone.close();
+  clock.now = 25 * 3600_000;
+  const later = create();
+  t.after(() => later.close());
+  await later.start();
+  await later.settled();
+  assert.equal(drainHosts(retired).length, 1, "no new drain host after the limit");
+});
+
+test("a drain that gives up also drops its identity, so the old signing key leaves the disk", async (t) => {
+  const clock = { now: 0 };
+  const { phone, retired, create, dataDir } = await fixture(t, { clock, phoneOptions: { hooks: DRAIN_HOOKS } });
+  await phone.start();
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  await phone.close();
+  // A later launch a moment before the 25 h limit: its drain host gives up a few milliseconds in.
+  clock.now = 25 * 3600_000 - 30;
+  const later = create();
+  t.after(() => later.close());
+  await later.start();
+  await later.settled();
+  const host = drainHosts(retired).at(-1);
+  assert.equal(host.closed, false);
+  await waitFor(() => host.closed);
+  await later.settled();
+  assert.deepEqual(await readDraining(dataDir, 0), []);
+});
+
+test("a Reset that lands while another room's drain finishes keeps both rooms still draining", async (t) => {
+  const { phone, retired, dataDir } = await fixture(t, { phoneOptions: { hooks: DRAIN_HOOKS } });
+  await phone.start();
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  const [first, second] = drainHosts(retired);
+  const current = (await readIdentity(dataDir)).hostId;
+  // The drop reads the list, then waits to write it back until a Reset has written it (or, when the Reset can't, a moment).
+  const file = path.join(dataDir, "relay-draining.json");
+  const { readFile, rename } = fs;
+  let held = false;
+  let release;
+  const released = new Promise((resolve) => (release = resolve));
+  t.mock.method(fs, "readFile", async (name, ...args) => {
+    const read = await readFile(name, ...args);
+    if (name === file && !held) {
+      held = true;
+      await released;
+    }
+    return read;
+  });
+  t.mock.method(fs, "rename", async (from, to) => {
+    await rename(from, to);
+    if (to === file && held) release();
+  });
+  first.options.hooks.drained();
+  const resetting = phone.reset();
+  // Queued behind the drop, the Reset never writes while the drop holds the list, so the hold ends on its own.
+  setTimeout(release, 100);
+  await resetting;
+  await phone.settled();
+  assert.deepEqual(
+    (await readDraining(dataDir, 0)).map((entry) => entry.hostId),
+    [second.options.identity.hostId, current],
+  );
+});
+
+test("a drain that finishes as the bridge restarts leaves the room for the next launch to hold, and throws nothing", async (t) => {
+  const { phone, relays, retired, bridges, dataDir } = await fixture(t, { phoneOptions: { hooks: DRAIN_HOOKS } });
+  // A paired phone, then a Reset with phone access off: the old room is both retired and drained by a host of its own.
+  await phone.setEnabled(true);
+  await phone.settled();
+  await relays.find((host) => !host.options.hooksOnly).options.phones.add("phoneA");
+  await phone.setEnabled(false);
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  const [drain] = drainHosts(retired);
+  const old = drain.options.identity.hostId;
+  await phone.setEnabled(true);
+  await phone.settled();
+  assert.equal(phone.status().state, "on");
+  const warnings = t.mock.method(console, "warn", () => {});
+  // The bridge goes as the finish reads which rooms to hold: restartLater clears `live` outside the queue.
+  const retiredFile = path.join(dataDir, "relay-retired.json");
+  const { readFile } = fs;
+  let lost = false;
+  t.mock.method(fs, "readFile", async (name, ...args) => {
+    if (name === retiredFile && !lost) {
+      lost = true;
+      bridges.at(-1).lose();
+    }
+    return readFile(name, ...args);
+  });
+  drain.options.hooks.drained();
+  await waitFor(() => lost && drain.closed);
+  await waitFor(() => phone.status().state === "on" && retired.some((host) => !host.closed && host !== drain && host.options.identity.hostId === old));
+  assert.equal(warnings.mock.callCount(), 0);
+});
+
+test("a drain whose finish fails says so in the log, with the error's message and no key", async (t) => {
+  const { phone, retired, dataDir } = await fixture(t, { phoneOptions: { hooks: DRAIN_HOOKS } });
+  await phone.start();
+  await phone.settled();
+  await phone.reset();
+  await phone.settled();
+  const [drain] = drainHosts(retired);
+  const file = path.join(dataDir, "relay-draining.json");
+  const { rename } = fs;
+  t.mock.method(fs, "rename", async (from, to) => {
+    if (to === file) throw new Error("disk full");
+    return rename(from, to);
+  });
+  const warnings = t.mock.method(console, "warn", () => {});
+  drain.options.hooks.drained();
+  await phone.settled();
+  await waitFor(() => warnings.mock.callCount() === 1);
+  const logged = warnings.mock.calls[0].arguments.join(" ");
+  assert.match(logged, /disk full/);
+  const { hostId, sign } = drain.options.identity;
+  for (const secret of [hostId, b64url(sign.secretKey), b64url(sign.publicKey)]) assert.equal(logged.includes(secret), false);
+});

@@ -23,6 +23,48 @@ const MOVE = "mutation Move($id: String!, $stateId: String!) { issueUpdate(id: $
 // Only work not yet begun moves; started, done and canceled issues keep their status.
 const NOT_STARTED = new Set(["triage", "backlog", "unstarted"]);
 
+// Routines' Linear polling (routines/linear-poller.cjs). Every field is checked against the schema @linear/sdk publishes:
+// Issue.history (IssueHistory.toAssignee.isMe, addedLabels.name, toState.name), IssueFilter.updatedAt and
+// CommentFilter.createdAt (DateComparator.gt/lte, a DateTimeOrDuration), QueryIssuesArgs.sort (IssueSortInput.updatedAt
+// with PaginationSortOrder Ascending), Comment.botActor (ActorBot.type) and Comment.user. Sizes keep each query well under
+// Linear's 10 000-point complexity cap (linear-poller.test.cjs estimates them).
+const ROUTINE_ISSUE_FIELDS =
+  "id identifier title description url state { name type color } team { key } assignee { name } labels(first: 10) { nodes { name } }";
+const HISTORY_FIELDS = "id createdAt toAssignee { isMe } addedLabels { name } toState { name }";
+// Oldest change first, so a poll cut short by its request budget can resume where it stopped.
+const POLL_ISSUES_PAGE = `issues(first: 25, after: $after, sort: [{ updatedAt: { order: Ascending } }], filter: { updatedAt: { gt: $since } }) {
+    nodes { ${ROUTINE_ISSUE_FIELDS} updatedAt history(first: 10) { nodes { ${HISTORY_FIELDS} } pageInfo { hasNextPage endCursor } } }
+    pageInfo { hasNextPage endCursor }
+  }`;
+const POLL_ISSUES = `query PollIssues($since: DateTimeOrDuration!, $after: String) {
+  ${POLL_ISSUES_PAGE}
+}`;
+// A scan resumed on a later poll also reads the issue its page cursor names: an issue edited since then sits elsewhere
+// in the updatedAt order, so the cursor would skip what lies between, and the poller starts that scan over instead.
+const POLL_ISSUES_RESUME = `query PollIssuesResume($since: DateTimeOrDuration!, $after: String!, $anchor: String!) {
+  anchor: issue(id: $anchor) { id updatedAt }
+  ${POLL_ISSUES_PAGE}
+}`;
+// One issue's whole history, when the poll's first page of it wasn't all of it.
+const ISSUE_HISTORY = `query IssueHistory($id: String!, $after: String) {
+  issue(id: $id) { history(first: 50, after: $after) { nodes { ${HISTORY_FIELDS} } pageInfo { hasNextPage endCursor } } }
+}`;
+// Comments have no sort: a window bounded on both sides, read whole before its comments are queued (the poller narrows
+// it when it holds more than the poller buffers).
+const POLL_COMMENTS = `query PollComments($since: DateTimeOrDuration!, $until: DateTimeOrDuration!, $after: String) {
+  comments(first: 50, after: $after, filter: { createdAt: { gt: $since, lte: $until } }) {
+    nodes { id body createdAt botActor { type } user { name displayName } issue { ${ROUTINE_ISSUE_FIELDS} } }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
+// The Routines form's choices: a workspace's teams, and one team's labels (its own and the workspace's, groups left out,
+// as an issue can't carry a group) and workflow states.
+const ROUTINE_TEAMS = "query RoutineTeams { teams(first: 250) { nodes { key name } } }";
+const ROUTINE_TEAM_OPTIONS = `query RoutineTeamOptions($team: String!) {
+  issueLabels(first: 250, filter: { isGroup: { eq: false }, or: [{ team: { key: { eqIgnoreCase: $team } } }, { team: { null: true } }] }) { nodes { name } }
+  teams(first: 1, filter: { key: { eqIgnoreCase: $team } }) { nodes { states(first: 100) { nodes { name type position } } } }
+}`;
+
 function toIssue(node) {
   if (!node || typeof node !== "object") return null;
   return {
@@ -225,12 +267,40 @@ function createLinearIssues({ linear, now = Date.now }) {
     }
   }
 
+  // What the Routines form offers for a Linear trigger: the connected workspaces, the named one's teams (the first
+  // workspace when none is named), and the named team's labels and states. Never throws: a failed read says why in `error`.
+  async function routineOptions({ workspace, team } = {}) {
+    const empty = { workspaces: [], teams: [], labels: [], states: [] };
+    const unready = unavailable();
+    if (unready) return { ...empty, error: unready.error };
+    const connected = linear.workspaces();
+    const result = { ...empty, workspaces: connected.map((item) => ({ id: item.id, name: item.organization?.name ?? item.id })) };
+    const named = typeof workspace === "string" && workspace !== "";
+    const chosen = named ? connected.find((item) => item.id === workspace.toLowerCase()) : connected[0];
+    // A named workspace that isn't connected says so, rather than answer with another workspace's teams.
+    if (!chosen) return { ...result, error: "That Linear workspace isn't connected." };
+    try {
+      const data = await linear.query(chosen.id, ROUTINE_TEAMS);
+      result.teams = (data?.teams?.nodes ?? []).map((node) => ({ key: node.key, name: node.name })).toSorted((a, b) => a.name.localeCompare(b.name));
+      if (typeof team === "string" && team.trim()) {
+        const options = await linear.query(chosen.id, ROUTINE_TEAM_OPTIONS, { team: team.trim() });
+        result.labels = [...new Set((options?.issueLabels?.nodes ?? []).map((node) => node.name))].toSorted((a, b) => a.localeCompare(b));
+        result.states = (options?.teams?.nodes?.[0]?.states?.nodes ?? [])
+          .toSorted((a, b) => a.position - b.position)
+          .map((node) => ({ name: node.name, type: node.type }));
+      }
+      return result;
+    } catch (error) {
+      return { ...result, error: error.message };
+    }
+  }
+
   /** Drops one issue's copy, after it changed in Linear. */
   function forget(key, workspace) {
     cache.delete(`${workspace}:${String(key).toUpperCase()}`);
   }
 
-  return { list, readIssue, worktreeIssues, markStarted, forget };
+  return { list, readIssue, worktreeIssues, markStarted, routineOptions, forget };
 }
 
-module.exports = { createLinearIssues };
+module.exports = { createLinearIssues, isNotFound, POLL_ISSUES, POLL_ISSUES_RESUME, POLL_COMMENTS, ISSUE_HISTORY, ROUTINE_TEAMS, ROUTINE_TEAM_OPTIONS };

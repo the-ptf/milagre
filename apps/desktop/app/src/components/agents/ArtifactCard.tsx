@@ -83,6 +83,11 @@ const Artifacts = createContext<ArtifactsValue>({
   anchors: new Map(),
 });
 
+/** The Chat key of the replies inside the provider (null outside one or for a Chat not saved yet). */
+export function useReplyChatId(): string | null {
+  return useContext(Artifacts).chatId;
+}
+
 /**
  * The comments the host kept for the Chat and the agent's notes on the ones it resolved, by comment id, read again
  * when `moved` (designActivity) changes: the agent resolves comments with a tool call, which the transcript shows as a

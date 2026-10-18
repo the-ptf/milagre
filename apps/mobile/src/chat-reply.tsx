@@ -21,6 +21,7 @@ import { PullRequestActionCard } from "./pr-action-card";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { LinearIssueCard } from "./linear-issue-card";
+import { HeartbeatCard } from "./heartbeat-card";
 import { usageLimitOf } from "@milagre/shared/usage-limit";
 import { UsageLimitCard } from "./usage-limit-card";
 import { useTheme } from "./theme";
@@ -250,8 +251,10 @@ export const ChatReply = memo(function ChatReply({
   const savedMedia = useCallback((path: string) => media(message?.images?.find((image) => image.sourcePath === path)?.path || path), [media, message?.images]);
   const openActivity = () => onActivity(message ? String(message.id) : "run");
   const text = run?.text ?? message?.body ?? "";
-  const steps = run?.steps ?? message?.steps ?? [];
-  const reply = replyActivity(text, steps);
+  const allSteps = run?.steps ?? message?.steps ?? [];
+  // A heartbeat_create step that set a Heartbeat shows as its card, not as one more activity row.
+  const reply = replyActivity(text, allSteps);
+  const heartbeats = reply.heartbeats;
   const waiting = !!(run?.approvals.length || run?.questions.length);
   // Feedback sent from the design sheet or canvas shows as a card, not as the text the agent reads.
   const feedback = message?.role === "user" ? parseDesignFeedback(text) : null;
@@ -260,7 +263,7 @@ export const ChatReply = memo(function ChatReply({
   // And a Chat's first message when it was started from a Linear issue.
   const issue = message?.role === "user" && isLinearIssueContext(message.context) ? message.context : null;
   // What the agent concluded only in thinking, once the turn ends or stops on a question.
-  const thought = !run || run.questions.length ? unspokenThought(text, steps) : "";
+  const thought = !run || run.questions.length ? unspokenThought(text, allSteps) : "";
   const limit = !run && message?.role === "assistant" ? usageLimitOf(message) : null;
   const advisor = typeof message?.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
   // A message another Chat sent (a Delegation, its report, a Negotiation's agreement) carries its sender, never reads as
@@ -365,6 +368,10 @@ export const ChatReply = memo(function ChatReply({
       ))}
       <ArtifactCards steps={reply.artifacts} chatId={chatId} chosen={designChoice} />
       {!!reply.answer.trim() && <Markdown text={reply.answer} streaming={!!run} media={savedMedia} basePath={basePath} />}
+      {/* The reply says what the Heartbeat is for; its card follows. */}
+      {heartbeats.map((step) => (
+        <HeartbeatCard key={step.id} step={step} />
+      ))}
       {!!thought && (
         <View style={{ opacity: 0.75 }}>
           <Markdown text={thought} media={savedMedia} basePath={basePath} />
@@ -377,7 +384,7 @@ export const ChatReply = memo(function ChatReply({
           The turn failed. Review the response before trying again.
         </Text>
       )}
-      {!run && !text && !steps.length && !message?.outcome && <Text style={styles.muted}>No text response</Text>}
+      {!run && !text && !allSteps.length && !message?.outcome && <Text style={styles.muted}>No text response</Text>}
     </View>
   );
 });
