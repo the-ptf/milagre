@@ -186,8 +186,10 @@ test("a stale loss from a replaced transport on the same endpoint does not demot
   await supervisor.check();
   const [stale, current] = state.losts.get(A)!;
   assert.equal(supervisor.current().kind, "lan");
+  assert.ok(stale !== undefined);
   stale();
   assert.equal(supervisor.current().kind, "lan", "the old transport's loss is not the new transport's");
+  assert.ok(current !== undefined);
   current();
   assert.equal(supervisor.current().kind, "primary");
 });
@@ -280,6 +282,7 @@ for (const [demotion, demote] of [
       await settle();
       demote(h);
       assert.equal(h.supervisor.current().kind, "primary");
+      assert.ok(first !== undefined);
       assert.equal(first.open, false);
       release();
       const active = await walking;
@@ -289,6 +292,7 @@ for (const [demotion, demote] of [
       for (const { transport, open } of h.state.transports) {
         if (transport !== (active.kind === "lan" ? active.transport : undefined)) assert.equal(open, false, "only the active transport stays open");
       }
+      assert.ok(h.state.transports[1] !== undefined);
       assert.equal(h.state.transports[1].open, true);
     });
   }

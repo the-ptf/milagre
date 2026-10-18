@@ -65,24 +65,34 @@ export function Questions({
   };
   const inline = variant === "inline";
   const questions = request.questions;
-  const question = questions[Math.min(page, questions.length - 1)];
-  const answerOf = (q: AgentQuestion) => [...(picked[q.id] || []), ...(typed[q.id]?.trim() ? [typed[q.id].trim()] : [])];
+  const question = questions[Math.max(0, Math.min(page, questions.length - 1))];
+  if (!question) return null;
+  const answerOf = (q: AgentQuestion) => {
+    const answer = typed[q.id]?.trim();
+    return [...(picked[q.id] || []), ...(answer ? [answer] : [])];
+  };
   function finish(next: QuestionAnswers, nextTyped = typed) {
-    const answers = Object.fromEntries(questions.map((q) => [q.id, [...(next[q.id] || []), ...(nextTyped[q.id]?.trim() ? [nextTyped[q.id].trim()] : [])]]));
-    const open = questions.findIndex((q) => !answers[q.id].length);
+    const answers = Object.fromEntries(
+      questions.map((q) => {
+        const answer = nextTyped[q.id]?.trim();
+        return [q.id, [...(next[q.id] || []), ...(answer ? [answer] : [])]];
+      }),
+    );
+    const open = questions.findIndex((q) => !answers[q.id]?.length);
     if (open >= 0) {
       setPage(open);
       return;
     }
-    submit(answers, questions.map((q) => `${q.header || q.question}: ${q.secret ? "[hidden answer]" : answers[q.id].join(", ")}`).join("\n"));
+    submit(answers, questions.map((q) => `${q.header || q.question}: ${q.secret ? "[hidden answer]" : (answers[q.id]?.join(", ") ?? "")}`).join("\n"));
   }
   function choose(label: string) {
+    if (!question) return;
     if (question.multiSelect) {
       change({
         picked: {
           ...picked,
           [question.id]: picked[question.id]?.includes(label)
-            ? picked[question.id].filter((value) => value !== label)
+            ? (picked[question.id] ?? []).filter((value) => value !== label)
             : [...(picked[question.id] || []), label],
         },
       });
@@ -99,7 +109,7 @@ export function Questions({
     if (page === questions.length - 1 && !confirmSingle) finish(next, nextTyped);
   }
   function sendTyped() {
-    if (!typed[question.id]?.trim()) return;
+    if (!question || !typed[question.id]?.trim()) return;
     setDirection(1);
     const next = question.multiSelect ? picked : { ...picked, [question.id]: [] };
     change({

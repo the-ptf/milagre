@@ -10,8 +10,10 @@ test("links can open web pages but cannot invoke local commands or read local fi
 
 test("streaming markdown closes open bold while code fences and HTML stay inert", () => {
   const tokens = markdownTokens("A **live answer", true);
+  assert.ok(tokens[1] !== undefined);
   assert.ok(tokens[1].children?.some((token) => token.type === "strong_open"));
   const code = markdownTokens("```sh\nnpm test", true);
+  assert.ok(code[0] !== undefined);
   assert.equal(code[0].type, "fence");
   assert.equal(code[0].content, "npm test");
   assert.ok(!markdownTokens("<script>alert(1)</script>").some((token) => token.type === "html_block"));

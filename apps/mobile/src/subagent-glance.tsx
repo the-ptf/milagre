@@ -322,7 +322,7 @@ export function SubagentDetail({ agent }: { agent: Subagent }) {
   let result: string | undefined;
   for (let index = agent.transcript.length - 1; index >= 0 && result === undefined; index--) {
     const entry = agent.transcript[index];
-    if (entry.kind === "message" && (entry.id === "result" || entry.id === "summary")) result = entry.text;
+    if (entry?.kind === "message" && (entry.id === "result" || entry.id === "summary")) result = entry.text;
   }
   result ??= agent.latestActivity && !PHASES.has(agent.latestActivity) && !running ? agent.latestActivity : undefined;
   const plan = agent.tasks?.length ? agent.tasks : undefined;

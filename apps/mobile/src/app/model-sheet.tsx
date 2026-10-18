@@ -218,13 +218,15 @@ export default function ModelSheet() {
                     label="Thinking effort"
                     valueText={effortCopy(effort).name}
                     onChange={(next) => {
-                      if (levels[next] === "ultra") ultraRumble();
-                      setDraft((current) => ({ ...current, effort: levels[next] }));
+                      const nextEffort = levels[next];
+                      if (!nextEffort) return;
+                      if (nextEffort === "ultra") ultraRumble();
+                      setDraft((current) => ({ ...current, effort: nextEffort }));
                     }}
                   />
                   <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                    <Text style={styles.caption}>{effortCopy(levels[0]).name}</Text>
-                    <Text style={styles.caption}>{effortCopy(levels[levels.length - 1]).name}</Text>
+                    <Text style={styles.caption}>{effortCopy(levels[0] ?? effort).name}</Text>
+                    <Text style={styles.caption}>{effortCopy(levels[levels.length - 1] ?? effort).name}</Text>
                   </View>
                 </>
               )}

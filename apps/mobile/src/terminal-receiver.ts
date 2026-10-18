@@ -31,8 +31,10 @@ export function xtermTheme(theme: TerminalTheme): Record<string, string> {
   const colors = theme.ansi;
   const named: Record<string, string> = {};
   NAMES.forEach((name, index) => {
-    named[name] = colors[index];
-    named[`bright${name[0].toUpperCase()}${name.slice(1)}`] = colors[index + 8];
+    const normal = colors[index];
+    const bright = colors[index + 8];
+    if (normal !== undefined) named[name] = normal;
+    if (bright !== undefined) named[`bright${name.charAt(0).toUpperCase()}${name.slice(1)}`] = bright;
   });
   return {
     ...named,
