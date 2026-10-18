@@ -1,7 +1,7 @@
 import { type ColorValue } from "react-native";
 import { type NativePickerIconName } from "../native-picker-icon";
 
-export type MenuItem = {
+type MenuItem = {
   id: string;
   title: string;
   systemImage?: string;
