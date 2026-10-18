@@ -12,7 +12,9 @@ import { RoutinesPage } from '/src/components/routines/RoutinesPage';
 import { HeartbeatCard } from '/src/components/routines/HeartbeatCard';
 import { NextCheck } from '/src/components/routines/NextCheck';
 import '/src/styles.css';
-const now = Date.now();
+// Keep the two-hour-old Run on the same calendar day, even when CI runs just after midnight.
+const now = new Date(2026, 9, 17, 12, 0, 0).getTime();
+Date.now = () => now;
 const H = 3600000;
 const base = { enabled: true, createdBy: { kind: 'user' }, runCount: 0, createdAt: now - 48 * H, updatedAt: now, runs: [] };
 const routines = [
