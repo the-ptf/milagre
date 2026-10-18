@@ -167,6 +167,31 @@ test("tracker: a cancelled turn announces nothing, now or when its background ag
   assert.equal(tracker.activity("c"), "idle");
 });
 
+test("tracker: a quiet turn (a heartbeat's pass, or one failing again) announces nothing, now or later", () => {
+  const tracker = createActivityTracker();
+  tracker.observe("c", { type: "turn-started" });
+  tracker.observe("c", { type: "text-delta", text: "(pass) nothing new" });
+  const pass = tracker.observe("c", { type: "turn-completed", quiet: true });
+  assert.deepEqual([pass.next, pass.completion], ["idle", null]);
+  tracker.observe("c", { type: "turn-started" });
+  tracker.observe("c", bg("a"));
+  assert.equal(tracker.observe("c", { type: "turn-failed", message: "Out of credits", quiet: true }).completion, null);
+  assert.equal(tracker.observe("c", bg("a", "completed")).completion, null);
+  // The next ordinary turn still announces its end.
+  tracker.observe("c", { type: "turn-started" });
+  assert.equal(tracker.observe("c", { type: "turn-completed" }).completion?.body, "Turn completed.");
+});
+
+test("tracker: a quiet turn that ends while background agents work announces nothing when the last one ends either", () => {
+  const tracker = createActivityTracker();
+  tracker.observe("c", { type: "turn-started" });
+  tracker.observe("c", bg("a"));
+  const end = tracker.observe("c", { type: "turn-completed", quiet: true });
+  assert.deepEqual([end.next, end.completion], ["background", null]);
+  const done = tracker.observe("c", bg("a", "completed"));
+  assert.deepEqual([done.previous, done.next, done.completion], ["background", "idle", null]);
+});
+
 test("tracker: requests make a turn waiting until they are answered or the turn ends", () => {
   const tracker = createActivityTracker();
   tracker.observe("c", { type: "turn-started" });

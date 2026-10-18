@@ -78,10 +78,11 @@ jobs:
             run: npm run typecheck:mobile
           - name: Typecheck relay
             run: npm run typecheck:relay
-          - name: Typecheck site
-            run: npm run typecheck:site
-          - name: Build site
-            run: npm run build:site
+          # Both commands run Astro's checker and share its .vite cache. Concurrent checks can race its deps rename.
+          - name: Check and build site
+            run: |
+              npm run typecheck:site
+              npm run build:site
           - name: Build renderer
             run: npm run build:renderer --workspace milagre
           - name: Verify package signatures

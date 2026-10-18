@@ -142,6 +142,7 @@ const CommandPalette = lazyView(() => import("./components/CommandPalette").then
 const PermissionCard = lazyView(() => import("./components/agents/PermissionCard").then((module) => module.PermissionCard));
 const QuestionCard = lazyView(() => import("./components/agents/QuestionCard").then((module) => module.QuestionCard));
 const CanvasView = lazyView(() => import("./components/CanvasView").then((module) => module.CanvasView));
+const RoutinesPage = lazyView(() => import("./components/routines/RoutinesPage").then((module) => module.RoutinesPage));
 const LAZY_VIEWS = [DiffView, GitActionsDialog, SettingsNav, CommandPalette, MediaLightbox, PermissionCard, QuestionCard];
 
 // The chat with the most recent message, or none so the app opens on a new chat. Archived chats don't count.
@@ -320,7 +321,7 @@ function App() {
     localStorage.setItem(CHAT_MODELS_KEY, JSON.stringify(chatModels.current));
   };
   const selectedCapability = capabilityFor(selectedModel, capabilities);
-  const [view, setView] = useState<"chat" | "canvas" | "settings">("chat");
+  const [view, setView] = useState<"chat" | "canvas" | "settings" | "routines">("chat");
   const [layout, setLayout] = useState<ChatLayout>(() => readChatLayout(localStorage));
   const toggleLayout = () =>
     setLayout((current) => {
@@ -1748,7 +1749,7 @@ function App() {
         setFindOpen(false);
         return;
       }
-      if (view === "settings" || view === "canvas") {
+      if (view === "settings" || view === "canvas" || view === "routines") {
         event.preventDefault();
         setView("chat");
         return;
@@ -1882,6 +1883,14 @@ function App() {
   const openCanvas = useEvent(() => {
     changes.closeDiff();
     setView("canvas");
+  });
+  const openRoutines = useEvent(() => {
+    changes.closeDiff();
+    setView("routines");
+  });
+  const openExperimental = useEvent(() => {
+    setSettingsSection("experimental");
+    setView("settings");
   });
   const openProjectSettings = useEvent((path?: string) => {
     setSettingsProject(path && path !== projectRef.current?.path ? { path, name: projectName(path) } : null);
@@ -2099,6 +2108,14 @@ function App() {
         run: openCanvas,
       },
       {
+        id: "routines",
+        label: "Routines",
+        group: "Actions",
+        icon: "routines",
+        keywords: "heartbeats triggers schedule linear webhook automations",
+        run: openRoutines,
+      },
+      {
         id: "settings",
         label: "Settings",
         group: "Actions",
@@ -2140,7 +2157,8 @@ function App() {
         run: openProjectSettings,
       },
     ];
-    if (view === "settings") commands.push({ id: "back-to-chat", label: "Back to chat", group: "Actions", icon: "chat", run: () => setView("chat") });
+    if (view === "settings" || view === "routines")
+      commands.push({ id: "back-to-chat", label: "Back to chat", group: "Actions", icon: "chat", run: () => setView("chat") });
     commands.push({
       id: "chat-layout",
       label: layout === "grid" ? "Show one Chat" : "Show active Chats as a grid",
@@ -2333,7 +2351,9 @@ function App() {
               if (event.animationName === "app-enter-main") setAppEntered(true);
             }}
           >
-            <div className={`min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3 ${view === "chat" || view === "canvas" ? "flex" : "hidden"}`}>
+            <div
+              className={`min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3 ${view === "chat" || view === "canvas" || view === "routines" ? "flex" : "hidden"}`}
+            >
               <SidebarNav
                 fill
                 workspaceName={project.name}
@@ -2360,6 +2380,8 @@ function App() {
                 onOpenSettings={openSettings}
                 onOpenCanvas={openCanvas}
                 canvasActive={view === "canvas"}
+                onOpenRoutines={openRoutines}
+                routinesActive={view === "routines"}
                 onOpenCommands={openCommandPalette}
                 hintsEnabled={view === "chat" && !commandPaletteOpen && !gitDialog}
                 projectPath={project.path}
@@ -2419,6 +2441,9 @@ function App() {
                     onSectionChange={setSettingsSection}
                   />
                 </div>
+              )}
+              {view === "routines" && (
+                <RoutinesPage models={models} projectPath={project.path} onOpenChat={openLinkedChat} onOpenExperimental={openExperimental} />
               )}
               {view === "canvas" && (
                 <CanvasView

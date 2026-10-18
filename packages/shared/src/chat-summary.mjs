@@ -29,6 +29,12 @@ export function summarizeChat(messages) {
     .slice(-5)
     .map((message) => message.clientMessageId);
   if (sent.length) summary.clientMessageIds = sent;
+  // A Chat started from a Linear issue (by the user, or by a Linear Routine's Run) works on that issue.
+  const card = messages[0]?.context;
+  if (card?.kind === "linear-issue" && typeof card.key === "string") {
+    summary.linearIssue = card.key;
+    if (typeof card.workspace === "string" && card.workspace) summary.linearWorkspace = card.workspace;
+  }
   return summary;
 }
 

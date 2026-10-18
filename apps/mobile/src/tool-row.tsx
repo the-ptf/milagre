@@ -1,5 +1,15 @@
 import { Text } from "react-native";
-import { AiBrainIcon, CommandLineIcon, File01Icon, FileEditIcon, Image01Icon, Search01Icon, Wrench01Icon, PaintBoardIcon } from "@hugeicons/core-free-icons";
+import {
+  AiBrainIcon,
+  CommandLineIcon,
+  File01Icon,
+  FileEditIcon,
+  Image01Icon,
+  Search01Icon,
+  Wrench01Icon,
+  PaintBoardIcon,
+  Pulse01Icon,
+} from "@hugeicons/core-free-icons";
 import type { ChatStep, StepKind } from "@milagre/shared/model";
 import type { IconData } from "./icons";
 import { ActivityItem } from "./activity-item";
@@ -30,7 +40,8 @@ export function ToolRow({ step, live, waiting, onPress }: { step: ChatStep; live
   return (
     <ActivityItem
       title={step.title}
-      icon={icons[step.kind]}
+      // A step that set a Heartbeat (listed in the activity sheet) wears the Heartbeat's pulse.
+      icon={step.routine ? Pulse01Icon : icons[step.kind]}
       state={step.status === "failed" ? "failed" : running ? (waiting ? "waiting" : "running") : "idle"}
       note={[running && waiting ? "Waiting for approval" : "", step.note, pending && !onPress ? "Output appears when the turn finishes." : ""]
         .filter(Boolean)

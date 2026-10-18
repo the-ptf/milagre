@@ -623,6 +623,20 @@ test("a confined phone reads Designs availability but cannot change the host set
   await assert.rejects(confine.checkCall("designs:enabled:save", [false]), { status: 403, message: REFUSED });
 });
 
+// Routines reach every Chat on the Mac: a confined (demo) phone sees them, and changes nothing.
+test("a confined phone reads Routines but can't switch, create, change, delete or run them, or list the owner's Linear choices", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await confine.checkCall("routines:enabled:read", []);
+  await confine.checkCall("routines:list", []);
+  await confine.checkCall("routines:targets", []);
+  await assert.rejects(confine.checkCall("routines:linear-options", [{ workspace: "acme", team: "ENG" }]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:create", [{ name: "Daily", prompt: "Look" }]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:enabled:save", [true]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:update", ["r1", { enabled: false }]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:delete", ["r1"]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:run-now", ["r1"]), { status: 403, message: REFUSED });
+});
+
 test("a confined phone reviews designs but cannot apply edits even in its own Project", async () => {
   const confine = createConfinement({ allowedRoot: os.tmpdir() });
   await assert.rejects(confine.checkCall("artifact:apply", [{ chatId: `${os.tmpdir()}#1`, id: "welcome", expectedVersion: 1, operations: [] }]), {
@@ -743,4 +757,85 @@ test("the Mac-only MCP commands are not phone methods at all", async () => {
     assert.equal(METHODS.has(method), false, method);
     await assert.rejects(confine.checkCall(method, []), { status: 403, message: REFUSED });
   }
+});
+
+// Routines name prompts, Run snapshots (Linear descriptions and comments) and Chats of every Project on the Mac.
+test("a confined phone reads only the Routines and targets of its own Project", async (t) => {
+  const f = await fixture(t);
+  await f.owner.call("routines:enabled:save", [true]);
+  const opened = {};
+  for (const projectPath of [f.demo, f.outside]) {
+    const state = (await f.owner.call("project:open", [projectPath])).state;
+    const worktreeId = Object.values(state.worktrees)[0].id;
+    const sent = await f.owner.call("chat:send", [{ projectPath, worktreeId, body: "hello", provider: "codex", model: "demo", permissionMode: "auto" }]);
+    opened[projectPath] = `${projectPath}#${sent.sessionId}`;
+  }
+  const schedule = { kind: "schedule", cron: "0 8 * * *", timezone: "UTC" };
+  for (const [projectPath, secret] of [
+    [f.demo, "DEMO-PROMPT"],
+    [f.outside, "OUTSIDE-PROMPT"],
+  ]) {
+    await f.owner.call("routines:create", [
+      { name: `Own ${secret}`, prompt: secret, trigger: schedule, target: { kind: "new-chat", projectPath, workspace: "project" } },
+    ]);
+    await f.owner.call("routines:create", [
+      { name: `Beat ${secret}`, prompt: `${secret}-BEAT`, trigger: schedule, target: { kind: "chat", chatId: opened[projectPath] }, maxRuns: 3 },
+    ]);
+  }
+  assert.equal((await f.owner.call("routines:list")).routines.length, 4, "the owner sees every Routine");
+
+  const list = await f.rpc("routines:list");
+  assert.equal(list.status, 200);
+  const listed = JSON.stringify(list.body);
+  assert.ok(listed.includes("DEMO-PROMPT") && listed.includes("DEMO-PROMPT-BEAT"));
+  assert.ok(!listed.includes("OUTSIDE-PROMPT"), "nothing of the other Project's Routines");
+  assert.equal(list.body.result.routines.length, 2);
+
+  const targets = await f.rpc("routines:targets");
+  assert.equal(targets.status, 200);
+  assert.deepEqual(
+    targets.body.result.projects.map((project) => project.path),
+    [f.demo],
+  );
+  assert.ok(!JSON.stringify(targets.body).includes(f.outside));
+});
+
+test("a confined phone never sees a Routine whose Project can't be placed inside its folder", async () => {
+  const root = await fs.realpath(os.tmpdir());
+  const confine = createConfinement({ allowedRoot: root });
+  const inside = { id: "a", prompt: "kept", target: { kind: "new-chat", projectPath: root, workspace: "project" }, runs: [] };
+  const hidden = [
+    { id: "b", prompt: "link", target: { kind: "chat", chatId: "milagre-link:0f8e2c1a-1b2c-4d5e-8f90-123456789abc#2" }, runs: [] },
+    { id: "c", prompt: "gone", target: { kind: "new-chat", projectPath: path.join(root, "no-such-folder-milagre"), workspace: "project" }, runs: [] },
+    { id: "d", prompt: "odd", target: { kind: "chat" }, runs: [] },
+    { id: "e", prompt: "none", runs: [] },
+  ];
+  const result = await confine.filterResult("routines:list", { routines: [inside, ...hidden] });
+  assert.deepEqual(
+    result.routines.map((routine) => routine.id),
+    ["a"],
+  );
+  const targets = await confine.filterResult("routines:targets", {
+    projects: [
+      { path: root, chats: [] },
+      { path: "/elsewhere", chats: [{ title: "x" }] },
+    ],
+  });
+  assert.deepEqual(
+    targets.projects.map((project) => project.path),
+    [root],
+  );
+});
+
+test("a confined phone can neither read a webhook Routine's URL nor rotate it", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await assert.rejects(confine.checkCall("routines:hook", ["r1"]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:rotate-hook", ["r1"]), { status: 403, message: REFUSED });
+});
+
+test("a confined phone's routines:targets reaches the daemon limited to its folder, whatever it sent", async () => {
+  const root = await fs.realpath(os.tmpdir());
+  const confine = createConfinement({ allowedRoot: root });
+  assert.deepEqual(await confine.checkCall("routines:targets", []), { args: [{ within: root }] });
+  assert.deepEqual(await confine.checkCall("routines:targets", [{ within: "/" }]), { args: [{ within: root }] });
 });

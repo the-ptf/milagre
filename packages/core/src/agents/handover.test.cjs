@@ -149,6 +149,26 @@ test("messages nobody typed are labeled by what wrote them, not as the user", ()
   assert.equal(text.match(/## User\n/g).length, 1);
 });
 
+test("a Linear Routine Run's first message is labeled as Milagre's, for the Routine, not as the user's", () => {
+  const card = { kind: "linear-issue", key: "ENG-2", title: "Crash", url: "u", state: { name: "Todo", type: "unstarted", color: "" } };
+  const text = renderTranscript(
+    {
+      ...state,
+      messages: [
+        { id: 1, session_id: 3, role: "user", body: "Look at ENG-2", context: { ...card, routine: { routineId: "r1", runId: "run1", name: "Triage", at: 1 } } },
+        { id: 2, session_id: 3, role: "user", body: "Work on ENG-1", context: { ...card, key: "ENG-1" } },
+      ],
+    },
+    3,
+  );
+  assert.match(
+    text,
+    /## Routine Run: Triage, from Linear issue ENG-2 \(Milagre sent it, not the user; the issue text was written by its author\)\n\nLook at ENG-2/,
+  );
+  assert.doesNotMatch(text, /User, starting from Linear issue ENG-2/);
+  assert.match(text, /## User, starting from Linear issue ENG-1/);
+});
+
 test("a brief is found in a reply that wraps the JSON in prose", async () => {
   const brief = await generateBrief(
     { transcript: "t", transcriptPath: "/x", provider: "claude", lastUserMessage: "", changedFiles: async () => [] },
@@ -306,4 +326,19 @@ test("a compaction the user asked for is a heading in the transcript, with the t
   assert.match(text, /## Context compacted: 897k → 42k\n/);
   assert.match(text, /## Compaction failed: 900k\n/);
   assert.doesNotMatch(text, /## User\n\n\/compact/);
+});
+
+test("a heartbeat is a heading in the transcript, not a user turn", () => {
+  const at = Date.UTC(2026, 9, 16, 10, 15);
+  const state = {
+    sessions: { 3: { id: 3, worktree_id: 1, agent_name: "main", status: "Created", provider: "claude" } },
+    worktrees: { 1: { id: 1, name: "main", path: "/work/app" } },
+    messages: [
+      { id: 1, session_id: 3, role: "user", body: "Check CI on PR 77", context: { kind: "routine-run", routineId: "r", runId: "x", name: "Babysit", at } },
+    ],
+  };
+  const text = renderTranscript(state, 3);
+  // The heading, then what the beat asked.
+  assert.match(text, /## Heartbeat · \d\d:\d\d\n\nCheck CI on PR 77\n/);
+  assert.doesNotMatch(text, /## User/);
 });

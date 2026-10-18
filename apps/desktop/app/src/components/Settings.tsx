@@ -555,6 +555,7 @@ function ExperimentalSettings() {
         >
           <Switch label="Ultracode Fatality" checked={settings.ultracodeFatality} onChange={(ultracodeFatality) => updateSettings({ ultracodeFatality })} />
         </Row>
+        <RoutinesSetting />
       </Group>
     </>
   );
@@ -1653,6 +1654,46 @@ function LimitAutoSwitchSetting() {
         <Switch label="Switch accounts at usage limits" checked={autoSwitch} onChange={(next) => void change(next)} />
       </Row>
     </Group>
+  );
+}
+
+// Settings › Experimental › Routines: Mac-owned (core), so heartbeats keep running while no window is open.
+function RoutinesSetting() {
+  // null until read.
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve()
+      .then(() => window.milagre.readRoutinesEnabled())
+      .then(
+        (value) => live && setEnabled(value?.enabled === true),
+        () => live && setEnabled(false),
+      );
+    return () => {
+      live = false;
+    };
+  }, []);
+  async function change(next: boolean) {
+    setError(null);
+    setEnabled(next);
+    try {
+      setEnabled((await window.milagre.saveRoutinesEnabled(next)).enabled);
+    } catch (failure) {
+      setEnabled(!next);
+      setError(ipcErrorMessage(failure));
+    }
+  }
+  if (enabled === null) return null;
+  return (
+    <Row
+      label="Routines"
+      description={
+        "Let agents set Heartbeats that check back on a Chat on a schedule. Open Chats get it after Reload chat." + (error ? ` Could not save: ${error}` : "")
+      }
+    >
+      <Switch label="Routines" checked={enabled} onChange={(next) => void change(next)} />
+    </Row>
   );
 }
 

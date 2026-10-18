@@ -542,3 +542,16 @@ test("restore re-marks the host when restored conns move the counter past its ma
   const untouched = revive(new Map([[host, { role: "host", next: "5" }]]), [host]);
   assert.equal(untouched.marks.has(host), false, "a mark that is already right is not rewritten");
 });
+
+test("a CLOSE that says host-offline closes the phone as if no Mac were there", () => {
+  const room = createRoom({ id, nonce: randomNonce });
+  const host = connectHost(room);
+  const phone = fakeSocket();
+  const conn = room.phoneOpened(phone);
+  room.hostMessage(host, frame(3, conn, new TextEncoder().encode("host-offline")));
+  assert.deepEqual(phone.closed, { code: 4404, reason: "host-offline" });
+  const other = fakeSocket();
+  const next = room.phoneOpened(other);
+  room.hostMessage(host, frame(3, next, new TextEncoder().encode("anything else")));
+  assert.deepEqual(other.closed, { code: 1000, reason: "closed-by-host" });
+});
