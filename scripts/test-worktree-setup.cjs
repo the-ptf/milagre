@@ -143,7 +143,9 @@ async function browserChecks() {
       await click("Local", { exact: false });
       await click("New worktree", { exact: false });
     }
-    await type('textarea[aria-label="Prompt"]', prompt);
+    await waitFor(`!!document.querySelector('[data-prompt-editor]')`);
+    await evaluate(`document.querySelector('[data-prompt-editor]').focus()`);
+    await window.webContents.insertText(prompt);
     await waitFor(`!document.querySelector('[aria-label="Send"]').disabled`);
     await evaluate(`document.querySelector('[aria-label="Send"]').click()`);
   }
