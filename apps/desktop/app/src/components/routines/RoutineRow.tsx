@@ -216,7 +216,7 @@ export function RoutineRow({
           <span className="grid min-w-0 flex-1 gap-0.5">
             <span className="flex min-w-0 items-center gap-1.5">
               <span className={`truncate text-[13.5px] font-medium ${routine.enabled ? "text-ink" : "text-ink-2"}`}>{routine.name}</span>
-              {unread && <span role="img" aria-label="Unread Run Chat" data-routine-unread className="size-2 shrink-0 rounded-full bg-accent" />}
+              {unread && <span role="img" aria-label="Unread Runs" data-routine-unread className="size-2 shrink-0 rounded-full bg-accent" />}
             </span>
             <span data-routine-meta className="truncate text-[12px] text-ink-3">
               {meta}
