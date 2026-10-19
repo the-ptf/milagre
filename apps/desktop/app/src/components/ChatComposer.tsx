@@ -39,6 +39,14 @@ import type {
 import { FindBar } from "./FindBar";
 import { Notice } from "./Notice";
 import { Attachments } from "./Attachments";
+import { lazyView } from "../lib/lazy-view";
+
+const AttachmentPreview = lazyView(() => import("./AttachmentPreview").then((module) => module.AttachmentPreview));
+import { PromptText } from "./PromptText";
+import { useFilesRoot } from "./editor-links";
+import { useSkills } from "./useSkills";
+import { useScope } from "../lib/computer-bridge";
+import { isMentionOfFile, mentionedFile, mentionedFiles } from "../lib/prompt-mentions";
 import type { ImageDraft } from "./usePastedImages";
 import { PromptComposer } from "./PromptComposer";
 import { QueuedMessages } from "./QueuedMessages";
@@ -100,20 +108,50 @@ function Icon({ icon, size = 16 }: { icon: IconData; size?: number }) {
  * A reply: its activity (thinking, tool steps and the text between them) folded into one block, the images it generated, then its answer.
  * A reply with no answer that ended or stopped to ask shows its last thinking instead, dimmed.
  */
-/** What the user typed, as typed; only closed ``` fences render as code (diff comments send their snippets in them). */
-function UserBody({ body }: { body: string }) {
+const NO_FILES: readonly string[] = [];
+
+/** The skills a sent message names (lowercase name to description) and the attached files it mentions inline as chips. */
+function usePromptMentions(message: AppChatMessage, isUser: boolean) {
+  const root = useFilesRoot() ?? "";
+  const scope = useScope();
+  const files = message.files;
+  const body = message.body;
+  const { skills } = useSkills(scope ?? "", isUser && /(^|\s)\//.test(body));
+  const described = useMemo(() => new Map(skills.map((skill) => [skill.name.toLowerCase(), skill.description])), [skills]);
+  const isFile = useMemo(() => isMentionOfFile(files ?? [], root), [files, root]);
+  const inline = useMemo(() => (isUser && files?.length ? mentionedFiles(body, files, root) : null), [isUser, body, files, root]);
+  return { root, files, described, isFile, inline };
+}
+
+/** What the user typed, as typed, with skills and mentioned files as chips; only closed ``` fences render as code (diff comments send their snippets in them). */
+function UserBody({
+  body,
+  skills,
+  files,
+  root,
+  attached,
+}: {
+  body: string;
+  skills: ReadonlyMap<string, string>;
+  files: (path: string) => boolean;
+  root: string;
+  attached: readonly string[];
+}) {
   const parts = useMemo(() => splitFences(body), [body]);
+  const [opened, setOpened] = useState<string | null>(null);
+  const open = useCallback((path: string) => setOpened(mentionedFile(path, attached, root) ?? null), [attached, root]);
   return (
     <div className="break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
       {parts.map((part, index) =>
         part.kind === "text" ? (
-          <Fragment key={index}>{part.text}</Fragment>
+          <PromptText key={index} text={part.text} skills={skills} files={files} onOpenFile={open} />
         ) : (
           <div key={index} className="whitespace-normal">
             <CodeBlock code={part.code} fence={part.fence || undefined} diff />
           </div>
         ),
       )}
+      {opened && <AttachmentPreview path={opened} name={opened.split("/").at(-1) || opened} close={() => setOpened(null)} />}
     </div>
   );
 }
@@ -213,6 +251,7 @@ const MessageSection = memo(function MessageSection({
   /** Opens Settings > Accounts, from the limit card. */
   onOpenAccounts?: () => void;
 }) {
+  const mentions = usePromptMentions(message, isUser);
   if (isHandoff(message)) return <HandoffDivider context={message.context} models={models} />;
   if (isWorktreeLinked(message)) return <WorktreeLinkDivider context={message.context} />;
   if (isCompaction(message)) return <CompactionDivider context={message.context} />;
@@ -273,7 +312,10 @@ const MessageSection = memo(function MessageSection({
             </Tooltip>
           </div>
         )}
-        <Attachments images={isUser ? message.images : message.images?.filter((image) => !image.sourcePath)} files={message.files} />
+        <Attachments
+          images={isUser ? message.images : message.images?.filter((image) => !image.sourcePath)}
+          files={mentions.inline ? message.files?.filter((file) => !mentions.inline!.has(file)) : message.files}
+        />
         {advisor ? (
           <AdvisorResultCard context={advisor} body={message.body} />
         ) : prAction ? (
@@ -286,7 +328,7 @@ const MessageSection = memo(function MessageSection({
           <AnswerCard answered={answered} />
         ) : isUser ? (
           message.body.trim() ? (
-            <UserBody body={message.body} />
+            <UserBody body={message.body} skills={mentions.described} files={mentions.isFile} root={mentions.root} attached={mentions.files ?? NO_FILES} />
           ) : null
         ) : recommendation ? (
           <>

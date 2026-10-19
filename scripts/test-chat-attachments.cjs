@@ -16,7 +16,8 @@ const state = { next_id: 1, projects: { 1: { id: 1, name: 'Milagre' } }, worktre
 state.worktrees = { 1: { id: 1, name: 'main', path: '/fixture', project_id: 1 } };
 state.sessions = { 3: { id: 3, worktree_id: 1, agent_name: 'Claude', provider: 'claude', status: 'Idle' }, 5: { id: 5, worktree_id: 1, agent_name: 'Other', provider: 'codex', status: 'Idle' } };
 state.messages = [{ id: 4, session_id: 3, role: 'user', body: 'Attachment test', context: null, images: [{id:'old',name:'legacy.png',dataUrl:'data:image/png;base64,'+window.imageBytes},{id:'new',name:'stored.png',path:'/fixture/.milagre/images/photo.png'}] }, { id: 6, session_id: 5, role: 'user', body: 'Other chat', context: null }, { id: 7, session_id: 3, role: 'assistant', body: 'The [written design](/fixture/docs/spec.md) is committed. See [the helper](src/greeting.ts#L3) and [the site](https://example.com).', context: null }];
-state.next_id = 8;
+state.messages.push({ id: 8, session_id: 3, role: 'user', body: 'Fix @src/greeting.ts using /frontend-design', context: null, files: ['/fixture/src/greeting.ts', '/fixture/extra.txt'] });
+state.next_id = 9;
 window.calls = []; window.searches = []; window.notices = []; window.synced = []; window.listeners = [];
 window.stateListeners = [];
 // Stands in for the main process: it saves every project's state, and tells the window.
@@ -37,6 +38,7 @@ window.milagre = new Proxy({
  getLinkedWork: async () => ({ delegations: [], negotiations: [], receiveOnly: [] }),
  onQuitFailed: fn => {window.quitFailed=fn;return ()=>{};},
  retryQuit: async () => {window.retriedQuit=true;},
+ listSkills: async () => ({ skills: [{ name: 'frontend-design', description: 'Build polished interfaces', path: '/skills/frontend-design/SKILL.md', scope: 'bundled', provider: 'claude' }], warnings: [] }),
  readAttachment: async file => { (window.fileReads ??= []).push(file); if (file.endsWith('missing.txt')) throw new Error('File no longer exists.'); if (file.endsWith('.md')) return { text: '# Live activities\\n\\nThe **plan** has [goals](goals.md).\\n\\n- One\\n- Two', truncated: false, binary: false }; return { text: file.endsWith('empty.txt') ? '' : 'export const greeting = "hello";', truncated: false, binary: false }; },
  showImageMenu: async (file, name) => { (window.imageMenus ??= []).push([file, name]); },
  onOpenChat: fn => { window.openNotification = fn; return () => {}; },
@@ -143,6 +145,24 @@ async function browserChecks() {
     assert.ok(await evaluate(`document.querySelector('article [aria-label="Preview legacy.png"] img').src.startsWith('data:image/png')`));
     assert.ok(await evaluate(`document.querySelector('article [aria-label="Preview stored.png"] img').src.startsWith('milagre-media:')`));
     await screenshot("legacy-and-stored-images");
+
+    // A sent message shows its @file mention and /skill as chips; the mentioned file gets no second tile, an unmentioned one keeps its tile.
+    await waitFor(`!!document.querySelector('article [data-chip="skill"]')`);
+    assert.equal(await evaluate(`document.querySelectorAll('article [data-chip="file"]').length`), 1);
+    assert.equal(await evaluate(`document.querySelector('article [data-chip="file"] .truncate').textContent`), "greeting.ts");
+    assert.equal(await evaluate(`document.querySelector('article [data-chip="file"] [data-file-badge]').textContent`), "TS");
+    assert.equal(await evaluate(`document.querySelector('article [data-chip="file"]').title`), "src/greeting.ts");
+    assert.equal(await evaluate(`document.querySelector('article [data-chip="skill"]').textContent`), "Frontend Design");
+    assert.equal(await evaluate(`document.querySelector('article [data-chip="skill"]').title`), "Build polished interfaces");
+    assert.equal(await evaluate(`!!document.querySelector('article [aria-label="Preview greeting.ts"]')`), false, "A mentioned file is not shown twice");
+    assert.equal(await evaluate(`!!document.querySelector('article [aria-label="Preview extra.txt"]')`), true, "An unmentioned file keeps its tile");
+    await screenshot("sent-message-chips");
+    await click('article [data-chip="file"]');
+    await waitFor(`document.querySelector('dialog[open]')?.textContent.includes('export const greeting')`);
+    assert.equal(await evaluate("window.fileReads.at(-1)"), "/fixture/src/greeting.ts");
+    await key("Escape");
+    await waitFor(`!document.querySelector('dialog')`);
+    await evaluate("window.fileReads = []");
 
     // A reply's link to a file on this computer opens the file viewer; markdown opens formatted, with the source a click away.
     const replyLink = (text) => `[...document.querySelectorAll('article a')].find(a => a.textContent === ${JSON.stringify(text)})`;
