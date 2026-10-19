@@ -2022,7 +2022,6 @@ function subagentsHost({ call = async () => {} } = {}) {
       elapsed: () => "1s",
       subagentRunning: (agent) => ["initializing", "running", "waiting"].includes(agent.status),
       useClock: () => 0,
-      useWholeSubagent: (agent) => agent,
     },
     "../icons": { Icon: "Icon" },
     "../ui": {
@@ -8093,13 +8092,13 @@ test("mobile subagent rows say what it does now and how far it got, and a finish
 });
 
 test("mobile subagent detail shows its plan with what it does now, else its steps; the log waits behind Full log", () => {
-  const { SubagentDetail, render } = subagentGlance();
+  const { WholeSubagentDetail, render } = subagentGlance();
   const tasks = [
     { id: "0", content: "Read the refresh code", status: "completed" },
     { id: "1", content: "Run the auth tests", activeForm: "Running the auth tests", status: "in_progress" },
     { id: "2", content: "Write it up", status: "pending" },
   ];
-  const plan = texts(render(SubagentDetail, { agent: { ...glanceAgent, tasks } }));
+  const plan = texts(render(WholeSubagentDetail, { agent: { ...glanceAgent, tasks } }));
   for (const text of [
     "Plan",
     "1 of 3 done",
@@ -8110,7 +8109,7 @@ test("mobile subagent detail shows its plan with what it does now, else its step
   ])
     assert.ok(plan.includes(text), text);
   assert.equal(plan.includes("Read `auth.ts`"), false, "tool calls stay in the log");
-  const steps = render(SubagentDetail, { agent: glanceAgent });
+  const steps = render(WholeSubagentDetail, { agent: glanceAgent });
   const shown = texts(steps);
   for (const text of [
     "Now · step 2",
@@ -8122,12 +8121,12 @@ test("mobile subagent detail shows its plan with what it does now, else its step
   ])
     assert.ok(shown.includes(text), text);
   find(steps, (node) => node.props?.accessibilityState?.expanded === false).props.onPress();
-  assert.ok(texts(render(SubagentDetail, { agent: glanceAgent })).includes("Read `auth.ts`"), "Full log shows the calls");
+  assert.ok(texts(render(WholeSubagentDetail, { agent: glanceAgent })).includes("Read `auth.ts`"), "Full log shows the calls");
 });
 
 test("mobile subagent detail reads the whole transcript when the host sent only its end", async () => {
   const react = hookHost({ effects: true });
-  const { useWholeSubagent } = load("subagent-glance.tsx", {
+  const { WholeSubagentDetail } = load("subagent-glance.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
@@ -8142,7 +8141,7 @@ test("mobile subagent detail reads the whole transcript when the host sent only 
   const read = async () => (reads++, glanceAgent);
   const use = () => {
     react.begin();
-    const agent = useWholeSubagent(tail, read);
+    const agent = WholeSubagentDetail({ agent: tail, read }).props.agent;
     react.flush();
     return agent;
   };
@@ -8152,7 +8151,7 @@ test("mobile subagent detail reads the whole transcript when the host sent only 
   assert.equal(use().transcript.length, 4);
   const short = { ...glanceAgent, transcriptLength: undefined };
   react.begin();
-  assert.equal(useWholeSubagent(short, read), short, "a whole transcript isn't read again");
+  assert.equal(WholeSubagentDetail({ agent: short, read }).props.agent, short, "a whole transcript isn't read again");
 });
 
 test("mobile main sync switch re-reads the Mac's default on focus and shows a refused save", async () => {
