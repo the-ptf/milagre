@@ -315,7 +315,8 @@ class ChatHost {
         if (session.generatedTitle === generatedTitle) return latest;
         return { ...latest, sessions: { ...latest.sessions, [sessionId]: { ...session, generatedTitle } } };
       },
-      { chats: [sessionId] },
+      // The name is on the session; the Chat's messages aren't read, so none are loaded.
+      { chats: [] },
     );
     if (changed) this.broadcast(projectPath, state);
     return named;

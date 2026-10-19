@@ -1008,7 +1008,14 @@ test("nameRunChat saves a Run's title on its own Chat only, and never over a nam
   assert.equal((await states.get(ALPHA)).sessions[sessionId].generatedTitle, "Morning triage");
   assert.equal(broadcasts.length, before);
 
+  const update = t.mock.method(states, "update");
   assert.equal(await host.nameRunChat(ALPHA, sessionId, "run-1", "Fixed flaky sidebar test"), true);
+  // The name is on the session: none of the Chat's messages are loaded for it.
+  assert.deepEqual(
+    update.mock.calls.map((call) => call.arguments[2]),
+    [{ chats: [] }],
+  );
+  update.mock.restore();
   const named = (await states.get(ALPHA)).sessions[sessionId];
   assert.equal(named.generatedTitle, "Fixed flaky sidebar test");
   assert.deepEqual(named.routine, { routineId: "r1", runId: "run-1", hidden: true });
