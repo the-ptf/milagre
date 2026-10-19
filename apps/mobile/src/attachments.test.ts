@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appendAttachments, attachmentPrompt, prepareAttachments, type Attachment } from "./attachments.ts";
+import { appendAttachments, attachmentPrompt, mentionAttachment, mentionAttachments, prepareAttachments, type Attachment } from "./attachments.ts";
 import type { Client } from "./client.ts";
 test("attachment drafts are bounded without dropping an existing selection", () => {
   const file = { id: "a", name: "a.txt", uri: "file:///a" };
@@ -65,4 +65,21 @@ test("a busy Mac retries the one upload it turned away, not the files already se
   const result = await prepareAttachments(client, "/p", attachments, retry);
   assert.deepEqual(result.files, ["/host/a.txt", "/host/b.txt"]);
   assert.deepEqual(uploads, ["a.txt", "b.txt", "b.txt"]);
+});
+test("a mentioned file attaches by its absolute path and never leaves the project", () => {
+  const item = mentionAttachment("/w", "src/a.ts");
+  assert.equal(item.name, "a.ts");
+  assert.equal(item.path, "/w/src/a.ts");
+  assert.equal(mentionAttachment("/w/", "a.ts").path, "/w/a.ts");
+  assert.throws(() => mentionAttachment("/w", "../x"), /inside the project/);
+  assert.throws(() => mentionAttachment("/w", "/etc/passwd"), /inside the project/);
+});
+test("send attaches each mentioned file once, within the limit", () => {
+  const have = [mentionAttachment("/w", "a.ts")];
+  const added = mentionAttachments('see @a.ts @b.ts @b.ts @"c d.ts" @../x and @e.ts @f.ts', "/w", have);
+  assert.deepEqual(
+    added.map((item) => item.path),
+    ["/w/b.ts", "/w/c d.ts", "/w/e.ts"],
+  );
+  assert.deepEqual(mentionAttachments("no mentions", "/w", []), []);
 });

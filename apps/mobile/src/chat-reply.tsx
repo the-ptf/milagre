@@ -8,6 +8,10 @@ import type { ChatMessage, ChatStep, LinkedContext } from "@milagre/shared/model
 import { linkedContext, linkedHeading } from "@milagre/shared/linked-message";
 import { activitySummary, replyActivity, unspokenThought } from "@milagre/shared/reply-parts";
 import { FileChip } from "./file-chip";
+import { promptParts } from "@milagre/shared/prompt-parts";
+import { isMentionOfFile, mentionedFile, mentionedFiles } from "@milagre/shared/prompt-mentions";
+import { FileMentionChip, SkillChip } from "./prompt-chip";
+import { useSkillNames } from "./use-skill-names";
 import { Markdown } from "./markdown";
 import { Icon } from "./icons";
 import { ActivityTitle } from "./activity-item";
@@ -214,6 +218,11 @@ function LinkedHeader({ context, onOpenChat }: { context: LinkedContext; onOpenC
   );
 }
 
+function openMention(path: string, attached: string[], root: string) {
+  const file = mentionedFile(path, attached, root);
+  if (file) router.push({ pathname: "/file-preview", params: { path: file } });
+}
+
 export const ChatReply = memo(function ChatReply({
   message,
   run,
@@ -247,6 +256,7 @@ export const ChatReply = memo(function ChatReply({
 }) {
   const { colors, textPx } = useTheme();
   const styles = useStyles();
+  const skillNames = useSkillNames(message?.role === "user" ? basePath : undefined);
   const [toolCallDisplay] = useToolCallDisplay();
   const savedMedia = useCallback((path: string) => media(message?.images?.find((image) => image.sourcePath === path)?.path || path), [media, message?.images]);
   const openActivity = () => onActivity(message ? String(message.id) : "run");
@@ -296,12 +306,18 @@ export const ChatReply = memo(function ChatReply({
         </View>
       </View>
     );
-  if (message?.role === "user")
+  if (message?.role === "user") {
+    const root = basePath ?? "";
+    const attached = message.files ?? [];
+    // A file the text names with @ shows as a chip in the text, so it gets no tile of its own.
+    const inline = mentionedFiles(text, attached, root);
+    const parts = promptParts(text, { skills: skillNames, files: isMentionOfFile(attached, root) });
+    const lineHeight = Math.round(textPx * 1.4667);
     return (
       <View style={{ alignSelf: "flex-end", alignItems: "flex-end", gap: 6, maxWidth: "88%" }}>
         <Photos message={message} media={media} />
         {message.files
-          ?.filter((file) => !message.images?.some((image) => image.path === file || image.sourcePath === file))
+          ?.filter((file) => !inline.has(file) && !message.images?.some((image) => image.path === file || image.sourcePath === file))
           .map((file) => (
             <FileChip key={file} path={file} />
           ))}
@@ -325,14 +341,23 @@ export const ChatReply = memo(function ChatReply({
                 ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
               }}
             >
-              <Text selectable style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) }}>
-                {text}
+              <Text selectable style={{ color: colors.ink, fontSize: textPx, lineHeight }}>
+                {parts.map((part, index) =>
+                  part.kind === "skill" ? (
+                    <SkillChip key={index} name={part.name} />
+                  ) : part.kind === "file" ? (
+                    <FileMentionChip key={index} path={part.path} onOpen={() => openMention(part.path, attached, root)} />
+                  ) : (
+                    part.text
+                  ),
+                )}
               </Text>
             </View>
           )
         )}
       </View>
     );
+  }
   return (
     <View style={{ gap: 14, paddingVertical: 8 }}>
       {linked && <LinkedHeader context={linked} onOpenChat={onOpenChat} />}
