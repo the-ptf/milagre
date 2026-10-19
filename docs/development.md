@@ -15,7 +15,7 @@ Useful checks:
 npm run typecheck
 npm run build
 npm test -- --unit
-npm run release:dry
+npm run release:preview
 ```
 
 Repository testing skills live in `.agents/skills`: `test-milagre-app` covers isolated Electron checks and screenshots; `test-milagre-mobile` covers device attachment, disposable hosts and native UI verification. These guide development of Milagre and are discovered as workspace skills. They are not bundled into the installed app.
@@ -26,16 +26,23 @@ The repo uses npm workspaces with one root lockfile. Run the existing commands f
 
 ## Releases
 
-Merges into `main` run `semantic-release` to create a version tag and draft GitHub Release when the commits warrant a release. Commit and Pull Request titles should use Conventional Commits:
+Merges into `main` cut no release. Releases ride a train with two stops, both run by the **Publish** workflow (`scripts/plan-release.cjs` plans each one):
+
+- **Beta** (`channel=beta`): ships the newest `main` commit whose CI passed (or the commit in `ref`) as a `vX.Y.Z-beta.N` prerelease. Its notes list the changes since the previous beta. It runs weekdays at 09:00 UTC, skipping when nothing user-facing landed, and on dispatch.
+- **Stable** (`channel=stable`): rebuilds the newest beta's commit as `vX.Y.Z`, marks it latest and redeploys the Linux package repository. Its notes list every change since the previous stable. Only the newest beta can be promoted: an older one would move beta installs back.
+
+Both build the macOS DMG and ZIP installers for Intel and Apple Silicon and the Linux AppImage, DEB and RPM, and create the release and its tag only after the builds pass. Installed builds check published GitHub Releases at startup, download updates in the background, and ask to restart when ready; the update card shows the release's notes.
+
+Versions come from Pull Request titles, which use Conventional Commits. The line is the last stable plus the biggest change since it; betas count up within a line:
 
 ```text
-fix: correct agent cancellation       # patch release
-feat: add worktree canvas             # minor release
-feat!: change the coordination API    # major release
-docs: clarify setup                   # no release
+fix: correct agent cancellation       # patch
+feat: add worktree canvas             # minor
+feat!: change the coordination API    # minor while on 0.x, then major
+docs: clarify setup                   # no version of its own
 ```
 
-To ship a candidate, run the **Publish** workflow with `channel=stable` (and optionally its `vX.Y.Z` tag; empty means the newest draft). It builds the macOS DMG and ZIP installers for Intel and Apple Silicon and the Linux AppImage, DEB and RPM, attaches the installers and update feeds, publishes the draft release and redeploys the Linux package repository. `channel=beta` ships the same candidate as a `vX.Y.Z-beta.N` prerelease instead. Draft candidates stay invisible to installed apps. Installed builds check published GitHub Releases at startup, download updates in the background, and ask to restart when ready. Use `npm run release:dry` to inspect what would be released without creating a tag.
+After every green merge, CI rewrites one untagged **Next beta** draft release with what the next beta would ship. `npm run release:preview` prints the same from your `origin/main`.
 
 Release installers require a Developer ID Application certificate and Apple notarization. The workflow checks Apple credentials before creating a release, signs and notarizes the app, and signs, notarizes and staples the DMG. It verifies signatures, notarization tickets, Gatekeeper acceptance and DMG integrity before uploading installers. See [macOS signing setup](agents/macos-signing.md) for the required GitHub Actions secrets.
 

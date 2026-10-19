@@ -3,8 +3,8 @@ name: Build macOS
 on:
   workflow_call:
     inputs:
-      tag:
-        description: Release candidate tag to check out (vX.Y.Z)
+      ref:
+        description: Commit to check out and build; Publish plans it and creates the tag only after the builds
         type: string
         required: true
       version:
@@ -15,10 +15,6 @@ on:
         description: Update channel the build publishes to (latest or beta)
         type: string
         default: latest
-      require_draft:
-        description: Require the tag to be a stable draft release
-        type: boolean
-        default: true
     secrets:
       CSC_LINK:
         required: true
@@ -38,21 +34,12 @@ jobs:
       - name: Check out released commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.ref }}
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
-      - name: Require a stable draft release
-        if: inputs.require_draft
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: |-
-          node -e 'if (!/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(process.env.RELEASE_TAG)) process.exit(1)'
-          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
       - name: Check Apple release credentials
         shell: bash
         env:

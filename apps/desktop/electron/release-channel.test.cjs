@@ -67,7 +67,7 @@ const answer =
 answer.calls = [];
 
 test("the beta feed is the newest published release that carries this platform's beta file, never an empty candidate", async () => {
-  // The draft candidates semantic-release tags on every main push have no files; the atom feed lists them first.
+  // Draft releases have no files; the atom feed lists the tags of the old per-merge draft candidates first.
   const releases = [
     release("v0.105.1", [], { draft: true }),
     release("v0.105.0", []),

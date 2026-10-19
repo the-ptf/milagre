@@ -44,7 +44,7 @@
       "project": ["src/**"]
     }
   },
-  "ignoreDependencies": ["@semantic-release/*"],
+  "ignoreDependencies": [],
   "ignoreBinaries": [],
   "ignoreIssues": {
     "apps/mobile/src/update-sheet.tsx": ["exports"],

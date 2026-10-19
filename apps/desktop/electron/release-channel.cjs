@@ -60,10 +60,10 @@ function compareKeys(/** @type {number[]} */ a, /** @type {number[]} */ b) {
 
 /**
  * Where beta installs read their update: the newest published release that carries this platform's beta feed file.
- * GitHub's atom feed, which electron-updater reads for prereleases, also lists every tag; the release candidates
- * cut on each main push are tagged drafts with no files, so the updater would read their missing feed and see
- * nothing. The REST API lists published releases only. Resolves to null when none carries the file; rejects when
- * GitHub can't be read.
+ * GitHub's atom feed, which electron-updater reads for prereleases, also lists every tag; a tag without a published
+ * release (such as the per-merge draft candidates of releases before v0.229) has no files, so the updater would read
+ * its missing feed and see nothing. The REST API lists published releases only. Resolves to null when none carries
+ * the file; rejects when GitHub can't be read.
  * @param {{ fetch?: typeof globalThis.fetch, platform?: string }} [options]
  * @returns {Promise<string | null>}
  */
