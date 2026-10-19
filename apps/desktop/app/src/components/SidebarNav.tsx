@@ -1048,7 +1048,8 @@ export default memo(function SidebarNav({
                 <Tooltip label="Routines" side="bottom">
                   <button
                     type="button"
-                    aria-label="Routines"
+                    // The dot is drawn only; the label says it, as the phone's dock button does.
+                    aria-label={routinesUnread ? "Routines, unread Runs" : "Routines"}
                     aria-pressed={routinesActive}
                     data-sidebar-routines
                     onClick={onOpenRoutines}
