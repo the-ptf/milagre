@@ -289,5 +289,44 @@ test("the Next beta draft is created once and rewritten after that", () => {
   assert.ok(calls[1].includes("draft=true"));
   existing = "42\n";
   writeNextDraft({ exec, title: "Next beta: v0.11.0-beta.1", body: "notes\n" });
-  assert.deepEqual(calls[3].slice(0, 6), ["api", "-X", "PATCH", "repos/{owner}/{repo}/releases/42", "-f", "name=Next beta: v0.11.0-beta.1"]);
+  // An update without tag_name turns a tagless draft into "untagged-<random>", so every update sends it.
+  assert.deepEqual(calls[3].slice(0, 8), [
+    "api",
+    "-X",
+    "PATCH",
+    "repos/{owner}/{repo}/releases/42",
+    "-f",
+    "tag_name=next-beta",
+    "-f",
+    "name=Next beta: v0.11.0-beta.1",
+  ]);
 });
+
+test("the Next beta draft is found by its tag or, once GitHub untagged it, by its title", { skip: !jqAvailable() && "jq is not installed" }, () => {
+  let query;
+  const exec = (command, args) => {
+    if (args.includes("--paginate")) query = args[args.indexOf("--jq") + 1];
+    return "";
+  };
+  writeNextDraft({ exec, title: "Next beta: nothing yet", body: "notes\n" });
+  const releases = [
+    { id: 1, draft: false, tag_name: "v0.229.0-beta.1", name: "v0.229.0-beta.1" },
+    { id: 2, draft: true, tag_name: "untagged-51d2daee17841470cabf", name: "Next beta: nothing yet" },
+    { id: 3, draft: true, tag_name: "next-beta", name: null },
+    { id: 4, draft: true, tag_name: "v0.300.0", name: "Some other draft" },
+    { id: 5, draft: false, tag_name: "next-beta", name: "Next beta: published by mistake" },
+  ];
+  const ids = execFileSync("jq", [query], { input: JSON.stringify(releases), encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean);
+  assert.deepEqual(ids, ["2", "3"]);
+});
+
+function jqAvailable() {
+  try {
+    execFileSync("jq", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}

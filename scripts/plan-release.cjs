@@ -200,13 +200,18 @@ function nextDraft(plan) {
   return { title: `Next beta: ${plan.releaseTag}`, body: plan.notes.replace(/^Changes since [^\n]+\n/, `${intro}\n`) };
 }
 
-/** Rewrites the one untagged Next beta draft, creating it the first time. */
+/**
+ * Rewrites the one untagged Next beta draft, creating it the first time. An update that leaves out tag_name turns a
+ * draft whose tag doesn't exist into "untagged-<random>", so every update sends it, and the lookup also matches the
+ * title to find a draft that lost it.
+ */
 function writeNextDraft({ exec, title, body }) {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "milagre-next-beta-")), "body.md");
   fs.writeFileSync(file, body);
-  const query = `.[] | select(.draft and .tag_name == "${NEXT_DRAFT_TAG}") | .id`;
-  const [id] = exec("gh", ["api", "--paginate", "repos/{owner}/{repo}/releases", "--jq", query]).split("\n").filter(Boolean);
-  if (id) exec("gh", ["api", "-X", "PATCH", `repos/{owner}/{repo}/releases/${id}`, "-f", `name=${title}`, "-F", `body=@${file}`]);
+  const query = `.[] | select(.draft and (.tag_name == "${NEXT_DRAFT_TAG}" or ((.name // "") | startswith("Next beta")))) | .id`;
+  const id = exec("gh", ["api", "--paginate", "repos/{owner}/{repo}/releases", "--jq", query]).split("\n").find(Boolean);
+  if (id)
+    exec("gh", ["api", "-X", "PATCH", `repos/{owner}/{repo}/releases/${id}`, "-f", `tag_name=${NEXT_DRAFT_TAG}`, "-f", `name=${title}`, "-F", `body=@${file}`]);
   else
     exec("gh", [
       "api",
