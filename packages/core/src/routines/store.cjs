@@ -1110,8 +1110,10 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
 
   // Runs left running by a stop fail, and queued events stay queued. A restart is one failure however many Runs it cut
   // short (a busy trigger has up to three), so only the first adds to the failure streak. A schedule whose next run can't
-  // be worked out pauses, and the others recover all the same.
+  // be worked out pauses, and the others recover all the same. A read-only store holds no Runs and can't write: a daemon
+  // start with one recovers nothing rather than fail.
   function recoverInterrupted() {
+    if (readOnly) return;
     transact((state, tx) => {
       const at = now();
       for (const routine of state.routines) {

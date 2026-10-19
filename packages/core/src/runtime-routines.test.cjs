@@ -989,3 +989,218 @@ test("an agent's routine_delete of a webhook Routine forgets its URL secret too"
   assert.equal((await secrets())[routine.id], undefined, "the secret is gone");
   assert.ok(!(await fs.readFile(hookFile(f), "utf8")).includes(secretOf(hookUrl)));
 });
+
+// Run Chats Victor keeps, and those swept when their Run leaves the store (docs/superpowers/specs/2026-10-18-routine-run-chats-design.md).
+const { stateFile } = require("./project-store.cjs");
+// One Run of `routineId`, started now in a Chat of its own and ended acted: its Chat starts hidden.
+async function endedRunChat(f, routineId, reply = "Triaged three issues.") {
+  const before = f.sessions.length;
+  const run = await f.runtime.invoke("routines:run-now", [routineId]);
+  await waitUntil(() => f.sessions.length === before + 1 && f.sessions[before].turns.length === 1, { timeoutMs: 10_000 });
+  const session = Object.values((await snapshot(f)).sessions).find((item) => item.routine?.runId === run.id);
+  const agent = f.sessions[before];
+  agent.finish(reply);
+  const runOf = async () => (await f.list()).find((item) => item.id === routineId).runs.find((item) => item.id === run.id);
+  await eventually(async () => (await runOf()).status === "acted");
+  await f.runtime.routines.idle();
+  return { session, agent, run, chatId: `${f.project}#${session.id}` };
+}
+const sessionOf = async (f, id) => (await snapshot(f)).sessions[id];
+const hiddenOf = async (f, id) => (await sessionOf(f, id)).routine.hidden;
+// The Chats as Milagre saved them before a Run Chat could be hidden: a routine with no hidden at all.
+async function forgetHidden(project, ids) {
+  const file = stateFile(project);
+  const saved = JSON.parse(await fs.readFile(file, "utf8"));
+  for (const id of ids) delete saved.sessions[id].routine.hidden;
+  await fs.writeFile(file, JSON.stringify(saved));
+}
+const heartbeatOn = (chatId) => ({
+  name: "Beat",
+  prompt: "Look",
+  trigger: { kind: "schedule", cron: "*/5 * * * *", timezone: "UTC" },
+  target: { kind: "chat", chatId },
+  maxRuns: 3,
+});
+
+test("a message Victor sends a hidden Run Chat keeps it, a compact too; one an agent sends through chat_start doesn't", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const routine = await createTriage(f, "project");
+  const { session, agent, chatId } = await endedRunChat(f, routine.id);
+  assert.equal(await hiddenOf(f, session.id), true);
+  const started = await runTool(f.tool("chat_start"), { projectPath: f.project, chatId, prompt: "Look at the inbox again", model: "cm", requestId: "again" });
+  assert.equal(started.isError, false, started.text);
+  await waitUntil(() => agent.turns.length === 2);
+  assert.equal(await hiddenOf(f, session.id), true, "an agent's message leaves it hidden");
+  agent.finish("Looked again.");
+  await waitUntil(() => !f.runtime.snapshot().runs.runs[chatId]);
+  await f.runtime.invoke("chat:send", [{ projectPath: f.project, sessionId: session.id, body: "Ship the fix", provider: "claude", model: "cm" }]);
+  assert.equal(await hiddenOf(f, session.id), false);
+
+  const other = await endedRunChat(f, routine.id);
+  await f.runtime.invoke("chat:send", [{ projectPath: f.project, sessionId: other.session.id, compact: true, provider: "claude", model: "cm" }]);
+  assert.equal(await hiddenOf(f, other.session.id), false, "a compact is Victor's own action in the composer");
+});
+
+test("pinning or renaming a hidden Run Chat keeps it; reading it, a blank name, an unpin or an agent's chat_update doesn't", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const routine = await createTriage(f, "project");
+  const first = await endedRunChat(f, routine.id);
+  const second = await endedRunChat(f, routine.id);
+  const patch = (run, value) => f.runtime.invoke("chat:patch", [f.project, run.session.id, value]);
+  await patch(first, { unread: false });
+  await patch(first, { title: "   " });
+  await patch(first, { pinned: false });
+  const renamed = await runTool(f.tool("chat_update"), { projectPath: f.project, chatId: first.chatId, title: "Named by an agent" });
+  assert.equal(renamed.isError, false, renamed.text);
+  assert.equal((await sessionOf(f, first.session.id)).title, "Named by an agent");
+  assert.equal(await hiddenOf(f, first.session.id), true);
+  await patch(first, { pinned: true, pin_order: 0 });
+  assert.equal(await hiddenOf(f, first.session.id), false);
+  await patch(second, { title: "Mine" });
+  assert.equal(await hiddenOf(f, second.session.id), false);
+});
+
+test("a Heartbeat set on a hidden Run Chat from the Routines form keeps it, when made and when moved to another", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const routine = await createTriage(f, "project");
+  const first = await endedRunChat(f, routine.id);
+  const second = await endedRunChat(f, routine.id);
+  const { routine: heartbeat } = await f.runtime.invoke("routines:create", [heartbeatOn(first.chatId)]);
+  assert.equal(await hiddenOf(f, first.session.id), false);
+  assert.equal(await hiddenOf(f, second.session.id), true);
+  await f.runtime.invoke("routines:update", [heartbeat.id, { target: { kind: "chat", chatId: second.chatId } }]);
+  assert.equal(await hiddenOf(f, second.session.id), false);
+});
+
+test("on open, a Run Chat saved before hidden is decided: pinned, written to or a Heartbeat's Chat is kept, one with only its Run hidden", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const routine = await createTriage(f, "project");
+  const pinned = await endedRunChat(f, routine.id);
+  const written = await endedRunChat(f, routine.id);
+  const untouched = await endedRunChat(f, routine.id);
+  const beating = await endedRunChat(f, routine.id);
+  await f.runtime.invoke("chat:patch", [f.project, pinned.session.id, { pinned: true, pin_order: 0 }]);
+  await f.runtime.invoke("chat:send", [{ projectPath: f.project, sessionId: written.session.id, body: "Ship it", provider: "claude", model: "cm" }]);
+  await waitUntil(() => written.agent.turns.length === 2);
+  written.agent.finish("Shipped.");
+  await waitUntil(() => !f.runtime.snapshot().runs.runs[written.chatId]);
+  await f.runtime.invoke("routines:create", [heartbeatOn(beating.chatId)]);
+  await f.runtime.close();
+  const chats = [pinned, written, untouched, beating];
+  await forgetHidden(
+    f.project,
+    chats.map((item) => item.session.id),
+  );
+  const g = await fixture(t, { restart: { dir: f.dir, clock: f.clock() } });
+  try {
+    await g.runtime.routines.idle();
+    const { sessions } = await snapshot(g);
+    assert.deepEqual(
+      chats.map((item) => sessions[item.session.id].routine.hidden),
+      [false, false, true, false],
+    );
+    assert.ok(
+      chats.every((item) => !sessions[item.session.id].archived),
+      "their Runs are all still listed",
+    );
+  } finally {
+    await g.runtime.close();
+  }
+});
+
+test("deleting a Routine archives its hidden Run Chats in an open Project; kept ones, another Routine's and a Heartbeat's own Chat stay", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const morning = await createTriage(f, "project");
+  const { routine: evening } = await f.runtime.invoke("routines:create", [
+    {
+      name: "Evening triage",
+      prompt: "Triage again",
+      trigger: { kind: "schedule", cron: "0 18 * * *", timezone: "UTC" },
+      target: { kind: "new-chat", projectPath: f.project, workspace: "project" },
+    },
+  ]);
+  const hidden = await endedRunChat(f, morning.id);
+  const kept = await endedRunChat(f, morning.id);
+  const other = await endedRunChat(f, evening.id);
+  await f.runtime.invoke("chat:patch", [f.project, kept.session.id, { pinned: true, pin_order: 0 }]);
+  // A Heartbeat on the user's own Chat, with a beat Run in it: deleting it drops a Run whose Chat is that Chat.
+  await runTool(f.tool("heartbeat_create"), { name: "Babysit", prompt: "Check CI", every: "5m" });
+  const heartbeat = (await f.list()).find((item) => item.name === "Babysit");
+  await f.runtime.invoke("routines:run-now", [heartbeat.id]);
+  await waitUntil(() => f.session.turns.length === 2);
+  await f.finish("(pass) CI green");
+  await eventually(async () => (await f.list()).find((item) => item.id === heartbeat.id).runs[0]?.status === "quiet");
+  await f.runtime.invoke("routines:delete", [heartbeat.id]);
+  await f.runtime.routines.idle();
+  assert.equal((await sessionOf(f, f.id)).archived, undefined);
+  await f.runtime.invoke("routines:delete", [morning.id]);
+  await eventually(async () => (await sessionOf(f, hidden.session.id)).archived === true);
+  await f.runtime.routines.idle();
+  const { sessions } = await snapshot(f);
+  assert.equal(sessions[kept.session.id].archived, undefined);
+  assert.equal(sessions[other.session.id].archived, undefined);
+  assert.equal(sessions[other.session.id].routine.hidden, true);
+  assert.equal(sessions[f.id].archived, undefined);
+});
+
+test("a hidden Run Chat whose Routine was deleted while its Project wasn't open is archived when the Project opens", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const routine = await createTriage(f, "project");
+  const hidden = await endedRunChat(f, routine.id);
+  await f.runtime.close();
+  const g = await fixture(t, { restart: { dir: f.dir, clock: f.clock() }, open: false });
+  try {
+    assert.deepEqual(await g.runtime.invoke("routines:delete", [routine.id]), { removed: true });
+    await g.runtime.routines.idle();
+    const saved = JSON.parse(await fs.readFile(stateFile(f.project), "utf8"));
+    assert.equal(saved.sessions[hidden.session.id].archived, undefined, "a Project that isn't open waits");
+    await g.runtime.openProject(f.project);
+    await g.runtime.routines.idle();
+    assert.equal((await snapshot(g)).sessions[hidden.session.id].archived, true);
+  } finally {
+    await g.runtime.close();
+  }
+});
+
+test("a Routine store that opened read-only archives and decides nothing: its Runs only look gone", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const routine = await createTriage(f, "project");
+  const hidden = await endedRunChat(f, routine.id);
+  const old = await endedRunChat(f, routine.id);
+  await f.runtime.close();
+  await forgetHidden(f.project, [old.session.id]);
+  const file = path.join(f.dataDir, "routines.json");
+  await fs.writeFile(file, JSON.stringify({ ...JSON.parse(await fs.readFile(file, "utf8")), version: 99 }));
+  const g = await fixture(t, { restart: { dir: f.dir, clock: f.clock() } });
+  try {
+    await g.runtime.routines.idle();
+    const { sessions } = await snapshot(g);
+    assert.equal(sessions[hidden.session.id].archived, undefined);
+    assert.equal(sessions[hidden.session.id].routine.hidden, true);
+    assert.equal(sessions[old.session.id].archived, undefined);
+    assert.equal(sessions[old.session.id].routine.hidden, undefined);
+  } finally {
+    await g.runtime.close();
+  }
+});
+
+test("routines:targets leaves hidden Run Chats out of the Heartbeat Chat picker and lists kept ones", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const routine = await createTriage(f, "project");
+  const hidden = await endedRunChat(f, routine.id);
+  const kept = await endedRunChat(f, routine.id);
+  await f.runtime.invoke("chat:patch", [f.project, kept.session.id, { title: "Mine" }]);
+  const { projects } = await f.runtime.invoke("routines:targets");
+  const listed = new Set(projects.find((item) => item.path === f.project).chats.map((chat) => chat.chatId));
+  assert.ok(listed.has(f.chatId));
+  assert.ok(listed.has(kept.chatId), "a kept Run Chat is a Chat like any other");
+  assert.ok(!listed.has(hidden.chatId));
+});

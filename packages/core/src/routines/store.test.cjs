@@ -2079,6 +2079,8 @@ test("a file from a newer version opens read-only", () => {
   assert.equal(store.enabled(), false);
   assert.throws(() => store.setEnabled(true), /Routine store is read-only: .*version 2/);
   assert.match(store.readOnlyReason(), /version 2/);
+  // A daemon start recovers interrupted Runs: a store that holds none and can't write has nothing to recover.
+  store.recoverInterrupted();
   assert.equal(bytes(file), text);
 });
 

@@ -81,11 +81,11 @@ const { createProjectRegistry } = require("./project-registry.cjs");
 const { createLinkedWorktrees } = require("./linked-worktrees.cjs");
 const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsage, readAntigravityUsage } = require("./usage.cjs");
 const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
-const { createRoutines } = require("./routines/runtime-adapter.cjs");
+const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
 const { createHookStore } = require("./routines/hook-store.cjs");
 // Where webhook URLs point unless the daemon says otherwise (its phone's relay).
 const HOOK_RELAY_URL = "wss://relay.milagre.cloud";
-const { chatTitle } = require("@milagre/shared/chats");
+const { chatTitle, isHiddenRunChat } = require("@milagre/shared/chats");
 // The Chats routines:targets lists per Project, newest first.
 const ROUTINE_TARGET_CHATS = 50;
 
@@ -478,6 +478,8 @@ function createRuntime(options) {
     await chats.resumeInterrupted(projectPath, state).catch((error) => console.warn("Milagre couldn't resume a chat:", error.message));
     state = await states.get(projectPath);
     chatTitles.resume(projectPath, state);
+    // Run Chats saved before they could be hidden are decided, and hidden ones whose Run left the store are archived.
+    void track(() => routines.sweepRunChats(projectPath, state), background);
     void chats.recoverHandoffs(projectPath, state).catch((error) => console.warn("Milagre couldn't recover a handoff:", error.message));
     void diffs.refresh(projectPath).catch(() => {});
     return { path: projectPath, name: projectName(projectPath), state };
@@ -1149,6 +1151,15 @@ function createRuntime(options) {
       projectWorktree: async (projectPath) => Object.values((await linkedState(projectPath)).worktrees).find((worktree) => worktree.path === projectPath)?.id,
     },
     archiveChat: (chatId) => track(() => archiveChat(projectOfKey(chatId), sessionIdFromKey(chatId)), background),
+    // Run Chats: a Heartbeat set on one keeps it, and the sweep (on Project open, and when the store drops Runs) decides
+    // the ones saved before `hidden` and archives hidden ones whose Run is gone.
+    keepChat: (chatId) => keepRunChat(projectOfKey(chatId), sessionIdFromKey(chatId)),
+    chatMessages: (projectPath, sessionIds) => scopeStates.chatMessages(projectPath, sessionIds),
+    markRunChats: async (projectPath, decided) => {
+      if (!scopeStates.has(projectPath)) return;
+      await updateProject(projectPath, (state) => withRunChatsHidden(state, decided, (routine) => routine.hidden === undefined), { chats: [] });
+    },
+    archiveRunChat: (chatId, runId) => track(() => archiveRunChat(projectOfKey(chatId), sessionIdFromKey(chatId), runId), background),
     // Made further down; read when a Routine first needs them.
     linear: () => linear,
     // Webhook secrets and waiting deliveries, beside routines.json; URLs are on the relay the phone uses.
@@ -1188,7 +1199,7 @@ function createRuntime(options) {
         projects.map(async (project) => {
           const state = await Promise.resolve(projectStateReadOnly(project.path)).catch(() => null);
           const chats = Object.values(state?.sessions ?? {})
-            .filter((session) => !session.archived && (session.summary?.count ?? 0) > 0)
+            .filter((session) => !session.archived && !isHiddenRunChat(session) && (session.summary?.count ?? 0) > 0)
             .toSorted((a, b) => (b.summary?.lastAt ?? 0) - (a.summary?.lastAt ?? 0) || b.id - a.id)
             .slice(0, ROUTINE_TARGET_CHATS)
             .map((session) => ({ chatId: chatKey(project.path, session.id), title: chatTitle(session), lastAt: session.summary?.lastAt ?? 0 }));
@@ -1357,7 +1368,13 @@ function createRuntime(options) {
         : linearIssue !== undefined
           ? await linearIssueMessage(rest, linearIssue)
           : { ...rest, context: undefined };
-    return chats.send(message).then(({ sessionId }) => ({ sessionId }));
+    const { sessionId } = await chats.send(message);
+    // A message from a composer, desktop or phone (its bridge calls this command), a PR-action pill or a compact is the
+    // user taking a Run Chat over. Milagre's own sends (a Routine's beat, an MCP chat_start, a Delegation) call chats.send
+    // directly and never keep one.
+    if (rest.sessionId != null)
+      await keepRunChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't keep a Run Chat:", error.message));
+    return { sessionId };
   });
   // The issue is read again here, so the card and prompt are Linear's copy. If Linear can't answer now, the Chat still
   // starts, with the text the renderer sent as a plain message.
@@ -1383,21 +1400,44 @@ function createRuntime(options) {
   });
   // Archiving a Chat stops what runs for it (its Terminals, advisors, heartbeats), then saves the patch. The user's archive
   // and a quiet Routine Run's both come here.
-  async function archiveChat(projectPath, sessionId, patch = { archived: true }) {
+  // `onlyIf(session)` is checked in the change that saves the patch: the patch is dropped when it no longer holds.
+  async function archiveChat(projectPath, sessionId, patch = { archived: true }, onlyIf = () => true) {
     if (!scopeStates.has(projectPath)) return;
     const chatId = `${projectPath}#${sessionId}`;
     terminals.closeChat(chatId);
     await advisorDelivery.stop(chatId);
     await advisors.stopChat(chatId);
     routines.chatArchived(chatId);
-    await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
+    await editProject(projectPath, (state) => (onlyIf(state.sessions[sessionId]) ? patchSession(state, sessionId, patch) : state), { chats: [] });
+  }
+  // A hidden Run Chat whose Run left the store (routines' sweepRunChats), archived only while it is still hidden,
+  // unarchived and that Run's: checked first, and again in the change that archives it, so a Chat the user took over in
+  // the meantime stays.
+  async function archiveRunChat(projectPath, sessionId, runId) {
+    const left = (session) => isHiddenRunChat(session) && !session.archived && session.routine.runId === runId;
+    if (!scopeStates.has(projectPath) || !left((await scopeStates.get(projectPath)).sessions[sessionId])) return;
+    await archiveChat(projectPath, sessionId, { archived: true }, left);
+  }
+  // The user took a Run Chat over (sent it a message, pinned or renamed it, set a Heartbeat on it): it is a normal Chat
+  // from then on, in every list. One saved before Run Chats could be hidden is decided kept too. Any other Chat is left
+  // as it is, without a write.
+  async function keepRunChat(projectPath, sessionId) {
+    if (!scopeStates.has(projectPath)) return;
+    const session = (await scopeStates.get(projectPath)).sessions[sessionId];
+    if (!isRunChat(session) || session.routine.hidden === false) return;
+    await editProject(projectPath, (state) => withRunChatsHidden(state, { [sessionId]: false }, (routine) => routine.hidden !== false), { chats: [] });
   }
   async function patchChat(projectPath, sessionId, patch) {
     if (!scopeStates.has(projectPath)) return;
     if (patch?.archived) return archiveChat(projectPath, sessionId, patch);
     await editProject(projectPath, (state) => patchSession(state, sessionId, patch ?? {}), { chats: [] });
   }
-  commands.handle("chat:patch", (_event, projectPath, sessionId, patch) => patchChat(projectPath, sessionId, patch));
+  // Pinning or naming a Chat is the user taking a Run Chat over. An agent's chat_update calls patchChat itself and never
+  // keeps one, and nor does a read mark, an unpin or a blank name.
+  commands.handle("chat:patch", async (_event, projectPath, sessionId, patch) => {
+    await patchChat(projectPath, sessionId, patch);
+    if (patch?.pinned === true || (typeof patch?.title === "string" && patch.title.trim() !== "")) await keepRunChat(projectPath, sessionId);
+  });
   // Opening a chat reads it. Only on opening: "Mark as unread" on the open chat sticks until it's opened again.
   commands.handle("chat:archive-subagent", (_event, projectPath, sessionId, id, archived) =>
     scopeStates.has(projectPath)

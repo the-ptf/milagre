@@ -1,6 +1,6 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { chatKey, lastUserModel, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { chatKey, isTurnEnd, lastUserModel, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { backgroundWork, holdsAnnouncement } = require("@milagre/shared/chat-activity");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 const { shortTitle } = require("@milagre/shared/chats");
@@ -465,18 +465,32 @@ function createRoutines({
   projectState = async () => null,
   // Names a Run from its final reply ({ reply, provider, projectPath }): a title, or null. Read lazily, like `linear`.
   generateRunTitle = async () => null,
+  // Run Chats (see sweepRunChats). `keepChat(chatId)` shows a hidden Run Chat in the lists from now on, as the user's own
+  // send, pin or rename does. `chatMessages(projectPath, sessionIds)` reads Chats' messages without loading them.
+  // `markRunChats(projectPath, { [sessionId]: hidden })` saves `hidden` on Run Chats that have none yet, and
+  // `archiveRunChat(chatId, runId)` archives one only while it is still hidden, unarchived and Run `runId`'s.
+  keepChat = async () => {},
+  chatMessages = async () => [],
+  markRunChats = async () => {},
+  archiveRunChat = async () => {},
   timers = {},
 }) {
   const now = timers.now ?? Date.now;
-  // The scheduler's work off the tick, waited for at most STOP_WAIT_MS (a Run whose Worktree hangs would hold a quit for
-  // the whole start timeout).
+  // The scheduler's work off the tick and the Run Chat sweeps under way, waited for at most STOP_WAIT_MS (a Run whose
+  // Worktree hangs would hold a quit for the whole start timeout).
   function settleWithin() {
     let timer;
     const bound = new Promise((resolve) => {
       timer = setTimeout(resolve, timers.stopWaitMs ?? STOP_WAIT_MS);
       timer.unref?.();
     });
-    return Promise.race([scheduler.idle(), bound]).finally(() => clearTimeout(timer));
+    return Promise.race([Promise.all([scheduler.idle(), sweepsIdle()]), bound]).finally(() => clearTimeout(timer));
+  }
+  // Run Chat sweeps under way, and the Run Chats a sweep left because their turn was running (swept again once it ends).
+  const sweeps = new Set();
+  const busyRunChats = new Set();
+  async function sweepsIdle() {
+    while (sweeps.size) await Promise.allSettled(sweeps);
   }
   // Routines purged before the webhooks below exist (on load) have their secrets forgotten once they do.
   let webhooksReady = false;
@@ -485,7 +499,7 @@ function createRoutines({
     if (!webhooksReady) return void purgedEarly.push(...ids);
     for (const routineId of ids) webhooks.forget(routineId);
   };
-  const store = createRoutineStore({ file, now, onPurged: forgetPurged });
+  const store = createRoutineStore({ file, now, onPurged: forgetPurged, onRunsDropped: runsDropped });
   let poller = null;
   // Every change may add, remove or switch a Linear Routine, so the poller looks again (a cheap scan).
   const changed = () => {
@@ -572,6 +586,7 @@ function createRoutines({
     scheduler,
     checkTarget,
     remove: (routineId) => removeRoutine(routineId),
+    keepChat: (chatId) => keepRunChat(chatId),
     chatSettings,
     defaultTimezone: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     linearWorkspaces,
@@ -586,6 +601,116 @@ function createRoutines({
     const removed = store.remove(routineId);
     if (removed) webhooks.forget(routineId);
     return removed;
+  }
+
+  // A Heartbeat set on a Chat keeps it: a Heartbeat's Chat is ongoing work, whoever set it. A Chat that isn't a hidden Run
+  // Chat is left as it is, and a keep that fails leaves the Heartbeat saved.
+  async function keepRunChat(chatId) {
+    try {
+      await keepChat(chatId);
+    } catch (error) {
+      console.warn("[routines] couldn't keep a Run Chat", error);
+    }
+  }
+  const keepTarget = (routine) => (routine?.target?.kind === "chat" ? keepRunChat(routine.target.chatId) : undefined);
+
+  function trackSweep(work) {
+    const task = Promise.resolve(work).catch((error) => console.warn("[routines] couldn't sweep Run Chats", error));
+    sweeps.add(task);
+    void task.finally(() => sweeps.delete(task));
+    return task;
+  }
+
+  /**
+   * Run Chats in the Project at `projectPath`, as `state` holds them (never a Link's: Routines don't run there). A Chat
+   * saved before Run Chats could be hidden (no `hidden`) is decided once. A hidden Run Chat whose Run is no longer in the
+   * store (trimmed, deleted with its Routine, purged) is archived, so none outlives its place in the Runs list; one whose
+   * turn is running waits for the turn to end. A store that opened read-only holds no Runs, so it sweeps nothing.
+   */
+  function sweepRunChats(projectPath, state) {
+    return trackSweep(sweep(projectPath, state));
+  }
+  async function sweep(projectPath, state) {
+    if (isClosing() || isLinkScopeKey(projectPath) || store.readOnlyReason() !== null) return;
+    const runChats = Object.values(state?.sessions ?? {}).filter((session) => !session.archived && isRunChat(session));
+    if (runChats.length === 0) return;
+    const hidden = new Map(runChats.map((session) => [session.id, session.routine.hidden]));
+    const undecided = runChats.filter((session) => session.routine.hidden === undefined);
+    if (undecided.length) {
+      const decided = await decideRunChats(projectPath, undecided);
+      await markRunChats(projectPath, decided);
+      for (const session of undecided) hidden.set(session.id, decided[session.id]);
+    }
+    for (const session of runChats) {
+      if (hidden.get(session.id) !== true || store.hasRun(session.routine.runId)) continue;
+      const chatId = chatKey(projectPath, session.id);
+      if (chats.runs?.[chatId]) {
+        busyRunChats.add(chatId);
+        continue;
+      }
+      busyRunChats.delete(chatId);
+      await archiveRunChat(chatId, session.routine.runId);
+    }
+  }
+
+  /**
+   * Whether each Run Chat saved before `hidden` existed stays hidden: not when it is pinned, a Heartbeat's Chat, or has a
+   * user message after its Run's first one that isn't a Run's own (a beat, a Linear comment). Old messages can't tell the
+   * user from an agent, so this errs toward keeping.
+   */
+  async function decideRunChats(projectPath, sessions) {
+    const heartbeats = new Set(
+      store
+        .list()
+        .filter((routine) => routine.target?.kind === "chat")
+        .map((routine) => routine.target.chatId),
+    );
+    const decided = {};
+    const toRead = [];
+    for (const session of sessions) {
+      if (session.pinned || heartbeats.has(chatKey(projectPath, session.id))) decided[session.id] = false;
+      else toRead.push(session.id);
+    }
+    if (toRead.length === 0) return decided;
+    const userMessages = new Map(toRead.map((id) => [id, []]));
+    for (const message of await chatMessages(projectPath, toRead)) {
+      if (message.role === "user") userMessages.get(Number(message.session_id))?.push(message);
+    }
+    for (const id of toRead)
+      decided[id] = !userMessages
+        .get(id)
+        .slice(1)
+        .some((message) => !routineRunOf(message));
+    return decided;
+  }
+
+  // Runs the store no longer holds that had a Chat: the open Projects those Chats are in are swept (one that isn't open is
+  // swept when it opens). Heard once per write, and on load while the store is still being made: `store` isn't set yet
+  // then, so the sweep waits a microtask, and it never writes to the store from inside one of its writes.
+  function runsDropped(dropped) {
+    const projectPaths = new Set(dropped.map((run) => projectOfKey(run.chatId)).filter(Boolean));
+    trackSweep(
+      Promise.resolve().then(() =>
+        Promise.all(
+          [...projectPaths].map((projectPath) => {
+            const state = cachedState(projectPath);
+            return state ? sweepRunChats(projectPath, state) : undefined;
+          }),
+        ),
+      ),
+    );
+  }
+
+  // A Run Chat a sweep left because its turn was running, swept again once that turn's end is folded in.
+  function sweepAfterTurn(chatId) {
+    busyRunChats.delete(chatId);
+    trackSweep(
+      new Promise((resolve) => setImmediate(resolve)).then(() => {
+        const projectPath = projectOfKey(chatId);
+        const state = cachedState(projectPath);
+        return state ? sweepRunChats(projectPath, state) : undefined;
+      }),
+    );
   }
 
   return {
@@ -615,7 +740,9 @@ function createRoutines({
       } catch (error) {
         console.warn("[routines] observe failed", error);
       }
+      if (busyRunChats.has(chatId) && isTurnEnd(event)) sweepAfterTurn(chatId);
     },
+    sweepRunChats,
     chatArchived: (chatId) => scheduler.chatArchived(chatId),
     // Recovery runs once at start whatever the switch says; the timer and polling run only while it is on.
     start() {
@@ -626,7 +753,10 @@ function createRoutines({
     },
     // One tick now, and what the scheduler still has going off the tick (for tests that wait for a positive signal).
     tick: () => scheduler.tick(),
-    idle: () => scheduler.idle(),
+    idle: async () => {
+      await scheduler.idle();
+      await sweepsIdle();
+    },
     // Resolves once a comment already on its way has gone back to its queue, or after the stop bound at most.
     stop() {
       scheduler.stop();
@@ -656,18 +786,20 @@ function createRoutines({
     async create(input) {
       if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("A Routine needs its settings.");
       const target = await checkTarget(input.target);
-      if (input.trigger?.kind === "webhook") return webhooks.create({ ...input, target });
-      const routine = store.create({ ...input, target, createdBy: { kind: "user" } });
-      changed();
+      const routine =
+        input.trigger?.kind === "webhook" ? webhooks.create({ ...input, target }) : store.create({ ...input, target, createdBy: { kind: "user" } });
+      if (input.trigger?.kind !== "webhook") changed();
+      await keepTarget(routine);
       return routine;
     },
     async update(id, patch) {
       if (typeof id !== "string" || !id) throw new Error("Choose a Routine.");
       if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("A Routine change must be an object.");
       const checked = patch.target === undefined ? patch : { ...patch, target: await checkTarget(patch.target) };
-      if (store.get(id)?.trigger.kind === "webhook") return webhooks.update(id, checked);
-      const routine = store.update(id, checked);
-      changed();
+      const webhook = store.get(id)?.trigger.kind === "webhook";
+      const routine = webhook ? webhooks.update(id, checked) : store.update(id, checked);
+      if (!webhook) changed();
+      await keepTarget(routine);
       return routine;
     },
     remove(id) {
@@ -689,6 +821,24 @@ function createRoutines({
       return scheduler.runNow(id);
     },
   };
+}
+
+// A Chat a Routine's Run opened (`session.routine`), hidden or not.
+const isRunChat = (session) => typeof session?.routine?.runId === "string";
+
+/**
+ * `state` with Run Chats' `routine.hidden` set as `decided` ({ [sessionId]: boolean }) says, for those whose routine
+ * `applies(routine)` still holds for: the same state when nothing changes. A Chat that isn't a Run Chat is left alone.
+ */
+function withRunChatsHidden(state, decided, applies) {
+  let sessions = null;
+  for (const [id, hidden] of Object.entries(decided)) {
+    const session = state.sessions[id];
+    if (!isRunChat(session) || session.routine.hidden === hidden || !applies(session.routine)) continue;
+    sessions ??= { ...state.sessions };
+    sessions[id] = { ...session, routine: { ...session.routine, hidden } };
+  }
+  return sessions ? { ...state, sessions } : state;
 }
 
 const nonEmpty = (value) => (typeof value === "string" && value.trim() !== "" ? value : undefined);
@@ -924,4 +1074,4 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
   };
 }
 
-module.exports = { createRoutines, createWebhooks, routineChats, routineReply, routineTargets };
+module.exports = { createRoutines, createWebhooks, isRunChat, routineChats, routineReply, routineTargets, withRunChatsHidden };
