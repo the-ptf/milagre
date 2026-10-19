@@ -13,6 +13,8 @@ import '/src/styles.css';
 const noop = () => {};
 window.sent = [];
 window.milagre = { listSkills: async root => ({ skills: root === '/other' ? [] : [
+  { name: 'reorder', description: 'Gently put things in order', scope: 'bundled', provider: 'milagre', path: '/skills/reorder/SKILL.md' },
+  { name: 'settle', description: 'Close out loose ends', scope: 'workspace', provider: 'claude', path: '/skills/settle/SKILL.md' },
   { name: 'tldr', description: 'Rewrite for a skimming reader', scope: 'bundled', provider: 'milagre', path: '/skills/tldr/SKILL.md' },
   ...['milagre','milagre-advisor','milagre-committee','milagre-help'].map(name => ({ name, description: 'Milagre orchestration and help', scope: 'bundled', provider: 'milagre', path: '/skills/' + name + '/SKILL.md' })),
   { name: 'plugin:review-code', description: 'Review code', scope: 'user', provider: 'codex', path: '/skills/review/SKILL.md' },
@@ -133,6 +135,23 @@ async function browserChecks() {
     await screenshot("expanded-light");
     await type("/tl");
     await waitFor(`!!document.querySelector('[aria-label="Commands and skills"] button')`);
+    // Ranking: the name that starts with the query first, then names that contain it, then description matches,
+    // whatever group they sit in (reorder is listed before tldr and only matches by description).
+    const ranked = () =>
+      evaluate(
+        `[...document.querySelectorAll('[aria-label="Commands and skills"] button')].map(b => b.querySelector('span')?.textContent).filter(name => ['/tldr', '/settle', '/reorder'].includes(name))`,
+      );
+    assert.deepEqual(await ranked(), ["/tldr", "/settle", "/reorder"], "/tl lists /tldr first, then the name match, then the description match");
+    assert.equal(
+      await evaluate(`document.querySelector('[aria-label="Commands and skills"] button span').textContent`),
+      "/tldr",
+      "the first row is the exact name prefix",
+    );
+    assert.equal(
+      await evaluate(`document.querySelectorAll('[aria-label="Commands and skills"] [data-skill-group]').length`),
+      0,
+      "a search lists matches without group headings",
+    );
     await evaluate(`document.querySelector('[aria-label="Commands and skills"] button').click()`);
     await waitFor(`${editor}.value === '/tldr '`);
     assert.deepEqual(await highlighted(), ["/tldr"], "Picker selection is a chip");

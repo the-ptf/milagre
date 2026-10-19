@@ -20,6 +20,7 @@ import { Attachments } from "./Attachments";
 import { useProjectFiles } from "./useProjectFiles";
 import { promptToken, fileMentionPath, insertPromptToken } from "../lib/file-mentions";
 import { formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
+import { rankSkillMatches } from "@milagre/shared/skill-catalog";
 import { useSkills } from "./useSkills";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
@@ -292,7 +293,7 @@ export function PromptComposer({
         ? SOURCES
         : fileSearch.files.map((path) => ({ key: `file:${path}`, name: path.split("/").at(-1) || path, desc: path, path }))
       : menu === "slash"
-        ? commands.filter((command) => `${command.name.slice(1)} ${command.desc}`.toLowerCase().includes(tokenQuery))
+        ? rankSkillMatches(commands, tokenQuery, (command) => ({ name: command.name, description: command.desc }))
         : [];
   const providerNotice = cliNotice(cliStatus?.[provider]);
   const providerTabs = pickerProviders(cliStatus, selectedModel.provider, provider);
@@ -511,7 +512,8 @@ export function PromptComposer({
               />
               {rows.map((row, index) => {
                 const source = menu === "at" ? SOURCES.find((item) => item.key === row.key) : undefined;
-                const showGroup = row.group && row.group !== rows[index - 1]?.group;
+                // A search lists its matches best first across the groups, so it carries no group headings.
+                const showGroup = !tokenQuery && row.group && row.group !== rows[index - 1]?.group;
                 return (
                   <Fragment key={row.key}>
                     {showGroup && (
