@@ -384,11 +384,12 @@ export function PromptComposer({
     setPlusOpen(false);
     // Every chip's file goes with the message, even one whose attachment the effect hasn't caught up with yet; the
     // parent's send reads its attachments from its render, so commit them first and send from the new render.
-    const missing = chipPaths.filter((path) => !imageDraft.files.includes(path));
+    // A remote Chat refuses this Mac's files, so a chip's file stays a mention there (no refusal notice at send).
+    const missing = imageDraft.remote ? [] : chipPaths.filter((path) => !imageDraft.files.includes(path));
     if (missing.length) {
       flushSync(() => {
         for (const path of missing) {
-          if (!imageDraft.remote) mentionAttached.current.add(path);
+          mentionAttached.current.add(path);
           imageDraft.attachPath(path);
         }
       });

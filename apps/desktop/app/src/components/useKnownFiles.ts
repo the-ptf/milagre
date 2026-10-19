@@ -17,6 +17,9 @@ export function markFileKnown(root: string, path: string) {
   found.asked.add(path);
 }
 
+/** How long a lookup that found nothing stands: a file created meanwhile becomes a chip after this. */
+const MISS_TTL_MS = 30_000;
+
 const TRAILING_PUNCTUATION = /[.,!?;:)\]}]+$/;
 
 /** The paths a draft's `@` mentions could name: quoted ones as written, bare ones also without trailing punctuation. */
@@ -59,7 +62,14 @@ export function useKnownFiles(
         current.asked.add(path);
         bridge.searchProjectFiles(root, path).then(
           (files) => {
-            if (!files.includes(path)) return false;
+            if (!files.includes(path)) {
+              // Asked again after the TTL, when the next render sees the mention unasked.
+              setTimeout(() => {
+                current.asked.delete(path);
+                setVersion((count) => count + 1);
+              }, MISS_TTL_MS);
+              return false;
+            }
             current.known.add(path);
             setVersion((count) => count + 1);
             return true;
