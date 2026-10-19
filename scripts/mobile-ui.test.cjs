@@ -11218,10 +11218,21 @@ test("with the Mac's Routines switch off, the phone says so and links to Experim
 const routineNow = new Date(2026, 9, 17, 10, 30).getTime();
 const at = (hour, minute = 0) => new Date(2026, 9, 17, hour, minute).getTime();
 
-function routineHost({ id = "tr", routines = routineFixtures(), states = {}, confirmed = [] } = {}) {
+function routineHost({
+  id = "tr",
+  routines = routineFixtures(),
+  states = {},
+  confirmed = [],
+  enabled = true,
+  loading = false,
+  error = "",
+  canGoBack = true,
+} = {}) {
   const react = hookHost();
   const routes = [];
   const calls = [];
+  const replaced = [];
+  let current = routines;
   let backs = 0;
   const client = {
     url: "ws://mac",
@@ -11247,7 +11258,9 @@ function routineHost({ id = "tr", routines = routineFixtures(), states = {}, con
     "react-native": { Platform: { OS: "ios" }, Text: "Text", View: "View" },
     "expo-router": {
       Stack: Object.assign(() => null, { Screen: "StackScreen", Toolbar: Object.assign(() => null, { Button: "ToolbarButton", View: "ToolbarView" }) }),
-      router: { push: (href) => routes.push(href), back: () => backs++ },
+      router: { push: (href) => routes.push(href), back: () => backs++, replace: (href) => replaced.push(href), canGoBack: () => canGoBack },
+      // Runs when the screen comes into focus or its callback changes: queued here, and run by flush().
+      useFocusEffect: (fn) => react.effect(fn, [fn]),
       useLocalSearchParams: () => ({ id }),
     },
     "@hugeicons/core-free-icons": icons,
@@ -11255,7 +11268,7 @@ function routineHost({ id = "tr", routines = routineFixtures(), states = {}, con
     "@milagre/shared/routines": shared,
     "../session": { useSession: () => ({ client }) },
     "../use-routines": {
-      useRoutines: () => ({ routines, enabled: true, unavailable: null, error: "", loading: false, refresh: async () => {}, update: async () => {} }),
+      useRoutines: () => ({ routines: current, enabled, unavailable: null, error, loading, refresh: async () => {}, update: async () => {} }),
     },
     "../use-project-states": { useProjectStates: () => states },
     "../chat-row-store": { useActivityClock: () => routineNow },
@@ -11275,7 +11288,17 @@ function routineHost({ id = "tr", routines = routineFixtures(), states = {}, con
     return node && node.type(node.props);
   };
   const rows = (list) => allNodes(list, (node) => node.type === "Pressable");
-  return { render, runList, rows, routes, calls, backs: () => backs };
+  return {
+    render,
+    runList,
+    rows,
+    routes,
+    calls,
+    replaced,
+    backs: () => backs,
+    flush: () => react.flush(),
+    setRoutines: (next) => (current = next),
+  };
 }
 
 const runsFixture = () => [
@@ -11393,6 +11416,70 @@ test("the phone Routine screen says No Runs yet with the next Run, and Delete ar
 
   const gone = routineHost({ id: "nope" });
   assert.ok(allNodes(gone.render(), (node) => node.type === "Text").some((node) => textOf(node) === "This Routine is no longer on this Mac."));
+});
+
+test("the phone Routine screen goes back once the Mac's list has been read and no longer holds its Routine", () => {
+  const host = routineHost({ id: "nope" });
+  const tree = host.render();
+  host.flush();
+  assert.equal(host.backs(), 1);
+  assert.deepEqual(host.replaced, []);
+  // Still on screen while it leaves, with Edit unavailable.
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "This Routine is no longer on this Mac."));
+  assert.equal(find(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Edit").props.disabled, true);
+  // A later render, or a later focus, doesn't go back again.
+  host.render();
+  host.flush();
+  host.render();
+  host.flush();
+  assert.equal(host.backs(), 1);
+});
+
+test("the phone Routine screen opened with nothing behind it goes to the Routines list instead", () => {
+  const host = routineHost({ id: "nope", canGoBack: false });
+  host.render();
+  host.flush();
+  assert.equal(host.backs(), 0);
+  assert.deepEqual(host.replaced, ["/routines"]);
+});
+
+test("the phone Routine screen stays while its Routine is listed, the list is loading, a read failed, or the Mac's Routines are off", () => {
+  const cases = {
+    "the Routine is listed": routineHost(),
+    "the list is loading": routineHost({ id: "nope", loading: true }),
+    "the Mac's switch is not read yet": routineHost({ id: "nope", enabled: null }),
+    "the Mac's Routines are off": routineHost({ id: "nope", enabled: false }),
+    "the last read failed": routineHost({ id: "nope", error: "Could not read Routines." }),
+  };
+  for (const [name, host] of Object.entries(cases)) {
+    host.render();
+    host.flush();
+    assert.deepEqual([host.backs(), host.replaced], [0, []], name);
+  }
+});
+
+test("the phone Routine screen goes back once for a Routine it deleted itself, whichever of its Delete and the list update comes first", async () => {
+  const [, trigger] = routineFixtures();
+  const host = routineHost({ routines: [trigger] });
+  find(host.render(), (node) => node.type === "Button" && node.props.title === "Delete").props.onPress();
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(host.backs(), 1);
+  // The Mac's list drops the Routine while the page is still animating out.
+  host.setRoutines([]);
+  host.render();
+  host.flush();
+  assert.equal(host.backs(), 1);
+
+  // The list drops it first (deleted elsewhere): the page goes, and a Delete that was already confirmed doesn't go twice.
+  const other = routineHost({ routines: [trigger] });
+  const tree = other.render();
+  other.setRoutines([]);
+  other.render();
+  other.flush();
+  assert.equal(other.backs(), 1);
+  find(tree, (node) => node.type === "Button" && node.props.title === "Delete").props.onPress();
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(other.backs(), 1);
 });
 
 function routineFormHost({ params = {}, routines = [], answers = {}, created } = {}) {

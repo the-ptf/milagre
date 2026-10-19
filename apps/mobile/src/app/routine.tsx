@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Platform, Text, View } from "react-native";
-import { Stack, router, useLocalSearchParams } from "expo-router";
+import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { PencilEdit02Icon } from "@hugeicons/core-free-icons";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { canOpenRunChat, canRunNow, clock, unreadRunChats } from "@milagre/shared/routines";
@@ -20,6 +20,14 @@ function routineProjects(routine: RoutineWithRuns | undefined) {
   if (!routine) return [];
   const own = routine.target.kind === "chat" ? projectOfKey(routine.target.chatId) : routine.target.projectPath;
   return [own, ...(routine.runs ?? []).flatMap((run) => (run.chatId ? [projectOfKey(run.chatId)] : []))];
+}
+
+/** Leaves the page, once however many ask: back, or to the Routines list when it was opened with nothing behind it. */
+function leave(left: { current: boolean }) {
+  if (left.current) return;
+  left.current = true;
+  if (router.canGoBack()) router.back();
+  else router.replace("/routines");
 }
 
 /**
@@ -42,6 +50,16 @@ export default function RoutineScreen() {
   // Each new Run or status reads its Projects again, so its Chat opens and its dot shows.
   const states = useProjectStates(routineProjects(routine), runs.map((run) => `${run.id}:${run.status}`).join(","));
   const unreadChats = useMemo(() => unreadRunChats(states), [states]);
+  // A Routine deleted (from this page, or anywhere else) takes its page with it, as on desktop: once the Mac's list has been
+  // read and no longer holds it, go back. Not while the list is still loading, or after a read that failed, or when the
+  // Mac's Routines are off. A page with another screen on top (the Edit form) goes when it is back in view.
+  const left = useRef(false);
+  const gone = !routine && routines.enabled === true && !routines.loading && !routines.error;
+  useFocusEffect(
+    useCallback(() => {
+      if (gone) leave(left);
+    }, [gone]),
+  );
 
   const edit = () => routine && router.push({ pathname: "/routine-form", params: { id: routine.id } });
   const fail = (failure: unknown, fallback: string) => setError(failure instanceof Error ? failure.message : fallback);
@@ -97,7 +115,7 @@ export default function RoutineScreen() {
     try {
       if (!(await confirm(`Delete ${routine.name}?`, routineDeleteMessage(routine), "Delete"))) return;
       await client.call("routines:delete", [routine.id]);
-      router.back();
+      leave(left);
       await routines.refresh();
     } catch (failure) {
       fail(failure, "Could not delete this Routine.");
