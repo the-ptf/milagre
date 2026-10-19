@@ -12,7 +12,7 @@ import { routineIcon } from "./routine-icon";
 
 type HugeIconData = typeof PlayIcon;
 const MENU_WIDTH = 200;
-export const outlineButton = "rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12.5px] font-medium text-ink transition-colors hover:bg-hover";
+const outlineButton = "rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12.5px] font-medium text-ink transition-colors hover:bg-hover";
 const removeButton = "rounded-lg border border-red/30 bg-surface px-3 py-1.5 text-[12.5px] font-medium text-red transition-colors hover:bg-red-tint";
 
 /** What is wrong with the Routine, in red under its meta: why it paused itself while off, else its latest error. */
@@ -25,10 +25,10 @@ function routineChat(routine: RoutineWithRuns): string | undefined {
   return routine.target.kind === "chat" ? routine.target.chatId : routine.runs.find((run) => run.chatId)?.chatId;
 }
 
-export type MenuEntry = { key: string; label: string; icon: HugeIconData; danger?: boolean; onSelect: () => void };
+type MenuEntry = { key: string; label: string; icon: HugeIconData; danger?: boolean; onSelect: () => void };
 
 /** A Routine's icon tile, dimmed while it is switched off. `large` is the Routine page's header. */
-export function RoutineTile({ routine, large = false }: { routine: Routine; large?: boolean }) {
+function RoutineTile({ routine, large = false }: { routine: Routine; large?: boolean }) {
   return (
     <span className={`flex shrink-0 items-center justify-center bg-field ${large ? "size-10 rounded-xl" : "size-8 rounded-lg"}`}>
       <HugeiconsIcon
@@ -43,7 +43,7 @@ export function RoutineTile({ routine, large = false }: { routine: Routine; larg
 }
 
 /** A Routine's ⋯ button and the menu it opens with `entries`; picking one closes the menu first. */
-export function RoutineMenu({ routine, entries }: { routine: Routine; entries: MenuEntry[] }) {
+function RoutineMenu({ routine, entries }: { routine: Routine; entries: MenuEntry[] }) {
   const [menu, setMenu] = useState<{ top: number; left: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -138,17 +138,7 @@ export function RoutineMenu({ routine, entries }: { routine: Routine; entries: M
 }
 
 /** The delete confirmation under a Routine: what deleting does, Cancel and Delete. */
-export function DeleteQuestion({
-  routine,
-  onCancel,
-  onDelete,
-  className = "",
-}: {
-  routine: Routine;
-  onCancel: () => void;
-  onDelete: () => void;
-  className?: string;
-}) {
+function DeleteQuestion({ routine, onCancel, onDelete, className = "" }: { routine: Routine; onCancel: () => void; onDelete: () => void; className?: string }) {
   return (
     <div data-routine-delete-question className={`flex min-h-11 items-center gap-2 ${className}`}>
       <span className="min-w-0 flex-1 text-[12px] text-ink">{routineDeleteQuestion(routine)}</span>

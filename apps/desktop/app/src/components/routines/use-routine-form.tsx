@@ -50,7 +50,7 @@ function draftTrigger(state: RoutineFormState): RoutineTrigger {
 }
 
 /** The trigger chip's words for the form as it stands: the schedule it would save, else the Linear or webhook trigger. */
-export function draftTriggerText(state: RoutineFormState): string {
+function draftTriggerText(state: RoutineFormState): string {
   if (state.trigger === "schedule") {
     const made = scheduleCron(state.schedule);
     return made.cron ? triggerChipText({ kind: "schedule", cron: made.cron, timezone: state.schedule.timezone }, localZone()) : "Schedule";

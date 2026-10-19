@@ -30,7 +30,7 @@ const toolButton =
   "flex size-[26px] shrink-0 items-center justify-center rounded-[7px] text-ink-2 transition-colors hover:bg-hover-2 hover:text-ink disabled:opacity-40 disabled:hover:bg-transparent";
 
 /** "On" in green, or "Paused" in grey, beside the Routine's name. */
-export function RoutineStatusPill({ on }: { on: boolean }) {
+function RoutineStatusPill({ on }: { on: boolean }) {
   return (
     <span
       data-routine-status-pill={on ? "on" : "paused"}
