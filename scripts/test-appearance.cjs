@@ -237,7 +237,21 @@ async function browserChecks() {
     assert.ok(sliding < 399, "at normal speed the layout probe is still sliding 40ms in (got " + sliding + ")");
     await set({ motion: "off" });
     await probeLeft(false, 300);
-    assert.equal(await probeLeft(true, 40), 400, "with motion off a layout slide is instant");
+    // The first frame where the probe has moved must already be its final spot: a slide would show an in-between left
+    // first. Waiting for that frame, not a fixed 40ms, keeps a slow runner's render delay out of it.
+    const firstMove = await evaluate(`new Promise((resolve) => {
+      const probe = () => document.querySelector('[data-slot="layout-probe"]').getBoundingClientRect().left;
+      const start = probe();
+      window.__setShift(true);
+      let frames = 0;
+      const watch = () => {
+        const left = probe();
+        if (left !== start || ++frames > 120) return resolve(left);
+        requestAnimationFrame(watch);
+      };
+      requestAnimationFrame(watch);
+    })`);
+    assert.equal(firstMove, 400, "with motion off a layout slide is instant");
     // Edge fades: the tint is the background the transcript sits on (the page, or a focused tile's surface) and stays
     // soft, so an empty area under a fade shows no band, while a turn runs and when idle, in light, dark and a custom theme.
     const rectOf = (selector) =>
