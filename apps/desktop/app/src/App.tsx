@@ -335,14 +335,21 @@ function App() {
   // Projects | Bots in the sidebar. Bots off (Settings › Experimental), the sidebar is back on Projects.
   const [storedSidebarMode, setStoredSidebarMode] = useState<SidebarMode>(() => (localStorage.getItem(SIDEBAR_MODE_KEY) === "bots" ? "bots" : "projects"));
   const sidebarMode: SidebarMode = bots.enabled ? storedSidebarMode : "projects";
-  const setSidebarMode = (mode: SidebarMode) => {
-    if (mode === "bots") changes.closeDiff();
+  const storedSidebarModeRef = useRef(storedSidebarMode);
+  storedSidebarModeRef.current = storedSidebarMode;
+  // Bots shows the bot thread, from Routines, the canvas or Settings too.
+  const setSidebarMode = useEvent((mode: SidebarMode) => {
+    if (mode === "bots") {
+      changes.closeDiff();
+      setView("chat");
+    }
     setStoredSidebarMode(mode);
     localStorage.setItem(SIDEBAR_MODE_KEY, mode);
-  };
-  // Opening a Project's Chat any other way (a notification, ⌘N, the palette) shows it, not the bot thread over it.
+  });
+  // Opening a Project's Chat or a Link any other way (a notification, ⌘N, the palette, a Routine's Run, a Link) shows it,
+  // not the bot thread over it. Read from a ref: listeners registered renders ago call this too.
   const leaveBots = () => {
-    if (storedSidebarMode === "bots") setSidebarMode("projects");
+    if (storedSidebarModeRef.current === "bots") setSidebarMode("projects");
   };
   // Only a successful read that says Bots are off resets the sidebar: a daemon still starting keeps it on Bots.
   useEffect(() => {
@@ -352,6 +359,10 @@ function App() {
   // The bot picked last, or the first one while that one is gone.
   const selectedBotId = bots.snapshot?.bots.some((bot) => bot.id === pickedBotId) ? pickedBotId : (bots.snapshot?.bots[0]?.id ?? null);
   const selectedBot = bots.snapshot?.bots.find((bot) => bot.id === selectedBotId);
+  const pickBot = useEvent((id: string) => {
+    setSelectedBotId(id);
+    setView("chat");
+  });
   const botsShown = view === "chat" && sidebarMode === "bots";
   const [botProfileOpen, setBotProfileOpen] = useState(true);
   // "Open Chat" on a bot's card: back to Projects, in that Chat.
@@ -972,6 +983,7 @@ function App() {
   }
 
   function openChat(sessionId: number) {
+    leaveBots();
     const failed = failedSends.find((send) => send.projectPath === projectRef.current?.path && send.session.id === sessionId);
     if (failed) {
       chatView.current = failed.view;
@@ -1363,6 +1375,7 @@ function App() {
   const openProject = () => (pairedComputers.length > 0 ? Promise.resolve(setAddProjectOpen(true)) : replaceProject(() => window.milagre.openProject()));
   const switchProject = (projectPath: string) => replaceProject(() => bridgeForKey(projectPath).switchProject(projectPath), projectPath);
   async function selectLink(id: string, sessionId?: number) {
+    leaveBots();
     const navigation = ++projectNavigation.current;
     try {
       const next = await bridgeForKey(`milagre-link:${id}`).openNamedLink(id);
@@ -1380,6 +1393,7 @@ function App() {
     }
   }
   async function openCanvasChat(projectPath: string, sessionId: number) {
+    leaveBots();
     if (isLinkScopeKey(projectPath)) {
       await selectLink(projectPath.slice("milagre-link:".length), sessionId);
       return;
@@ -1692,7 +1706,7 @@ function App() {
   // Text the find bar starts with, from a ⌘K message result; ⌘F clears it.
   const [findSeed, setFindSeed] = useState<string | undefined>();
   const findRef = useRef({ open: false, canOpen: false });
-  findRef.current = { open: findOpen, canOpen: view === "chat" && chatCount > 0 };
+  findRef.current = { open: findOpen, canOpen: view === "chat" && !botsShown && chatCount > 0 };
   function openFind(seed?: string) {
     if (!findRef.current.canOpen) return;
     setFindSeed(seed);
@@ -1800,7 +1814,8 @@ function App() {
         setView("chat");
         return;
       }
-      if (run && project && selectedSession) {
+      // The bot thread is on screen: Escape never stops a turn in the Chat behind it.
+      if (run && project && selectedSession && !botsShown) {
         event.preventDefault();
         // Escape denies the open approval or dismisses the open question; once that's sent, Escape stops the turn.
         const approval = run.approvals[0];
@@ -1813,7 +1828,7 @@ function App() {
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [run, project?.path, selectedSession?.id, view]);
+  }, [run, project?.path, selectedSession?.id, view, botsShown]);
 
   useEffect(() => {
     function jumpToChat(event: KeyboardEvent) {
@@ -2322,7 +2337,10 @@ function App() {
           group: "Projects",
           icon: "folder",
           detail: recent.path,
-          run: () => switchProject(recent.path),
+          run: () => {
+            leaveBots();
+            void switchProject(recent.path);
+          },
         })),
     );
     return commands;
@@ -2445,7 +2463,7 @@ function App() {
                 sidebarMode={sidebarMode}
                 onSidebarMode={setSidebarMode}
                 selectedBotId={selectedBotId}
-                onPickBot={setSelectedBotId}
+                onPickBot={pickBot}
                 models={models}
                 defaultModel={selectedModel}
               />
