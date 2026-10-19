@@ -157,8 +157,9 @@ place. The Routines button in the bottom dock shows the same unread dot. The Cha
 
 ### Deleting a Routine, and old Runs
 
-- Deleting a Routine archives its hidden Run Chats; kept ones stay. The delete confirmation says how many it will
-  archive. A completed Routine purged after 30 days (`store.cjs:306-320`) does the same.
+- Deleting a Routine archives its hidden Run Chats; kept ones stay. The delete confirmation says so ("Its Runs stop,
+  and its Run Chats you haven't kept are archived."). *My call:* no count, since a client can't see Chats in Projects
+  it hasn't loaded and a wrong number is worse than none. A completed Routine purged after 30 days (`store.cjs:306-320`) does the same.
 - The store trims Runs in three buckets today (`trimRuns`, `store.cjs:208-224`): skipped and missed share 50, refused
   share 50, and acted, quiet and failed share 50. A mostly quiet hourly Routine would push an acted Run out in about
   two days. *My call:* split that last bucket, so acted Runs keep their own 50 and quiet and failed Runs share another
