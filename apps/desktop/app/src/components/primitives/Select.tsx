@@ -36,6 +36,7 @@ export function Select<T extends string>({
   searchable = false,
   variant = "field",
   leading,
+  onOpenChange,
 }: {
   label: string;
   value: T;
@@ -47,10 +48,15 @@ export function Select<T extends string>({
   triggerClassName?: string;
   /** A search field over a long list (e.g. time zones); it filters by label. */
   searchable?: boolean;
-  /** "chip": a rounded pill on the field fill (the Routine form's chips) instead of a bordered field. */
-  variant?: "field" | "chip";
+  /**
+   * `chip`: a rounded pill on the field fill (the Routine form's chips) instead of a bordered field. `text`: the trigger
+   * reads as plain text with a chevron (a heading that is also a choice), and the panel opens from its left edge.
+   */
+  variant?: "field" | "chip" | "text";
   /** Shown before the label when the selected option has no icon of its own. */
   leading?: ReactNode;
+  /** Tells a hover surface the trigger sits in (the usage card) to stay open while the panel, outside it, is in use. */
+  onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number }>({ left: 0, maxHeight: 0 });
@@ -68,7 +74,7 @@ export function Select<T extends string>({
     setHost(triggerRef.current?.closest("dialog[open], [data-popover-host]") ?? null);
     const trigger = triggerRef.current?.getBoundingClientRect();
     if (!trigger) return;
-    const left = Math.max(INSET, Math.min(trigger.right - width, window.innerWidth - width - INSET));
+    const left = Math.max(INSET, Math.min(variant === "text" ? trigger.left : trigger.right - width, window.innerWidth - width - INSET));
     const roomBelow = window.innerHeight - trigger.bottom - GAP - INSET;
     const roomAbove = trigger.top - GAP - INSET;
     setPosition(
@@ -78,8 +84,13 @@ export function Select<T extends string>({
     );
   }
 
+  function setShown(next: boolean) {
+    setOpen(next);
+    onOpenChange?.(next);
+  }
+
   function close(refocus = true) {
-    setOpen(false);
+    setShown(false);
     if (refocus) triggerRef.current?.focus();
   }
 
@@ -117,7 +128,7 @@ export function Select<T extends string>({
     event.preventDefault();
     setQuery("");
     place();
-    setOpen(true);
+    setShown(true);
   }
 
   return (
@@ -137,16 +148,18 @@ export function Select<T extends string>({
           // A new search each time it opens; place() also runs on resize and scroll, which keep the query.
           setQuery("");
           place();
-          setOpen(true);
+          setShown(true);
         }}
         onKeyDown={onTriggerKeyDown}
         className={
           variant === "chip"
             ? `flex h-7 items-center gap-1.5 rounded-full pr-2 pl-2.5 text-[12.5px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "bg-field"} ${triggerClassName}`
-            : `flex h-8 items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"} ${triggerClassName}`
+            : variant === "text"
+              ? `-mx-1.5 flex min-w-0 max-w-full items-center gap-1 rounded-[6px] px-1.5 text-left text-ink transition-colors hover:bg-hover-2 ${open ? "bg-hover-2" : ""} ${triggerClassName}`
+              : `flex h-8 items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"} ${triggerClassName}`
         }
       >
-        {selected?.icon ?? leading}
+        {variant !== "text" && (selected?.icon ?? leading)}
         {selected?.display ?? <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? ""}</span>}
         <span className="text-ink-3">
           <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={1.8} color="currentColor" />
@@ -163,7 +176,10 @@ export function Select<T extends string>({
             style={{ left: position.left, top: position.top, bottom: position.bottom, width }}
           >
             <PickerPanel
-              style={{ maxHeight: position.maxHeight, transformOrigin: `${position.top === undefined ? "bottom" : "top"} right` }}
+              style={{
+                maxHeight: position.maxHeight,
+                transformOrigin: `${position.top === undefined ? "bottom" : "top"} ${variant === "text" ? "left" : "right"}`,
+              }}
               {...(searchable ? { query, onQueryChange: setQuery, placeholder: "Search", isEmpty: shown.length === 0, emptyLabel: "No matches" } : {})}
             >
               {shown.map((option, index) => (

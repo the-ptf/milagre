@@ -91,7 +91,8 @@ export function useUsage(scopeKey?: string) {
       inFlight.current = null;
       lastReadAt.current = 0;
       lastSnapshots.clear();
-      setSnapshot(null);
+      // The numbers on screen stay until the new read replaces them (mergeSnapshot drops another account's),
+      // so switching accounts from the usage card doesn't unmount the sidebar rows and the card with them.
       void refresh();
     });
     return () => {
