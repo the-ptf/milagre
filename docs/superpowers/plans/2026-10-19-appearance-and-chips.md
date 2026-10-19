@@ -169,6 +169,21 @@ Chip style: `inline-flex items-center gap-1 rounded-[6px] border px-1.5 align-[-
 - [ ] **Step 1:** Failing tests: `parseAppearance({chatWidth:"custom", chatWidthPx: 5000}).chatWidthPx === 2400`; `clampChatWidth("x") === 900`; `clampChatWidth(300) === 600`; `appearanceVars({...default, chatWidth:"custom", chatWidthPx: 1200}).["--chat-width"] === "1200px"`. Electron: pick Custom, type 1100 + Enter → transcript column max-width 1100px and localStorage `chatWidthPx` 1100; type 99999 + blur → field shows 2400.
 - [ ] **Step 2:** FAIL. **Step 3:** Implement. **Step 4:** PASS + typecheck + lint. **Step 5:** Commit `feat(desktop): custom chat width in px`.
 
+### Task 7c: Mini window preview
+
+**Files:**
+- Create: `apps/desktop/app/src/components/settings/AppearanceWindowPreview.tsx` (replaces `AppearancePreview.tsx`; delete the old one and its usage)
+- Modify: `apps/desktop/app/src/components/Settings.tsx` (rows report `onHighlight(area | null)` on pointerenter/leave, menu open/close and change; preview sticky at the top of the Typography..Motion groups)
+- Test: `scripts/test-appearance.cjs` (or test-settings-sections.cjs)
+
+**Interfaces:**
+- `type PreviewArea = "sidebar" | "chat" | "code" | "width" | "diff" | "ui"`.
+- `AppearanceWindowPreview({ highlight: PreviewArea | null, playMotion: number })` (`playMotion` increments to replay the panel slide). Inner frame 1440x900 px at real CSS vars, wrapped in `transform: scale(var)` fitted to the card width (ResizeObserver). Regions carry `data-preview-area`. Highlighted region gets an accent outline; others drop to 40% opacity; a `width` highlight draws edge markers and a "<n> px" label on the chat column. Highlight stays 1.5 s after a change.
+- Chips: `SkillChip`, `FileChip` from `PromptChip.tsx`; counts and diff use the existing diff classes; panel slide uses `scaled()`/`useMotionScale()` from `lib/ease.ts`.
+
+- [ ] **Step 1:** Failing Electron check: Appearance shows `[data-preview-area="sidebar"]`; hovering the Sidebar size row sets `data-highlighted` on that region; choosing Chat width Wide makes the preview chat column 1024 css px wide (pre-scale) and shows "1024 px"; choosing Chat size 15 px makes the preview message font-size 15px; the preview stays within the viewport after scrolling to Motion (sticky).
+- [ ] **Step 2:** FAIL. **Step 3:** Implement. **Step 4:** PASS + typecheck + lint; save a screenshot to `.superpowers/sdd/2026-10-19-appearance-and-chips/task-7c-preview.png`. **Step 5:** Commit `feat(desktop): Appearance mini window preview`.
+
 ### Task 8: Daemon: file search for the phone
 
 **Files:**

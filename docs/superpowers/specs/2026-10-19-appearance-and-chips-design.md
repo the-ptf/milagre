@@ -49,6 +49,8 @@ Curated lists (my call, edit freely):
 
 A saved font that is later uninstalled shows as the default, with the saved value kept.
 
+**Mini window preview** (Victor, 2026-10-19; replaces the preview card). A live schematic of the app at the top of the Typography..Motion groups, sticky while scrolling: sidebar (Project + Chat rows with change counts), chat column (user message with skill + file chips, assistant reply, code block with a diff), pill row and composer. Drawn at real CSS sizes inside a container scaled to about 0.45 of a 1440 px window, so every setting shows faithfully. Hovering a row, opening its menu or changing it highlights the area it affects (outline + dim the rest), held 1.5 s after a change: Sidebar size → sidebar; Chat size → messages + composer; Code size / Monospace font → code + diff; Chat width → chat column with edge markers and the px value; Diff colors → diff lines + counts; Interface font → everything but code. Changing Panel animations plays a panel slide in the preview at the chosen speed.
+
 **Layout**
 - *Chat width*: Comfortable (default, today's 768 px), Wide (1024 px), Full (fills the pane with side padding). Plus Custom (Victor, 2026-10-19): a px field appears next to the menu, saved on Enter or blur, clamped to 600-2400 px, starting at 900 px. This is the one number field on the screen, by request. Applies to the transcript column, the pill row and the composer together.
 
