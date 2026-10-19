@@ -3,6 +3,7 @@
 // approval), file-approval, permissions (extra sandbox permissions), withdrawn (an approval Codex
 // takes back), steer (the first turn waits; turn/steer joins it, or is refused when its text says
 // "too late"), no-turn-id (the first turn is never given an id and ends on its own), stubborn (turn never ends, interrupt unanswered), hang-init (initialize unanswered),
+// hang-thread (thread/start and thread/resume unanswered),
 // resume-exit (exits on thread/resume), slow-stop (the first turn takes 150ms to stop after an interrupt),
 // late-approval (like slow-stop, and Codex asks for a command approval while the turn is stopping),
 // reject-extra-mcp (thread/start and thread/resume fail when `config` carries an MCP server other than milagre with a url),
@@ -122,12 +123,14 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     case "fake/received":
       return send({ id, result: { received, threadStarts } });
     case "thread/start":
+      if (scenario === "hang-thread") return undefined;
       if (scenario === "reject-extra-mcp" && Object.entries(params.config?.mcp_servers ?? {}).some(([name, server]) => name !== "milagre" && server.url))
         return send({ id, error: { code: -32602, message: "invalid params: mcp_servers" } });
       if (scenario === "reject-config" && params.config) return send({ id, error: { code: -32602, message: "invalid params: config" } });
       threadStarts += 1;
       return send({ id, result: { thread: { id: `thread-${threadStarts}` }, model: params.model } });
     case "thread/resume":
+      if (scenario === "hang-thread") return undefined;
       if (scenario === "reject-extra-mcp" && Object.entries(params.config?.mcp_servers ?? {}).some(([name, server]) => name !== "milagre" && server.url))
         return send({ id, error: { code: -32602, message: "invalid params: mcp_servers" } });
       if (scenario === "reject-config" && params.config) return send({ id, error: { code: -32602, message: "invalid params: config" } });
