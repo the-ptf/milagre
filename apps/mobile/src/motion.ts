@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { useReducedMotion as useSystemReducedMotion, withSpring, withTiming, type WithSpringConfig, type WithTimingConfig } from "react-native-reanimated";
 import { useTheme } from "./theme";
 
@@ -30,11 +29,4 @@ export function springTo(target: number, config: WithSpringConfig, scale: number
   if (next.stiffness !== undefined) next.stiffness = next.stiffness / (scale * scale);
   if (next.damping !== undefined) next.damping = next.damping / scale;
   return withSpring(target, next);
-}
-
-/** Layout/entering presets are built once per scale, not once per render. */
-export function useScaledPreset<T>(make: (scale: number) => T): T {
-  const scale = useMotionScale();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => make(scale), [scale]);
 }

@@ -1,4 +1,4 @@
-import { DIFF_COLOR_IDS, MOTION_IDS, type DiffColors, type MotionSpeed } from "@milagre/shared/appearance";
+import { DIFF_COLOR_IDS, MOTION_IDS, PHONE_CODE_SIZES, PHONE_TEXT_SIZES, type DiffColors, type MotionSpeed } from "@milagre/shared/appearance";
 import { parseCustomTheme, resolveThemeSettings, type CustomTheme, type ThemeChoice } from "@milagre/shared/themes";
 
 // The phone's color theme, read once and shared by every screen. No React Native imports, so it runs under node:test.
@@ -15,8 +15,8 @@ export type PhoneThemeSettings = {
 
 export type PhoneTextSize = "small" | "default" | "large" | "larger";
 export type PhoneCodeSize = "small" | "default" | "large";
-const TEXT_SIZES: readonly PhoneTextSize[] = ["small", "default", "large", "larger"];
-const CODE_SIZES: readonly PhoneCodeSize[] = ["small", "default", "large"];
+const TEXT_SIZES = PHONE_TEXT_SIZES.map((size) => size.id) as PhoneTextSize[];
+const CODE_SIZES = PHONE_CODE_SIZES.map((size) => size.id) as PhoneCodeSize[];
 
 export const DEFAULT_PHONE_THEME: PhoneThemeSettings = {
   mode: "system",

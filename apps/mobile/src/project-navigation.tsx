@@ -905,7 +905,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
             <>
               {diff && (
                 <Text style={[s.detail, { fontVariant: ["tabular-nums"] }]}>
-                  <Text style={{ color: colors.green }}>+{diff.added}</Text> <Text style={{ color: colors.red }}>−{diff.removed}</Text>
+                  <Text style={{ color: colors.add }}>+{diff.added}</Text> <Text style={{ color: colors.remove }}>−{diff.removed}</Text>
                 </Text>
               )}
               {lastAt !== undefined && <Text style={[s.detail, { fontVariant: ["tabular-nums"] }]}>{activityAgo(lastAt, now)}</Text>}

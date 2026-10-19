@@ -40,6 +40,12 @@ function kitFor(scale: number): PillKit {
   let kit = kits.get(scale);
   if (kit) return kit;
   const ms = (value: number) => Math.round(value * scale);
+  // Worklets run on the UI thread and cannot call `ms`: every duration they use is computed here and captured as a number.
+  const d90 = ms(90);
+  const d120 = ms(120);
+  const d160 = ms(160);
+  const d220 = ms(220);
+  const d260 = ms(260);
   if (scale <= 0) kit = { letterIn: () => undefined, scale };
   else
     kit = {
@@ -51,7 +57,7 @@ function kitFor(scale: number): PillKit {
         "worklet";
         return {
           initialValues: { transform: [{ scale: 0.85 }] },
-          animations: { transform: [{ scale: withDelay(ms(90), withTiming(1, { duration: ms(260), easing: EASE_OUT })) }] },
+          animations: { transform: [{ scale: withDelay(d90, withTiming(1, { duration: d260, easing: EASE_OUT })) }] },
         };
       },
       pillOut: () => {
@@ -59,8 +65,8 @@ function kitFor(scale: number): PillKit {
         return {
           initialValues: { opacity: 1, transform: [{ scale: 1 }] },
           animations: {
-            opacity: withTiming(0, { duration: ms(120) }),
-            transform: [{ scale: withTiming(0.85, { duration: ms(160) }) }],
+            opacity: withTiming(0, { duration: d120 }),
+            transform: [{ scale: withTiming(0.85, { duration: d160 }) }],
           },
         };
       },
@@ -68,14 +74,17 @@ function kitFor(scale: number): PillKit {
       countIn: FadeIn.duration(ms(180)).reduceMotion(ReduceMotion.System),
       countOut: FadeOut.duration(ms(100)).reduceMotion(ReduceMotion.System),
       /** One letter of a changed label rises into place after the letters before it. */
-      letterIn: (delay: number) => () => {
-        "worklet";
-        return {
-          initialValues: { opacity: 0, transform: [{ translateY: 4 }] },
-          animations: {
-            opacity: withDelay(ms(delay), withTiming(1, { duration: ms(160) })),
-            transform: [{ translateY: withDelay(ms(delay), withTiming(0, { duration: ms(220), easing: EASE_OUT })) }],
-          },
+      letterIn: (delay: number) => {
+        const base = ms(delay);
+        return () => {
+          "worklet";
+          return {
+            initialValues: { opacity: 0, transform: [{ translateY: 4 }] },
+            animations: {
+              opacity: withDelay(base, withTiming(1, { duration: d160 })),
+              transform: [{ translateY: withDelay(base, withTiming(0, { duration: d220, easing: EASE_OUT })) }],
+            },
+          };
         };
       },
     };
