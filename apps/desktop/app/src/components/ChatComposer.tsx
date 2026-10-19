@@ -40,11 +40,9 @@ import { FindBar } from "./FindBar";
 import { Notice } from "./Notice";
 import { Attachments } from "./Attachments";
 import { lazyView } from "../lib/lazy-view";
-
-const AttachmentPreview = lazyView(() => import("./AttachmentPreview").then((module) => module.AttachmentPreview));
 import { PromptText } from "./PromptText";
 import { useFilesRoot } from "./editor-links";
-import { useSkills } from "./useSkills";
+import { useSentSkills } from "./useSentSkills";
 import { useScope } from "../lib/computer-bridge";
 import { isMentionOfFile, mentionedFile, mentionedFiles } from "../lib/prompt-mentions";
 import type { ImageDraft } from "./usePastedImages";
@@ -98,6 +96,8 @@ import { CodeBlock } from "./markdown/CodeBlock";
 import { useDismiss } from "../lib/use-dismiss";
 import { useSettings } from "../lib/settings";
 
+const AttachmentPreview = lazyView(() => import("./AttachmentPreview").then((module) => module.AttachmentPreview));
+
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
 function Icon({ icon, size = 16 }: { icon: IconData; size?: number }) {
@@ -116,8 +116,7 @@ function usePromptMentions(message: AppChatMessage, isUser: boolean) {
   const scope = useScope();
   const files = message.files;
   const body = message.body;
-  const { skills } = useSkills(scope ?? "", isUser && /(^|\s)\//.test(body));
-  const described = useMemo(() => new Map(skills.map((skill) => [skill.name.toLowerCase(), skill.description])), [skills]);
+  const described = useSentSkills(scope, isUser && /(^|\s)\//.test(body));
   const isFile = useMemo(() => isMentionOfFile(files ?? [], root), [files, root]);
   const inline = useMemo(() => (isUser && files?.length ? mentionedFiles(body, files, root) : null), [isUser, body, files, root]);
   return { root, files, described, isFile, inline };

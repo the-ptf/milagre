@@ -1,10 +1,15 @@
 import { promptParts } from "@milagre/shared/prompt-parts";
 
-/** The attached file an `@path` mention names: the file at `<root>/<path>`, or any file whose path ends with `/<path>`. */
+/**
+ * The attached file an `@path` mention names: the file at that absolute path, else the file at `<root>/<path>`,
+ * else the one attached file whose path ends with `/<path>`. A suffix shared by several files names none.
+ */
 export function mentionedFile(path: string, files: readonly string[], root: string): string | undefined {
   if (!path) return undefined;
-  const base = root.replace(/\/$/, "");
-  return files.find((file) => file === `${base}/${path}` || file.endsWith(`/${path}`));
+  const exact = files.find((file) => file === path) ?? files.find((file) => file === `${root.replace(/\/$/, "")}/${path}`);
+  if (exact) return exact;
+  const suffixed = files.filter((file) => file.endsWith(`/${path.replace(/^\//, "")}`));
+  return suffixed.length === 1 ? suffixed[0] : undefined;
 }
 
 /** Whether `@path` in a sent prompt names one of the message's files, for `promptParts`. */

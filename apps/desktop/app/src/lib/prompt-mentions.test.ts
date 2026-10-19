@@ -23,3 +23,17 @@ test("the predicate follows the message's files only", () => {
   assert.equal(isMentionOfFile(files, "/repo")("src/a.ts"), true);
   assert.equal(isMentionOfFile([], "/repo")("src/a.ts"), false);
 });
+
+test("an absolute mention matches the same absolute file", () => {
+  assert.equal(mentionedFile("/elsewhere/note.txt", files, "/repo"), "/elsewhere/note.txt");
+  assert.deepEqual([...mentionedFiles("see @/elsewhere/note.txt", files, "/repo")], ["/elsewhere/note.txt"]);
+  assert.equal(mentionedFile("/other/note.txt", files, "/repo"), undefined);
+});
+
+test("same-name files: the root match wins, an ambiguous suffix names nothing", () => {
+  const twins = ["/repo/a/index.ts", "/repo/b/index.ts", "/repo/index.ts"];
+  assert.equal(mentionedFile("index.ts", twins, "/repo"), "/repo/index.ts");
+  assert.equal(mentionedFile("a/index.ts", twins, "/repo"), "/repo/a/index.ts");
+  assert.equal(mentionedFile("index.ts", ["/repo/a/index.ts", "/repo/b/index.ts"], "/repo"), undefined);
+  assert.equal(mentionedFiles("@index.ts", ["/repo/a/index.ts", "/repo/b/index.ts"], "/repo").size, 0);
+});
