@@ -36,6 +36,7 @@ export function Select<T extends string>({
   disabled = false,
   triggerClassName = "",
   searchable = false,
+  onOpenChange,
 }: {
   label: string;
   value: T;
@@ -47,8 +48,14 @@ export function Select<T extends string>({
   triggerClassName?: string;
   /** A search field over a long list (e.g. time zones); it filters by label. */
   searchable?: boolean;
+  /** Told each time the menu opens or closes. */
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+  const setOpen = (next: boolean) => {
+    setOpenState(next);
+    onOpenChange?.(next);
+  };
   const [position, setPosition] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number }>({ left: 0, maxHeight: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);

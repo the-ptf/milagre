@@ -67,7 +67,7 @@ import { GlideGroup, RailButton } from "./SidebarNav";
 import { Select } from "./primitives/Select";
 import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
-import { AppearancePreview } from "./settings/AppearancePreview";
+import { AppearanceWindowPreview, type PreviewArea } from "./settings/AppearanceWindowPreview";
 import {
   CHAT_SIZES,
   CHAT_WIDTHS,
@@ -429,9 +429,25 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Row({ label, description, children }: { label: string; description?: string; children: ReactNode }) {
+function Row({
+  label,
+  description,
+  preview,
+  children,
+}: {
+  label: string;
+  description?: string;
+  /** On Appearance: the row tells the window preview while the pointer is over it. */
+  preview?: { onEnter: () => void; onLeave: () => void };
+  children: ReactNode;
+}) {
   return (
-    <div className="flex min-h-12 items-center justify-between gap-6 px-4 py-2">
+    <div
+      data-preview-row={preview ? "" : undefined}
+      onPointerEnter={preview?.onEnter}
+      onPointerLeave={preview?.onLeave}
+      className="flex min-h-12 items-center justify-between gap-6 px-4 py-2"
+    >
       <div className="grid min-w-0 gap-0.5">
         <span className="text-[13.5px] font-medium text-ink">{label}</span>
         {description && <span className="text-[12px] text-ink-3">{description}</span>}
@@ -442,7 +458,7 @@ function Row({ label, description, children }: { label: string; description?: st
 }
 
 /** The custom chat width: digits right-aligned with a px suffix. Enter or blur saves the clamped value, Escape restores the saved one. */
-function ChatWidthField({ value, onCommit }: { value: number; onCommit: (px: number) => void }) {
+function ChatWidthField({ value, onCommit, onFocusChange }: { value: number; onCommit: (px: number) => void; onFocusChange?: (focused: boolean) => void }) {
   const [text, setText] = useState(String(value));
   useEffect(() => setText(String(value)), [value]);
   const commit = () => {
@@ -457,7 +473,11 @@ function ChatWidthField({ value, onCommit }: { value: number; onCommit: (px: num
         inputMode="numeric"
         value={text}
         onChange={(event) => setText(event.target.value.replace(/[^0-9]/g, ""))}
-        onBlur={commit}
+        onFocus={() => onFocusChange?.(true)}
+        onBlur={() => {
+          commit();
+          onFocusChange?.(false);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter") commit();
           else if (event.key === "Escape") {
@@ -775,10 +795,57 @@ function pxOptions<T extends string>(list: readonly { id: T; px: number }[]) {
   return list.map((size) => ({ value: size.id, label: `${size.px} px`, description: size.id === "default" ? "default" : undefined }));
 }
 
+// The window's stripes (as on body, pinned to the viewport), so a strip painted with them is invisible over the page.
+const STRIPES = {
+  backgroundColor: "var(--stripe-bg)",
+  backgroundImage: "repeating-linear-gradient(-45deg, transparent 0, transparent 7px, var(--stripe) 7px, var(--stripe) 8px)",
+  backgroundAttachment: "fixed",
+} as const;
+// A change keeps its area highlighted this long after the menu closes.
+const PREVIEW_HOLD_MS = 1500;
+
+/** A state update that drops `area` and keeps anything else. */
+const unlessArea = (area: PreviewArea) => (current: PreviewArea | null) => (current === area ? null : current);
+
+/**
+ * What the Appearance window preview highlights: an open menu (or the focused px field) first, then the area just
+ * changed (held 1.5 s), then the row under the pointer. Moving onto another row drops the held one.
+ */
+function usePreviewHighlight() {
+  const [hovered, setHovered] = useState<PreviewArea | null>(null);
+  const [menu, setMenu] = useState<PreviewArea | null>(null);
+  const [held, setHeld] = useState<PreviewArea | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  return {
+    highlight: menu ?? held ?? hovered,
+    row: (area: PreviewArea) => ({
+      onEnter: () => {
+        setHovered(area);
+        setHeld((current) => (current === area ? current : null));
+      },
+      onLeave: () => setHovered(unlessArea(area)),
+    }),
+    menu: (area: PreviewArea) => (open: boolean) => setMenu(open ? area : unlessArea(area)),
+    /** Holds `area` for 1.5 s; null drops a held area at once. */
+    hold: (area: PreviewArea | null) => {
+      setHeld(area);
+      window.clearTimeout(timer.current);
+      if (area) timer.current = window.setTimeout(() => setHeld(null), PREVIEW_HOLD_MS);
+    },
+  };
+}
+
 function AppearanceSettings() {
   const settings = useSettings();
   const { appearance } = settings;
   const setAppearance = (patch: Partial<typeof appearance>) => updateSettings({ appearance: { ...getSettings().appearance, ...patch } });
+  const preview = usePreviewHighlight();
+  const [playMotion, setPlayMotion] = useState(0);
+  const change = (area: PreviewArea, patch: Partial<typeof appearance>) => {
+    setAppearance(patch);
+    preview.hold(area);
+  };
   return (
     <>
       <Group title="Mode">
@@ -806,96 +873,119 @@ function AppearanceSettings() {
         </Row>
         {settings.customThemeEnabled && <CustomThemeEditor />}
       </Group>
-      <Group title="Typography">
-        <Row label="Interface font" description="Used across the app.">
-          <Select
-            label="Interface font"
-            width={260}
-            searchable
-            value={shownFont(UI_FONTS, appearance.uiFont)}
-            onChange={(uiFont) => setAppearance({ uiFont })}
-            options={fontOptions(UI_FONTS)}
-          />
-        </Row>
-        <Row label="Monospace font" description="Code, diffs and the terminal.">
-          <Select
-            label="Monospace font"
-            width={260}
-            searchable
-            value={shownFont(MONO_FONTS, appearance.monoFont)}
-            onChange={(monoFont) => setAppearance({ monoFont })}
-            options={fontOptions(MONO_FONTS)}
-          />
-        </Row>
-        <Row label="Sidebar size" description="Project and chat names in the sidebar.">
-          <Select
-            label="Sidebar size"
-            width={160}
-            value={appearance.sidebarSize}
-            onChange={(sidebarSize) => setAppearance({ sidebarSize })}
-            options={pxOptions(SIDEBAR_SIZES.map((size) => ({ id: size.id, px: 13 + size.delta })))}
-          />
-        </Row>
-        <Row label="Chat size" description="Messages and the composer.">
-          <Select
-            label="Chat size"
-            width={160}
-            value={appearance.chatSize}
-            onChange={(chatSize) => setAppearance({ chatSize })}
-            options={pxOptions(CHAT_SIZES)}
-          />
-        </Row>
-        <Row label="Code size" description="Code blocks, diffs and the terminal.">
-          <Select
-            label="Code size"
-            width={160}
-            value={appearance.codeSize}
-            onChange={(codeSize) => setAppearance({ codeSize })}
-            options={pxOptions(CODE_SIZES)}
-          />
-        </Row>
-      </Group>
-      <AppearancePreview />
-      <Group title="Layout">
-        <Row label="Chat width" description="How wide messages and the composer grow on large screens.">
-          <div className="flex items-center gap-2">
-            {appearance.chatWidth === "custom" && <ChatWidthField value={appearance.chatWidthPx} onCommit={(chatWidthPx) => setAppearance({ chatWidthPx })} />}
+      <div>
+        {/* Sticky over the rows below it; the strip above the card repaints the window's stripes so rows vanish under it. */}
+        <div className="sticky top-0 z-20 -mx-6 px-6 pt-7" style={STRIPES}>
+          <AppearanceWindowPreview highlight={preview.highlight} playMotion={playMotion} />
+        </div>
+        <Group title="Typography">
+          <Row label="Interface font" description="Used across the app." preview={preview.row("ui")}>
             <Select
-              label="Chat width"
-              width={200}
-              value={appearance.chatWidth}
-              onChange={(chatWidth) => setAppearance({ chatWidth })}
-              options={CHAT_WIDTHS.map((width) => ({ value: width.id, label: width.label }))}
+              label="Interface font"
+              width={260}
+              searchable
+              value={shownFont(UI_FONTS, appearance.uiFont)}
+              onChange={(uiFont) => change("ui", { uiFont })}
+              onOpenChange={preview.menu("ui")}
+              options={fontOptions(UI_FONTS)}
             />
-          </div>
-        </Row>
-      </Group>
-      <Group title="Diffs">
-        <Row label="Diff colors" description="Additions and deletions, including change counts.">
-          <Select
-            label="Diff colors"
-            width={220}
-            value={appearance.diffColors}
-            onChange={(diffColors) => setAppearance({ diffColors })}
-            options={DIFF_PAIRS.map((pair) => ({
-              value: pair.id,
-              label: pair.label,
-              icon: <DiffDots pair={pair} />,
-            }))}
-          />
-        </Row>
-      </Group>
-      <Group title="Motion">
-        <Row label="Panel animations" description="How fast panels open and close. macOS Reduce Motion turns them off.">
-          <Select
-            label="Panel animations"
-            width={160}
-            value={appearance.motion}
-            onChange={(motion) => setAppearance({ motion })}
-            options={MOTION_SPEEDS.map((speed) => ({ value: speed.id, label: speed.label }))}
-          />
-        </Row>
-      </Group>
+          </Row>
+          <Row label="Monospace font" description="Code, diffs and the terminal." preview={preview.row("code")}>
+            <Select
+              label="Monospace font"
+              width={260}
+              searchable
+              value={shownFont(MONO_FONTS, appearance.monoFont)}
+              onChange={(monoFont) => change("code", { monoFont })}
+              onOpenChange={preview.menu("code")}
+              options={fontOptions(MONO_FONTS)}
+            />
+          </Row>
+          <Row label="Sidebar size" description="Project and chat names in the sidebar." preview={preview.row("sidebar")}>
+            <Select
+              label="Sidebar size"
+              width={160}
+              value={appearance.sidebarSize}
+              onChange={(sidebarSize) => change("sidebar", { sidebarSize })}
+              onOpenChange={preview.menu("sidebar")}
+              options={pxOptions(SIDEBAR_SIZES.map((size) => ({ id: size.id, px: 13 + size.delta })))}
+            />
+          </Row>
+          <Row label="Chat size" description="Messages and the composer." preview={preview.row("chat")}>
+            <Select
+              label="Chat size"
+              width={160}
+              value={appearance.chatSize}
+              onChange={(chatSize) => change("chat", { chatSize })}
+              onOpenChange={preview.menu("chat")}
+              options={pxOptions(CHAT_SIZES)}
+            />
+          </Row>
+          <Row label="Code size" description="Code blocks, diffs and the terminal." preview={preview.row("code")}>
+            <Select
+              label="Code size"
+              width={160}
+              value={appearance.codeSize}
+              onChange={(codeSize) => change("code", { codeSize })}
+              onOpenChange={preview.menu("code")}
+              options={pxOptions(CODE_SIZES)}
+            />
+          </Row>
+        </Group>
+        <Group title="Layout">
+          <Row label="Chat width" description="How wide messages and the composer grow on large screens." preview={preview.row("width")}>
+            <div className="flex items-center gap-2">
+              {appearance.chatWidth === "custom" && (
+                <ChatWidthField
+                  value={appearance.chatWidthPx}
+                  onCommit={(chatWidthPx) => change("width", { chatWidthPx })}
+                  onFocusChange={preview.menu("width")}
+                />
+              )}
+              <Select
+                label="Chat width"
+                width={200}
+                value={appearance.chatWidth}
+                onChange={(chatWidth) => change("width", { chatWidth })}
+                onOpenChange={preview.menu("width")}
+                options={CHAT_WIDTHS.map((width) => ({ value: width.id, label: width.label }))}
+              />
+            </div>
+          </Row>
+        </Group>
+        <Group title="Diffs">
+          <Row label="Diff colors" description="Additions and deletions, including change counts." preview={preview.row("diff")}>
+            <Select
+              label="Diff colors"
+              width={220}
+              value={appearance.diffColors}
+              onChange={(diffColors) => change("diff", { diffColors })}
+              onOpenChange={preview.menu("diff")}
+              options={DIFF_PAIRS.map((pair) => ({
+                value: pair.id,
+                label: pair.label,
+                icon: <DiffDots pair={pair} />,
+              }))}
+            />
+          </Row>
+        </Group>
+        <Group title="Motion">
+          <Row label="Panel animations" description="How fast panels open and close. macOS Reduce Motion turns them off.">
+            <Select
+              label="Panel animations"
+              width={160}
+              value={appearance.motion}
+              onChange={(motion) => {
+                setAppearance({ motion });
+                // The replay is the feedback here, so a highlight still held from another row goes.
+                preview.hold(null);
+                setPlayMotion((count) => count + 1);
+              }}
+              options={MOTION_SPEEDS.map((speed) => ({ value: speed.id, label: speed.label }))}
+            />
+          </Row>
+        </Group>
+      </div>
     </>
   );
 }

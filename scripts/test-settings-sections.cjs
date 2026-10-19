@@ -86,7 +86,20 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     // Appearance: every control is a menu; picking a size saves it and the preview follows; fonts draw in their own face.
-    await waitFor(`!!document.querySelector('[data-slot="appearance-preview"]')`);
+    // The mini window preview shows where each row applies: hovering a row highlights its region.
+    await waitFor(`!!document.querySelector('[data-preview-area="sidebar"]')`);
+    const region = (area) => `document.querySelector('[data-preview-area=${JSON.stringify(area)}]')`;
+    const rowOf = (label) => `document.querySelector('button[aria-label=${JSON.stringify(label)}]').closest('[data-preview-row]')`;
+    assert.equal(await evaluate(`${region("sidebar")}.hasAttribute("data-highlighted")`), false, "nothing is highlighted at rest");
+    await evaluate(`${rowOf("Interface font")}.scrollIntoView({ block: "center" })`);
+    await screenshot("preview");
+    await evaluate(`${rowOf("Sidebar size")}.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }))`);
+    await waitFor(`${region("sidebar")}.hasAttribute("data-highlighted")`);
+    assert.equal(await evaluate(`${region("width")}.hasAttribute("data-highlighted")`), false, "only the sidebar is highlighted");
+    await evaluate(`${rowOf("Sidebar size")}.scrollIntoView({ block: "center" })`);
+    await screenshot("preview-sidebar");
+    await evaluate(`${rowOf("Sidebar size")}.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse" }))`);
+    await waitFor(`!${region("sidebar")}.hasAttribute("data-highlighted")`);
     assert.equal(await evaluate(`document.querySelectorAll('main input[type="number"]').length`), 0, "no number fields on Appearance");
     const openMenu = async (label) => {
       await evaluate(`document.querySelector('button[aria-label=${JSON.stringify(label)}]').click()`);
@@ -121,10 +134,22 @@ async function browserChecks() {
     assert.equal(await evaluate(`JSON.parse(localStorage.getItem("milagre-settings")).appearance.chatWidthPx`), 2400, "Escape saves nothing");
     await evaluate(`document.querySelector('button[aria-label="Chat width"]').scrollIntoView({ block: "center" })`);
     await screenshot("width");
+    // Wide: the preview's chat column is 1024 css px before the scale, labelled, and stays highlighted after the change.
+    await openMenu("Chat width");
+    await pick("Wide");
+    await waitFor(`${region("width")}.offsetWidth === 1024`);
+    assert.match(await evaluate(`${region("width")}.textContent`), /1024 px/, "the column is labelled with its width");
+    assert.equal(await evaluate(`${region("width")}.hasAttribute("data-highlighted")`), true, "a change holds the highlight");
+    await screenshot("preview-width");
     await openMenu("Chat size");
     await pick("15 px");
     await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.chatSize === "large"`);
     await waitFor(`getComputedStyle(document.querySelector('[data-preview-text]')).fontSize === "15px"`);
+    assert.equal(
+      await evaluate(`getComputedStyle(document.querySelector('[data-preview-composer]')).fontSize`),
+      "15px",
+      "the preview composer follows Chat size",
+    );
     const diffStyle = (property) => evaluate(`getComputedStyle(document.querySelector('[data-preview-diff]')).${property}`);
     assert.match(await diffStyle("fontFamily"), /monospace/, "the preview diff is monospace by default");
     assert.equal(await diffStyle("fontSize"), "12px", "the preview diff follows Code size");
@@ -157,6 +182,25 @@ async function browserChecks() {
     await evaluate(`document.querySelector('button[aria-label="Interface font"]').click()`);
     await waitFor(`!document.querySelector('[role="listbox"]')`);
     await screenshot("appearance");
+    // Sticky: scrolled down to Motion, the preview is still on screen.
+    await evaluate(`document.querySelector('button[aria-label="Panel animations"]').scrollIntoView({ block: "end" })`);
+    await delay(100);
+    const previewBox = await evaluate(
+      `(() => { const r = document.querySelector('[data-slot="appearance-window-preview"]').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: innerHeight }; })()`,
+    );
+    assert.ok(previewBox.top >= 0 && previewBox.bottom <= previewBox.height, `the preview stays in view: ${JSON.stringify(previewBox)}`);
+    await screenshot("preview-sticky");
+    // Panel animations replays the Changes panel in the preview, which then closes again.
+    await openMenu("Panel animations");
+    await pick("Fast");
+    await waitFor(`!!document.querySelector("[data-preview-panel]")`);
+    await delay(400);
+    await screenshot("preview-motion");
+    await waitFor(`!document.querySelector("[data-preview-panel]")`);
+    // Full: the column fills the miniature and the markers say so.
+    await openMenu("Chat width");
+    await pick("Full");
+    await waitFor(`${region("width")}.textContent.includes("Full")`);
     await openSection("Experimental");
     await waitFor(`!!document.querySelector("[data-slot=designs-setting]")`);
     // The Routines switch shows once the Mac's setting is read.
