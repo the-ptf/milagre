@@ -1,12 +1,13 @@
-// The Routines page and the New Routine form, on real components with a stubbed window.milagre: groups and chip counts,
-// a paused trigger's reason, the Team Select opening inside the form's modal dialog (D7), the {{ placeholder list, and
-// the createRoutine input a Linear trigger saves. Screenshots go to MILAGRE_SCREENSHOT_DIR when it is set.
+// The Routines page, a Routine's page and its in-place form, on real components with a stubbed window.milagre: groups and
+// chip counts, a paused trigger's reason, the Routine page's chips, filter and day-grouped Runs, the New Routine form in
+// place (Starts, chips with popovers, the {{ placeholder list, the createRoutine input a Linear trigger saves, landing on
+// the new page), Edit in place with Rotate and Delete. Screenshots go to MILAGRE_SCREENSHOT_DIR when it is set.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const fixture = `
-import React from 'react';
+import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RoutinesPage } from '/src/components/routines/RoutinesPage';
 import { HeartbeatCard } from '/src/components/routines/HeartbeatCard';
@@ -17,11 +18,24 @@ const now = new Date(2026, 9, 17, 12, 0, 0).getTime();
 Date.now = () => now;
 const H = 3600000;
 const base = { enabled: true, createdBy: { kind: 'user' }, runCount: 0, createdAt: now - 48 * H, updatedAt: now, runs: [] };
+const D = 24 * H;
+const t = (offset, extra) => ({ routineId: 'h2', startedAt: now - offset, ...extra });
+// Today: an acted Run, then three quiet ones (the latest with a summary); yesterday a failed one; older days fold away.
+const h2Runs = [
+  t(0.2 * H, { id: 'a1', status: 'acted', chatId: '/code/milagre-ade#31', title: 'Fixed the flaky login test', endedAt: now - 0.2 * H + 38000 }),
+  t(1 * H, { id: 'q1', status: 'quiet', summary: 'no TODOs in NOTES.md', chatId: '/code/milagre-ade#32' }),
+  t(2 * H, { id: 'q2', status: 'quiet', summary: 'CI green' }),
+  t(3 * H, { id: 'q3', status: 'quiet' }),
+  t(D, { id: 'f1', status: 'failed', error: 'No worktree\\nat git' }),
+  t(2 * D, { id: 'o1', status: 'acted', chatId: '/code/milagre-ade#33' }),
+  t(2 * D + H, { id: 'o2', status: 'quiet' }),
+  t(2 * D + 2 * H, { id: 'o3', status: 'missed' }),
+];
 const routines = [
   { ...base, id: 'h1', name: 'Babysit PR #473 until it merges', prompt: 'Check', trigger: { kind: 'schedule', cron: '*/15 * * * *', timezone: 'UTC' },
     target: { kind: 'chat', chatId: '/code/milagre-ade#12' }, createdBy: { kind: 'agent', chatId: '/code/milagre-ade#12' }, expiresAt: now + 50 * H, nextRunAt: now + 9 * 60000 },
   { ...base, id: 'h2', name: 'Watch CI on #461', prompt: 'Check', trigger: { kind: 'schedule', cron: '*/10 * * * *', timezone: 'UTC' },
-    target: { kind: 'chat', chatId: '/code/milagre-ade#14' }, maxRuns: 20, runCount: 17, nextRunAt: now + 6 * 60000 },
+    target: { kind: 'chat', chatId: '/code/milagre-ade#14' }, maxRuns: 20, runCount: 17, nextRunAt: now + 6 * 60000, runs: h2Runs },
   { ...base, id: 't1', name: 'Take issues labelled agent', prompt: 'Work on {{issue.key}}',
     trigger: { kind: 'linear', workspace: 'milagre', event: 'label-added', team: 'MIL', label: 'agent' },
     target: { kind: 'new-chat', projectPath: '/code/milagre-ade', workspace: 'worktree' }, model: 'claude-opus-5-5', provider: 'claude', permissionMode: 'full',
@@ -49,7 +63,9 @@ window.milagre = {
   }),
   createRoutine: async (input) => {
     window.created = input;
-    return { routine: { ...base, id: 'new', ...input }, ...(input.trigger.kind === 'webhook' ? { hookUrl: 'https://relay.milagre.cloud/hook/k3fTESTsecret9Qx' } : {}) };
+    const routine = { ...base, id: 'new' + (routines.length + 1), ...input };
+    routines.push(routine);
+    return { routine, ...(input.trigger.kind === 'webhook' ? { hookUrl: 'https://relay.milagre.cloud/hook/k3fTESTsecret9Qx' } : {}) };
   },
   updateRoutine: async (id, patch) => {
     const current = routines.find((r) => r.id === id);
@@ -64,7 +80,7 @@ window.milagre = {
     routines.find((r) => r.id === id).trigger.hookId = 'b'.repeat(64);
     return { url: 'https://relay.milagre.cloud/hook/NEWsecret' };
   },
-  deleteRoutine: async (id) => { window.deleted = id; return { removed: true }; },
+  deleteRoutine: async (id) => { window.deleted = id; const index = routines.findIndex((r) => r.id === id); if (index >= 0) routines.splice(index, 1); return { removed: true }; },
   runRoutineNow: async () => undefined,
 };
 const models = [{ id: 'claude-opus-5-5', name: 'Opus 5.5', provider: 'claude', description: '' }];
@@ -75,8 +91,15 @@ createRoot(document.getElementById('root')).render(<>
     <HeartbeatCard step={beat('gone', 'Old heartbeat')} />
     <NextCheck chatKey="/code/milagre-ade#12" />
   </aside>
-  <main style={{height:'100vh'}}><RoutinesPage models={models} projectPath="/code/milagre-ade" onOpenChat={(key) => { window.opened = key; }} onOpenExperimental={() => {}} /></main>
+  <main style={{height:'100vh'}}><Host /></main>
 </>);
+function Host() {
+  const [routineId, setRoutineId] = useState(null);
+  window.openRoutine = setRoutineId;
+  return <RoutinesPage models={models} projectPath="/code/milagre-ade" routineId={routineId} onOpenRoutine={setRoutineId}
+    unreadChats={new Set(['/code/milagre-ade#32'])} canOpen={() => true}
+    onOpenChat={(key) => { window.opened = key; }} onOpenRunChat={(key) => { window.runChat = key; }} onOpenExperimental={() => {}} />;
+}
 `;
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
@@ -170,19 +193,133 @@ async function browserChecks() {
     await click('[data-heartbeat-card="h1"] [data-heartbeat-stop]');
     await waitFor(`window.deleted === 'h1'`);
 
-    // New Routine → Linear: the Team Select's panel opens inside the modal dialog and is the topmost element there.
+    // A Routine's page: name with On, one toolbar (switch, Run now, Edit), chips, times, then Runs by day with a filter.
+    await click('[data-routine-row="h2"] [data-routine-open]');
+    await waitFor(`!!document.querySelector('[data-routine-page="h2"]')`);
+    assert.equal(await evaluate(`document.querySelector('[data-routine-status-pill]').textContent.trim()`), "On");
+    assert.deepEqual(
+      JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll('[data-routine-chip]')].map((chip) => chip.textContent.trim()))`)),
+      ["Every 10 min", "In Notification chimes", "Default model", "Default mode"],
+    );
+    assert.deepEqual(
+      JSON.parse(
+        await evaluate(`JSON.stringify([...document.querySelectorAll('[data-routine-toolbar] button')].map((button) => button.getAttribute('aria-label')))`),
+      ),
+      ["Watch CI on #461 on", "Run now", "Edit"],
+    );
+    assert.equal(await evaluate(`!!document.querySelector('[data-routine-page] [data-routine-more]')`), false);
+    assert.match(await evaluate(`document.querySelector('[data-routine-times]').textContent`), /^Next Run 12:06 · last Run 11:48$/);
+    assert.deepEqual(
+      JSON.parse(
+        await evaluate(`JSON.stringify([...document.querySelectorAll('[data-routine-runs] [data-segment]')].map((segment) => segment.textContent.trim()))`),
+      ),
+      ["All8", "Acted2", "Failed1", "Unread1"],
+    );
+    assert.deepEqual(JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll('[data-run-day]')].map((day) => day.dataset.runDay))`)), [
+      "Today",
+      "Yesterday",
+      "Thu, Oct 15",
+    ]);
+    // Today's quiet stretch folds into one line with the latest quiet summary; the older day is one summary line.
+    assert.match(
+      await evaluate(`document.querySelector('[data-run-day="Today"] [data-routine-fold]').textContent`),
+      /09:00–11:00.*3 quiet · no TODOs in NOTES\.md/,
+    );
+    assert.match(await evaluate(`document.querySelector('[data-run-day="Yesterday"] [data-routine-run="f1"]').textContent`), /Failed: No worktree/);
+    assert.match(await evaluate(`document.querySelector('[data-run-day-summary]').textContent`), /All day.*1 acted · 1 quiet · 1 missed/);
+    await click("[data-run-day-summary]");
+    await waitFor(`!!document.querySelector('[data-routine-run="o1"]')`);
+    await click('[data-run-day="Today"] [data-routine-fold] button');
+    await waitFor(`!!document.querySelector('[data-routine-run="q1"] [data-run-unread]')`);
+    await shot("routine-page");
+    // A Run's row opens its Chat beside the page (App moves its Chat pane there).
+    await click('[data-routine-run="a1"]');
+    assert.equal(await evaluate("window.runChat"), "/code/milagre-ade#31");
+    // The Failed filter keeps only the failed Run.
+    await click('[data-routine-runs] [data-segment="failed"]');
+    await waitFor(`document.querySelectorAll('[data-routine-run]').length === 1 && !!document.querySelector('[data-routine-run="f1"]')`);
+
+    // Edit in place: the name becomes a field, Cancel and Save replace the toolbar, the Runs go, Delete sits at the bottom.
+    await click("[data-routine-edit]");
+    await waitFor(`!!document.querySelector('[data-routine-editor="h2"]')`);
+    assert.equal(await evaluate(`document.querySelector('[data-routine-editor] input[aria-label="Name"]').value`), "Watch CI on #461");
+    assert.equal(await evaluate(`!!document.querySelector('[data-routine-runs], [data-routine-toolbar]')`), false);
+    assert.match(await evaluate(`document.querySelector('[data-routine-delete]').textContent`), /Its Chats stay\..*Delete Routine/);
+    // The Schedule chip's popover: a Select inside it opens into the popover, and picking from it keeps the popover open.
+    await click('[data-routine-chip-trigger="Schedule"]');
+    await waitFor(`!!document.querySelector('[data-routine-chip-popover="Schedule"]')`);
+    await click('[data-routine-chip-popover="Schedule"] [data-segment="at"]');
+    await waitFor(`!!document.querySelector('[data-routine-chip-popover="Schedule"] button[aria-label="Timezone"]')`);
+    await click('[data-routine-chip-popover="Schedule"] button[aria-label="Timezone"]');
+    await waitFor(`!!document.querySelector('[role="listbox"][aria-label="Timezone"]')`);
+    assert.equal(
+      await evaluate(`(() => {
+        const panel = document.querySelector('[role="listbox"][aria-label="Timezone"]');
+        const rect = panel.getBoundingClientRect();
+        const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + Math.min(40, rect.height / 2));
+        return !!panel.closest('[data-routine-chip-popover="Schedule"]') && rect.height > 0 && panel.contains(top);
+      })()`),
+      true,
+    );
+    await clickText('[role="listbox"][aria-label="Timezone"] [data-picker-row]', "UTC");
+    await waitFor(`!document.querySelector('[role="listbox"][aria-label="Timezone"]')`);
+    assert.equal(await evaluate(`!!document.querySelector('[data-routine-chip-popover="Schedule"]')`), true);
+    assert.equal(await evaluate(`document.querySelector('[data-routine-chip-trigger="Schedule"]').textContent.trim()`), "Weekdays at 09:00");
+    await shot("routine-edit-schedule");
+    await evaluate(
+      `document.querySelector('[data-routine-chip-popover="Schedule"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`,
+    );
+    await waitFor(`!document.querySelector('[data-routine-chip-popover="Schedule"]') && !!document.querySelector('[data-routine-editor="h2"]')`);
+    await click("[data-routine-save]");
+    await waitFor(`!!document.querySelector('[data-routine-page="h2"]')`);
+    assert.deepEqual(JSON.parse(await evaluate("JSON.stringify([window.updated[0], window.updated[1].trigger])")), [
+      "h2",
+      { kind: "schedule", cron: "0 9 * * 1-5", timezone: "UTC" },
+    ]);
+    // Cancel leaves without saving; Delete asks, then deletes and goes back to the list.
+    await evaluate("window.updated = null");
+    await click("[data-routine-edit]");
+    await waitFor(`!!document.querySelector('[data-routine-editor="h2"]')`);
+    await click("[data-routine-cancel]");
+    await waitFor(`!!document.querySelector('[data-routine-page="h2"]')`);
+    await click("[data-routine-edit]");
+    await waitFor(`!!document.querySelector('[data-routine-delete-start]')`);
+    await click("[data-routine-delete-start]");
+    await waitFor(`!!document.querySelector('[data-routine-delete-confirm]')`);
+    assert.match(await evaluate(`document.querySelector('[data-routine-delete]').textContent`), /Delete Watch CI on #461\? Its Chats stay\./);
+    await click("[data-routine-delete-confirm]");
+    await waitFor(`window.deleted === 'h2' && !!document.querySelector('[data-routines-page]')`);
+
+    // New Routine in place: Create stays off until a name and a prompt are given; Starts picks the trigger.
     await click("[data-routine-new]");
-    await waitFor(`!!document.querySelector('dialog[data-routine-form][open]')`);
-    await click('[data-routine-trigger="linear"]');
-    await waitFor(`!!document.querySelector('dialog[data-routine-form] button[aria-label="Team"]')`);
-    await click('dialog[data-routine-form] button[aria-label="Team"]');
+    await waitFor(`!!document.querySelector('[data-routine-editor="new"]')`);
+    assert.equal(await evaluate(`document.querySelector('[data-routine-save]').disabled`), true);
+    assert.equal(await evaluate(`document.querySelector('[data-routine-editor] input[aria-label="Name"]').placeholder`), "Name this Routine");
+    assert.deepEqual(
+      JSON.parse(
+        await evaluate(
+          `JSON.stringify([...document.querySelectorAll('[data-routine-editor] [data-routine-chips] button')].map((chip) => chip.textContent.trim()))`,
+        ),
+      ),
+      ["Every hour", "New Worktree in milagre-ade", "Default model", "Default mode"],
+    );
+    assert.match(
+      await evaluate(`document.querySelector('[data-routine-runs-placeholder]').textContent`),
+      /Runs show here once the Routine is created\. The first one starts at 13:00\./,
+    );
+    await shot("routine-new");
+    // Linear: its rows show under the chips, and the Team Select's panel is the topmost element where it opens.
+    await click('[data-routine-editor] [data-segment="linear"]');
+    await waitFor(`!!document.querySelector('[data-routine-form] button[aria-label="Team"]')`);
+    assert.doesNotMatch(await evaluate(`document.querySelector('[data-routine-runs-placeholder]').textContent`), /first one/);
+    await click('[data-routine-form] button[aria-label="Team"]');
     await waitFor(`!!document.querySelector('[role="listbox"][aria-label="Team"]')`);
     assert.equal(
       await evaluate(`(() => {
         const panel = document.querySelector('[role="listbox"][aria-label="Team"]');
         const rect = panel.getBoundingClientRect();
         const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + Math.min(20, rect.height / 2));
-        return panel.closest('dialog') === document.querySelector('dialog[data-routine-form]') && rect.height > 0 && panel.contains(top);
+        return rect.height > 0 && panel.contains(top);
       })()`),
       true,
     );
@@ -190,12 +327,13 @@ async function browserChecks() {
     await clickText('[role="listbox"][aria-label="Team"] [data-picker-row]', "MIL · Milagre");
     await waitFor(`!document.querySelector('[role="listbox"][aria-label="Team"]')`);
     // MIL's labels load into the Label Select.
-    await waitFor(`!!document.querySelector('dialog[data-routine-form] button[aria-label="Label"]')`);
-    await click('dialog[data-routine-form] button[aria-label="Label"]');
+    await waitFor(`!!document.querySelector('[data-routine-form] button[aria-label="Label"]')`);
+    await click('[data-routine-form] button[aria-label="Label"]');
     await waitFor(`!!document.querySelector('[role="listbox"][aria-label="Label"]')`);
     await clickText('[role="listbox"][aria-label="Label"] [data-picker-row]', "agent");
     await waitFor(`!document.querySelector('[role="listbox"][aria-label="Label"]')`);
-    await type('dialog[data-routine-form] input[aria-label="Name"]', "Take issues labelled agent");
+    await type('[data-routine-form] input[aria-label="Name"]', "Take issues labelled agent");
+    assert.equal(await evaluate(`document.querySelector('[data-routine-chip="trigger"]').textContent.trim()`), "Linear · label agent added · team MIL");
 
     // {{iss suggests issue.key first; Enter inserts it.
     await type("[data-routine-prompt]", "Work on {{iss");
@@ -222,7 +360,8 @@ async function browserChecks() {
     await click('[data-routine-placeholders] [data-placeholder="issue.state"]');
     await waitFor(`document.querySelector('[data-routine-prompt]').value === 'Work on {{issue.key}} {{issue.state}}'`);
 
-    // Save calls createRoutine with a Linear trigger.
+    // Create calls createRoutine with a Linear trigger and lands on the new Routine's page.
+    await waitFor(`!document.querySelector('[data-routine-save]').disabled`);
     await click("[data-routine-save]");
     await waitFor(`window.created !== null`);
     assert.deepEqual(JSON.parse(await evaluate("JSON.stringify(window.created)")), {
@@ -231,56 +370,53 @@ async function browserChecks() {
       trigger: { kind: "linear", workspace: "milagre", event: "label-added", team: "MIL", label: "agent" },
       target: { kind: "new-chat", projectPath: "/code/milagre-ade", workspace: "worktree" },
     });
-    await waitFor(`!document.querySelector('dialog[data-routine-form]')`);
+    await waitFor(`!!document.querySelector('[data-routine-page^="new"]') && !document.querySelector('[data-routine-editor]')`);
+    await click("[data-routine-back]");
+    await waitFor(`!!document.querySelector('[data-routines-page]')`);
 
-    // Escape closes the form and is consumed there, so the page behind (and App's Escape) stays put.
+    // Escape cancels the form and is consumed there, so App's Escape stays put.
     await click("[data-routine-new]");
-    await waitFor(`!!document.querySelector('dialog[data-routine-form][open]')`);
+    await waitFor(`!!document.querySelector('[data-routine-editor="new"]')`);
     assert.equal(
       await evaluate(`(() => {
         const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
-        document.querySelector('dialog[data-routine-form] input[aria-label="Name"]').dispatchEvent(event);
+        document.querySelector('[data-routine-form] input[aria-label="Name"]').dispatchEvent(event);
         return event.defaultPrevented;
       })()`),
       true,
     );
-    await waitFor(`!document.querySelector('dialog[data-routine-form]') && !!document.querySelector('[data-routines-page]')`);
+    await waitFor(`!document.querySelector('[data-routine-form]') && !!document.querySelector('[data-routines-page]')`);
 
-    // A webhook Routine: the form stays open on its new URL, with Copy, until Done.
+    // A webhook Routine: its new page shows its URL once, with Copy.
     await click("[data-routine-new]");
-    await waitFor(`!!document.querySelector('dialog[data-routine-form][open]')`);
-    await click('[data-routine-trigger="webhook"]');
+    await waitFor(`!!document.querySelector('[data-routine-editor="new"]')`);
+    await click('[data-routine-editor] [data-segment="webhook"]');
     await waitFor(`document.querySelector('[data-routine-hook]').textContent.includes('The URL appears after you create the Routine.')`);
-    await type('dialog[data-routine-form] input[aria-label="Name"]', "Triage Sentry");
+    await type('[data-routine-form] input[aria-label="Name"]', "Triage Sentry");
     await type("[data-routine-prompt]", "Triage this crash");
     await click("[data-routine-save]");
-    await waitFor(`!!document.querySelector('[data-routine-hook-copy]')`);
+    await waitFor(`!!document.querySelector('[data-routine-created] [data-routine-hook-copy]')`);
     assert.match(
-      await evaluate(`document.querySelector('dialog[data-routine-form]').textContent`),
+      await evaluate(`document.querySelector('[data-routine-created]').textContent`),
       /Routine created.*relay\.milagre\.cloud\/hook\/k3fTESTsecret9Qx/,
     );
     assert.deepEqual(JSON.parse(await evaluate("JSON.stringify(window.created.trigger)")), { kind: "webhook", signed: false });
     await shot("routines-webhook-created");
-    await clickText("dialog[data-routine-form] button", "Done");
-    await waitFor(`!document.querySelector('dialog[data-routine-form]')`);
+    await click("[data-routine-back]");
+    await waitFor(`!!document.querySelector('[data-routines-page]')`);
 
-    // A Linear comment Routine: no Project or Each Run, a note instead; the target is filled from the open Project.
+    // A Linear comment Routine: no Where chip, a note instead; the target is filled from the open Project.
     await click("[data-routine-new]");
-    await waitFor(`!!document.querySelector('dialog[data-routine-form][open]')`);
-    await click('[data-routine-trigger="linear"]');
-    await waitFor(`!!document.querySelector('dialog[data-routine-form] button[aria-label="When"]')`);
-    await click('dialog[data-routine-form] button[aria-label="When"]');
+    await waitFor(`!!document.querySelector('[data-routine-editor="new"]')`);
+    await click('[data-routine-editor] [data-segment="linear"]');
+    await waitFor(`!!document.querySelector('[data-routine-form] button[aria-label="When"]')`);
+    await click('[data-routine-form] button[aria-label="When"]');
     await waitFor(`!!document.querySelector('[role="listbox"][aria-label="When"]')`);
     await clickText('[role="listbox"][aria-label="When"] [data-picker-row]', "New comment");
     await waitFor(`!!document.querySelector('[data-routine-comment-note]')`);
     assert.equal(await evaluate(`document.querySelector('[data-routine-comment-note]').textContent.trim()`), "Comments go into the Chat linked to the issue.");
-    assert.equal(
-      await evaluate(
-        `!!document.querySelector('dialog[data-routine-form] button[aria-label="Project"], dialog[data-routine-form] button[aria-label="Each Run"]')`,
-      ),
-      false,
-    );
-    await type('dialog[data-routine-form] input[aria-label="Name"]', "Answer comments");
+    assert.equal(await evaluate(`!!document.querySelector('[data-routine-chip-trigger="Where"]')`), false);
+    await type('[data-routine-form] input[aria-label="Name"]', "Answer comments");
     await type("[data-routine-prompt]", "Reply to the comment");
     await click("[data-routine-save]");
     await waitFor(`window.created && window.created.name === 'Answer comments'`);
@@ -288,23 +424,25 @@ async function browserChecks() {
       { kind: "linear", workspace: "milagre", event: "comment" },
       { kind: "new-chat", projectPath: "/code/milagre-ade", workspace: "worktree" },
     ]);
-    await waitFor(`!document.querySelector('dialog[data-routine-form]')`);
+    await waitFor(`!document.querySelector('[data-routine-form]')`);
+    await click("[data-routine-back]");
+    await waitFor(`!!document.querySelector('[data-routines-page]')`);
 
-    // Edit the webhook, rotate its URL, then Save: the patch carries no stale hook id, so it goes through.
+    // Edit the webhook from its row's menu: the page opens in its form; rotate its URL, then Save: the patch carries no
+    // stale hook id, so it goes through.
     await click('[data-routine-row="t2"] [data-routine-more]');
     await waitFor(`!!document.querySelector('[data-routine-action="edit"]')`);
     await click('[data-routine-action="edit"]');
-    await waitFor(`!!document.querySelector('[data-routine-hook-rotate]')`);
-    assert.match(await evaluate(`document.querySelector('dialog[data-routine-form] h2').textContent`), /^Edit Routine$/);
+    await waitFor(`!!document.querySelector('[data-routine-editor="t2"] [data-routine-hook-rotate]')`);
     await click("[data-routine-hook-rotate]");
     await click("[data-routine-hook-rotate-confirm]");
     await waitFor(`document.querySelector('[data-routine-hook]').textContent.includes('NEWsecret')`);
     await click("[data-routine-save]");
-    await waitFor(`!document.querySelector('dialog[data-routine-form]')`);
+    await waitFor(`!!document.querySelector('[data-routine-page="t2"]')`);
     assert.equal(await evaluate("window.updated[0]"), "t2");
     assert.deepEqual(JSON.parse(await evaluate("JSON.stringify(window.updated[1].trigger)")), { kind: "webhook", signed: true });
     console.log(
-      "PASS: Routines page groups and counts Routines; Heartbeat cards and Next check show; the form's Selects open inside its dialog, {{ suggests placeholders, and Save creates a Linear Routine.",
+      "PASS: Routines page groups and counts Routines; Heartbeat cards and Next check show; a Routine's page shows its chips and Runs by day; Edit and New Routine work in place, {{ suggests placeholders, and Create lands on the new Routine.",
     );
     app.exit(0);
   } catch (error) {

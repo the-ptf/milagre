@@ -19,7 +19,12 @@ export const isHeartbeat = (routine: Routine) => routine.target.kind === "chat";
  * that Chat alone; every other Routine opens Run Chats, and the delete archives the ones nobody has kept.
  */
 export function routineDeleteQuestion(routine: Routine): string {
-  return `Delete ${routine.name}? ${isHeartbeat(routine) ? "Its Chats stay." : "Its Runs stop, and its Run Chats you haven't kept are archived."}`;
+  return `Delete ${routine.name}? ${routineDeleteWarning(routine)}`;
+}
+
+/** What deleting does, as the Edit form's Delete Routine row says it. */
+export function routineDeleteWarning(routine: Routine): string {
+  return isHeartbeat(routine) ? "Its Chats stay." : "Its Runs stop, and its Run Chats you haven't kept are archived.";
 }
 
 /** The page's groups. Paused Routines (switched off) stay in their group too, so the chips' counts overlap. */

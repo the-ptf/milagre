@@ -5,7 +5,7 @@ import type { ModelOption } from "@milagre/shared/model";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { RoutineRow } from "./RoutineRow";
-import { RoutineForm } from "./RoutineForm";
+import { RoutineEditor } from "./RoutineEditor";
 import { RoutinePage } from "./RoutinePage";
 import { groupRoutines, routineMeta, routineStatus, useRoutines, type RoutineWithRuns } from "../../lib/routines";
 
@@ -26,8 +26,10 @@ export function RoutinesPage({
   routineId = null,
   unreadChats = NO_CHATS,
   canOpen,
+  runChat = null,
   onOpenRoutine,
   onOpenChat,
+  onOpenRunChat,
   onOpenExperimental,
 }: {
   models: ModelOption[];
@@ -41,16 +43,24 @@ export function RoutinesPage({
   unreadChats?: ReadonlySet<string>;
   /** Whether a Run's row opens its Chat (canOpenRunChat). */
   canOpen?: (chatKey: string) => boolean;
+  /** The Run Chat open beside the Routine's page, which then narrows to a column. */
+  runChat?: string | null;
   /** Opens a Routine's page (a row's click), or goes back to the list with null. */
   onOpenRoutine?: (routineId: string | null) => void;
   onOpenChat: (chatKey: string) => void;
+  /** Opens a Run's Chat beside the Routine's page; without it a Run opens its Chat in the window (onOpenChat). */
+  onOpenRunChat?: (chatKey: string) => void;
   onOpenExperimental: () => void;
 }) {
   const { enabled, routines, error: loadError, refresh } = useRoutines();
   const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState<string | null>(null);
-  // The Routine being edited, or "new"; null while the form is closed.
-  const [form, setForm] = useState<RoutineWithRuns | "new" | null>(null);
+  // The Routine whose page shows its form in place (its id), "new" for New Routine in place of the list, or null.
+  const [editing, setEditing] = useState<string | null>(null);
+  // A webhook Routine just created: its page shows the URL once.
+  const [created, setCreated] = useState<{ id: string; url: string } | null>(null);
+  // A Routine just created, until the Mac's list has it: then its page opens (before, it would read as deleted).
+  const [opening, setOpening] = useState<string | null>(null);
   const [chatTitles, setChatTitles] = useState<Map<string, string>>(new Map());
   const [now, setNow] = useState(() => Date.now());
 
@@ -83,6 +93,17 @@ export function RoutinesPage({
   useEffect(() => {
     if (gone) onOpenRoutine?.(null);
   }, [gone, onOpenRoutine]);
+  const arrived = opening !== null && routines.some((routine) => routine.id === opening);
+  useEffect(() => {
+    if (!arrived || !opening) return;
+    setOpening(null);
+    setEditing(null);
+    onOpenRoutine?.(opening);
+  }, [arrived, opening, onOpenRoutine]);
+  // An edit belongs to its Routine's page: opening another page, or the list, leaves it.
+  useEffect(() => {
+    setEditing((current) => (current === null || current === routineId || (current === "new" && !routineId) ? current : null));
+  }, [routineId]);
   // Back from a Routine's page, the keyboard lands on that Routine's row again (if it is still there).
   const lastOpened = useRef<string | null>(null);
   useEffect(() => {
@@ -118,7 +139,10 @@ export function RoutinesPage({
       unread={unreadRoutines?.has(routine.id) ?? false}
       onOpen={() => onOpenRoutine?.(routine.id)}
       onToggle={(on) => act(() => window.milagre.updateRoutine(routine.id, { enabled: on }))}
-      onEdit={() => setForm(routine)}
+      onEdit={() => {
+        setEditing(routine.id);
+        onOpenRoutine?.(routine.id);
+      }}
       onRunNow={() => act(() => window.milagre.runRoutineNow(routine.id))}
       onOpenChat={onOpenChat}
       onDelete={() => act(() => window.milagre.deleteRoutine(routine.id))}
@@ -131,33 +155,49 @@ export function RoutinesPage({
     { id: "paused", label: "Paused", count: groups.paused.length },
   ];
 
-  const sheet = form && (
-    <RoutineForm
-      initial={form === "new" ? undefined : form}
+  const editor = (initial?: RoutineWithRuns) => (
+    <RoutineEditor
+      key={initial?.id ?? "new"}
+      initial={initial}
       models={models}
       defaultProjectPath={projectPath}
-      onClose={() => {
-        setForm(null);
+      onCancel={() => setEditing(null)}
+      onSaved={() => {
+        setEditing(null);
         refresh();
+      }}
+      onCreated={(routine, hookUrl) => {
+        if (hookUrl) setCreated({ id: routine.id, url: hookUrl });
+        setOpening(routine.id);
+        refresh();
+      }}
+      onDeleted={() => {
+        setEditing(null);
+        refresh();
+        onOpenRoutine?.(null);
       }}
     />
   );
+  if (enabled && selected && editing === selected.id) return editor(selected);
   if (enabled && selected)
     return (
-      <>
-        <RoutinePage
-          routine={selected}
-          models={models}
-          unreadChats={unreadChats}
-          chatTitle={(id) => chatTitles.get(id)}
-          canOpen={canOpen}
-          onBack={() => onOpenRoutine?.(null)}
-          onEdit={() => setForm(selected)}
-          onOpenChat={onOpenChat}
-        />
-        {sheet}
-      </>
+      <RoutinePage
+        key={selected.id}
+        routine={selected}
+        models={models}
+        unreadChats={unreadChats}
+        chatTitle={(id) => chatTitles.get(id)}
+        canOpen={canOpen}
+        selectedChat={runChat}
+        narrow={Boolean(runChat)}
+        createdHookUrl={created?.id === selected.id ? created.url : undefined}
+        onDismissHook={() => setCreated(null)}
+        onBack={() => onOpenRoutine?.(null)}
+        onEdit={() => setEditing(selected.id)}
+        onOpenChat={onOpenRunChat ?? onOpenChat}
+      />
     );
+  if (enabled && editing === "new" && !routineId) return editor();
 
   return (
     <ScrollArea className="flex h-full flex-col">
@@ -171,7 +211,7 @@ export function RoutinesPage({
             <button
               type="button"
               data-routine-new
-              onClick={() => setForm("new")}
+              onClick={() => setEditing("new")}
               className="inline-flex h-[34px] shrink-0 items-center gap-1.5 rounded-lg bg-ink px-3.5 text-[13px] font-medium text-surface transition-opacity hover:opacity-90"
             >
               <HugeiconsIcon icon={PlusSignIcon} size={15} strokeWidth={2} color="currentColor" />
@@ -257,7 +297,6 @@ export function RoutinesPage({
           </>
         ) : null}
       </div>
-      {sheet}
     </ScrollArea>
   );
 }

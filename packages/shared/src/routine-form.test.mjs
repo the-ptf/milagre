@@ -54,6 +54,8 @@ test("a heartbeat targets the Chat and ends 7 days ahead by default", () => {
     prompt: "Check CI",
   };
   assert.equal(emptyRoutineForm("UTC", NOW).stop.kind, "never");
+  // A new Routine starts every hour.
+  assert.deepEqual(scheduleCron(emptyRoutineForm("UTC", NOW).schedule), { cron: "0 */1 * * *" });
   assert.equal(form.runIn, "chat");
   const result = formToInput(form, NOW);
   assert.deepEqual(result, {

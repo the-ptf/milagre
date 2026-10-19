@@ -34,6 +34,8 @@ export function Select<T extends string>({
   disabled = false,
   triggerClassName = "",
   searchable = false,
+  variant = "field",
+  leading,
 }: {
   label: string;
   value: T;
@@ -45,12 +47,17 @@ export function Select<T extends string>({
   triggerClassName?: string;
   /** A search field over a long list (e.g. time zones); it filters by label. */
   searchable?: boolean;
+  /** "chip": a rounded pill on the field fill (the Routine form's chips) instead of a bordered field. */
+  variant?: "field" | "chip";
+  /** Shown before the label when the selected option has no icon of its own. */
+  leading?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number }>({ left: 0, maxHeight: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   // Inside an open modal <dialog> the panel goes into the dialog: the dialog sits in the top layer, above anything in body.
+  // Inside a popover marked data-popover-host it goes into the popover, so a press on it counts as inside that popover.
   const [host, setHost] = useState<Element | null>(null);
   const [query, setQuery] = useState("");
   const words = query.toLowerCase().trim();
@@ -58,7 +65,7 @@ export function Select<T extends string>({
   const selected = options.find((option) => option.value === value);
 
   function place() {
-    setHost(triggerRef.current?.closest("dialog[open]") ?? null);
+    setHost(triggerRef.current?.closest("dialog[open], [data-popover-host]") ?? null);
     const trigger = triggerRef.current?.getBoundingClientRect();
     if (!trigger) return;
     const left = Math.max(INSET, Math.min(trigger.right - width, window.innerWidth - width - INSET));
@@ -133,9 +140,13 @@ export function Select<T extends string>({
           setOpen(true);
         }}
         onKeyDown={onTriggerKeyDown}
-        className={`flex h-8 items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"} ${triggerClassName}`}
+        className={
+          variant === "chip"
+            ? `flex h-7 items-center gap-1.5 rounded-full pr-2 pl-2.5 text-[12.5px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "bg-field"} ${triggerClassName}`
+            : `flex h-8 items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"} ${triggerClassName}`
+        }
       >
-        {selected?.icon}
+        {selected?.icon ?? leading}
         {selected?.display ?? <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? ""}</span>}
         <span className="text-ink-3">
           <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={1.8} color="currentColor" />

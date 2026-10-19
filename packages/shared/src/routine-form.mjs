@@ -19,12 +19,12 @@ const SIGNED_NEEDS_SECRET = "A signed webhook needs a signing secret";
 const text = (value) => (typeof value === "string" ? value.trim() : "");
 const fail = (field, error) => ({ field, error });
 
-/** A new Routine's form: a schedule every 15 minutes in a new worktree, running until switched off. */
+/** A new Routine's form: a schedule every hour in a new worktree, running until switched off. */
 export function emptyRoutineForm(timezone, now = Date.now()) {
   return {
     name: "",
     trigger: "schedule",
-    schedule: { mode: "every", every: 15, unit: "min", time: "09:00", days: [1, 2, 3, 4, 5], cron: "", timezone },
+    schedule: { mode: "every", every: 1, unit: "h", time: "09:00", days: [1, 2, 3, 4, 5], cron: "", timezone },
     linear: { workspace: "", event: "label-added", team: "", label: "", state: "" },
     webhook: { signingHeader: "", signingSecret: "" },
     projectPath: "",
