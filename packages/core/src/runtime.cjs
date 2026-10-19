@@ -1400,23 +1400,35 @@ function createRuntime(options) {
   });
   // Archiving a Chat stops what runs for it (its Terminals, advisors, heartbeats), then saves the patch. The user's archive
   // and a quiet Routine Run's both come here.
-  // `onlyIf(session)` is checked in the change that saves the patch: the patch is dropped when it no longer holds.
-  async function archiveChat(projectPath, sessionId, patch = { archived: true }, onlyIf = () => true) {
+  async function archiveChat(projectPath, sessionId, patch = { archived: true }) {
     if (!scopeStates.has(projectPath)) return;
-    const chatId = `${projectPath}#${sessionId}`;
+    await stopChatWork(`${projectPath}#${sessionId}`);
+    await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
+  }
+  async function stopChatWork(chatId) {
     terminals.closeChat(chatId);
     await advisorDelivery.stop(chatId);
     await advisors.stopChat(chatId);
     routines.chatArchived(chatId);
-    await editProject(projectPath, (state) => (onlyIf(state.sessions[sessionId]) ? patchSession(state, sessionId, patch) : state), { chats: [] });
   }
   // A hidden Run Chat whose Run left the store (routines' sweepRunChats), archived only while it is still hidden,
-  // unarchived and that Run's: checked first, and again in the change that archives it, so a Chat the user took over in
-  // the meantime stays.
+  // unarchived and that Run's: checked against the current state first, and again in the change that archives it. What
+  // runs for it stops only once that change archived it, so a Chat the user took over in the meantime keeps its
+  // Terminals, advisors and Heartbeats.
   async function archiveRunChat(projectPath, sessionId, runId) {
     const left = (session) => isHiddenRunChat(session) && !session.archived && session.routine.runId === runId;
     if (!scopeStates.has(projectPath) || !left((await scopeStates.get(projectPath)).sessions[sessionId])) return;
-    await archiveChat(projectPath, sessionId, { archived: true }, left);
+    let archived = false;
+    await editProject(
+      projectPath,
+      (state) => {
+        if (!left(state.sessions[sessionId])) return state;
+        archived = true;
+        return patchSession(state, sessionId, { archived: true });
+      },
+      { chats: [] },
+    );
+    if (archived) await stopChatWork(`${projectPath}#${sessionId}`);
   }
   // The user took a Run Chat over (sent it a message, pinned or renamed it, set a Heartbeat on it): it is a normal Chat
   // from then on, in every list. One saved before Run Chats could be hidden is decided kept too. Any other Chat is left
@@ -1432,11 +1444,13 @@ function createRuntime(options) {
     if (patch?.archived) return archiveChat(projectPath, sessionId, patch);
     await editProject(projectPath, (state) => patchSession(state, sessionId, patch ?? {}), { chats: [] });
   }
-  // Pinning or naming a Chat is the user taking a Run Chat over. An agent's chat_update calls patchChat itself and never
-  // keeps one, and nor does a read mark, an unpin or a blank name.
+  // Pinning, naming or restoring a Chat from the archive is the user taking a Run Chat over (a restored one would be
+  // hidden, out of every list, and archived again by the next sweep). An agent's chat_update calls patchChat itself and
+  // never keeps one, and nor does a read mark, an unpin or a blank name.
   commands.handle("chat:patch", async (_event, projectPath, sessionId, patch) => {
     await patchChat(projectPath, sessionId, patch);
-    if (patch?.pinned === true || (typeof patch?.title === "string" && patch.title.trim() !== "")) await keepRunChat(projectPath, sessionId);
+    if (patch?.pinned === true || patch?.archived === false || (typeof patch?.title === "string" && patch.title.trim() !== ""))
+      await keepRunChat(projectPath, sessionId);
   });
   // Opening a chat reads it. Only on opening: "Mark as unread" on the open chat sticks until it's opened again.
   commands.handle("chat:archive-subagent", (_event, projectPath, sessionId, id, archived) =>
@@ -2206,6 +2220,8 @@ function createRuntime(options) {
       // One tick now, and what it set going off the tick: a positive signal for checks that nothing started.
       tick: () => routines.tick(),
       idle: () => routines.idle(),
+      // A Run Chat sweep over a Project's state as given (for checks: one read before a change since).
+      sweepRunChats: (projectPath, state) => routines.sweepRunChats(projectPath, state),
     },
     // Synchronous capture: the socket serializes this before another event can
     // mutate state, so its event watermark and run sequence describe one instant.

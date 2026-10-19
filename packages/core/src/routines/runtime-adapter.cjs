@@ -28,7 +28,8 @@ const knownMode = (mode) => (PERMISSION_MODES.has(mode) ? mode : undefined);
 const STOP_WAIT_MS = 5000;
 // A hung git (a fetch, a setup step) fails the Run instead of holding its slot until the daemon restarts.
 const START_TIMEOUT_MS = 2 * 60 * 1000;
-// What a Chat a Routine started can't do: make, change or delete Routines, or start their Runs, so a Run never sets off another.
+// What a Chat a Routine started can't do while it is still its Run's: make, change or delete Routines, or start their Runs,
+// so a Run never sets off another. A Run Chat the user kept is a normal Chat and gets them.
 const WITHHELD = new Set(["heartbeat_create", "routine_create", "routine_run_now", "routine_update", "routine_delete"]);
 // What a webhook Routine shows while the relay keeps its URL with another room (this Mac's own before a Reset).
 const HOOK_REFUSED = "The relay won't take this webhook's URL yet. Rotate the URL if this stays.";
@@ -579,8 +580,12 @@ function createRoutines({
       permissionMode: knownMode(session?.permissionMode) ?? latest?.permissionMode,
     };
   }
-  // Read from the state in memory, as chatSettings is: the Chat's session is there when its agent asks for tools.
-  const startedByRoutine = (chatId) => Boolean(cachedState(projectOfKey(chatId))?.sessions?.[sessionIdFromKey(chatId)]?.routine);
+  // Read from the state in memory, as chatSettings is: the Chat's session is there when its agent asks for tools. A Run
+  // Chat that is hidden, or saved before Run Chats could be hidden and not decided yet, is still its Run's.
+  const startedByRoutine = (chatId) => {
+    const routine = cachedState(projectOfKey(chatId))?.sessions?.[sessionIdFromKey(chatId)]?.routine;
+    return Boolean(routine) && routine.hidden !== false;
+  };
   const tools = createRoutineTools({
     store,
     scheduler,
@@ -623,9 +628,9 @@ function createRoutines({
 
   /**
    * Run Chats in the Project at `projectPath`, as `state` holds them (never a Link's: Routines don't run there). A Chat
-   * saved before Run Chats could be hidden (no `hidden`) is decided once. A hidden Run Chat whose Run is no longer in the
-   * store (trimmed, deleted with its Routine, purged) is archived, so none outlives its place in the Runs list; one whose
-   * turn is running waits for the turn to end. A store that opened read-only holds no Runs, so it sweeps nothing.
+   * saved before Run Chats could be hidden (no `hidden`) is decided once. A hidden Run Chat whose Run left the store (see
+   * runLeft) is archived, so none outlives its place in the Runs list; one whose turn is running waits for the turn to
+   * end. A store that opened read-only holds no Runs, so it sweeps nothing.
    */
   function sweepRunChats(projectPath, state) {
     return trackSweep(sweep(projectPath, state));
@@ -642,7 +647,7 @@ function createRoutines({
       for (const session of undecided) hidden.set(session.id, decided[session.id]);
     }
     for (const session of runChats) {
-      if (hidden.get(session.id) !== true || store.hasRun(session.routine.runId)) continue;
+      if (hidden.get(session.id) !== true || !runLeft(session.routine)) continue;
       const chatId = chatKey(projectPath, session.id);
       if (chats.runs?.[chatId]) {
         busyRunChats.add(chatId);
@@ -654,9 +659,30 @@ function createRoutines({
   }
 
   /**
-   * Whether each Run Chat saved before `hidden` existed stays hidden: not when it is pinned, a Heartbeat's Chat, or has a
-   * user message after its Run's first one that isn't a Run's own (a beat, a Linear comment). Old messages can't tell the
-   * user from an agent, so this errs toward keeping.
+   * Whether a Run Chat's Run left this store: its Routine is here without it (trimmed), or the Routine was deleted or
+   * purged here. A store that never knew the Routine (a fresh profile or a dev copy opening a real Project, a damaged file
+   * set aside) can't tell, and says no.
+   */
+  const runLeft = ({ routineId, runId }) => (store.get(routineId) !== null && !store.hasRun(runId)) || store.wasRemoved(routineId);
+
+  /**
+   * Whether a Run Chat saved before `hidden` existed has a name the user gave it. Its Run named it after the Routine, or a
+   * Linear issue Run after its issue ("MIL-12 Issue title"); any other title is the user's, and so is any title at all when
+   * this store doesn't know the Routine.
+   */
+  function renamed(session) {
+    if (typeof session.title !== "string" || session.title.trim() === "") return false;
+    const routine = store.get(session.routine.routineId);
+    if (!routine) return true;
+    if (session.title === routine.name) return false;
+    const issue = store.runs(routine.id).find((run) => run.id === session.routine.runId)?.event?.issue;
+    return !(issue && session.title === `${issue.key} ${issue.title}`);
+  }
+
+  /**
+   * Whether each Run Chat saved before `hidden` existed stays hidden: not when it is pinned, renamed, a Heartbeat's Chat,
+   * or has a user message after its Run's first one that isn't a Run's own (a beat, a Linear comment). Old messages can't
+   * tell the user from an agent, so this errs toward keeping.
    */
   async function decideRunChats(projectPath, sessions) {
     const heartbeats = new Set(
@@ -668,7 +694,7 @@ function createRoutines({
     const decided = {};
     const toRead = [];
     for (const session of sessions) {
-      if (session.pinned || heartbeats.has(chatKey(projectPath, session.id))) decided[session.id] = false;
+      if (session.pinned || renamed(session) || heartbeats.has(chatKey(projectPath, session.id))) decided[session.id] = false;
       else toRead.push(session.id);
     }
     if (toRead.length === 0) return decided;

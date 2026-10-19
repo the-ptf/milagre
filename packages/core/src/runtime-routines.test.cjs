@@ -20,7 +20,7 @@ async function eventually(check, { timeoutMs = 3000 } = {}) {
 // A runtime with one Chat on a fake agent, the routine clock and timer in the test's hands.
 // `restart` ({ dir, clock }) starts a second runtime on the data an earlier one left, as Milagre does after a quit: it
 // sends nothing of its own.
-async function fixture(t, { enable = true, restart, open = true, titleModels = {} } = {}) {
+async function fixture(t, { enable = true, restart, open = true, titleModels = {}, terminals } = {}) {
   const dir = restart?.dir ?? (await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "runtime-routines-"))));
   const project = path.join(dir, "project");
   if (!restart) {
@@ -44,6 +44,7 @@ async function fixture(t, { enable = true, restart, open = true, titleModels = {
     registryRoots: [],
     environmentReady: Promise.resolve(),
     titleModels,
+    ...(terminals ? { terminals } : {}),
     agentCli: async () => ({ command: "fixture" }),
     emit: (channel, payload) => emitted.push({ channel, payload }),
     observeAgentEvent: (chatId, event) =>
@@ -1203,4 +1204,71 @@ test("routines:targets leaves hidden Run Chats out of the Heartbeat Chat picker 
   assert.ok(listed.has(f.chatId));
   assert.ok(listed.has(kept.chatId), "a kept Run Chat is a Chat like any other");
   assert.ok(!listed.has(hidden.chatId));
+});
+
+test("restoring a Run Chat the sweep archived keeps it, and the next sweep leaves it alone", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const routine = await createTriage(f, "project");
+  const run = await endedRunChat(f, routine.id);
+  await f.runtime.invoke("routines:delete", [routine.id]);
+  await eventually(async () => (await sessionOf(f, run.session.id)).archived === true);
+  await f.runtime.routines.idle();
+  await f.runtime.invoke("chat:patch", [f.project, run.session.id, { archived: false }]);
+  const restored = await sessionOf(f, run.session.id);
+  assert.equal(restored.archived, undefined);
+  assert.equal(restored.routine.hidden, false);
+  // Opening the Project sweeps it again.
+  await f.runtime.openProject(f.project);
+  await f.runtime.routines.idle();
+  assert.equal((await sessionOf(f, run.session.id)).archived, undefined);
+});
+
+test("a sweep closes a Run Chat's Terminals only once it has archived it; one kept since the sweep looked keeps its Heartbeat", async (t) => {
+  // Each Terminal close, with whether its Chat was archived by then.
+  const closed = [];
+  let f;
+  const terminals = {
+    closeChat(chatId) {
+      const state = f.runtime.snapshot().projects.find((project) => project.path === f.project).state;
+      closed.push({ chatId, archived: state.sessions[Number(chatId.split("#")[1])]?.archived === true });
+    },
+    shells: () => [],
+    size: 0,
+    dispose: async () => {},
+  };
+  f = await fixture(t, { terminals });
+  await f.finish("ok");
+  const routine = await createTriage(f, "project");
+  const gone = await endedRunChat(f, routine.id);
+  const kept = await endedRunChat(f, routine.id);
+  // What a sweep read before the user set a Heartbeat on the second Chat.
+  const seen = await snapshot(f);
+  const { routine: heartbeat } = await f.runtime.invoke("routines:create", [heartbeatOn(kept.chatId)]);
+  await f.runtime.invoke("routines:delete", [routine.id]);
+  await eventually(async () => (await sessionOf(f, gone.session.id)).archived === true);
+  await f.runtime.routines.idle();
+  await f.runtime.routines.sweepRunChats(f.project, seen);
+  await f.runtime.routines.idle();
+  assert.deepEqual(closed, [{ chatId: gone.chatId, archived: true }]);
+  assert.equal((await sessionOf(f, kept.session.id)).archived, undefined);
+  assert.equal((await f.list()).find((item) => item.id === heartbeat.id).completedAt, undefined, "its Heartbeat still runs");
+});
+
+test("a Routine store that never knew a Run Chat's Routine archives nothing: a fresh profile opening a real Project", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const routine = await createTriage(f, "project");
+  const run = await endedRunChat(f, routine.id);
+  await f.runtime.close();
+  await fs.rm(path.join(f.dataDir, "routines.json"));
+  const g = await fixture(t, { restart: { dir: f.dir, clock: f.clock() } });
+  try {
+    await g.runtime.routines.idle();
+    const session = (await snapshot(g)).sessions[run.session.id];
+    assert.equal(session.archived, undefined);
+    assert.equal(session.routine.hidden, true);
+  } finally {
+    await g.runtime.close();
+  }
 });

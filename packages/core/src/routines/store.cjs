@@ -55,6 +55,8 @@ const REJECTED_KEPT = 50;
 const RUN_STATUSES = new Set(["running", "acted", "quiet", "failed", "skipped-busy", "missed"]);
 // A completed Routine stays this long after it ended, then goes with everything it kept.
 const PURGE_AFTER_MS = 30 * 864e5;
+// How long a deleted or purged Routine is remembered (`removed`), so its Run Chats are known to be left behind by it.
+const REMOVED_KEEP_MS = 90 * 864e5;
 const MAINTAIN_EVERY_MS = 3600_000;
 const NO_NEXT_RUN = "schedule has no next run";
 const VERSION = 1;
@@ -232,7 +234,7 @@ function trimRuns(runs) {
 const rejectedKeys = (state, routineId) => (state.runs[routineId] ?? []).filter((run) => run.rejected === true && run.event).map((run) => run.event.key);
 
 function empty() {
-  return { version: VERSION, enabled: false, routines: [], runs: {}, queues: {}, seen: {}, rejections: {}, linear: {} };
+  return { version: VERSION, enabled: false, routines: [], runs: {}, queues: {}, seen: {}, rejections: {}, linear: {}, removed: {} };
 }
 
 // The entries of a saved object that pass `valid`; what a damaged file holds besides that is left out.
@@ -307,15 +309,18 @@ function pruneSeen(state, routineId, at) {
 }
 
 // Upkeep, on load and at most hourly after: a Routine completed 30 days ago goes, with its Runs, queue, seen keys and any
-// Linear cursor no other Routine reads; seen keys past their age go. Says whether anything went.
+// Linear cursor no other Routine reads, and is remembered as removed; seen keys past their age go, and so do Routines
+// removed 90 days ago. Says whether anything went.
 function maintain(state, at, purgedIds = []) {
   let changed = false;
+  state.removed ??= {};
   const purged = state.routines.filter((routine) => finite(routine.completedAt) && routine.completedAt + PURGE_AFTER_MS <= at);
   purgedIds.push(...purged.map((routine) => routine.id));
   if (purged.length) {
     changed = true;
     state.routines = state.routines.filter((routine) => !purged.includes(routine));
     for (const routine of purged) {
+      state.removed[routine.id] = at;
       delete state.runs[routine.id];
       delete state.queues[routine.id];
       delete state.seen[routine.id];
@@ -332,6 +337,11 @@ function maintain(state, at, purgedIds = []) {
     }
   }
   for (const routineId of Object.keys(state.seen)) if (pruneSeen(state, routineId, at)) changed = true;
+  for (const [routineId, removedAt] of Object.entries(state.removed)) {
+    if (removedAt + REMOVED_KEEP_MS > at) continue;
+    delete state.removed[routineId];
+    changed = true;
+  }
   return changed;
 }
 
@@ -499,6 +509,8 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
       // Files saved before rejections were counted apart have none.
       rejections: keepValid(parsed.rejections, (count) => Number.isInteger(count) && count > 0),
       linear: keepValid(parsed.linear, Number.isFinite),
+      // Files saved before deleted Routines were remembered have none.
+      removed: keepValid(parsed.removed, Number.isFinite),
     };
     if (invalid.routines.length || invalid.runs.length) {
       try {
@@ -770,6 +782,7 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
       delete state.queues[routineId];
       delete state.seen[routineId];
       delete state.rejections[routineId];
+      (state.removed ??= {})[routineId] = now();
       tx.changed = true;
       return true;
     });
@@ -1157,6 +1170,8 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     setRunTitle,
     // Whether a Run is still in the store.
     hasRun: (runId) => runIndex.has(runId),
+    // Whether Routine `routineId` was deleted or purged here in the last 90 days.
+    wasRemoved: (routineId) => Object.hasOwn(data.removed ?? {}, routineId),
     // Why every write is refused (a file this Milagre can't read or understand), or null when the store writes.
     readOnlyReason: () => readOnly,
     complete,

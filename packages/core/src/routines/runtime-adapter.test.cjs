@@ -1568,14 +1568,21 @@ function endedRun(store, routine, chatId, status = "acted") {
   store.finishRun(run.id, { status });
   return run.id;
 }
-// Session `id`, opened by Run `runId`; `routine` adds to its routine (hidden), the rest to the session.
-const runChat = (id, runId, { routine = {}, ...extra } = {}) => ({ id, worktree_id: 1, ...extra, routine: { routineId: "r", runId, ...routine } });
+// The first Routine a fixture's `prepare` makes (its store numbers ids p1, p2…).
+const FIRST = "p1";
+const makeTriage = (store) => store.create({ name: "Morning triage", prompt: "look", trigger: SCHEDULE, target: OWN_CHAT, createdBy: { kind: "user" } });
+// Session `id`, opened by Run `runId` of Routine `routineId`; `routine` adds to its routine (hidden), the rest to the session.
+const runChat = (id, runId, { routineId = FIRST, routine = {}, ...extra } = {}) => ({
+  id,
+  worktree_id: 1,
+  ...extra,
+  routine: { routineId, runId, ...routine },
+});
 
-test("the sweep archives a hidden Run Chat whose Run is gone, and only that", async (t) => {
+test("the sweep archives a hidden Run Chat whose Routine is there without its Run, and only that", async (t) => {
   const f = sweepFixture(t, {
     prepare(store, ids) {
-      const routine = store.create({ name: "triage", prompt: "look", trigger: SCHEDULE, target: OWN_CHAT, createdBy: { kind: "user" } });
-      ids.live = endedRun(store, routine, "/project#3");
+      ids.live = endedRun(store, makeTriage(store), "/project#3");
     },
     sessions: {
       2: { id: 2, worktree_id: 1 },
@@ -1594,8 +1601,23 @@ test("the sweep archives a hidden Run Chat whose Run is gone, and only that", as
   assert.deepEqual(f.calls.archived, [["/project#4", "gone"]]);
 });
 
+test("a store that never knew a Run Chat's Routine archives nothing: a fresh profile or a file set aside", async (t) => {
+  const f = sweepFixture(t, {
+    prepare: (store) => makeTriage(store),
+    sessions: {
+      3: runChat(3, "gone", { routineId: "elsewhere", routine: { hidden: true } }),
+      4: runChat(4, "gone", { routineId: "elsewhere" }),
+    },
+    messages: [{ id: 1, session_id: 4, role: "user", body: "Triage", context: { kind: "routine-run", runId: "gone" } }],
+  });
+  await f.routines.sweepRunChats("/project", f.state);
+  assert.deepEqual(f.calls.archived, []);
+  // The Chat saved before hidden is still decided; it just isn't archived on this store's word.
+  assert.deepEqual(f.calls.marked, [{ projectPath: "/project", decided: { 4: true } }]);
+});
+
 test("a Run Chat whose turn runs is swept once the turn ends, not archived from under it", async (t) => {
-  const f = sweepFixture(t, { sessions: { 4: runChat(4, "gone", { routine: { hidden: true } }) } });
+  const f = sweepFixture(t, { prepare: (store) => makeTriage(store), sessions: { 4: runChat(4, "gone", { routine: { hidden: true } }) } });
   f.chats.runs["/project#4"] = { approvals: [{ requestId: "a" }], questions: [] };
   await f.routines.sweepRunChats("/project", f.state);
   assert.deepEqual(f.calls.archived, []);
@@ -1623,7 +1645,7 @@ const runReply = (session_id, id) => ({ id, session_id, role: "assistant", body:
 test("a Run Chat saved before hidden is decided once: kept when pinned, a Heartbeat's Chat or written to after its Run's message", async (t) => {
   const f = sweepFixture(t, {
     prepare(store, ids) {
-      const routine = store.create({ name: "triage", prompt: "look", trigger: SCHEDULE, target: OWN_CHAT, createdBy: { kind: "user" } });
+      const routine = makeTriage(store);
       for (const n of [3, 4, 5, 6, 7, 8]) ids[n] = endedRun(store, routine, `/project#${n}`);
       store.upsertHeartbeat({ chatId: "/project#5", name: "beat", prompt: "check", every: "15m", timezone: "UTC", createdBy: { kind: "user" } });
     },
@@ -1658,6 +1680,7 @@ test("a Run Chat saved before hidden is decided once: kept when pinned, a Heartb
 
 test("a Run Chat saved before hidden, whose Run is gone, is decided and archived in one sweep unless it is kept", async (t) => {
   const f = sweepFixture(t, {
+    prepare: (store) => makeTriage(store),
     sessions: { 3: runChat(3, "gone"), 4: runChat(4, "gone", { pinned: true }) },
     messages: [{ id: 1, session_id: 3, role: "user", body: "Triage", context: { kind: "routine-run", runId: "gone" } }],
   });
@@ -1681,7 +1704,7 @@ test("a store that opened read-only sweeps nothing: its Runs only look gone", as
 test("Runs the store drops are swept in the open Project their Chats are in; a Heartbeat's own Chat is never archived", async (t) => {
   const f = sweepFixture(t, {
     prepare(store, ids) {
-      const routine = store.create({ name: "triage", prompt: "look", trigger: SCHEDULE, target: OWN_CHAT, createdBy: { kind: "user" } });
+      const routine = makeTriage(store);
       ids.routine = routine.id;
       ids.hidden = endedRun(store, routine, "/project#3");
       ids.kept = endedRun(store, routine, "/project#4");
@@ -1716,7 +1739,7 @@ test("Runs dropped in a Project that isn't open wait for the sweep when it opens
   const f = sweepFixture(t, {
     open: false,
     prepare(store, ids) {
-      const routine = store.create({ name: "triage", prompt: "look", trigger: SCHEDULE, target: OWN_CHAT, createdBy: { kind: "user" } });
+      const routine = makeTriage(store);
       ids.routine = routine.id;
       ids.run = endedRun(store, routine, "/project#3");
     },
@@ -1733,16 +1756,18 @@ test("Runs purged as the store loads are swept once the store is made, and a res
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-sweep-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   let run;
+  let routineId;
   {
     let n = 0;
     const store = createRoutineStore({ file: path.join(dir, "routines.json"), now: () => SWEEP_AT - 31 * 864e5, id: () => `old${++n}` });
-    const routine = store.create({ name: "triage", prompt: "look", trigger: SCHEDULE, target: OWN_CHAT, createdBy: { kind: "user" } });
+    const routine = makeTriage(store);
+    routineId = routine.id;
     run = endedRun(store, routine, "/project#3");
     store.complete(routine.id, "done");
   }
   const warned = [];
   t.mock.method(console, "warn", (...args) => warned.push(args.join(" ")));
-  const sessions = { 3: runChat(3, run, { routine: { hidden: true } }) };
+  const sessions = { 3: runChat(3, run, { routineId, routine: { hidden: true } }) };
   const first = sweepFixture(t, { dir, sessions });
   await eventuallyTrue(() => first.calls.archived.length > 0);
   await first.routines.idle();
@@ -1756,6 +1781,77 @@ test("Runs purged as the store loads are swept once the store is made, and a res
     warned.filter((line) => /dropped Runs|sweep/.test(line)),
     [],
   );
+});
+
+test("a Run Chat saved before hidden and renamed is kept: its title is neither its Routine's name nor its Linear issue's", async (t) => {
+  const f = sweepFixture(t, {
+    prepare(store, ids) {
+      const routine = makeTriage(store);
+      ids[3] = endedRun(store, routine, "/project#3");
+      ids[4] = endedRun(store, routine, "/project#4");
+      const linear = store.create({
+        name: "Issues",
+        prompt: "work on it",
+        trigger: { kind: "linear", workspace: "acme", event: "assigned" },
+        target: OWN_CHAT,
+        createdBy: { kind: "user" },
+      });
+      ids.linear = linear.id;
+      store.enqueue(linear.id, {
+        kind: "linear",
+        key: "linear:i1:h1",
+        change: "assigned",
+        issue: {
+          id: "i1",
+          key: "MIL-1",
+          title: "Paste images",
+          description: "",
+          url: "https://linear.app/acme/issue/MIL-1",
+          labels: [],
+          state: "Todo",
+          team: "MIL",
+          workspace: "acme",
+        },
+      });
+      const [claim] = store.claimQueued(SWEEP_AT);
+      store.attachChat(claim.run.id, { chatId: "/project#5" });
+      store.finishRun(claim.run.id, { status: "acted" });
+      ids[5] = claim.run.id;
+    },
+    messages: [3, 4, 5, 6].map((n) => runMessage(n, n)),
+  });
+  f.state.sessions = {
+    3: runChat(3, f.ids[3], { title: "My triage" }),
+    4: runChat(4, f.ids[4], { title: "Morning triage" }),
+    5: runChat(5, f.ids[5], { routineId: f.ids.linear, title: "MIL-1 Paste images" }),
+    // A Routine this store never knew: any title may be the user's.
+    6: runChat(6, "gone", { routineId: "elsewhere", title: "Release notes" }),
+  };
+  await f.routines.sweepRunChats("/project", f.state);
+  assert.deepEqual(f.calls.marked, [{ projectPath: "/project", decided: { 3: false, 4: true, 5: true, 6: false } }]);
+  assert.deepEqual(f.calls.read, [[4, 5]], "a renamed Chat is decided without reading a message");
+});
+
+test("a kept Run Chat's agent gets the Routine tools back; a hidden or undecided one's doesn't", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-adapter-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const sessions = {
+    3: { id: 3, routine: { routineId: "r", runId: "a", hidden: true } },
+    4: { id: 4, routine: { routineId: "r", runId: "b", hidden: false } },
+    5: { id: 5, routine: { routineId: "r", runId: "c" } },
+  };
+  const routines = createRoutines({
+    file: path.join(dir, "routines.json"),
+    chats: { turnSettings: () => null },
+    keepAwake: { setRoutinesActive() {} },
+    emit() {},
+    cachedState: () => ({ sessions }),
+    openState: async () => undefined,
+  });
+  const names = (chatId) => routines.definitions(chatId).map((tool) => tool.name);
+  assert.ok(names("/project#4").includes("heartbeat_create"));
+  assert.ok(names("/project#4").includes("routine_create"));
+  for (const chatId of ["/project#3", "/project#5"]) assert.ok(!names(chatId).includes("heartbeat_create"), chatId);
 });
 
 async function eventuallyTrue(check, timeoutMs = 2000) {

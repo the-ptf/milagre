@@ -1635,7 +1635,7 @@ test("queues, seen keys and cursors survive a store re-created on the same file"
     again.claimQueued(clock.t, 3).map((claim) => claim.run.event.key),
     ["hook:4", "hook:5"],
   );
-  assert.deepEqual(Object.keys(saved(options)).toSorted(), ["enabled", "linear", "queues", "rejections", "routines", "runs", "seen", "version"]);
+  assert.deepEqual(Object.keys(saved(options)).toSorted(), ["enabled", "linear", "queues", "rejections", "removed", "routines", "runs", "seen", "version"]);
 });
 
 test("remove deletes a Routine's queue and seen keys, and keeps the Linear cursors", () => {
@@ -2316,4 +2316,41 @@ test("the store says which Routines its upkeep purged, so their webhook secrets 
   clock.t += 31 * 864e5;
   createRoutineStore({ ...options, onPurged: (ids) => loaded.push(...ids) });
   assert.deepEqual(loaded, [other.id]);
+});
+
+test("a deleted or purged Routine is remembered as removed, across a reload, for 90 days", () => {
+  const { store, clock, options } = setup();
+  const gone = store.create(spec);
+  const ended = store.create({ ...spec, name: "ended", trigger: webhook(OTHER_HOOK) });
+  assert.equal(store.wasRemoved(gone.id), false);
+  assert.equal(store.remove(gone.id), true);
+  assert.equal(store.wasRemoved(gone.id), true);
+  assert.equal(store.wasRemoved("never-here"), false);
+  assert.deepEqual(saved(options).removed, { [gone.id]: START });
+  // A Routine purged 30 days after it ended is remembered too, from the write that purged it.
+  store.complete(ended.id, "done");
+  clock.t += 31 * DAY;
+  store.create({ ...spec, name: "later" });
+  assert.equal(store.get(ended.id), null);
+  assert.equal(store.wasRemoved(ended.id), true);
+  const reloaded = createRoutineStore(options);
+  assert.equal(reloaded.wasRemoved(gone.id), true);
+  assert.equal(reloaded.wasRemoved(ended.id), true);
+  // 90 days after the delete, upkeep forgets it; the purged one, removed 31 days later, is still remembered.
+  clock.t = START + 90 * DAY;
+  reloaded.create({ ...spec, name: "much later", trigger: webhook("ef".repeat(32)) });
+  assert.equal(reloaded.wasRemoved(gone.id), false);
+  assert.equal(reloaded.wasRemoved(ended.id), true);
+  assert.deepEqual(Object.keys(saved(options).removed), [ended.id]);
+});
+
+test("a file saved before removed Routines were remembered loads with none, and a damaged entry is dropped", () => {
+  const { file, options } = setup();
+  fs.writeFileSync(file, JSON.stringify({ version: 1, enabled: true, routines: [], runs: {} }));
+  const store = createRoutineStore(options);
+  assert.equal(store.wasRemoved("r1"), false);
+  fs.writeFileSync(file, JSON.stringify({ version: 1, enabled: true, routines: [], runs: {}, removed: { r1: START, r2: "soon" } }));
+  const damaged = createRoutineStore(options);
+  assert.equal(damaged.wasRemoved("r1"), true);
+  assert.equal(damaged.wasRemoved("r2"), false);
 });
