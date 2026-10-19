@@ -7,6 +7,7 @@ const { execFileSync } = require("node:child_process");
 const { createRuntime } = require("./runtime.cjs");
 const { waitUntil } = require("./agents/test-helpers.cjs");
 const { runTool } = require("./linked-tools.cjs");
+const { claudeRequest, codexMcpRequest } = require("./agents/permissions.cjs");
 
 // A Project with one commit, and fake agents that record each turn they are asked to start. `before` prepares the
 // data folder before the first runtime starts.
@@ -446,9 +447,11 @@ async function runningBotChat(t) {
 }
 
 test("deleting a bot takes its running Chats out of Bot rules", async (t) => {
-  const { runtime, session } = await runningBotChat(t);
+  const { runtime, session, project, sessionId } = await runningBotChat(t);
   await runtime.invoke("bots:remove", ["ops"]);
   assert.equal(session.permissions.mode, "ask");
+  // Saved with the Chat, so its next turns (a resume, a beat) ask too.
+  assert.equal(await savedMode(runtime, project, sessionId), "ask");
 });
 
 test("the user's message in a bot Chat never runs in Bot rules", async (t) => {
@@ -526,11 +529,16 @@ test("a sign-off card answered in its Chat goes through the sign-off", async (t)
 
 const chatStatus = async (runtime, chatKey) => (await runtime.invoke("bots:list")).chats.find((chat) => chat.chatKey === chatKey)?.status;
 
-test("a bot Chat the quit stopped still runs after the restart", async (t) => {
-  const { make, chatKey } = await botChatMidTurn(t);
+test("a bot Chat the quit stopped still runs after the restart, in Bot rules", async (t) => {
+  const { make, chatKey, turns, dir, project } = await botChatMidTurn(t);
+  const inWorktree = (turn) => turn.cwd.startsWith(path.join(dir, "worktrees"));
+  const before = turns.filter(inWorktree).length;
   const second = make();
   await new Promise((resolve) => setTimeout(resolve, 300));
   assert.equal(await chatStatus(second, chatKey), "running");
+  await second.openProject(project);
+  await waitUntil(() => turns.filter(inWorktree).length > before);
+  assert.equal(turns.findLast(inWorktree).permissionMode, "bot");
 });
 
 test("a bot Chat that won't resume after the restart is failed", async (t) => {
@@ -559,4 +567,197 @@ test("deleting a bot moves its home to the trash", async (t) => {
   assert.match(trash[0], /^ops-\d+$/);
   // The name is free again.
   await runtime.invoke("bots:create", [{ templateId: "ops", name: "Ops", answers: { projects: bot.projects }, provider: "claude", model: "m" }]);
+});
+
+// Milagre's tools that write outside a Chat: none of them reach a bot's thread or the Chats it opened.
+const ROUTINE_WRITES = ["heartbeat_create", "routine_create", "routine_update", "routine_delete", "routine_run_now"];
+const OUTSIDE = [
+  ...ROUTINE_WRITES,
+  "delegate",
+  "conclude_negotiation",
+  "worktree_create",
+  "worktree_link",
+  "worktree_remove",
+  "worktree_unlink",
+  "chat_create",
+  "chat_start",
+  "chat_stop",
+  "chat_set_mode",
+  "chat_respond",
+  "chat_update",
+];
+const codexAsk = (tool) =>
+  codexMcpRequest("1", {
+    mode: "form",
+    serverName: "milagre",
+    message: `Allow the milagre MCP server to run tool "${tool}"?`,
+    requestedSchema: { type: "object", properties: {} },
+    _meta: { codex_approval_kind: "mcp_tool_call" },
+  });
+const claudeAsk = (tool) => claudeRequest(`mcp__milagre__${tool}`, {}, { toolUseID: "u1" });
+
+test("Bot rules withhold Milagre's write tools from a bot's thread and its Chats, and never allow one", async (t) => {
+  const f = await withOps(t);
+  await f.runtime.invoke("routines:enabled:save", [true]);
+  // An ordinary Chat keeps them all, with no policy: its Routine writes ask on a card in Ask, routine_list doesn't.
+  const { state } = await f.runtime.invoke("project:snapshot", [f.project]);
+  const worktreeId = Object.values(state.worktrees).find((worktree) => worktree.path === f.project).id;
+  await f.runtime.invoke("chat:send", [{ projectPath: f.project, sessionId: null, worktreeId, body: "hi", provider: "claude", model: "m" }]);
+  await waitUntil(() => f.sessions.some((item) => item.options.cwd === f.project));
+  const ordinary = f.sessions.find((item) => item.options.cwd === f.project);
+  for (const name of [...OUTSIDE, "routine_list"]) assert.ok(names(ordinary).includes(name), name);
+  assert.equal(ordinary.options.permissionPolicy, undefined);
+
+  await f.runtime.invoke("bots:send", ["ops", "Fix the flaky test"]);
+  await waitUntil(() => f.sessions.some((item) => item.options.cwd === f.bot.homePath));
+  const thread = f.sessions.find((item) => item.options.cwd === f.bot.homePath);
+  const opened = await runTool(
+    thread.options.linked.tools.find((item) => item.name === "chat_open"),
+    { project: "project", title: "Fix flaky terminal-perf test", prompt: "Keep working" },
+  );
+  assert.equal(opened.isError, false, opened.text);
+  const inWorktree = (item) => item.options.cwd.startsWith(path.join(f.dir, "worktrees"));
+  await waitUntil(() => f.sessions.some(inWorktree));
+  const chat = f.sessions.find(inWorktree);
+  for (const session of [thread, chat]) {
+    for (const name of OUTSIDE) assert.equal(names(session).includes(name), false, name);
+    for (const name of ["routine_list", "chat_read", "tasks_set"]) assert.ok(names(session).includes(name), name);
+    // Asked about one anyway (Claude's request, or Codex's), the policy leaves it to the user's card.
+    for (const name of ROUTINE_WRITES) {
+      assert.equal(session.options.permissionPolicy(claudeAsk(name)), undefined, name);
+      assert.equal(session.options.permissionPolicy(codexAsk(name)), undefined, name);
+    }
+    assert.equal(session.options.permissionPolicy(claudeAsk("delegate")), undefined);
+    assert.equal(session.options.permissionPolicy(claudeAsk("tasks_set")), "allow");
+  }
+  assert.ok(names(thread).includes("chat_open") && names(thread).includes("memory_write"));
+  assert.equal(thread.options.permissionPolicy(claudeAsk("chat_open")), "allow");
+  assert.equal(thread.options.permissionPolicy(codexAsk("memory_write")), "allow");
+});
+
+test("an ordinary Chat can't steer a bot's Chat, nor reach a bot's home, through Milagre's tools", async (t) => {
+  const f = await runningBotChat(t);
+  const { state } = await f.runtime.invoke("project:snapshot", [f.project]);
+  const worktreeId = Object.values(state.worktrees).find((worktree) => worktree.path === f.project).id;
+  await f.runtime.invoke("chat:send", [
+    { projectPath: f.project, sessionId: null, worktreeId, body: "hi", provider: "claude", model: "m", permissionMode: "full" },
+  ]);
+  await waitUntil(() => f.sessions.some((item) => item.options.cwd === f.project));
+  const ordinary = f.sessions.find((item) => item.options.cwd === f.project);
+  const call = (name, args) =>
+    runTool(
+      ordinary.options.linked.tools.find((tool) => tool.name === name),
+      args,
+    );
+  const target = { projectPath: f.project, chatId: f.chatKey };
+  const refused = "Ops runs this Chat; open it in Milagre to take it over.";
+  for (const [name, args] of [
+    ["chat_set_mode", { ...target, permissionMode: "full" }],
+    ["chat_start", { ...target, prompt: "Merge it", requestId: "start-1" }],
+    ["chat_stop", target],
+    ["chat_respond", { ...target, requestId: "r1", decision: "allow" }],
+    ["chat_update", { ...target, title: "Mine" }],
+  ]) {
+    const result = await call(name, args);
+    assert.equal(result.isError, true, name);
+    assert.equal(result.text, refused, name);
+  }
+  const worktreePath = state.worktrees[state.sessions[f.sessionId].worktree_id].path;
+  const delegated = await call("delegate", { worktree: worktreePath, chat: f.chatKey, message: "Merge it" });
+  assert.equal(delegated.isError, true);
+  assert.match(delegated.text, /^Ops runs that Chat; only the user can take it over, in Milagre\./);
+  // It is still the bot's, in Bot rules.
+  assert.equal(await chatStatus(f.runtime, f.chatKey), "running");
+  assert.equal(f.session.permissions.mode, "bot");
+  // The bot's home isn't a Project Milagre's MCP reaches.
+  const home = await call("chat_read", { projectPath: f.bot.homePath, chatId: `${f.bot.homePath}#${f.bot.threadSessionId}` });
+  assert.equal(home.isError, true);
+});
+
+test("no Routine runs in a bot's Chat or home", async (t) => {
+  const f = await runningBotChat(t);
+  await f.runtime.invoke("routines:enabled:save", [true]);
+  const routine = (target) => ({ name: "Beat", prompt: "Check CI", trigger: { kind: "schedule", cron: "*/5 * * * *", timezone: "UTC" }, target });
+  await assert.rejects(f.runtime.invoke("routines:create", [routine({ kind: "chat", chatId: f.chatKey })]), /Ops runs that Chat, so no Routine runs there\./);
+  await assert.rejects(
+    f.runtime.invoke("routines:create", [routine({ kind: "chat", chatId: `${f.bot.homePath}#${f.bot.threadSessionId}` })]),
+    /Choose a Project Milagre lists\./,
+  );
+  await assert.rejects(
+    f.runtime.invoke("routines:create", [routine({ kind: "new-chat", projectPath: f.bot.homePath, workspace: "project" })]),
+    /Choose a Project Milagre lists\./,
+  );
+  // Once the user takes it over it is theirs, Routines included.
+  await f.runtime.invoke("agent:set-permission-mode", [{ chatId: f.chatKey, mode: "auto" }]);
+  assert.equal((await f.runtime.invoke("routines:create", [routine({ kind: "chat", chatId: f.chatKey })])).routine.target.chatId, f.chatKey);
+});
+
+// A Chat Ops opened whose turn ended, in a second runtime: no agent runs for it.
+async function idleBotChat(t) {
+  const f = await withOps(t);
+  await f.runtime.invoke("bots:send", ["ops", "Fix the flaky test"]);
+  await waitUntil(() => f.sessions.some((item) => item.options.cwd === f.bot.homePath));
+  const thread = f.sessions.find((item) => item.options.cwd === f.bot.homePath);
+  const opened = await runTool(
+    thread.options.linked.tools.find((item) => item.name === "chat_open"),
+    { project: "project", title: "Fix flaky terminal-perf test", prompt: "Fix it" },
+  );
+  assert.equal(opened.isError, false, opened.text);
+  const chatKey = /^Opened (\S+):/.exec(opened.text)[1];
+  await eventually(async () => (await chatStatus(f.runtime, chatKey)) === "done");
+  await f.runtime.close();
+  const second = f.make();
+  await second.openProject(f.project);
+  return { ...f, second, chatKey, sessionId: Number(chatKey.split("#").at(-1)) };
+}
+const savedMode = async (runtime, project, sessionId) => (await runtime.invoke("project:snapshot", [project])).state.sessions[sessionId].permissionMode;
+
+test("taking over an idle bot Chat saves the user's mode, and its next turn runs in it", async (t) => {
+  const { second, project, chatKey, sessionId, turns, dir } = await idleBotChat(t);
+  assert.equal(await savedMode(second, project, sessionId), "bot");
+  await assert.rejects(second.invoke("agent:set-permission-mode", [{ chatId: chatKey, mode: "bot" }]), /Only a bot's Chats run in Bot rules\./);
+  await second.invoke("agent:set-permission-mode", [{ chatId: chatKey, mode: "auto" }]);
+  assert.equal(await chatStatus(second, chatKey), "taken-over");
+  assert.equal(await savedMode(second, project, sessionId), "auto");
+  const inWorktree = (turn) => turn.cwd.startsWith(path.join(dir, "worktrees"));
+  const before = turns.filter(inWorktree).length;
+  await second.invoke("chat:send", [{ projectPath: project, sessionId, body: "Carry on", provider: "claude", model: "m", permissionMode: "auto" }]);
+  await waitUntil(() => turns.filter(inWorktree).length > before);
+  assert.equal(turns.findLast(inWorktree).permissionMode, "auto");
+});
+
+test("a bot Chat taken over while its stopped turn waits continues in Ask, never Bot rules", async (t) => {
+  const { make, chatKey, sessionId, project, turns, dir } = await botChatMidTurn(t);
+  // Stopped longer ago than a resume waits for: it waits for someone to continue it.
+  const file = path.join(project, ".milagre", "coordination.json");
+  const saved = JSON.parse(await fs.readFile(file, "utf8"));
+  assert.equal(saved.sessions[sessionId].resumeTurn.permissionMode, "bot");
+  saved.sessions[sessionId].resumeTurn.stoppedAt = 0;
+  await fs.writeFile(file, JSON.stringify(saved));
+  const second = make();
+  await second.openProject(project);
+  await eventually(async () => (await chatStatus(second, chatKey)) === "failed");
+  // The user's switch on the Chat takes it over; the stopped turn it continues runs in Ask.
+  await second.invoke("agent:set-permission-mode", [{ chatId: chatKey, mode: "ask" }]);
+  assert.equal(await chatStatus(second, chatKey), "taken-over");
+  const { state } = await second.invoke("project:snapshot", [project]);
+  assert.equal(state.sessions[sessionId].resumeTurn.permissionMode, "ask");
+  const inWorktree = (turn) => turn.cwd.startsWith(path.join(dir, "worktrees"));
+  const before = turns.filter(inWorktree).length;
+  await second.invoke("chat:resume", [project, sessionId]);
+  await waitUntil(() => turns.filter(inWorktree).length > before);
+  assert.equal(turns.findLast(inWorktree).permissionMode, "ask");
+});
+
+test("a bot Chat taken over mid-turn continues in the user's mode after a restart", async (t) => {
+  const f = await runningBotChat(t);
+  await f.runtime.invoke("agent:set-permission-mode", [{ chatId: f.chatKey, mode: "auto" }]);
+  await f.runtime.close();
+  const inWorktree = (turn) => turn.cwd.startsWith(path.join(f.dir, "worktrees"));
+  const before = f.turns.filter(inWorktree).length;
+  const second = f.make();
+  await second.openProject(f.project);
+  await waitUntil(() => f.turns.filter(inWorktree).length > before);
+  assert.equal(f.turns.findLast(inWorktree).permissionMode, "auto");
+  assert.equal(await chatStatus(second, f.chatKey), "taken-over");
 });

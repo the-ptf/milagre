@@ -634,7 +634,7 @@ test("Milagre's own tools ask through the chat's approval cards and read its per
   const session = {
     turnActive: true,
     closed: false,
-    permissions: { mode: "auto", add: (request, answer) => added.push({ request, answer }) },
+    permissions: { mode: "auto", add: (request, answer, options) => added.push({ request, answer, options }) },
     startTurn: async () => ({ turnId: "t", steered: false }),
     close: async () => {},
   };
@@ -645,6 +645,8 @@ test("Milagre's own tools ask through the chat's approval cards and read its per
   assert.equal(manager.permissionMode("p#1"), "auto");
   assert.equal(manager.isTurnActive("p#1"), true);
   const decision = manager.askApproval("p#1", { requestId: "r" });
+  // Milagre's own card: Bot rules leave it to the user (PendingPermissions).
+  assert.deepEqual(added[0].options, { fromMilagre: true });
   added[0].answer("deny");
   assert.equal(await decision, "deny");
 });

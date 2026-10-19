@@ -8,7 +8,7 @@ const { chatActivity } = require("@milagre/shared/chat-activity");
 const { queueStatus } = require("@milagre/shared/queued-messages");
 const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
 // A tool never gives a Chat more than its caller has without the user's say.
-const { MODE_RANK } = require("./agents/permissions.cjs");
+const { callerMode: asCaller, raisesMode } = require("./agents/permissions.cjs");
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 
 /** The answers as the Chat shows them in the user's message, as the question card writes them. */
@@ -38,9 +38,10 @@ function attachmentPrompt(body, files) {
  * models(projectPath) -> { [provider]: [{ id, efforts, defaultEffort }] }, the pickers' catalog,
  * worktreeStatus(path, base) -> { uncommitted, unpushed, branch, removable } (worktree-cleanup.cjs),
  * removeWorktree(projectPath, worktreePath) -> { removed, branch, branchDeleted }, the safe removal only,
- * approve(callerChat, request) -> "allow" | "allow-for-chat" | "deny" | "cancelled".
+ * approve(callerChat, request) -> "allow" | "allow-for-chat" | "deny" | "cancelled",
+ * botOf(chatId) -> the name of the bot that runs a Chat (its thread, or a Chat it opened the user hasn't taken over).
  * `caller` is the Chat whose agent called the tool; an outside client has none and counts as an Ask caller with nowhere
- * to show an approval card.
+ * to show an approval card. A caller in Bot rules counts as an Ask caller too.
  */
 function createLocalMcpHost({
   projects,
@@ -62,6 +63,7 @@ function createLocalMcpHost({
   models = async () => ({}),
   worktreeStatus,
   removeWorktree,
+  botOf = () => null,
 }) {
   const validateProject = async (projectPath) => {
     if (!(await projects()).some((project) => project.path === projectPath) || realpathSync(projectPath) !== projectPath)
@@ -108,7 +110,13 @@ function createLocalMcpHost({
           },
         }
       : {};
-  const callerMode = (caller) => (caller ? permissionMode(caller, "ask") : "ask");
+  const callerMode = (caller) => (caller ? asCaller(permissionMode(caller, "ask")) : "ask");
+  // A bot's Chat runs under its gates and only the bot steers it, until the user takes it over in Milagre: no other Chat
+  // or outside client starts, stops, switches, answers for or renames it.
+  const notBots = (chatId) => {
+    const bot = botOf(chatId);
+    if (bot) throw Error(`${bot} runs this Chat; open it in Milagre to take it over.`);
+  };
   // Past what the caller may do alone: the user decides on a card in the caller's Chat. An outside client has no Chat.
   const confirm = async (caller, request) => {
     if (!caller) throw Error(`${request.title.replace(/\?$/, "")} needs approval in Milagre, which an outside client can't ask for. Do it in Milagre instead.`);
@@ -117,10 +125,10 @@ function createLocalMcpHost({
   };
   // `prompt`, for chat_start: what would run there. Without `asked` the Chat already runs in `mode`, above the caller's.
   const checkMode = async (caller, chatId, mode, session, { prompt, asked = true } = {}) => {
-    if (MODE_RANK[mode] <= MODE_RANK[callerMode(caller)]) return;
+    if (!raisesMode(mode, callerMode(caller))) return;
     const name = session?.title || session?.generatedTitle;
     const chatName = name ? `"${name}"` : "another Chat";
-    const modeName = mode === "full" ? "Full permission" : "Auto mode";
+    const modeName = mode === "full" ? "Full permission" : mode === "auto" ? "Auto mode" : "Bot rules";
     await confirm(caller, {
       ...(asked
         ? { title: `Run ${chatName} in ${modeName}?`, description: "This Chat's agent asks to give it more permission than it has itself." }
@@ -219,6 +227,7 @@ function createLocalMcpHost({
       client,
     ) {
       const { state, session } = await chat(projectPath, chatId);
+      notBots(chatId);
       if (session.archived) throw Error("This Chat is archived");
       const latest = chats.turnSettings(chatId) ?? {};
       const messages = await scopeStates.chatMessages(projectPath, [session.id]);
@@ -278,12 +287,14 @@ function createLocalMcpHost({
     },
     async stopChat({ projectPath, chatId }) {
       await chat(projectPath, chatId);
+      notBots(chatId);
       const running = Boolean(runOf(chatId));
       await stopChat(chatId);
       return { chatId, stopped: running };
     },
     async setMode({ projectPath, chatId, permissionMode: mode }, caller) {
       const { session } = await chat(projectPath, chatId);
+      notBots(chatId);
       if (!runOf(chatId) && permissionMode(chatId, null) === null)
         throw Error("This Chat has no running agent. Pass permissionMode to chat_start to start it in that mode.");
       await checkMode(caller, chatId, mode, session);
@@ -293,6 +304,7 @@ function createLocalMcpHost({
     // Answering another Chat's approval is a decision the user makes, unless the caller runs in Full permission itself.
     async respond({ projectPath, chatId, requestId, decision, answers }, caller) {
       const { session } = await chat(projectPath, chatId);
+      notBots(chatId);
       if (caller === chatId) throw Error("A Chat can't answer its own approvals or questions.");
       const { approvals, questions } = pending(chatId);
       const approval = approvals.find((item) => item.requestId === requestId);
@@ -326,6 +338,7 @@ function createLocalMcpHost({
     },
     async updateChat({ projectPath, chatId, title, archived }) {
       const { session } = await chat(projectPath, chatId);
+      notBots(chatId);
       if (title === undefined && archived === undefined) throw Error("Give a title, archived, or both.");
       if (archived && runOf(chatId)) throw Error("Stop the Chat before archiving it.");
       await patchChat(projectPath, session.id, { ...(title !== undefined ? { title: title.trim() } : {}), ...(archived !== undefined ? { archived } : {}) });

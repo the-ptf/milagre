@@ -6,7 +6,7 @@ const test = require("node:test");
 const { runTool } = require("../linked-tools.cjs");
 const { createBotHome } = require("./home.cjs");
 const { readMemory } = require("./memory.cjs");
-const { createBotTools } = require("./tools.cjs");
+const { BOT_TOOL_NAMES, createBotTools } = require("./tools.cjs");
 
 async function harness(t) {
   const dir = fsSync.mkdtempSync(path.join(os.tmpdir(), "milagre-bots-tools-"));
@@ -50,4 +50,16 @@ test("a full memory comes back as the tool's error", async (t) => {
   const result = await call("memory_write", { section: "a", text: "- one more", mode: "append" });
   assert.equal(result.isError, true);
   assert.match(result.text, /MEMORY\.md is full: 200 lines max\./);
+});
+
+test("BOT_TOOL_NAMES lists every tool a bot's thread gets, for Bot rules to keep", () => {
+  const bots = { chatOpen: async () => {}, chatStatus: async () => {}, chatSend: async () => {}, chatsMine: () => [] };
+  const bot = { id: "ops", name: "Ops", homePath: "/home" };
+  assert.deepEqual(
+    createBotTools({ bots })
+      .definitions("/home#1", bot)
+      .map((tool) => tool.name)
+      .sort(),
+    [...BOT_TOOL_NAMES].sort(),
+  );
 });

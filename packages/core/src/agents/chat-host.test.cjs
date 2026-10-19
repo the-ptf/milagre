@@ -1030,6 +1030,34 @@ test("the Chat keeps the mode its composer last set, saved with it: a pick, or t
   assert.equal(host.routineTurns.has(chatId), false);
 });
 
+test("leaving Bot rules saves Ask for everything the Chat starts again: its mode, its stopped turn, its queue", async (t) => {
+  const { host, manager, states, saved } = harness();
+  t.after(() => manager.closeAll());
+  const resumeTurn = { provider: "claude", model: "m", permissionMode: "bot", stoppedAt: NOW };
+  const queued = [
+    { id: "q1", body: "steer", provider: "claude", model: "m", queuedAt: NOW, turn: { permissionMode: "bot" } },
+    { id: "q2", body: "older", provider: "claude", model: "m", queuedAt: NOW },
+  ];
+  await states.update(ALPHA, (state) => ({
+    ...state,
+    next_id: 9,
+    sessions: {
+      7: { id: 7, worktree_id: 1, provider: "claude", permissionMode: "bot", resumeTurn, queued, queueHeld: true },
+      8: { id: 8, worktree_id: 1, provider: "claude", permissionMode: "auto", resumeTurn: { ...resumeTurn, permissionMode: "auto" } },
+    },
+  }));
+  await host.leaveBotRules(`${ALPHA}#7`);
+  await host.leaveBotRules(`${ALPHA}#8`);
+  await host.states.flush();
+  const left = saved.get(ALPHA).sessions;
+  assert.equal(left[7].permissionMode, "ask");
+  assert.deepEqual(left[7].resumeTurn, { ...resumeTurn, permissionMode: "ask" });
+  assert.deepEqual(left[7].queued, [{ ...queued[0], turn: { permissionMode: "ask" } }, queued[1]]);
+  // A Chat in another mode keeps it.
+  assert.equal(left[8].permissionMode, "auto");
+  assert.equal(left[8].resumeTurn.permissionMode, "auto");
+});
+
 test("a mode change saves the mode whatever the live agent says, and reports the agent's error first", async (t) => {
   const { host, manager } = harness();
   t.after(() => manager.closeAll());

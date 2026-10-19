@@ -6,6 +6,9 @@ const { readMemory, writeMemory } = require("./memory.cjs");
 // The memory tools only need the bot's home; the Chat tools (given with `bots`, the bots service) reach the Chats the
 // bot opens, in the Projects it watches.
 
+// Every tool a bot's thread gets here, for the tools Bot rules let a bot's Chats keep (permissions.cjs).
+const BOT_TOOL_NAMES = Object.freeze(["memory_read", "memory_write", "chat_open", "chat_status", "chat_send", "chat_list_mine"]);
+
 const chatLine = (chat) => `- ${chat.chatKey}: ${chat.title} (${chat.status})`;
 
 function chatTools(bots, bot) {
@@ -92,4 +95,4 @@ function createBotTools({ now = Date.now, bots } = {}) {
   return { definitions };
 }
 
-module.exports = { createBotTools };
+module.exports = { BOT_TOOL_NAMES, createBotTools };

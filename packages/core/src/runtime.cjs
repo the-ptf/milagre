@@ -91,7 +91,7 @@ const ROUTINE_TARGET_CHATS = 50;
 
 const { createFileSearch } = require("./project-files.cjs");
 const { createBots, unavailableBots } = require("./bots/index.cjs");
-const { PERMISSION_MODES } = require("./agents/permissions.cjs");
+const { PERMISSION_MODES, isBotRulesTool } = require("./agents/permissions.cjs");
 const { createBotStore } = require("./bots/store.cjs");
 const { isQuietChat } = require("@milagre/shared/bots");
 const git = createGit().read;
@@ -115,6 +115,8 @@ function createRuntime(options) {
   let advisorDelivery;
   // Set up at the end with what it needs; hidden homes are filtered out of every Project list (ADR-0010).
   let bots;
+  // The bot that runs a Chat (its thread, or a Chat it opened the user hasn't taken over), by name, else null.
+  const botRunning = (chatId) => (typeof chatId === "string" ? (bots?.botForChat(chatId)?.bot.name ?? null) : null);
   function track(work, set = active) {
     const task = Promise.resolve().then(work);
     set.add(task);
@@ -1166,6 +1168,9 @@ function createRuntime(options) {
     projects: () => projectRegistry().list(),
     // Read only: an open Project's state from memory, another's saved file, never opening it (no resume, no recovery).
     projectState: (projectPath) => projectStateReadOnly(projectPath),
+    // Bots are made further down; until then no Chat is a bot's.
+    botOf: (chatId) => botRunning(chatId),
+    botHome: (projectPath) => Boolean(bots?.isHome(projectPath)),
     timers: options.routines,
   });
   routines.start();
@@ -1561,17 +1566,19 @@ function createRuntime(options) {
 
   // The mode picked is the Chat's from now on: its running turn takes it at once, and a heartbeat's next beat runs in it.
   // Saved even when the live session couldn't take it: the next turn and beat start in it. Bot rules are the bots' own:
-  // no client sets them, and a bot's thread keeps them. Changing the mode of a Chat a bot opened takes it over first,
-  // which denies its sign-offs, so Full can't allow them. The renderer and Milagre's MCP both come through here.
-  async function setPermissionMode(chatId, mode) {
+  // no client sets them, and a bot's thread keeps them. The renderer and Milagre's MCP both come through here, but only
+  // the user (`byUser`, Milagre's own command) changes a Chat a bot opened: that takes it over first, which denies its
+  // sign-offs, so Full can't allow them. Another Chat's agent or an outside client can't steer a bot's Chat at all.
+  async function setPermissionMode(chatId, mode, { byUser = false } = {}) {
     if (mode === "bot") throw new Error("Only a bot's Chats run in Bot rules.");
     if (!PERMISSION_MODES.has(mode)) throw new Error(`Unknown permission mode: ${mode}`);
     const owned = typeof chatId === "string" ? bots.botForChat(chatId) : null;
     if (owned?.role === "thread") throw new Error(`${owned.bot.name}'s thread always runs in Bot rules.`);
+    if (owned && !byUser) throw new Error(`${owned.bot.name} runs this Chat; open it in Milagre to take it over.`);
     if (owned) await bots.takeOver(chatId);
     return chats.setPermissionMode(chatId, mode, (id, picked) => agents.setPermissionMode(id, picked));
   }
-  commands.handle("agent:set-permission-mode", (_event, { chatId, mode }) => setPermissionMode(chatId, mode));
+  commands.handle("agent:set-permission-mode", (_event, { chatId, mode }) => setPermissionMode(chatId, mode, { byUser: true }));
 
   async function notifyIfWaiting(chatId, event) {
     const projectPath = projectOfKey(chatId);
@@ -1660,6 +1667,25 @@ function createRuntime(options) {
     chats,
     agents,
     emit,
+    // Bot rules allow what no gate matches, and gates leave Milagre's tools alone: a bot's thread and the Chats it opened
+    // keep only the Milagre tools that stay inside them (isBotRulesTool). A tool a session got before its Chat became
+    // a bot's (Claude keeps the list it started with) refuses to run there.
+    chatTools: (chatId, tools) =>
+      botRunning(chatId)
+        ? tools.filter(isBotRulesTool)
+        : tools.map((tool) =>
+            isBotRulesTool(tool)
+              ? tool
+              : {
+                  ...tool,
+                  run: async (input) => {
+                    const bot = botRunning(chatId);
+                    if (bot) throw new Error(`${bot} runs this Chat, and Bot rules don't offer ${tool.name}.`);
+                    return tool.run(input);
+                  },
+                },
+          ),
+    botOf: (chatId) => botRunning(chatId),
     pendingAdvisorResults: async (chatId) =>
       (await advisorStore.read(chatId)).some((record) => record.completions?.some((result) => ["pending", "sending"].includes(result.delivery))),
     extraTools: (chatId) => [
@@ -2089,7 +2115,8 @@ function createRuntime(options) {
     permissionMode: (chatId, fallback) => agents.permissionMode(chatId, fallback),
     createWorktree: (context, request) => handlers.get("worktree:create")(context, request),
     stopChat,
-    setPermissionMode,
+    // Never the user's: on a bot's Chat it is refused rather than taking it over.
+    setPermissionMode: (chatId, mode) => setPermissionMode(chatId, mode),
     respondPermission: (chatId, requestId, decision) => handlers.get("agent:respond-permission")(null, { chatId, requestId, decision }),
     answerQuestion: (chatId, requestId, answers, summary) => handlers.get("agent:answer-question")(null, { chatId, requestId, answers, summary }),
     patchChat,
@@ -2100,6 +2127,7 @@ function createRuntime(options) {
     models: (projectPath) => handlers.get("agent:models")(null, projectPath),
     worktreeStatus,
     removeWorktree: (projectPath, worktreePath) => handlers.get("worktree:remove")(null, worktreePath, { projectPath }),
+    botOf: (chatId) => botRunning(chatId),
     validateDesignChat: async (chatId) => {
       const scope = projectOfKey(chatId);
       if (!isLinkScopeKey(scope)) {
@@ -2124,13 +2152,13 @@ function createRuntime(options) {
       // A shared Link Chat manages its Link's member Projects as an ordinary Chat manages its own Project.
       const projectPaths = isLinkScopeKey(projectPath) ? (linkMembers.get(scopeFromKey(projectPath).linkId) ?? []) : [projectPath];
       if (!projectPaths.length) return designGrant;
-      // A bot's thread and the Chats it opened reach other Chats only through its own tools (chat_open, chat_send),
-      // which keep them in Bot rules: creating or starting one here would run it outside its gates.
-      const botChat = Boolean(bots?.botForChat(chatId));
+      // A bot's thread and the Chats it opened reach other Chats and Worktrees only through its own tools (chat_open,
+      // chat_send), which keep them in Bot rules: creating, starting or linking one here would run outside its gates.
+      const botChat = Boolean(botRunning(chatId));
       return {
         ...designGrant,
         projects: { projectPaths, capabilities: ["read"] },
-        worktrees: { projectPaths, capabilities: ["read", "create"] },
+        worktrees: { projectPaths, capabilities: botChat ? ["read"] : ["read", "create"] },
         chats: { projectPaths, capabilities: botChat ? ["read"] : ["read", "create", "start"] },
       };
     },

@@ -263,19 +263,27 @@ class ChatHost {
 
   /**
    * A Chat a bot no longer runs: it leaves Bot rules for Ask, saved with it like the composer's pick, so the turns it
-   * starts again (a resume, a continue after a limit, a heartbeat's beat) ask the user. A chat in another mode keeps it.
+   * starts again (a resume, a continue after a limit, a heartbeat's beat, the messages queued behind its turn) ask the
+   * user. A chat in another mode keeps it.
    */
   async leaveBotRules(chatId) {
+    const asked = (settings) => (settings?.permissionMode === "bot" ? { ...settings, permissionMode: "ask" } : settings);
     const turn = this.turns.get(chatId);
-    if (turn?.permissionMode === "bot") this.turns.set(chatId, { ...turn, permissionMode: "ask" });
+    if (turn?.permissionMode === "bot") this.turns.set(chatId, asked(turn));
     const projectPath = projectOfKey(chatId);
     const sessionId = sessionIdFromKey(chatId);
     const { state, changed } = await this.states.update(
       projectPath,
       (latest) => {
         const session = latest.sessions[sessionId];
-        if (session?.permissionMode !== "bot") return latest;
-        return { ...latest, sessions: { ...latest.sessions, [sessionId]: { ...session, permissionMode: "ask" } } };
+        const queued = session?.queued?.some((entry) => entry.turn?.permissionMode === "bot");
+        if (!session || (session.permissionMode !== "bot" && session.resumeTurn?.permissionMode !== "bot" && !queued)) return latest;
+        const left = {
+          ...asked(session),
+          ...(session.resumeTurn ? { resumeTurn: asked(session.resumeTurn) } : {}),
+          ...(queued ? { queued: session.queued.map((entry) => (entry.turn ? { ...entry, turn: asked(entry.turn) } : entry)) } : {}),
+        };
+        return { ...latest, sessions: { ...latest.sessions, [sessionId]: left } };
       },
       { chats: [] },
     );

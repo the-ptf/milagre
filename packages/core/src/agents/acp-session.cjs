@@ -78,7 +78,11 @@ function acpPermissionRequest(requestId, call, options) {
     detail = call.rawInput === undefined ? undefined : capText(JSON.stringify(call.rawInput, null, 2));
   } catch {}
   const title = str(call.title).endsWith("?") ? str(call.title) : `Use ${name}?`;
-  return compact({ ...base, kind: "other", tool: name, title, detail });
+  // An MCP tool's server and tool, as Claude names it, for what matches on them (bots/gates.cjs, Bot rules).
+  const { _meta: meta } = call;
+  const mcp = meta?.mcp;
+  const mcpName = typeof mcp?.server === "string" && typeof mcp?.tool === "string" ? `mcp__${mcp.server}__${mcp.tool}` : undefined;
+  return compact({ ...base, kind: "other", tool: name, toolName: mcpName, title, detail });
 }
 
 // The user's decision -> the agent's option. Allow for chat falls back to allow once, and the reverse.

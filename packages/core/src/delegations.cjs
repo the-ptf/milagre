@@ -6,7 +6,7 @@ const { createActivityTracker, activityBusy } = require("@milagre/shared/chat-ac
 const { NEGOTIATION_ROUNDS } = require("@milagre/shared/limits");
 const { neutralizeTags, truncateText } = require("@milagre/shared/untrusted-text");
 const { clip } = require("./linked-summary.cjs");
-const { MODE_RANK } = require("./agents/permissions.cjs");
+const { callerMode, raisesMode } = require("./agents/permissions.cjs");
 
 // Delegations and Negotiations (ADR-0002). A Delegation is a message from a Chat to another Chat, across a
 // Link or in its own Project, carried out by that Chat's own agent; the reply of the turn that took it comes
@@ -221,6 +221,9 @@ class Delegations {
       if (!info || info.worktreePath !== worktree)
         throw new Error('That Chat isn\'t in the Worktree you named. Pick a Chat ref from linked_overview, or "new".');
       if (info.archived) throw new Error('That Chat is archived and can\'t receive a Delegation. Pick another one, or "new".');
+      // A bot's Chat runs under its gates, steered by the bot alone, until the user takes it over in Milagre.
+      const bot = this.ports.botOf?.(chat);
+      if (bot) throw new Error(`${bot} runs that Chat; only the user can take it over, in Milagre. Pick another one, or "new".`);
       toLabel = info.label;
     }
     const from = await this.ports.chat(fromChat);
@@ -326,7 +329,7 @@ class Delegations {
    */
   async approval(fromChat, linkIds, delegation) {
     const grant = `${fromChat}\0${linkIds[0]}`;
-    if (this.ports.permissionMode(fromChat) !== "ask" || linkIds.some((id) => this.data.grants.includes(`${fromChat}\0${id}`))) return "allow";
+    if (callerMode(this.ports.permissionMode(fromChat)) !== "ask" || linkIds.some((id) => this.data.grants.includes(`${fromChat}\0${id}`))) return "allow";
     const decision = await this.ports.approve(fromChat, {
       requestId: this.id(),
       kind: "delegation",
@@ -345,12 +348,12 @@ class Delegations {
   /** The receiving Chat's mode when it is more than the caller's, else null. */
   raisedMode(fromChat, toChat) {
     const mode = this.ports.deliveryMode(toChat, fromChat);
-    return MODE_RANK[mode] > MODE_RANK[this.ports.permissionMode(fromChat)] ? mode : null;
+    return raisesMode(mode, this.ports.permissionMode(fromChat)) ? mode : null;
   }
 
   // No grant covers it and the card offers none: the receiving Chat's mode can change between Delegations.
   raiseApproval(fromChat, mode, delegation) {
-    const modeName = mode === "full" ? "Full permission" : "Auto mode";
+    const modeName = mode === "full" ? "Full permission" : mode === "auto" ? "Auto mode" : "Bot rules";
     return this.ports.approve(fromChat, {
       requestId: this.id(),
       kind: "delegation",

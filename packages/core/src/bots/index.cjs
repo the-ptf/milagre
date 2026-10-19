@@ -5,6 +5,7 @@ const { BOT_RUNNING_CHAT_CAP, GATE_EXPIRY_MS, botIdFromName } = require("@milagr
 const { PROVIDERS } = require("@milagre/shared/providers");
 const { isTurnEnd, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { matchGates } = require("./gates.cjs");
+const { BOT_RULES_TOOLS, milagreToolOf } = require("../agents/permissions.cjs");
 const { createBotTools } = require("./tools.cjs");
 const { createBotHome, readBrief, writeBrief, writeInstructions } = require("./home.cjs");
 const { readMemory, saveMemoryByUser } = require("./memory.cjs");
@@ -168,13 +169,17 @@ function createBots({
    * The Bot rules answer for a bot's thread or a Chat it opened (permissions.cjs): "allow", unless a gate matches and no
    * grant covers it, then the gate for a sign-off card. It runs on every request, twice for Claude's (its PreToolUse
    * hook and canUseTool), so it records nothing: the card's gate is recorded when it is published (`observe`). A Chat
-   * the user took over, or whose bot is gone, gets no answer and asks the user as any Chat does.
+   * the user took over, or whose bot is gone, gets no answer and asks the user as any Chat does. Gates leave Milagre's
+   * own tools alone, so those are allowed only when Bot rules keep them (BOT_RULES_TOOLS); any other one, which these
+   * Chats aren't given, asks the user on an ordinary card.
    */
   function policyFor(chatKey) {
     if (!botForChat(chatKey)) return undefined;
     return (request) => {
       const owned = botForChat(chatKey);
       if (!owned) return undefined;
+      const milagre = milagreToolOf(request);
+      if (milagre !== null) return BOT_RULES_TOOLS.has(milagre) ? "allow" : undefined;
       const gates = matchGates({ ...request, cwd: request.cwd ?? cwdOf(chatKey) });
       if (!gates.length) return "allow";
       // A target Milagre can't be sure of is null: no grant covers it, and Always on its card allows once.

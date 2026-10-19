@@ -257,10 +257,11 @@ class SessionManager {
   }
 
   // Milagre's own tools (a Delegation) ask through the chat's approval cards, which follow its permission
-  // mode (Full answers at once). A chat without a session has nobody to ask.
+  // mode (Full answers at once). In Bot rules the user answers them: they are Milagre's, not the bot's to allow. A chat
+  // without a session has nobody to ask.
   askApproval(chatId, request) {
     const permissions = this.sessions.get(chatId)?.session.permissions;
-    return permissions ? new Promise((resolve) => permissions.add(request, resolve)) : Promise.resolve("cancelled");
+    return permissions ? new Promise((resolve) => permissions.add(request, resolve, { fromMilagre: true })) : Promise.resolve("cancelled");
   }
 
   /** The live session's mode, else `fallback`: a Chat with no agent process has none of its own yet. */
