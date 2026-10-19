@@ -166,6 +166,7 @@ const METHODS = new Set([
   "worktree:pull-requests",
   "project:branches",
   "skills:list",
+  "project:files",
   "skills:read",
   "worktree:create",
   "worktree:link-issue",

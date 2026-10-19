@@ -116,6 +116,7 @@ const callsAt = (target, demo) => [
   ["project:branches", [target]],
   ["linear:worktree-issues", [target]],
   ["skills:list", [target]],
+  ["project:files", [target, ""]],
   ["skills:read", [target, path.join(target, "SKILL.md")]],
   ["chat:send", [{ projectPath: target, sessionId: 1, body: "hi", provider: "codex", model: "demo", permissionMode: "ask" }]],
   ["chat:send", [{ projectPath: demo, cwd: target, sessionId: 1, body: "hi", provider: "codex", model: "demo", permissionMode: "ask" }]],
@@ -212,6 +213,17 @@ test("a confined bridge refuses a path outside its folder on every path-taking c
   // Nothing the refused calls asked for happened: the outside project kept its name.
   const outsideState = await f.owner.call("project:snapshot", [f.outside]);
   assert.ok(Object.values(outsideState.state.sessions).every((session) => session.title !== "Renamed"));
+});
+
+test("a confined phone searches the files of its own Project and not another's", async (t) => {
+  const f = await fixture(t);
+  await f.rpc("project:open", [f.demo]);
+  const inside = await f.rpc("project:files", [f.demo, "shot"]);
+  assert.equal(inside.status, 200);
+  assert.ok(inside.body.result.includes("shot.png"));
+  const outside = await f.rpc("project:files", [f.outside, "secret"]);
+  assert.equal(outside.status, 403);
+  assert.deepEqual(outside.body, refusedBody);
 });
 
 test(".. and symlinks cannot lead out of the folder", async (t) => {
