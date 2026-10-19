@@ -1,12 +1,27 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
-import { Alert02Icon, ArrowDown01Icon, ArrowRight01Icon, Clock01Icon, Moon02Icon, NextIcon, Tick02Icon, UnavailableIcon } from "@hugeicons/core-free-icons";
+import {
+  Alert02Icon,
+  ArrowRight01Icon,
+  Calendar03Icon,
+  CheckmarkCircle02Icon,
+  Clock01Icon,
+  Moon02Icon,
+  NextIcon,
+  UnavailableIcon,
+  UnfoldLessIcon,
+  UnfoldMoreIcon,
+} from "@hugeicons/core-free-icons";
 import type { RoutineRun } from "@milagre/shared/model";
-import { foldRuns, foldText, runTitle, runWhen } from "@milagre/shared/routines";
+import { clock, daySummary, foldText, foldTimes, runDays, runTitle, type RunEntry } from "@milagre/shared/routines";
 import { Icon, SpinnerRing, type IconData, type Tone } from "./icons";
 import { ChatMarkIcon } from "./status-indicators";
-import { useStyles } from "./ui";
+import { Button, useStyles } from "./ui";
 import { useTheme } from "./theme";
+
+/** Day groups shown at first, and how many more each Show earlier days adds, as on desktop. */
+const FIRST_DAYS = 4;
+const MORE_DAYS = 7;
 
 /** The first line of a Run's error that has something on it. */
 const firstLine = (text: string | undefined) =>
@@ -15,14 +30,14 @@ const firstLine = (text: string | undefined) =>
     .find((line) => line.trim())
     ?.trim();
 
-/** A Run that did something: its icon (none while it runs: a spinner), its tone, and a second line when it has one. */
-function runLook(run: RoutineRun): { icon?: IconData; tone: Tone; detail?: string; failed?: boolean } {
-  if (run.status === "running") return { tone: "ink3", detail: "Running" };
+/** A Run that did something: its icon (none while it runs: a spinner), its tone, and its words (a failed one says why). */
+function runLook(run: RoutineRun, routineName: string): { icon?: IconData; tone: Tone; text: string; failed?: boolean } {
+  if (run.status === "running") return { tone: "ink3", text: runTitle(run, routineName) };
   if (run.status === "failed") {
     const error = firstLine(run.error);
-    return { icon: Alert02Icon, tone: "red", detail: error ? `Failed · ${error}` : "Failed", failed: true };
+    return { icon: Alert02Icon, tone: "red", text: error ? `Failed: ${error}` : "Failed", failed: true };
   }
-  return { icon: Tick02Icon, tone: "ink2" };
+  return { icon: CheckmarkCircle02Icon, tone: "ink3", text: runTitle(run, routineName) };
 }
 
 /** A folded Run as its line says it: a quiet one its summary, a skipped one that its Chat was busy, and so on. */
@@ -34,9 +49,10 @@ function foldedLine(run: RoutineRun): { icon: IconData; text: string } {
 }
 
 /**
- * A Routine's Runs, newest first, in one card, as desktop's Runs list: a row for each Run that did something (running,
- * acted, failed) and one line for each stretch of Runs that didn't, which expands in place. A row, or a quiet Run's line,
- * opens the Run's Chat when `canOpen` says it can (canOpenRunChat: still there, archived or not, or in a Project not held).
+ * A Routine's Runs, newest first, by day as desktop's Runs log: a small heading per day (Today, Yesterday, Thu, Oct 16) over
+ * a card of rows. A Run that did something has a row; a stretch of Runs that didn't folds into one line that expands in
+ * place; a day before yesterday is one summary line until opened. Show earlier days adds days. A row opens the Run's Chat
+ * when `canOpen` says it can (canOpenRunChat: still there, archived or not, or in a Project not held).
  */
 export function RunList({
   runs,
@@ -57,8 +73,10 @@ export function RunList({
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const entries = useMemo(() => foldRuns(runs), [runs]);
-  // Open folds, by their oldest Run: new Runs join a stretch at its newest end, so the key holds while it grows.
+  const days = useMemo(() => runDays(runs, now), [runs, now]);
+  const [shownDays, setShownDays] = useState(FIRST_DAYS);
+  // Open folds by their oldest Run (new Runs join a stretch at its newest end, so the key holds while it grows), and open
+  // older days by their key.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const toggle = (key: string) =>
     setExpanded((current) => {
@@ -66,119 +84,155 @@ export function RunList({
       if (!next.delete(key)) next.add(key);
       return next;
     });
-  // The time keeps its width; the title gives way first.
-  const time = [styles.caption, { fontVariant: ["tabular-nums" as const], flexShrink: 0 }];
+  // The time keeps its width; the words give way first.
+  const time = [styles.caption, { fontVariant: ["tabular-nums" as const], width: 76, flexShrink: 0, fontSize: 13 }];
+  const openable = (run: RoutineRun) => (run.chatId && canOpen(run.chatId) ? run.chatId : undefined);
+
+  /** One row: the time column, an icon, the words, then the unread dot and a chevron when it opens a Chat. */
+  const row = ({
+    key,
+    when,
+    icon,
+    text,
+    tone,
+    muted,
+    unread = false,
+    trailing,
+    onPress,
+    expandedState,
+  }: {
+    key: string;
+    when: string;
+    icon: ReactNode;
+    text: string;
+    tone?: string;
+    muted?: boolean;
+    unread?: boolean;
+    trailing?: IconData;
+    onPress?: () => void;
+    expandedState?: boolean;
+  }) => (
+    <Pressable
+      key={key}
+      accessibilityRole={onPress ? "button" : undefined}
+      accessibilityLabel={[text, unread ? "Unread" : "", when].filter(Boolean).join(". ")}
+      accessibilityState={expandedState === undefined ? undefined : { expanded: expandedState }}
+      disabled={!onPress}
+      onPress={onPress}
+      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 48, paddingVertical: 8, opacity: pressed ? 0.5 : 1 })}
+    >
+      <Text style={time}>{when}</Text>
+      <View style={{ width: 20, alignItems: "center" }}>{icon}</View>
+      {/* The words take all the room the others leave, and truncate only where they meet them. */}
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.text,
+          { flex: 1, minWidth: 0, fontSize: 15, lineHeight: 20, fontWeight: muted ? "400" : "500", color: tone ?? (muted ? colors.ink2 : colors.ink) },
+        ]}
+      >
+        {text}
+      </Text>
+      {/* The mark is a 20 pt box round an 8 pt dot: its 6 pt of padding each side is not the words' to give up. */}
+      {unread ? (
+        <View style={{ marginHorizontal: -6 }}>
+          <ChatMarkIcon mark="unread" />
+        </View>
+      ) : null}
+      {trailing ? <Icon icon={trailing} tone="ink3" size={16} /> : null}
+    </Pressable>
+  );
+
+  const entry = (item: RunEntry) => {
+    if (item.kind === "run") {
+      const { run } = item;
+      const look = runLook(run, routineName);
+      // A Run whose Chat is gone opens nothing, rather than a Chat the Project no longer has.
+      const chat = openable(run);
+      return [
+        row({
+          key: run.id,
+          when: clock(run.startedAt),
+          icon: look.icon ? <Icon icon={look.icon} tone={look.tone} size={18} /> : <SpinnerRing size={16} />,
+          text: look.text,
+          tone: look.failed ? colors.red : undefined,
+          unread: chat !== undefined && unreadChats.has(chat),
+          trailing: chat ? ArrowRight01Icon : undefined,
+          onPress: chat ? () => onOpenChat(chat) : undefined,
+        }),
+      ];
+    }
+    const key = `fold:${item.runs[item.runs.length - 1]!.id}`;
+    const open = expanded.has(key);
+    return [
+      row({
+        key,
+        when: foldTimes(item),
+        icon: <Icon icon={item.counts.quiet ? Moon02Icon : item.counts.skipped ? NextIcon : Clock01Icon} tone="ink3" size={17} />,
+        text: foldText(item),
+        muted: true,
+        trailing: open ? UnfoldLessIcon : UnfoldMoreIcon,
+        onPress: () => toggle(key),
+        expandedState: open,
+      }),
+      ...(open
+        ? item.runs.map((run) => {
+            const line = foldedLine(run);
+            const chat = run.status === "quiet" && !run.rejected ? openable(run) : undefined;
+            return row({
+              key: run.id,
+              when: clock(run.startedAt),
+              icon: <Icon icon={line.icon} tone="ink3" size={16} />,
+              text: line.text,
+              muted: true,
+              unread: chat !== undefined && unreadChats.has(chat),
+              trailing: chat ? ArrowRight01Icon : undefined,
+              onPress: chat ? () => onOpenChat(chat) : undefined,
+            });
+          })
+        : []),
+    ];
+  };
 
   return (
-    <View style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
-      {entries.map((entry, index) => {
-        const separator = index > 0 ? <View style={styles.separator} /> : null;
-        if (entry.kind === "run") {
-          const { run } = entry;
-          const look = runLook(run);
-          const title = runTitle(run, routineName);
-          const when = runWhen(run.startedAt, now);
-          // A Run whose Chat is gone opens nothing, rather than a Chat the Project no longer has.
-          const chat = run.chatId && canOpen(run.chatId) ? run.chatId : undefined;
-          const unread = chat !== undefined && unreadChats.has(chat);
-          return (
-            <View key={run.id}>
-              {separator}
-              <Pressable
-                accessibilityRole={chat ? "button" : undefined}
-                accessibilityLabel={[title, look.detail, unread ? "Unread" : "", when].filter(Boolean).join(". ")}
-                disabled={!chat}
-                onPress={chat ? () => onOpenChat(chat) : undefined}
-                style={({ pressed }) => ({
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 12,
-                  minHeight: 56,
-                  paddingVertical: 10,
-                  opacity: pressed ? 0.5 : 1,
-                })}
-              >
-                <View style={{ width: 20, alignItems: "center" }}>
-                  {look.icon ? <Icon icon={look.icon} tone={look.tone} size={18} /> : <SpinnerRing size={16} />}
-                </View>
-                {/* The title takes all the room the icon, the dot and the time leave, and truncates only where it meets them. */}
-                <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                  <Text numberOfLines={1} style={[styles.text, { fontSize: 15, lineHeight: 20, fontWeight: "500" }]}>
-                    {title}
-                  </Text>
-                  {look.detail ? (
-                    <Text numberOfLines={2} style={[styles.caption, { color: look.failed ? colors.red : colors.ink2 }]}>
-                      {look.detail}
-                    </Text>
-                  ) : null}
-                </View>
-                {/* The mark is a 20 pt box round an 8 pt dot: its 6 pt of padding each side is not the title's to give up. */}
-                {unread ? (
-                  <View style={{ marginHorizontal: -6 }}>
-                    <ChatMarkIcon mark="unread" />
-                  </View>
-                ) : null}
-                <Text style={time}>{when}</Text>
-              </Pressable>
-            </View>
-          );
-        }
-        const key = entry.runs[entry.runs.length - 1]!.id;
-        const open = expanded.has(key);
-        const text = foldText(entry.counts, entry.last);
+    <View style={{ gap: 14 }}>
+      {days.slice(0, shownDays).map((day) => {
+        const open = day.recent || expanded.has(`day:${day.key}`);
+        const rows = [
+          ...(day.recent
+            ? []
+            : [
+                row({
+                  key: `day:${day.key}`,
+                  when: "All day",
+                  icon: <Icon icon={Calendar03Icon} tone="ink3" size={17} />,
+                  text: daySummary(day.runs),
+                  muted: true,
+                  trailing: open ? UnfoldLessIcon : UnfoldMoreIcon,
+                  onPress: () => toggle(`day:${day.key}`),
+                  expandedState: open,
+                }),
+              ]),
+          ...(open ? day.entries.flatMap(entry) : []),
+        ];
         return (
-          <View key={`fold-${key}`}>
-            {separator}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={text}
-              accessibilityState={{ expanded: open }}
-              onPress={() => toggle(key)}
-              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingVertical: 8, opacity: pressed ? 0.5 : 1 })}
-            >
-              <View style={{ width: 20, alignItems: "center" }}>
-                <Icon icon={open ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={16} />
-              </View>
-              <Text numberOfLines={1} style={[styles.muted, { flex: 1, fontSize: 14 }]}>
-                {text}
-              </Text>
-            </Pressable>
-            {open ? (
-              <View style={{ paddingBottom: 6 }}>
-                {entry.runs.map((run) => {
-                  const line = foldedLine(run);
-                  const when = runWhen(run.startedAt, now);
-                  const chat = run.status === "quiet" && !run.rejected && run.chatId && canOpen(run.chatId) ? run.chatId : undefined;
-                  return (
-                    <Pressable
-                      key={run.id}
-                      accessibilityRole={chat ? "button" : undefined}
-                      accessibilityLabel={`${line.text}. ${when}`}
-                      disabled={!chat}
-                      onPress={chat ? () => onOpenChat(chat) : undefined}
-                      style={({ pressed }) => ({
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 10,
-                        minHeight: 36,
-                        paddingVertical: 6,
-                        paddingLeft: 32,
-                        opacity: pressed ? 0.5 : 1,
-                      })}
-                    >
-                      <Icon icon={line.icon} tone="ink3" size={15} />
-                      <Text numberOfLines={2} style={[styles.caption, { flex: 1, color: colors.ink2, fontSize: 13 }]}>
-                        {line.text}
-                      </Text>
-                      <Text style={time}>{when}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : null}
+          <View key={day.key} style={{ gap: 6 }}>
+            <Text accessibilityRole="header" style={[styles.section, { paddingHorizontal: 4 }]}>
+              {day.label}
+            </Text>
+            <View style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
+              {rows.map((child, index) => (
+                <View key={child.key ?? index}>
+                  {index > 0 ? <View style={styles.separator} /> : null}
+                  {child}
+                </View>
+              ))}
+            </View>
           </View>
         );
       })}
+      {days.length > shownDays ? <Button title="Show earlier days" secondary onPress={() => setShownDays((count) => count + MORE_DAYS)} /> : null}
+      <Text style={[styles.caption, { textAlign: "center" }]}>Keeps the newest 50 Runs that acted</Text>
     </View>
   );
 }

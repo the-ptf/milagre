@@ -1,19 +1,35 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Platform, Text, View } from "react-native";
+import { Platform, ScrollView, Text, View } from "react-native";
 import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { PencilEdit02Icon, PlayIcon } from "@hugeicons/core-free-icons";
+import { BubbleChatIcon, Folder01Icon, GitBranchIcon, PencilEdit02Icon, PlayIcon, SecurityCheckIcon, SparklesIcon } from "@hugeicons/core-free-icons";
+import type { RoutineRun } from "@milagre/shared/model";
+import { PERMISSION_MODES } from "@milagre/shared/model-copy";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
-import { canOpenRunChat, canRunNow, clock, unreadRunChats } from "@milagre/shared/routines";
+import {
+  canOpenRunChat,
+  canRunNow,
+  clock,
+  filterRuns,
+  routineTimes,
+  routineWhereText,
+  runFilterCounts,
+  triggerChipText,
+  unreadRunChats,
+  type RunFilter,
+} from "@milagre/shared/routines";
 import { useSession } from "../session";
 import { useRoutines, type RoutineWithRuns } from "../use-routines";
 import { useProjectStates } from "../use-project-states";
+import { useRpc } from "../use-rpc";
 import { useActivityClock } from "../chat-row-store";
-import { routineDeleteMessage, routineIcon, routineMeta } from "../routine-rows";
+import { modelsFor } from "../turn-options";
+import { routineIcon } from "../routine-rows";
 import { RunList } from "../run-list";
-import { confirm } from "../confirm-store";
-import { Icon } from "../icons";
-import { Button, ErrorNotice, HeaderButton, PageScroll, RowSwitch, useStyles } from "../ui";
+import { Icon, type IconData } from "../icons";
+import { ErrorNotice, HeaderButton, PageScroll, RowSwitch, Segmented, useStyles } from "../ui";
 import { useTheme } from "../theme";
+
+type Targets = { projects: { path: string; chats: { chatId: string; title: string }[] }[] };
 
 /** The Projects a Routine's Run Chats live in: where it opens them (a Heartbeat's own Chat's), and where its Runs' Chats are. */
 function routineProjects(routine: RoutineWithRuns | undefined) {
@@ -30,26 +46,71 @@ function leave(left: { current: boolean }) {
   else router.replace("/routines");
 }
 
+/** A Routine's setting as a pill on the field fill, as desktop's chips: its icon and words. */
+function Chip({ icon, text }: { icon: IconData; text: string }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      accessible
+      accessibilityLabel={text}
+      style={{ flexDirection: "row", alignItems: "center", gap: 6, height: 30, paddingHorizontal: 11, borderRadius: 15, backgroundColor: colors.field }}
+    >
+      <Icon icon={icon} tone="ink2" size={15} />
+      <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 13, fontWeight: "500" }}>
+        {text}
+      </Text>
+    </View>
+  );
+}
+
+/** "On" in green, or "Paused" in grey, under the Routine's name. */
+function StatusPill({ on }: { on: boolean }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      accessible
+      accessibilityLabel={on ? "On" : "Paused"}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        height: 24,
+        paddingHorizontal: 9,
+        borderRadius: 12,
+        backgroundColor: on ? colors.greenTint : colors.field,
+      }}
+    >
+      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: on ? colors.green : colors.ink3 }} />
+      <Text style={{ color: on ? colors.green : colors.ink3, fontSize: 12, fontWeight: "600" }}>{on ? "On" : "Paused"}</Text>
+    </View>
+  );
+}
+
 /**
- * One Routine, as desktop's Routine page: what starts it and its switch, Run now, then its Runs, newest first, with the
- * stretches that did nothing folded. Edit sits in the header; Delete at the end.
+ * One Routine, as desktop's Routine page: On or Paused with its switch, its settings as chips, when it runs next and last
+ * ran, then its Runs by day, filtered by All, Acted, Failed or Unread, with the stretches that did nothing folded. Run now
+ * and Edit sit in the header; Delete is in Edit.
  */
 export default function RoutineScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const styles = useStyles();
   const { colors } = useTheme();
-  const { client } = useSession();
+  const session = useSession();
+  const { client } = session;
   const routines = useRoutines(client);
   const routine = routines.routines.find((item) => item.id === id);
   // An older Mac may list a Routine without its Runs.
   const runs = routine?.runs ?? [];
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(false);
+  const [filter, setFilter] = useState<RunFilter>("all");
   // "Today 10:15" becomes "Yesterday 10:15" with the app's shared half-minute clock.
   const now = useActivityClock(true);
   // Each new Run or status reads its Projects again, so its Chat opens and its dot shows.
   const states = useProjectStates(routineProjects(routine), runs.map((run) => `${run.id}:${run.status}`).join(","));
   const unreadChats = useMemo(() => unreadRunChats(states), [states]);
+  // A Heartbeat's Where chip names its Chat.
+  const targets = useRpc<Targets>(routine?.target.kind === "chat" ? client : null, "routines:targets", []).data;
   // A Routine deleted (from this page, or anywhere else) takes its page with it, as on desktop: once the Mac's list has been
   // read and no longer holds it, go back. Not while the list is still loading, or after a read that failed, or when the
   // Mac's Routines are off. A page with another screen on top (the Edit form) goes when it is back in view.
@@ -114,7 +175,6 @@ export default function RoutineScreen() {
       </>
     );
 
-  const meta = routineMeta(routine, now);
   const openChat = (key: string) =>
     router.push({ pathname: "/chat", params: { projectPath: projectOfKey(key), hostId: client.url, id: String(sessionIdFromKey(key)) } });
   function flip() {
@@ -122,18 +182,27 @@ export default function RoutineScreen() {
     setError("");
     void routines.update(routine.id, { enabled: !routine.enabled }).catch((failure) => fail(failure, "Could not change this Routine."));
   }
-  async function remove() {
-    if (!routine || !client) return;
-    setError("");
-    try {
-      if (!(await confirm(`Delete ${routine.name}?`, routineDeleteMessage(routine), "Delete"))) return;
-      await client.call("routines:delete", [routine.id]);
-      leave(left);
-      await routines.refresh();
-    } catch (failure) {
-      fail(failure, "Could not delete this Routine.");
-    }
-  }
+  const canOpen = (key: string) => canOpenRunChat(states, key);
+  const unread = (run: RoutineRun) => Boolean(run.chatId && unreadChats.has(run.chatId) && canOpen(run.chatId));
+  const counts = runFilterCounts(runs, unread);
+  // A filter whose Runs are all gone (the last unread one read) falls back to All.
+  const shownFilter = filter !== "all" && counts[filter] === 0 ? "all" : filter;
+  const filters = (
+    [
+      { value: "all", title: `All ${counts.all}` },
+      { value: "acted", title: `Acted ${counts.acted}` },
+      { value: "failed", title: `Failed ${counts.failed}` },
+      { value: "unread", title: `Unread ${counts.unread}` },
+    ] as const
+  ).filter((option) => option.value === "all" || counts[option.value] > 0);
+  const { target } = routine;
+  const chatTitle = (chatId: string) => targets?.projects.flatMap((project) => project.chats).find((chat) => chat.chatId === chatId)?.title;
+  const model = routine.model
+    ? ((routine.provider ? modelsFor(routine.provider, session.models).find((item) => item.id === routine.model)?.name : undefined) ?? routine.model)
+    : "Default model";
+  const mode = routine.permissionMode ? (PERMISSION_MODES.find((item) => item.id === routine.permissionMode)?.name ?? routine.permissionMode) : "Default mode";
+  const times = routineTimes(routine, now);
+  const problem = routine.pausedReason && !routine.enabled ? routine.pausedReason : routine.lastError;
 
   return (
     <>
@@ -142,23 +211,47 @@ export default function RoutineScreen() {
       <PageScroll style={{ flex: 1 }} contentContainerStyle={{ gap: 12 }}>
         {routines.error ? <ErrorNotice message={routines.error} retry={() => void routines.refresh()} retryTitle="Reload" /> : null}
         {error ? <ErrorNotice message={error} /> : null}
-        <View style={[styles.card, { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 13 }]}>
-          <Icon icon={routineIcon(routine)} tone={routine.enabled ? "ink" : "ink2"} size={20} />
-          <Text style={[styles.muted, { flex: 1 }]}>{meta}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <View style={{ flex: 1, flexDirection: "row" }}>
+            <StatusPill on={routine.enabled} />
+          </View>
           <RowSwitch label={`${routine.name} on`} selected={routine.enabled} onPress={flip} />
         </View>
+        {/* The chips scroll sideways when they don't fit, edge to edge. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ marginHorizontal: -20 }}
+          contentContainerStyle={{ gap: 8, paddingHorizontal: 20 }}
+        >
+          <Chip icon={routineIcon(routine)} text={triggerChipText(routine.trigger)} />
+          <Chip
+            icon={target.kind === "chat" ? BubbleChatIcon : target.workspace === "worktree" ? GitBranchIcon : Folder01Icon}
+            text={routineWhereText(target, chatTitle)}
+          />
+          <Chip icon={SparklesIcon} text={model} />
+          <Chip icon={SecurityCheckIcon} text={mode} />
+        </ScrollView>
+        {times ? <Text style={[styles.caption, { fontSize: 13, paddingHorizontal: 4 }]}>{times}</Text> : null}
+        {problem ? <Text style={{ color: colors.red, fontSize: 13, paddingHorizontal: 4 }}>{problem}</Text> : null}
         <Text accessibilityRole="header" style={[styles.label, { paddingHorizontal: 4, marginTop: 8 }]}>
           Runs
         </Text>
         {runs.length ? (
-          <RunList
-            runs={runs}
-            routineName={routine.name}
-            now={now}
-            unreadChats={unreadChats}
-            canOpen={(key) => canOpenRunChat(states, key)}
-            onOpenChat={openChat}
-          />
+          <>
+            {filters.length > 1 ? (
+              <Segmented label="Show" value={shownFilter} options={[...filters]} onChange={(value) => setFilter(value as RunFilter)} />
+            ) : null}
+            <RunList
+              key={shownFilter}
+              runs={filterRuns(runs, shownFilter, unread)}
+              routineName={routine.name}
+              now={now}
+              unreadChats={unreadChats}
+              canOpen={canOpen}
+              onOpenChat={openChat}
+            />
+          </>
         ) : (
           <View style={[styles.card, { alignItems: "center", gap: 4, paddingVertical: 24 }]}>
             <Text style={styles.muted}>No Runs yet</Text>
@@ -167,9 +260,6 @@ export default function RoutineScreen() {
             ) : null}
           </View>
         )}
-        <View style={{ marginTop: 12 }}>
-          <Button title="Delete" secondary destructive onPress={() => void remove()} />
-        </View>
       </PageScroll>
     </>
   );

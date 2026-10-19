@@ -34,7 +34,10 @@ import {
   formFromRoutine,
   formToInput,
   formToUpdate,
+  deleteWarning,
   isCommentRoutine,
+  PROMPT_HINT,
+  PROMPT_PLACEHOLDER,
   withRunIn,
   type RoutineFormField,
   type RoutineFormProblem,
@@ -52,7 +55,7 @@ import { modelsFor } from "../turn-options";
 import { PlaceholderField } from "../placeholder-field";
 import { confirm } from "../confirm-store";
 import { Icon, type IconData } from "../icons";
-import { CircleButton, ErrorNotice, Field, PageScroll, PillButton, PullDown, RowSwitch, useStyles } from "../ui";
+import { Button, CircleButton, ErrorNotice, Field, PageScroll, PillButton, PullDown, RowSwitch, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 type Targets = { projects: { path: string; name: string; chats: { chatId: string; title: string; lastAt?: number }[] }[] };
@@ -68,8 +71,8 @@ const DAY_MS = 864e5;
 const ANY_TEAM = "__any";
 const DEFAULT = "__default";
 const TRIGGERS: { id: RoutineFormState["trigger"]; label: string; icon: IconData }[] = [
-  { id: "schedule", label: "Schedule", icon: Clock01Icon },
-  { id: "linear", label: "Linear", icon: Tag01Icon },
+  { id: "schedule", label: "On a schedule", icon: Clock01Icon },
+  { id: "linear", label: "Linear event", icon: Tag01Icon },
   { id: "webhook", label: "Webhook", icon: WebhookIcon },
 ];
 const EVENTS: { id: RoutineLinearEvent; title: string }[] = [
@@ -113,8 +116,10 @@ const dateText = (at: number) => {
 };
 
 /**
- * The New routine sheet (and Edit, with `id`): name, trigger, where each Run lands, the model, the end and the prompt.
- * Small fixed choices are pull-downs; Projects, Chats, teams, labels, states and models open the searchable choice sheet.
+ * The New Routine sheet (and Edit, with `id`), the phone's side of desktop's in-place form: the name, how it starts (new
+ * only), its settings as rows (the schedule or event, where each Run lands, the model and mode), the prompt, Stop after,
+ * and Delete Routine at the bottom of Edit. Small fixed choices are pull-downs; Projects, Chats, teams, labels, states and
+ * models open the searchable choice sheet.
  */
 export default function RoutineFormSheet() {
   const params = useLocalSearchParams<{ id?: string }>();
@@ -201,6 +206,19 @@ export default function RoutineFormSheet() {
       setError(failure instanceof Error ? failure.message : "Could not save this Routine.");
     } finally {
       setSaving(false);
+    }
+  }
+  async function remove() {
+    if (!client || !routine) return;
+    setError("");
+    try {
+      if (!(await confirm(`Delete ${routine.name}?`, deleteWarning(routine), "Delete"))) return;
+      await client.call("routines:delete", [routine.id]);
+      // The Routine's screen behind the sheet sees it gone and leaves too.
+      router.back();
+      await routines.refresh();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Could not delete this Routine.");
     }
   }
   async function rotate() {
@@ -290,7 +308,7 @@ export default function RoutineFormSheet() {
               <Field
                 label="Name"
                 hideLabel
-                placeholder="Name"
+                placeholder="Name this Routine"
                 autoCapitalize="sentences"
                 value={form.name}
                 onChangeText={(name) => change({ name })}
@@ -300,8 +318,9 @@ export default function RoutineFormSheet() {
           </View>
           <Problem text={problemFor("name")} />
 
-          <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Trigger</Text>
-          <View accessibilityRole="radiogroup" style={{ flexDirection: "row", gap: 8 }}>
+          {editing ? null : <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Starts</Text>}
+          {/* A Routine's trigger kind can't change, so Edit shows only its rows. */}
+          <View accessibilityRole="radiogroup" style={{ flexDirection: "row", gap: 8, display: editing ? "none" : "flex" }}>
             {TRIGGERS.map((item) => {
               const selected = form.trigger === item.id;
               const locked = editing && !selected;
@@ -581,7 +600,6 @@ export default function RoutineFormSheet() {
           ) : null}
           <Problem text={problemFor("trigger", "schedule", "timezone", "workspace", "label", "state", "signingSecret")} />
 
-          <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Each Run</Text>
           {commentRoutine ? <Text style={[styles.caption, { paddingHorizontal: 4 }]}>Comments go into the Chat linked to the issue.</Text> : null}
           <Card>
             {commentRoutine ? null : (
@@ -679,6 +697,16 @@ export default function RoutineFormSheet() {
             >
               <FormRow icon={Shield01Icon} label="Mode" value={mode?.name ?? "Default"} />
             </PullDown>
+          </Card>
+          <Problem text={problemFor("project", "runIn", "chat")} />
+
+          <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Prompt</Text>
+          <PlaceholderField value={form.prompt} onChangeText={(prompt) => change({ prompt })} placeholders={placeholders} placeholder={PROMPT_PLACEHOLDER} />
+          <Text style={[styles.caption, { paddingHorizontal: 4 }]}>{PROMPT_HINT}</Text>
+          <Problem text={problemFor("prompt")} />
+
+          <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Stop after</Text>
+          <Card>
             <PullDown
               label="Stop after"
               title="Stop after"
@@ -731,11 +759,14 @@ export default function RoutineFormSheet() {
               </PullDown>
             ) : null}
           </Card>
-          <Problem text={problemFor("project", "runIn", "chat", "stop")} />
+          <Problem text={problemFor("stop")} />
 
-          <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Prompt</Text>
-          <PlaceholderField value={form.prompt} onChangeText={(prompt) => change({ prompt })} placeholders={placeholders} />
-          <Problem text={problemFor("prompt")} />
+          {routine && !createdId ? (
+            <View style={[styles.card, { gap: 10, marginTop: 12 }]}>
+              <Text style={[styles.caption, { fontSize: 13, color: colors.ink2 }]}>{deleteWarning(routine)}</Text>
+              <Button title="Delete Routine" secondary destructive onPress={() => void remove()} />
+            </View>
+          ) : null}
         </View>
       </PageScroll>
       <View
@@ -756,7 +787,7 @@ export default function RoutineFormSheet() {
           title={editing ? "Save" : "Create Routine"}
           icon={editing ? undefined : Add01Icon}
           loading={saving}
-          disabled={!client || !!routines.unavailable}
+          disabled={!client || !!routines.unavailable || (!editing && (!form.name.trim() || !form.prompt.trim()))}
           onPress={() => void save()}
         />
       </View>

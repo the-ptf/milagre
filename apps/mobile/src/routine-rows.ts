@@ -1,5 +1,6 @@
 import { Clock01Icon, Comment01Icon, Exchange01Icon, Pulse01Icon, Tag01Icon, UserCheck01Icon, WebhookIcon } from "@hugeicons/core-free-icons";
 import { clock, triggerText } from "@milagre/shared/routines";
+import { deleteWarning } from "@milagre/shared/routine-form";
 import type { Routine, RoutineRun } from "@milagre/shared/model";
 import type { IconData } from "./icons";
 
@@ -11,12 +12,9 @@ const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 /** A heartbeat checks back on one Chat; every other Routine starts a new Chat for each Run. */
 export const isHeartbeat = (routine: Pick<Routine, "target">) => routine.target.kind === "chat";
 
-/**
- * What the delete confirmation says under "Delete <name>?". A Heartbeat checks back on a Chat that stays someone's own; any
- * other Routine opens Run Chats, and the delete archives the ones nobody has kept.
- */
+/** What the delete confirmation says under "Delete <name>?", as desktop says it (shared deleteWarning). */
 export function routineDeleteMessage(routine: Pick<Routine, "target">) {
-  return isHeartbeat(routine) ? "Its Runs stop and it is removed from this Mac." : "Its Runs stop, and its Run Chats you haven't kept are archived.";
+  return deleteWarning(routine);
 }
 
 /** The Routine's row icon: a pulse for a heartbeat, else what starts it. */
