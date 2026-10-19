@@ -30,6 +30,7 @@ export function RoutinesPage({
   onOpenRoutine,
   onOpenChat,
   onOpenRunChat,
+  onCloseRunChat,
   onOpenExperimental,
 }: {
   models: ModelOption[];
@@ -50,6 +51,8 @@ export function RoutinesPage({
   onOpenChat: (chatKey: string) => void;
   /** Opens a Run's Chat beside the Routine's page; without it a Run opens its Chat in the window (onOpenChat). */
   onOpenRunChat?: (chatKey: string) => void;
+  /** Closes the Run Chat beside the page: Edit and New Routine take the page over. */
+  onCloseRunChat?: () => void;
   onOpenExperimental: () => void;
 }) {
   const { enabled, routines, error: loadError, refresh } = useRoutines();
@@ -57,6 +60,8 @@ export function RoutinesPage({
   const [error, setError] = useState<string | null>(null);
   // The Routine whose page shows its form in place (its id), "new" for New Routine in place of the list, or null.
   const [editing, setEditing] = useState<string | null>(null);
+  // Whether the open form has changes nobody saved: moving to another Routine, or the list, asks to discard them first.
+  const [dirty, setDirty] = useState(false);
   // A webhook Routine just created: its page shows the URL once.
   const [created, setCreated] = useState<{ id: string; url: string } | null>(null);
   // A Routine just created, until the Mac's list has it: then its page opens (before, it would read as deleted).
@@ -100,10 +105,16 @@ export function RoutinesPage({
     setEditing(null);
     onOpenRoutine?.(opening);
   }, [arrived, opening, onOpenRoutine]);
-  // An edit belongs to its Routine's page: opening another page, or the list, leaves it.
+  // An edit belongs to its Routine's page: opening another page, or the list, leaves it, once its changes are discarded.
+  const editHere = (current: string | null) => current === null || current === routineId || (current === "new" && !routineId);
+  const switching = !editHere(editing) && dirty;
   useEffect(() => {
-    setEditing((current) => (current === null || current === routineId || (current === "new" && !routineId) ? current : null));
-  }, [routineId]);
+    if (!dirty) setEditing((current) => (editHere(current) ? current : null));
+  }, [routineId, dirty]);
+  // Edit and New Routine take the page over: a Run Chat open beside it closes.
+  useEffect(() => {
+    if (editing !== null) onCloseRunChat?.();
+  }, [editing]);
   // Back from a Routine's page, the keyboard lands on that Routine's row again (if it is still there).
   const lastOpened = useRef<string | null>(null);
   useEffect(() => {
@@ -161,6 +172,20 @@ export function RoutinesPage({
       initial={initial}
       models={models}
       defaultProjectPath={projectPath}
+      onDirtyChange={setDirty}
+      error={opening ? loadError : null}
+      leaving={
+        switching
+          ? {
+              onDiscard: () => {
+                setDirty(false);
+                setEditing(null);
+              },
+              // Back to the Routine (or the list) the form belongs to.
+              onKeep: () => onOpenRoutine?.(editing === "new" ? null : editing),
+            }
+          : null
+      }
       onCancel={() => setEditing(null)}
       onSaved={() => {
         setEditing(null);
@@ -178,6 +203,11 @@ export function RoutinesPage({
       }}
     />
   );
+  // A form with changes stays while the window moves elsewhere, asking to discard them.
+  if (enabled && switching) {
+    const target = editing === "new" ? undefined : routines.find((routine) => routine.id === editing);
+    if (editing === "new" || target) return editor(target);
+  }
   if (enabled && selected && editing === selected.id) return editor(selected);
   if (enabled && selected)
     return (

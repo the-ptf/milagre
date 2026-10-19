@@ -18,7 +18,7 @@ import {
   type RoutineFormField,
   type RoutineFormState,
 } from "@milagre/shared/routine-form";
-import { scheduleWords, triggerChipText } from "@milagre/shared/routines";
+import { triggerChipText } from "@milagre/shared/routines";
 import type { RoutineCreate, RoutineLinearOptions, RoutineTargets, RoutineUpdate } from "../../electron";
 import type { SelectOption } from "../primitives/Select";
 import { ProviderLogo } from "../ProviderLogo";
@@ -53,7 +53,7 @@ function draftTrigger(state: RoutineFormState): RoutineTrigger {
 export function draftTriggerText(state: RoutineFormState): string {
   if (state.trigger === "schedule") {
     const made = scheduleCron(state.schedule);
-    return made.cron ? scheduleWords(made.cron) : "Schedule";
+    return made.cron ? triggerChipText({ kind: "schedule", cron: made.cron, timezone: state.schedule.timezone }, localZone()) : "Schedule";
   }
   if (state.trigger === "linear")
     return triggerChipText({
@@ -89,6 +89,8 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
   const [errors, setErrors] = useState<Partial<Record<RoutineFormField, string>>>({});
   const [topError, setTopError] = useState("");
   const [busy, setBusy] = useState(false);
+  // Whether the user changed anything: leaving then asks to discard. Reads the form fills in itself don't count.
+  const [dirty, setDirty] = useState(false);
   const [targets, setTargets] = useState<RoutineTargets | null>(null);
   const [linear, setLinear] = useState<RoutineLinearOptions | null>(null);
   const [hook, setHook] = useState<HookInfo | null>(null);
@@ -154,11 +156,13 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
   }, [initial?.id]);
 
   const update = (patch: Partial<RoutineFormState>) => {
+    setDirty(true);
     setTopError("");
     setErrors({});
     setState((current) => ({ ...current, ...patch }));
   };
   const setRunIn = (runIn: RoutineFormState["runIn"]) => {
+    setDirty(true);
     setErrors({});
     setState((current) => withRunIn(current, runIn));
   };
@@ -265,6 +269,7 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
     errors,
     topError,
     busy,
+    dirty,
     targets,
     linear,
     hook,

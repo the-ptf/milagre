@@ -17,7 +17,7 @@ import {
 import type { ModelOption, Routine } from "@milagre/shared/model";
 import { clock } from "@milagre/shared/routines";
 import { ipcErrorMessage } from "@milagre/shared/result";
-import { PROMPT_HINT, PROMPT_PLACEHOLDER, type RoutineFormState } from "@milagre/shared/routine-form";
+import { PROMPT_PLACEHOLDER, firstRunAt, promptHint, type RoutineFormState } from "@milagre/shared/routine-form";
 import { Select } from "../primitives/Select";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { PlaceholderTextarea } from "./PlaceholderTextarea";
@@ -45,30 +45,6 @@ function dateValue(at: number): string {
 function dateAt(value: string): number | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 23, 59).getTime() : null;
-}
-
-/**
- * When a new schedule's first Run would start after `now`, on this computer's clock (an Every or At a time schedule; a raw
- * cron gives null), for the New Routine's Runs line.
- */
-function firstRun(state: RoutineFormState, now: number): number | null {
-  if (state.trigger !== "schedule") return null;
-  const date = new Date(now);
-  const day = (offset: number, minutes: number) => new Date(date.getFullYear(), date.getMonth(), date.getDate() + offset, 0, minutes).getTime();
-  if (state.schedule.mode === "every") {
-    const step = (state.schedule.unit === "h" ? 60 : 1) * Number(state.schedule.every);
-    if (!Number.isFinite(step) || step <= 0) return null;
-    const minutes = date.getHours() * 60 + date.getMinutes();
-    return day(0, (Math.floor(minutes / step) + 1) * step);
-  }
-  const match = state.schedule.mode === "at" ? /^(\d{1,2}):(\d{2})$/.exec(state.schedule.time) : null;
-  if (!match) return null;
-  const minutes = Number(match[1]) * 60 + Number(match[2]);
-  for (let offset = 0; offset <= 7; offset += 1) {
-    const at = day(offset, minutes);
-    if (at > now && state.schedule.days.includes(new Date(at).getDay())) return at;
-  }
-  return null;
 }
 
 function FieldError({ text }: { text?: string }) {
@@ -123,13 +99,14 @@ function SchedulePanel({ form }: { form: RoutineFormApi }) {
       {schedule.mode === "every" && (
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
-            <input
-              type="number"
-              aria-label="Every"
-              min={1}
-              className={`${field} h-8 w-[84px] py-0 ${errors.schedule ? "border-red" : "border-line-strong"}`}
-              value={schedule.every}
-              onChange={(event) => set({ every: Number(event.target.value) })}
+            {/* Only the steps a cron can repeat on evenly: minutes that divide an hour, hours that divide a day. */}
+            <Select<string>
+              label="Every"
+              value={String(schedule.every)}
+              options={(schedule.unit === "h" ? form.every.hours : form.every.minutes).map((value) => ({ value: String(value), label: String(value) }))}
+              onChange={(every) => set({ every: Number(every) })}
+              triggerClassName="w-[84px]"
+              width={120}
             />
             <Select<"min" | "h">
               label="Unit"
@@ -138,7 +115,12 @@ function SchedulePanel({ form }: { form: RoutineFormApi }) {
                 { value: "min", label: "minutes" },
                 { value: "h", label: "hours" },
               ]}
-              onChange={(unit) => set({ unit })}
+              onChange={(unit) => {
+                // A step the other unit doesn't offer becomes its nearest smaller one.
+                const steps = (unit === "h" ? form.every.hours : form.every.minutes) as readonly number[];
+                const every = steps.includes(schedule.every) ? schedule.every : ([...steps].reverse().find((step) => step <= schedule.every) ?? steps[0]!);
+                set({ unit, every });
+              }}
               triggerClassName="flex-1"
               width={160}
             />
@@ -422,6 +404,9 @@ export function RoutineEditor({
   onSaved,
   onCreated,
   onDeleted,
+  onDirtyChange,
+  leaving = null,
+  error,
 }: {
   initial?: RoutineWithRuns;
   models: ModelOption[];
@@ -431,6 +416,12 @@ export function RoutineEditor({
   /** A new Routine was made; a webhook's comes with its URL. */
   onCreated: (routine: Routine, hookUrl?: string) => void;
   onDeleted: () => void;
+  /** Whether the form has changes nobody saved, so whoever moves away from it asks first. */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** Somewhere else the window is going (another Routine, the list) while the form has changes: it asks to discard them. */
+  leaving?: { onDiscard: () => void; onKeep: () => void } | null;
+  /** A problem reading the Routines after a save, shown with the form's own. */
+  error?: string | null;
 }) {
   const form = useRoutineForm({ initial, models, defaultProjectPath });
   const { state, update, errors, editing, comment } = form;
@@ -438,17 +429,34 @@ export function RoutineEditor({
   const [confirming, setConfirming] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [now] = useState(() => Date.now());
+  // Created: the page is on its way to the new Routine, and Create stays off so the same form never makes a second one.
+  const [created, setCreated] = useState(false);
+  // Cancel or Escape with changes asks to discard them first.
+  const [asking, setAsking] = useState(false);
+  const dirty = form.dirty && !created;
 
   useEffect(() => {
     nameInput.current?.focus();
   }, []);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty]);
+  useEffect(() => () => onDirtyChange?.(false), []);
 
   const save = async () => {
+    if (created) return;
     const saved = await form.submit();
     if (!saved) return;
-    if (saved.kind === "created") onCreated(saved.routine, saved.hookUrl);
-    else onSaved();
+    if (saved.kind === "created") {
+      setCreated(true);
+      onCreated(saved.routine, saved.hookUrl);
+    } else onSaved();
   };
+  const cancel = () => {
+    if (dirty) setAsking(true);
+    else onCancel();
+  };
+  const discard = leaving ?? (asking ? { onDiscard: onCancel, onKeep: () => setAsking(false) } : null);
   const remove = () => {
     if (!initial) return;
     setDeleteError("");
@@ -461,7 +469,7 @@ export function RoutineEditor({
   const modeIcon = <HugeiconsIcon icon={SecurityCheckIcon} size={14} strokeWidth={1.8} color="currentColor" className="shrink-0" />;
   const whereIcon = form.heartbeat ? BubbleChatIcon : state.runIn === "worktree" ? GitBranchIcon : Folder01Icon;
   const triggerIcon = initial ? routineIcon(initial) : state.trigger === "linear" ? Tag01Icon : state.trigger === "webhook" ? WebhookIcon : Clock01Icon;
-  const first = firstRun(state, now);
+  const first = firstRunAt(state, now);
 
   return (
     <ScrollArea className="flex h-full flex-col">
@@ -478,7 +486,8 @@ export function RoutineEditor({
           // Escape cancels and goes no further, so the Routines page (and App's Escape) stays put.
           if (event.key !== "Escape" || event.defaultPrevented) return;
           event.preventDefault();
-          onCancel();
+          if (discard) discard.onKeep();
+          else cancel();
         }}
       >
         <div className="flex items-center gap-3">
@@ -490,24 +499,40 @@ export function RoutineEditor({
             value={state.name}
             onChange={(event) => update({ name: event.target.value })}
           />
-          <button
-            type="button"
-            data-routine-cancel
-            className={`${headerButton} border border-line-strong bg-surface text-ink hover:bg-hover`}
-            onClick={onCancel}
-          >
+          <button type="button" data-routine-cancel className={`${headerButton} border border-line-strong bg-surface text-ink hover:bg-hover`} onClick={cancel}>
             Cancel
           </button>
           <button
             type="submit"
             data-routine-save
             className={`${headerButton} bg-ink text-surface hover:opacity-90`}
-            disabled={form.busy || (!editing && !form.ready)}
+            disabled={form.busy || created || (!editing && !form.ready)}
           >
-            {form.busy ? "Saving…" : editing ? "Save" : "Create Routine"}
+            {form.busy ? "Saving…" : created ? "Created" : editing ? "Save" : "Create Routine"}
           </button>
         </div>
         <FieldError text={errors.name} />
+        {discard && (
+          <div
+            role="alertdialog"
+            aria-label="Discard changes"
+            data-routine-discard
+            className="mt-3 flex items-center gap-3 rounded-xl border border-line px-4 py-2.5"
+          >
+            <span className="min-w-0 flex-1 text-[12.5px] text-ink">Discard your changes to this Routine?</span>
+            <button type="button" data-routine-discard-keep className={smallButton} onClick={discard.onKeep}>
+              Keep editing
+            </button>
+            <button type="button" data-routine-discard-confirm className={`${smallButton} border-red/30 text-red`} onClick={discard.onDiscard}>
+              Discard
+            </button>
+          </div>
+        )}
+        {error && (
+          <p role="alert" data-routine-top-error className="mt-3 text-[12.5px] break-words text-red">
+            {error}
+          </p>
+        )}
         {form.topError && (
           <p role="alert" data-routine-top-error className="mt-3 text-[12.5px] break-words text-red">
             {form.topError}
@@ -591,7 +616,9 @@ export function RoutineEditor({
             placeholder={PROMPT_PLACEHOLDER}
             rows={5}
           />
-          <p className="text-[12px] text-ink-3">{PROMPT_HINT}</p>
+          <p data-routine-prompt-hint className="text-[12px] text-ink-3">
+            {promptHint(state.trigger)}
+          </p>
           <FieldError text={errors.prompt} />
         </div>
 

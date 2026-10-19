@@ -221,7 +221,8 @@ export function RunList({
   };
 
   return (
-    <div data-run-list>
+    // Rows pad their hover fill by 8 px; the list reaches out as far, so their text lines up with the page's header.
+    <div data-run-list className="-mx-2">
       {days.slice(0, shownDays).map((day) => {
         const open = day.recent || expanded.has(`day:${day.key}`);
         return (

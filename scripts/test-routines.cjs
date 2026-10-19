@@ -49,8 +49,11 @@ const routines = [
 window.created = null;
 window.milagre = {
   readRoutinesEnabled: async () => ({ enabled: true }),
-  listRoutines: async () => ({ routines }),
-  onRoutinesChanged: () => () => {},
+  listRoutines: async () => {
+    if (window.failList) throw new Error('The Mac did not answer.');
+    return { routines: [...routines] };
+  },
+  onRoutinesChanged: (listener) => { window.routinesChanged = listener; return () => {}; },
   routineTargets: async () => ({ projects: [{ path: '/code/milagre-ade', name: 'milagre-ade', chats: [
     { chatId: '/code/milagre-ade#12', title: 'Subagent glance', lastAt: now },
     { chatId: '/code/milagre-ade#14', title: 'Notification chimes', lastAt: now },
@@ -63,6 +66,7 @@ window.milagre = {
   }),
   createRoutine: async (input) => {
     window.created = input;
+    window.createCount = (window.createCount || 0) + 1;
     const routine = { ...base, id: 'new' + (routines.length + 1), ...input };
     routines.push(routine);
     return { routine, ...(input.trigger.kind === 'webhook' ? { hookUrl: 'https://relay.milagre.cloud/hook/k3fTESTsecret9Qx' } : {}) };
@@ -98,7 +102,8 @@ function Host() {
   window.openRoutine = setRoutineId;
   return <RoutinesPage models={models} projectPath="/code/milagre-ade" routineId={routineId} onOpenRoutine={setRoutineId}
     unreadChats={new Set(['/code/milagre-ade#32'])} canOpen={() => true}
-    onOpenChat={(key) => { window.opened = key; }} onOpenRunChat={(key) => { window.runChat = key; }} onOpenExperimental={() => {}} />;
+    onOpenChat={(key) => { window.opened = key; }} onOpenRunChat={(key) => { window.runChat = key; }}
+    onCloseRunChat={() => { window.paneClosed = (window.paneClosed || 0) + 1; }} onOpenExperimental={() => {}} />;
 }
 `;
 async function browserChecks() {
@@ -208,7 +213,7 @@ async function browserChecks() {
       ["Watch CI on #461 on", "Run now", "Edit"],
     );
     assert.equal(await evaluate(`!!document.querySelector('[data-routine-page] [data-routine-more]')`), false);
-    assert.match(await evaluate(`document.querySelector('[data-routine-times]').textContent`), /^Next Run 12:06 · last Run 11:48$/);
+    assert.match(await evaluate(`document.querySelector('[data-routine-times]').textContent`), /^Next Run 12:06 · last Run 11:48 · 3 of 20 Runs left$/);
     assert.deepEqual(
       JSON.parse(
         await evaluate(`JSON.stringify([...document.querySelectorAll('[data-routine-runs] [data-segment]')].map((segment) => segment.textContent.trim()))`),
@@ -231,6 +236,13 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-routine-run="o1"]')`);
     await click('[data-run-day="Today"] [data-routine-fold] button');
     await waitFor(`!!document.querySelector('[data-routine-run="q1"] [data-run-unread]')`);
+    // The Runs line up with the header: a row's time starts where the name does.
+    assert.equal(
+      await evaluate(
+        `Math.abs(document.querySelector('[data-routine-run="a1"] span').getBoundingClientRect().left - document.querySelector('[data-routine-page] h1').getBoundingClientRect().left) < 1`,
+      ),
+      true,
+    );
     await shot("routine-page");
     // A Run's row opens its Chat beside the page (App moves its Chat pane there).
     await click('[data-routine-run="a1"]');
@@ -240,8 +252,11 @@ async function browserChecks() {
     await waitFor(`document.querySelectorAll('[data-routine-run]').length === 1 && !!document.querySelector('[data-routine-run="f1"]')`);
 
     // Edit in place: the name becomes a field, Cancel and Save replace the toolbar, the Runs go, Delete sits at the bottom.
+    // A Run Chat open beside the page closes as the form takes it over.
+    await evaluate("window.paneClosed = 0");
     await click("[data-routine-edit]");
     await waitFor(`!!document.querySelector('[data-routine-editor="h2"]')`);
+    await waitFor("window.paneClosed > 0");
     assert.equal(await evaluate(`document.querySelector('[data-routine-editor] input[aria-label="Name"]').value`), "Watch CI on #461");
     assert.equal(await evaluate(`!!document.querySelector('[data-routine-runs], [data-routine-toolbar]')`), false);
     assert.match(await evaluate(`document.querySelector('[data-routine-delete]').textContent`), /Its Chats stay\..*Delete Routine/);
@@ -264,7 +279,8 @@ async function browserChecks() {
     await clickText('[role="listbox"][aria-label="Timezone"] [data-picker-row]', "UTC");
     await waitFor(`!document.querySelector('[role="listbox"][aria-label="Timezone"]')`);
     assert.equal(await evaluate(`!!document.querySelector('[data-routine-chip-popover="Schedule"]')`), true);
-    assert.equal(await evaluate(`document.querySelector('[data-routine-chip-trigger="Schedule"]').textContent.trim()`), "Weekdays at 09:00");
+    // UTC names its zone on the chip unless this computer is on UTC too.
+    assert.match(await evaluate(`document.querySelector('[data-routine-chip-trigger="Schedule"]').textContent.trim()`), /^Weekdays at 09:00( \(UTC\))?$/);
     await shot("routine-edit-schedule");
     await evaluate(
       `document.querySelector('[data-routine-chip-popover="Schedule"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`,
@@ -281,6 +297,34 @@ async function browserChecks() {
     await click("[data-routine-edit]");
     await waitFor(`!!document.querySelector('[data-routine-editor="h2"]')`);
     await click("[data-routine-cancel]");
+    await waitFor(`!!document.querySelector('[data-routine-page="h2"]')`);
+    // With changes, Cancel and Escape ask to discard them first; Keep editing stays.
+    await click("[data-routine-edit]");
+    await waitFor(`!!document.querySelector('[data-routine-editor="h2"]')`);
+    await type('[data-routine-form] input[aria-label="Name"]', "Watch CI on #462");
+    await click("[data-routine-cancel]");
+    await waitFor(`!!document.querySelector('[data-routine-discard]')`);
+    await click("[data-routine-discard-keep]");
+    await waitFor(`!document.querySelector('[data-routine-discard]') && !!document.querySelector('[data-routine-editor="h2"]')`);
+    await evaluate(
+      `document.querySelector('[data-routine-form] input[aria-label="Name"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`,
+    );
+    await waitFor(`!!document.querySelector('[data-routine-discard]')`);
+    await shot("routine-discard");
+    await click("[data-routine-discard-keep]");
+    // Opening another Routine asks too: Keep editing goes back to the form, Discard goes on to the other page.
+    await evaluate("window.openRoutine('t1')");
+    await waitFor(`!!document.querySelector('[data-routine-discard]') && !!document.querySelector('[data-routine-editor="h2"]')`);
+    await click("[data-routine-discard-keep]");
+    await waitFor(
+      `!document.querySelector('[data-routine-discard]') && document.querySelector('[data-routine-editor="h2"] input[aria-label="Name"]').value === 'Watch CI on #462'`,
+    );
+    await evaluate("window.openRoutine('t1')");
+    await waitFor(`!!document.querySelector('[data-routine-discard]')`);
+    await click("[data-routine-discard-confirm]");
+    await waitFor(`!!document.querySelector('[data-routine-page="t1"]') && !document.querySelector('[data-routine-editor]')`);
+    assert.equal(await evaluate("window.updated"), null);
+    await evaluate("window.openRoutine('h2')");
     await waitFor(`!!document.querySelector('[data-routine-page="h2"]')`);
     await click("[data-routine-edit]");
     await waitFor(`!!document.querySelector('[data-routine-delete-start]')`);
@@ -307,11 +351,35 @@ async function browserChecks() {
       await evaluate(`document.querySelector('[data-routine-runs-placeholder]').textContent`),
       /Runs show here once the Routine is created\. The first one starts at 13:00\./,
     );
+    assert.equal(await evaluate(`document.querySelector('[data-routine-prompt-hint]').textContent`), "Type {{ for the Run's fields");
+    // Every offers only the steps a cron repeats on evenly.
+    await click('[data-routine-chip-trigger="Schedule"]');
+    await waitFor(`!!document.querySelector('[data-routine-chip-popover="Schedule"] button[aria-label="Every"]')`);
+    await click('[data-routine-chip-popover="Schedule"] button[aria-label="Every"]');
+    await waitFor(`!!document.querySelector('[role="listbox"][aria-label="Every"]')`);
+    assert.deepEqual(
+      JSON.parse(
+        await evaluate(
+          `JSON.stringify([...document.querySelectorAll('[role="listbox"][aria-label="Every"] [data-picker-row]')].map((row) => row.textContent.trim()))`,
+        ),
+      ),
+      ["1", "2", "3", "4", "6", "8", "12", "24"],
+    );
+    await clickText('[role="listbox"][aria-label="Every"] [data-picker-row]', "1");
+    await waitFor(`!document.querySelector('[role="listbox"][aria-label="Every"]')`);
+    await evaluate(
+      `document.querySelector('[data-routine-chip-popover="Schedule"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`,
+    );
+    await waitFor(`!document.querySelector('[data-routine-chip-popover="Schedule"]') && !!document.querySelector('[data-routine-editor="new"]')`);
     await shot("routine-new");
     // Linear: its rows show under the chips, and the Team Select's panel is the topmost element where it opens.
     await click('[data-routine-editor] [data-segment="linear"]');
     await waitFor(`!!document.querySelector('[data-routine-form] button[aria-label="Team"]')`);
     assert.doesNotMatch(await evaluate(`document.querySelector('[data-routine-runs-placeholder]').textContent`), /first one/);
+    assert.equal(
+      await evaluate(`document.querySelector('[data-routine-prompt-hint]').textContent`),
+      "Type {{ for the Run's fields. Issue text is passed as data, not instructions.",
+    );
     await click('[data-routine-form] button[aria-label="Team"]');
     await waitFor(`!!document.querySelector('[role="listbox"][aria-label="Team"]')`);
     assert.equal(
@@ -374,7 +442,7 @@ async function browserChecks() {
     await click("[data-routine-back]");
     await waitFor(`!!document.querySelector('[data-routines-page]')`);
 
-    // Escape cancels the form and is consumed there, so App's Escape stays put.
+    // Escape cancels the (unchanged) form and is consumed there, so App's Escape stays put.
     await click("[data-routine-new]");
     await waitFor(`!!document.querySelector('[data-routine-editor="new"]')`);
     assert.equal(
@@ -418,8 +486,15 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector('[data-routine-chip-trigger="Where"]')`), false);
     await type('[data-routine-form] input[aria-label="Name"]', "Answer comments");
     await type("[data-routine-prompt]", "Reply to the comment");
+    // The Mac's list can't be read after the create: the form says so, and Create stays off, so a second click makes nothing.
+    await evaluate("window.failList = true; window.createCount = 0");
     await click("[data-routine-save]");
     await waitFor(`window.created && window.created.name === 'Answer comments'`);
+    await waitFor(`document.querySelector('[data-routine-save]').disabled && /did not answer/.test(document.querySelector('[data-routine-form]').textContent)`);
+    await click("[data-routine-save]");
+    await delay(200);
+    assert.equal(await evaluate("window.createCount"), 1);
+    await evaluate("window.failList = false; window.routinesChanged()");
     assert.deepEqual(JSON.parse(await evaluate("JSON.stringify([window.created.trigger, window.created.target])")), [
       { kind: "linear", workspace: "milagre", event: "comment" },
       { kind: "new-chat", projectPath: "/code/milagre-ade", workspace: "worktree" },

@@ -24,6 +24,7 @@ import { HookUrl } from "./RoutineEditor";
 import { RunList } from "./RunList";
 import { routineIcon } from "./routine-icon";
 import { refreshRoutines, type RoutineWithRuns } from "../../lib/routines";
+import { localZone } from "./use-routine-form";
 
 const toolButton =
   "flex size-[26px] shrink-0 items-center justify-center rounded-[7px] text-ink-2 transition-colors hover:bg-hover-2 hover:text-ink disabled:opacity-40 disabled:hover:bg-transparent";
@@ -81,6 +82,8 @@ export function RoutinePage({
   const [now, setNow] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<RunFilter>("all");
+  // The Runs list starts again (folds and days closed) only when a filter is picked, not when one falls back to All.
+  const [listKey, setListKey] = useState(0);
   const back = useRef<HTMLButtonElement>(null);
 
   // "last Run 11:47" turns into "last Run yesterday 11:47", and Today into Yesterday, with the clock.
@@ -173,7 +176,7 @@ export function RoutinePage({
         </div>
         <div data-routine-chips className="mt-3 flex flex-wrap items-center gap-2">
           <Chip icon={routineIcon(routine)} data-routine-chip="trigger">
-            {triggerChipText(routine.trigger)}
+            {triggerChipText(routine.trigger, localZone())}
           </Chip>
           <Chip icon={target.kind === "chat" ? BubbleChatIcon : target.workspace === "worktree" ? GitBranchIcon : Folder01Icon} data-routine-chip="where">
             {routineWhereText(target, chatTitle)}
@@ -214,13 +217,24 @@ export function RoutinePage({
           </div>
         )}
         <section data-routine-runs className="mt-7">
-          <div className="mb-2 flex items-center gap-3 px-2">
+          <div className="mb-2 flex items-center gap-3">
             <h2 className="flex-1 text-[13px] font-semibold text-ink">Runs</h2>
-            {routine.runs.length > 0 && <Segmented<RunFilter> label="Show" value={shownFilter} options={filters} onChange={setFilter} className="shrink-0" />}
+            {routine.runs.length > 0 && (
+              <Segmented<RunFilter>
+                label="Show"
+                value={shownFilter}
+                options={filters}
+                onChange={(next) => {
+                  if (next !== shownFilter) setListKey((key) => key + 1);
+                  setFilter(next);
+                }}
+                className="shrink-0"
+              />
+            )}
           </div>
           {routine.runs.length > 0 ? (
             <RunList
-              key={shownFilter}
+              key={listKey}
               runs={runs}
               routineName={routine.name}
               now={now}
@@ -230,7 +244,7 @@ export function RoutinePage({
               onOpenChat={onOpenChat}
             />
           ) : (
-            <div data-routine-runs-empty className="space-y-0.5 px-2">
+            <div data-routine-runs-empty className="space-y-0.5">
               <p className="text-[13px] text-ink-2">No Runs yet</p>
               {routine.enabled && typeof routine.nextRunAt === "number" && <p className="text-[12.5px] text-ink-3">Next Run {clock(routine.nextRunAt)}</p>}
             </div>
