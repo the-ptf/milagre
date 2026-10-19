@@ -56,7 +56,7 @@ import { DEFAULT_FILES_TO_COPY, parsePatterns, previewSentence } from "../lib/fi
 import { PERMISSION_MODES } from "../model";
 import type { ModelOption, PermissionMode } from "../model";
 import { providerForId, resolveModel } from "../lib/models";
-import { updateSettings, useSettings } from "../lib/settings";
+import { getSettings, updateSettings, useSettings } from "../lib/settings";
 import type { ClaudeReplies, UsageDisplay } from "../lib/settings";
 import type { ChatOrder } from "../lib/chat-list";
 import { useEditors } from "../lib/editors";
@@ -714,7 +714,7 @@ function NotificationsSettings() {
 
 /** Two dots, additions then deletions, in the pair's colors (the default pair shows the theme's own green and red). */
 function DiffDots({ pair }: { pair: (typeof DIFF_PAIRS)[number] }) {
-  const colors = pair.dark ?? { add: "var(--green)", remove: "var(--red)" };
+  const colors = (document.documentElement.classList.contains("dark") ? pair.dark : pair.light) ?? { add: "var(--green)", remove: "var(--red)" };
   return (
     <span data-diff-dots className="flex gap-1" aria-hidden>
       <span className="size-2.5 rounded-full" style={{ background: colors.add }} />
@@ -734,15 +734,20 @@ function fontOptions(list: readonly FontOption[]) {
     }));
 }
 
+/** A saved font that is no longer installed reads as the default; the saved value stays. */
+function shownFont(list: readonly FontOption[], id: string) {
+  const font = list.find((candidate) => candidate.id === id);
+  return font && (font.bundled || isFontInstalled(font.label)) ? id : list[0].id;
+}
+
+function pxOptions<T extends string>(list: readonly { id: T; px: number }[]) {
+  return list.map((size) => ({ value: size.id, label: `${size.px} px`, description: size.id === "default" ? "default" : undefined }));
+}
+
 function AppearanceSettings() {
   const settings = useSettings();
   const { appearance } = settings;
-  const setAppearance = (patch: Partial<typeof appearance>) => updateSettings({ appearance: { ...appearance, ...patch } });
-  // A saved font that is no longer installed reads as the default; the saved value stays.
-  const shownFont = (list: readonly FontOption[], id: string) => {
-    const font = list.find((candidate) => candidate.id === id);
-    return font && (font.bundled || isFontInstalled(font.label)) ? id : list[0].id;
-  };
+  const setAppearance = (patch: Partial<typeof appearance>) => updateSettings({ appearance: { ...getSettings().appearance, ...patch } });
   return (
     <>
       <Group title="Mode">
@@ -797,7 +802,7 @@ function AppearanceSettings() {
             width={160}
             value={appearance.sidebarSize}
             onChange={(sidebarSize) => setAppearance({ sidebarSize })}
-            options={SIDEBAR_SIZES.map((size) => ({ value: size.id, label: size.id === "default" ? "Default" : `${14 + size.delta} px` }))}
+            options={pxOptions(SIDEBAR_SIZES.map((size) => ({ id: size.id, px: 13 + size.delta })))}
           />
         </Row>
         <Row label="Chat size" description="Messages and the composer.">
@@ -806,7 +811,7 @@ function AppearanceSettings() {
             width={160}
             value={appearance.chatSize}
             onChange={(chatSize) => setAppearance({ chatSize })}
-            options={CHAT_SIZES.map((size) => ({ value: size.id, label: size.id === "default" ? "Default" : `${size.px} px` }))}
+            options={pxOptions(CHAT_SIZES)}
           />
         </Row>
         <Row label="Code size" description="Code blocks, diffs and the terminal.">
@@ -815,7 +820,7 @@ function AppearanceSettings() {
             width={160}
             value={appearance.codeSize}
             onChange={(codeSize) => setAppearance({ codeSize })}
-            options={CODE_SIZES.map((size) => ({ value: size.id, label: size.id === "default" ? "Default" : `${size.px} px` }))}
+            options={pxOptions(CODE_SIZES)}
           />
         </Row>
       </Group>

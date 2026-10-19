@@ -100,6 +100,23 @@ async function browserChecks() {
     await pick("15 px");
     await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.chatSize === "large"`);
     await waitFor(`getComputedStyle(document.querySelector('[data-preview-text]')).fontSize === "15px"`);
+    const diffStyle = (property) => evaluate(`getComputedStyle(document.querySelector('[data-preview-diff]')).${property}`);
+    assert.match(await diffStyle("fontFamily"), /monospace/, "the preview diff is monospace by default");
+    assert.equal(await diffStyle("fontSize"), "12px", "the preview diff follows Code size");
+    await openMenu("Code size");
+    await pick("14 px");
+    await waitFor(`getComputedStyle(document.querySelector('[data-preview-diff]')).fontSize === "14px"`);
+    await openMenu("Monospace font");
+    await pick("JetBrains Mono");
+    await waitFor(`getComputedStyle(document.querySelector('[data-preview-diff]')).fontFamily.startsWith('"JetBrains Mono Variable"')`);
+    await openMenu("Sidebar size");
+    assert.deepEqual(
+      await evaluate(`[...document.querySelectorAll('[role="listbox"] [role="option"]')].map((o) => o.textContent.trim())`),
+      ["12 px", "13 pxdefault", "14 px", "15 px"],
+      "sidebar sizes show the chat-name size, the default tagged",
+    );
+    await evaluate(`document.querySelector('button[aria-label="Sidebar size"]').click()`);
+    await waitFor(`!document.querySelector('[role="listbox"]')`);
     await openMenu("Interface font");
     const search = `document.querySelector('[role="listbox"][aria-label="Interface font"]').parentElement.querySelector('input')`;
     await evaluate(

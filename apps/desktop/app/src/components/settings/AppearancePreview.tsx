@@ -16,9 +16,9 @@ export function AppearancePreview() {
         <FileChip path="src/SettingsPanels.tsx" /> before shipping.
       </p>
       <div data-preview-diff className="overflow-hidden rounded-[8px] border border-line font-mono leading-relaxed" style={{ fontSize: "var(--code-size)" }}>
-        {DIFF_LINES.map((line, index) => (
+        {DIFF_LINES.map((line) => (
           <div
-            key={index}
+            key={`${line.sign}${line.text}`}
             data-diff-line={line.kind}
             className={`flex gap-3 px-3 whitespace-pre ${line.kind === "add" ? "text-diff-add" : line.kind === "remove" ? "text-diff-remove" : "text-ink-2"}`}
             style={line.kind === "add" ? { background: "var(--diff-add)" } : line.kind === "remove" ? { background: "var(--diff-remove)" } : undefined}

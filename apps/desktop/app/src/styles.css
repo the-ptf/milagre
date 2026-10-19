@@ -466,8 +466,8 @@ html[data-floating-inbox] #root {
   --shadow-overlay: var(--shadow-overlay);
 
   /* type */
-  --font-sans: var(--ui-font, var(--font-inter), ui-sans-serif, system-ui, sans-serif);
-  --font-mono: var(--mono-font, var(--font-mono-face), ui-monospace, "SF Mono", monospace);
+  --font-sans: var(--ui-font, ui-sans-serif, system-ui, sans-serif);
+  --font-mono: var(--mono-font, ui-monospace, "SF Mono", monospace);
 
   /* radii — chips 6, controls 8, cards 10, windows 14, pills 999 */
   --radius-chip: 6px;
