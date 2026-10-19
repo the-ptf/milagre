@@ -39,3 +39,25 @@ test("red-green emits no diff variables", () => {
     [],
   );
 });
+
+test("default appearance emits no font variables", () => {
+  const vars = appearanceVars(DEFAULT_APPEARANCE, false, none);
+  assert.equal("--ui-font" in vars, false);
+  assert.equal("--mono-font" in vars, false);
+});
+
+test("a bundled font gets its Variable family first", () => {
+  const vars = appearanceVars({ ...DEFAULT_APPEARANCE, uiFont: "inter", monoFont: "jetbrains-mono" }, false, none);
+  assert.match(vars["--ui-font"], /^"Inter Variable", "Inter"/);
+  assert.match(vars["--mono-font"], /^"JetBrains Mono Variable", "JetBrains Mono"/);
+});
+
+test("a font that is not bundled falls back unless installed", () => {
+  const a = { ...DEFAULT_APPEARANCE, uiFont: "charter", monoFont: "fira-code" };
+  const missing = appearanceVars(a, false, none);
+  assert.equal("--ui-font" in missing, false);
+  assert.equal("--mono-font" in missing, false);
+  const present = appearanceVars(a, false, () => true);
+  assert.match(present["--ui-font"], /^"Charter"/);
+  assert.match(present["--mono-font"], /^"Fira Code"/);
+});
