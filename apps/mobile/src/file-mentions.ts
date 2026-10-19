@@ -20,6 +20,8 @@ export function mentionPaths(draft: string) {
 /** A search answers a typed path only when one of its results is exactly that path. */
 export const exactMatch = (results: readonly string[], path: string) => results.includes(path);
 
+type Caller = { call<T>(method: string, args: unknown[]): Promise<T> };
+
 /** Which typed `@path`s name a file in the Project, per root, as far as the Mac has answered this session. */
 export function createKnownFiles() {
   const roots = new Map<string, { known: Set<string>; checked: Set<string> }>();
@@ -28,7 +30,28 @@ export function createKnownFiles() {
     if (!entry) roots.set(root, (entry = { known: new Set(), checked: new Set() }));
     return entry;
   };
-  const asked = new Set<string>();
+  // One question per path at a time, shared by the live lookup while typing and the one at send.
+  const pending = new Map<string, Promise<void>>();
+  function lookup(client: Caller, root: string, path: string): Promise<void> {
+    const entry = of(root);
+    if (entry.checked.has(path)) return Promise.resolve();
+    const key = `${root}\n${path}`;
+    const shared = pending.get(key);
+    if (shared) return shared;
+    const asked = client
+      .call<string[]>("project:files", [root, path])
+      .then((results) => {
+        entry.checked.add(path);
+        if (exactMatch(results, path)) entry.known.add(path);
+      })
+      .catch((error: Error) => {
+        // An older Mac will never answer; a busy or offline one is asked again next time.
+        if (isOldMacError(error?.message ?? "")) entry.checked.add(path);
+      })
+      .finally(() => pending.delete(key));
+    pending.set(key, asked);
+    return asked;
+  }
   return {
     has: (root: string, path: string) => of(root).known.has(path),
     /** A file picked from the menu is known without asking. */
@@ -36,21 +59,16 @@ export function createKnownFiles() {
       of(root).known.add(path);
       of(root).checked.add(path);
     },
-    /** Up to `max` paths neither answered nor being asked about; they count as asked until `record`ed or `release`d. */
-    claim(root: string, paths: readonly string[], max = 3) {
-      const entry = of(root);
-      const take = paths.filter((path) => !entry.checked.has(path) && !asked.has(`${root}\n${path}`)).slice(0, max);
-      for (const path of take) asked.add(`${root}\n${path}`);
-      return take;
-    },
-    record(root: string, path: string, found: boolean) {
-      asked.delete(`${root}\n${path}`);
-      of(root).checked.add(path);
-      if (found) of(root).known.add(path);
-    },
-    /** The question failed without an answer (a busy Mac): ask again next time. */
-    release(root: string, path: string) {
-      asked.delete(`${root}\n${path}`);
+    /** The first `max` of `paths` the Mac has not answered about. */
+    unchecked: (root: string, paths: readonly string[], max = 3) => paths.filter((path) => !of(root).checked.has(path)).slice(0, max),
+    lookup,
+    /** Asks about every unchecked path and waits for the answers, at most `timeoutMs`; a timeout or error leaves a path unconfirmed. */
+    async resolve(client: Caller, root: string, paths: readonly string[], timeoutMs = 1000) {
+      const todo = paths.filter((path) => !of(root).checked.has(path));
+      if (!todo.length) return;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([Promise.all(todo.map((path) => lookup(client, root, path))), new Promise<void>((done) => (timer = setTimeout(done, timeoutMs)))]);
+      clearTimeout(timer);
     },
   };
 }

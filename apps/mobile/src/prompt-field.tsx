@@ -6,7 +6,7 @@ import { formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
 import { withAlpha } from "@milagre/shared/themes";
 import { promptSkillAtSelection, promptSkillParts, promptSkillQuery } from "@milagre/shared/prompt-skills";
 import type { Client } from "./client";
-import { exactMatch, fileQueryAt, isOldMacError, mentionPaths, type KnownFiles } from "./file-mentions";
+import { fileQueryAt, isOldMacError, mentionPaths, type KnownFiles } from "./file-mentions";
 import { useRpc } from "./use-rpc";
 import { Field, ListRow, PageScroll } from "./ui";
 import { useTheme } from "./theme";
@@ -228,21 +228,11 @@ function useMentionLookups(client: Client, root: string, draft: string, known: K
     if (!known || !root) return;
     const timer = setTimeout(() => {
       // The token under the caret is still being typed; it is looked up once the caret leaves it.
-      for (const path of known.claim(
+      for (const path of known.unchecked(
         root,
         mentionPaths(draft).filter((item) => item !== typing),
-      )) {
-        client
-          .call<string[]>("project:files", [root, path])
-          .then((results) => {
-            known.record(root, path, exactMatch(results, path));
-            setAnswers((count) => count + 1);
-          })
-          .catch((error: Error) => {
-            if (isOldMacError(error.message)) known.record(root, path, false);
-            else known.release(root, path);
-          });
-      }
+      ))
+        void known.lookup(client, root, path).then(() => setAnswers((count) => count + 1));
     }, 150);
     return () => clearTimeout(timer);
   }, [client, root, draft, known, typing]);

@@ -84,7 +84,7 @@ import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
 import { ErrorNotice, GlassIconButton, HeaderButton, IconButton, PageScroll, PillButton, PullDown, useStyles } from "../ui";
 import { PromptField } from "../prompt-field";
-import { createKnownFiles } from "../file-mentions";
+import { createKnownFiles, mentionPaths } from "../file-mentions";
 import { ContextRing } from "../context-ring";
 import { PlanPanel, PlanPill, usePlanPanel } from "../plan-pill";
 import { useTheme } from "../theme";
@@ -755,20 +755,24 @@ export default function ChatScreen() {
     // A turn running now takes this message as a steer, on the provider it already runs.
     const steered = Boolean(run);
     if (!body && !(withAttachments && attachments.length)) return false;
-    // Mentioned files attach when the message goes (a removed tile does not unmention the file); a file the limit leaves out stops the send.
+    if (busy || sendingRef.current || pending || picking) return "busy";
+    sendingRef.current = true;
+    setBusy(true);
+    setError("");
+    // Mentioned files attach when the message goes (a removed tile does not unmention the file). A mention not yet checked
+    // against the Project (the one just typed) is asked about now, for up to a second; a file the limit leaves out stops the send.
     const mentionRoot = worktree?.path;
+    if (withAttachments && mentionRoot) await knownFiles.current.resolve(client, mentionRoot, mentionPaths(body));
     const mentions =
       withAttachments && mentionRoot
         ? mentionAttachments(body, mentionRoot, attachments, (path) => knownFiles.current.has(mentionRoot, path))
         : { added: [], dropped: false };
     if (mentions.dropped) {
+      sendingRef.current = false;
+      setBusy(false);
       setError(ATTACHMENT_LIMIT_MESSAGE);
       return false;
     }
-    if (busy || sendingRef.current || pending || picking) return "busy";
-    sendingRef.current = true;
-    setBusy(true);
-    setError("");
     const sent = body;
     const sendingProjectPath = project.path;
     const sending = withAttachments ? [...attachments, ...mentions.added] : [];
