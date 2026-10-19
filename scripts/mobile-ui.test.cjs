@@ -11513,7 +11513,7 @@ test("the phone Routine screen lists its Runs: acted and failed rows, quiet stre
   host.routes.length = 0;
   // A Linear trigger has no Run now.
   assert.equal(
-    find(tree, (node) => node.type === "Button" && node.props.title === "Run now"),
+    find(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Run now"),
     undefined,
   );
 
@@ -11587,9 +11587,13 @@ test("the phone Routine screen says No Runs yet with the next Run, and Delete ar
   const texts = allNodes(empty.render(), (node) => node.type === "Text").map(textOf);
   assert.ok(texts.includes("No Runs yet"));
   assert.ok(texts.includes("Next Run 10:45"));
-  assert.ok(
+  // Run now is a play button in the toolbar, beside Edit.
+  const play = find(empty.render(), (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Run now");
+  assert.ok(play, "a Heartbeat runs now");
+  assert.equal(play.props.icon, "play.fill");
+  assert.equal(
     find(empty.render(), (node) => node.type === "Button" && node.props.title === "Run now"),
-    "a Heartbeat runs now",
+    undefined,
   );
 
   const confirmed = [];

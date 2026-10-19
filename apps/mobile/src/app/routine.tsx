@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { PencilEdit02Icon } from "@hugeicons/core-free-icons";
+import { PencilEdit02Icon, PlayIcon } from "@hugeicons/core-free-icons";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { canOpenRunChat, canRunNow, clock, unreadRunChats } from "@milagre/shared/routines";
 import { useSession } from "../session";
@@ -63,8 +63,34 @@ export default function RoutineScreen() {
 
   const edit = () => routine && router.push({ pathname: "/routine-form", params: { id: routine.id } });
   const fail = (failure: unknown, fallback: string) => setError(failure instanceof Error ? failure.message : fallback);
+  const runNow = async () => {
+    if (!routine || !client || starting) return;
+    setError("");
+    setStarting(true);
+    try {
+      await client.call("routines:run-now", [routine.id]);
+      await routines.refresh();
+    } catch (failure) {
+      fail(failure, "Could not run this Routine.");
+    } finally {
+      setStarting(false);
+    }
+  };
+  // Linear and webhook Routines run only on their event; the scheduler refuses Run now for them.
+  const runnable = Boolean(routine && client && canRunNow(routine));
+  const canStart = runnable && Boolean(routine?.enabled) && !starting;
+  // Stack.Toolbar takes its buttons as direct children (a Fragment is refused), so each slot picks its own element.
   const toolbar = (
     <Stack.Toolbar placement="right">
+      {runnable ? (
+        Platform.OS === "ios" ? (
+          <Stack.Toolbar.Button icon="play.fill" accessibilityLabel="Run now" disabled={!canStart} onPress={() => void runNow()} />
+        ) : (
+          <Stack.Toolbar.View>
+            <HeaderButton label="Run now" icon={PlayIcon} onPress={canStart ? () => void runNow() : undefined} />
+          </Stack.Toolbar.View>
+        )
+      ) : null}
       {Platform.OS === "ios" ? (
         <Stack.Toolbar.Button icon="pencil" accessibilityLabel="Edit" disabled={!routine || !client} onPress={edit} />
       ) : (
@@ -96,19 +122,6 @@ export default function RoutineScreen() {
     setError("");
     void routines.update(routine.id, { enabled: !routine.enabled }).catch((failure) => fail(failure, "Could not change this Routine."));
   }
-  async function runNow() {
-    if (!routine || !client || starting) return;
-    setError("");
-    setStarting(true);
-    try {
-      await client.call("routines:run-now", [routine.id]);
-      await routines.refresh();
-    } catch (failure) {
-      fail(failure, "Could not run this Routine.");
-    } finally {
-      setStarting(false);
-    }
-  }
   async function remove() {
     if (!routine || !client) return;
     setError("");
@@ -134,8 +147,6 @@ export default function RoutineScreen() {
           <Text style={[styles.muted, { flex: 1 }]}>{meta}</Text>
           <RowSwitch label={`${routine.name} on`} selected={routine.enabled} onPress={flip} />
         </View>
-        {/* Linear and webhook Routines run only on their event; the scheduler refuses Run now for them. */}
-        {canRunNow(routine) ? <Button title="Run now" secondary disabled={!routine.enabled} loading={starting} onPress={() => void runNow()} /> : null}
         <Text accessibilityRole="header" style={[styles.label, { paddingHorizontal: 4, marginTop: 8 }]}>
           Runs
         </Text>
