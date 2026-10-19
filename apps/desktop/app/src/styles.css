@@ -954,7 +954,7 @@ a:focus-visible .animated-underline::after {
  * Every rail glyph remains centered at x=26 in both states. */
 /* Progressive blur where content scrolls under a window edge. One masked blur leaves a crisp copy showing
  * through wherever its mask is half on, so four blurs that double in strength stack up
- * instead, each switched on a step closer to the edge. The last child is the page-colored tint.
+ * instead, each switched on a step closer to the edge. The last child is the tint toward the transcript's background.
  * --blur-dir points from the content toward the edge; the blur starts at --blur-start and is at full
  * strength from --blur-end on. */
 .progressive-blur > * {
@@ -993,6 +993,12 @@ a:focus-visible .animated-underline::after {
   display: none;
 }
 
+/* The fades tint toward the background the transcript sits on, so an empty area under one shows no band: the page,
+ * or the surface of a focused ChatGrid tile (which sets --chat-bg). */
+[data-chat-tile] {
+  --chat-bg: var(--surface);
+}
+
 /* The top of a scrolled chat, under the window-drag strip. Blur and tint build across the whole overlay, so the
  * text softens gradually and is fully blurred only at the window edge. */
 .chat-top-blur {
@@ -1001,10 +1007,10 @@ a:focus-visible .animated-underline::after {
   --blur-end: 100%;
 }
 .chat-top-blur > :last-child {
-  background: linear-gradient(to bottom, color-mix(in oklab, var(--page) 55%, transparent), transparent);
+  background: linear-gradient(to bottom, color-mix(in oklab, var(--chat-bg, var(--page)) 35%, transparent), transparent);
 }
 .chat-top-blur[data-busy] > :last-child {
-  background: linear-gradient(to bottom, color-mix(in oklab, var(--page) 80%, transparent), transparent);
+  background: linear-gradient(to bottom, color-mix(in oklab, var(--chat-bg, var(--page)) 50%, transparent), transparent);
 }
 
 /* The bottom mirrors the top: blur and tint grow gradually toward the composer. */
@@ -1014,10 +1020,10 @@ a:focus-visible .animated-underline::after {
   --blur-end: 100%;
 }
 .chat-bottom-blur > :last-child {
-  background: linear-gradient(to top, color-mix(in oklab, var(--page) 55%, transparent), transparent);
+  background: linear-gradient(to top, color-mix(in oklab, var(--chat-bg, var(--page)) 35%, transparent), transparent);
 }
 .chat-bottom-blur[data-busy] > :last-child {
-  background: linear-gradient(to top, color-mix(in oklab, var(--page) 80%, transparent), transparent);
+  background: linear-gradient(to top, color-mix(in oklab, var(--chat-bg, var(--page)) 50%, transparent), transparent);
 }
 
 /* Messages far off screen skip layout and paint; the size of the last render stands in, so scrolling stays steady.

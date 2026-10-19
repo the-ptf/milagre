@@ -24,6 +24,7 @@ import "/src/styles.css";
 window.milagre = Object.freeze({ listEditors: async () => [], setWindowBackground: async () => {}, setTerminalFocused: () => {},
   terminals: { read: () => new Promise(() => {}), input: async () => {}, resize: async () => {} } });
 window.__update = (patch) => updateSettings({ appearance: { ...getSettings().appearance, ...patch } });
+window.__settings = (patch) => updateSettings(patch);
 window.__mountTerminal = () => {
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;left:0;bottom:0;width:300px;height:160px';
@@ -37,12 +38,23 @@ const messages = [
   { id: 2, session_id: 1, context: null, role: "assistant",
     body: "Here is the change.\\n\\n\`\`\`ts\\nconst answer = 42;\\n\`\`\`" },
 ];
+const longMessages = Array.from({ length: 24 }, (_, index) => ({
+  id: 100 + index, session_id: 1, context: null, role: index % 2 ? "assistant" : "user",
+  body: index % 2 ? "Reply number " + index + " is long enough to wrap around a line and show text moving under the edge fade of the chat." : "Question number " + index + " about the change",
+}));
 function Fixture() {
   useApplyTheme();
   const [panel, setPanel] = useState(false);
   const [shift, setShift] = useState(false);
+  // The edge fades: a long transcript to scroll text under them, a running turn (data-busy), and a tile (focused ChatGrid tile) behind the chat.
+  const [long, setLong] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [tile, setTile] = useState(false);
   window.__setPanel = setPanel;
   window.__setShift = setShift;
+  window.__setLong = setLong;
+  window.__setBusy = setBusy;
+  window.__setTile = setTile;
   const model = MODEL_CATALOG[0];
   return <div style={{ display: "flex", height: "100vh", gap: 12, padding: 12 }}>
     <aside data-sidebar-collapsed="false" style={{ width: 224 }}>
@@ -55,15 +67,17 @@ function Fixture() {
       <PillSlot slot="layout-probe" style={{ position: "fixed", top: 0, left: shift ? 400 : 100 }}><span style={{ display: "block", width: 20, height: 20 }} /></PillSlot>
     </LayoutGroup>
     <main style={{ flex: 1, minWidth: 0 }}>
-      <ChatComposer messages={messages}
+      <div data-chat-tile={tile ? "fixture" : undefined} className={tile ? "bg-surface" : undefined} style={{ height: "100%" }}>
+      <ChatComposer messages={long ? longMessages : messages}
         imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
-        projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={false} sendBlocked={false}
+        projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={busy} sendBlocked={false}
         models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
         capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
         fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop}
         onRecommendationSelect={noop} worktrees={[{ id: 1, name: "main", path: "/fixture" }]} onWorktreeChange={noop}
         isolation="worktree" onIsolationChange={noop} branches={["main"]} baseBranch="main" onBaseBranchChange={noop} newChatError={null}
         linearActive onStartFromIssue={noop} />
+      </div>
     </main>
     <ChangesPanelSlot open={panel}>
       <aside data-changes-panel style={{ width: 320 }} className="shrink-0 rounded-window bg-inset" />
@@ -207,6 +221,113 @@ async function browserChecks() {
     await set({ motion: "off" });
     await probeLeft(false, 300);
     assert.equal(await probeLeft(true, 40), 400, "with motion off a layout slide is instant");
+    // Edge fades: the tint is the background the transcript sits on (the page, or a focused tile's surface) and stays
+    // soft, so an empty area under a fade shows no band, while a turn runs and when idle, in light, dark and a custom theme.
+    const rectOf = (selector) =>
+      evaluate(
+        `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) }; })()`,
+      );
+    const capture = async (rect) => {
+      window.webContents.invalidate();
+      await delay(250);
+      // The first capture wakes a hidden window's compositor; read the next frame.
+      await window.webContents.capturePage();
+      await delay(100);
+      return window.webContents.capturePage(rect);
+    };
+    // The mean of a region's channels (whatever the bitmap's channel order, the same order for both samples being compared).
+    const meanOf = (image) => {
+      const { width, height } = image.getSize();
+      const bitmap = image.toBitmap();
+      const sum = [0, 0, 0];
+      for (let pixel = 0; pixel < width * height; pixel++) for (let channel = 0; channel < 3; channel++) sum[channel] += bitmap[pixel * 4 + channel];
+      return sum.map((total) => total / (width * height));
+    };
+    // The fade's tint as { rgb, alpha }: the browser reports the color-mix as an oklab() color, which a canvas turns into rgb.
+    const tintOf = (selector) =>
+      evaluate(`(() => {
+        const image = getComputedStyle(document.querySelector(${JSON.stringify(selector + " > :last-child")})).backgroundImage;
+        const css = /oklab\\([^)]*\\)/.exec(image)?.[0];
+        if (!css) throw Error('No oklab tint in ' + image);
+        const [base, alpha] = css.slice(0, -1).split('/');
+        const context = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
+        context.fillStyle = base.trim() + ')';
+        context.fillRect(0, 0, 1, 1);
+        return { rgb: [...context.getImageData(0, 0, 1, 1).data].slice(0, 3), alpha: Number(alpha) };
+      })()`);
+    const rgbOf = (color) => /rgb\((\d+), (\d+), (\d+)\)/.exec(color).slice(1).map(Number);
+    const shootFade = async (name) => {
+      if (!process.env.MILAGRE_SCREENSHOT_DIR) return;
+      fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
+      // The last lines pass under the bottom fade.
+      await evaluate(`(() => { const v = document.querySelector('[aria-label="Conversation"]'); v.scrollTop = v.scrollHeight - v.clientHeight - 70; })()`);
+      await delay(200);
+      const composer = await rectOf("[data-composer-wrap]");
+      const column = await rectOf(".chat-column");
+      const x = Math.max(0, column.x - 60);
+      const y = Math.max(0, composer.y - 200);
+      const image = await capture({ x, y, width: Math.min(column.width + 120, 1600 - x), height: 330 });
+      fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), image.toPNG());
+    };
+    const fades = async (label, background) => {
+      for (const busy of [false, true]) {
+        await evaluate(`window.__setBusy(${busy})`);
+        await waitFor(`!!document.querySelector('.chat-bottom-blur')?.hasAttribute('data-busy') === ${busy}`);
+        await delay(100);
+        const where = label + (busy ? ", turn running" : ", idle");
+        const bottom = await tintOf(".chat-bottom-blur");
+        const wanted = rgbOf(background);
+        for (const channel of [0, 1, 2])
+          assert.ok(
+            Math.abs(bottom.rgb[channel] - wanted[channel]) <= 2,
+            where + ": the bottom fade tints toward the transcript background " + background + " (got " + JSON.stringify(bottom) + ")",
+          );
+        assert.ok(bottom.alpha <= (busy ? 0.5 : 0.35) + 0.001, where + ": the bottom fade tint stays soft (got " + JSON.stringify(bottom) + ")");
+        assert.deepEqual(await tintOf(".chat-top-blur"), bottom, where + ": the top fade mirrors the bottom's tint");
+        assert.equal((await rectOf(".chat-bottom-blur")).height, 56, where + ": the bottom fade is 56px tall");
+        // Over empty space the middle of the fade is the background itself: same pixels as just above the fade.
+        const overlay = await rectOf(".chat-bottom-blur");
+        // Clear of the terminal the size checks left at the window's bottom-left corner.
+        const x = overlay.x + 330;
+        const middle = meanOf(await capture({ x, y: overlay.y + Math.round(overlay.height / 2) - 4, width: 24, height: 8 }));
+        const above = meanOf(await capture({ x, y: overlay.y - 60, width: 24, height: 8 }));
+        for (const channel of [0, 1, 2])
+          assert.ok(Math.abs(middle[channel] - above[channel]) <= 3, where + ": no band over an empty transcript " + JSON.stringify([middle, above]));
+      }
+    };
+    const backgroundOf = (selector) => style(selector, "backgroundColor");
+    await set({ chatWidth: "comfortable" });
+    await evaluate(`window.__settings({ theme: 'dark', colorTheme: 'default' })`);
+    await waitFor(`document.documentElement.classList.contains('dark')`);
+    await fades("dark page", await backgroundOf("body"));
+    await evaluate(`window.__setTile(true)`);
+    await waitFor(`!!document.querySelector('[data-chat-tile]')`);
+    await fades("dark tile", await backgroundOf("[data-chat-tile]"));
+    await evaluate(`window.__settings({ theme: 'light' })`);
+    await waitFor(`!document.documentElement.classList.contains('dark')`);
+    await fades("light tile", await backgroundOf("[data-chat-tile]"));
+    await evaluate(`window.__setTile(false)`);
+    await fades("light page", await backgroundOf("body"));
+    await evaluate(
+      `window.__settings({ theme: 'dark', colorTheme: 'custom', customThemeEnabled: true, customTheme: { light: { background: '#fdf6e3', text: '#073642', accent: '#268bd2' }, dark: { background: '#1f1630', text: '#e6ddf5', accent: '#b48ead' } } })`,
+    );
+    await waitFor(`document.documentElement.classList.contains('dark')`);
+    await evaluate(`window.__setTile(true)`);
+    await fades("custom tile", await backgroundOf("[data-chat-tile]"));
+    // With text scrolled under the bottom edge, as it reads while a turn runs (screenshots when MILAGRE_SCREENSHOT_DIR is set).
+    await evaluate(`window.__setLong(true)`);
+    await waitFor(`document.querySelectorAll('[data-slot="message"]').length > 20`);
+    await evaluate(`window.__settings({ colorTheme: 'default' })`);
+    await waitFor(`document.documentElement.classList.contains('dark')`);
+    await evaluate(`window.__setBusy(true)`);
+    await delay(300);
+    await shootFade("fade-tile-dark-busy");
+    await evaluate(`window.__setTile(false)`);
+    await delay(200);
+    await shootFade("fade-page-dark-busy");
+    await evaluate(`window.__setLong(false); window.__setBusy(false)`);
+    await evaluate(`window.__settings({ theme: 'dark' })`);
+
     // Select: near the bottom it opens above its trigger and shows more rows than a downward panel would; near the top it opens below.
     const openProbe = async (label) => {
       await evaluate(`document.querySelector('[aria-label=${JSON.stringify(label)}][aria-haspopup]').click()`);
