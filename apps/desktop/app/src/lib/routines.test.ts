@@ -4,6 +4,7 @@ import { clock } from "@milagre/shared/routines";
 import {
   groupRoutines,
   refreshRoutines,
+  routineDeleteQuestion,
   routineMeta,
   routineStatus,
   routinesSnapshot,
@@ -162,4 +163,9 @@ test("unreadRunRoutines: Routines with a hidden Run Chat nobody opened, over thi
   assert.deepEqual([...unreadRunRoutines(states)].sort(), ["r1", "r4"]);
   assert.equal(unreadRunRoutines({} as never).size, 0);
   assert.equal(unreadRunRoutines({ "/code/shop": { sessions: { 1: runChat(1, "r1") } } } as never).size, 0);
+});
+
+test("routineDeleteQuestion: a Heartbeat's Chat stays; a Routine that opens Chats archives the Run Chats you haven't kept", () => {
+  assert.equal(routineDeleteQuestion(heartbeat), "Delete Watch CI on #461? Its Chats stay.");
+  assert.equal(routineDeleteQuestion(linear), "Delete Take issues labelled agent? Its Runs stop, and its Run Chats you haven't kept are archived.");
 });

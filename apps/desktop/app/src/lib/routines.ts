@@ -15,6 +15,14 @@ const DAY = 24 * HOUR;
 /** A heartbeat checks back on one Chat; every other Routine starts a new Chat per Run. */
 export const isHeartbeat = (routine: Routine) => routine.target.kind === "chat";
 
+/**
+ * What the delete confirmation says. A Heartbeat only checks back on a Chat that is someone's own, and the delete leaves
+ * that Chat alone; every other Routine opens Run Chats, and the delete archives the ones nobody has kept.
+ */
+export function routineDeleteQuestion(routine: Routine): string {
+  return `Delete ${routine.name}? ${isHeartbeat(routine) ? "Its Chats stay." : "Its Runs stop, and its Run Chats you haven't kept are archived."}`;
+}
+
 /** The page's groups. Paused Routines (switched off) stay in their group too, so the chips' counts overlap. */
 export function groupRoutines<T extends Routine>(routines: readonly T[]): { heartbeats: T[]; triggers: T[]; paused: T[] } {
   return {

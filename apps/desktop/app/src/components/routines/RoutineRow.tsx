@@ -20,7 +20,7 @@ import { canRunNow } from "@milagre/shared/routines";
 import GlideMenu from "../primitives/GlideMenu";
 import { Switch } from "../primitives/Switch";
 import { useDismiss } from "../../lib/use-dismiss";
-import { isHeartbeat, type RoutineWithRuns } from "../../lib/routines";
+import { isHeartbeat, routineDeleteQuestion, type RoutineWithRuns } from "../../lib/routines";
 
 type HugeIconData = typeof Pulse01Icon;
 const MENU_WIDTH = 200;
@@ -168,7 +168,7 @@ export function RoutineRow({
       </div>
       {confirming && (
         <div data-routine-delete-question className="flex min-h-11 items-center gap-2 px-4 pb-3">
-          <span className="min-w-0 flex-1 text-[12px] text-ink">Delete {routine.name}? Its Runs stop, and its Run Chats you haven't kept are archived.</span>
+          <span className="min-w-0 flex-1 text-[12px] text-ink">{routineDeleteQuestion(routine)}</span>
           <button type="button" className={outlineButton} onClick={() => setConfirming(false)}>
             Cancel
           </button>
