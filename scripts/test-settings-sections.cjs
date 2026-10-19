@@ -10,6 +10,7 @@ const fixture = `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SettingsNav, SettingsPanel } from '/src/components/Settings';
+import { useApplyTheme } from '/src/lib/settings';
 import { useApplyOtherComputers } from '/src/lib/computers';
 import '/src/styles.css';
 window.enabledCalls = [];
@@ -19,7 +20,7 @@ HTMLMediaElement.prototype.play = function () { window.played.push(this.src.spli
 window.savedShare = { id: "orphan", url: "https://share.milagre.cloud/s/orphan", title: "Deleted Chat page", createdAt: 1780000000000, designCount: 2 };
 window.shareCalls = [];
 window.milagre = {
-  listEditors: async () => [],
+  listEditors: async () => [], setWindowBackground: async () => {},
   getPhoneStatus: async () => ({ enabled: false, state: "off", remote: "none" }),
   onPhoneStatus: () => () => {},
   listDevices: async () => [],
@@ -40,6 +41,7 @@ window.milagre = {
 };
 function Fixture() {
   const [section, setSection] = useState('appearance');
+  useApplyTheme();
   useApplyOtherComputers();
   return (
     <div style={{ display: 'flex', gap: 12, height: '100vh', padding: 12 }}>
@@ -83,6 +85,36 @@ async function browserChecks() {
   const switches = () => evaluate(`[...document.querySelectorAll('main [role="switch"]')].map((s) => s.getAttribute("aria-label"))`);
   try {
     await window.loadURL(process.argv[2]);
+    // Appearance: every control is a menu; picking a size saves it and the preview follows; fonts draw in their own face.
+    await waitFor(`!!document.querySelector('[data-slot="appearance-preview"]')`);
+    assert.equal(await evaluate(`document.querySelectorAll('main input[type="number"]').length`), 0, "no number fields on Appearance");
+    const openMenu = async (label) => {
+      await evaluate(`document.querySelector('button[aria-label=${JSON.stringify(label)}]').click()`);
+      await waitFor(`!!document.querySelector('[role="listbox"][aria-label=${JSON.stringify(label)}]')`);
+    };
+    const pick = (text) =>
+      evaluate(
+        `[...document.querySelectorAll('[role="listbox"] [role="option"]')].find((o) => o.textContent.trim().startsWith(${JSON.stringify(text)})).click()`,
+      );
+    await openMenu("Chat size");
+    await pick("15 px");
+    await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.chatSize === "large"`);
+    await waitFor(`getComputedStyle(document.querySelector('[data-preview-text]')).fontSize === "15px"`);
+    await openMenu("Interface font");
+    const search = `document.querySelector('[role="listbox"][aria-label="Interface font"]').parentElement.querySelector('input')`;
+    await evaluate(
+      `(() => { const input = ${search}; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "inter"); input.dispatchEvent(new Event("input", { bubbles: true })); })()`,
+    );
+    await waitFor(`[...document.querySelectorAll('[role="listbox"] [role="option"]')].some((o) => o.textContent.trim() === "Inter")`);
+    assert.ok(
+      await evaluate(
+        `getComputedStyle([...document.querySelectorAll('[role="listbox"] [role="option"] strong')].find((o) => o.textContent.trim() === "Inter")).fontFamily.startsWith('"Inter')`,
+      ),
+      "the Inter row is drawn in Inter",
+    );
+    await evaluate(`document.querySelector('button[aria-label="Interface font"]').click()`);
+    await waitFor(`!document.querySelector('[role="listbox"]')`);
+    await screenshot("appearance");
     await openSection("Experimental");
     await waitFor(`!!document.querySelector("[data-slot=designs-setting]")`);
     // The Routines switch shows once the Mac's setting is read.

@@ -67,6 +67,19 @@ import { GlideGroup, RailButton } from "./SidebarNav";
 import { Select } from "./primitives/Select";
 import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
+import { AppearancePreview } from "./settings/AppearancePreview";
+import {
+  CHAT_SIZES,
+  CHAT_WIDTHS,
+  CODE_SIZES,
+  DIFF_PAIRS,
+  MONO_FONTS,
+  MOTION_SPEEDS,
+  SIDEBAR_SIZES,
+  UI_FONTS,
+  type FontOption,
+} from "@milagre/shared/appearance";
+import { isFontInstalled, withBundledNames } from "../lib/appearance";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { NOTIFICATION_CHIMES, type NotificationChime } from "@milagre/shared/notification-chimes";
 import {
@@ -699,8 +712,37 @@ function NotificationsSettings() {
   );
 }
 
+/** Two dots, additions then deletions, in the pair's colors (the default pair shows the theme's own green and red). */
+function DiffDots({ pair }: { pair: (typeof DIFF_PAIRS)[number] }) {
+  const colors = pair.dark ?? { add: "var(--green)", remove: "var(--red)" };
+  return (
+    <span data-diff-dots className="flex gap-1" aria-hidden>
+      <span className="size-2.5 rounded-full" style={{ background: colors.add }} />
+      <span className="size-2.5 rounded-full" style={{ background: colors.remove }} />
+    </span>
+  );
+}
+
+function fontOptions(list: readonly FontOption[]) {
+  return list
+    .filter((font) => font.bundled || isFontInstalled(font.label))
+    .map((font) => ({
+      value: font.id,
+      label: font.label,
+      description: font.id === "system" ? "default" : undefined,
+      style: { fontFamily: withBundledNames(font.stack) },
+    }));
+}
+
 function AppearanceSettings() {
   const settings = useSettings();
+  const { appearance } = settings;
+  const setAppearance = (patch: Partial<typeof appearance>) => updateSettings({ appearance: { ...appearance, ...patch } });
+  // A saved font that is no longer installed reads as the default; the saved value stays.
+  const shownFont = (list: readonly FontOption[], id: string) => {
+    const font = list.find((candidate) => candidate.id === id);
+    return font && (font.bundled || isFontInstalled(font.label)) ? id : list[0].id;
+  };
   return (
     <>
       <Group title="Mode">
@@ -727,6 +769,93 @@ function AppearanceSettings() {
           />
         </Row>
         {settings.customThemeEnabled && <CustomThemeEditor />}
+      </Group>
+      <Group title="Typography">
+        <Row label="Interface font" description="Used across the app.">
+          <Select
+            label="Interface font"
+            width={260}
+            searchable
+            value={shownFont(UI_FONTS, appearance.uiFont)}
+            onChange={(uiFont) => setAppearance({ uiFont })}
+            options={fontOptions(UI_FONTS)}
+          />
+        </Row>
+        <Row label="Monospace font" description="Code, diffs and the terminal.">
+          <Select
+            label="Monospace font"
+            width={260}
+            searchable
+            value={shownFont(MONO_FONTS, appearance.monoFont)}
+            onChange={(monoFont) => setAppearance({ monoFont })}
+            options={fontOptions(MONO_FONTS)}
+          />
+        </Row>
+        <Row label="Sidebar size" description="Project and chat names in the sidebar.">
+          <Select
+            label="Sidebar size"
+            width={160}
+            value={appearance.sidebarSize}
+            onChange={(sidebarSize) => setAppearance({ sidebarSize })}
+            options={SIDEBAR_SIZES.map((size) => ({ value: size.id, label: size.id === "default" ? "Default" : `${14 + size.delta} px` }))}
+          />
+        </Row>
+        <Row label="Chat size" description="Messages and the composer.">
+          <Select
+            label="Chat size"
+            width={160}
+            value={appearance.chatSize}
+            onChange={(chatSize) => setAppearance({ chatSize })}
+            options={CHAT_SIZES.map((size) => ({ value: size.id, label: size.id === "default" ? "Default" : `${size.px} px` }))}
+          />
+        </Row>
+        <Row label="Code size" description="Code blocks, diffs and the terminal.">
+          <Select
+            label="Code size"
+            width={160}
+            value={appearance.codeSize}
+            onChange={(codeSize) => setAppearance({ codeSize })}
+            options={CODE_SIZES.map((size) => ({ value: size.id, label: size.id === "default" ? "Default" : `${size.px} px` }))}
+          />
+        </Row>
+      </Group>
+      <AppearancePreview />
+      <Group title="Layout">
+        <Row label="Chat width" description="How wide messages and the composer grow on large screens.">
+          <Select
+            label="Chat width"
+            width={200}
+            value={appearance.chatWidth}
+            onChange={(chatWidth) => setAppearance({ chatWidth })}
+            options={CHAT_WIDTHS.map((width) => ({ value: width.id, label: width.label }))}
+          />
+        </Row>
+      </Group>
+      <Group title="Diffs">
+        <Row label="Diff colors" description="Additions and deletions, including change counts.">
+          <Select
+            label="Diff colors"
+            width={220}
+            value={appearance.diffColors}
+            onChange={(diffColors) => setAppearance({ diffColors })}
+            options={DIFF_PAIRS.map((pair) => ({
+              value: pair.id,
+              label: pair.label,
+              icon: <DiffDots pair={pair} />,
+            }))}
+          />
+        </Row>
+      </Group>
+      <Group title="Motion">
+        <Row label="Panel animations" description="How fast panels open and close. macOS Reduce Motion turns them off.">
+          <Select
+            label="Panel animations"
+            width={160}
+            value={appearance.motion}
+            onChange={(motion) => setAppearance({ motion })}
+            options={MOTION_SPEEDS.map((speed) => ({ value: speed.id, label: speed.label }))}
+          />
+        </Row>
       </Group>
     </>
   );

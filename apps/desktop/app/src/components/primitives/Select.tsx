@@ -1,5 +1,5 @@
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
@@ -16,6 +16,8 @@ export type SelectOption<T extends string> = {
   // Consecutive options with the same group sit under one heading.
   group?: string;
   disabled?: boolean;
+  // Applied to the row label and the trigger text, so a font row draws in its font.
+  style?: CSSProperties;
 };
 
 const GAP = 6;
@@ -136,7 +138,11 @@ export function Select<T extends string>({
         className={`flex h-8 items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"} ${triggerClassName}`}
       >
         {selected?.icon}
-        {selected?.display ?? <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? ""}</span>}
+        {selected?.display ?? (
+          <span style={selected?.style} className="min-w-0 flex-1 truncate text-left">
+            {selected?.label ?? ""}
+          </span>
+        )}
         <span className="text-ink-3">
           <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={1.8} color="currentColor" />
         </span>
@@ -164,6 +170,7 @@ export function Select<T extends string>({
                     disabled={option.disabled}
                     icon={option.icon}
                     label={option.label}
+                    labelStyle={option.style}
                     description={option.description}
                     selected={option.value === value}
                     onClick={() => choose(option.value)}
