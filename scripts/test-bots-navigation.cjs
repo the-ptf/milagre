@@ -94,13 +94,18 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector('[data-sidebar-routines]')`), false, "Bots lists bots, not the tools row");
     await screenshot("bots-navigation-thread");
 
-    // Collapsed, the thread's header starts after the sidebar toggle instead of under it.
+    // Collapsed, the thread's header starts after the sidebar toggle instead of under it. The header learns <main> moved
+    // from a ResizeObserver, which runs with a frame; a hidden window on Linux paints none until one is captured.
     await click('[aria-label="Collapse sidebar"]');
     await waitFor(`Math.round(document.querySelector("aside").getBoundingClientRect().width) === 44`);
-    await delay(400);
-    const header = await evaluate(
-      `(() => { const toggle = document.querySelector('[data-sidebar-toggle] button').getBoundingClientRect(); const title = document.querySelector('[data-bot-thread="ops"] header h1').getBoundingClientRect(); return { toggleRight: toggle.right, titleLeft: title.left }; })()`,
-    );
+    const readHeader = `(() => { const toggle = document.querySelector('[data-sidebar-toggle] button').getBoundingClientRect(); const title = document.querySelector('[data-bot-thread="ops"] header h1').getBoundingClientRect(); return { toggleRight: toggle.right, titleLeft: title.left }; })()`;
+    let header;
+    for (let n = 0; n < 20; n++) {
+      await window.webContents.capturePage();
+      header = await evaluate(readHeader);
+      if (header.titleLeft >= header.toggleRight) break;
+      await delay(50);
+    }
     assert.ok(header.titleLeft >= header.toggleRight, `the bot's name clears the sidebar toggle: ${JSON.stringify(header)}`);
     await screenshot("bots-navigation-collapsed");
     await click('[aria-label="Expand sidebar"]');
