@@ -107,20 +107,37 @@ export function routineStatus(routine: RoutineWithRuns, now: number): string {
   return when === "yesterday" ? `Yesterday ${clock(run.startedAt)}` : capitalized(when);
 }
 
+type ProjectStates = Readonly<Record<string, { sessions: Record<string, unknown> }>>;
+
 /**
- * The Routines with a hidden Run Chat nobody has opened yet, read from the Project states a window holds, one entry per
- * Project path (so the open Project, merged in with the others, counts once). Only this Mac's Projects count: a Link's Chats
- * and another computer's Projects belong to Routines this page doesn't list, so a dot for them could never be cleared here.
+ * The hidden Run Chats nobody has opened yet, read from the Project states a window holds, one entry per Project path (so
+ * the open Project, merged in with the others, counts once). Only this Mac's Projects count: a Link's Chats and another
+ * computer's Projects belong to Routines the Routines page doesn't list, so a dot for them could never be cleared there.
  */
-export function unreadRunRoutines(states: Readonly<Record<string, { sessions: Record<string, unknown> }>>): Set<string> {
+function unreadHiddenRunChats(states: ProjectStates) {
   const scopes = Object.entries(states)
     .filter(([key]) => !isLinkScopeKey(key) && computerOfKey(key) === LOCAL_COMPUTER)
     .map(([path, state]) => ({ path, state: state as Parameters<typeof hiddenRunChats>[0][number]["state"] }));
-  return new Set(
-    hiddenRunChats(scopes)
-      .filter((chat) => chat.unread)
-      .map((chat) => chat.routineId),
-  );
+  return hiddenRunChats(scopes).filter((chat) => chat.unread);
+}
+
+/** The Routines with a hidden Run Chat nobody has opened yet (see unreadHiddenRunChats): the Routines button and their rows show a dot. */
+export function unreadRunRoutines(states: ProjectStates): Set<string> {
+  return new Set(unreadHiddenRunChats(states).map((chat) => chat.routineId));
+}
+
+/** The keys ("<path>#<id>") of the hidden Run Chats nobody has opened yet: their Runs show a dot on the Routine page. */
+export function unreadRunChats(states: ProjectStates): Set<string> {
+  return new Set(unreadHiddenRunChats(states).map((chat) => chat.chatKey));
+}
+
+/**
+ * The Routine a Chat's header chip names: the one whose Run opened the Chat (`session.routine`, hidden or kept), else an
+ * enabled Heartbeat that checks back on it (the Chats heartbeatKeys marks). Undefined when neither is on this Mac.
+ */
+export function chatRoutine<T extends Routine>(routines: readonly T[], chatKey: string, run?: { routineId: string }): T | undefined {
+  const own = run ? routines.find((routine) => routine.id === run.routineId) : undefined;
+  return own ?? routines.find((routine) => routine.enabled && routine.target.kind === "chat" && routine.target.chatId === chatKey);
 }
 
 type RoutinesSnapshot = { enabled: boolean | null; routines: RoutineWithRuns[]; error: string | null };

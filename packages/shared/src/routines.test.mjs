@@ -4,6 +4,7 @@ import {
   canRunNow,
   clock,
   foldRuns,
+  foldText,
   groupQuietRuns,
   hiddenRunChats,
   isRoutineRun,
@@ -12,6 +13,7 @@ import {
   routineRunOf,
   routineRunText,
   runTitle,
+  runWhen,
   triggerText,
 } from "./routines.mjs";
 
@@ -386,4 +388,28 @@ test("hiddenRunChats lists unarchived hidden Run Chats with their unread state",
     { chatKey: "/p#2", routineId: "r1", runId: "u2", unread: false },
     { chatKey: "/q#7", routineId: "r2", runId: "u7", unread: false },
   ]);
+});
+
+// Local times, so "today" and "yesterday" hold in any time zone.
+const local = (day, hour, minute) => new Date(2026, 9, day, hour, minute).getTime();
+
+test("runWhen says Today or Yesterday with the time, and the date before that", () => {
+  const now = local(18, 12, 0);
+  assert.equal(runWhen(local(18, 10, 15), now), "Today 10:15");
+  assert.equal(runWhen(local(18, 0, 5), now), "Today 00:05");
+  assert.equal(runWhen(local(17, 9, 0), now), "Yesterday 09:00");
+  assert.equal(runWhen(local(17, 23, 59), local(18, 0, 1)), "Yesterday 23:59");
+  assert.equal(runWhen(local(16, 9, 0), now), "Oct 16 09:00");
+  assert.equal(runWhen(new Date(2026, 0, 3, 7, 30).getTime(), now), "Jan 3 07:30");
+});
+
+test("runWhen adds the year to a date from another year", () => {
+  assert.equal(runWhen(new Date(2025, 11, 30, 8, 0).getTime(), local(18, 12, 0)), "Dec 30, 2025 08:00");
+});
+
+test("foldText counts a fold's Runs by kind, leaving out the kinds it has none of, and ends with the latest time", () => {
+  const at = local(18, 10, 30);
+  assert.equal(foldText({ quiet: 5, skipped: 2, missed: 0, refused: 0 }, at), "5 quiet · 2 skipped · last 10:30");
+  assert.equal(foldText({ quiet: 0, skipped: 0, missed: 1, refused: 3 }, at), "1 missed · 3 refused · last 10:30");
+  assert.equal(foldText({ quiet: 1, skipped: 1, missed: 1, refused: 1 }, at), "1 quiet · 1 skipped · 1 missed · 1 refused · last 10:30");
 });

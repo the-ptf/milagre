@@ -124,7 +124,8 @@ import { restoredChatsNotice } from "./lib/restored-chats";
 import { lazyView } from "./lib/lazy-view";
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
-import { unreadRunRoutines } from "./lib/routines";
+import { unreadRunChats, unreadRunRoutines } from "./lib/routines";
+import { RoutineChip } from "./components/routines/RoutineChip";
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
 import { DraftChatComposer } from "./components/DraftChatComposer";
 import { queueControls } from "./components/QueuedMessages";
@@ -323,6 +324,8 @@ function App() {
   };
   const selectedCapability = capabilityFor(selectedModel, capabilities);
   const [view, setView] = useState<"chat" | "canvas" | "settings" | "routines">("chat");
+  // The Routine whose page the Routines view shows, or null for the list.
+  const [routineId, setRoutineId] = useState<string | null>(null);
   const [layout, setLayout] = useState<ChatLayout>(() => readChatLayout(localStorage));
   const toggleLayout = () =>
     setLayout((current) => {
@@ -782,6 +785,16 @@ function App() {
   const gridStates = useMemo(() => ({ ...scopeStates, ...states }), [scopeStates, states]);
   // The Routines with a hidden Run Chat nobody opened yet: the sidebar's Routines button and their rows show a dot.
   const unreadRunRoutineIds = useStableSet(useMemo(() => unreadRunRoutines(gridStates), [gridStates]));
+  // The hidden Run Chats nobody opened: their Runs show a dot on their Routine's page.
+  const unreadRunChatKeys = useStableSet(useMemo(() => unreadRunChats(gridStates), [gridStates]));
+  // Whether a Chat is still there to open: a quiet Run's line on a Routine's page opens only such a Chat.
+  const hasChat = useCallback(
+    (key: string) => {
+      const session = gridStates[projectOfKey(key)]?.sessions[sessionIdFromKey(key)];
+      return Boolean(session && !session.archived);
+    },
+    [gridStates],
+  );
   const focusedChatKey = project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null;
   const activeKeys = useMemo(
     () => (gridOn ? activeChatKeys(agentRuns.runs, linkedWork, gridStates) : NO_KEYS),
@@ -1754,6 +1767,12 @@ function App() {
         setFindOpen(false);
         return;
       }
+      // A Routine's page goes back to the Routines page first.
+      if (view === "routines" && routineId) {
+        event.preventDefault();
+        setRoutineId(null);
+        return;
+      }
       if (view === "settings" || view === "canvas" || view === "routines") {
         event.preventDefault();
         setView("chat");
@@ -1772,7 +1791,7 @@ function App() {
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [run, project?.path, selectedSession?.id, view]);
+  }, [run, project?.path, selectedSession?.id, view, routineId]);
 
   useEffect(() => {
     function jumpToChat(event: KeyboardEvent) {
@@ -1891,6 +1910,13 @@ function App() {
   });
   const openRoutines = useEvent(() => {
     changes.closeDiff();
+    setRoutineId(null);
+    setView("routines");
+  });
+  // A Routine's own page, with its Runs: from its row, or from a Chat's Routine chip.
+  const openRoutine = useEvent((id: string | null) => {
+    changes.closeDiff();
+    setRoutineId(id);
     setView("routines");
   });
   const openExperimental = useEvent(() => {
@@ -2431,6 +2457,10 @@ function App() {
               <AnimatePresence initial={false} onExitComplete={diffPresence.onExitComplete}>
                 {diffShowing && <DiffView key="diff" changes={changes} prefs={diffPrefs} comments={diffComments} />}
               </AnimatePresence>
+              {/* The open Chat's Routine (a Run Chat's, or a Heartbeat's), over the Chat; a grid's tiles name their own Chats. */}
+              {view === "chat" && !diffPresence.occupied && shownTiles.length === 0 && focusedChatKey && !isRemoteKey(project.path) && (
+                <RoutineChip chatKey={focusedChatKey} run={selectedSession?.routine} onOpen={openRoutine} />
+              )}
               {view === "settings" && (
                 <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
                   {notice && (
@@ -2453,6 +2483,10 @@ function App() {
                   models={models}
                   projectPath={project.path}
                   unreadRoutines={unreadRunRoutineIds}
+                  routineId={routineId}
+                  unreadChats={unreadRunChatKeys}
+                  hasChat={hasChat}
+                  onOpenRoutine={openRoutine}
                   onOpenChat={openLinkedChat}
                   onOpenExperimental={openExperimental}
                 />

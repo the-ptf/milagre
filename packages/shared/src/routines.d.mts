@@ -42,6 +42,13 @@ export type RunEntry =
  * `rejected` fold into one entry (a refused Run counts only as `refused`); `last` is the newest `startedAt` in the fold.
  */
 export function foldRuns(runs: readonly RoutineRun[]): RunEntry[];
+/**
+ * When a Run started, on the computer's clock: "Today 10:15", "Yesterday 09:00", "Oct 16 09:00", or "Dec 30, 2025 08:00"
+ * for another year than `now`'s.
+ */
+export function runWhen(at: number, now: number): string;
+/** A fold as one line: "5 quiet · 2 skipped · last 10:30" (kinds with no Runs left out; "missed", "refused" likewise). */
+export function foldText(counts: Extract<RunEntry, { kind: "fold" }>["counts"], last: number): string;
 /** A Run's name: its own `title`, else "<key> <title>" for a Linear event, else the Routine's name. */
 export function runTitle(run: RoutineRun, routineName: string): string;
 /** The not archived Chats whose `routine.hidden` is set, across Projects. `chatKey` is "<path>#<id>". */

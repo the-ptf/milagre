@@ -125,7 +125,7 @@ async function browserChecks() {
       ],
     );
     assert.deepEqual(
-      JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll('[data-routine-chip]')].map((chip) => chip.textContent.trim()))`)),
+      JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll('[data-routine-filter]')].map((chip) => chip.textContent.trim()))`)),
       ["All 5", "Heartbeats 2", "Triggers 3", "Paused 1"],
     );
     // The paused trigger says why and shows Paused; a heartbeat names its Chat.
@@ -140,9 +140,9 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector('[data-routine-row="t1"] [data-routine-status]').textContent`), "MIL-142 · 2 h ago");
     assert.match(await evaluate("document.body.textContent"), /Closing the lid on battery pauses them\./);
     // Paused filter keeps only the paused row.
-    await click('[data-routine-chip="paused"]');
+    await click('[data-routine-filter="paused"]');
     await waitFor(`document.querySelectorAll('[data-routine-row]').length === 1 && !!document.querySelector('[data-routine-row="t3"]')`);
-    await click('[data-routine-chip="all"]');
+    await click('[data-routine-filter="all"]');
     await waitFor(`document.querySelectorAll('[data-routine-row]').length === 5`);
     // The ⋯ menu: Run now only for schedules; a webhook trigger has none.
     await click('[data-routine-row="t2"] [data-routine-more]');

@@ -200,6 +200,42 @@ export function foldRuns(runs) {
   return entries;
 }
 
+const DAY = 24 * 60 * 60 * 1000;
+
+/** The computer's midnight that starts the day `at` falls on. */
+const midnight = (at) => {
+  const date = new Date(at);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+};
+
+/**
+ * When a Run started, for the Runs list, on the computer's clock: "Today 10:15", "Yesterday 09:00", "Oct 16 09:00", and
+ * "Dec 30, 2025 08:00" for a day in another year than `now`'s.
+ */
+export function runWhen(at, now) {
+  const time = clock(at);
+  // Rounded: a day that DST shortens or lengthens is still one day.
+  const days = Math.round((midnight(now) - midnight(at)) / DAY);
+  if (days === 0) return `Today ${time}`;
+  if (days === 1) return `Yesterday ${time}`;
+  const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
+  const date = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) }).format(at);
+  return `${date} ${time}`;
+}
+
+/** A fold of the Runs list as one line: its counts by kind, the empty ones left out, then its latest start. "5 quiet · 2 skipped · last 10:30". */
+export function foldText(counts, last) {
+  const parts = [
+    [counts.quiet, "quiet"],
+    [counts.skipped, "skipped"],
+    [counts.missed, "missed"],
+    [counts.refused, "refused"],
+  ]
+    .filter(([count]) => count > 0)
+    .map(([count, word]) => `${count} ${word}`);
+  return [...parts, `last ${clock(last)}`].join(" · ");
+}
+
 /** A Run's name on the Runs list: what it did when it ended, else its Linear issue ("MIL-12 Fix the flicker"), else the Routine's name. */
 export function runTitle(run, routineName) {
   if (run.title?.trim()) return run.title;

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { clock } from "@milagre/shared/routines";
 import {
+  chatRoutine,
   groupRoutines,
   refreshRoutines,
   routineDeleteQuestion,
@@ -9,6 +10,7 @@ import {
   routineStatus,
   routinesSnapshot,
   subscribeRoutines,
+  unreadRunChats,
   unreadRunRoutines,
   type RoutineWithRuns,
 } from "./routines.ts";
@@ -168,4 +170,34 @@ test("unreadRunRoutines: Routines with a hidden Run Chat nobody opened, over thi
 test("routineDeleteQuestion: a Heartbeat's Chat stays; a Routine that opens Chats archives the Run Chats you haven't kept", () => {
   assert.equal(routineDeleteQuestion(heartbeat), "Delete Watch CI on #461? Its Chats stay.");
   assert.equal(routineDeleteQuestion(linear), "Delete Take issues labelled agent? Its Runs stop, and its Run Chats you haven't kept are archived.");
+});
+
+test("unreadRunChats: the keys of this Mac's hidden Run Chats nobody opened, for the Runs list's dots", () => {
+  const shop = { sessions: { 1: runChat(1, "r1", { unread: true }), 2: runChat(2, "r1"), 3: { id: 3, unread: true } } };
+  const web = {
+    sessions: {
+      1: runChat(1, "r2", { unread: true, archived: true }),
+      2: { id: 2, unread: true, routine: { routineId: "r3", runId: "u9", hidden: false } },
+      3: runChat(3, "r1", { unread: true }),
+    },
+  };
+  const link = { sessions: { 1: runChat(1, "r5", { unread: true }) } };
+  const remote = { sessions: { 1: runChat(1, "r6", { unread: true }) } };
+  const linkKey = "milagre-link:0b1f4a52-5c3e-4d7a-9a40-3c5b1e0d9f11";
+  const states = { "/code/shop": shop, "/code/web": web, [linkKey]: link, "mac-2|/code/api": remote } as never;
+  assert.deepEqual([...unreadRunChats(states)].sort(), ["/code/shop#1", "/code/web#3"]);
+  assert.equal(unreadRunChats({} as never).size, 0);
+});
+
+test("chatRoutine: a Run Chat's own Routine, else the enabled Heartbeat that checks back on the Chat", () => {
+  const routines = [heartbeat, pausedHeartbeat, linear, webhook];
+  // A Run Chat, hidden or kept, names the Routine whose Run opened it.
+  assert.equal(chatRoutine(routines, "/code/milagre-ade#4", { routineId: "l1" })?.id, "l1");
+  assert.equal(chatRoutine(routines, "/code/milagre-ade#5", { routineId: "w1" })?.id, "w1");
+  // A Heartbeat's Chat, while the Heartbeat is on.
+  assert.equal(chatRoutine(routines, "/code/milagre#12")?.id, "h1");
+  assert.equal(chatRoutine([pausedHeartbeat], "/code/milagre#12"), undefined);
+  // A Run Chat whose Routine is gone, and a Chat no Routine knows.
+  assert.equal(chatRoutine(routines, "/code/milagre-ade#6", { routineId: "gone" }), undefined);
+  assert.equal(chatRoutine(routines, "/code/milagre#1"), undefined);
 });

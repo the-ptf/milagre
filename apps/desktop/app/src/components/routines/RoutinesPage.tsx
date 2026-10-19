@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { PlusSignIcon, Pulse01Icon, RepeatIcon, ZapIcon } from "@hugeicons/core-free-icons";
 import type { ModelOption } from "@milagre/shared/model";
@@ -6,17 +6,27 @@ import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { RoutineRow } from "./RoutineRow";
 import { RoutineForm } from "./RoutineForm";
+import { RoutinePage } from "./RoutinePage";
 import { groupRoutines, routineMeta, routineStatus, useRoutines, type RoutineWithRuns } from "../../lib/routines";
 
 type Filter = "all" | "heartbeats" | "triggers" | "paused";
 const HELP = "Routines run while this Mac is awake. Closing the lid on battery pauses them.";
 const card = "divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface";
 
-/** The Routines page: this Mac's heartbeats and triggers, each with its switch and actions, and New Routine. */
+const NO_CHATS: ReadonlySet<string> = new Set();
+
+/**
+ * The Routines page: this Mac's heartbeats and triggers, each with its switch and actions, and New Routine. With
+ * `routineId` it shows that Routine's own page, with its Runs, instead.
+ */
 export function RoutinesPage({
   models,
   projectPath,
   unreadRoutines,
+  routineId = null,
+  unreadChats = NO_CHATS,
+  hasChat,
+  onOpenRoutine,
   onOpenChat,
   onOpenExperimental,
 }: {
@@ -25,6 +35,14 @@ export function RoutinesPage({
   projectPath?: string;
   /** The ids of Routines with a hidden Run Chat nobody opened: their rows show a dot. */
   unreadRoutines?: ReadonlySet<string>;
+  /** The Routine whose page is open, or null for the list. */
+  routineId?: string | null;
+  /** The keys of hidden Run Chats nobody opened: their Runs show a dot on the Routine's page. */
+  unreadChats?: ReadonlySet<string>;
+  /** Whether a Chat is still there to open (not archived), for a quiet Run's line. */
+  hasChat?: (chatKey: string) => boolean;
+  /** Opens a Routine's page (a row's click), or goes back to the list with null. */
+  onOpenRoutine?: (routineId: string | null) => void;
   onOpenChat: (chatKey: string) => void;
   onOpenExperimental: () => void;
 }) {
@@ -59,6 +77,24 @@ export function RoutinesPage({
     };
   }, [enabled, routines.length]);
 
+  const selected = routineId ? routines.find((routine) => routine.id === routineId) : undefined;
+  // A Routine deleted (here, from its page, or anywhere else) takes its page with it: back to the list.
+  const gone = Boolean(routineId && enabled && !loadError && !selected);
+  useEffect(() => {
+    if (gone) onOpenRoutine?.(null);
+  }, [gone, onOpenRoutine]);
+  // Back from a Routine's page, the keyboard lands on that Routine's row again (if it is still there).
+  const lastOpened = useRef<string | null>(null);
+  useEffect(() => {
+    if (routineId) {
+      lastOpened.current = routineId;
+      return;
+    }
+    const id = lastOpened.current;
+    lastOpened.current = null;
+    if (id) document.querySelector<HTMLElement>(`[data-routine-row="${CSS.escape(id)}"] [data-routine-open]`)?.focus();
+  }, [routineId]);
+
   const groups = useMemo(() => groupRoutines(routines), [routines]);
   const shown = (list: RoutineWithRuns[]) => (filter === "paused" ? list.filter((routine) => !routine.enabled) : list);
   const heartbeats = filter === "triggers" ? [] : shown(groups.heartbeats);
@@ -80,6 +116,7 @@ export function RoutinesPage({
       meta={routineMeta(routine, { chatTitle: (id) => chatTitles.get(id), modelName, now })}
       status={routineStatus(routine, now)}
       unread={unreadRoutines?.has(routine.id) ?? false}
+      onOpen={() => onOpenRoutine?.(routine.id)}
       onToggle={(on) => act(() => window.milagre.updateRoutine(routine.id, { enabled: on }))}
       onEdit={() => setForm(routine)}
       onRunNow={() => act(() => window.milagre.runRoutineNow(routine.id))}
@@ -93,6 +130,34 @@ export function RoutinesPage({
     { id: "triggers", label: "Triggers", count: groups.triggers.length },
     { id: "paused", label: "Paused", count: groups.paused.length },
   ];
+
+  const sheet = form && (
+    <RoutineForm
+      initial={form === "new" ? undefined : form}
+      models={models}
+      defaultProjectPath={projectPath}
+      onClose={() => {
+        setForm(null);
+        refresh();
+      }}
+    />
+  );
+  if (enabled && selected)
+    return (
+      <>
+        <RoutinePage
+          routine={selected}
+          models={models}
+          unreadChats={unreadChats}
+          chatTitle={(id) => chatTitles.get(id)}
+          hasChat={hasChat}
+          onBack={() => onOpenRoutine?.(null)}
+          onEdit={() => setForm(selected)}
+          onOpenChat={onOpenChat}
+        />
+        {sheet}
+      </>
+    );
 
   return (
     <ScrollArea className="flex h-full flex-col">
@@ -144,7 +209,7 @@ export function RoutinesPage({
                     type="button"
                     role="tab"
                     aria-selected={filter === chip.id}
-                    data-routine-chip={chip.id}
+                    data-routine-filter={chip.id}
                     onClick={() => setFilter(chip.id)}
                     className={`h-7 rounded-full px-3 text-[12px] font-medium transition-colors ${
                       filter === chip.id ? "bg-ink text-surface" : "border border-line-strong bg-surface text-ink-2 hover:bg-hover"
@@ -192,17 +257,7 @@ export function RoutinesPage({
           </>
         ) : null}
       </div>
-      {form && (
-        <RoutineForm
-          initial={form === "new" ? undefined : form}
-          models={models}
-          defaultProjectPath={projectPath}
-          onClose={() => {
-            setForm(null);
-            refresh();
-          }}
-        />
-      )}
+      {sheet}
     </ScrollArea>
   );
 }
