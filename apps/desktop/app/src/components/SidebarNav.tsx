@@ -1057,7 +1057,7 @@ export default memo(function SidebarNav({
                   >
                     <HugeIcon icon={RepeatIcon} size={16} />
                     {routinesUnread && (
-                      <span aria-hidden data-routines-unread className="absolute top-1 right-1 size-2 rounded-full bg-accent ring-2 ring-surface" />
+                      <span aria-hidden data-routines-unread className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-accent ring-2 ring-surface" />
                     )}
                   </button>
                 </Tooltip>
