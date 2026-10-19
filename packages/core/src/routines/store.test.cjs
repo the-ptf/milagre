@@ -2318,7 +2318,7 @@ test("the store says which Routines its upkeep purged, so their webhook secrets 
   assert.deepEqual(loaded, [other.id]);
 });
 
-test("a deleted or purged Routine is remembered as removed, across a reload, for 90 days", () => {
+test("a deleted or purged Routine is remembered as removed, across a reload, for good", () => {
   const { store, clock, options } = setup();
   const gone = store.create(spec);
   const ended = store.create({ ...spec, name: "ended", trigger: webhook(OTHER_HOOK) });
@@ -2336,12 +2336,13 @@ test("a deleted or purged Routine is remembered as removed, across a reload, for
   const reloaded = createRoutineStore(options);
   assert.equal(reloaded.wasRemoved(gone.id), true);
   assert.equal(reloaded.wasRemoved(ended.id), true);
-  // 90 days after the delete, upkeep forgets it; the purged one, removed 31 days later, is still remembered.
-  clock.t = START + 90 * DAY;
+  // Upkeep never forgets one: 100 days after the delete, its Run Chats are still known to be left behind by it.
+  clock.t = START + 100 * DAY;
   reloaded.create({ ...spec, name: "much later", trigger: webhook("ef".repeat(32)) });
-  assert.equal(reloaded.wasRemoved(gone.id), false);
+  assert.equal(reloaded.wasRemoved(gone.id), true);
   assert.equal(reloaded.wasRemoved(ended.id), true);
-  assert.deepEqual(Object.keys(saved(options).removed), [ended.id]);
+  assert.deepEqual(Object.keys(saved(options).removed).toSorted(), [gone.id, ended.id].toSorted());
+  assert.equal(createRoutineStore(options).wasRemoved(gone.id), true);
 });
 
 test("a file saved before removed Routines were remembered loads with none, and a damaged entry is dropped", () => {

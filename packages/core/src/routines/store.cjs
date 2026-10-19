@@ -55,8 +55,6 @@ const REJECTED_KEPT = 50;
 const RUN_STATUSES = new Set(["running", "acted", "quiet", "failed", "skipped-busy", "missed"]);
 // A completed Routine stays this long after it ended, then goes with everything it kept.
 const PURGE_AFTER_MS = 30 * 864e5;
-// How long a deleted or purged Routine is remembered (`removed`), so its Run Chats are known to be left behind by it.
-const REMOVED_KEEP_MS = 90 * 864e5;
 const MAINTAIN_EVERY_MS = 3600_000;
 const NO_NEXT_RUN = "schedule has no next run";
 const VERSION = 1;
@@ -309,8 +307,9 @@ function pruneSeen(state, routineId, at) {
 }
 
 // Upkeep, on load and at most hourly after: a Routine completed 30 days ago goes, with its Runs, queue, seen keys and any
-// Linear cursor no other Routine reads, and is remembered as removed; seen keys past their age go, and so do Routines
-// removed 90 days ago. Says whether anything went.
+// Linear cursor no other Routine reads, and is remembered as removed for good (`removed`, a few bytes each: a Project left
+// closed for months still learns its Run Chats were left behind by it); seen keys past their age go. Says whether anything
+// went.
 function maintain(state, at, purgedIds = []) {
   let changed = false;
   state.removed ??= {};
@@ -337,11 +336,6 @@ function maintain(state, at, purgedIds = []) {
     }
   }
   for (const routineId of Object.keys(state.seen)) if (pruneSeen(state, routineId, at)) changed = true;
-  for (const [routineId, removedAt] of Object.entries(state.removed)) {
-    if (removedAt + REMOVED_KEEP_MS > at) continue;
-    delete state.removed[routineId];
-    changed = true;
-  }
   return changed;
 }
 
@@ -1170,7 +1164,7 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     setRunTitle,
     // Whether a Run is still in the store.
     hasRun: (runId) => runIndex.has(runId),
-    // Whether Routine `routineId` was deleted or purged here in the last 90 days.
+    // Whether Routine `routineId` was deleted or purged here, ever.
     wasRemoved: (routineId) => Object.hasOwn(data.removed ?? {}, routineId),
     // Why every write is refused (a file this Milagre can't read or understand), or null when the store writes.
     readOnlyReason: () => readOnly,
