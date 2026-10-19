@@ -10,6 +10,7 @@ import { bridgeFor, ScopeContext } from "../../lib/computer-bridge";
 import { createDraftStore, draftKey } from "../../lib/draft-store";
 import { useChatMessages } from "../../lib/chat-messages";
 import { useComposerPreferences } from "../../lib/use-composer-preferences";
+import { useControlsClearance } from "../../lib/window-chrome";
 import { attachmentPrompt } from "../../lib/media";
 import { sentDecision, sentReply } from "../../lib/agent-runs";
 import { usePastedImages } from "../usePastedImages";
@@ -68,6 +69,7 @@ export function BotThread({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [answering, setAnswering] = useState<Record<string, GateChoice>>({});
+  const { bar: headerBar, inset: headerInset } = useControlsClearance<HTMLElement>(true);
   const model: ModelOption = preferences.models.find((option) => option.provider === bot.provider && option.id === bot.model) ?? {
     id: bot.model,
     name: bot.model,
@@ -201,7 +203,13 @@ export function BotThread({
     <ScopeContext.Provider value={bot.homePath}>
       <MessageCardContext.Provider value={card}>
         <div data-bot-thread={bot.id} className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <header className="relative z-30 flex h-[var(--window-chrome-height)] shrink-0 items-center gap-2 pr-1 pl-2">
+          {/* With the sidebar collapsed, the window controls and the sidebar toggle sit over the header's left end. */}
+          <header
+            ref={headerBar}
+            className="relative z-30 flex h-[var(--window-chrome-height)] shrink-0 items-center gap-2"
+            // The inset stops 12px short of the controls' end for a bar whose buttons bring their own spacing; the title has none.
+            style={{ paddingLeft: headerInset.paddingLeft > 0 ? headerInset.paddingLeft + 12 : 8, paddingRight: Math.max(4, headerInset.paddingRight) }}
+          >
             <h1 className="shrink-0 text-[14px] font-semibold text-ink">{bot.name}</h1>
             <p className="min-w-0 truncate text-[13px] text-ink-3">
               {bot.role} · {model.name}

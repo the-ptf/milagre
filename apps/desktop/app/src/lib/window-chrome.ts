@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 
 type Overlay = EventTarget & {
   visible: boolean;
@@ -51,4 +51,28 @@ function snapshot() {
 export function useWindowChrome(): ChromeLayout {
   useSyncExternalStore(subscribe, snapshot);
   return readWindowChrome();
+}
+
+/**
+ * Insets that keep a bar along the top of <main> clear of the window controls and the sidebar toggle, from where its
+ * offset parent starts. Collapsing the sidebar moves that edge under them.
+ */
+export function useControlsClearance<T extends HTMLElement>(open: boolean) {
+  const { controlsEnd, rightInset } = useWindowChrome();
+  const bar = useRef<T>(null);
+  const [inset, setInset] = useState({ paddingLeft: 0, paddingRight: 0 });
+  useLayoutEffect(() => {
+    const host = bar.current?.offsetParent;
+    if (!open || !(host instanceof HTMLElement)) return;
+    const update = () => {
+      const rect = host.getBoundingClientRect();
+      setInset({ paddingLeft: Math.max(0, controlsEnd - rect.left - 12), paddingRight: Math.max(0, rect.right - window.innerWidth + rightInset) });
+    };
+    update();
+    // Collapsing the sidebar resizes <main>, which is what moves its left edge.
+    const observer = new ResizeObserver(update);
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [open, controlsEnd, rightInset]);
+  return { bar, inset };
 }

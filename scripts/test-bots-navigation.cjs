@@ -1,5 +1,5 @@
 // Real App, stubbed bridge: the Projects | Bots switch next to Routines. With the bot thread on screen, Escape leaves the
-// turn running in the Chat behind it. Bots from the Routines page shows the bot thread; Routines opens from the palette
+// turn running in the Chat behind it, and with the sidebar collapsed its header clears the sidebar toggle. Bots from the Routines page shows the bot thread; Routines opens from the palette
 // in Bots, and its Heartbeat's Open Chat lands in that Chat with the sidebar back on Projects.
 // Run with node scripts/test-bots-navigation.cjs. Set MILAGRE_SCREENSHOT_DIR to keep screenshots.
 const assert = require("node:assert/strict");
@@ -9,6 +9,12 @@ const fixture = `
 import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
 localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
 localStorage.setItem("milagre.sidebarMode", "bots");
+// The traffic lights' room on macOS, which puts the sidebar toggle over <main> once the sidebar collapses.
+const titlebar = new EventTarget();
+titlebar.visible = true;
+titlebar.getTitlebarAreaRect = () => new DOMRect(80, 0, innerWidth - 80, 60);
+Object.defineProperty(navigator, "windowControlsOverlay", { value: titlebar });
+window.milagreWindowChrome = { controls: "leading" };
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import '/src/styles.css';
@@ -87,6 +93,18 @@ async function browserChecks() {
     assert.equal(await evaluate(chatPaneShown), false, "the bot thread takes the Chat's place");
     assert.equal(await evaluate(`!!document.querySelector('[data-sidebar-routines]')`), false, "Bots lists bots, not the tools row");
     await screenshot("bots-navigation-thread");
+
+    // Collapsed, the thread's header starts after the sidebar toggle instead of under it.
+    await click('[aria-label="Collapse sidebar"]');
+    await waitFor(`Math.round(document.querySelector("aside").getBoundingClientRect().width) === 44`);
+    await delay(400);
+    const header = await evaluate(
+      `(() => { const toggle = document.querySelector('[data-sidebar-toggle] button').getBoundingClientRect(); const title = document.querySelector('[data-bot-thread="ops"] header h1').getBoundingClientRect(); return { toggleRight: toggle.right, titleLeft: title.left }; })()`,
+    );
+    assert.ok(header.titleLeft >= header.toggleRight, `the bot's name clears the sidebar toggle: ${JSON.stringify(header)}`);
+    await screenshot("bots-navigation-collapsed");
+    await click('[aria-label="Expand sidebar"]');
+    await waitFor(`Math.round(document.querySelector("aside").getBoundingClientRect().width) > 44`);
 
     // Both Chats behind the bot thread run a turn; Escape on the thread stops neither.
     for (const chatId of ["/fixture#3", "/fixture#5"]) {
