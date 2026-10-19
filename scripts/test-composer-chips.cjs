@@ -15,9 +15,9 @@ import { createRoot } from 'react-dom/client';
 import '/src/styles.css';
 const state = { next_id: 1, projects: { 1: { id: 1, name: 'Milagre' } }, worktrees: {}, sessions: {}, connections: {}, events: [], messages: [], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] };
 state.worktrees = { 1: { id: 1, name: 'main', path: '/fixture', project_id: 1 } };
-state.sessions = { 3: { id: 3, worktree_id: 1, agent_name: 'Claude', provider: 'claude', status: 'Idle' } };
-state.messages = [{ id: 4, session_id: 3, role: 'user', body: 'Chips chat', context: null }];
-state.next_id = 5;
+state.sessions = { 3: { id: 3, worktree_id: 1, agent_name: 'Claude', provider: 'claude', status: 'Idle' }, 5: { id: 5, worktree_id: 1, agent_name: 'Claude', provider: 'claude', status: 'Idle' } };
+state.messages = [{ id: 4, session_id: 3, role: 'user', body: 'Chips chat', context: null }, { id: 6, session_id: 5, role: 'user', body: 'Other chat', context: null }];
+state.next_id = 7;
 window.calls = []; window.searches = []; window.listeners = [];
 window.milagre = new Proxy({
   getRuntimeConnection: async () => ({ connected: true }),
@@ -27,6 +27,7 @@ window.milagre = new Proxy({
   listRecentProjects: async () => [], listBranches: async () => ['main'], listEditors: async () => [],
   getCachedUsage: async () => ({ providers: [] }), readUsage: async () => ({ providers: [] }), getUpdateState: async () => ({ status: 'idle' }),
   listSkills: async () => ({ skills: [{ name: 'tldr', description: 'Rewrite for a skimming reader', path: '/skills/tldr/SKILL.md', scope: 'bundled', provider: 'milagre' }], warnings: [] }),
+  getPathForFile: file => '/fixture/files/' + file.name,
   searchProjectFiles: async (root, query) => { window.searches.push({ root, query }); return ['src/my app.ts', 'src/model.ts'].filter(p => p.includes(query)); },
   sendMessage: async request => {
     window.calls.push(request);
@@ -103,6 +104,22 @@ async function browserChecks() {
     evaluate(`(() => { const field = ${editor}; getSelection().collapse(field, ${where === "start" ? 0 : "field.childNodes.length - 1"}); })()`).then(() =>
       delay(60),
     );
+  const openChat = async (title) => {
+    const row = `[...document.querySelectorAll('aside [data-row]')].find(row => row.textContent.includes(${JSON.stringify(title)}))`;
+    await waitFor(`!!(${row})`, `the ${title} row`);
+    await evaluate(`(${row}).click()`);
+    await waitFor(`document.querySelector('[aria-label="Conversation"]')?.textContent.includes(${JSON.stringify(title)})`, `${title} open`);
+    await waitFor(`!!${editor}`, "the prompt editor");
+    await evaluate(`${editor}.focus()`);
+  };
+  const tile = (name) => `document.querySelector('[data-promptbar] [aria-label="Remove ${name}"]')`;
+  const sendNow = async () => {
+    const count = await evaluate("window.calls.length");
+    await keydown("Enter");
+    await waitFor(`window.calls.length === ${count + 1}`, "the send");
+    await draftIs("");
+    return evaluate("window.calls.at(-1)");
+  };
   // A skill chip and a file chip on one line share their box (top and height within 0.5px) and sit centred on the line of
   // text around them (within 1px of the centre of the first text node's line).
   const assertAligned = async (scope, label) => {
@@ -131,10 +148,7 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     window.webContents.focus();
-    const row = `[...document.querySelectorAll('aside [data-row]')].find(row => row.textContent.includes('Chips chat'))`;
-    await waitFor(`!!(${row})`, "the Chat row");
-    await evaluate(`(${row}).click()`);
-    await waitFor(`!!${editor}`, "the prompt editor");
+    await openChat("Chips chat");
     assert.equal(await evaluate(`${editor}.getAttribute('aria-label')`), "Prompt");
     assert.equal(await evaluate(`${editor}.getAttribute('contenteditable')`), "true");
     await evaluate(`${editor}.focus()`);
@@ -158,7 +172,9 @@ async function browserChecks() {
     await draftIs('use /tldr @"src/my app.ts" ');
     assert.deepEqual(await chips("file"), ["my app.ts"]);
     assert.equal(await evaluate(`${editor}.querySelector('[data-chip="file"]').title`), "src/my app.ts");
-    await waitFor(`document.querySelectorAll('[data-promptbar] [aria-label="Remove my app.ts"]').length === 1`, "one attachment");
+    // The chip is the file's only representation: no tile beside it.
+    await delay(150);
+    assert.equal(await evaluate(`!!${tile("my app.ts")}`), false, "a chip's file has no tile");
     await assertAligned(editor, "composer");
     assert.equal(await evaluate(`${editor}.querySelector('[data-chip="skill"] svg')`), null, "a skill chip has no icon");
     await screenshot("composer-chips");
@@ -170,11 +186,9 @@ async function browserChecks() {
     await press("Backspace");
     await draftIs("use /tldr ");
     assert.deepEqual(await chips("file"), []);
-    await waitFor(`!document.querySelector('[data-promptbar] [aria-label="Remove my app.ts"]')`, "the attachment goes with the chip");
     await press("z", ["meta"]);
     await draftIs('use /tldr @"src/my app.ts"');
     assert.deepEqual(await chips("file"), ["my app.ts"]);
-    await waitFor(`document.querySelectorAll('[data-promptbar] [aria-label="Remove my app.ts"]').length === 1`, "undo attaches the file again");
     await press("z", ["meta", "shift"]);
     await draftIs("use /tldr ");
     await press("z", ["meta"]);
@@ -269,12 +283,11 @@ async function browserChecks() {
     await draftIs("fix @src/model.ts");
     await waitFor(`${editor}.querySelector('[data-chip="file"] .truncate')?.textContent === 'model.ts'`, "the restored mention's chip");
     assert.ok(await evaluate(`window.searches.some(s => s.query === 'src/model.ts' && s.root === '/fixture')`), "looked up in the Project");
-    await waitFor(`!!document.querySelector('[data-promptbar] [aria-label="Remove model.ts"]')`, "the restored mention is attached");
+    assert.equal(await evaluate(`!!${tile("model.ts")}`), false);
     // A mention of a file that isn't there stays text.
     await evaluate(`${editor}.value = 'fix @src/missing.ts now'`);
     await delay(400);
     assert.deepEqual(await chips("file"), []);
-    await waitFor(`!document.querySelector('[data-promptbar] [aria-label="Remove model.ts"]')`, "the attachment left with its chip");
     console.log("PASS: a restored draft's mention becomes a chip after the search; an unknown path stays text");
 
     // Typing in the middle keeps every character, around chips too.
@@ -292,6 +305,64 @@ async function browserChecks() {
     await press("Backspace");
     await draftIs("go ");
     console.log("PASS: typing before a chip and Backspace into one keep the text exact");
+
+    // Deleting a chip detaches its file: the message goes without it.
+    await evaluate(`${editor}.value = 'see @src/model.ts'`);
+    await waitFor(`${editor}.querySelectorAll('[data-chip="file"]').length === 1`, "the model.ts chip");
+    await delay(150);
+    await caretTo("end");
+    await press("Backspace");
+    await draftIs("see ");
+    await typeText("nothing attached");
+    assert.deepEqual((await sendNow()).files, [], "a deleted chip's file isn't sent");
+
+    // A file attached with + keeps its tile; removing that tile leaves the chip's file alone.
+    await evaluate(
+      `(() => { const dt = new DataTransfer(); dt.items.add(new File(['note'], 'note.txt', { type: 'text/plain' })); const input = document.querySelector('input[type=file]'); input.files = dt.files; input.dispatchEvent(new Event('change', { bubbles: true })); })()`,
+    );
+    await waitFor(`!!${tile("note.txt")}`, "the + file's tile");
+    await evaluate(`${editor}.value = 'check @src/model.ts please'`);
+    await waitFor(`${editor}.querySelectorAll('[data-chip="file"]').length === 1`, "the model.ts chip");
+    await delay(150);
+    assert.equal(await evaluate(`!!${tile("model.ts")}`), false);
+    await evaluate(`${tile("note.txt")}.click()`);
+    await waitFor(`!${tile("note.txt")}`, "the + file's tile removed");
+    await evaluate(`${editor}.focus()`);
+    let later = await sendNow();
+    assert.deepEqual(later.files, ["/fixture/src/model.ts"], "the chip's file goes with the message");
+    await waitFor(`[...document.querySelectorAll('article [data-chip="file"] .truncate')].some(chip => chip.textContent === 'model.ts')`, "the sent chip");
+    console.log("PASS: a deleted chip detaches its file; a + file keeps its tile and removing it leaves the chip's file");
+
+    // Chats keep their own attachments and undo: both mention the same file, each send carries it; ⌘Z doesn't reach across.
+    await evaluate(`${editor}.value = 'alpha @src/model.ts please'`);
+    await waitFor(`${editor}.querySelectorAll('[data-chip="file"]').length === 1`, "chip in Chips chat");
+    await delay(150);
+    await openChat("Other chat");
+    await draftIs("");
+    await typeText("beta draft");
+    await openChat("Chips chat");
+    await draftIs("alpha @src/model.ts please");
+    await openChat("Other chat");
+    await draftIs("beta draft");
+    await press("z", ["meta"]);
+    await delay(100);
+    assert.equal(await evaluate(`${editor}.value`), "beta draft", "⌘Z in another Chat doesn't bring back this Chat's draft");
+    await evaluate(`${editor}.value = 'beta @src/model.ts please'`);
+    await waitFor(`${editor}.querySelectorAll('[data-chip="file"]').length === 1`, "chip in Other chat");
+    await delay(150);
+    later = await sendNow();
+    assert.equal(later.sessionId, 5);
+    assert.deepEqual(later.files, ["/fixture/src/model.ts"], "the same file mentioned in the next Chat is sent");
+    await openChat("Chips chat");
+    await draftIs("alpha @src/model.ts please");
+    later = await sendNow();
+    assert.equal(later.sessionId, 3);
+    assert.deepEqual(later.files, ["/fixture/src/model.ts"], "and in the first Chat after switching back");
+    await waitFor(
+      `[...document.querySelectorAll('article')].some(a => a.textContent.includes('alpha') && a.querySelector('[data-chip="file"]'))`,
+      "the sent chip",
+    );
+    console.log("PASS: each Chat sends its chips' files after switching, and undo stays in its Chat");
 
     assert.deepEqual(errors, []);
     app.exit(0);

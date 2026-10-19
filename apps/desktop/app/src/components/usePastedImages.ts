@@ -176,6 +176,9 @@ export function usePastedImages(scope: string, remote = false) {
   }
 
   return {
+    /** The Chat (or new-chat screen) these attachments belong to; a new scope starts empty. */
+    scope,
+    remote,
     images,
     files,
     localFiles: localFiles.current,

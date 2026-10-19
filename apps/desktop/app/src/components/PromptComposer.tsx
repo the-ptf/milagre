@@ -2,6 +2,7 @@ import { cliName, pickerProviders, providerName } from "@milagre/shared/provider
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, KeyboardEvent } from "react";
+import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, ArrowDown01Icon, ArrowUp01Icon, Attachment01Icon, ClipboardPasteIcon, FlashIcon, SecurityCheckIcon } from "@hugeicons/core-free-icons";
 import type { AgentCliStatus, ContextUsage, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
@@ -252,28 +253,36 @@ export function PromptComposer({
     if (typedFound) markKnown(typedFound);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `markKnown` is rebuilt each render.
   }, [typedFound, projectPath]);
-  // Files attached because a chip mentions them; deleting the chip detaches them (and undoing that attaches them again).
+  // A chip is its file's only representation: the file is attached while the chip is in the draft (no tile), deleting
+  // the chip detaches it, and undoing that attaches it again. Files attached by paste or + are never detached here.
+  // A remote Chat can't take files from this Mac, so nothing is attached until the user sends (which shows why).
   const mentionAttached = useRef(new Set<string>());
-  const chipFiles = useRef<string[]>([]);
+  const mentionScope = useRef(imageDraft.scope);
   const chipKey = [...new Set(parts.flatMap((part) => (part.kind === "file" ? [fileMentionPath(projectPath, part.path) ?? ""] : [])).filter(Boolean))].join(
     "\n",
   );
+  const chipPaths = useMemo(() => (chipKey ? chipKey.split("\n") : []), [chipKey]);
   useEffect(() => {
-    const now = chipKey ? chipKey.split("\n") : [];
-    const before = chipFiles.current;
-    chipFiles.current = now;
-    for (const path of now) {
-      if (before.includes(path) || imageDraft.files.includes(path)) continue;
+    // Another Chat's attachments: what this composer attached for the last one is gone with them.
+    if (mentionScope.current !== imageDraft.scope) {
+      mentionScope.current = imageDraft.scope;
+      mentionAttached.current.clear();
+    }
+    for (const path of [...mentionAttached.current]) {
+      if (chipPaths.includes(path)) continue;
+      mentionAttached.current.delete(path);
+      if (imageDraft.files.includes(path)) imageDraft.removeFile(path);
+    }
+    if (imageDraft.remote) return;
+    for (const path of chipPaths) {
+      if (imageDraft.files.includes(path)) continue;
       mentionAttached.current.add(path);
       imageDraft.attachPath(path);
     }
-    for (const path of before) {
-      if (now.includes(path) || !mentionAttached.current.has(path)) continue;
-      mentionAttached.current.delete(path);
-      imageDraft.removeFile(path);
-    }
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs when the chips change, not when attachments do.
-  }, [chipKey]);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `imageDraft` is a new object each render; its files and scope are what count.
+  }, [chipPaths, imageDraft.files, imageDraft.scope, imageDraft.remote]);
+  const onSendLatest = useRef(onSend);
+  onSendLatest.current = onSend;
   const inputTextClass = expanded
     ? "min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
     : "min-h-7 px-1 py-[5px] text-[length:var(--chat-size)] leading-[18px]";
@@ -373,6 +382,19 @@ export function PromptComposer({
     setModelOpen(false);
     setPermissionOpen(false);
     setPlusOpen(false);
+    // Every chip's file goes with the message, even one whose attachment the effect hasn't caught up with yet; the
+    // parent's send reads its attachments from its render, so commit them first and send from the new render.
+    const missing = chipPaths.filter((path) => !imageDraft.files.includes(path));
+    if (missing.length) {
+      flushSync(() => {
+        for (const path of missing) {
+          if (!imageDraft.remote) mentionAttached.current.add(path);
+          imageDraft.attachPath(path);
+        }
+      });
+      onSendLatest.current();
+      return;
+    }
     onSend();
   }
 
@@ -393,7 +415,7 @@ export function PromptComposer({
         const path = fileMentionPath(projectPath, row.path);
         if (!path) return;
         markKnown(row.path);
-        if (!imageDraft.files.includes(path)) mentionAttached.current.add(path);
+        if (!imageDraft.files.includes(path) && !imageDraft.remote) mentionAttached.current.add(path);
         imageDraft.attachPath(path);
         const mention = formatFileMention(row.path);
         onDraftChange(insertPromptToken(draft, token, mention));
@@ -653,7 +675,7 @@ export function PromptComposer({
           <Attachments
             localFiles={imageDraft.localFiles}
             images={imageDraft.images}
-            files={imageDraft.files}
+            files={imageDraft.files.filter((file) => !chipPaths.includes(file))}
             removeImage={imageDraft.remove}
             removeFile={imageDraft.removeFile}
           />
@@ -674,6 +696,7 @@ export function PromptComposer({
             <div className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"}`}>
               <PromptEditor
                 ref={inputRef}
+                resetKey={imageDraft.scope}
                 value={draft}
                 parts={parts}
                 skillDescriptions={skillDescriptions}

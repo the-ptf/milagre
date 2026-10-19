@@ -20,14 +20,18 @@ const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
 /** Rendered after a chip that ends its line so the caret has a text position there; never part of the draft. */
 export const FILLER = "\u200B";
-const FILLERS = /\u200B/g;
 
-// The DOM offset in `raw` after `count` draft characters, past any filler that follows them.
-function rawOffset(raw: string, count: number) {
-  let index = 0;
-  for (let seen = 0; index < raw.length && seen < count; index++) if (raw[index] !== FILLER) seen++;
-  while (raw[index] === FILLER) index++;
-  return index;
+// Filler text nodes are known by identity, not by character: a U+200B the user typed or pasted is text like any other.
+const fillers = new WeakSet<EditorNode>();
+
+/** Registers a text node the editor rendered as a filler. Its leading U+200B counts nothing. */
+export function markFiller(node: EditorNode) {
+  fillers.add(node);
+}
+
+// How many leading characters of a text node are the filler's (anything a browser typed into it stays).
+function fillerWidth(node: EditorNode, raw: string) {
+  return fillers.has(node) && raw.startsWith(FILLER) ? 1 : 0;
 }
 
 const BLOCKS = new Set(["DIV", "P", "LI", "PRE", "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6"]);
@@ -83,10 +87,11 @@ function serialize(root: EditorNode, stop?: Point): string {
         const raw = node.nodeValue ?? "";
         if (raw) flush();
         if (stop?.node === node) {
-          out += raw.slice(0, Math.max(0, Math.min(stop.offset, raw.length))).replace(FILLERS, "");
+          const skip = fillerWidth(node, raw);
+          out += raw.slice(skip, Math.max(skip, Math.min(stop.offset, raw.length)));
           throw new Stop();
         }
-        out += raw.replace(FILLERS, "");
+        out += raw.slice(fillerWidth(node, raw));
         continue;
       }
       if (node.nodeType !== ELEMENT_NODE) continue;
@@ -150,10 +155,11 @@ export function textOffsetToDom(root: EditorNode, offset: number): Point {
       if (node.nodeType === TEXT_NODE) {
         const raw = node.nodeValue ?? "";
         if (!raw) continue;
-        const length = raw.replace(FILLERS, "").length;
+        const skip = fillerWidth(node, raw);
+        const length = raw.length - skip;
         flush();
         if (offset <= position + length) {
-          found = { node, offset: rawOffset(raw, Math.max(0, offset - position)) };
+          found = { node, offset: skip + Math.max(0, offset - position) };
           return true;
         }
         position += length;

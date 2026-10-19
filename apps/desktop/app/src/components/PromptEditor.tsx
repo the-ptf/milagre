@@ -10,6 +10,7 @@ import {
   domOffsetToText,
   editorLayout,
   FILLER,
+  markFiller,
   replaceRange,
   textOf,
   textOffsetToDom,
@@ -42,6 +43,8 @@ interface PromptEditorProps {
   onSelect(caret: number): void;
   /** Skill name (lowercase) to description, shown when hovering a skill chip. */
   skillDescriptions: ReadonlyMap<string, string>;
+  /** The Chat the draft belongs to; a new key starts a new undo history. */
+  resetKey?: string;
   label?: string;
   className?: string;
   placeholderClassName?: string;
@@ -92,6 +95,7 @@ export function PromptEditor({
   onPaste,
   onSelect,
   skillDescriptions,
+  resetKey,
   label = "Prompt",
   className = "",
   placeholderClassName = "",
@@ -195,6 +199,14 @@ export function PromptEditor({
     pending.current ??= { start: value.length, end: value.length };
   }, [value, history]);
 
+  // Undo never reaches into another Chat's draft. Runs after the effect above, which recorded the switch itself.
+  const historyKey = useRef(resetKey);
+  useLayoutEffect(() => {
+    if (historyKey.current === resetKey) return;
+    historyKey.current = resetKey;
+    history.clear();
+  }, [resetKey, history]);
+
   // Render the DOM from the draft, then put the caret back.
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -208,7 +220,11 @@ export function PromptEditor({
     const nodes = layout.map((piece) => {
       if (piece.kind === "text") return document.createTextNode(piece.text);
       if (piece.kind === "break") return document.createElement("br");
-      if (piece.kind === "filler") return document.createTextNode(FILLER);
+      if (piece.kind === "filler") {
+        const filler = document.createTextNode(FILLER);
+        markFiller(filler);
+        return filler;
+      }
       const base = `${piece.part.kind}:${piece.part.text}`;
       const count = seen.get(base) ?? 0;
       seen.set(base, count + 1);
@@ -341,6 +357,7 @@ export function PromptEditor({
       configurable: true,
       get: () => live.current.value,
       set: (next: unknown) => {
+        if (live.current.disabled) return;
         const text = String(next ?? "");
         history.record({ value: live.current.value, caret: selection.current.start }, "other");
         emit(text, text.length);

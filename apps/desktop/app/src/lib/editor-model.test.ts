@@ -4,6 +4,7 @@ import type { PromptPart } from "@milagre/shared/prompt-parts";
 import type { EditorNode } from "./editor-model.ts";
 import {
   caretStep,
+  markFiller,
   createEditHistory,
   deleteBackward,
   deleteForward,
@@ -113,6 +114,7 @@ const skillParts = (value: string): PromptPart[] => {
 
 test("the filler after a chip counts nothing and holds the caret", () => {
   const filler = text("\u200B");
+  markFiller(filler);
   const root = el("DIV", {}, text("a "), chip("/x"), filler, br());
   assert.equal(textOf(root), "a /x");
   assert.deepEqual(textOffsetToDom(root, 4), { node: filler, offset: 1 }, "after the chip, past the filler");
@@ -121,10 +123,26 @@ test("the filler after a chip counts nothing and holds the caret", () => {
   assert.equal(domOffsetToText(root, root, 3), 4, "before the closing break");
   // Text a browser puts into the filler (an IME composition) reads back without it.
   const typed = text("\u200B日本");
+  markFiller(typed);
   const composed = el("DIV", {}, chip("/x"), typed, br());
   assert.equal(textOf(composed), "/x日本");
   assert.equal(domOffsetToText(composed, typed, 3), 4);
   assert.deepEqual(textOffsetToDom(composed, 3), { node: typed, offset: 2 });
+});
+
+test("a U+200B the user typed is text, not a filler", () => {
+  const typed = text("a\u200Bb");
+  const root = el("DIV", {}, typed, chip("/x"), br());
+  assert.equal(textOf(root), "a\u200Bb/x");
+  assert.equal(domOffsetToText(root, typed, 2), 2);
+  assert.deepEqual(textOffsetToDom(root, 1), { node: typed, offset: 1 });
+  assert.deepEqual(textOffsetToDom(root, 2), { node: typed, offset: 2 });
+  // Only the filler's own leading U+200B is skipped; one typed after it stays.
+  const filler = text("\u200B\u200Bz");
+  markFiller(filler);
+  const after = el("DIV", {}, chip("/x"), filler, br());
+  assert.equal(textOf(after), "/x\u200Bz");
+  assert.deepEqual(textOffsetToDom(after, 3), { node: filler, offset: 2 });
 });
 
 test("Backspace and Delete next to a chip remove the whole chip", () => {

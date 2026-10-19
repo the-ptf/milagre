@@ -331,30 +331,26 @@ async function browserChecks() {
     // A picked file is a chip in the draft (its mention, quoted for the space) and an attachment.
     const mentions = '@"src/my app.ts" @media/photo.png @media/clip.mp4 ';
     assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), '@"src/my app.ts" ');
-    await waitFor(String.raw`!!document.querySelector('[data-promptbar] [aria-label="Remove my app.ts"]')`);
+    await waitFor(`document.querySelectorAll("[data-prompt-editor] [data-chip=file]").length === 1`);
+    assert.equal(
+      await evaluate(`!!document.querySelector('[data-promptbar] [aria-label="Remove my app.ts"]')`),
+      false,
+      "A chip is the file's only representation",
+    );
     assert.equal(await evaluate("window.calls.length"), 1, "Choosing a file does not send the message");
     assert.equal(await evaluate("window.searches.at(-1).root"), "/fixture");
     await type('@"src/my app.ts" @photo');
     await waitFor(String.raw`document.querySelector('[aria-label="Project files"]')?.textContent.includes('photo.png')`);
     await key("Enter");
-    await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.naturalWidth > 0`);
+    await waitFor(`document.querySelectorAll("[data-prompt-editor] [data-chip=file]").length === 2`);
     await type('@"src/my app.ts" @media/photo.png @clip');
     await waitFor(String.raw`document.querySelector('[aria-label="Project files"]')?.textContent.includes('clip.mp4')`);
     await key("Enter");
-    await waitFor(String.raw`document.querySelector('[data-promptbar] video')?.videoWidth > 0`);
+    await waitFor(`document.querySelectorAll("[data-prompt-editor] [data-chip=file]").length === 3`);
     assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), mentions, "Picked media are mentioned like any file");
     assert.equal(await evaluate('document.querySelectorAll("[data-prompt-editor] [data-chip=file]").length'), 3);
+    assert.equal(await evaluate(`!!document.querySelector("[data-promptbar] [aria-label=Attachments]")`), false, "Mentioned files show as chips, not tiles");
     await screenshot("file-attachments-selected");
-    await click('[data-promptbar] [aria-label="Preview photo.png"]');
-    await waitFor(String.raw`document.querySelector('dialog img')?.naturalWidth > 0`);
-    await screenshot("image-selected-preview");
-    await key("Escape");
-    await waitFor(String.raw`!document.querySelector("dialog")`);
-    await click('[data-promptbar] [aria-label="Preview clip.mp4"]');
-    await waitFor(String.raw`document.querySelector('dialog video')?.videoWidth > 0`);
-    await screenshot("video-selected-preview");
-    await key("Escape");
-    await waitFor(String.raw`!document.querySelector("dialog")`);
     await type(mentions + "Review these");
     await click('[aria-label="Stop agent"]');
     assert.equal(await evaluate("window.interrupted"), "/fixture#3", "Stop targets the open chat");
