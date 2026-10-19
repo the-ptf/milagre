@@ -91,6 +91,7 @@ import { StartupSplash } from "./components/StartupSplash";
 import SidebarNav from "./components/SidebarNav";
 import { cachedProjectCopy, rememberProjectCopy, runKeys, useScopeStates } from "./lib/sidebar-scopes";
 import { activeChatKeys, gridChats, readChatLayout, saveChatLayout, type ChatLayout } from "./lib/chat-grid";
+import { chatOnScreen, keepsRoutinesView, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
 import { ChatGrid } from "./components/ChatGrid";
 import { chatRevealPath } from "./lib/reveal";
 import type { SettingsSection } from "./components/Settings";
@@ -330,8 +331,13 @@ function App() {
   const [routineId, setRoutineId] = useState<string | null>(null);
   // The Run Chat open beside its Routine's page ("<path>#<id>"), or null.
   const [runPane, setRunPane] = useState<string | null>(null);
-  // The session a Run row is opening beside its Routine's page: opening it keeps the Routines view instead of the Chat alone.
-  const holdRoutinesView = useRef<number | null>(null);
+  // The Chat a Run row is opening beside its Routine's page, by chat key: opening it (in its own Project, or after switching
+  // to another) keeps the Routines view instead of showing the Chat alone. Cleared once that opening settles.
+  const holdRoutinesView = useRef<string | null>(null);
+  // The window's Chat before a Run Chat took the Chat pane: closing the pane, or leaving the Routines view on it, goes back.
+  const runPaneReturn = useRef<RunPaneReturn | null>(null);
+  const runPaneRef = useRef<string | null>(null);
+  runPaneRef.current = runPane;
   const [layout, setLayout] = useState<ChatLayout>(() => readChatLayout(localStorage));
   const toggleLayout = () =>
     setLayout((current) => {
@@ -980,8 +986,7 @@ function App() {
     if (sessionId !== selectedSessionRef.current) advanceChatView();
     setSelectedSessionId(sessionId);
     setSelectedWorktreeId(openState()?.sessions[sessionId]?.worktree_id ?? null);
-    if (holdRoutinesView.current === sessionId) holdRoutinesView.current = null;
-    else setView("chat");
+    if (!keepsRoutinesView(holdRoutinesView.current, projectRef.current?.path, sessionId)) setView("chat");
   }
 
   // The main process reads the chat on screen (on opening it, and when the window regains focus over it),
@@ -996,7 +1001,7 @@ function App() {
       openChatComputer.current = LOCAL_COMPUTER;
       return;
     }
-    const key = (view === "chat" || runPaneOpen) && project && selectedSessionId !== null ? chatKey(project.path, selectedSessionId) : null;
+    const key = chatOnScreen({ view, runPane: runPaneOpen ? runPane : null, projectPath: project?.path ?? null, sessionId: selectedSessionId });
     const computerId = project ? computerOfKey(project.path) : LOCAL_COMPUTER;
     if (openChatComputer.current !== computerId)
       void bridgeFor(openChatComputer.current)
@@ -1139,7 +1144,7 @@ function App() {
     void window.milagre
       .syncNotifications({
         projectPath: project.path,
-        activeChatId: (view === "chat" || runPaneOpen) && selectedSessionId !== null ? chatKey(project.path, selectedSessionId) : null,
+        activeChatId: chatOnScreen({ view, runPane: runPaneOpen ? runPane : null, projectPath: project.path, sessionId: selectedSessionId }),
         unread: unreadChatIds,
         notifyOnCompletion,
         showDockBadge,
@@ -1284,9 +1289,14 @@ function App() {
   }
 
   // Switching projects leaves the other project's turns running; their marks come back with it.
-  function adoptProject(nextProject: OpenProject) {
+  // `keepView` leaves the view as it is: a Run Chat opening beside its Routine's page, or the Chat it replaced coming back.
+  // `forgetChat` doesn't remember the Chat on screen for the Project being left (a Run Chat the pane had).
+  function adoptProject(nextProject: OpenProject, { keepView = false, forgetChat = false } = {}) {
     if (!selectedLinkRef.current && projectRef.current)
-      scopeDrafts.save({ kind: "project", projectPath: projectRef.current.path }, { text: draftStore.get(), sessionId: selectedSessionRef.current });
+      scopeDrafts.save(
+        { kind: "project", projectPath: projectRef.current.path },
+        { text: draftStore.get(), sessionId: forgetChat ? null : selectedSessionRef.current },
+      );
     setSelectedLink(null);
     projectsSeen.current.set(nextProject.path, { path: nextProject.path, name: nextProject.name });
     advanceChatView();
@@ -1302,24 +1312,24 @@ function App() {
       const remembered = scopeDrafts.read({ kind: "project", projectPath: nextProject.path });
       if (remembered.sessionId !== null && nextProject.state.sessions[remembered.sessionId]) setSelectedSessionId(remembered.sessionId);
       setGitDialog(null);
-      setView("chat");
+      if (!keepView) setView("chat");
     });
     const restored = restoredChatsNotice(nextProject.restoredChats);
     if (restored) setNotice(restored);
   }
 
   // Opens a project in place of the one shown; a cancelled dialog, or the project already open, changes nothing.
-  async function replaceProject(load: () => Promise<OpenProject | null>, path?: string) {
+  async function replaceProject(load: () => Promise<OpenProject | null>, path?: string, adopt: Parameters<typeof adoptProject>[1] = {}) {
     const navigation = ++projectNavigation.current;
     const cached = path ? projectsSeen.current.get(path) : undefined;
     const cachedState = path ? statesRef.current[path] : undefined;
     const instant = cached && cachedState ? { ...cached, state: cachedState } : path ? cachedProjectCopy(path) : undefined;
-    if (instant && (instant.path !== projectRef.current?.path || selectedLinkRef.current)) adoptProject(instant);
+    if (instant && (instant.path !== projectRef.current?.path || selectedLinkRef.current)) adoptProject(instant, adopt);
     const adopted = path ? statesRef.current[path] : undefined;
     try {
       const next = await load();
       if (navigation !== projectNavigation.current || !next) return;
-      if (next.path !== projectRef.current?.path || selectedLinkRef.current) adoptProject(next);
+      if (next.path !== projectRef.current?.path || selectedLinkRef.current) adoptProject(next, adopt);
       else {
         // Revalidation updates the list without resetting a Chat or draft picked while it was in flight.
         projectsSeen.current.set(next.path, { path: next.path, name: next.name });
@@ -1339,7 +1349,7 @@ function App() {
   // With other computers, Add project asks which computer first; with this Mac alone, the folder dialog.
   const openProject = () => (pairedComputers.length > 0 ? Promise.resolve(setAddProjectOpen(true)) : replaceProject(() => window.milagre.openProject()));
   const switchProject = (projectPath: string) => replaceProject(() => bridgeForKey(projectPath).switchProject(projectPath), projectPath);
-  async function selectLink(id: string, sessionId?: number) {
+  async function selectLink(id: string, sessionId?: number, { keepView = false } = {}) {
     const navigation = ++projectNavigation.current;
     try {
       const next = await bridgeForKey(`milagre-link:${id}`).openNamedLink(id);
@@ -1350,15 +1360,15 @@ function App() {
       setLinkStates((previous) => ({ ...previous, [id]: next.state }));
       setLinkInitialSession(sessionId);
       setSelectedLink(next);
-      setView("chat");
+      if (!keepView) setView("chat");
       setNewChatError(null);
     } catch (error) {
       setNotice(ipcErrorMessage(error));
     }
   }
-  async function openCanvasChat(projectPath: string, sessionId: number) {
+  async function openCanvasChat(projectPath: string, sessionId: number, adopt: Parameters<typeof adoptProject>[1] = {}) {
     if (isLinkScopeKey(projectPath)) {
-      await selectLink(projectPath.slice("milagre-link:".length), sessionId);
+      await selectLink(projectPath.slice("milagre-link:".length), sessionId, adopt);
       return;
     }
     if (!selectedLinkRef.current && projectRef.current?.path === projectPath) {
@@ -1371,7 +1381,7 @@ function App() {
     const seen = projectsSeen.current.get(projectPath);
     const instant = cachedState && seen ? { ...seen, state: cachedState } : cachedProjectCopy(projectPath);
     if (instant) {
-      adoptProject(instant);
+      adoptProject(instant, adopt);
       openChat(sessionId);
     }
     const adopted = statesRef.current[projectPath];
@@ -1379,7 +1389,7 @@ function App() {
       const next = await (isRemoteKey(projectPath) ? bridgeForKey(projectPath).switchProject(projectPath) : window.milagre.openCanvasProject(projectPath));
       if (navigation !== projectNavigation.current) return;
       if (!instant || next.path !== projectRef.current?.path || selectedLinkRef.current) {
-        adoptProject(next);
+        adoptProject(next, adopt);
         openChat(sessionId);
         return;
       }
@@ -1785,7 +1795,7 @@ function App() {
       // A Run Chat beside its Routine's page closes first, then the page goes back to the Routines page.
       if (runPaneOpen) {
         event.preventDefault();
-        setRunPane(null);
+        closeRunPane();
         return;
       }
       if (view === "routines" && routineId) {
@@ -1952,15 +1962,41 @@ function App() {
   // Saved message cards also receive this callback: keep their memoization during sends and streamed updates.
   const openLinkedChat = useEvent((key: string) => void openCanvasChat(projectOfKey(key), sessionIdFromKey(key)));
   // A Run's row on its Routine's page opens the Run's Chat beside the Runs, in the window's own Chat pane.
+  // It remembers the Chat the window had, which closing the pane brings back (a Run Chat in another Project switches the
+  // window's Project, and the Routines view stays).
   const openRunChat = useEvent((key: string) => {
+    runPaneReturn.current ??= project
+      ? { projectPath: project.path, linkId: selectedLink?.link.id ?? null, sessionId: selectedSessionId, worktreeId: selectedWorktreeId }
+      : null;
     setRunPane(key);
-    holdRoutinesView.current = sessionIdFromKey(key);
-    openLinkedChat(key);
+    holdRoutinesView.current = key;
+    void openCanvasChat(projectOfKey(key), sessionIdFromKey(key), { keepView: true }).finally(() => {
+      if (holdRoutinesView.current === key) holdRoutinesView.current = null;
+    });
+  });
+  // Closes the Run Chat pane and, while the window still shows that Run Chat, brings back the Chat it replaced, so the Chat
+  // view never opens on a hidden Run Chat. A Chat picked meanwhile (the sidebar, a notification) stays.
+  const closeRunPane = useEvent(() => {
+    const saved = runPaneReturn.current;
+    const paneKey = runPaneRef.current;
+    runPaneReturn.current = null;
+    // A Run Chat still opening (its Project loading) is called off, so it can't land in the Chat view afterwards.
+    if (holdRoutinesView.current !== null) projectNavigation.current += 1;
+    holdRoutinesView.current = null;
+    setRunPane(null);
+    const back = runPaneRestore(saved, paneKey, focusedChatKeyRef.current, projectRef.current?.path ?? null);
+    if (!back) return;
+    if (back.kind === "link") void selectLink(back.linkId, back.sessionId ?? undefined, { keepView: true });
+    else if (back.kind === "same") {
+      if (back.sessionId !== selectedSessionRef.current) advanceChatView();
+      setSelectedSessionId(back.sessionId);
+      setSelectedWorktreeId(back.worktreeId);
+    } else if (back.sessionId !== null) void openCanvasChat(back.projectPath, back.sessionId, { keepView: true, forgetChat: true });
+    else void replaceProject(() => bridgeForKey(back.projectPath).switchProject(back.projectPath), back.projectPath, { keepView: true, forgetChat: true });
   });
   // The pane belongs to the Routine page it opened on: another page, or another view, closes it.
   useEffect(() => {
-    setRunPane(null);
-    holdRoutinesView.current = null;
+    closeRunPane();
   }, [routineId, view]);
   const sidebarUsage = useMemo(
     () => (showUsageInSidebar && usage.snapshot && visibleProviders(usage.snapshot).length > 0 ? <SidebarUsage usage={usage} /> : undefined),
@@ -2541,6 +2577,7 @@ function App() {
                       onOpenRoutine={openRoutine}
                       onOpenChat={openLinkedChat}
                       onOpenRunChat={openRunChat}
+                      onCloseRunChat={closeRunPane}
                       onOpenExperimental={openExperimental}
                     />
                   )}
@@ -2562,7 +2599,7 @@ function App() {
                       chatKey={focusedChatKey}
                       title={chatTitle(selectedSession, displayedMessages)}
                       branch={selectedWorktree?.name}
-                      onClose={() => setRunPane(null)}
+                      onClose={closeRunPane}
                     />
                   )}
                   {awayBanner && (
