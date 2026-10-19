@@ -4,7 +4,7 @@ import type { BotsSnapshot } from "@milagre/shared/bots";
 import { BotAvatar } from "./BotAvatar";
 
 /** 08:05 today; Oct 14 before that. */
-export function botTime(at: number | null, now = Date.now()) {
+function botTime(at: number | null, now = Date.now()) {
   if (at == null) return "";
   const date = new Date(at);
   return new Date(now).toDateString() === date.toDateString()
