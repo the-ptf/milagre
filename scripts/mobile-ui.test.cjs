@@ -11607,6 +11607,9 @@ test("a phone Run row gives its words all the room: flex 1 with no minimum, the 
     time.props.style.some((entry) => entry.flexShrink === 0),
     true,
   );
+  // A fold's range ("13:29–13:30", 11 tabular characters at 13 pt) stays on one line.
+  assert.equal(time.props.numberOfLines, 1);
+  assert.ok(time.props.style.some((entry) => entry.width >= 92));
 });
 
 test("the phone Routine screen opens a Run's Chat in a Project it holds no state for, and the Chat screen loads it", () => {
@@ -11722,13 +11725,22 @@ function routineFormHost({ params = {}, routines = [], answers = {}, created } =
     },
   };
   const icons = new Proxy({}, { get: (_, key) => key });
+  // The discard guard: whether leaving is held back now, and the alert it shows when it is.
+  const guard = { on: false, ask: null, alerts: [] };
   const { default: RoutineForm } = load("app/routine-form.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": {
       ...Object.fromEntries(["Pressable", "Text", "View"].map((name) => [name, name])),
+      Alert: { alert: (...args) => guard.alerts.push(args) },
       Platform: { OS: "ios" },
       StyleSheet: { hairlineWidth: 1 },
+    },
+    "expo-router/react-navigation": {
+      usePreventRemove: (on, ask) => {
+        guard.on = on;
+        guard.ask = ask;
+      },
     },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
     "expo-router": {
@@ -11759,7 +11771,7 @@ function routineFormHost({ params = {}, routines = [], answers = {}, created } =
   };
   const rowLabels = (tree) => allNodes(tree, (node) => typeof node.type === "function" && node.type.name === "FormRow").map((node) => node.props.label);
   const pick = (tree, label) => find(tree, (node) => node.type === "PullDown" && node.props.label === label);
-  return { render, calls, routes, rowLabels, pick };
+  return { render, calls, routes, rowLabels, pick, guard };
 }
 
 test("the phone routine form in Linear mode shows the When, Label and Team rows and offers Linear placeholders", () => {
@@ -11814,6 +11826,7 @@ test("a new phone Heartbeat can pick a Project, change it, and save its selected
   await new Promise((resolve) => setImmediate(resolve));
   const create = host.calls.find(([method]) => method === "routines:create");
   assert.deepEqual(create?.[1][0].target, { kind: "chat", chatId: "/q#9" });
+  await new Promise((resolve) => setTimeout(resolve, 5));
   assert.deepEqual(host.routes, ["back"]);
 });
 
@@ -11876,6 +11889,7 @@ test("Create on the phone routine form sends routines:create the formToInput out
       target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" },
     },
   ]);
+  await new Promise((resolve) => setTimeout(resolve, 5));
   assert.deepEqual(host.routes, ["back"]);
 });
 
@@ -12210,6 +12224,7 @@ test("editing a Routine on the phone starts from it and saves the formToUpdate p
   const { formFromRoutine, formToUpdate } = require("@milagre/shared/routine-form");
   const expected = formToUpdate({ ...formFromRoutine(stored, "UTC"), name: "Agent issues" }, stored).patch;
   assert.deepEqual(update[1], ["tr", JSON.parse(JSON.stringify(expected))]);
+  await new Promise((resolve) => setTimeout(resolve, 5));
   assert.deepEqual(host.routes, ["back"]);
 });
 
@@ -12242,6 +12257,29 @@ test("the phone New Routine sheet uses desktop's copy, and Create waits for a na
   assert.equal(find(tree, (node) => node.type === "PillButton").props.disabled, false);
 });
 
+test("closing the phone Routine sheet with changes asks to discard them first; Linear says its issue text is data", () => {
+  const host = routineFormHost();
+  let tree = host.render();
+  assert.equal(host.guard.on, false, "an untouched sheet closes at once");
+  find(tree, (node) => node.props?.accessibilityLabel === "Linear event" && node.props.accessibilityRole === "radio").props.onPress();
+  tree = host.render();
+  assert.ok(
+    allNodes(tree, (node) => node.type === "Text")
+      .map(textOf)
+      .includes("Type {{ for the Run's fields. Issue text is passed as data, not instructions."),
+  );
+  assert.equal(host.guard.on, true);
+  let repeated = 0;
+  host.guard.ask({ repeat: () => (repeated += 1) });
+  const [title, , buttons] = host.guard.alerts[0];
+  assert.equal(title, "Discard changes?");
+  assert.deepEqual(JSON.parse(JSON.stringify(buttons.map((button) => button.text))), ["Keep editing", "Discard"]);
+  buttons[1].onPress();
+  assert.equal(repeated, 1);
+  host.render();
+  assert.equal(host.guard.on, false, "once discarded the sheet leaves without asking again");
+});
+
 test("Delete Routine sits at the bottom of the phone Edit sheet, says what deleting does, and asks first", async () => {
   const heartbeat = {
     id: "hb",
@@ -12267,6 +12305,7 @@ test("Delete Routine sits at the bottom of the phone Edit sheet, says what delet
     host.calls.filter(([method]) => method === "routines:delete"),
     [["routines:delete", ["hb"]]],
   );
+  await new Promise((resolve) => setTimeout(resolve, 5));
   assert.deepEqual(host.routes, ["back"]);
 });
 

@@ -84,8 +84,8 @@ export function RunList({
       if (!next.delete(key)) next.add(key);
       return next;
     });
-  // The time keeps its width; the words give way first.
-  const time = [styles.caption, { fontVariant: ["tabular-nums" as const], width: 76, flexShrink: 0, fontSize: 13 }];
+  // The time keeps its width, wide enough for a fold's range ("13:29–13:30") on one line; the words give way first.
+  const time = [styles.caption, { fontVariant: ["tabular-nums" as const], width: 92, flexShrink: 0, fontSize: 13 }];
   const openable = (run: RoutineRun) => (run.chatId && canOpen(run.chatId) ? run.chatId : undefined);
 
   /** One row: the time column, an icon, the words, then the unread dot and a chevron when it opens a Chat. */
@@ -121,7 +121,9 @@ export function RunList({
       onPress={onPress}
       style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 48, paddingVertical: 8, opacity: pressed ? 0.5 : 1 })}
     >
-      <Text style={time}>{when}</Text>
+      <Text numberOfLines={1} style={time}>
+        {when}
+      </Text>
       <View style={{ width: 20, alignItems: "center" }}>{icon}</View>
       {/* The words take all the room the others leave, and truncate only where they meet them. */}
       <Text

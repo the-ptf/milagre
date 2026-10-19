@@ -1,6 +1,7 @@
 import { Children, useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
+import { usePreventRemove } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import {
@@ -36,7 +37,7 @@ import {
   formToUpdate,
   deleteWarning,
   isCommentRoutine,
-  PROMPT_HINT,
+  promptHint,
   PROMPT_PLACEHOLDER,
   withRunIn,
   type RoutineFormField,
@@ -141,6 +142,28 @@ export default function RoutineFormSheet() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [footerHeight, setFooterHeight] = useState(0);
+  // Whether the user changed anything (reads the sheet fills in itself don't count): closing it then asks to discard.
+  const [dirty, setDirty] = useState(false);
+  const [closing, setClosing] = useState(false);
+  usePreventRemove(dirty && !closing, ({ repeat }) =>
+    Alert.alert("Discard changes?", "Your changes to this Routine will not be saved.", [
+      { text: "Keep editing", style: "cancel" },
+      {
+        text: "Discard",
+        style: "destructive",
+        // repeat() lifts the prevention before dispatching; dispatching the action again would be blocked again.
+        onPress: () => {
+          setClosing(true);
+          repeat();
+        },
+      },
+    ]),
+  );
+  // Leaves after a save or a delete, which have nothing left to discard.
+  const leave = () => {
+    setClosing(true);
+    setTimeout(() => router.back(), 0);
+  };
   // Editing starts from the stored Routine once the list has it.
   if (routine && loadedFor !== routine.id && !createdId) {
     setLoadedFor(routine.id);
@@ -172,6 +195,7 @@ export default function RoutineFormSheet() {
   }
 
   const change = (patch: Partial<RoutineFormState>) => {
+    setDirty(true);
     setProblem(null);
     setForm((current) => ({ ...current, ...patch }));
   };
@@ -192,7 +216,7 @@ export default function RoutineFormSheet() {
       if (routine && "patch" in made) {
         await client.call("routines:update", [routine.id, made.patch]);
         await routines.refresh();
-        router.back();
+        leave();
       } else if ("input" in made && made.input) {
         const result = await client.call<{ routine?: { id: string }; id?: string; hookUrl?: string }>("routines:create", [made.input]);
         await routines.refresh();
@@ -200,7 +224,9 @@ export default function RoutineFormSheet() {
           setCreatedId(result.routine?.id ?? result.id ?? "");
           setLoadedFor(result.routine?.id ?? result.id ?? "");
           setHookUrl(result.hookUrl);
-        } else router.back();
+          // Saved: from here the sheet edits the new Routine, with nothing to discard yet.
+          setDirty(false);
+        } else leave();
       }
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Could not save this Routine.");
@@ -215,7 +241,7 @@ export default function RoutineFormSheet() {
       if (!(await confirm(`Delete ${routine.name}?`, deleteWarning(routine), "Delete"))) return;
       await client.call("routines:delete", [routine.id]);
       // The Routine's screen behind the sheet sees it gone and leaves too.
-      router.back();
+      leave();
       await routines.refresh();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Could not delete this Routine.");
@@ -630,6 +656,7 @@ export default function RoutineFormSheet() {
                   },
                 ]}
                 onSelect={(runIn) => {
+                  setDirty(true);
                   setProblem(null);
                   setForm((current) => withRunIn(current, runIn as RoutineFormState["runIn"], Date.now()));
                 }}
@@ -702,7 +729,7 @@ export default function RoutineFormSheet() {
 
           <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Prompt</Text>
           <PlaceholderField value={form.prompt} onChangeText={(prompt) => change({ prompt })} placeholders={placeholders} placeholder={PROMPT_PLACEHOLDER} />
-          <Text style={[styles.caption, { paddingHorizontal: 4 }]}>{PROMPT_HINT}</Text>
+          <Text style={[styles.caption, { paddingHorizontal: 4 }]}>{promptHint(form.trigger)}</Text>
           <Problem text={problemFor("prompt")} />
 
           <Text style={[styles.label, { paddingHorizontal: 4, marginTop: 4 }]}>Stop after</Text>

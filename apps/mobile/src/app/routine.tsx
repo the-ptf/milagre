@@ -91,6 +91,9 @@ function StatusPill({ on }: { on: boolean }) {
  * ran, then its Runs by day, filtered by All, Acted, Failed or Unread, with the stretches that did nothing folded. Run now
  * and Edit sit in the header; Delete is in Edit.
  */
+/** This phone's time zone: a schedule chip in another one names its zone. */
+const deviceZone = () => new Intl.DateTimeFormat().resolvedOptions().timeZone;
+
 export default function RoutineScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const styles = useStyles();
@@ -224,7 +227,7 @@ export default function RoutineScreen() {
           style={{ marginHorizontal: -20 }}
           contentContainerStyle={{ gap: 8, paddingHorizontal: 20 }}
         >
-          <Chip icon={routineIcon(routine)} text={triggerChipText(routine.trigger)} />
+          <Chip icon={routineIcon(routine)} text={triggerChipText(routine.trigger, deviceZone())} />
           <Chip
             icon={target.kind === "chat" ? BubbleChatIcon : target.workspace === "worktree" ? GitBranchIcon : Folder01Icon}
             text={routineWhereText(target, chatTitle)}
