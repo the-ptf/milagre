@@ -431,7 +431,9 @@ class CodexSession {
     // The mapper filters other threads and stale turns before any image is surfaced here.
     if (method === "item/completed" && events.some((event) => event.type === "step-completed" && event.id === String(params.item?.id)))
       events.push(...toolImageEvents(params.item));
-    if (events.some((event) => event.type === "subagent-update")) this.scheduleSubagents();
+    // A message to a finished child changes nothing yet, but marks it for a recheck (subagents.cjs): poll it too.
+    const recheck = [...(this.state.subagentRecheckUntil?.values() ?? [])].some((until) => until > Date.now());
+    if (recheck || events.some((event) => event.type === "subagent-update")) this.scheduleSubagents();
     if (!events.some(isTerminal)) {
       events.forEach((event) => this.emit(event));
       return;
@@ -674,7 +676,7 @@ class CodexSession {
 }
 
 // Reopening an idle chat need not start or resume an agent. Only its saved unknown children
-// are checked, and history items are never replayed as new output or fresh communications.
+// are checked, and history items are never replayed as new output.
 async function recoverCodexSubagents({ cwd, command, env, agents, clientVersion = "0.0.0", createRpc = (options) => new CodexRpc(options) }) {
   const unknown = (agents ?? []).filter((agent) => agent.status === "unknown" && !agent.archived);
   if (!command || !unknown.length) return [];

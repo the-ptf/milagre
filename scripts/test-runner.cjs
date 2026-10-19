@@ -25,6 +25,8 @@ const MANIFEST = {
   "test-chat-attachments.cjs": { seconds: 24 },
   "test-site.cjs": { seconds: 23 },
   "test-task-track.cjs": { seconds: 20 },
+  // Darwin-only until #526: 19.6 s on its first Linux run.
+  "test-subagents.cjs": { seconds: 20 },
   "test-chat-pins.cjs": { seconds: 17 },
   "test-sidebar-links.cjs": { seconds: 16 },
   "test-usage-limit.cjs": { seconds: 14 },
@@ -61,7 +63,6 @@ const MANIFEST = {
   "test-sidebar-resize.cjs": { platforms: ["darwin"], reason: "reads the width mid-transition on Linux, #239" },
   // The Routines page, form and Chat surfaces on a Vite fixture (no build); about 6s on a Mac, so a Linux runner guess.
   "test-routines.cjs": { seconds: 9 },
-  "test-subagents.cjs": { platforms: ["darwin"], reason: "eyes do not follow the pointer under xvfb, #240" },
   "test-sidebar-usage.cjs": { platforms: ["darwin"], reason: "usage card text differs on Linux, #254" },
 };
 

@@ -183,47 +183,20 @@ test("Claude waits until all foreground children have returned", () => {
   assert.equal(first.find((e) => e.type === "subagents-waiting").waiting, true);
 });
 
-test("Codex peer messages keep the spawning parent and record the real sender and receiver once", () => {
+test("Codex peer messages keep the spawning parent and never make the main thread a child", () => {
   const state = { threadId: "root" };
   const call = (threadId, item) =>
     mapCodexNotification("item/completed", { threadId, item: { type: "collabAgentToolCall", status: "completed", ...item } }, state);
   call("root", { id: "spawn-a", tool: "spawnAgent", receiverThreadIds: ["a"], prompt: "Review auth" });
   call("a", { id: "spawn-b", tool: "spawnAgent", receiverThreadIds: ["b"], prompt: "Check tests" });
   call("root", { id: "spawn-c", tool: "spawnAgent", receiverThreadIds: ["c"], prompt: "Check types" });
-  const message = { id: "peer", tool: "sendInput", receiverThreadIds: ["b"], prompt: "The auth tests need an update." };
-  call("c", message);
-  call("c", message);
-  const agent = state.subagents.get("b");
-  assert.equal(agent.parentId, "a");
-  assert.equal(agent.communications.filter((entry) => entry.id === "peer:b").length, 1);
-  assert.deepEqual(agent.communications.at(-1), { id: "peer:b", fromId: "c", toId: "b", text: message.prompt, at: agent.communications.at(-1).at });
-  assert.equal(typeof agent.communications.at(-1).at, "number");
+  call("c", { id: "peer", tool: "sendInput", receiverThreadIds: ["b"], prompt: "The auth tests need an update." });
+  assert.equal(state.subagents.get("b").parentId, "a");
   call("b", { id: "to-main", tool: "sendInput", receiverThreadIds: ["root"], prompt: "The fix is ready." });
   assert.equal(state.subagents.has("root"), false);
-  assert.equal(state.subagents.get("b").communications.at(-1).toId, null);
 });
 
-test("Claude task prompts and returned results become directed communications, not child thinking", () => {
-  const state = {};
-  mapClaudeMessage(launch, state);
-  assert.equal(state.subagents.get("spawn").communications[0].fromId, null);
-  assert.equal(state.subagents.get("spawn").communications[0].text, "Check authentication");
-  mapClaudeMessage(
-    { type: "assistant", parent_tool_use_id: "spawn", message: { id: "thought", content: [{ type: "thinking", thinking: "Checking carefully" }] } },
-    state,
-  );
-  assert.equal(state.subagents.get("spawn").communications.length, 1);
-  mapClaudeMessage(
-    { type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: "spawn", content: "All good" }] } },
-    state,
-  );
-  const reply = state.subagents.get("spawn").communications.at(-1);
-  assert.equal(reply.fromId, "spawn");
-  assert.equal(reply.toId, null);
-  assert.equal(reply.text, "All good");
-});
-
-test("Codex native peer activity records direction without turning the main thread into a child", () => {
+test("Codex native peer activity keeps the spawning parent without turning the main thread into a child", () => {
   const state = { threadId: "root" };
   const activity = (threadId, id, kind, target, path) =>
     mapCodexNotification("item/completed", { threadId, item: { type: "subAgentActivity", id, kind, agentThreadId: target, agentPath: path } }, state);
@@ -231,25 +204,12 @@ test("Codex native peer activity records direction without turning the main thre
   activity("a", "spawn-b", "started", "b", "/root/a/b");
   activity("root", "spawn-c", "started", "c", "/root/c");
   activity("c", "peer", "interacted", "b", "/root/a/b");
-  const receiver = state.subagents.get("b");
-  assert.equal(receiver.parentId, "a");
-  assert.equal(receiver.communications?.length, 1);
-  assert.deepEqual(
-    receiver.communications.map(({ fromId, toId, text }) => ({ fromId, toId, text })),
-    [{ fromId: "c", toId: "b", text: "Message sent" }],
-  );
+  assert.equal(state.subagents.get("b").parentId, "a");
   activity("b", "to-main", "interacted", "root", "/root");
   assert.equal(state.subagents.has("root"), false);
-  assert.deepEqual(state.subagents.get("b").communications.at(-1), {
-    id: "activity:b:to-main:interacted",
-    fromId: "b",
-    toId: null,
-    text: "Message sent",
-    at: state.subagents.get("b").communications.at(-1).at,
-  });
 });
 
-test("Codex native history replay preserves terminal lifecycle and original communication times", (t) => {
+test("Codex native history replay preserves terminal lifecycle", (t) => {
   let time = 100;
   t.mock.method(Date, "now", () => ++time);
   const state = { threadId: "root" };
@@ -260,7 +220,6 @@ test("Codex native history replay preserves terminal lifecycle and original comm
   ];
   for (const item of items) mapCodexNotification("item/completed", { threadId: "root", item }, state);
   const original = structuredClone(state.subagents.get("a"));
-  assert.equal(original.communications?.length, 1);
   for (const item of items) {
     assert.deepEqual(mapCodexNotification("item/started", { threadId: "root", item }, state), []);
     assert.deepEqual(mapCodexNotification("item/completed", { threadId: "root", item }, state), []);
@@ -282,10 +241,9 @@ test("Codex native interactions do not invent unknown agents or restart complete
   activity("done", "completed", "a");
   activity("message", "interacted", "a");
   assert.equal(state.subagents.get("a").status, "completed");
-  assert.equal(state.subagents.get("a").communications?.length, 1);
 });
 
-test("Codex repeated waits retain one reply until the reported result changes", (t) => {
+test("Codex repeated waits keep one reply until the reported result changes", (t) => {
   let time = 100;
   t.mock.method(Date, "now", () => ++time);
   const state = { threadId: "root" };
@@ -311,89 +269,46 @@ test("Codex repeated waits retain one reply until the reported result changes", 
   wait("wait-2", "completed", "Auth is valid");
   assert.deepEqual(state.subagents.get("a"), original);
   wait("wait-3", "completed", "Found another issue");
-  assert.equal(state.subagents.get("a").communications.length, 2);
-  assert.equal(state.subagents.get("a").communications.at(-1).text, "Found another issue");
+  assert.deepEqual(
+    state.subagents
+      .get("a")
+      .transcript.filter((entry) => entry.id === "result")
+      .map((entry) => entry.text),
+    ["Found another issue"],
+  );
 });
 
-test("Codex historical messages remain deduplicated after the visible history cap", () => {
-  const state = { threadId: "root" };
-  const call = (id, prompt) =>
-    mapCodexNotification(
-      "item/completed",
-      { threadId: "root", item: { type: "collabAgentToolCall", id, tool: "sendInput", status: "completed", receiverThreadIds: ["a"], prompt } },
+test("Claude SendMessage never creates a subagent", () => {
+  const state = {};
+  const send = (id, input) =>
+    mapClaudeMessage(
+      { type: "assistant", parent_tool_use_id: null, message: { id: `assistant-${id}`, content: [{ type: "tool_use", id, name: "SendMessage", input }] } },
       state,
     );
-  mapCodexNotification(
-    "item/completed",
-    { threadId: "root", item: { type: "subAgentActivity", id: "spawn", kind: "started", agentThreadId: "a", agentPath: "/root/a" } },
-    state,
-  );
-  for (let index = 0; index < 25; index++) call(`message-${index}`, `Update ${index}`);
-  const original = structuredClone(state.subagents.get("a").communications);
-  assert.equal(original.length, 20);
-  call("message-0", "Update 0");
-  assert.deepEqual(state.subagents.get("a").communications, original);
-});
-
-const claudeCall = (state, id, input, parent = null) =>
-  mapClaudeMessage(
-    { type: "assistant", parent_tool_use_id: parent, message: { id: `assistant-${id}`, content: [{ type: "tool_use", id, name: "SendMessage", input }] } },
-    state,
-  );
-const claudeResult = (state, id, parent = null, extra = {}) =>
-  mapClaudeMessage(
-    { type: "user", parent_tool_use_id: parent, message: { content: [{ type: "tool_result", tool_use_id: id, content: "Message delivered", ...extra }] } },
-    state,
-  );
-const namedClaudeChild = (state, id, name, parent = null) =>
   mapClaudeMessage(
     {
       type: "assistant",
-      parent_tool_use_id: parent,
+      parent_tool_use_id: null,
       message: {
-        content: [{ type: "tool_use", id, name: "Agent", input: { description: `Review ${name}`, prompt: "Review the code", name, run_in_background: true } }],
+        content: [
+          {
+            type: "tool_use",
+            id: "a",
+            name: "Agent",
+            input: { description: "Review reviewer", prompt: "Review the code", name: "reviewer", run_in_background: true },
+          },
+        ],
       },
     },
     state,
   );
-
-test("Claude records SendMessage by name only after successful delivery", () => {
-  const state = {};
-  namedClaudeChild(state, "a", "reviewer");
-  namedClaudeChild(state, "b", "tester");
-  claudeCall(state, "send", { to: "tester", message: "The auth test needs updating" }, "a");
-  assert.equal(state.subagents.get("b").communications.length, 1);
-  claudeResult(state, "send", "a");
-  const communication = state.subagents.get("b").communications.at(-1);
-  assert.equal(communication.fromId, "a");
-  assert.equal(communication.toId, "b");
-  assert.equal(communication.text, "The auth test needs updating");
-  const original = structuredClone(state.subagents.get("b").communications);
-  claudeResult(state, "send", "a");
-  assert.deepEqual(state.subagents.get("b").communications, original);
-});
-
-test("Claude resolves legacy SendMessage task IDs without creating unknown recipients or reporting rejected messages", () => {
-  const state = {};
-  namedClaudeChild(state, "a", "reviewer");
-  mapClaudeMessage({ type: "system", subtype: "task_started", task_id: "task-a", tool_use_id: "a", task_type: "local_agent" }, state);
-  claudeCall(state, "legacy", { type: "message", recipient: "task-a", content: "Check the edge case" });
-  claudeResult(state, "legacy");
-  assert.deepEqual(
-    state.subagents.get("a").communications.map(({ fromId, toId, text }) => ({ fromId, toId, text })),
-    [
-      { fromId: null, toId: "a", text: "Review the code" },
-      { fromId: null, toId: "a", text: "Check the edge case" },
-    ],
+  send("named", { to: "reviewer", message: "Check the edge case" });
+  send("unknown", { to: "stranger", message: "Not part of this chat" });
+  mapClaudeMessage(
+    { type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: "unknown", content: "Message delivered" }] } },
+    state,
   );
-  claudeCall(state, "failed", { to: "reviewer", message: "Never delivered" });
-  claudeResult(state, "failed", null, { is_error: true });
-  claudeCall(state, "unknown", { to: "stranger", message: "Not part of this chat" });
-  claudeResult(state, "unknown");
-  claudeCall(state, "shutdown", { type: "shutdown_request", recipient: "reviewer", content: "Stop" });
-  claudeResult(state, "shutdown");
-  assert.equal(state.subagents.size, 1);
-  assert.equal(state.subagents.get("a").communications.length, 2);
+  assert.deepEqual([...state.subagents.keys()], ["a"]);
 });
 
 test("unloading a Codex child preserves a known terminal outcome and its timestamps", (t) => {

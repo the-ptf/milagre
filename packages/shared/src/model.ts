@@ -666,15 +666,6 @@ export type QuestionAnswers = Record<string, string[]>;
 
 export type QuestionOutcome = "answered" | "dismissed" | "cancelled";
 
-/** An observed message between agents. A null endpoint is the main agent. */
-export interface SubagentCommunication {
-  id: string;
-  fromId: string | null;
-  toId: string | null;
-  text: string;
-  at: number;
-}
-
 export interface Subagent {
   id: string;
   source?: "milagre-advisor";
@@ -692,7 +683,6 @@ export interface Subagent {
   updatedAt: number;
   endedAt?: number;
   latestActivity?: string;
-  communications?: SubagentCommunication[];
   /** The subagent's own to-do list (its TodoWrite, task tools or Codex plan), when it keeps one. */
   tasks?: AgentTask[];
   /** Running totals over its whole transcript, kept by the host (subagent-glance.mjs). */
@@ -704,7 +694,7 @@ export interface Subagent {
    */
   transcriptLength?: number;
   /**
-   * Set on an archived subagent sent as a summary, without its prompt, latest activity, communications or transcript (a
+   * Set on an archived subagent sent as a summary, without its prompt, latest activity or transcript (a
    * client that reads archived subagents on demand, see subagent-transcript.mjs); chat:subagent reads the rest.
    */
   detailsOnDemand?: true;

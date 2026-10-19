@@ -60,8 +60,7 @@ async function harness({ state = projectState(), reader, loaded = true } = {}) {
 
 test("recovery reads only eligible unknown children and saves terminal outcomes without a turn", async () => {
   const oldEntry = { id: "partial", kind: "message", text: "Partial result" };
-  const oldMessage = { id: "request", fromId: null, toId: "done", text: "Review", at: 15 };
-  const eligible = [child("done", { transcript: [oldEntry], communications: [oldMessage] }), child("failed"), child("cancelled")];
+  const eligible = [child("done", { transcript: [oldEntry] }), child("failed"), child("cancelled")];
   const excluded = [
     child("archived", { archived: true }),
     child("running", { status: "running" }),
@@ -73,7 +72,6 @@ test("recovery reads only eligible unknown children and saves terminal outcomes 
   const calls = [];
   const recovered = eligible.map((agent, index) => completed(agent, ["completed", "failed", "cancelled"][index]));
   recovered[0].agent.transcript = [{ id: "final", kind: "message", text: "Final result" }];
-  recovered[0].agent.communications = [{ ...oldMessage, at: 199 }];
   const { host, states, saved, broadcasts, published, started } = await harness({
     state,
     reader: async (request) => {
@@ -98,7 +96,6 @@ test("recovery reads only eligible unknown children and saves terminal outcomes 
     ["completed", "failed", "cancelled"],
   );
   assert.deepEqual(children[0].transcript, [oldEntry, recovered[0].agent.transcript[0]]);
-  assert.deepEqual(children[0].communications, [oldMessage]);
   for (const untouched of excluded.filter((agent) => agent.id !== "native-parent"))
     assert.equal(
       children.find((agent) => agent.id === untouched.id),

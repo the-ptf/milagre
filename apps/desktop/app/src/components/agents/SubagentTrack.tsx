@@ -12,7 +12,6 @@ import {
   ScrollIcon,
   Search01Icon,
   Tick02Icon,
-  ViewIcon,
   WrenchIcon,
 } from "@hugeicons/core-free-icons";
 import { advisorAction, subagentRoleLabel, subagentActivityLabel } from "@milagre/shared/agent-activity";
@@ -239,7 +238,7 @@ function Clamped({ children, lines, label }: { children: ReactNode; lines: 2 | 6
  * One subagent at a glance: its own plan (or, without one, what it said step by step), what it does now, its task and
  * outcome. The whole transcript sits behind Full log.
  */
-export const SubagentDetail = memo(function SubagentDetail({
+const SubagentDetail = memo(function SubagentDetail({
   chatKey,
   agent: sent,
   onStop,
@@ -397,7 +396,6 @@ export function SubagentTrack({
   chatKey,
   agents,
   provider = "codex",
-  onOpenCanvas,
   onArchiveFinished,
   onArchive,
   onStop,
@@ -406,7 +404,6 @@ export function SubagentTrack({
   chatKey?: string | null;
   agents: Subagent[];
   provider?: ModelProvider;
-  onOpenCanvas: () => void;
   onArchiveFinished?: () => void;
   onArchive?: (id: string, archived: boolean) => void;
   onStop?: (id: string) => void;
@@ -554,19 +551,6 @@ export function SubagentTrack({
                         Archived ({archivedCount})
                       </button>
                     )}
-                    <span className="flex-1" />
-                    <button
-                      type="button"
-                      aria-label="Open subagent canvas"
-                      onClick={() => {
-                        setOpened(false);
-                        onOpenCanvas();
-                      }}
-                      className={footerClass}
-                    >
-                      <HugeiconsIcon icon={ViewIcon} size={13} aria-hidden />
-                      Watch on canvas
-                    </button>
                   </>
                 )}
               </footer>

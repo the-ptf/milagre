@@ -3,7 +3,7 @@ const path = require("node:path");
 const { fileURLToPath } = require("node:url");
 const { acpStep, acpStepResult } = require("./acp-events.cjs");
 const { code } = require("./steps.cjs");
-const { active, communicate, update: setSubagent } = require("./subagents.cjs");
+const { active, update: setSubagent } = require("./subagents.cjs");
 
 // Antigravity's subagents as Milagre subagents (docs/adr/0006-antigravity-over-acp.md). ACP says nothing about
 // them: the parent's `start_subagent` call ends as soon as the children are launched, and the children's tool
@@ -192,7 +192,6 @@ function recoverAntigravitySubagents({ home, parentId, agents }) {
         if (text === undefined) continue;
       }
       setSubagent(state, agent.id, { status: "completed", latestActivity: "Finished" }, text ? { id: "result", kind: "message", text } : undefined);
-      communicate(state, agent.id, `result:${agent.id}`, agent.id, agent.parentId ?? null, text);
       const done = state.subagents.get(agent.id);
       events.push({ type: "subagent-update", agent: { ...done, updatedAt: Math.max(done.updatedAt, agent.updatedAt ?? 0) } });
     }
@@ -437,7 +436,6 @@ class AntigravitySubagents {
           ...(parentId && agent.parentId !== parentId ? { parentId } : {}),
         };
         if (Object.keys(patch).length) this.push([setSubagent(this.state, created.id, patch)]);
-        this.push(communicate(this.state, created.id, `task:${created.id}`, parentId, created.id, spec.prompt ?? agent.prompt));
       });
       if (!parentId && children.length) {
         this.found = true;
@@ -475,9 +473,7 @@ class AntigravitySubagents {
     const child = this.children.get(id);
     if (!child || child.done) return;
     child.done = true;
-    const agent = this.state.subagents.get(id);
     this.push([setSubagent(this.state, id, { status, latestActivity: "Finished" }, text ? { id: "result", kind: "message", text } : undefined)]);
-    if (text) this.push(communicate(this.state, id, `result:${id}`, id, agent?.parentId ?? null, text));
   }
 
   readChild(id, child) {
@@ -491,10 +487,7 @@ class AntigravitySubagents {
       if (step.type === "SYSTEM_MESSAGE" && step.step_index === 0) {
         const message = systemMessage(step);
         const agent = this.state.subagents.get(id);
-        if (message?.text && !agent.prompt) {
-          this.push([setSubagent(this.state, id, { prompt: message.text })]);
-          this.push(communicate(this.state, id, `task:${id}`, child.parentId, id, message.text));
-        }
+        if (message?.text && !agent.prompt) this.push([setSubagent(this.state, id, { prompt: message.text })]);
         continue;
       }
       if (step.type !== "PLANNER_RESPONSE") continue;

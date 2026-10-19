@@ -223,11 +223,6 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
       const children = (session.subagents ?? []).filter((agent) => agent.id !== session.native_session_id);
       const previous = children.find((agent) => agent.id === event.agent.id);
       if (previous && previous.updatedAt > event.agent.updatedAt) return { state, runs, changed: false };
-      const communications = new Map((previous?.communications ?? []).map((entry) => [entry.id, entry]));
-      for (const entry of event.agent.communications ?? []) {
-        // Resuming a provider may replay an item with a new observation time.
-        if (!communications.has(entry.id)) communications.set(entry.id, entry);
-      }
       // A resumed provider can rediscover a child before it has replayed the earlier output.
       // A client that holds transcript tails (subagent-transcript.mjs) gets the host's merged transcript, or its tail,
       // and keeps it as it comes.
@@ -243,7 +238,6 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
             prompt: event.agent.prompt ?? previous.prompt,
             parentId: event.agent.parentId ?? previous.parentId,
             startedAt: Math.min(previous.startedAt, event.agent.startedAt),
-            communications: [...communications.values()].sort((a, b) => a.at - b.at).slice(-20),
             transcript:
               event.agent.source === "milagre-advisor" || tail
                 ? event.agent.transcript
