@@ -16,12 +16,15 @@ const card = "divide-y divide-line overflow-hidden rounded-xl border border-line
 export function RoutinesPage({
   models,
   projectPath,
+  unreadRoutines,
   onOpenChat,
   onOpenExperimental,
 }: {
   models: ModelOption[];
   /** The open Project, where a new Routine runs unless another is picked. */
   projectPath?: string;
+  /** The ids of Routines with a hidden Run Chat nobody opened: their rows show a dot. */
+  unreadRoutines?: ReadonlySet<string>;
   onOpenChat: (chatKey: string) => void;
   onOpenExperimental: () => void;
 }) {
@@ -76,6 +79,7 @@ export function RoutinesPage({
       routine={routine}
       meta={routineMeta(routine, { chatTitle: (id) => chatTitles.get(id), modelName, now })}
       status={routineStatus(routine, now)}
+      unread={unreadRoutines?.has(routine.id) ?? false}
       onToggle={(on) => act(() => window.milagre.updateRoutine(routine.id, { enabled: on }))}
       onEdit={() => setForm(routine)}
       onRunNow={() => act(() => window.milagre.runRoutineNow(routine.id))}

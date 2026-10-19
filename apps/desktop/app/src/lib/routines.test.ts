@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { clock } from "@milagre/shared/routines";
-import { groupRoutines, refreshRoutines, routineMeta, routineStatus, routinesSnapshot, subscribeRoutines, type RoutineWithRuns } from "./routines.ts";
+import {
+  groupRoutines,
+  refreshRoutines,
+  routineMeta,
+  routineStatus,
+  routinesSnapshot,
+  subscribeRoutines,
+  unreadRunRoutines,
+  type RoutineWithRuns,
+} from "./routines.ts";
 
 // Local noon, so "today" and "yesterday" hold in any time zone.
 const NOW = new Date(2026, 9, 17, 12, 0).getTime();
@@ -133,4 +142,24 @@ test("a refresh that reads the same Routines publishes nothing, and a change pub
     stop();
     delete globals.window;
   }
+});
+
+const runChat = (id: number, routineId: string, extra: object = {}) => ({ id, routine: { routineId, runId: `u${id}`, hidden: true }, ...extra });
+
+test("unreadRunRoutines: Routines with a hidden Run Chat nobody opened, over this Mac's Projects, each counted once", () => {
+  const shop = { sessions: { 1: runChat(1, "r1", { unread: true }), 2: runChat(2, "r2"), 3: { id: 3, unread: true } } };
+  const web = {
+    sessions: {
+      1: runChat(1, "r2", { unread: true, archived: true }),
+      2: { id: 2, unread: true, routine: { routineId: "r3", runId: "u9", hidden: false } },
+      3: runChat(3, "r4", { unread: true }),
+    },
+  };
+  const link = { sessions: { 1: runChat(1, "r5", { unread: true }) } };
+  const remote = { sessions: { 1: runChat(1, "r6", { unread: true }) } };
+  const linkKey = "milagre-link:0b1f4a52-5c3e-4d7a-9a40-3c5b1e0d9f11";
+  const states = { "/code/shop": shop, "/code/web": web, [linkKey]: link, "mac-2|/code/api": remote } as never;
+  assert.deepEqual([...unreadRunRoutines(states)].sort(), ["r1", "r4"]);
+  assert.equal(unreadRunRoutines({} as never).size, 0);
+  assert.equal(unreadRunRoutines({ "/code/shop": { sessions: { 1: runChat(1, "r1") } } } as never).size, 0);
 });

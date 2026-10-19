@@ -142,6 +142,8 @@ type SidebarNavProps = {
   /** Opens the Routines page; its button sits between Search and Filters. */
   onOpenRoutines?: () => void;
   routinesActive?: boolean;
+  /** A hidden Run Chat is unread: the Routines button shows a dot. */
+  routinesUnread?: boolean;
   onOpenCommands?: () => void;
   hintsEnabled?: boolean;
   /** The project folder, for the project menu's reveal and copy path. */
@@ -510,6 +512,7 @@ export default memo(function SidebarNav({
   canvasActive = false,
   onOpenRoutines,
   routinesActive = false,
+  routinesUnread = false,
   onOpenCommands,
   hintsEnabled = true,
   projectPath,
@@ -1049,9 +1052,12 @@ export default memo(function SidebarNav({
                     aria-pressed={routinesActive}
                     data-sidebar-routines
                     onClick={onOpenRoutines}
-                    className={`${TOOL_BUTTON} size-8 shrink-0 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
+                    className={`${TOOL_BUTTON} relative size-8 shrink-0 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
                   >
                     <HugeIcon icon={RepeatIcon} size={16} />
+                    {routinesUnread && (
+                      <span aria-hidden data-routines-unread className="absolute top-1 right-1 size-2 rounded-full bg-accent ring-2 ring-surface" />
+                    )}
                   </button>
                 </Tooltip>
               )}

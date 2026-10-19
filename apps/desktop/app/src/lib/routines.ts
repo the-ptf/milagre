@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from "react";
 import type { Routine, RoutineRun } from "@milagre/shared/model";
 import { PERMISSION_MODES } from "@milagre/shared/model-copy";
-import { clock, triggerText } from "@milagre/shared/routines";
+import { LOCAL_COMPUTER, computerOfKey, isLinkScopeKey } from "@milagre/shared/chat-scopes";
+import { clock, hiddenRunChats, triggerText } from "@milagre/shared/routines";
 import { ipcErrorMessage } from "@milagre/shared/result";
 
 /** A Routine as `listRoutines` gives it: with its latest Runs, newest first. */
@@ -96,6 +97,22 @@ export function routineStatus(routine: RoutineWithRuns, now: number): string {
   const when = ago(run.startedAt, now);
   if (key) return `${key} · ${when}`;
   return when === "yesterday" ? `Yesterday ${clock(run.startedAt)}` : capitalized(when);
+}
+
+/**
+ * The Routines with a hidden Run Chat nobody has opened yet, read from the Project states a window holds, one entry per
+ * Project path (so the open Project, merged in with the others, counts once). Only this Mac's Projects count: a Link's Chats
+ * and another computer's Projects belong to Routines this page doesn't list, so a dot for them could never be cleared here.
+ */
+export function unreadRunRoutines(states: Readonly<Record<string, { sessions: Record<string, unknown> }>>): Set<string> {
+  const scopes = Object.entries(states)
+    .filter(([key]) => !isLinkScopeKey(key) && computerOfKey(key) === LOCAL_COMPUTER)
+    .map(([path, state]) => ({ path, state: state as Parameters<typeof hiddenRunChats>[0][number]["state"] }));
+  return new Set(
+    hiddenRunChats(scopes)
+      .filter((chat) => chat.unread)
+      .map((chat) => chat.routineId),
+  );
 }
 
 type RoutinesSnapshot = { enabled: boolean | null; routines: RoutineWithRuns[]; error: string | null };

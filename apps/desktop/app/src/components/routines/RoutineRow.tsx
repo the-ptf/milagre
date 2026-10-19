@@ -52,11 +52,12 @@ function routineChat(routine: RoutineWithRuns): string | undefined {
 
 type MenuEntry = { key: string; label: string; icon: HugeIconData; danger?: boolean; onSelect: () => void };
 
-/** One Routine: tile, name and meta, then its status, its switch and a ⋯ menu (Edit, Run now, Open Chat, Delete). */
+/** One Routine: tile, name (with a dot while a hidden Run Chat of it is unread) and meta, then its status, its switch and a ⋯ menu (Edit, Run now, Open Chat, Delete). */
 export function RoutineRow({
   routine,
   meta,
   status,
+  unread = false,
   onToggle,
   onEdit,
   onRunNow,
@@ -66,6 +67,8 @@ export function RoutineRow({
   routine: RoutineWithRuns;
   meta: string;
   status: string;
+  /** A Run Chat of this Routine, out of the sidebar, has a result nobody opened. */
+  unread?: boolean;
   onToggle: (enabled: boolean) => void;
   onEdit: () => void;
   onRunNow: () => void;
@@ -133,7 +136,10 @@ export function RoutineRow({
           />
         </span>
         <span className="grid min-w-0 flex-1 gap-0.5">
-          <span className={`truncate text-[13.5px] font-medium ${routine.enabled ? "text-ink" : "text-ink-2"}`}>{routine.name}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className={`truncate text-[13.5px] font-medium ${routine.enabled ? "text-ink" : "text-ink-2"}`}>{routine.name}</span>
+            {unread && <span role="img" aria-label="Unread Run Chat" data-routine-unread className="size-2 shrink-0 rounded-full bg-accent" />}
+          </span>
           <span data-routine-meta className="truncate text-[12px] text-ink-3">
             {meta}
           </span>
@@ -162,7 +168,7 @@ export function RoutineRow({
       </div>
       {confirming && (
         <div data-routine-delete-question className="flex min-h-11 items-center gap-2 px-4 pb-3">
-          <span className="min-w-0 flex-1 text-[12px] text-ink">Delete {routine.name}? Its Chats stay.</span>
+          <span className="min-w-0 flex-1 text-[12px] text-ink">Delete {routine.name}? Its Runs stop, and its Run Chats you haven't kept are archived.</span>
           <button type="button" className={outlineButton} onClick={() => setConfirming(false)}>
             Cancel
           </button>

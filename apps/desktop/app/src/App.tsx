@@ -63,7 +63,7 @@ import { BLOCKERS, pullRequestAction } from "./lib/pr-blockers";
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
 import { COMPACT_COMMAND } from "@milagre/shared/compaction";
 import { capabilitiesFrom, keepIfSame, mergeModels, nextSelection, providerForId, resolveModel } from "./lib/models";
-import { chatMark, chatTitle, orderChats } from "./lib/chat-list";
+import { chatMark, chatTitle, isChatListed, orderChats } from "./lib/chat-list";
 import type { SessionPatch } from "@milagre/shared/project-edits";
 import { isMilagreWorktree, worktreeShared } from "./lib/archive";
 import { archiveChat as runArchive } from "./lib/archive-flow";
@@ -94,7 +94,7 @@ import { activeChatKeys, gridChats, readChatLayout, saveChatLayout, type ChatLay
 import { ChatGrid } from "./components/ChatGrid";
 import { chatRevealPath } from "./lib/reveal";
 import type { SettingsSection } from "./components/Settings";
-import { createPendingChat, createResendMemory, isListedChat, pendingChatSessionId, withPendingChat, type PendingChat } from "@milagre/shared/chats";
+import { createPendingChat, createResendMemory, pendingChatSessionId, withPendingChat, type PendingChat } from "@milagre/shared/chats";
 import { getSettings, toggleTheme, updateSettings, useApplyTheme, useSettings } from "./lib/settings";
 import { EditorLinks, Notice } from "./components/editor-links";
 // Notice above is editor-links' toast; this is the dismissable notice card.
@@ -124,6 +124,7 @@ import { restoredChatsNotice } from "./lib/restored-chats";
 import { lazyView } from "./lib/lazy-view";
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
+import { unreadRunRoutines } from "./lib/routines";
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
 import { DraftChatComposer } from "./components/DraftChatComposer";
 import { queueControls } from "./components/QueuedMessages";
@@ -774,10 +775,13 @@ function App() {
     [attentionChats, states, projectName],
   );
   const delegated = useStableSet(useMemo(() => delegatedChats(linkedWork, project?.path ?? ""), [linkedWork, project?.path]));
-  // The grid: every active Chat across Projects (the sidebar's reads of the ones not open, then this window's), the focused one too.
+  // Every Project's state the window holds: the sidebar's reads of the ones not open, kept live, then this window's own on top.
+  // The grid tiles its active Chats from them, and the Routines dot reads hidden Run Chats from them.
   const gridOn = layout === "grid" && view === "chat";
-  const { states: scopeStates } = useScopeStates(gridOn, NO_KEYS);
+  const { states: scopeStates } = useScopeStates(true, NO_KEYS);
   const gridStates = useMemo(() => ({ ...scopeStates, ...states }), [scopeStates, states]);
+  // The Routines with a hidden Run Chat nobody opened yet: the sidebar's Routines button and their rows show a dot.
+  const unreadRunRoutineIds = useStableSet(useMemo(() => unreadRunRoutines(gridStates), [gridStates]));
   const focusedChatKey = project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null;
   const activeKeys = useMemo(
     () => (gridOn ? activeChatKeys(agentRuns.runs, linkedWork, gridStates) : NO_KEYS),
@@ -830,7 +834,8 @@ function App() {
     const withMessages = Object.values(state.sessions)
       .filter((session) => !session.archived || (project && archivingChats.has(chatKey(project.path, session.id))))
       .map((session) => ({ session, sessionMessages: messagesBySession.get(session.id) ?? NO_MESSAGES }))
-      .filter(({ session, sessionMessages }) => isListedChat(session, chatSummary(session, sessionMessages).count));
+      // A hidden Run Chat shows only while its run waits on an approval or a question.
+      .filter(({ session, sessionMessages }) => isChatListed(session, sessionMessages, waiting.has(session.id) || asking.has(session.id)));
     const rows = orderChats(withMessages, chatOrder).map(({ session, sessionMessages }) => {
       const worktree = state.worktrees[session.worktree_id];
       const failed = failedSends.find((send) => send.projectPath === project?.path && session.id === send.session.id);
@@ -2382,6 +2387,7 @@ function App() {
                 canvasActive={view === "canvas"}
                 onOpenRoutines={openRoutines}
                 routinesActive={view === "routines"}
+                routinesUnread={unreadRunRoutineIds.size > 0}
                 onOpenCommands={openCommandPalette}
                 hintsEnabled={view === "chat" && !commandPaletteOpen && !gitDialog}
                 projectPath={project.path}
@@ -2443,7 +2449,13 @@ function App() {
                 </div>
               )}
               {view === "routines" && (
-                <RoutinesPage models={models} projectPath={project.path} onOpenChat={openLinkedChat} onOpenExperimental={openExperimental} />
+                <RoutinesPage
+                  models={models}
+                  projectPath={project.path}
+                  unreadRoutines={unreadRunRoutineIds}
+                  onOpenChat={openLinkedChat}
+                  onOpenExperimental={openExperimental}
+                />
               )}
               {view === "canvas" && (
                 <CanvasView
