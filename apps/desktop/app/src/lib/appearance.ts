@@ -85,9 +85,13 @@ function probeFont(family: string): boolean {
   });
 }
 
+/** Fires after applyAppearance has set the variables, for surfaces that cache a size or family (xterm). */
+export const APPEARANCE_EVENT = "milagre-appearance";
+
 export function applyAppearance(a: Appearance) {
   const root = document.documentElement;
   const vars = appearanceVars(a, root.classList.contains("dark"), isFontInstalled);
   for (const name of OPTIONAL_VARS) if (!(name in vars)) root.style.removeProperty(name);
   for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
+  window.dispatchEvent(new Event(APPEARANCE_EVENT));
 }

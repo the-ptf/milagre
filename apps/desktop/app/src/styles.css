@@ -446,6 +446,8 @@ html[data-floating-inbox] #root {
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
   --color-accent-tint: var(--accent-tint);
+  --color-diff-add: var(--diff-add-color, var(--green));
+  --color-diff-remove: var(--diff-remove-color, var(--red));
   --color-green: var(--green);
   --color-green-tint: var(--green-tint);
   --color-purple-ink: var(--purple-ink);
@@ -638,7 +640,16 @@ a {
  * window is too narrow for the centred column to clear it, the column's left
  * padding grows so the ticks keep their own lane (36px from the edge). */
 .chat-column {
-  padding-left: clamp(12px, calc(36px - (100% - 768px) / 2), 36px);
+  --column: 768px;
+  padding-left: clamp(12px, calc(36px - (100% - var(--column)) / 2), 36px);
+}
+.chat-column[data-chat-width="wide"] {
+  --column: 1024px;
+}
+/* Full: the column fills the pane, so the rail lane is plain padding. */
+.chat-column[data-chat-width="full"] {
+  padding-left: 36px;
+  padding-right: 24px;
 }
 
 /* Keep the component nav scrollable but hide its scrollbar. */

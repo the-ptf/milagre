@@ -156,7 +156,8 @@ export function PromptComposer({
   const [permissionOpen, setPermissionOpen] = useState(false);
   // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Experimental).
   const [fatality, setFatality] = useState(0);
-  const { ultracodeFatality } = useSettings();
+  const { ultracodeFatality, appearance } = useSettings();
+  const chatSize = appearance.chatSize;
   const effortLevels = capability.efforts;
   const effortIndex = Math.max(0, effortLevels.indexOf(effort ?? ""));
   const effortName = effort ? effortCopy(effort).name : "";
@@ -234,7 +235,9 @@ export function PromptComposer({
     commands.map((command) => command.name.slice(1)),
   );
   const hasSkill = skillParts.some((part) => part.skill);
-  const inputTextClass = expanded ? "min-h-[68px] px-2 py-2 text-[14px] leading-5" : "min-h-7 px-1 py-[5px] text-[13px] leading-[18px]";
+  const inputTextClass = expanded
+    ? "min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
+    : "min-h-7 px-1 py-[5px] text-[length:var(--chat-size)] leading-[18px]";
   const rows: MenuRow[] =
     menu === "at"
       ? plusOpen
@@ -278,13 +281,13 @@ export function PromptComposer({
       measure: (text) => {
         const context = (canvasRef.current ??= document.createElement("canvas")).getContext("2d");
         if (!context) return null;
-        context.font = `13px ${getComputedStyle(input).fontFamily}`;
+        context.font = `${getComputedStyle(document.documentElement).getPropertyValue("--chat-size").trim() || "13px"} ${getComputedStyle(input).fontFamily}`;
         return context.measureText(text).width;
       },
     });
     overflowRef.current = next.overflow;
     if (next.expanded !== expanded) setExpanded(next.expanded);
-  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded]);
+  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded, chatSize]);
 
   // Any press outside the open picker closes it, including the prompt field and the rest of the composer.
   useDismiss(

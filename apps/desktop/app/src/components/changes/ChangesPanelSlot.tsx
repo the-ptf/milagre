@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { EASE_OUT, SPRING_LAYOUT } from "../../lib/ease";
+import { AnimatePresence, motion } from "motion/react";
+import { EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 import { roomToWiden, usePanelWidth } from "../agents/panel-width";
 import { ResizeHandle } from "../primitives/ResizeHandle";
 
@@ -11,7 +11,7 @@ import { ResizeHandle } from "../primitives/ResizeHandle";
  * Its left edge drags the panel's width, which the panel reads from --changes-panel-width.
  */
 export function ChangesPanelSlot({ open, children }: { open: boolean; children: React.ReactNode }) {
-  const reduced = useReducedMotion();
+  const scale = useMotionScale();
   const [sliding, setSliding] = useState(false);
   const resize = usePanelWidth("changes");
   return (
@@ -27,7 +27,7 @@ export function ChangesPanelSlot({ open, children }: { open: boolean; children: 
           initial={{ width: 0 }}
           animate={{ width: "auto" }}
           exit={{ width: 0 }}
-          transition={reduced ? { duration: 0 } : SPRING_LAYOUT}
+          transition={scaledSpring(SPRING_LAYOUT, scale)}
         >
           <motion.div
             className="relative flex min-h-0 pt-[60px] pr-3 pb-3"
@@ -35,7 +35,7 @@ export function ChangesPanelSlot({ open, children }: { open: boolean; children: 
             initial={{ opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 24 }}
-            transition={reduced ? { duration: 0 } : { duration: 0.24, ease: EASE_OUT }}
+            transition={{ duration: scaled(0.24, scale), ease: EASE_OUT }}
           >
             {/* Beside the panel's card only, not the window's top strip above it. */}
             <div className="absolute top-[60px] bottom-3 left-0">
