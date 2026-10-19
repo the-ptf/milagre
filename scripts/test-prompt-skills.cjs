@@ -1,4 +1,4 @@
-// Real composer and native textarea editing in Electron. No agent calls.
+// Real composer and its chip editor in Electron: skills in the draft are chips. No agent calls.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -54,14 +54,14 @@ async function browserChecks() {
     }
     throw Error("Timed out: " + source);
   };
+  const editor = `document.querySelector('[data-prompt-editor]')`;
+  // Sets the whole draft the way restored or pasted text arrives; the caret goes to the end.
   const type = async (text) => {
-    await evaluate(
-      `(() => { const input = document.querySelector('textarea'); input.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(text)}); input.setSelectionRange(input.value.length, input.value.length); input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
-    );
+    await evaluate(`(() => { const input = ${editor}; input.focus(); input.value = ${JSON.stringify(text)}; })()`);
     await delay(100);
   };
   const escape = async () => {
-    await evaluate(`document.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`);
+    await evaluate(`${editor}.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))`);
     await delay(100);
   };
   const screenshot = async (name) => {
@@ -74,19 +74,15 @@ async function browserChecks() {
     await delay(100);
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await window.webContents.capturePage()).toPNG());
   };
-  const highlighted = () => evaluate(`[...document.querySelectorAll('[data-prompt-skill]')].map(el => el.textContent)`);
-  const hoverSkill = async (index = 0) => {
-    // Let the textarea's ResizeObserver finish after compact/expanded layout changes.
-    await delay(100);
-    const point = await evaluate(
-      `(() => { const rect = document.querySelectorAll('[data-prompt-skill]')[${index}].getClientRects()[0]; return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }; })()`,
+  // The skill chips in the field, as the source text each stands for.
+  const highlighted = () => evaluate(`[...${editor}.querySelectorAll('[data-chip="skill"]')].map(el => el.parentElement.dataset.text)`);
+  const chipPoint = (index) =>
+    evaluate(
+      `(() => { const rect = ${editor}.querySelectorAll('[data-chip="skill"]')[${index}].getClientRects()[0]; return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }; })()`,
     );
-    window.webContents.sendInputEvent({ type: "mouseMove", ...point });
-    return point;
-  };
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(`!!document.querySelector('textarea')`);
+    await waitFor(`!!${editor}`);
     await type("/milagre");
     await waitFor(`document.querySelectorAll('[aria-label="Commands and skills"] button').length === 4`);
     assert.deepEqual(
@@ -95,94 +91,86 @@ async function browserChecks() {
     );
     await screenshot("milagre-skills-menu");
     await type("run /tldr");
-    await waitFor(`document.querySelector('[data-prompt-skill]')?.textContent === '/tldr'`);
+    await waitFor(`${editor}.querySelector('[data-chip="skill"]')?.textContent === 'Tldr'`);
     await escape();
-    assert.deepEqual(await highlighted(), ["/tldr"], "Highlight survives dismissal of the skill menu");
-    await hoverSkill();
-    await waitFor(`document.querySelector('[role="tooltip"]')?.textContent.includes('Rewrite for a skimming reader')`);
-    assert.ok(await evaluate(`document.querySelector('[role="tooltip"]').textContent.includes('/tldr')`), "Hover identifies the skill");
-    await screenshot("skill-hover-light");
-    window.webContents.sendInputEvent({ type: "mouseMove", x: 10, y: 10 });
-    await waitFor(`!document.querySelector('[role="tooltip"]')`);
+    assert.deepEqual(await highlighted(), ["/tldr"], "The chip survives dismissal of the skill menu");
+    assert.equal(await evaluate(`${editor}.querySelector('[data-chip="skill"]').title`), "Rewrite for a skimming reader", "Hover gives the description");
+    assert.equal(await evaluate(`${editor}.value`), "run /tldr", "The draft keeps the command text");
+    await screenshot("skill-chip-light");
     for (const dark of [false, true]) {
       await evaluate(`document.documentElement.classList.toggle('dark', ${dark})`);
       const colors = await evaluate(
-        `(() => { const token = document.querySelector('[data-prompt-skill]'); const text = document.querySelector('[data-prompt-highlights] > div'); const input = document.querySelector('textarea'); return { skill: getComputedStyle(token).color, text: getComputedStyle(text).color, caret: getComputedStyle(input).caretColor, input: getComputedStyle(input).color }; })()`,
+        `(() => { const chip = ${editor}.querySelector('[data-chip="skill"]'); const input = ${editor}; return { skill: getComputedStyle(chip).color, text: getComputedStyle(input).color, caret: getComputedStyle(input).caretColor }; })()`,
       );
       assert.notEqual(colors.skill, colors.text, "Skill differs from ordinary text in each theme");
       assert.equal(colors.caret, colors.text, "Caret remains visible");
-      assert.equal(colors.input, "rgba(0, 0, 0, 0)", "Only the mirror paints text");
       await screenshot(dark ? "compact-dark" : "compact-light");
     }
+    // A chip fits its line: the compact composer stays one line tall.
+    assert.equal(await evaluate(`${editor}.getBoundingClientRect().height`), 28, "A chip doesn't grow the line");
     await type("/tl /unknown https://example.com/tldr /tldr/file");
     assert.deepEqual(await highlighted(), []);
     // Restored/pasted drafts must discover skills even when the caret menu stays dismissed.
     await evaluate(`window.setDraft('Use /tldr, then /plugin:review-code please.'); window.setExpanded(true)`);
-    await waitFor(`document.querySelectorAll('[data-prompt-skill]').length === 2`);
-    await hoverSkill(1);
-    await waitFor(`document.querySelector('[role="tooltip"]')?.textContent.includes('Review code')`);
-    await screenshot("skill-hover-dark");
-    // The textarea must remain the hit target over a skill, preserving caret placement and drag selection.
+    await waitFor(`${editor}.querySelectorAll('[data-chip="skill"]').length === 2`);
+    assert.deepEqual(await highlighted(), ["/tldr", "/plugin:review-code"]);
     assert.equal(
-      await evaluate(
-        `(() => { const rect = document.querySelectorAll('[data-prompt-skill]')[1].getClientRects()[0]; return document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.tagName; })()`,
-      ),
-      "TEXTAREA",
+      await evaluate(`${editor}.querySelectorAll('[data-chip="skill"]')[1].textContent`),
+      "Review Code",
+      "A plugin prefix is dropped from the label",
     );
-    const point = await hoverSkill(1);
+    assert.equal(await evaluate(`${editor}.querySelectorAll('[data-chip="skill"]')[1].title`), "Review code");
+    await screenshot("skill-chips-dark");
+    // A press on a chip lands in the field.
+    const point = await chipPoint(1);
+    assert.equal(await evaluate(`!!document.elementFromPoint(${point.x}, ${point.y})?.closest('[data-prompt-editor]')`), true);
     window.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point });
     window.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point });
-    await waitFor(`!document.querySelector('[role="tooltip"]')`);
-    assert.equal(await evaluate(`document.activeElement?.tagName`), "TEXTAREA");
+    await delay(100);
+    assert.equal(await evaluate(`document.activeElement?.hasAttribute('data-prompt-editor')`), true);
     await screenshot("expanded-dark");
     await evaluate(`document.documentElement.classList.remove('dark')`);
     await screenshot("expanded-light");
     await type("/tl");
     await waitFor(`!!document.querySelector('[aria-label="Commands and skills"] button')`);
     await evaluate(`document.querySelector('[aria-label="Commands and skills"] button').click()`);
-    await waitFor(`document.querySelector('textarea').value === '/tldr '`);
-    assert.deepEqual(await highlighted(), ["/tldr"], "Picker selection is highlighted");
-    // Real typing and selection stay in the native input.
-    await evaluate(`(() => { const input = document.querySelector('textarea'); input.focus(); input.setSelectionRange(1, 5); })()`);
-    await window.webContents.insertText("unknown");
-    await waitFor(`document.querySelector('textarea').value === '/unknown '`);
-    assert.deepEqual(await highlighted(), [], "Editing a name removes stale highlighting");
+    await waitFor(`${editor}.value === '/tldr '`);
+    assert.deepEqual(await highlighted(), ["/tldr"], "Picker selection is a chip");
+    // Real typing: Backspace after the chip takes all of it; a name the catalog doesn't know stays text.
+    await evaluate(`(() => { const field = ${editor}; field.focus(); getSelection().collapse(field, 1); })()`);
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Backspace" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Backspace" });
+    await waitFor(`${editor}.value === ' '`);
+    await window.webContents.insertText("/unknown");
+    await waitFor(`${editor}.value === '/unknown '`);
+    assert.deepEqual(await highlighted(), [], "An unknown name is plain text");
     const longDraft = Array.from({ length: 20 }, (_, i) => "Line " + i + ": run /tldr and " + "wrapped text ".repeat(9)).join("\n");
     await type(longDraft);
     await escape();
     await window.setSize(530, 500);
     await delay(150);
     assert.deepEqual(await highlighted(), Array(20).fill("/tldr"));
-    const geometry = await evaluate(`(() => {
-      const input = document.querySelector('textarea'); const viewport = document.querySelector('[data-prompt-highlights]'); const text = viewport.firstElementChild;
-      input.scrollTop = 120; input.dispatchEvent(new Event('scroll'));
-      return { width: input.clientWidth, mirrorWidth: viewport.clientWidth, height: input.clientHeight, mirrorHeight: viewport.clientHeight, scroll: input.scrollTop, transform: text.style.transform, contentHeight: input.scrollHeight, mirrorContentHeight: text.scrollHeight, x: input.getBoundingClientRect().x, mirrorX: viewport.getBoundingClientRect().x };
-    })()`);
-    assert.equal(geometry.width, geometry.mirrorWidth, "Wrapped input and mirror have the same width");
-    assert.equal(geometry.height, geometry.mirrorHeight);
-    assert.equal(geometry.x, geometry.mirrorX);
-    assert.ok(Math.abs(geometry.contentHeight - geometry.mirrorContentHeight) <= 1, "Mirror line wrapping matches textarea");
-    assert.equal(geometry.transform, "translate(0px, -120px)", "Highlight follows textarea scrolling");
-    await evaluate(`document.querySelector('textarea').scrollTop = 0`);
-    await delay(100);
-    await hoverSkill();
-    await waitFor(`!!document.querySelector('[role="tooltip"]')`);
-    await evaluate(`(() => { const input = document.querySelector('textarea'); input.scrollTop = 120; input.dispatchEvent(new Event('scroll')); })()`);
-    await waitFor(`!document.querySelector('[role="tooltip"]')`);
+    assert.equal(await evaluate(`${editor}.value`), longDraft, "A long draft round-trips exactly");
+    const geometry = await evaluate(
+      `(() => { const input = ${editor}; input.scrollTop = 120; return { height: input.clientHeight, content: input.scrollHeight, scroll: input.scrollTop }; })()`,
+    );
+    assert.equal(geometry.height, 100, "The field stops growing at 100px");
+    assert.ok(geometry.content > 400, "and scrolls the rest");
+    assert.equal(geometry.scroll, 120);
     await screenshot("wrapped-scrolled");
     await type("run /tldr");
     await escape();
-    await evaluate(`document.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))`);
-    await waitFor(`document.querySelector('textarea').value === ''`);
+    await evaluate(`${editor}.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))`);
+    await waitFor(`${editor}.value === ''`);
     assert.deepEqual(await evaluate("window.sent"), ["run /tldr"], "Sending preserves the exact command text");
-    assert.deepEqual(await highlighted(), [], "Sending clears highlighting");
+    assert.deepEqual(await highlighted(), [], "Sending clears the chips");
     await type("run /tldr");
     await escape();
     await evaluate(`window.setProject('/other')`);
-    await waitFor(`!document.querySelector('[data-prompt-skill]')`);
+    await waitFor(`!${editor}.querySelector('[data-chip="skill"]')`);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: typed and picked skills, hover descriptions and dismissal, both themes, native editing, wrapped/scrolled alignment, exact send and catalog isolation",
+      "PASS: typed and picked skills are chips with descriptions, both themes, one-line fit, Backspace over a chip, wrapped/scrolled drafts, exact send and catalog isolation",
     );
     app.exit(0);
   } catch (error) {
@@ -190,8 +178,8 @@ async function browserChecks() {
     console.error(errors);
     console.error(
       await evaluate(
-        `(() => { const input = document.querySelector('textarea'); return { value: input?.value, input: input?.getBoundingClientRect().toJSON(), spans: [...document.querySelectorAll('[data-prompt-skill]')].map(el => ({ text: el.textContent, rect: el.getBoundingClientRect().toJSON() })), tooltip: document.querySelector('[role="tooltip"]')?.textContent }; })()`,
-      ),
+        `({ value: ${editor}?.value, html: ${editor}?.innerHTML.slice(0, 300), menu: document.querySelector('[data-picker-panel]')?.textContent, active: document.activeElement?.outerHTML.slice(0, 80), sel: getSelection().anchorNode?.nodeName + ':' + getSelection().anchorOffset })`,
+      ).catch(() => null),
     );
     app.exit(1);
   }

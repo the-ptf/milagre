@@ -746,11 +746,12 @@ a {
   }
 }
 
-.prompt-input-highlighted {
-  color: transparent;
-}
-.prompt-input-highlighted::selection {
-  color: var(--ink);
+/* Chips in the prompt take exactly one line: their content uses the field's line height, and the border sits in
+   negative margins, so a chip never makes its line taller (the compact composer expands when a line grows). */
+[data-prompt-editor] [data-chip] > [data-chip] {
+  line-height: inherit;
+  margin-block: -1px;
+  vertical-align: top;
 }
 
 @media (min-width: 64rem) {

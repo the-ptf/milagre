@@ -82,7 +82,7 @@ export function usePastedImages(scope: string, remote = false) {
     }
   }
 
-  async function onPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+  async function onPaste(event: ClipboardEvent<HTMLElement>) {
     const files = Array.from(event.clipboardData.items)
       .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
       .map((item) => item.getAsFile())

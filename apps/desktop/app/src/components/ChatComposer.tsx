@@ -1026,7 +1026,7 @@ export function ChatComposer({
     void review.inspect(id);
   });
   const focusPrompt = useCallback(() => {
-    requestAnimationFrame(() => root.current?.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')?.focus());
+    requestAnimationFrame(() => root.current?.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
   }, []);
   useEffect(() => {
     if (highlightId !== null) root.current?.querySelector(`#message-${highlightId}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -1043,7 +1043,8 @@ export function ChatComposer({
       return;
     }
     const typing =
-      !!target?.closest("input, select, [contenteditable='true'], .xterm") || (target?.tagName === "TEXTAREA" && !target.closest("[data-promptbar]"));
+      !!target?.closest("input, select, [contenteditable='true']:not([data-prompt-editor]), .xterm") ||
+      (target?.tagName === "TEXTAREA" && !target.closest("[data-promptbar]"));
     const hidden = !root.current?.offsetParent;
     if (
       isSending ||
@@ -1096,7 +1097,7 @@ export function ChatComposer({
     if (!files.length) return;
     event.preventDefault();
     void imageDraft.attachFiles(files);
-    event.currentTarget.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')?.focus();
+    event.currentTarget.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
   }
 
   return (

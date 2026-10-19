@@ -1032,7 +1032,7 @@ async function browserChecks() {
     await waitFor(`!${dock}`);
 
     // ⌘⇧E does the same as the button, also while typing in the composer.
-    await evaluate('document.querySelector("textarea").focus()');
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     window.webContents.sendInputEvent({
       type: "keyDown",
       keyCode: "E",

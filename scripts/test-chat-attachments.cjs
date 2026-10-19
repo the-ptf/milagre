@@ -116,7 +116,7 @@ async function browserChecks() {
     );
   const type = async (text) => {
     await evaluate(
-      `(() => { const el=document.querySelector('textarea[aria-label="Prompt"]'); el.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(el, ${JSON.stringify(text)}); el.setSelectionRange(el.value.length,el.value.length); el.dispatchEvent(new Event('input',{bubbles:true})); })()`,
+      `(() => { const el=document.querySelector('[data-prompt-editor]'); el.focus(); el.value = ${JSON.stringify(text)}; el.dispatchEvent(new Event('input',{bubbles:true})); })()`,
     );
     await delay(120);
   };
@@ -136,7 +136,7 @@ async function browserChecks() {
   };
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(String.raw`!!document.querySelector("textarea")`);
+    await waitFor(String.raw`!!document.querySelector("[data-prompt-editor]")`);
     await key("2", { metaKey: true });
     await waitFor(String.raw`document.querySelector("[aria-current=page]")?.textContent.includes("Attachment test")`);
     await waitFor(
@@ -205,7 +205,7 @@ async function browserChecks() {
       ["photo.png", "image/png"],
     ]);
     await waitFor(String.raw`!!document.querySelector("[aria-label=\"Preview clip.mp4\"]")`);
-    assert.equal(await evaluate('document.querySelector("textarea").value'), "", "Paths do not pollute draft text");
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "", "Paths do not pollute draft text");
     assert.equal(await evaluate('document.querySelector("[aria-label=Send]").disabled'), false, "File-only messages can send");
     await chooseFiles([["Card.tsx", "text/typescript"]]);
     await click('[aria-label="Preview Card.tsx"]');
@@ -328,19 +328,22 @@ async function browserChecks() {
     await waitFor(String.raw`document.querySelector("[aria-label=\"Project files\"]")?.textContent.includes("my app.ts")`);
     await screenshot("file-mentions");
     await key("Enter");
-    assert.equal(await evaluate('document.querySelector("textarea").value'), "");
+    // A picked file is a chip in the draft (its mention, quoted for the space) and an attachment.
+    const mentions = '@"src/my app.ts" @media/photo.png @media/clip.mp4 ';
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), '@"src/my app.ts" ');
     await waitFor(String.raw`!!document.querySelector('[data-promptbar] [aria-label="Remove my app.ts"]')`);
     assert.equal(await evaluate("window.calls.length"), 1, "Choosing a file does not send the message");
     assert.equal(await evaluate("window.searches.at(-1).root"), "/fixture");
-    await type("@photo");
+    await type('@"src/my app.ts" @photo');
     await waitFor(String.raw`document.querySelector('[aria-label="Project files"]')?.textContent.includes('photo.png')`);
     await key("Enter");
     await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.naturalWidth > 0`);
-    await type("@clip");
+    await type('@"src/my app.ts" @media/photo.png @clip');
     await waitFor(String.raw`document.querySelector('[aria-label="Project files"]')?.textContent.includes('clip.mp4')`);
     await key("Enter");
     await waitFor(String.raw`document.querySelector('[data-promptbar] video')?.videoWidth > 0`);
-    assert.equal(await evaluate('document.querySelector("textarea").value'), "", "Media selections stay out of the textarea");
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), mentions, "Picked media are mentioned like any file");
+    assert.equal(await evaluate('document.querySelectorAll("[data-prompt-editor] [data-chip=file]").length'), 3);
     await screenshot("file-attachments-selected");
     await click('[data-promptbar] [aria-label="Preview photo.png"]');
     await waitFor(String.raw`document.querySelector('dialog img')?.naturalWidth > 0`);
@@ -352,25 +355,25 @@ async function browserChecks() {
     await screenshot("video-selected-preview");
     await key("Escape");
     await waitFor(String.raw`!document.querySelector("dialog")`);
-    await type("Review these");
+    await type(mentions + "Review these");
     await click('[aria-label="Stop agent"]');
     assert.equal(await evaluate("window.interrupted"), "/fixture#3", "Stop targets the open chat");
-    assert.equal(await evaluate('document.querySelector("textarea").value'), "Review these", "Stopping preserves the draft");
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), mentions + "Review these", "Stopping preserves the draft");
     assert.equal(await evaluate("window.calls.length"), 1, "Stop does not send the draft");
-    await evaluate('document.querySelector("textarea").focus()');
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     await key("Enter");
     await waitFor("window.calls.length === 2");
     assert.ok(await evaluate('window.calls[1].prompt.includes("/fixture/media/photo.png") && window.calls[1].prompt.includes("/fixture/media/clip.mp4")'));
-    assert.equal(await evaluate("window.saved.messages.at(-1).body"), "Review these");
+    assert.equal(await evaluate("window.saved.messages.at(-1).body"), mentions + "Review these");
     await type("");
     await evaluate(
-      `(() => { const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array(6 * 1024 * 1024)], 'photo.png', {type:'image/png'})); document.querySelector('textarea').dispatchEvent(new DragEvent('drop', { bubbles:true, cancelable:true, dataTransfer:dt })); })()`,
+      `(() => { const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array(6 * 1024 * 1024)], 'photo.png', {type:'image/png'})); document.querySelector('[data-prompt-editor]').dispatchEvent(new DragEvent('drop', { bubbles:true, cancelable:true, dataTransfer:dt })); })()`,
     );
     await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.src.startsWith('milagre-media:')`);
-    assert.equal(await evaluate('document.querySelector("textarea").value'), "", "Large-image drops remain attachments");
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "", "Large-image drops remain attachments");
     await click('[data-promptbar] [aria-label="Remove photo.png"]');
     await evaluate(
-      `(() => { const dt = new DataTransfer(); dt.items.add(new File([Uint8Array.from(atob(window.imageBytes), c=>c.charCodeAt(0))], 'pasted.png', {type:'image/png'})); document.querySelector('textarea').dispatchEvent(new ClipboardEvent('paste', { bubbles:true, cancelable:true, clipboardData:dt })); })()`,
+      `(() => { const dt = new DataTransfer(); dt.items.add(new File([Uint8Array.from(atob(window.imageBytes), c=>c.charCodeAt(0))], 'pasted.png', {type:'image/png'})); document.querySelector('[data-prompt-editor]').dispatchEvent(new ClipboardEvent('paste', { bubbles:true, cancelable:true, clipboardData:dt })); })()`,
     );
     await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.src.startsWith('data:image/png')`);
     await evaluate(
@@ -379,7 +382,7 @@ async function browserChecks() {
     await click('[aria-label="Add attachments and sources"]');
     await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Paste image')).click()`);
     await waitFor(`!!document.querySelector('[data-promptbar] [aria-label="Preview Pasted image.png"]')`);
-    assert.equal(await evaluate('document.querySelector("textarea").value'), "", "Pasting through the attachment menu leaves text untouched");
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "", "Pasting through the attachment menu leaves text untouched");
     await screenshot("clipboard-image");
     await chooseFiles([["discard.txt", "text/plain"]]);
     // Sidebar chats keep creation order, newest first: Other chat (session 5) is ⌘1, Attachment test (session 3) is ⌘2.

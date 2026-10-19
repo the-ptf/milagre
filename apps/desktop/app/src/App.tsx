@@ -1257,7 +1257,7 @@ function App() {
     setNewChatError(null);
     setView("chat");
     // The composer may only mount on this render (coming from settings), so focus after it lands.
-    window.requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')?.focus());
+    window.requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
   }
 
   function selectInitialChat(nextState: CoordinatorState, path: string) {

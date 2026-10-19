@@ -323,8 +323,8 @@ async function browserChecks() {
       await evaluate(`document.querySelector('[data-offline-banner]').textContent.trim()`),
       "studio is offline. This is the last copy it sent, 2h ago. You can read it until studio is back.",
     );
-    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').disabled`), true);
-    assert.match(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').placeholder`), / \(studio is offline\)$/);
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').getAttribute('aria-disabled')`), "true");
+    assert.match(await evaluate(`document.querySelector('[data-prompt-editor]').getAttribute('aria-placeholder')`), / \(studio is offline\)$/);
     assert.equal(await evaluate(`!!document.querySelector('[data-offline-empty]')`), false, "a cached chat shows its copy");
     assert.ok(await evaluate(`document.querySelector('[data-chat-pane]').textContent.includes('Rotate the nightly backups.')`));
     await screenshot("offline-chat");
@@ -345,9 +345,9 @@ async function browserChecks() {
     await evaluate(
       `window.setComputers(window.computerList.map((c) => c.id === 'c-studio' ? { ...c, state: 'online', route: 'relay', lastSeen: Date.now() } : c))`,
     );
-    await waitFor(`!document.querySelector('[data-offline-banner]') && !document.querySelector('textarea[aria-label="Prompt"]').disabled`);
+    await waitFor(`!document.querySelector('[data-offline-banner]') && !document.querySelector('[data-prompt-editor]').hasAttribute('aria-disabled')`);
     await evaluate(
-      `(() => { const box = document.querySelector('textarea[aria-label="Prompt"]'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(box, "Keep 8 dailies"); box.dispatchEvent(new Event("input", { bubbles: true })); box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); })()`,
+      `(() => { const box = document.querySelector('[data-prompt-editor]'); box.value = "Keep 8 dailies"; box.dispatchEvent(new Event("input", { bubbles: true })); box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); })()`,
     );
     await waitFor(`window.sent.length === 1`);
     assert.equal(await evaluate(`window.sent[0].projectPath`), "c-studio|/Users/s/homelab", "the send goes to studio's bridge, with the key main strips");

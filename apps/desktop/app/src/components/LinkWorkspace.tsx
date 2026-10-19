@@ -242,7 +242,7 @@ export function LinkWorkspace({
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") {
         event.preventDefault();
         pick(null);
-        document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')?.focus();
+        document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();

@@ -1,6 +1,6 @@
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, KeyboardEvent } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, ArrowDown01Icon, ArrowUp01Icon, Attachment01Icon, ClipboardPasteIcon, FlashIcon, SecurityCheckIcon } from "@hugeicons/core-free-icons";
@@ -17,11 +17,12 @@ import { useSettings } from "../lib/settings";
 import { ProviderLogo } from "./ProviderLogo";
 import { Attachments } from "./Attachments";
 import { useProjectFiles } from "./useProjectFiles";
-import { promptToken, fileMentionPath, removePromptToken, insertPromptToken } from "../lib/file-mentions";
+import { promptToken, fileMentionPath, insertPromptToken } from "../lib/file-mentions";
+import { formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
 import { useSkills } from "./useSkills";
 import { ScrollArea } from "./primitives/ScrollArea";
-import { promptSkillParts } from "../lib/prompt-skills";
-import { PromptHighlights } from "./PromptHighlights";
+import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
+import { useKnownFiles } from "./useKnownFiles";
 import { ContextRing } from "./ContextRing";
 import { offlinePlaceholder } from "../lib/computers";
 
@@ -183,7 +184,7 @@ export function PromptComposer({
   const [active, setActive] = useState(0);
   const [engaged, setEngaged] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<PromptEditorHandle>(null);
   const compactWidthRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const overflowRef = useRef<CompactOverflow>(null);
@@ -230,11 +231,49 @@ export function PromptComposer({
       })),
     ...skillRows,
   ];
-  const skillParts = promptSkillParts(
-    draft,
-    commands.map((command) => command.name.slice(1)),
+  const skillNames = commands.map((command) => command.name.slice(1));
+  const skillKey = skillNames.join("\n");
+  const skillDescriptions = useMemo(
+    () => new Map(commands.map((command) => [command.name.slice(1).toLowerCase(), command.desc])),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `commands` is rebuilt each render; its names and descriptions are what count.
+    [commands.map((command) => `${command.name}\t${command.desc}`).join("\n")],
   );
-  const hasSkill = skillParts.some((part) => part.skill);
+  // The mention being typed is the @ menu's search; the rest are looked up so they show as chips.
+  const typing = token?.kind === "at" ? draft.slice(token.start + 1, token.end) : null;
+  const { known, version: knownVersion, markKnown } = useKnownFiles(projectPath, draft, typing);
+  const parts = useMemo(
+    () => promptParts(draft, { skills: skillKey ? skillKey.split("\n") : [], files: (path) => known.has(path) }),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `known` is a Set that grows in place; `knownVersion` counts its growth.
+    [draft, skillKey, known, knownVersion],
+  );
+  // The @ menu searched the mention being typed: an exact match is a file too.
+  const typedFound = typing !== null && fileSearch.files.includes(typing) ? typing : null;
+  useEffect(() => {
+    if (typedFound) markKnown(typedFound);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `markKnown` is rebuilt each render.
+  }, [typedFound, projectPath]);
+  // Files attached because a chip mentions them; deleting the chip detaches them (and undoing that attaches them again).
+  const mentionAttached = useRef(new Set<string>());
+  const chipFiles = useRef<string[]>([]);
+  const chipKey = [...new Set(parts.flatMap((part) => (part.kind === "file" ? [fileMentionPath(projectPath, part.path) ?? ""] : [])).filter(Boolean))].join(
+    "\n",
+  );
+  useEffect(() => {
+    const now = chipKey ? chipKey.split("\n") : [];
+    const before = chipFiles.current;
+    chipFiles.current = now;
+    for (const path of now) {
+      if (before.includes(path) || imageDraft.files.includes(path)) continue;
+      mentionAttached.current.add(path);
+      imageDraft.attachPath(path);
+    }
+    for (const path of before) {
+      if (now.includes(path) || !mentionAttached.current.has(path)) continue;
+      mentionAttached.current.delete(path);
+      imageDraft.removeFile(path);
+    }
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs when the chips change, not when attachments do.
+  }, [chipKey]);
   const inputTextClass = expanded
     ? "min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
     : "min-h-7 px-1 py-[5px] text-[length:var(--chat-size)] leading-[18px]";
@@ -264,12 +303,9 @@ export function PromptComposer({
   }, [active, engaged, menu, tokenQuery, rows.length]);
 
   useLayoutEffect(() => {
-    const input = inputRef.current;
+    const input = inputRef.current?.root;
     if (!input) return;
-    input.style.height = "0px";
     const contentHeight = input.scrollHeight;
-    input.style.height = `${Math.min(Math.max(contentHeight, 28), 100)}px`;
-    input.style.overflowY = contentHeight > 100 ? "auto" : "hidden";
     if (!expanded) compactWidthRef.current = input.clientWidth;
     const next = composerLayout({
       draft,
@@ -356,13 +392,16 @@ export function PromptComposer({
       if (token && row.path) {
         const path = fileMentionPath(projectPath, row.path);
         if (!path) return;
+        markKnown(row.path);
+        if (!imageDraft.files.includes(path)) mentionAttached.current.add(path);
         imageDraft.attachPath(path);
-        onDraftChange(removePromptToken(draft, token));
-        const position = token.start;
-        requestAnimationFrame(() => inputRef.current?.setSelectionRange(position, position));
+        const mention = formatFileMention(row.path);
+        onDraftChange(insertPromptToken(draft, token, mention));
+        inputRef.current?.setSelection(token.start + mention.length + 1);
       }
     } else {
       onDraftChange(token ? insertPromptToken(draft, token, row.name) : `${draft}${row.name} `);
+      inputRef.current?.setSelection(token ? token.start + row.name.length + 1 : draft.length + row.name.length + 1);
     }
     setPlusOpen(false);
     setDismissed(true);
@@ -384,26 +423,28 @@ export function PromptComposer({
 
   // Up on the first line steps back through sent prompts, Down on the last line steps forward and finally restores
   // the draft that was there before, like a shell or VS Code's chat.
-  function recall(event: KeyboardEvent<HTMLTextAreaElement>) {
+  function recall(event: KeyboardEvent<HTMLDivElement>) {
     const up = event.key === "ArrowUp";
     if ((!up && event.key !== "ArrowDown") || event.shiftKey || event.altKey || event.metaKey || event.ctrlKey || event.nativeEvent.isComposing) return false;
-    const { selectionStart, selectionEnd, value } = event.currentTarget;
-    if (selectionStart !== selectionEnd || (up ? value.slice(0, selectionStart) : value.slice(selectionEnd)).includes("\n")) return false;
+    const editor = inputRef.current;
+    if (!editor || !(up ? editor.isCaretOnFirstLine() : editor.isCaretOnLastLine())) return false;
     const current = browsing.current;
     if (!current && !up) return false;
     const index = (current?.index ?? history.length) + (up ? -1 : 1);
     if (index < 0) return false;
     event.preventDefault();
-    const stash = current?.stash ?? value;
+    const stash = current?.stash ?? draft;
     const next = index < history.length ? history[index] : stash;
     browsing.current = index < history.length ? { index, stash } : null;
     setDismissed(true);
     onDraftChange(next);
-    requestAnimationFrame(() => inputRef.current?.setSelectionRange(next.length, next.length));
+    inputRef.current?.setSelection(next.length);
     return true;
   }
 
-  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    // Keys during an IME composition belong to the IME: Enter commits the text, it doesn't pick or send.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (menu && rows.length > 0) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -418,7 +459,7 @@ export function PromptComposer({
       }
     }
     if (recall(event)) return;
-    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       send();
     }
@@ -631,28 +672,22 @@ export function PromptComposer({
             className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"}`}
           >
             <div className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"}`}>
-              {hasSkill && (
-                <PromptHighlights
-                  inputRef={inputRef}
-                  parts={skillParts}
-                  descriptions={new Map(commands.map((command) => [command.name.toLowerCase(), command.desc]))}
-                  className={inputTextClass}
-                />
-              )}
-              <textarea
-                onPaste={(event) => void imageDraft.onPaste(event)}
+              <PromptEditor
                 ref={inputRef}
-                rows={1}
                 value={draft}
-                onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
-                onChange={(event) => {
-                  setCaret(event.target.selectionStart);
-                  onDraftChange(event.target.value);
+                parts={parts}
+                skillDescriptions={skillDescriptions}
+                onPaste={(event) => void imageDraft.onPaste(event)}
+                onSelect={setCaret}
+                onChange={(value, position) => {
+                  setCaret(position);
+                  onDraftChange(value);
                   setDismissed(false);
                   setPlusOpen(false);
                 }}
                 onKeyDown={handleKeyDown}
                 disabled={Boolean(offlineName)}
+                maxHeight={100}
                 placeholder={
                   (running
                     ? // A provider that can't steer mid-turn takes the message at the start of the next turn.
@@ -661,8 +696,8 @@ export function PromptComposer({
                       : "Queue a message for the next turn…"
                     : "Prompt or mention a file with @") + (offlineName ? offlinePlaceholder(offlineName) : "")
                 }
-                aria-label="Prompt"
-                className={`${inputTextClass} ${expanded ? "" : "placeholder-shown:whitespace-nowrap placeholder:truncate"} ${hasSkill ? "prompt-input-highlighted" : "text-ink"} relative block min-w-0 w-full resize-none overflow-hidden bg-transparent caret-ink outline-none [overflow-wrap:anywhere] placeholder:text-ink-3`}
+                className={inputTextClass}
+                placeholderClassName={expanded ? "" : "truncate whitespace-nowrap"}
               />
             </div>
             <button

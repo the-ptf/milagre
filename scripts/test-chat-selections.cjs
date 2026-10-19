@@ -176,8 +176,8 @@ async function browserChecks() {
     );
     await waitFor(`document.querySelector('[aria-label="Agent permissions"]').textContent === "Full"`);
     await evaluate(`(() => {
-      const input = document.querySelector('textarea[aria-label="Prompt"]');
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'First prompt');
+      const input = document.querySelector('[data-prompt-editor]');
+      input.value = 'First prompt';
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`);
     await waitFor(`!document.querySelector('[aria-label="Send"]').disabled`);
@@ -187,12 +187,12 @@ async function browserChecks() {
     await waitFor(`document.querySelector('[aria-label="Conversation"]')?.textContent.includes('First prompt')`);
     await evaluate(`window.failWorktree()`);
     await waitFor(`document.body.textContent.includes('Could not create the worktree')`);
-    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "First prompt");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "First prompt");
     await evaluate(`document.querySelector('[aria-label="Send"]').click()`);
     await delay(50);
     await evaluate(`window.finishWorktree()`);
     await waitFor(`!document.querySelector('[data-new-chat-pickers]')`);
-    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "");
     assert.equal(await evaluate(`document.querySelector('[aria-label="Conversation"]').textContent.includes('First prompt')`), true);
     console.log("PASS: first send shows the message while preparing and preserves the draft on failure");
     console.log("PASS: new chats follow Settings, remember explicit selections, and restore them after reload");
