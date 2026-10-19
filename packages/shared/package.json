@@ -80,6 +80,14 @@
       "types": "./src/prompt-skills.d.mts",
       "default": "./src/prompt-skills.mjs"
     },
+    "./prompt-parts": {
+      "types": "./src/prompt-parts.d.mts",
+      "default": "./src/prompt-parts.mjs"
+    },
+    "./file-kinds": {
+      "types": "./src/file-kinds.d.mts",
+      "default": "./src/file-kinds.mjs"
+    },
     "./checkpoints": "./src/checkpoints.ts",
     "./use-checkpoints": "./src/use-checkpoints.ts",
     "./model": "./src/model.ts",
