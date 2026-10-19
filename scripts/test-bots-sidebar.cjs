@@ -186,6 +186,16 @@ async function browserChecks() {
         ["Bots", 32, 32],
       ],
     );
+    // Their hidden labels take no room, so each icon sits in the middle of its button.
+    assert.deepEqual(
+      await evaluate(
+        `["[data-needs-you]", "[data-new-bot]"].map((selector) => { const button = document.querySelector(selector); const r = button.getBoundingClientRect(); const icon = button.querySelector("svg").getBoundingClientRect(); return [selector, Math.round(r.width), Math.round(icon.left + icon.width / 2 - (r.left + r.width / 2))]; })`,
+      ),
+      [
+        ["[data-needs-you]", 32, 0],
+        ["[data-new-bot]", 32, 0],
+      ],
+    );
     await screenshot("bots-sidebar-collapsed");
     await evaluate(`document.querySelector('[aria-label="Expand sidebar"]').click()`);
     await waitFor(`Math.round(document.querySelector("aside").getBoundingClientRect().width) > 44`);
