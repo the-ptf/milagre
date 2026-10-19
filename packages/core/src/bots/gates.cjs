@@ -37,8 +37,15 @@ const DEFAULT_GATE_PATTERNS = Object.freeze([
 const MCP_PATTERNS = Object.freeze([
   { kind: "merge", pattern: /^mcp__(?!milagre__).*__\w*merge/i },
   { kind: "delete", pattern: /^mcp__(?!milagre__).*__\w*(delete|destroy)/i },
-  { kind: "post", pattern: /^mcp__(?!milagre__).*(slack|gmail|discord|linear).*(send|post|create|reply|comment)/i },
 ]);
+// Servers whose every write speaks for the user: on them a tool that isn't named as a read posts, so a verb Milagre
+// doesn't list (`slack_schedule_message`, `add_reaction`) can't slip through. GitHub's are read in githubGate.
+const POSTING_SERVERS = /slack|mail|outlook|discord|linear|telegram|whatsapp/i;
+const GITHUB_SERVER = /github/i;
+const READ_VERBS = new Set(["get", "list", "search", "read", "fetch", "view", "lookup", "describe", "download", "query"]);
+// The `issue_read`, `projects_list` form names its read last; `add_to_list` isn't one.
+const READ_LAST = new Set(["read", "list", "get", "search"]);
+const WRITE_VERBS = new Set(["add", "create", "update", "delete", "remove", "set", "send", "post", "write", "push", "merge", "mark"]);
 
 // A command whose program or subcommand only shows when it runs (`$G pr merge 1`, `curl … | sh`) asks too. No gate
 // kind names "anything", so it asks as a delete, the kind with the widest reach; no grant ever covers it.
@@ -319,6 +326,8 @@ const WRAPPERS = new Map(
     chronic: {},
     unbuffer: {},
     setsid: {},
+    taskset: { positional: 1 },
+    chrt: { positional: 1 },
   }),
 );
 const XARGS_VALUES = [
@@ -340,6 +349,8 @@ const XARGS_VALUES = [
   "--arg-file",
   "--eof",
 ];
+const FLOCK_VALUES = ["-w", "--wait", "--timeout", "-E", "--conflict-exit-code"];
+const SSH_VALUES = ["-B", "-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L", "-l", "-m", "-O", "-o", "-P", "-p", "-Q", "-R", "-S", "-W", "-w"];
 const SHELLS = new Set(["bash", "sh", "zsh", "dash", "ksh", "mksh", "fish", "csh", "tcsh"]);
 const SHELL_VALUES = new Set(["-o", "+o", "-O", "+O", "--rcfile", "--init-file"]);
 const PACKAGE_RUNNERS = new Set(["npx", "bunx"]);
@@ -549,6 +560,21 @@ function normalize(words, context = {}) {
       }
       return again(command.join(" "));
     }
+    if (name === "flock") {
+      // `flock [options] file command…`, or `flock file -c 'command'`.
+      const at = rest.findIndex((word) => word === "-c" || word === "--command" || word.startsWith("--command="));
+      if (at > 0) return again(rest[at].startsWith("--command=") ? rest[at].slice("--command=".length) : (rest[at + 1] ?? ""));
+      rest = unwrap(rest, { values: FLOCK_VALUES, positional: 1 }, context);
+      continue;
+    }
+    if (name === "ssh") {
+      // The remote shell runs its words joined by spaces, somewhere other than the Chat's folder. A login with no
+      // command isn't read.
+      const [, ...remote] = unwrap(rest, { values: SSH_VALUES }, context);
+      if (!remote.length) return [rest];
+      context.moved = true;
+      return again(remote.join(" "));
+    }
     if (name === "script") {
       const run = scriptCommand(rest);
       if (run.stdin) return [unchecked(rest)];
@@ -597,6 +623,83 @@ function splitCommand(command) {
         .join(" "),
     )
     .filter(Boolean);
+}
+
+// --- Commands handed on -----------------------------------------------------------------------------------------
+
+// Programs whose own words Milagre reads (below). After `--` their words are operands, not a command, so a variable
+// there (`git diff -- "$f"`, `rm -rf -- "$dir"`) doesn't ask.
+const READ_PROGRAMS = new Set([
+  "gh",
+  "git",
+  "rm",
+  "find",
+  "rsync",
+  "curl",
+  "eas",
+  "vercel",
+  "wrangler",
+  "npm",
+  "pnpm",
+  "yarn",
+  "bun",
+  "node",
+  "deno",
+  "tsx",
+  "asc.mjs",
+]);
+// Programs that only print, search or move their words: they hand nothing on to run.
+const DATA_PROGRAMS = new Set(
+  `echo printf grep egrep fgrep rg ag cat head tail wc sort uniq cut tr sed awk jq yq ls which type whereis man
+  tldr test [ [[ export local declare readonly set unset touch mkdir cp mv ln chmod chown diff cmp file stat du
+  basename dirname realpath readlink tee pbcopy say open brew apt apt-get pip pip3`
+    .trim()
+    .split(/\s+/),
+);
+// Words that name a program Milagre gates or one that runs another: where an unknown wrapper's command starts.
+const COMMAND_NAMES = new Set([
+  ...READ_PROGRAMS,
+  "eas-cli",
+  ...SHELLS,
+  ...WRAPPERS.keys(),
+  ...PACKAGE_RUNNERS,
+  "xargs",
+  "eval",
+  "watch",
+  "script",
+  "flock",
+  "ssh",
+]);
+
+// The words a command may hand on to run, or null. Any program's words after a bare `--` (`doppler run -- …`,
+// `npm run x -- …`). A program Milagre doesn't know may also run its words from one naming a program it gates, with
+// words after it (`flock /tmp/l gh pr merge 1`, `dotenv npm publish`); the earlier of the two wins, and the rest is
+// read from there. For an unknown program a variable after `--` is a command Milagre can't read; `echo gh pr merge`
+// stays text.
+function handedOn(words) {
+  const name = words[0];
+  if (DATA_PROGRAMS.has(name)) return null;
+  const known = READ_PROGRAMS.has(name);
+  const dash = words.indexOf("--", 1);
+  let start = dash < 0 ? -1 : dash + 1;
+  if (!known) {
+    const named = words.findIndex((word, index) => index > 0 && index < words.length - 1 && !dynamic(word) && COMMAND_NAMES.has(path.basename(word)));
+    if (named > 0 && (start < 0 || named < start)) start = named;
+  }
+  if (start < 0 || start >= words.length) return null;
+  const tail = words.slice(start);
+  return known && dynamic(tail[0]) ? null : tail;
+}
+
+// A simple command's words -> the commands it runs (see normalize), with those it hands on (see handedOn).
+function commandsIn(words, context) {
+  const commands = [];
+  for (const command of normalize(words, context)) {
+    commands.push(command);
+    const tail = command.unchecked ? null : handedOn(command);
+    if (tail) commands.push(...commandsIn(tail, context));
+  }
+  return commands;
 }
 
 // --- gh and git ---------------------------------------------------------------------------------------------------
@@ -811,7 +914,7 @@ function ghGate(gh, options) {
     if (expansion === undefined || expansion === "-") return UNCHECKED;
     const shell = gh.args.includes("--shell") || gh.args.includes("-s") || expansion.startsWith("!");
     const command = shell ? expansion.replace(/^!/, "") : `gh ${expansion}`;
-    for (const words of parse(command).flatMap((segment) => normalize(segment))) {
+    for (const words of parse(command).flatMap((segment) => commandsIn(segment, {}))) {
       const gate = segmentGate(words, options);
       if (gate) return { kind: gate.kind, uncoverable: true };
     }
@@ -963,6 +1066,78 @@ function mcpToolName(request) {
   return server && tool ? `mcp__${server}__${tool}` : null;
 }
 
+// A tool's name as words (`slack_send_message`, `sendMessage` -> send message), without a first word that only
+// repeats its server (`mcp__claude_ai_Slack__slack_read_channel` -> read channel).
+function toolWords(server, tool) {
+  const words = tool
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  if (words.length > 1 && (server.toLowerCase().includes(words[0]) || POSTING_SERVERS.test(words[0]) || GITHUB_SERVER.test(words[0]))) words.shift();
+  return words;
+}
+
+const isRead = (words) => READ_VERBS.has(words[0]) || (READ_LAST.has(words.at(-1)) && !words.some((word) => WRITE_VERBS.has(word)));
+
+// The tool's arguments, from the card's detail (Claude's input, Codex's tool_params). Cut short or missing: none.
+function mcpArgs(request) {
+  try {
+    const args = JSON.parse(request.detail ?? "");
+    return args && typeof args === "object" ? args : {};
+  } catch {
+    return {};
+  }
+}
+
+const REPO_PART = /^[\w.-]+$/;
+
+// The GitHub MCP server, gated as gh is: a tool named as a read (get_, list_, search_, `issue_read`) passes; every
+// other one acts on GitHub as the user, so it posts unless its name says it does more. Pushing files is `git push`
+// without a local commit: to main or master, or to a branch it doesn't name, it is a merge. A workflow run ships when
+// its name says so; one known only by number, or a run by id, can't be told. The repo in its owner/repo arguments is
+// the target; without one no grant covers it.
+function githubGate(words, args) {
+  if (isRead(words)) return null;
+  const owner = args.owner;
+  const repo = args.repo ?? args.repository;
+  const named =
+    typeof owner === "string" && typeof repo === "string" && REPO_PART.test(owner) && REPO_PART.test(repo)
+      ? `${owner}/${repo}`
+      : typeof repo === "string" && /^[\w.-]+\/[\w.-]+$/.test(repo)
+        ? repo
+        : null;
+  const where = named ? { target: named } : { uncoverable: true };
+  const has = (...names) => words.some((word) => names.includes(word));
+  if (has("merge")) {
+    const number = args.pullNumber ?? args.pull_number;
+    return { kind: "merge", ...(/^\d+$/.test(String(number ?? "")) ? { title: `Merge PR #${number}` } : {}), ...where };
+  }
+  if (has("delete", "destroy")) return { kind: "delete", ...where };
+  if (has("release", "releases", "publish", "deploy")) return { kind: "publish", ...where };
+  if (has("workflow", "actions", "rerun")) {
+    const workflow = String(args.workflow_id ?? args.workflowId ?? args.workflow ?? "");
+    if (SHIPS.test(workflow)) return { kind: "publish", ...where };
+    if (!workflow || /^\d+$/.test(workflow)) return { kind: "delete", title: "Run a workflow Milagre can't check", uncoverable: true };
+  }
+  if (has("push", "file", "files")) {
+    const branch = typeof args.branch === "string" ? args.branch.replace(/^refs\/heads\//, "") : null;
+    if (!branch || DEFAULT_BRANCHES.has(branch)) return { kind: "merge", ...(branch ? { title: `Push to ${branch}` } : {}), ...where };
+  }
+  return { kind: "post", ...where };
+}
+
+// An MCP tool's gate. Other servers' targets are left to the caller (the Chat's Project), as before.
+function mcpGate(mcp, request) {
+  const [, server, tool] = /^mcp__(.+?)__(.+)$/.exec(mcp) ?? [];
+  if (!tool || server === "milagre") return null;
+  const words = toolWords(server, tool);
+  if (GITHUB_SERVER.test(`${server}__${tool}`)) return githubGate(words, mcpArgs(request));
+  const found = MCP_PATTERNS.find(({ pattern }) => pattern.test(mcp));
+  if (found) return { kind: found.kind };
+  return POSTING_SERVERS.test(`${server}__${tool}`) && !isRead(words) ? { kind: "post" } : null;
+}
+
 /**
  * Every gate a permission request falls under, in the order its commands run, each once. `extra` adds a template's
  * own command prefixes. A gate's target is the repo the command names (`-R`, a PR URL, a `gh api` endpoint), or null
@@ -973,12 +1148,14 @@ function mcpToolName(request) {
 function matchGates(request, { extra = [] } = {}) {
   const mcp = mcpToolName(request);
   if (mcp) {
-    const found = MCP_PATTERNS.find(({ pattern }) => pattern.test(mcp));
-    return found ? [{ kind: found.kind, title: `${KIND_LABEL[found.kind]}: ${mcp}`, command: mcp, target: null }] : [];
+    const gate = mcpGate(mcp, request);
+    if (!gate) return [];
+    const { kind, title, target, uncoverable } = gate;
+    return [{ kind, title: title ?? `${KIND_LABEL[kind]}: ${mcp}`, command: mcp, target: target ?? null, ...(uncoverable ? { uncoverable: true } : {}) }];
   }
   if (typeof request.command !== "string") return [];
   const context = { moved: /\bGIT_(DIR|WORK_TREE)=/.test(request.command) };
-  const segments = parse(request.command).flatMap((segment) => normalize(segment, context));
+  const segments = parse(request.command).flatMap((segment) => commandsIn(segment, context));
   const options = { cwd: request.cwd, moved: context.moved || segments.some(changesFolder), extra };
   const ghEnv = /\bGH_(REPO|HOST)=/.test(request.command);
   const gates = new Map();

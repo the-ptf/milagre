@@ -77,6 +77,21 @@ const GATED = [
   ["trap 'gh pr merge 1' EXIT", "merge"],
   [">/dev/null gh pr merge 1", "merge"],
   ["npx -p eas-cli eas update --branch production", "publish"],
+  // Wrappers Milagre doesn't know: what follows `--`, or the word naming a gated program, runs.
+  ["doppler run -- gh pr merge 1", "merge", "Merge PR #1"],
+  ["op run --env-file=.env -- gh pr merge 1", "merge", "Merge PR #1"],
+  ["dotenv -- npm publish", "publish"],
+  ["dotenv -e .env npm publish", "publish"],
+  ["aws-vault exec prod -- npx wrangler deploy", "publish"],
+  ["npm run with-env -- gh pr merge 1", "merge", "Merge PR #1"],
+  ["flock /tmp/l gh pr merge 1", "merge", "Merge PR #1"],
+  ["flock -w 10 /tmp/l gh pr merge 1", "merge", "Merge PR #1"],
+  ["flock /tmp/l -c 'gh pr merge 1'", "merge", "Merge PR #1"],
+  ["taskset -c 0 gh pr merge 1", "merge", "Merge PR #1"],
+  ["chrt 10 git push origin main", "merge", "Push to main"],
+  ["docker exec box gh pr merge 1", "merge", "Merge PR #1"],
+  ["ssh -p 22 host gh pr merge 1", "merge", "Merge PR #1"],
+  ["ssh host 'cd repo && npm publish'", "publish"],
   // Quoting and substitutions.
   ["gh pr $'merge' 1", "merge", "Merge PR #1"],
   ["g\\h pr me\\rge 1", "merge"],
@@ -168,6 +183,8 @@ const UNCHECKED = [
   "gh api graphql -F query=@mutation.graphql",
   'gh api graphql -f query="$Q"',
   "gh api graphql --input body.json",
+  "doppler run -- $CMD",
+  'op run -- "$@"',
 ];
 const SAFE = [
   "gh pr view 474",
@@ -217,6 +234,18 @@ const SAFE = [
   "gh api repos/o/r/pulls --paginate",
   "gh api -X GET search/issues -f q=x",
   "gh api graphql -f query='query { viewer { login } }'",
+  // `--` before operands isn't a command, and text is text.
+  'git commit -m "gh pr merge 1" -- src/a.ts',
+  'git diff -- "$f"',
+  "git checkout -- gh",
+  "rm -rf -- dist",
+  "npm test -- --watch",
+  "echo -- gh pr merge 1",
+  "doppler run -- npm test",
+  "flock /tmp/l npm test",
+  "docker run -it ubuntu bash",
+  "ssh -T git@github.com",
+  "ssh host ls",
 ];
 
 test("gated shell commands", () => {
@@ -276,6 +305,116 @@ test("posting MCP tools", () => {
     assert.equal(matchGate({ tool })?.kind, "post", tool);
   assert.equal(matchGate({ tool: "mcp__slack__slack_read_channel" }), null);
   assert.equal(matchGate({ tool: "mcp__slack__send_message" }).title, "Post as you: mcp__slack__send_message");
+});
+
+const POSTS = [
+  "mcp__slack__slack_schedule_message",
+  "mcp__claude_ai_Slack__slack_send_message_draft",
+  "mcp__slack__add_reaction",
+  "mcp__discord__edit_message",
+  "mcp__claude_ai_Gmail__reply_to_thread",
+  "mcp__linear-server__update_issue",
+  "mcp__zapier__slack_send_channel_message",
+];
+const POSTING_READS = [
+  "mcp__slack__slack_read_channel",
+  "mcp__claude_ai_Slack__slack_search_public",
+  "mcp__slack__list_channels",
+  "mcp__claude_ai_Gmail__get_thread",
+  "mcp__linear-server__list_issues",
+  "mcp__slack__channel_read",
+];
+
+test("posting servers gate every tool not named as a read", () => {
+  for (const tool of POSTS) assert.equal(matchGate({ tool })?.kind, "post", tool);
+  for (const tool of POSTING_READS) assert.equal(matchGate({ tool }), null, tool);
+  // A posting server's tool still targets the Chat's Project, as before.
+  const gate = matchGate({ tool: "mcp__slack__slack_schedule_message" });
+  assert.deepEqual([gate.target, gate.uncoverable], [null, undefined]);
+  assert.equal(matchGate({ tool: "MCP: slack", title: 'Allow the slack MCP server to run tool "slack_schedule_message"?' })?.kind, "post");
+});
+
+const REPO = { owner: "o", repo: "r" };
+const github = (tool, args = REPO) => matchGate({ tool: `mcp__github__${tool}`, detail: JSON.stringify(args, null, 2) });
+
+// The GitHub MCP server's tools and the gate each asks as. A name Milagre doesn't know isn't a read, so it posts.
+const GITHUB_GATED = [
+  ["merge_pull_request", "merge"],
+  ["add_issue_comment", "post"],
+  ["create_pull_request_review", "post"],
+  ["create_and_submit_pull_request_review", "post"],
+  ["add_comment_to_pending_review", "post"],
+  ["submit_pending_pull_request_review", "post"],
+  ["create_issue", "post"],
+  ["update_issue", "post"],
+  ["issue_write", "post"],
+  ["create_pull_request", "post"],
+  ["update_pull_request", "post"],
+  ["request_copilot_review", "post"],
+  ["create_branch", "post"],
+  ["mark_all_notifications_read", "post"],
+  ["some_future_write", "post"],
+  ["create_release", "publish"],
+  ["delete_file", "delete"],
+  ["delete_repository", "delete"],
+  ["push_files", "merge", { ...REPO, branch: "main" }],
+  ["push_files", "merge", REPO],
+  ["create_or_update_file", "merge", { ...REPO, branch: "refs/heads/master" }],
+  ["push_files", "post", { ...REPO, branch: "fix/flaky" }],
+  ["create_or_update_file", "post", { ...REPO, branch: "fix/flaky" }],
+  ["run_workflow", "publish", { ...REPO, workflow_id: "release.yml" }],
+  ["actions_run_trigger", "publish", { ...REPO, method: "run_workflow", workflow_id: "eas-submit.yml" }],
+  ["run_workflow", "post", { ...REPO, workflow_id: "ci.yml" }],
+];
+const GITHUB_READS = [
+  "get_pull_request",
+  "get_pull_request_files",
+  "list_issues",
+  "list_pull_requests",
+  "search_code",
+  "get_file_contents",
+  "get_latest_release",
+  "list_releases",
+  "list_workflow_runs",
+  "get_job_logs",
+  "download_workflow_run_artifact",
+  "issue_read",
+  "pull_request_read",
+  "projects_list",
+  "get_me",
+];
+
+test("the GitHub MCP server gates as gh does", () => {
+  for (const [tool, kind, args] of GITHUB_GATED) assert.equal(github(tool, args)?.kind, kind, tool);
+  assert.equal(github("merge_pull_request", { ...REPO, pullNumber: 474 }).title, "Merge PR #474");
+  assert.equal(github("push_files", { ...REPO, branch: "main" }).title, "Push to main");
+  assert.equal(github("add_issue_comment").title, "Post as you: mcp__github__add_issue_comment");
+  // A workflow known only by number, or a run by id, can't be told.
+  for (const args of [
+    { ...REPO, workflow_id: "123456" },
+    { ...REPO, workflow_id: 123456 },
+    { ...REPO, run_id: 9 },
+  ])
+    assert.equal(github("rerun_workflow_run", args)?.uncoverable, true, JSON.stringify(args));
+});
+
+test("the GitHub MCP server's reads pass", () => {
+  for (const tool of GITHUB_READS) assert.equal(github(tool), null, tool);
+  assert.equal(matchGate({ tool: "Get Pull Request", toolName: "mcp__claude_ai_GitHub__get_pull_request" }), null);
+});
+
+test("a GitHub MCP tool targets the repo in its arguments, or nothing a grant covers", () => {
+  assert.equal(github("add_issue_comment", { owner: "the-ptf", repo: "milagre" }).target, "the-ptf/milagre");
+  assert.equal(github("create_release", { repo: "the-ptf/milagre", tag: "v1" }).target, "the-ptf/milagre");
+  for (const args of [{}, { owner: "the-ptf" }, { owner: "../x", repo: "milagre" }]) {
+    const gate = github("add_issue_comment", args);
+    assert.deepEqual([gate.target, gate.uncoverable], [null, true], JSON.stringify(args));
+  }
+  // Cut short, the detail can't be read.
+  assert.equal(matchGate({ tool: "mcp__github__merge_pull_request", detail: '{"owner": "o", "re\n… truncated' }).uncoverable, true);
+  // Codex: the server and tool from the card, the arguments from tool_params.
+  const codex = { tool: "MCP: github", title: 'Allow the github MCP server to run tool "add_issue_comment"?', detail: '{"owner":"o","repo":"r"}' };
+  assert.deepEqual([matchGate(codex)?.kind, matchGate(codex)?.target], ["post", "o/r"]);
 });
 
 test("merge and delete MCP tools; Milagre's own tools never gate", () => {
