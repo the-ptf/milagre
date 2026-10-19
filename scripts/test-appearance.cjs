@@ -120,6 +120,10 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await waitFor(`!!document.querySelector('.chat-column') && !!document.querySelector('.chat-title-current') && !!document.querySelector('${marker}')`);
 
+    // The fixture is dark whatever the system scheme is (a Linux runner reports light, which would pick the light pair).
+    await evaluate(`window.__settings({ theme: 'dark' })`);
+    await waitFor(`document.documentElement.classList.contains('dark')`);
+
     // Defaults change nothing.
     assert.equal(await style(bubble, "fontSize"), "13px", "default chat size");
     assert.equal(await style(".chat-title-current", "fontSize"), "14px", "default sidebar size");

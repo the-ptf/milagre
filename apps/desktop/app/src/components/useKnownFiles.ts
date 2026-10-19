@@ -11,7 +11,7 @@ function entry(root: string) {
 }
 
 /** A path picked from the Project's file list is known without another search. */
-export function markFileKnown(root: string, path: string) {
+function markFileKnown(root: string, path: string) {
   const found = entry(root);
   found.known.add(path);
   found.asked.add(path);
@@ -23,7 +23,7 @@ const MISS_TTL_MS = 30_000;
 const TRAILING_PUNCTUATION = /[.,!?;:)\]}]+$/;
 
 /** The paths a draft's `@` mentions could name: quoted ones as written, bare ones also without trailing punctuation. */
-export function mentionCandidates(draft: string): string[] {
+function mentionCandidates(draft: string): string[] {
   const paths = new Set<string>();
   for (const match of draft.matchAll(/(^|\s)@(?:"([^"\n]+)"|([^\s"]\S*))/g)) {
     if (match[2] !== undefined) paths.add(match[2]);

@@ -94,7 +94,7 @@ export function useTheme() {
 }
 
 /** Text size in px for chat text (15 by default), code size in px (12), and the motion multiplier (1, 0.6, 0). */
-export function appearanceScales(settings: Pick<PhoneThemeSettings, "textSize" | "codeSize" | "motion">) {
+function appearanceScales(settings: Pick<PhoneThemeSettings, "textSize" | "codeSize" | "motion">) {
   const text = PHONE_TEXT_SIZES.find((entry) => entry.id === settings.textSize)?.px ?? 15;
   const code = PHONE_CODE_SIZES.find((entry) => entry.id === settings.codeSize)?.px ?? 12;
   const motionScale = MOTION_SPEEDS.find((entry) => entry.id === settings.motion)?.scale ?? 1;
@@ -103,9 +103,6 @@ export function appearanceScales(settings: Pick<PhoneThemeSettings, "textSize" |
 
 /** The motion multiplier for code outside React (worklet setup, module-level animations). */
 export const getMotionScale = () => appearanceScales(getThemeSettings()).motionScale;
-
-/** A Reanimated or Animated duration scaled by the Animations setting; 0 when Animations is off. */
-export const scaledDuration = (ms: number) => Math.round(ms * getMotionScale());
 
 /** A hook for a style sheet that depends on the palette: built once per palette, shared by every component that calls it. */
 export function createStylesHook<T>(make: (colors: Palette) => T): () => T {

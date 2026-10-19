@@ -37,7 +37,7 @@ function fillerWidth(node: EditorNode, raw: string) {
 const BLOCKS = new Set(["DIV", "P", "LI", "PRE", "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6"]);
 
 /** A chip's source text, or null for anything else. */
-export function chipSource(node: EditorNode): string | null {
+function chipSource(node: EditorNode): string | null {
   return node.nodeType === ELEMENT_NODE ? (node.getAttribute?.("data-text") ?? null) : null;
 }
 
@@ -342,5 +342,3 @@ export function createEditHistory(now: () => number = Date.now) {
     },
   };
 }
-
-export type EditHistory = ReturnType<typeof createEditHistory>;

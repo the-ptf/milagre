@@ -13,8 +13,8 @@ export type PhoneThemeSettings = {
   motion: MotionSpeed;
 };
 
-export type PhoneTextSize = "small" | "default" | "large" | "larger";
-export type PhoneCodeSize = "small" | "default" | "large";
+type PhoneTextSize = "small" | "default" | "large" | "larger";
+type PhoneCodeSize = "small" | "default" | "large";
 const TEXT_SIZES = PHONE_TEXT_SIZES.map((size) => size.id) as PhoneTextSize[];
 const CODE_SIZES = PHONE_CODE_SIZES.map((size) => size.id) as PhoneCodeSize[];
 
