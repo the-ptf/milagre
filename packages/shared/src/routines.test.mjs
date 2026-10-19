@@ -12,6 +12,7 @@ import {
   foldRuns,
   foldText,
   foldTimes,
+  routineEnd,
   routineTimes,
   routineWhereText,
   runChatMeta,
@@ -551,6 +552,12 @@ test("routineTimes says the next Run while on and the last Run, leaving out what
   assert.equal(routineTimes({ enabled: true, nextRunAt: null, runs: [], lastRunAt: local(17, 9, 0) }, now), "Last Run yesterday 09:00");
   assert.equal(routineTimes({ enabled: true, nextRunAt: local(18, 12, 0), runs: [] }, now), "Next Run 12:00");
   assert.equal(routineTimes({ enabled: true, runs: [] }, now), "");
+  // Its end rides at the end of the line.
+  assert.equal(
+    routineTimes({ enabled: true, nextRunAt: local(18, 12, 0), runs, maxRuns: 20, runCount: 17 }, now),
+    "Next Run 12:00 · last Run 11:47 · 3 of 20 Runs left",
+  );
+  assert.equal(routineTimes({ enabled: true, runs: [], expiresAt: now + 2 * 864e5 }, now), "Ends in 2 days");
 });
 
 test("scheduleWords and triggerChipText say a trigger the way its chip does", () => {
@@ -565,6 +572,12 @@ test("scheduleWords and triggerChipText say a trigger the way its chip does", ()
   assert.equal(triggerChipText({ kind: "schedule", cron: "0 */1 * * *", timezone: "UTC" }), "Every hour");
   assert.equal(triggerChipText({ kind: "linear", workspace: "w", event: "assigned" }), "Linear · assigned to me");
   assert.equal(triggerChipText({ kind: "webhook", hookId: "a", signed: false }), "Webhook");
+  // A time of day in another zone than this computer's names the zone; an Every schedule or the local zone doesn't.
+  const weekdays = { kind: "schedule", cron: "30 8 * * 1-5", timezone: "America/Sao_Paulo" };
+  assert.equal(triggerChipText(weekdays, "Europe/Lisbon"), "Weekdays at 08:30 (Sao Paulo)");
+  assert.equal(triggerChipText(weekdays, "America/Sao_Paulo"), "Weekdays at 08:30");
+  assert.equal(triggerChipText(weekdays), "Weekdays at 08:30");
+  assert.equal(triggerChipText({ kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" }, "Europe/Lisbon"), "Every 15 min");
 });
 
 test("routineWhereText says where a Routine's Runs land", () => {
@@ -640,4 +653,12 @@ test("chatRoutine: a Run Chat's own Routine, else the enabled Heartbeat that che
   // A Run Chat whose Routine is gone, and a Chat no Routine knows.
   assert.equal(chatRoutine(routines, "/code/milagre-ade#6", { routineId: "gone" }), undefined);
   assert.equal(chatRoutine(routines, "/code/milagre#1"), undefined);
+});
+
+test("routineEnd says how many Runs are left or when the Routine ends", () => {
+  const now = Date.UTC(2026, 9, 18, 12);
+  assert.equal(routineEnd({ maxRuns: 20, runCount: 17 }, now), "3 of 20 Runs left");
+  assert.equal(routineEnd({ maxRuns: 1, runCount: 0 }, now), "1 of 1 Run left");
+  assert.equal(routineEnd({ expiresAt: now + 5 * 3600e3 }, now), "ends in 5 h");
+  assert.equal(routineEnd({}, now), null);
 });

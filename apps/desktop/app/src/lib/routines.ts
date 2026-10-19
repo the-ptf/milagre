@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { Routine, RoutineRun } from "@milagre/shared/model";
 import { PERMISSION_MODES } from "@milagre/shared/model-copy";
-import { clock, triggerText } from "@milagre/shared/routines";
+import { clock, routineEnd as sharedRoutineEnd, triggerText } from "@milagre/shared/routines";
 import { deleteWarning } from "@milagre/shared/routine-form";
 import { ipcErrorMessage } from "@milagre/shared/result";
 
@@ -36,16 +36,7 @@ export function groupRoutines<T extends Routine>(routines: readonly T[]): { hear
 }
 
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const projectName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
-
-/** How long until `at`, rounded in the largest unit: "2 days", "5 h", "12 min" (a 2-day end read a moment later is still 2 days). */
-function until(at: number, now: number): string {
-  const left = Math.max(0, at - now);
-  if (left >= DAY) return plural(Math.round(left / DAY), "day");
-  if (left >= HOUR) return `${Math.round(left / HOUR)} h`;
-  return `${Math.max(1, Math.ceil(left / MINUTE))} min`;
-}
 
 /** Local calendar days from `at` to `now`: 0 the same day, 1 yesterday. */
 function daysBetween(at: number, now: number): number {
@@ -66,12 +57,8 @@ function ago(at: number, now: number): string {
   return days === 1 ? "yesterday" : `${days} days ago`;
 }
 
-/** When the Routine ends: "3 of 20 runs left" or "ends in 2 days"; null when it runs until switched off. */
-export function routineEnd(routine: Routine, now: number): string | null {
-  if (routine.maxRuns !== undefined) return `${Math.max(0, routine.maxRuns - routine.runCount)} of ${plural(routine.maxRuns, "Run")} left`;
-  if (routine.expiresAt !== undefined) return `ends in ${until(routine.expiresAt, now)}`;
-  return null;
-}
+/** When the Routine ends: "3 of 20 Runs left" or "ends in 2 days"; null when it runs until switched off (shared with the phone). */
+export const routineEnd = (routine: Routine, now: number): string | null => sharedRoutineEnd(routine, now);
 
 /** The model and mode a Routine's Runs use, "Opus 5.5 · Full permission", or null when it uses the Mac's defaults. */
 function routineModel(routine: Routine, modelName?: (provider: Routine["provider"], model: string) => string): string | null {

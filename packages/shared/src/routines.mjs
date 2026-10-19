@@ -356,7 +356,29 @@ export function runChatMeta(run, branch) {
   return parts.join(" · ");
 }
 
-/** The Routine page's line under its chips: "Next Run 12:00 · last Run 11:47", leaving out what doesn't apply. */
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+
+/** How long until `at`, rounded in the largest unit: "2 days", "5 h", "12 min" (a 2-day end read a moment later is still 2 days). */
+function until(at, now) {
+  const left = Math.max(0, at - now);
+  if (left >= DAY) return plural(Math.round(left / DAY), "day");
+  if (left >= HOUR) return `${Math.round(left / HOUR)} h`;
+  return `${Math.max(1, Math.ceil(left / MINUTE))} min`;
+}
+
+/** When a Routine ends: "3 of 20 Runs left" or "ends in 2 days"; null when it runs until switched off. */
+export function routineEnd(routine, now) {
+  if (routine.maxRuns !== undefined) return `${Math.max(0, routine.maxRuns - (routine.runCount ?? 0))} of ${plural(routine.maxRuns, "Run")} left`;
+  if (routine.expiresAt !== undefined) return `ends in ${until(routine.expiresAt, now)}`;
+  return null;
+}
+
+/**
+ * The Routine page's line under its chips: "Next Run 12:00 · last Run 11:47 · 3 of 20 Runs left", leaving out what doesn't
+ * apply.
+ */
 export function routineTimes(routine, now) {
   const parts = [];
   if (routine.enabled && typeof routine.nextRunAt === "number") parts.push(`Next Run ${clock(routine.nextRunAt)}`);
@@ -365,6 +387,8 @@ export function routineTimes(routine, now) {
     const when = runWhen(last, now);
     parts.push(`last Run ${when.startsWith("Today ") ? when.slice(6) : when.charAt(0).toLowerCase() + when.slice(1)}`);
   }
+  const end = routineEnd(routine, now);
+  if (end) parts.push(end);
   const text = parts.join(" · ");
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
@@ -399,9 +423,20 @@ export function scheduleWords(cron) {
   return expression ? `Cron ${expression}` : "No schedule";
 }
 
-/** What starts a Routine, as its chip says it: the schedule in words, else the trigger ("Linear · assigned to me", "Webhook"). */
-export function triggerChipText(trigger) {
-  if (trigger?.kind === "schedule") return scheduleWords(trigger.cron);
+/** A time zone as a place: "America/Sao_Paulo" is "Sao Paulo", "UTC" stays "UTC". */
+export const zonePlace = (zone) => String(zone).split("/").at(-1).replaceAll("_", " ");
+
+/**
+ * What starts a Routine, as its chip says it: the schedule in words, else the trigger ("Linear · assigned to me", "Webhook").
+ * A schedule at a time of day in another zone than `localZone` (this computer's) names it, "Weekdays at 08:30 (Sao Paulo)",
+ * since the Next Run line reads in this computer's time.
+ */
+export function triggerChipText(trigger, localZone) {
+  if (trigger?.kind === "schedule") {
+    const words = scheduleWords(trigger.cron);
+    const zone = trigger.timezone;
+    return localZone && zone && zone !== localZone && !words.startsWith("Every ") ? `${words} (${zonePlace(zone)})` : words;
+  }
   const text = triggerText(trigger);
   return text.charAt(0).toUpperCase() + text.slice(1);
 }

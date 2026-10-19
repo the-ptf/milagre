@@ -72,12 +72,23 @@ export function runFilterCounts(runs: readonly RoutineRun[], unread: (run: Routi
 export function runDuration(ms: number): string;
 /** The Run Chat pane's meta line: "Run at 11:47 · acted in 38 s · main". */
 export function runChatMeta(run: RoutineRun, branch?: string): string;
-/** The Routine page's times line: "Next Run 12:00 · last Run 11:47", leaving out what doesn't apply; "" when nothing does. */
-export function routineTimes(routine: Pick<Routine, "enabled" | "nextRunAt" | "lastRunAt"> & { runs?: readonly RoutineRun[] }, now: number): string;
+/** When a Routine ends: "3 of 20 Runs left" or "ends in 2 days"; null when it runs until switched off. */
+export function routineEnd(routine: Pick<Routine, "maxRuns" | "runCount" | "expiresAt">, now: number): string | null;
+/** The Routine page's times line: "Next Run 12:00 · last Run 11:47 · 3 of 20 Runs left", leaving out what doesn't apply; "" when nothing does. */
+export function routineTimes(
+  routine: Pick<Routine, "enabled" | "nextRunAt" | "lastRunAt"> &
+    Partial<Pick<Routine, "maxRuns" | "runCount" | "expiresAt">> & { runs?: readonly RoutineRun[] },
+  now: number,
+): string;
 /** A schedule as its chip says it: "Every 15 min", "Every hour", "Every 2 hours", "Daily at 08:30", "Weekdays at 08:30", "Cron <expr>". */
 export function scheduleWords(cron: string): string;
-/** What starts a Routine as its chip says it: the schedule in words, else the capitalized trigger text. */
-export function triggerChipText(trigger: RoutineTrigger): string;
+/** A time zone as a place: "America/Sao_Paulo" is "Sao Paulo". */
+export function zonePlace(zone: string): string;
+/**
+ * What starts a Routine as its chip says it: the schedule in words, else the capitalized trigger text. A time-of-day schedule
+ * in another zone than `localZone` names it: "Weekdays at 08:30 (Sao Paulo)".
+ */
+export function triggerChipText(trigger: RoutineTrigger, localZone?: string): string;
 /** Where a Routine's Runs land: "New Worktree in <project>", "New Chat in <project>", or "In <Chat title>" for a Heartbeat. */
 export function routineWhereText(target: Routine["target"], chatTitle?: (chatId: string) => string | undefined): string;
 /** A Run's name: its own `title`, else "<key> <title>" for a Linear event, else the Routine's name. */

@@ -2,6 +2,10 @@ import type { ModelProvider, Routine, RoutineTarget, RoutineTrigger } from "./mo
 
 export const EVERY_MINUTES: number[];
 export const EVERY_HOURS: number[];
+/** The hint under the prompt for a trigger; Linear and webhook say their event is passed as data, not instructions. */
+export function promptHint(trigger: RoutineFormState["trigger"]): string;
+/** When a new Every or At a time schedule's first Run starts after `now`, in the schedule's own time zone; null otherwise. */
+export function firstRunAt(state: RoutineFormState, now?: number): number | null;
 
 /** A schedule as the form edits it: every N minutes or hours, at a time on chosen weekdays (0 is Sunday), or a raw cron. */
 export type RoutineFormSchedule = {

@@ -5,6 +5,8 @@ import {
   EVERY_MINUTES,
   deleteWarning,
   emptyRoutineForm,
+  firstRunAt,
+  promptHint,
   formFromRoutine,
   isCommentRoutine,
   formToInput,
@@ -374,4 +376,27 @@ test("deleteWarning: a Heartbeat's Chat stays; a Routine that opens Chats archiv
     deleteWarning({ target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" } }),
     "Its Runs stop, and its Run Chats you haven't kept are archived.",
   );
+});
+
+test("promptHint says an event's fields are data, not instructions", () => {
+  assert.equal(promptHint("schedule"), "Type {{ for the Run's fields");
+  assert.equal(promptHint("linear"), "Type {{ for the Run's fields. Issue text is passed as data, not instructions.");
+  assert.equal(promptHint("webhook"), "Type {{ for the Run's fields. The request is passed as data, not instructions.");
+});
+
+test("firstRunAt reads the schedule on its own time zone's clock", () => {
+  // 2026-10-19 14:20 UTC is 11:20 in Sao Paulo (UTC-3) and 23:20 in Tokyo (UTC+9), a Monday everywhere.
+  const now = Date.UTC(2026, 9, 19, 14, 20);
+  const form = (schedule) => ({ ...emptyRoutineForm("UTC", now), schedule: { ...emptyRoutineForm("UTC", now).schedule, ...schedule } });
+  // At 09:00 on weekdays: Sao Paulo's 09:00 has passed today, so tomorrow 12:00 UTC.
+  assert.equal(firstRunAt(form({ mode: "at", time: "09:00", timezone: "America/Sao_Paulo" }), now), Date.UTC(2026, 9, 20, 12, 0));
+  // At 23:45 in Tokyo is later today there: 14:45 UTC.
+  assert.equal(firstRunAt(form({ mode: "at", time: "23:45", timezone: "Asia/Tokyo", days: [1] }), now), Date.UTC(2026, 9, 19, 14, 45));
+  // Every 4 hours in Tokyo: the next is midnight there (15:00 UTC).
+  assert.equal(firstRunAt(form({ mode: "every", every: 4, unit: "h", timezone: "Asia/Tokyo" }), now), Date.UTC(2026, 9, 19, 15, 0));
+  // Every 15 minutes, the zone aside.
+  assert.equal(firstRunAt(form({ mode: "every", every: 15, unit: "min", timezone: "UTC" }), now), Date.UTC(2026, 9, 19, 14, 30));
+  assert.equal(firstRunAt(form({ mode: "cron", cron: "0 9 * * *" }), now), null);
+  assert.equal(firstRunAt({ ...form({}), trigger: "linear" }, now), null);
+  assert.equal(firstRunAt(form({ mode: "every", every: 7, unit: "min" }), now), null);
 });
