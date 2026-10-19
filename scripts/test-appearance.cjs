@@ -14,6 +14,8 @@ import { CodeBlock } from "/src/components/markdown/CodeBlock";
 import { ChatRow } from "/src/components/sidebar/ChatRow";
 import { ChangesPanelSlot } from "/src/components/changes/ChangesPanelSlot";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
+import { LayoutGroup, motion } from "motion/react";
+import { AppMotionConfig } from "/src/components/motion/AppMotionConfig";
 import { useApplyTheme, updateSettings, getSettings } from "/src/lib/settings";
 import { attachTerminal } from "/src/lib/terminal-sessions";
 import "/src/styles.css";
@@ -35,13 +37,18 @@ const messages = [
 function Fixture() {
   useApplyTheme();
   const [panel, setPanel] = useState(false);
+  const [shift, setShift] = useState(false);
   window.__setPanel = setPanel;
+  window.__setShift = setShift;
   const model = MODEL_CATALOG[0];
   return <div style={{ display: "flex", height: "100vh", gap: 12, padding: 12 }}>
     <aside data-sidebar-collapsed="false" style={{ width: 224 }}>
       <ChatRow item={{ id: "1", label: "Review authentication flow", details: { diff: { added: 12, removed: 3 } } }} active collapsed={false} actions={{}} onPick={noop} show={{ computer: false, pullRequests: false, linearIssue: false, branch: false, diff: true, lastActivity: false }} />
       <CodeBlock code={"-const greeting = 'hi';\\n+const greeting = 'hello';"} fence="diff" diff />
     </aside>
+    <LayoutGroup>
+      <motion.div layout data-layout-probe style={{ position: "fixed", top: 0, left: shift ? 400 : 100, width: 20, height: 20 }} />
+    </LayoutGroup>
     <main style={{ flex: 1, minWidth: 0 }}>
       <ChatComposer messages={messages}
         imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
@@ -59,7 +66,7 @@ function Fixture() {
   </div>;
 }
 document.documentElement.classList.add("dark");
-createRoot(document.getElementById("root")).render(<Fixture />);
+createRoot(document.getElementById("root")).render(<AppMotionConfig><Fixture /></AppMotionConfig>);
 `;
 
 const hexToRgb = (hex) => `rgb(${[1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16)).join(", ")})`;
@@ -112,6 +119,21 @@ async function browserChecks() {
     await set({ chatWidth: "full" });
     await waitFor(`document.querySelector('.chat-column').getBoundingClientRect().width > 1024`);
     assert.ok((await columnWidth()) > 1024, "full fills the pane at a 1600px window");
+    // Full: the chip row and composer share the transcript column's side insets.
+    const edges = (selector) =>
+      evaluate(
+        `(() => { const el = document.querySelector(${JSON.stringify(selector)}); const r = el.getBoundingClientRect(); const c = getComputedStyle(el); return { left: r.left + parseFloat(c.paddingLeft), right: r.right - parseFloat(c.paddingRight) }; })()`,
+      );
+    const transcriptEdges = await edges(".chat-column");
+    const composerEdges = await edges("[data-composer-wrap]");
+    assert.ok(
+      Math.abs(transcriptEdges.left - composerEdges.left) <= 2,
+      "full: composer left edge lines up with the transcript " + JSON.stringify([transcriptEdges, composerEdges]),
+    );
+    assert.ok(
+      Math.abs(transcriptEdges.right - composerEdges.right) <= 2,
+      "full: composer right edge lines up with the transcript " + JSON.stringify([transcriptEdges, composerEdges]),
+    );
     await set({ chatWidth: "custom", chatWidthPx: 1100 });
     await waitFor(`document.querySelector('.chat-column').getBoundingClientRect().width === 1100`);
     assert.equal(await columnWidth(), 1100, "custom caps the column at its px");
@@ -153,6 +175,19 @@ async function browserChecks() {
     const off = await openWidth(40);
     assert.ok(off.width >= 320, "with motion off the panel is fully open within a frame or two");
     assert.equal(off.animations, 0, "with motion off nothing is animating");
+    // Layout animations (a pill sliding over in a LayoutGroup) follow Off too: the probe lands in its final spot at once.
+    const probeLeft = (shift, wait) =>
+      evaluate(`new Promise((resolve) => {
+      window.__setShift(${shift});
+      setTimeout(() => resolve(document.querySelector('[data-layout-probe]').getBoundingClientRect().left), ${wait});
+    })`);
+    await set({ motion: "normal" });
+    await probeLeft(false, 700);
+    const sliding = await probeLeft(true, 40);
+    assert.ok(sliding < 399, "at normal speed the layout probe is still sliding 40ms in (got " + sliding + ")");
+    await set({ motion: "off" });
+    await probeLeft(false, 300);
+    assert.equal(await probeLeft(true, 40), 400, "with motion off a layout slide is instant");
     assert.deepEqual(errors, []);
     console.log("PASS: Appearance sizes, chat width, diff colors and motion reach the chat, code, sidebar, terminal and panels");
     app.exit(0);
