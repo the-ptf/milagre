@@ -6,8 +6,20 @@ import {
   chatLeft,
   chatRoutine,
   clock,
+  dayLabel,
+  daySummary,
+  filterRuns,
   foldRuns,
   foldText,
+  foldTimes,
+  routineTimes,
+  routineWhereText,
+  runChatMeta,
+  runDays,
+  runDuration,
+  runFilterCounts,
+  scheduleWords,
+  triggerChipText,
   groupQuietRuns,
   hiddenRunChats,
   isRoutineRun,
@@ -419,11 +431,150 @@ test("runWhen adds the year to a date from another year", () => {
   assert.equal(runWhen(new Date(2025, 11, 30, 8, 0).getTime(), local(18, 12, 0)), "Dec 30, 2025 08:00");
 });
 
-test("foldText counts a fold's Runs by kind, leaving out the kinds it has none of, and ends with the latest time", () => {
+test("foldText says how many were quiet with the latest quiet summary, or the other kinds in the fold", () => {
   const at = local(18, 10, 30);
-  assert.equal(foldText({ quiet: 5, skipped: 2, missed: 0, refused: 0 }, at), "5 quiet · 2 skipped · last 10:30");
-  assert.equal(foldText({ quiet: 0, skipped: 0, missed: 1, refused: 3 }, at), "1 missed · 3 refused · last 10:30");
-  assert.equal(foldText({ quiet: 1, skipped: 1, missed: 1, refused: 1 }, at), "1 quiet · 1 skipped · 1 missed · 1 refused · last 10:30");
+  const quiet = (summary, minute) => ({ id: `q${minute}`, routineId: "r", startedAt: at - minute * 60_000, status: "quiet", summary });
+  // Newest first: the first quiet Run with a summary is the latest.
+  const [fold] = foldRuns([quiet("", 0), quiet("no TODOs in NOTES.md", 5), quiet("CI green", 10), quiet(undefined, 15)]);
+  assert.equal(foldText(fold), "4 quiet · no TODOs in NOTES.md");
+  assert.equal(foldText(foldRuns([quiet("", 0)])[0]), "1 quiet");
+  const [busy] = foldRuns([quiet("CI green", 0), quiet("", 1), quiet("", 2), quiet("", 3), { id: "s", routineId: "r", startedAt: at, status: "skipped-busy" }]);
+  assert.equal(foldText(busy), "4 quiet · 1 skipped, its Chat was busy");
+  assert.equal(foldText({ counts: { quiet: 0, skipped: 0, missed: 1, refused: 3 }, runs: [] }), "1 missed · 3 refused");
+  assert.equal(foldText({ counts: { quiet: 0, skipped: 2, missed: 0, refused: 0 }, runs: [] }), "2 skipped, its Chat was busy");
+});
+
+test("foldTimes spans a fold from its oldest Run to its newest, or gives one time for one Run", () => {
+  const runs = [local(18, 9, 0), local(18, 7, 0), local(18, 6, 0)].map((startedAt, index) => ({ id: String(index), startedAt }));
+  assert.equal(foldTimes({ runs }), "06:00–09:00");
+  assert.equal(foldTimes({ runs: runs.slice(0, 1) }), "09:00");
+});
+
+test("runDays groups Runs by the computer's day, newest first, with Today and Yesterday recent and folds kept inside a day", () => {
+  const now = local(18, 12, 0);
+  const runs = [
+    run("1", "acted", { startedAt: local(18, 11, 47) }),
+    run("2", "quiet", { startedAt: local(18, 0, 10) }),
+    run("3", "quiet", { startedAt: local(17, 23, 50) }),
+    run("4", "failed", { startedAt: local(17, 9, 0) }),
+    run("5", "acted", { startedAt: local(16, 9, 0) }),
+    run("6", "missed", { startedAt: new Date(2025, 11, 30, 8, 0).getTime() }),
+  ];
+  const days = runDays(runs, now);
+  assert.deepEqual(
+    days.map((day) => [day.label, day.recent, day.runs.map((entry) => entry.id)]),
+    [
+      ["Today", true, ["1", "2"]],
+      ["Yesterday", true, ["3", "4"]],
+      ["Fri, Oct 16", false, ["5"]],
+      ["Tue, Dec 30, 2025", false, ["6"]],
+    ],
+  );
+  // The quiet Runs either side of midnight fold apart, one per day.
+  assert.deepEqual(
+    days.slice(0, 2).map((day) => day.entries.map((entry) => entry.kind)),
+    [
+      ["run", "fold"],
+      ["fold", "run"],
+    ],
+  );
+  assert.deepEqual(runDays([], now), []);
+});
+
+test("dayLabel says Today, Yesterday, then the weekday and date, with the year for another year", () => {
+  const now = local(18, 12, 0);
+  assert.equal(dayLabel(local(18, 0, 0), now), "Today");
+  assert.equal(dayLabel(local(17, 23, 59), now), "Yesterday");
+  assert.equal(dayLabel(local(16, 9, 0), now), "Fri, Oct 16");
+  assert.equal(dayLabel(new Date(2025, 11, 30, 8, 0).getTime(), now), "Tue, Dec 30, 2025");
+});
+
+test("daySummary counts a day's Runs by kind, leaving out the kinds it has none of", () => {
+  const runs = [
+    run("1", "acted"),
+    run("2", "acted"),
+    run("3", "quiet"),
+    run("4", "quiet"),
+    run("5", "missed"),
+    run("6", "failed"),
+    run("7", "skipped-busy"),
+    run("8", "failed", { rejected: true }),
+  ];
+  assert.equal(daySummary(runs), "2 acted · 1 failed · 2 quiet · 1 skipped · 1 missed · 1 refused");
+  assert.equal(daySummary([run("1", "quiet")]), "1 quiet");
+});
+
+test("filterRuns and runFilterCounts keep all, acted, failed or unread Runs", () => {
+  const runs = [
+    run("1", "acted", { chatId: "c1" }),
+    run("2", "quiet", { chatId: "c2" }),
+    run("3", "failed"),
+    run("4", "failed", { rejected: true }),
+    run("5", "acted", { chatId: "c5" }),
+  ];
+  const unread = (entry) => entry.chatId === "c5" || entry.chatId === "c2";
+  assert.deepEqual(runFilterCounts(runs, unread), { all: 5, acted: 2, failed: 1, unread: 2 });
+  assert.deepEqual(
+    filterRuns(runs, "acted", unread).map((entry) => entry.id),
+    ["1", "5"],
+  );
+  assert.deepEqual(
+    filterRuns(runs, "failed", unread).map((entry) => entry.id),
+    ["3"],
+  );
+  assert.deepEqual(
+    filterRuns(runs, "unread", unread).map((entry) => entry.id),
+    ["2", "5"],
+  );
+  assert.equal(filterRuns(runs, "all", unread).length, 5);
+});
+
+test("runDuration and runChatMeta word a Run's time, outcome, duration and branch", () => {
+  assert.equal(runDuration(38_000), "38 s");
+  assert.equal(runDuration(4 * 60_000 + 10_000), "4 min");
+  assert.equal(runDuration(65 * 60_000), "1 h 5 min");
+  assert.equal(runDuration(2 * 3600_000), "2 h");
+  const startedAt = local(18, 11, 47);
+  assert.equal(
+    runChatMeta({ id: "1", routineId: "r", startedAt, endedAt: startedAt + 38_000, status: "acted" }, "main"),
+    "Run at 11:47 · acted in 38 s · main",
+  );
+  assert.equal(runChatMeta({ id: "1", routineId: "r", startedAt, status: "running" }), "Run at 11:47 · running");
+  assert.equal(runChatMeta({ id: "1", routineId: "r", startedAt, status: "failed" }, "fix-login"), "Run at 11:47 · failed · fix-login");
+});
+
+test("routineTimes says the next Run while on and the last Run, leaving out what doesn't apply", () => {
+  const now = local(18, 11, 50);
+  const runs = [{ id: "1", routineId: "r", startedAt: local(18, 11, 47), status: "acted" }];
+  assert.equal(routineTimes({ enabled: true, nextRunAt: local(18, 12, 0), runs }, now), "Next Run 12:00 · last Run 11:47");
+  assert.equal(routineTimes({ enabled: false, nextRunAt: local(18, 12, 0), runs }, now), "Last Run 11:47");
+  assert.equal(routineTimes({ enabled: true, nextRunAt: null, runs: [], lastRunAt: local(17, 9, 0) }, now), "Last Run yesterday 09:00");
+  assert.equal(routineTimes({ enabled: true, nextRunAt: local(18, 12, 0), runs: [] }, now), "Next Run 12:00");
+  assert.equal(routineTimes({ enabled: true, runs: [] }, now), "");
+});
+
+test("scheduleWords and triggerChipText say a trigger the way its chip does", () => {
+  assert.equal(scheduleWords("*/15 * * * *"), "Every 15 min");
+  assert.equal(scheduleWords("0 */1 * * *"), "Every hour");
+  assert.equal(scheduleWords("0 * * * *"), "Every hour");
+  assert.equal(scheduleWords("0 */2 * * *"), "Every 2 hours");
+  assert.equal(scheduleWords("0 0 * * *"), "Daily at 00:00");
+  assert.equal(scheduleWords("30 8 * * 1-5"), "Weekdays at 08:30");
+  assert.equal(scheduleWords("30 8 * * 3,1"), "Mon, Wed at 08:30");
+  assert.equal(scheduleWords("30  8 1 * *"), "Cron 30 8 1 * *");
+  assert.equal(triggerChipText({ kind: "schedule", cron: "0 */1 * * *", timezone: "UTC" }), "Every hour");
+  assert.equal(triggerChipText({ kind: "linear", workspace: "w", event: "assigned" }), "Linear · assigned to me");
+  assert.equal(triggerChipText({ kind: "webhook", hookId: "a", signed: false }), "Webhook");
+});
+
+test("routineWhereText says where a Routine's Runs land", () => {
+  assert.equal(routineWhereText({ kind: "new-chat", projectPath: "/code/payments-api", workspace: "project" }), "New Chat in payments-api");
+  assert.equal(routineWhereText({ kind: "new-chat", projectPath: "/code/payments-api/", workspace: "worktree" }), "New Worktree in payments-api");
+  assert.equal(
+    routineWhereText({ kind: "chat", chatId: "/p#1" }, () => "Notification chimes"),
+    "In Notification chimes",
+  );
+  assert.equal(routineWhereText({ kind: "chat", chatId: "/p#1" }), "In a Chat");
 });
 
 const runChat = (id, routineId, extra = {}) => ({ id, routine: { routineId, runId: `u${id}`, hidden: true }, ...extra });

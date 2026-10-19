@@ -227,17 +227,191 @@ export function runWhen(at, now) {
   return `${date} ${time}`;
 }
 
-/** A fold of the Runs list as one line: its counts by kind, the empty ones left out, then its latest start. "5 quiet · 2 skipped · last 10:30". */
-export function foldText(counts, last) {
-  const parts = [
-    [counts.quiet, "quiet"],
-    [counts.skipped, "skipped"],
-    [counts.missed, "missed"],
-    [counts.refused, "refused"],
-  ]
-    .filter(([count]) => count > 0)
-    .map(([count, word]) => `${count} ${word}`);
-  return [...parts, `last ${clock(last)}`].join(" · ");
+const count = (n, word) => `${n} ${word}`;
+
+/**
+ * A fold of the Runs list as one line: how many were quiet, then the latest quiet summary ("4 quiet · no TODOs in
+ * NOTES.md"), or the other kinds it holds, the skipped ones with why ("4 quiet · 1 skipped, its Chat was busy").
+ */
+export function foldText(fold) {
+  const { quiet, skipped, missed, refused } = fold.counts;
+  const others = [
+    skipped > 0 ? `${count(skipped, "skipped")}, its Chat was busy` : null,
+    missed > 0 ? count(missed, "missed") : null,
+    refused > 0 ? count(refused, "refused") : null,
+  ].filter(Boolean);
+  if (quiet === 0) return others.join(" · ");
+  const parts = [count(quiet, "quiet")];
+  if (others.length) parts.push(...others);
+  else {
+    // The Runs are newest first, so the first quiet one with a summary is the latest.
+    const summary = fold.runs.find((run) => run.status === "quiet" && !run.rejected && run.summary?.trim())?.summary?.trim();
+    if (summary) parts.push(summary);
+  }
+  return parts.join(" · ");
+}
+
+/** A fold's times on the Runs list: "06:00–09:00" from its oldest Run to its newest, or one time for one Run. */
+export function foldTimes(fold) {
+  const starts = fold.runs.map((run) => run.startedAt);
+  const first = clock(Math.min(...starts));
+  const last = clock(Math.max(...starts));
+  return first === last ? last : `${first}–${last}`;
+}
+
+const dayKey = (at) => {
+  const date = new Date(at);
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+};
+
+/** A day's heading on the Runs list, on the computer's calendar: "Today", "Yesterday", "Thu, Oct 16", "Tue, Dec 30, 2025". */
+export function dayLabel(at, now) {
+  const days = Math.round((midnight(now) - midnight(at)) / DAY);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
+  return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) }).format(at);
+}
+
+/**
+ * The Runs (newest first) by the computer's day, newest day first. Each day has its heading, its Runs, its Runs list
+ * entries (foldRuns over that day alone, so a fold never spans midnight), and `recent` for today and yesterday, which show
+ * their Runs; an older day shows as one summary line (daySummary) until opened.
+ */
+export function runDays(runs, now) {
+  const days = [];
+  for (const run of runs) {
+    const key = dayKey(run.startedAt);
+    let day = days[days.length - 1];
+    if (!day || day.key !== key) {
+      day = { key, label: dayLabel(run.startedAt, now), at: midnight(run.startedAt), runs: [] };
+      days.push(day);
+    }
+    day.runs.push(run);
+  }
+  return days.map((day) => ({
+    ...day,
+    entries: foldRuns(day.runs),
+    recent: Math.round((midnight(now) - day.at) / DAY) <= 1,
+  }));
+}
+
+/** A day's Runs as one line, by kind, the empty kinds left out: "2 acted · 12 quiet · 1 missed". */
+export function daySummary(runs) {
+  const tally = { acted: 0, failed: 0, running: 0, quiet: 0, skipped: 0, missed: 0, refused: 0 };
+  for (const run of runs) {
+    if (run.rejected === true) tally.refused += 1;
+    else if (run.status === "skipped-busy") tally.skipped += 1;
+    else if (run.status in tally) tally[run.status] += 1;
+  }
+  return Object.entries(tally)
+    .filter(([, n]) => n > 0)
+    .map(([word, n]) => count(n, word))
+    .join(" · ");
+}
+
+/** What the Runs filter shows: every Run, the ones that acted, the ones that failed, or the ones whose Chat is unread. */
+const RUN_FILTERS = {
+  all: () => true,
+  acted: (run) => run.status === "acted" && run.rejected !== true,
+  failed: (run) => run.status === "failed" && run.rejected !== true,
+};
+
+/** The Runs a filter keeps; `unread` says whether a Run's Chat has a result nobody opened. */
+export function filterRuns(runs, filter, unread) {
+  const keep = filter === "unread" ? unread : (RUN_FILTERS[filter] ?? RUN_FILTERS.all);
+  return runs.filter((run) => keep(run));
+}
+
+/** How many Runs each filter keeps: "All 18 · Acted 3 · Failed 1 · Unread 2". */
+export function runFilterCounts(runs, unread) {
+  return {
+    all: runs.length,
+    acted: filterRuns(runs, "acted", unread).length,
+    failed: filterRuns(runs, "failed", unread).length,
+    unread: filterRuns(runs, "unread", unread).length,
+  };
+}
+
+/** How long a Run took, in its largest units: "38 s", "4 min", "1 h 5 min". */
+export function runDuration(ms) {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} h ${rest} min` : `${hours} h`;
+}
+
+const OUTCOME = { acted: "acted", quiet: "quiet", failed: "failed", running: "running" };
+
+/** The Run Chat pane's line under its title: "Run at 11:47 · acted in 38 s · main" (outcome, duration and branch when known). */
+export function runChatMeta(run, branch) {
+  const parts = [`Run at ${clock(run.startedAt)}`];
+  const outcome = OUTCOME[run.status];
+  if (outcome === "running") parts.push("running");
+  else if (outcome) parts.push(typeof run.endedAt === "number" ? `${outcome} in ${runDuration(run.endedAt - run.startedAt)}` : outcome);
+  if (branch) parts.push(branch);
+  return parts.join(" · ");
+}
+
+/** The Routine page's line under its chips: "Next Run 12:00 · last Run 11:47", leaving out what doesn't apply. */
+export function routineTimes(routine, now) {
+  const parts = [];
+  if (routine.enabled && typeof routine.nextRunAt === "number") parts.push(`Next Run ${clock(routine.nextRunAt)}`);
+  const last = routine.runs?.length ? Math.max(...routine.runs.map((run) => run.startedAt)) : routine.lastRunAt;
+  if (typeof last === "number") {
+    const when = runWhen(last, now);
+    parts.push(`last Run ${when.startsWith("Today ") ? when.slice(6) : when.charAt(0).toLowerCase() + when.slice(1)}`);
+  }
+  const text = parts.join(" · ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * A schedule as its chip says it: "Every 15 min", "Every hour", "Every 2 hours", "Daily at 08:30", "Weekdays at 08:30",
+ * "Mon, Wed at 08:30", else "Cron <expression>".
+ */
+export function scheduleWords(cron) {
+  const expression = String(cron ?? "")
+    .trim()
+    .split(/\s+/)
+    .join(" ");
+  const [minute, hour, dayOfMonth, month, dayOfWeek, ...rest] = expression.split(" ");
+  if (rest.length === 0 && dayOfWeek !== undefined && dayOfMonth === "*" && month === "*") {
+    const minutes = hour === "*" && dayOfWeek === "*" ? STEP.exec(minute)?.[1] : undefined;
+    if (minutes && Number(minutes) <= 59) return `Every ${minutes} min`;
+    const hours = minute === "0" && dayOfWeek === "*" ? STEP.exec(hour)?.[1] : undefined;
+    if (hours && Number(hours) <= 23) return Number(hours) === 1 ? "Every hour" : `Every ${hours} hours`;
+    if (minute === "0" && hour === "*" && dayOfWeek === "*") return "Every hour";
+    const time = cronTime(minute, hour);
+    if (time && dayOfWeek === "*") return `Daily at ${time}`;
+    if (time && dayOfWeek === "1-5") return `Weekdays at ${time}`;
+    if (time && /^[0-6](,[0-6])*$/.test(dayOfWeek)) {
+      const days = [...new Set(dayOfWeek.split(",").map(Number))].sort((a, b) => a - b);
+      if (days.length === 7) return `Daily at ${time}`;
+      return `${days.map((day) => DAY_NAMES[day]).join(", ")} at ${time}`;
+    }
+  }
+  return expression ? `Cron ${expression}` : "No schedule";
+}
+
+/** What starts a Routine, as its chip says it: the schedule in words, else the trigger ("Linear · assigned to me", "Webhook"). */
+export function triggerChipText(trigger) {
+  if (trigger?.kind === "schedule") return scheduleWords(trigger.cron);
+  const text = triggerText(trigger);
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+const lastSegment = (path) => String(path).split(/[\\/]/).filter(Boolean).at(-1) ?? String(path);
+
+/** Where a Routine's Runs land, as its chip says it: "New Worktree in payments-api", "New Chat in payments-api", "In <Chat>". */
+export function routineWhereText(target, chatTitle) {
+  if (target.kind === "chat") return `In ${chatTitle?.(target.chatId) || "a Chat"}`;
+  return `New ${target.workspace === "worktree" ? "Worktree" : "Chat"} in ${lastSegment(target.projectPath)}`;
 }
 
 /** A Run's name on the Runs list: what it did when it ended, else its Linear issue ("MIL-12 Fix the flicker"), else the Routine's name. */

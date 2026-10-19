@@ -47,8 +47,39 @@ export function foldRuns(runs: readonly RoutineRun[]): RunEntry[];
  * for another year than `now`'s.
  */
 export function runWhen(at: number, now: number): string;
-/** A fold as one line: "5 quiet · 2 skipped · last 10:30" (kinds with no Runs left out; "missed", "refused" likewise). */
-export function foldText(counts: Extract<RunEntry, { kind: "fold" }>["counts"], last: number): string;
+export type RunFold = Extract<RunEntry, { kind: "fold" }>;
+/**
+ * A fold as one line: "4 quiet · <latest quiet summary>", or with other kinds in it "4 quiet · 1 skipped, its Chat was busy"
+ * ("2 missed", "1 refused"); kinds with no Runs left out.
+ */
+export function foldText(fold: Pick<RunFold, "counts" | "runs">): string;
+/** A fold's times: "06:00–09:00" from its oldest to its newest Run, or one time for one Run. */
+export function foldTimes(fold: Pick<RunFold, "runs">): string;
+/** A day's heading on the computer's calendar: "Today", "Yesterday", "Thu, Oct 16", "Tue, Dec 30, 2025". */
+export function dayLabel(at: number, now: number): string;
+/** One day of the Runs list: its heading, its Runs (newest first), their entries, and whether it is today or yesterday. */
+export type RunDay = { key: string; label: string; at: number; runs: RoutineRun[]; entries: RunEntry[]; recent: boolean };
+/** The Runs (newest first) by the computer's day, newest day first; folds never span midnight. */
+export function runDays(runs: readonly RoutineRun[], now: number): RunDay[];
+/** A day's Runs by kind: "2 acted · 1 failed · 12 quiet · 1 skipped · 1 missed · 1 refused", empty kinds left out. */
+export function daySummary(runs: readonly RoutineRun[]): string;
+export type RunFilter = "all" | "acted" | "failed" | "unread";
+/** The Runs a filter keeps; `unread` says whether a Run's Chat has a result nobody opened. */
+export function filterRuns(runs: readonly RoutineRun[], filter: RunFilter, unread: (run: RoutineRun) => boolean): RoutineRun[];
+/** How many Runs each filter keeps. */
+export function runFilterCounts(runs: readonly RoutineRun[], unread: (run: RoutineRun) => boolean): Record<RunFilter, number>;
+/** A duration in its largest units: "38 s", "4 min", "1 h 5 min". */
+export function runDuration(ms: number): string;
+/** The Run Chat pane's meta line: "Run at 11:47 · acted in 38 s · main". */
+export function runChatMeta(run: RoutineRun, branch?: string): string;
+/** The Routine page's times line: "Next Run 12:00 · last Run 11:47", leaving out what doesn't apply; "" when nothing does. */
+export function routineTimes(routine: Pick<Routine, "enabled" | "nextRunAt" | "lastRunAt"> & { runs?: readonly RoutineRun[] }, now: number): string;
+/** A schedule as its chip says it: "Every 15 min", "Every hour", "Every 2 hours", "Daily at 08:30", "Weekdays at 08:30", "Cron <expr>". */
+export function scheduleWords(cron: string): string;
+/** What starts a Routine as its chip says it: the schedule in words, else the capitalized trigger text. */
+export function triggerChipText(trigger: RoutineTrigger): string;
+/** Where a Routine's Runs land: "New Worktree in <project>", "New Chat in <project>", or "In <Chat title>" for a Heartbeat. */
+export function routineWhereText(target: Routine["target"], chatTitle?: (chatId: string) => string | undefined): string;
 /** A Run's name: its own `title`, else "<key> <title>" for a Linear event, else the Routine's name. */
 export function runTitle(run: RoutineRun, routineName: string): string;
 /** The not archived Chats whose `routine.hidden` is set, across Projects. `chatKey` is "<path>#<id>". */
