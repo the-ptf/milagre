@@ -646,8 +646,17 @@ a {
 .chat-column[data-chat-width="wide"] {
   --column: 1024px;
 }
+.chat-column[data-chat-width="custom"] {
+  --column: var(--chat-width);
+}
 /* Full: the column fills the pane, so the rail lane is plain padding. */
 .chat-column[data-chat-width="full"] {
+  padding-left: 36px;
+  padding-right: 24px;
+}
+
+/* Full: the chip row and composer take the transcript column's side insets so their edges line up. */
+.chat-gutter[data-chat-width="full"] {
   padding-left: 36px;
   padding-right: 24px;
 }
