@@ -3,6 +3,7 @@ import type { NamedProjectLink } from "@milagre/shared/model";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import type { ComputerView } from "../electron";
 import { bridgeFor } from "./computer-bridge.ts";
+import { HIDDEN_REMOTE_SCOPES_KEY, readHiddenRemoteScopes, setRemoteScopeHidden } from "./hidden-projects.ts";
 import { RECENT_PROJECTS_CHANGED, type RecentProject } from "./project-list.ts";
 
 /** One Project or Link of a computer, keyed as the window keeps it (`${id}|path`, `milagre-link:${id}|uuid`). */
@@ -16,6 +17,18 @@ export function computerScopes(computerId: string, recent: RecentProject[], link
       .map((project) => ({ key: project.path, name: project.name, initial: project.name.slice(0, 1).toUpperCase(), link: null, computerId })),
     ...links.filter((link) => !link.hidden).map((link) => ({ key: `milagre-link:${link.id}`, name: link.name, initial: "", link, computerId })),
   ];
+}
+
+/** Another computer's Projects and Links with this Mac's own `hidden` choices in place of that computer's. */
+export function withLocalVisibility(
+  recent: RecentProject[],
+  links: NamedProjectLink[],
+  hidden: ReadonlySet<string>,
+): { recent: RecentProject[]; links: NamedProjectLink[] } {
+  return {
+    recent: recent.map(({ hidden: _hidden, ...project }) => (hidden.has(project.path) ? { ...project, hidden: true } : project)),
+    links: links.map(({ hidden: _hidden, ...link }) => (hidden.has(`milagre-link:${link.id}`) ? { ...link, hidden: true } : link)),
+  };
 }
 
 /**
@@ -43,8 +56,8 @@ export type ComputerProject = RecentProject & { computerId: string };
 
 /**
  * Each paired computer's Projects and Links, read from it (from its cache in main while it is away), again when its
- * state changes, and when a Project is hidden or shown. A failed read keeps the last list. `scopes` are what the sidebar
- * lists; `projects` every Project, hidden too, for the chooser. `setHidden` shows a choice before the computer answers.
+ * state changes, and with this Mac's own visibility choices applied. A failed read keeps the last list. `scopes` are what
+ * the sidebar lists; `projects` every Project, hidden too, for the chooser.
  */
 export function useComputerScopes(computers: ComputerView[]): {
   scopes: ComputerScope[];
@@ -52,12 +65,23 @@ export function useComputerScopes(computers: ComputerView[]): {
   setHidden: (key: string, hidden: boolean) => void;
 } {
   const [byComputer, setByComputer] = useState<Record<string, { recent: RecentProject[]; links: NamedProjectLink[] }>>({});
+  const [hiddenRemote, setHiddenRemote] = useState(readHiddenRemoteScopes);
   const [changed, setChanged] = useState(0);
   const states = computers.map((computer) => `${computer.id}:${computer.state}`).join("\n");
   useEffect(() => {
-    const bump = () => setChanged((count) => count + 1);
+    const bump = () => {
+      setHiddenRemote(readHiddenRemoteScopes());
+      setChanged((count) => count + 1);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === HIDDEN_REMOTE_SCOPES_KEY) setHiddenRemote(readHiddenRemoteScopes());
+    };
     window.addEventListener(RECENT_PROJECTS_CHANGED, bump);
-    return () => window.removeEventListener(RECENT_PROJECTS_CHANGED, bump);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(RECENT_PROJECTS_CHANGED, bump);
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
   useEffect(() => {
     let live = true;
@@ -79,33 +103,14 @@ export function useComputerScopes(computers: ComputerView[]): {
       live = false;
     };
   }, [states, changed]);
-  const setHidden = useCallback(
-    (key: string, hidden: boolean) =>
-      setByComputer((previous) =>
-        Object.fromEntries(
-          Object.entries(previous).map(([id, lists]) => {
-            if (key.startsWith("milagre-link:")) {
-              const linkId = key.slice("milagre-link:".length);
-              return [
-                id,
-                lists.links.some((link) => link.id === linkId)
-                  ? { ...lists, links: lists.links.map((link) => (link.id === linkId ? { ...link, hidden } : link)) }
-                  : lists,
-              ];
-            }
-            return [
-              id,
-              lists.recent.some((project) => project.path === key)
-                ? { ...lists, recent: lists.recent.map((project) => (project.path === key ? { ...project, hidden } : project)) }
-                : lists,
-            ];
-          }),
-        ),
-      ),
-    [],
-  );
+  const setHidden = useCallback((key: string, hidden: boolean) => {
+    setRemoteScopeHidden(key, hidden);
+    setHiddenRemote(readHiddenRemoteScopes());
+  }, []);
   return useMemo(() => {
-    const listed = computers.filter((computer) => byComputer[computer.id]).map((computer) => [computer.id, byComputer[computer.id]!] as const);
+    const listed = computers
+      .filter((computer) => byComputer[computer.id])
+      .map((computer) => [computer.id, withLocalVisibility(byComputer[computer.id]!.recent, byComputer[computer.id]!.links, hiddenRemote)] as const);
     return {
       scopes: listed.flatMap(([id, lists]) => computerScopes(id, lists.recent, lists.links)),
       projects: listed.flatMap(([id, lists]) => [
@@ -114,5 +119,5 @@ export function useComputerScopes(computers: ComputerView[]): {
       ]),
       setHidden,
     };
-  }, [byComputer, computers, setHidden]);
+  }, [byComputer, computers, hiddenRemote, setHidden]);
 }

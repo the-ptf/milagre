@@ -1438,7 +1438,7 @@ const routesNative = ({ learned = [], forgotten = [] } = {}) => ({
 });
 function sessionHost(
   client,
-  { effects = false, AppState = {}, created = [], saved = [], learned = [], savedProjectOrder, chatDefaults, permission = "ask" } = {},
+  { effects = false, AppState = {}, created = [], saved = [], learned = [], savedProjectOrder, savedHiddenProjects, chatDefaults, permission = "ask" } = {},
 ) {
   client.recentScopes ??= () => client.call("project:recent");
   client.open ??= async (owner) => {
@@ -1472,6 +1472,7 @@ function sessionHost(
         },
         savedNavigation: { read: async () => null, save: async () => {} },
         savedProjectOrder: savedProjectOrder ?? { apply: async (_host, projects) => projects, save: async () => {} },
+        savedHiddenProjects: savedHiddenProjects ?? { hidden: () => new Set(), apply: async (_host, projects) => projects, setHidden: async () => {} },
         readPermission: async () => permission,
         savedChatDefaults:
           chatDefaults ?? require("../apps/mobile/src/chat-defaults-store.ts").createChatDefaultsStore({ getItem: () => null, setItemAsync: async () => {} }),
@@ -2966,7 +2967,7 @@ test("Choose projects opens as a sheet over the sidebar instead of closing it", 
   assert.deepEqual(nav.secondaryRoutes, ["sheet"]);
 });
 
-function chooseProjectsHost(call) {
+function chooseProjectsHost(setProjectHidden, call = async () => {}) {
   const react = hookHost();
   const link = { id: "checkout", name: "Checkout", projectIds: ["shop", "api"] };
   const session = {
@@ -2975,7 +2976,7 @@ function chooseProjectsHost(call) {
       { path: "/shop", name: "shop" },
       { path: "milagre-link:checkout", name: "Checkout", link, projects: [] },
     ],
-    reloadProjects: async () => {},
+    setProjectHidden,
   };
   const { default: ChooseProjects } = load("app/choose-projects.tsx", {
     react,
@@ -2994,14 +2995,20 @@ function chooseProjectsHost(call) {
   return { render, row, session, link };
 }
 
-test("the phone chooser hides and restores a Link through the shared registry without removing it", async () => {
+test("the phone chooser hides and restores a Link on this phone without mutating the Mac's registry", async () => {
   const request = deferred();
-  const calls = [];
-  const host = chooseProjectsHost(async (method, args) => {
-    calls.push([method, args]);
-    await request.promise;
-    host.session.recent[1].hidden = args[0].hidden;
-  });
+  const saved = [];
+  const rpcCalls = [];
+  const host = chooseProjectsHost(
+    async (path, hidden) => {
+      saved.push([path, hidden]);
+      await request.promise;
+      host.session.recent[1].hidden = hidden;
+    },
+    async (method, args) => {
+      rpcCalls.push([method, args]);
+    },
+  );
   assert.ok(host.row(), "Links are included in the chooser");
   const hiding = host.row().props.onPress();
   assert.equal(host.row().props.accessibilityState.checked, false, "the pending choice appears immediately");
@@ -3011,21 +3018,22 @@ test("the phone chooser hides and restores a Link through the shared registry wi
   assert.equal(host.row().props.accessibilityState.checked, false);
   await host.row().props.onPress();
   assert.equal(host.row().props.accessibilityState.checked, true);
-  same(calls, [
-    ["link:update", [{ ...host.link, hidden: true }]],
-    ["link:update", [{ ...host.link, hidden: false }]],
+  same(saved, [
+    ["milagre-link:checkout", true],
+    ["milagre-link:checkout", false],
   ]);
+  same(rpcCalls, []);
   assert.equal(host.session.recent[1].link.id, "checkout");
 });
 
-test("a failed phone Link visibility change restores the checkbox and shows the error", async () => {
+test("a failed phone visibility change restores the checkbox and shows the error", async () => {
   const host = chooseProjectsHost(async () => {
-    throw new Error("Computer offline");
+    throw new Error("Could not save on device");
   });
   assert.ok(host.row());
   await host.row().props.onPress();
   assert.equal(host.row().props.accessibilityState.checked, true);
-  assert.equal(find(host.render(), (node) => node.type === "ErrorNotice").props.message, "Computer offline");
+  assert.equal(find(host.render(), (node) => node.type === "ErrorNotice").props.message, "Could not save on device");
 });
 
 test("a chat search with no matching title lists matching messages, and a tap opens their Chat", () => {

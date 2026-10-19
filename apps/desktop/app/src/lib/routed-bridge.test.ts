@@ -94,8 +94,9 @@ const ALLOWED: Record<string, string[]> = {
     "saveRoutinesEnabled",
     "onMainSyncStatus",
     "computers",
+    "setProjectHidden",
   ],
-  "components/SidebarNav.tsx": ["listRecentProjects", "listNamedLinks", "listProjects", "revealInFolder", "updateNamedLink"],
+  "components/SidebarNav.tsx": ["listRecentProjects", "listNamedLinks", "listProjects", "revealInFolder", "setProjectHidden", "updateNamedLink"],
   // Canvas Links are this Mac's own, like the canvas.
   "components/sidebar/SidebarLinks.tsx": ["onLinksChanged"],
   "components/LinkWorkspace.tsx": ["syncNotifications", "revealInFolder"],

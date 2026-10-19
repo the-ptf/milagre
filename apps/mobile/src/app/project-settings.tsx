@@ -64,11 +64,10 @@ export default function ProjectSettingsScreen() {
     setBusy(true);
     setError("");
     try {
-      await client!.call("project:set-hidden", [path, next]);
-      await session.reloadProjects();
+      await session.setProjectHidden(path, next);
     } catch (failure) {
       const message = failure instanceof Error ? failure.message : "Could not change this setting.";
-      setError(/not available from mobile|unknown command/i.test(message) ? "Update Milagre on your Mac to hide Projects from your phone." : message);
+      setError(message);
     } finally {
       setBusy(false);
     }
@@ -103,7 +102,7 @@ export default function ProjectSettingsScreen() {
         <Text style={[styles.label, { marginTop: 16 }]}>Projects list</Text>
         <View style={[styles.card, { gap: 4 }]}>
           <Toggle title="Show in Projects list" selected={!hidden} disabled={busy} onPress={() => void setHidden(!hidden)} />
-          <Text style={styles.caption}>Hide a Project you only use through a Link. It also leaves the sidebar on your Mac when that shows every Project.</Text>
+          <Text style={styles.caption}>Hide a Project on this phone when you only use it through a Link.</Text>
         </View>
         {sync && (
           <>

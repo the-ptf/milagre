@@ -313,11 +313,10 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       ]);
       const [links, registry] = groups;
       return [
-        ...projects,
-        ...links.map((link) => ({
+        ...projects.map(({ hidden: _hidden, ...project }) => project),
+        ...links.map(({ hidden: _hidden, ...link }) => ({
           path: scopeKey({ kind: "link", linkId: link.id }),
           name: link.name,
-          hidden: link.hidden,
           link,
           projects: link.projectIds.map((id) => registry.find((project) => project.id === id) ?? { id, name: "Unavailable Project", path: "" }),
         })),
