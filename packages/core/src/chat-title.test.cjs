@@ -213,6 +213,36 @@ test("a run title is tried once more when the first attempt yields nothing", asy
   }
 });
 
+test("a run title is not retried once the app is closing", async () => {
+  let calls = 0;
+  let closing = false;
+  const claude = async () => ((closing = true), calls++, null);
+  assert.equal(await generateRunTitle({ reply: "Did it" }, { models: { claude }, isClosing: () => closing }), null);
+  assert.equal(calls, 1);
+  // Not closing after the first null: the second attempt is made.
+  calls = 0;
+  const flaky = async () => (calls++ === 0 ? null : fineTitle());
+  assert.equal(await generateRunTitle({ reply: "Did it" }, { models: { claude: flaky }, isClosing: () => false }), "Fine title");
+  assert.equal(calls, 2);
+});
+
+test("a title's timeout timer is unref'd, so a hung model call cannot hold the process open", async () => {
+  const realSetTimeout = global.setTimeout;
+  const unrefs = [];
+  global.setTimeout = (...args) => {
+    const timer = realSetTimeout(...args);
+    const unref = timer.unref.bind(timer);
+    timer.unref = () => (unrefs.push(timer), unref());
+    return timer;
+  };
+  try {
+    assert.equal(await generateChatTitle({ prompt: "fix login" }, { models: { claude: fineTitle } }), "Fine title");
+  } finally {
+    global.setTimeout = realSetTimeout;
+  }
+  assert.equal(unrefs.length, 1);
+});
+
 test("a run title that comes at once is not retried, and two failures give null after exactly two calls", async () => {
   let calls = 0;
   assert.equal(await generateRunTitle({ reply: "Did it" }, { models: { claude: async () => (calls++, fineTitle()) } }), "Fine title");

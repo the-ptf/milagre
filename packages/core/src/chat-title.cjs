@@ -27,6 +27,8 @@ async function modelTitle({ system, prompt, provider, models, timeoutMs }) {
           controller.abort();
           resolve(null);
         }, timeoutMs);
+        // A hung call at shutdown must not hold the process open for the rest of its budget.
+        timer.unref?.();
       }),
     ]);
     const parsed = JSON.parse(extractJson(reply));
@@ -52,12 +54,15 @@ const RUN_TITLE_TIMEOUT_MS = 60_000;
 /**
  * A Routine Run's title from the reply it ended with (what it did), under the same limits as a Chat's title. Each of two
  * attempts gets `timeoutMs`; the second is made only when the first yielded no title (timed out, failed, or an answer that
- * isn't one). Resolves with null when neither did, or there is no model for the provider.
+ * isn't one, and not once `isClosing()` says the app is closing, so a stop never spawns a second CLI). Resolves with null
+ * when neither did, or there is no model for the provider.
  */
-async function generateRunTitle({ reply, provider = "claude" }, { models = {}, timeoutMs = RUN_TITLE_TIMEOUT_MS } = {}) {
+async function generateRunTitle({ reply, provider = "claude" }, { models = {}, timeoutMs = RUN_TITLE_TIMEOUT_MS, isClosing = () => false } = {}) {
   if (typeof reply !== "string" || !reply.trim() || !models[provider]) return null;
   const request = { system: RUN_SYSTEM, prompt: `<final_reply>\n${reply.slice(0, 4000)}\n</final_reply>`, provider, models, timeoutMs };
-  return (await modelTitle(request)) ?? modelTitle(request);
+  const first = await modelTitle(request);
+  if (first !== null || isClosing()) return first;
+  return modelTitle(request);
 }
 
 /** Background naming lives with the main process's serialized project state. */

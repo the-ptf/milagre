@@ -1171,7 +1171,7 @@ function createRuntime(options) {
     // Read only: an open Project's state from memory, another's saved file, never opening it (no resume, no recovery).
     projectState: (projectPath) => projectStateReadOnly(projectPath),
     // A Run that ends is named from its final reply, with the models that name Chats.
-    generateRunTitle: (request) => generateRunTitle(request, { models: titleModels(request.projectPath) }),
+    generateRunTitle: (request) => generateRunTitle(request, { models: titleModels(request.projectPath), isClosing: () => closing }),
     timers: options.routines,
   });
   routines.start();
