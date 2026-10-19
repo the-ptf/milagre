@@ -1,5 +1,5 @@
 export const SIZE_STEPS = ["small", "default", "medium", "large", "larger"];
-export const CHAT_WIDTH_IDS = ["comfortable", "wide", "full"];
+export const CHAT_WIDTH_IDS = ["comfortable", "wide", "full", "custom"];
 export const DIFF_COLOR_IDS = ["red-green", "blue-orange", "purple-yellow"];
 export const MOTION_IDS = ["normal", "fast", "off"];
 
@@ -10,6 +10,7 @@ export const DEFAULT_APPEARANCE = {
   chatSize: "default",
   codeSize: "default",
   chatWidth: "comfortable",
+  chatWidthPx: 900,
   diffColors: "red-green",
   motion: "normal",
 };
@@ -42,6 +43,7 @@ export const CHAT_WIDTHS = [
   { id: "comfortable", label: "Comfortable", px: 768 },
   { id: "wide", label: "Wide", px: 1024 },
   { id: "full", label: "Full", px: null },
+  { id: "custom", label: "Custom", px: null },
 ];
 
 /** Red and green keeps each theme's own colors (null). */
@@ -132,6 +134,16 @@ const VALID = {
   motion: MOTION_IDS,
 };
 
+export const CHAT_WIDTH_PX_MIN = 600;
+export const CHAT_WIDTH_PX_MAX = 2400;
+
+/** The custom chat width in px, clamped to 600..2400; anything that is not a finite number is 900. */
+export function clampChatWidth(px) {
+  const n = typeof px === "string" && px.trim() !== "" ? Number(px) : px;
+  if (typeof n !== "number" || !Number.isFinite(n)) return 900;
+  return Math.min(CHAT_WIDTH_PX_MAX, Math.max(CHAT_WIDTH_PX_MIN, Math.round(n)));
+}
+
 /** Unknown input or bad fields fall back to the defaults; good fields are kept. */
 export function parseAppearance(raw) {
   const source = raw && typeof raw === "object" ? raw : {};
@@ -142,6 +154,7 @@ export function parseAppearance(raw) {
     const allowed = VALID[key];
     if (allowed === null || allowed.includes(value)) result[key] = value;
   }
+  result.chatWidthPx = clampChatWidth(source.chatWidthPx);
   return result;
 }
 

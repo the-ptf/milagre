@@ -112,6 +112,9 @@ async function browserChecks() {
     await set({ chatWidth: "full" });
     await waitFor(`document.querySelector('.chat-column').getBoundingClientRect().width > 1024`);
     assert.ok((await columnWidth()) > 1024, "full fills the pane at a 1600px window");
+    await set({ chatWidth: "custom", chatWidthPx: 1100 });
+    await waitFor(`document.querySelector('.chat-column').getBoundingClientRect().width === 1100`);
+    assert.equal(await columnWidth(), 1100, "custom caps the column at its px");
     await set({ chatWidth: "comfortable" });
 
     // Sizes.

@@ -61,3 +61,8 @@ test("a font that is not bundled falls back unless installed", () => {
   assert.match(present["--ui-font"], /^"Charter"/);
   assert.match(present["--mono-font"], /^"Fira Code"/);
 });
+
+test("custom chat width writes its px", () => {
+  const vars = appearanceVars({ ...DEFAULT_APPEARANCE, chatWidth: "custom", chatWidthPx: 1200 }, false, none);
+  assert.equal(vars["--chat-width"], "1200px");
+});

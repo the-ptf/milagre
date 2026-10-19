@@ -1,5 +1,5 @@
 export type SizeStep = "small" | "default" | "medium" | "large" | "larger";
-export type ChatWidth = "comfortable" | "wide" | "full";
+export type ChatWidth = "comfortable" | "wide" | "full" | "custom";
 export type DiffColors = "red-green" | "blue-orange" | "purple-yellow";
 export type MotionSpeed = "normal" | "fast" | "off";
 
@@ -10,6 +10,7 @@ export type Appearance = {
   chatSize: SizeStep;
   codeSize: SizeStep;
   chatWidth: ChatWidth;
+  chatWidthPx: number;
   diffColors: DiffColors;
   motion: MotionSpeed;
 };
@@ -37,5 +38,6 @@ export const UI_FONTS: readonly FontOption[];
 export const MONO_FONTS: readonly FontOption[];
 export const PHONE_TEXT_SIZES: readonly { id: SizeStep; label: string; px: number }[];
 export const PHONE_CODE_SIZES: readonly { id: SizeStep; label: string; px: number }[];
+export function clampChatWidth(px: unknown): number;
 export function parseAppearance(raw: unknown): Appearance;
 export function fontStack(list: readonly FontOption[], id: string, installed: (family: string) => boolean): string;

@@ -7,6 +7,7 @@ import {
   MOTION_SPEEDS,
   SIDEBAR_SIZES,
   UI_FONTS,
+  clampChatWidth,
   fontStack,
   type Appearance,
 } from "@milagre/shared/appearance";
@@ -27,7 +28,10 @@ export function appearanceVars(a: Appearance, dark: boolean, installed: (family:
     "--sidebar-delta": `${SIDEBAR_SIZES.find((s) => s.id === a.sidebarSize)?.delta ?? 0}px`,
     "--chat-size": `${CHAT_SIZES.find((s) => s.id === a.chatSize)?.px ?? 13}px`,
     "--code-size": `${CODE_SIZES.find((s) => s.id === a.codeSize)?.px ?? 12}px`,
-    "--chat-width": ((px) => (px === null || px === undefined ? "none" : `${px}px`))(CHAT_WIDTHS.find((w) => w.id === a.chatWidth)?.px),
+    "--chat-width":
+      a.chatWidth === "custom"
+        ? `${clampChatWidth(a.chatWidthPx)}px`
+        : ((px) => (px === null || px === undefined ? "none" : `${px}px`))(CHAT_WIDTHS.find((w) => w.id === a.chatWidth)?.px),
     "--motion-scale": String(MOTION_SPEEDS.find((m) => m.id === a.motion)?.scale ?? 1),
   };
   // The system font (or one that isn't installed) emits nothing, so styles.css's own fallback chain applies as today.

@@ -96,6 +96,31 @@ async function browserChecks() {
       evaluate(
         `[...document.querySelectorAll('[role="listbox"] [role="option"]')].find((o) => o.textContent.trim().startsWith(${JSON.stringify(text)})).click()`,
       );
+    // Custom chat width: a px field beside the menu; Enter commits, blur clamps, Escape restores.
+    assert.equal(await evaluate(`!!document.querySelector('input[aria-label="Custom chat width in pixels"]')`), false, "no px field until Custom");
+    await openMenu("Chat width");
+    await pick("Custom");
+    await waitFor(`!!document.querySelector('input[aria-label="Custom chat width in pixels"]')`);
+    const widthField = `document.querySelector('input[aria-label="Custom chat width in pixels"]')`;
+    const typeWidth = (text) =>
+      evaluate(
+        `(() => { const input = ${widthField}; input.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(text)}); input.dispatchEvent(new Event("input", { bubbles: true })); })()`,
+      );
+    const widthKey = (key) => evaluate(`${widthField}.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, bubbles: true }))`);
+    await typeWidth("1100");
+    await widthKey("Enter");
+    await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.chatWidthPx === 1100`);
+    await waitFor(`document.documentElement.style.getPropertyValue('--chat-width') === "1100px"`);
+    await typeWidth("99999");
+    await evaluate(`${widthField}.dispatchEvent(new FocusEvent("focusout", { bubbles: true }))`);
+    await waitFor(`${widthField}.value === "2400"`);
+    await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.chatWidthPx === 2400`);
+    await typeWidth("700");
+    await widthKey("Escape");
+    await waitFor(`${widthField}.value === "2400"`);
+    assert.equal(await evaluate(`JSON.parse(localStorage.getItem("milagre-settings")).appearance.chatWidthPx`), 2400, "Escape saves nothing");
+    await evaluate(`document.querySelector('button[aria-label="Chat width"]').scrollIntoView({ block: "center" })`);
+    await screenshot("width");
     await openMenu("Chat size");
     await pick("15 px");
     await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.chatSize === "large"`);

@@ -73,6 +73,7 @@ import {
   CHAT_WIDTHS,
   CODE_SIZES,
   DIFF_PAIRS,
+  clampChatWidth,
   MONO_FONTS,
   MOTION_SPEEDS,
   SIDEBAR_SIZES,
@@ -437,6 +438,36 @@ function Row({ label, description, children }: { label: string; description?: st
       </div>
       <div className="shrink-0 text-[13px] text-ink-2">{children}</div>
     </div>
+  );
+}
+
+/** The custom chat width: digits right-aligned with a px suffix. Enter or blur saves the clamped value, Escape restores the saved one. */
+function ChatWidthField({ value, onCommit }: { value: number; onCommit: (px: number) => void }) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => setText(String(value)), [value]);
+  const commit = () => {
+    const px = clampChatWidth(text);
+    setText(String(px));
+    if (px !== value) onCommit(px);
+  };
+  return (
+    <label className="flex h-8 items-center gap-1.5 rounded-control border border-line bg-surface pr-2.5 pl-3 text-[13px] font-medium text-ink focus-within:border-ink-3">
+      <input
+        aria-label="Custom chat width in pixels"
+        inputMode="numeric"
+        value={text}
+        onChange={(event) => setText(event.target.value.replace(/[^0-9]/g, ""))}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") commit();
+          else if (event.key === "Escape") {
+            setText(String(value));
+          }
+        }}
+        className="w-12 bg-transparent text-right outline-none tabular-nums"
+      />
+      <span className="text-ink-3">px</span>
+    </label>
   );
 }
 
@@ -827,13 +858,16 @@ function AppearanceSettings() {
       <AppearancePreview />
       <Group title="Layout">
         <Row label="Chat width" description="How wide messages and the composer grow on large screens.">
-          <Select
-            label="Chat width"
-            width={200}
-            value={appearance.chatWidth}
-            onChange={(chatWidth) => setAppearance({ chatWidth })}
-            options={CHAT_WIDTHS.map((width) => ({ value: width.id, label: width.label }))}
-          />
+          <div className="flex items-center gap-2">
+            {appearance.chatWidth === "custom" && <ChatWidthField value={appearance.chatWidthPx} onCommit={(chatWidthPx) => setAppearance({ chatWidthPx })} />}
+            <Select
+              label="Chat width"
+              width={200}
+              value={appearance.chatWidth}
+              onChange={(chatWidth) => setAppearance({ chatWidth })}
+              options={CHAT_WIDTHS.map((width) => ({ value: width.id, label: width.label }))}
+            />
+          </div>
         </Row>
       </Group>
       <Group title="Diffs">
