@@ -1117,13 +1117,15 @@ function createRuntime(options) {
   // The models that name Chats and Runs: the Project's own accounts' CLIs (agentCli is declared further down; read lazily).
   const titleModels = (projectPath) =>
     options.titleModels ?? createChatTitleModels({ cli: (provider) => agentCli(provider, projectPath), clientVersion: version });
+  // A scope's state as memory holds it now, without waiting in its queue: a free first look before a queued read or write.
+  const heldState = (scope) =>
+    isLinkScopeKey(scope) ? (linkStore.has(scopeFromKey(scope).linkId) ? linkStore.cached(scopeFromKey(scope).linkId) : undefined) : states.states.get(scope);
   routines = createRoutines({
     file: path.join(dataDir, "routines.json"),
     chats,
     keepAwake,
     emit,
-    cachedState: (scope) =>
-      isLinkScopeKey(scope) ? (linkStore.has(scopeFromKey(scope).linkId) ? linkStore.cached(scopeFromKey(scope).linkId) : undefined) : states.states.get(scope),
+    cachedState: heldState,
     // A Project not open yet opens here, as a Delegation's does.
     openState: async (scope, sessionId) => {
       await linkedState(scope);
@@ -1432,11 +1434,13 @@ function createRuntime(options) {
   }
   // The user took a Run Chat over (sent it a message, pinned or renamed it, set a Heartbeat on it): it is a normal Chat
   // from then on, in every list. One saved before Run Chats could be hidden is decided kept too. Any other Chat is left
-  // as it is, without a write.
+  // as it is, without a write. Every composer send comes here, so the state in memory is looked at first: only a Run Chat
+  // not kept yet waits for the queued read (a kept one never goes back to hidden).
   async function keepRunChat(projectPath, sessionId) {
     if (!scopeStates.has(projectPath)) return;
-    const session = (await scopeStates.get(projectPath)).sessions[sessionId];
-    if (!isRunChat(session) || session.routine.hidden === false) return;
+    const keepable = (session) => isRunChat(session) && session.routine.hidden !== false;
+    if (!keepable(heldState(projectPath)?.sessions[sessionId])) return;
+    if (!keepable((await scopeStates.get(projectPath)).sessions[sessionId])) return;
     await editProject(projectPath, (state) => withRunChatsHidden(state, { [sessionId]: false }, (routine) => routine.hidden !== false), { chats: [] });
   }
   async function patchChat(projectPath, sessionId, patch) {

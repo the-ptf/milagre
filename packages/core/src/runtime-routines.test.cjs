@@ -1043,6 +1043,34 @@ test("a message Victor sends a hidden Run Chat keeps it, a compact too; one an a
   assert.equal(await hiddenOf(f, other.session.id), false, "a compact is Victor's own action in the composer");
 });
 
+test("a send to a Chat that isn't a hidden Run Chat keeps nothing without waiting on the Project's queued state read", async (t) => {
+  const f = await fixture(t);
+  await f.finish("ok");
+  const routine = await createTriage(f, "project");
+  const { session, agent } = await endedRunChat(f, routine.id);
+  // keepRunChat's queued read of the Project's state, told apart from every other read by the stack it is made from.
+  const { ProjectStates } = require("./project-states.cjs");
+  const get = ProjectStates.prototype.get;
+  const reads = [];
+  t.mock.method(ProjectStates.prototype, "get", function (projectPath) {
+    if (new Error().stack.includes("keepRunChat")) reads.push(projectPath);
+    return get.call(this, projectPath);
+  });
+  const send = (sessionId, body) => f.runtime.invoke("chat:send", [{ projectPath: f.project, sessionId, body, provider: "claude", model: "cm" }]);
+  await send(f.id, "And the docs");
+  await waitUntil(() => f.session.turns.length === 2);
+  await f.finish("done");
+  assert.deepEqual(reads, [], "a normal Chat");
+  await send(session.id, "Ship the fix");
+  assert.deepEqual(reads, [f.project], "a hidden Run Chat is read in turn with the Project's changes, then kept");
+  assert.equal(await hiddenOf(f, session.id), false);
+  await waitUntil(() => agent.turns.length === 2);
+  agent.finish("Shipped.");
+  await waitUntil(() => !f.runtime.snapshot().runs.runs[`${f.project}#${session.id}`]);
+  await send(session.id, "Thanks");
+  assert.deepEqual(reads, [f.project], "a kept Run Chat");
+});
+
 test("pinning or renaming a hidden Run Chat keeps it; reading it, a blank name, an unpin or an agent's chat_update doesn't", async (t) => {
   const f = await fixture(t);
   await f.finish("ok");
