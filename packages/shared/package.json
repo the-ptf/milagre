@@ -88,6 +88,10 @@
       "types": "./src/file-kinds.d.mts",
       "default": "./src/file-kinds.mjs"
     },
+    "./appearance": {
+      "types": "./src/appearance.d.mts",
+      "default": "./src/appearance.mjs"
+    },
     "./checkpoints": "./src/checkpoints.ts",
     "./use-checkpoints": "./src/use-checkpoints.ts",
     "./model": "./src/model.ts",
