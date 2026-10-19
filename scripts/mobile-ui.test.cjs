@@ -130,6 +130,16 @@ function load(file, modules, extra = "", cache = new Map()) {
         assert.ok(target, `Missing primitive: ${relative}`);
         return load(target, modules, "", cache);
       }
+      // A pure helper (the draft clear after a send): tests get the real one.
+      if (/^\.\.?\/(draft-clear|file-mentions)$/.test(id) && !(id in modules)) return load(`${id.replace(/^\.\.?\//, "")}.ts`, modules, "", cache);
+      if (
+        (id === "@milagre/shared/prompt-parts" ||
+          id === "@milagre/shared/appearance" ||
+          id === "@milagre/shared/prompt-mentions" ||
+          id === "@milagre/shared/themes") &&
+        !(id in modules)
+      )
+        return require(id);
       if (relative && `./${relative}` in modules) id = `./${relative}`;
       // Image assets are opaque sources; any value stands in.
       if (id.endsWith(".png") && !(id in modules)) return { uri: id };
