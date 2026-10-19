@@ -66,7 +66,8 @@ export function RunList({
       if (!next.delete(key)) next.add(key);
       return next;
     });
-  const time = [styles.caption, { fontVariant: ["tabular-nums" as const] }];
+  // The time keeps its width; the title gives way first.
+  const time = [styles.caption, { fontVariant: ["tabular-nums" as const], flexShrink: 0 }];
 
   return (
     <View style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
@@ -100,7 +101,8 @@ export function RunList({
                 <View style={{ width: 20, alignItems: "center" }}>
                   {look.icon ? <Icon icon={look.icon} tone={look.tone} size={18} /> : <SpinnerRing size={16} />}
                 </View>
-                <View style={{ flex: 1, gap: 2 }}>
+                {/* The title takes all the room the icon, the dot and the time leave, and truncates only where it meets them. */}
+                <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                   <Text numberOfLines={1} style={[styles.text, { fontSize: 15, lineHeight: 20, fontWeight: "500" }]}>
                     {title}
                   </Text>
@@ -110,7 +112,12 @@ export function RunList({
                     </Text>
                   ) : null}
                 </View>
-                {unread ? <ChatMarkIcon mark="unread" /> : null}
+                {/* The mark is a 20 pt box round an 8 pt dot: its 6 pt of padding each side is not the title's to give up. */}
+                {unread ? (
+                  <View style={{ marginHorizontal: -6 }}>
+                    <ChatMarkIcon mark="unread" />
+                  </View>
+                ) : null}
                 <Text style={time}>{when}</Text>
               </Pressable>
             </View>

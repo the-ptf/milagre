@@ -11339,6 +11339,30 @@ test("the phone Routine screen lists its Runs: acted and failed rows, quiet stre
   assert.deepEqual(JSON.parse(JSON.stringify(host.routes.at(-1))), { pathname: "/chat", params: { projectPath: "/p", hostId: "ws://mac", id: "14" } });
 });
 
+test("a phone Run row gives its title all the room: flex 1 with no minimum, the dot's padding taken back, and the time never squeezed", () => {
+  const [, trigger] = routineFixtures();
+  const title = "Add exponential backoff retries to payments webhook";
+  const host = routineHost({
+    routines: [{ ...trigger, runs: [{ id: "r5", routineId: "tr", startedAt: at(9), status: "acted", chatId: "/p#15", title }] }],
+    states: { "/p": { sessions: { 15: { id: 15, unread: true, routine: { routineId: "tr", runId: "r5", hidden: true } } } } },
+  });
+  const [row] = host.rows(host.runList(host.render()));
+  const text = find(row, (node) => node.type === "Text" && textOf(node) === title);
+  assert.equal(text.props.numberOfLines, 1);
+  const column = find(row, (node) => node.type === "View" && [node.props.children].flat(Infinity).includes(text));
+  assert.equal(column.props.style.flex, 1);
+  assert.equal(column.props.style.minWidth, 0);
+  // The unread mark is a 20 pt box round an 8 pt dot; its slack goes back to the title.
+  const mark = find(row, (node) => node.type === "ChatMarkIcon");
+  const slot = find(row, (node) => node.type === "View" && [node.props.children].flat(Infinity).includes(mark));
+  assert.deepEqual([slot.props.style.marginHorizontal], [-6]);
+  const time = find(row, (node) => node.type === "Text" && textOf(node) === "Today 09:00");
+  assert.equal(
+    time.props.style.some((entry) => entry.flexShrink === 0),
+    true,
+  );
+});
+
 test("the phone Routine screen opens a Run's Chat in a Project it holds no state for, and the Chat screen loads it", () => {
   const [, trigger] = routineFixtures();
   const host = routineHost({ routines: [{ ...trigger, runs: [{ id: "r9", routineId: "tr", startedAt: at(9), status: "acted", chatId: "/q#3" }] }] });
