@@ -7,7 +7,10 @@ export function chatMarkTone(
 
 export function chatTitle(session: AgentSession | LinkChatSession, messages?: readonly ChatMessage[]): string;
 export function isHandoverChat(session: AgentSession | LinkChatSession | undefined): boolean;
-export function isListedChat(session: AgentSession | LinkChatSession | undefined, messageCount: number): boolean;
+/** Whether a Routine's Run created the Chat and keeps it out of the lists (`routine.hidden`) unless `waiting` says it waits on someone. */
+export function isHiddenRunChat(session: AgentSession | LinkChatSession | undefined, waiting?: boolean): boolean;
+/** Whether the chat lists show the Chat: it has a message or a handover; a hidden Run Chat only while `waiting` says it waits on someone. */
+export function isListedChat(session: AgentSession | LinkChatSession | undefined, messageCount: number, waiting?: boolean): boolean;
 
 export function comparePins(a: Pick<AgentSession, "pinned" | "pin_order">, b: Pick<AgentSession, "pinned" | "pin_order">): number;
 export function pinOrderAt(orders: number[], index: number): number;

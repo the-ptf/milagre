@@ -121,6 +121,8 @@ export function inboxSnapshot(scopes, runs = {}) {
               ? outcome
               : null;
       if (!status) continue;
+      // A hidden Run Chat only surfaces for what needs a person: its approval, its question or its failure.
+      if (session.routine?.hidden === true && status !== "approval" && status !== "question" && status !== "failed") continue;
       const last = state.messages?.findLast((message) => message.session_id === session.id && message.role === "assistant");
       agents.push({
         key,

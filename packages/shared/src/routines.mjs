@@ -168,3 +168,56 @@ export function triggerText(trigger) {
 export function canRunNow(routine) {
   return routine?.target?.kind === "chat" || routine?.trigger?.kind === "schedule";
 }
+
+/** Whether a Run folds into a stretch on the Runs list: it did nothing (quiet, skipped, missed) or was refused before it ran. */
+const isFoldedRun = (run) => run.rejected === true || run.status === "quiet" || run.status === "skipped-busy" || run.status === "missed";
+
+/**
+ * The Runs list's entries from the Runs, newest first: a row for each Run that did something (acted, failed, running), and
+ * one fold for every stretch of consecutive Runs that did not (quiet, skipped, missed, refused). A fold counts its Runs by
+ * kind (a refused Run only as refused) and carries `last`, the newest start in it.
+ */
+export function foldRuns(runs) {
+  const entries = [];
+  let fold = null;
+  for (const run of runs) {
+    if (!isFoldedRun(run)) {
+      fold = null;
+      entries.push({ kind: "run", run });
+      continue;
+    }
+    if (!fold) {
+      fold = { kind: "fold", runs: [], counts: { quiet: 0, skipped: 0, missed: 0, refused: 0 }, last: run.startedAt };
+      entries.push(fold);
+    }
+    fold.runs.push(run);
+    fold.last = Math.max(fold.last, run.startedAt);
+    if (run.rejected === true) fold.counts.refused += 1;
+    else if (run.status === "quiet") fold.counts.quiet += 1;
+    else if (run.status === "skipped-busy") fold.counts.skipped += 1;
+    else fold.counts.missed += 1;
+  }
+  return entries;
+}
+
+/** A Run's name on the Runs list: what it did when it ended, else its Linear issue ("MIL-12 Fix the flicker"), else the Routine's name. */
+export function runTitle(run, routineName) {
+  if (run.title?.trim()) return run.title;
+  const issue = run.event?.kind === "linear" ? run.event.issue : undefined;
+  if (issue?.key) return issue.title ? `${issue.key} ${issue.title}` : issue.key;
+  return routineName;
+}
+
+/**
+ * The Chats Routines' Runs created and keep out of the lists, across Projects: not archived, with `routine.hidden`. `chatKey`
+ * is `<path>#<id>`, as in the inbox; `unread` is whether the Chat has a result nobody has opened.
+ */
+export function hiddenRunChats(scopes) {
+  const chats = [];
+  for (const { path, state } of scopes)
+    for (const session of Object.values(state.sessions)) {
+      if (session.archived || session.routine?.hidden !== true) continue;
+      chats.push({ chatKey: `${path}#${session.id}`, routineId: session.routine.routineId, runId: session.routine.runId, unread: Boolean(session.unread) });
+    }
+  return chats;
+}

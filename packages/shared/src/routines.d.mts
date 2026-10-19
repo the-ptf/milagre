@@ -1,4 +1,4 @@
-import type { ChatMessage, Routine, RoutineRunContext, RoutineTrigger } from "./model.ts";
+import type { AgentSession, ChatMessage, Routine, RoutineRun, RoutineRunContext, RoutineTrigger } from "./model.ts";
 
 /**
  * The divider a message stands for, or null. A `routine-run` message gives its own context. A `linear-issue` message that
@@ -32,3 +32,19 @@ export function groupQuietRuns(messages: ChatMessage[]): Array<{
 export function triggerText(trigger: RoutineTrigger): string;
 /** Whether Run now works for the Routine: schedules and Heartbeats, not Linear or webhook triggers (no event to run with). */
 export function canRunNow(routine: Pick<Routine, "trigger" | "target">): boolean;
+
+/** One entry of the Runs list: a Run that did something, or a stretch of Runs that did not. */
+export type RunEntry =
+  | { kind: "run"; run: RoutineRun }
+  | { kind: "fold"; runs: RoutineRun[]; counts: { quiet: number; skipped: number; missed: number; refused: number }; last: number };
+/**
+ * The Runs list's entries from the Runs, newest first. Consecutive Runs that are `quiet`, `skipped-busy`, `missed` or
+ * `rejected` fold into one entry (a refused Run counts only as `refused`); `last` is the newest `startedAt` in the fold.
+ */
+export function foldRuns(runs: readonly RoutineRun[]): RunEntry[];
+/** A Run's name: its own `title`, else "<key> <title>" for a Linear event, else the Routine's name. */
+export function runTitle(run: RoutineRun, routineName: string): string;
+/** The not archived Chats whose `routine.hidden` is set, across Projects. `chatKey` is "<path>#<id>". */
+export function hiddenRunChats(
+  scopes: ReadonlyArray<{ path: string; state: { sessions: Record<string, AgentSession> } }>,
+): Array<{ chatKey: string; routineId: string; runId: string; unread: boolean }>;

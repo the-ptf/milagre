@@ -25,6 +25,18 @@ test("chat lists hide a worktree's empty starter chat but keep chats with messag
   assert.equal(isListedChat({ handoverDraft: "" } as never, 0), true);
 });
 
+test("a hidden Run Chat is left out of the lists until it waits on someone", async () => {
+  const { isHiddenRunChat, isListedChat } = await import("./chats.mjs");
+  const hidden = { routine: { routineId: "r", runId: "u", hidden: true } } as AgentSession;
+  assert.equal(isHiddenRunChat(hidden), true);
+  assert.equal(isHiddenRunChat(hidden, true), false);
+  assert.equal(isHiddenRunChat(undefined), false);
+  assert.equal(isListedChat(hidden, 3), false);
+  assert.equal(isListedChat(hidden, 3, true), true);
+  assert.equal(isListedChat({ routine: { routineId: "r", runId: "u", hidden: false } } as AgentSession, 3), true);
+  assert.equal(isListedChat({ routine: { routineId: "r", runId: "u" } } as AgentSession, 3), true); // made before hiding
+});
+
 test("pending input lists its Chat without modifying the persisted Project", async () => {
   const { createPendingChat, withPendingChat } = await import("./chats.mjs");
   const state: CoordinatorState = {

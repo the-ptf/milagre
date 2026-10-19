@@ -29,8 +29,17 @@ export function isHandoverChat(session) {
   return Boolean(session?.handoverPending) || session?.handoverDraft !== undefined;
 }
 
-/** The chat lists show a chat once it has a message, or while a handover prepares it; a worktree's empty starter chat stays out. */
-export function isListedChat(session, messageCount) {
+/** A Chat a Routine's Run created and keeps out of the lists: hidden, and not waiting on an approval or question. */
+export function isHiddenRunChat(session, waiting = false) {
+  return session?.routine?.hidden === true && !waiting;
+}
+
+/**
+ * The chat lists show a chat once it has a message, or while a handover prepares it; a worktree's empty starter chat stays
+ * out. A hidden Run Chat stays out too, unless `waiting` says it waits on an approval or question.
+ */
+export function isListedChat(session, messageCount, waiting = false) {
+  if (isHiddenRunChat(session, waiting)) return false;
   return messageCount > 0 || isHandoverChat(session);
 }
 

@@ -1,6 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canRunNow, clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, parsePass, routineRunOf, routineRunText, triggerText } from "./routines.mjs";
+import {
+  canRunNow,
+  clock,
+  foldRuns,
+  groupQuietRuns,
+  hiddenRunChats,
+  isRoutineRun,
+  mergedRoutineRunText,
+  parsePass,
+  routineRunOf,
+  routineRunText,
+  runTitle,
+  triggerText,
+} from "./routines.mjs";
 
 test("parsePass reads a leading (pass) as quiet, with the summary after it", () => {
   assert.deepEqual(parsePass("(pass) CI green"), { quiet: true, summary: "CI green" });
@@ -305,4 +318,72 @@ test("canRunNow: schedules and Heartbeats run now; Linear and webhook triggers h
   assert.equal(canRunNow({ trigger: { kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" }, target: { kind: "chat", chatId: "c" } }), true);
   assert.equal(canRunNow({ trigger: { kind: "linear", workspace: "w", event: "assigned" }, target: newChat }), false);
   assert.equal(canRunNow({ trigger: { kind: "webhook", hookId: "a", signed: false }, target: newChat }), false);
+});
+
+const run = (id, status, extra = {}) => ({ id, routineId: "r", startedAt: 100 - Number(id), status, ...extra });
+
+test("foldRuns folds quiet, skipped, missed and refused stretches between acted Runs", () => {
+  const entries = foldRuns([
+    run("1", "acted"),
+    run("2", "quiet"),
+    run("3", "skipped-busy"),
+    run("4", "missed"),
+    run("5", "failed", { rejected: true }),
+    run("6", "failed"),
+    run("7", "quiet"),
+  ]);
+  assert.deepEqual(
+    entries.map((entry) => entry.kind),
+    ["run", "fold", "run", "fold"],
+  );
+  assert.deepEqual(entries[1].counts, { quiet: 1, skipped: 1, missed: 1, refused: 1 });
+  assert.equal(entries[1].last, 98);
+  assert.equal(entries[1].runs.length, 4);
+  assert.equal(entries[2].run.id, "6");
+  assert.equal(entries[3].runs[0].id, "7");
+  assert.deepEqual(foldRuns([]), []);
+});
+
+test("foldRuns counts a refused Run only as refused, and keeps a running Run as its own row", () => {
+  const entries = foldRuns([run("1", "running"), run("2", "quiet", { rejected: true }), run("3", "skipped-busy", { rejected: true })]);
+  assert.deepEqual(
+    entries.map((entry) => entry.kind),
+    ["run", "fold"],
+  );
+  assert.deepEqual(entries[1].counts, { quiet: 0, skipped: 0, missed: 0, refused: 2 });
+});
+
+test("runTitle prefers the Run's own title, then its Linear issue, then the Routine's name", () => {
+  const issue = { key: "MIL-12", title: "Fix the flicker" };
+  const linear = { kind: "linear", key: "k", change: "assigned", issue };
+  assert.equal(runTitle({ id: "1", routineId: "r", startedAt: 1, status: "acted", title: "Fixed the flicker", event: linear }, "Triage"), "Fixed the flicker");
+  assert.equal(runTitle({ id: "1", routineId: "r", startedAt: 1, status: "acted", event: linear }, "Triage"), "MIL-12 Fix the flicker");
+  assert.equal(runTitle({ id: "1", routineId: "r", startedAt: 1, status: "acted", event: { kind: "schedule" } }, "Triage"), "Triage");
+  assert.equal(runTitle({ id: "1", routineId: "r", startedAt: 1, status: "acted", title: "  " }, "Triage"), "Triage");
+});
+
+const session = (id, routine, extra = {}) => ({ id, worktree_id: 1, agent_name: "a", status: "Idle", ...(routine ? { routine } : {}), ...extra });
+
+test("hiddenRunChats lists unarchived hidden Run Chats with their unread state", () => {
+  const scopes = [
+    {
+      path: "/p",
+      state: {
+        sessions: {
+          1: session(1, { routineId: "r1", runId: "u1", hidden: true }, { unread: true }),
+          2: session(2, { routineId: "r1", runId: "u2", hidden: true }),
+          3: session(3, { routineId: "r1", runId: "u3", hidden: true }, { archived: true }),
+          4: session(4, { routineId: "r1", runId: "u4", hidden: false }),
+          5: session(5, { routineId: "r1", runId: "u5" }),
+          6: session(6),
+        },
+      },
+    },
+    { path: "/q", state: { sessions: { 7: session(7, { routineId: "r2", runId: "u7", hidden: true }) } } },
+  ];
+  assert.deepEqual(hiddenRunChats(scopes), [
+    { chatKey: "/p#1", routineId: "r1", runId: "u1", unread: true },
+    { chatKey: "/p#2", routineId: "r1", runId: "u2", unread: false },
+    { chatKey: "/q#7", routineId: "r2", runId: "u7", unread: false },
+  ]);
 });
