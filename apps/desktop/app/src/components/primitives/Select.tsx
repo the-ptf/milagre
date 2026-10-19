@@ -22,7 +22,22 @@ export type SelectOption<T extends string> = {
 
 const GAP = 6;
 const INSET = 12;
-const MIN_ROOM = 160;
+// The list scrolls inside max-h-64; chrome is the panel padding, border and, with search, the field.
+const LIST_MAX = 256;
+const CHROME = 14;
+const SEARCH = 52;
+const ROW = 32;
+const ROW_WITH_DESCRIPTION = 48;
+const GROUP_HEADING = 28;
+
+function naturalHeight<T extends string>(options: SelectOption<T>[], searchable: boolean) {
+  let list = 0;
+  options.forEach((option, index) => {
+    list += option.description ? ROW_WITH_DESCRIPTION : ROW;
+    if (option.group && option.group !== options[index - 1]?.group) list += GROUP_HEADING;
+  });
+  return Math.min(LIST_MAX, list) + CHROME + (searchable ? SEARCH : 0);
+}
 
 /* The app's select: a trigger button that opens the shared picker panel.
  * A native select element opens macOS's own menu, so every choice goes through this.
@@ -73,8 +88,10 @@ export function Select<T extends string>({
     const left = Math.max(INSET, Math.min(trigger.right - width, window.innerWidth - width - INSET));
     const roomBelow = window.innerHeight - trigger.bottom - GAP - INSET;
     const roomAbove = trigger.top - GAP - INSET;
+    // Open upward when the panel would not fit below and there is more room above, so a trigger near the bottom shows its rows.
+    const fitsBelow = roomBelow >= naturalHeight(options, searchable);
     setPosition(
-      roomBelow >= MIN_ROOM || roomBelow >= roomAbove
+      fitsBelow || roomBelow >= roomAbove
         ? { left, top: trigger.bottom + GAP, maxHeight: roomBelow }
         : { left, bottom: window.innerHeight - trigger.top + GAP, maxHeight: roomAbove },
     );

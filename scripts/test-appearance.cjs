@@ -15,6 +15,7 @@ import { ChatRow } from "/src/components/sidebar/ChatRow";
 import { ChangesPanelSlot } from "/src/components/changes/ChangesPanelSlot";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import { LayoutGroup } from "motion/react";
+import { Select } from "/src/components/primitives/Select";
 import { PillSlot } from "/src/components/primitives/StatusPill";
 import { AppMotionConfig } from "/src/components/motion/AppMotionConfig";
 import { useApplyTheme, updateSettings, getSettings } from "/src/lib/settings";
@@ -30,6 +31,7 @@ window.__mountTerminal = () => {
   window.__term = attachTerminal({ id: 't1', chatId: 'c1', title: 't', cwd: '/', label: 'l', busy: false, cols: 80, rows: 24, createdAt: 0 }, host).term;
 };
 const noop = () => {};
+const selectOptions = Array.from({ length: 12 }, (_, index) => ({ value: "option-" + index, label: "Option " + index }));
 const messages = [
   { id: 1, session_id: 1, context: null, role: "user", body: "Please fix the greeting" },
   { id: 2, session_id: 1, context: null, role: "assistant",
@@ -47,6 +49,8 @@ function Fixture() {
       <ChatRow item={{ id: "1", label: "Review authentication flow", details: { diff: { added: 12, removed: 3 } } }} active collapsed={false} actions={{}} onPick={noop} show={{ computer: false, pullRequests: false, linearIssue: false, branch: false, diff: true, lastActivity: false }} />
       <CodeBlock code={"-const greeting = 'hi';\\n+const greeting = 'hello';"} fence="diff" diff />
     </aside>
+    <div style={{ position: "fixed", right: 12, bottom: 190 }} data-select-probe="bottom"><Select label="Bottom probe" value="option-0" options={selectOptions} onChange={noop} width={200} /></div>
+    <div style={{ position: "fixed", right: 12, top: 4 }} data-select-probe="top"><Select label="Top probe" value="option-0" options={selectOptions} onChange={noop} width={200} /></div>
     <LayoutGroup>
       <PillSlot slot="layout-probe" style={{ position: "fixed", top: 0, left: shift ? 400 : 100 }}><span style={{ display: "block", width: 20, height: 20 }} /></PillSlot>
     </LayoutGroup>
@@ -189,6 +193,24 @@ async function browserChecks() {
     await set({ motion: "off" });
     await probeLeft(false, 300);
     assert.equal(await probeLeft(true, 40), 400, "with motion off a layout slide is instant");
+    // Select: near the bottom it opens above its trigger and shows more rows than a downward panel would; near the top it opens below.
+    const openProbe = async (label) => {
+      await evaluate(`document.querySelector('[aria-label=${JSON.stringify(label)}][aria-haspopup]').click()`);
+      await waitFor(`!!document.querySelector('[role="listbox"][aria-label=${JSON.stringify(label)}]')`);
+      const result = await evaluate(`(() => {
+        const trigger = document.querySelector('[aria-label=${JSON.stringify(label)}][aria-haspopup]').getBoundingClientRect();
+        const panel = document.querySelector('[role="listbox"][aria-label=${JSON.stringify(label)}] [data-picker-panel]').getBoundingClientRect();
+        return { triggerTop: trigger.top, triggerBottom: trigger.bottom, top: panel.top, bottom: panel.bottom, height: panel.height };
+      })()`);
+      await evaluate(`document.querySelector('[aria-label=${JSON.stringify(label)}][aria-haspopup]').click()`);
+      await waitFor(`!document.querySelector('[role="listbox"][aria-label=${JSON.stringify(label)}]')`);
+      return result;
+    };
+    const lower = await openProbe("Bottom probe");
+    assert.ok(lower.bottom <= lower.triggerTop, "a Select near the bottom opens above its trigger " + JSON.stringify(lower));
+    assert.ok(lower.height > 250, "and shows its rows instead of a stub (height " + lower.height + ")");
+    const upper = await openProbe("Top probe");
+    assert.ok(upper.top >= upper.triggerBottom, "a Select near the top opens below its trigger " + JSON.stringify(upper));
     assert.deepEqual(errors, []);
     console.log("PASS: Appearance sizes, chat width, diff colors and motion reach the chat, code, sidebar, terminal and panels");
     app.exit(0);
