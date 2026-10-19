@@ -11159,12 +11159,15 @@ test("the phone Routines screen groups heartbeats and triggers, says why a trigg
 
 test("a phone Routine row shows the unread dot while one of its hidden Run Chats is unread", async () => {
   const runChat = (id, routineId, extra) => ({ id, routine: { routineId, runId: `u${id}`, hidden: true }, ...extra });
-  const host = routinesHost({ states: { "/p": { sessions: { 9: runChat(9, "tr", { unread: true }), 10: runChat(10, "hb") } } } });
+  // Two of the trigger's Run Chats are unread: the row reads "unread Runs", as the dock's Routines button does.
+  const host = routinesHost({
+    states: { "/p": { sessions: { 9: runChat(9, "tr", { unread: true }), 10: runChat(10, "hb"), 11: runChat(11, "tr", { unread: true }) } } },
+  });
   host.render();
   await host.settle();
   const [heartbeat, trigger] = host.rows(host.render());
   assert.ok(find(trigger, (node) => node.type === "ChatMarkIcon" && node.props.mark === "unread"));
-  assert.match(find(trigger, (node) => node.type === "PullDown").props.label, /^Issues labelled agent, unread Run Chat\. /);
+  assert.match(find(trigger, (node) => node.type === "PullDown").props.label, /^Issues labelled agent, unread Runs\. /);
   assert.equal(
     find(heartbeat, (node) => node.type === "ChatMarkIcon"),
     undefined,

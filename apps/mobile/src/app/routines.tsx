@@ -244,11 +244,11 @@ function RoutineRow({
   const styles = useStyles();
   const { colors } = useTheme();
   const meta = routineMeta(routine, now);
-  const label = `${routine.name}${unread ? ", unread Run Chat" : ""}. ${meta}`;
+  const label = `${routine.name}${unread ? ", unread Runs" : ""}. ${meta}`;
   const heartbeat = isHeartbeat(routine);
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-      {/* The label is what VoiceOver reads for the row: its name, an unread Run Chat, meta and any paused reason or error. */}
+      {/* The label is what VoiceOver reads for the row: its name, unread Runs, meta and any paused reason or error. */}
       <PullDown
         label={label}
         title={routine.name}
