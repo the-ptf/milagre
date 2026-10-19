@@ -462,6 +462,11 @@ function ChatWidthField({ value, onCommit, onFocusChange }: { value: number; onC
   const [text, setText] = useState(String(value));
   useEffect(() => setText(String(value)), [value]);
   const commit = () => {
+    // An empty field is not a width: put the saved one back.
+    if (text.trim() === "") {
+      setText(String(value));
+      return;
+    }
     const px = clampChatWidth(text);
     setText(String(px));
     if (px !== value) onCommit(px);
@@ -481,6 +486,9 @@ function ChatWidthField({ value, onCommit, onFocusChange }: { value: number; onC
         onKeyDown={(event) => {
           if (event.key === "Enter") commit();
           else if (event.key === "Escape") {
+            // Reverting is all Escape does here; App's Escape handler would otherwise leave Settings.
+            event.preventDefault();
+            event.stopPropagation();
             setText(String(value));
           }
         }}
