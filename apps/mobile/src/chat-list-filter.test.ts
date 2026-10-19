@@ -28,3 +28,11 @@ test("any other Chat shows while a turn runs, else once it has a message", () =>
   assert.equal(shownChat(chat(), undefined, 0), false);
   assert.equal(shownChat(chat(), undefined, 1), true);
 });
+
+test("the Archived filter shows an archived hidden Run Chat, so a swept one can be restored", () => {
+  const swept = hidden({ archived: true });
+  assert.equal(shownChat(swept, undefined, 2, { archived: true }), true);
+  // Like any archived Chat, one without a message stays out.
+  assert.equal(shownChat(swept, undefined, 0, { archived: true }), false);
+  assert.equal(shownChat(chat({ archived: true }), undefined, 1, { archived: true }), true);
+});

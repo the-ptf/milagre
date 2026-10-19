@@ -2842,6 +2842,25 @@ test("the sidebar filter shows archived, running or waiting Chats across Project
   assert.equal(ids(), "[]", "chatMark is idle in this host, so nothing is running");
 });
 
+test("the sidebar's Archived filter shows an archived hidden Run Chat, so one a sweep archived can be restored", () => {
+  const nav = navigationHost(deferred().promise);
+  nav.state.project.state.sessions[4] = { id: 4, archived: true, title: "Old work" };
+  nav.state.project.state.sessions[5] = {
+    ...nav.state.project.state.sessions[4],
+    id: 5,
+    title: "Nightly triage",
+    routine: { routineId: "tr", runId: "u5", hidden: true },
+  };
+  const ids = () =>
+    nav
+      .rows()
+      .props.data.filter((item) => item.kind === "chat")
+      .map((item) => item.chat.id);
+  same(ids(), [3]);
+  nav.filter().props.onSelect("archived");
+  same(ids(), [5, 4]);
+});
+
 /** Two Chats of web in their own Worktrees: Login (3) and Docs (4). */
 function withTwoWorktrees(nav) {
   nav.state.project.name = "web";

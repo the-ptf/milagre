@@ -7,11 +7,13 @@ const waitsOnYou = (run: AgentRun | undefined) => !!(run?.approvals.length || ru
 
 /**
  * Whether the phone's Chat list and its Link picker show a Chat. A hidden Run Chat stays out, even while its turn runs,
- * unless that turn waits on an approval or a question. Any other Chat shows while a turn runs (a new Chat appears as its
- * first turn starts), else once `isListedChat` lists it.
+ * unless that turn waits on an approval or a question, or the list is the Archived filter's (`archived`): a sweep
+ * archives a hidden Run Chat once its Run leaves the Runs list, and the archive is its way back (restoring it keeps it;
+ * see chat:patch). Any other Chat shows while a turn runs (a new Chat appears as its first turn starts), else once
+ * `isListedChat` lists it.
  */
-export function shownChat(chat: AgentSession, run: AgentRun | undefined, messageCount: number): boolean {
-  const waiting = waitsOnYou(run);
-  if (isHiddenRunChat(chat, waiting)) return false;
-  return !!run || isListedChat(chat, messageCount, waiting);
+export function shownChat(chat: AgentSession, run: AgentRun | undefined, messageCount: number, { archived = false } = {}): boolean {
+  const shownAnyway = waitsOnYou(run) || archived;
+  if (isHiddenRunChat(chat, shownAnyway)) return false;
+  return !!run || isListedChat(chat, messageCount, shownAnyway);
 }

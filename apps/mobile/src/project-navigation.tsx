@@ -307,7 +307,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
           ({ chat, run }) =>
             // A Chat stays in its place while its archive runs, under the progress, until the archive ends.
             (show === "archived") === (!!chat.archived && !archives.chats.has(`${copy?.project.path}#${chat.id}`)) &&
-            shownChat(chat, run, chatSummary(chat, byChat.get(chat.id)).count),
+            shownChat(chat, run, chatSummary(chat, byChat.get(chat.id)).count, { archived: show === "archived" }),
         )
         .filter(({ mark }) => show !== "needs" || NEEDS.includes(mark))
         .filter(({ mark }) => show !== "running" || mark === "running" || mark === "background");
