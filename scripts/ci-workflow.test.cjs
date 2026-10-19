@@ -27,7 +27,7 @@ test("every CI job has a timeout", () => {
 });
 
 test("a PR run is at most 20 jobs, the account's concurrency: every slot for under two minutes", () => {
-  // Jobs that only run on a push to main or in the merge queue (release, macOS smoke, Windows tests) never take a PR run's slots.
+  // Jobs that only run on a push to main or in the merge queue (Next beta draft, macOS smoke, Windows tests) never take a PR run's slots.
   const jobs = Object.values(ci.jobs).filter((job) => !/github\.event_name (== 'push'|!= 'pull_request')/.test(job.if ?? ""));
   const total = jobs.reduce((sum, job) => sum + (job.strategy?.matrix?.shard?.length ?? 1), 0);
   assert.ok(total <= 20, `${total} jobs per PR run`);
@@ -56,8 +56,9 @@ test("every action is pinned to a full SHA with its version in a comment", () =>
   }
 });
 
-test("the release job waits for the required checks, not the change filter or desktop-checks", () => {
-  const needs = [ci.jobs.release.needs].flat();
+test("the Next beta draft waits for the required checks, not the change filter or desktop-checks", () => {
+  assert.equal(ci.jobs.release, undefined, "merges cut no release");
+  const needs = [ci.jobs["next-beta"].needs].flat();
   assert.ok(needs.includes("javascript"));
   assert.ok(!needs.includes("desktop-checks"));
   assert.ok(!needs.includes("changes"));
@@ -128,7 +129,7 @@ test("the required javascript check passes only when the quick checks and every 
   assert.match(runs(gate).join("\n"), /\[ "\$result" = success \] \|\| exit 1/);
 });
 
-test("the macOS smoke runs on pushes to main only and still gates the release and the desktop gate", () => {
+test("the macOS smoke runs on pushes to main only and still gates the Next beta draft and the desktop gate", () => {
   const job = ci.jobs["macos-desktop-smoke"];
   assert.equal(job.if, "github.event_name == 'push'");
   assert.equal(job.needs, undefined);
@@ -137,7 +138,8 @@ test("the macOS smoke runs on pushes to main only and still gates the release an
     "node_modules come from the cache, not a 64 s npm ci",
   );
   assert.ok(runs(job).includes("npm test -- --only test-desktop"));
-  assert.ok(ci.jobs.release.needs.includes("macos-desktop-smoke"));
+  // A beta ships only a main commit whose whole CI run passed, this job included (scripts/plan-release.cjs).
+  assert.ok(ci.jobs["next-beta"].needs.includes("macos-desktop-smoke"));
   assert.ok(ci.jobs["desktop-gate"].needs.includes("macos-desktop-smoke"), "skipped on a PR, which the gate accepts");
   // The local run replaces it on PRs.
   assert.match(fs.readFileSync(path.join(__dirname, "../AGENTS.md"), "utf8"), /npm test -- --only test-desktop` on your Mac/);
@@ -299,7 +301,7 @@ test("a native-gate job always reports for branch protection and only fails when
   assert.deepEqual(gate.needs, ["native-tests"]);
   const run = gate.steps.map((step) => step.run).join("\n");
   assert.match(run, /success\|skipped\) exit 0/);
-  assert.deepEqual(ci.jobs.release.needs, ["javascript", "native-gate", "macos-desktop-smoke"]);
+  assert.deepEqual(ci.jobs["next-beta"].needs, ["javascript", "native-gate", "macos-desktop-smoke"]);
 });
 
 test("CI and the title check run on merge groups, so every required check reports before the queue merges", () => {
@@ -322,6 +324,6 @@ test("a desktop-gate job always reports for the merge queue and only fails when 
   const script = runs(gate).join("\n");
   assert.match(script, /success\|skipped\) ;;/);
   assert.match(script, /\*\) exit 1/);
-  // The release candidate keeps its own gate list; desktop-gate guards merges, not candidates.
-  assert.ok(!ci.jobs.release.needs.includes("desktop-gate"));
+  // The Next beta draft keeps its own gate list; desktop-gate guards merges, not releases.
+  assert.ok(!ci.jobs["next-beta"].needs.includes("desktop-gate"));
 });

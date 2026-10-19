@@ -265,20 +265,19 @@ jobs:
           echo "desktop-checks, macos-desktop-smoke: $RESULTS"
           for result in $RESULTS; do case "$result" in success|skipped) ;; *) exit 1 ;; esac; done
 
-  release:
-    # Every CI-green push to main becomes a release candidate: a tag and a DRAFT GitHub release.
-    # Stable installs never see drafts (they ask for GitHub's latest release). The tag does show in the releases
-    # atom feed, so beta installs resolve their feed through the REST API instead (electron/release-channel.cjs).
-    # The "Publish" workflow ships a candidate to beta or stable.
+  next-beta:
+    # Merges to main cut no release. Once a push passes the required checks, this rewrites the one untagged "Next beta"
+    # draft with what the next beta would ship. The Publish workflow cuts betas from green main commits and promotes
+    # them to stable (scripts/plan-release.cjs).
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'the-ptf/milagre'
     needs: [javascript, native-gate, macos-desktop-smoke]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 5
     permissions:
       contents: write
     concurrency:
-      group: release
-      cancel-in-progress: false
+      group: next-beta
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -287,9 +286,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
-      - name: Create release candidate (tag and draft release)
-        run: npm run release
+      # A beta published after the checkout is the draft's starting point, so its tag is fetched first.
+      - name: Rewrite the Next beta draft
+        run: |
+          git fetch --quiet --tags origin
+          node scripts/plan-release.cjs next-draft
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}

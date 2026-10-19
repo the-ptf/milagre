@@ -24,8 +24,7 @@
     "og:site": "node scripts/site-og.cjs",
     "benchmark:chat-flow": "node scripts/benchmark-chat-flow.cjs",
     "benchmark:mobile-preview": "node scripts/benchmark-mobile-preview.cjs",
-    "release": "semantic-release",
-    "release:dry": "semantic-release --dry-run --no-ci",
+    "release:preview": "node scripts/plan-release.cjs preview",
     "package:mac": "npm run build && electron-builder --mac dmg zip --publish never",
     "package:win": "npm run build && electron-builder --win nsis --x64 --publish never",
     "package:linux": "npm run build && electron-builder --linux AppImage deb rpm --x64 --publish never",
@@ -47,9 +46,6 @@
     "knip": "knip"
   },
   "devDependencies": {
-    "@semantic-release/commit-analyzer": "^13.0.1",
-    "@semantic-release/github": "^12.0.10",
-    "@semantic-release/release-notes-generator": "^14.1.1",
     "chrome-launcher": "^1.2.2",
     "electron": "^44.5.1",
     "electron-builder": "26.17.0",
@@ -63,7 +59,6 @@
     "oxfmt": "0.72.0",
     "oxlint": "1.87.0",
     "qrcode-terminal": "^0.12.0",
-    "semantic-release": "^25.0.9",
     "subset-font": "2.9.0",
     "yaml": "^2.9.1"
   },
