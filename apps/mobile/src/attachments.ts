@@ -37,6 +37,10 @@ export function mentionAttachment(root: string, path: string): Attachment {
   return { id: `mention:${absolute}`, name: path.split("/").pop()!, uri: absolute, path: absolute };
 }
 export const ATTACHMENT_LIMIT_MESSAGE = "Attach up to 4 photos or files per message.";
+/** The error line once the attachments or the draft changed: the limit error goes when there is room again or the draft is cleared. */
+export function settleLimitError(error: string, count: number, draft: string) {
+  return error === ATTACHMENT_LIMIT_MESSAGE && (count < MAX_ATTACHMENTS || !draft.trim()) ? "" : error;
+}
 /** The attachments after a file is mentioned: unchanged when already attached, an error at the limit or for a path outside the project. */
 export function addMention(current: Attachment[], root: string, path: string): { next: Attachment[]; error?: string } {
   let item: Attachment;

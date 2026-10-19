@@ -1,6 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appendAttachments, attachmentPrompt, addMention, mentionAttachment, mentionAttachments, prepareAttachments, type Attachment } from "./attachments.ts";
+import {
+  appendAttachments,
+  ATTACHMENT_LIMIT_MESSAGE,
+  attachmentPrompt,
+  addMention,
+  mentionAttachment,
+  mentionAttachments,
+  prepareAttachments,
+  settleLimitError,
+  type Attachment,
+} from "./attachments.ts";
 import type { Client } from "./client.ts";
 test("attachment drafts are bounded without dropping an existing selection", () => {
   const file = { id: "a", name: "a.txt", uri: "file:///a" };
@@ -105,4 +115,13 @@ test("send attaches each confirmed mention once, within the limit, and says when
     mentionAttachments("no mentions", "/w", [], () => true),
     { added: [], dropped: false },
   );
+});
+test("the limit error goes once there is room again or the draft is cleared, and other errors stay", () => {
+  const limit = ATTACHMENT_LIMIT_MESSAGE;
+  assert.equal(settleLimitError(limit, 4, "fix @src/e.ts"), limit, "still full with a mention in the draft: the error stays");
+  assert.equal(settleLimitError(limit, 3, "fix @src/e.ts"), "", "a tile was removed");
+  assert.equal(settleLimitError(limit, 0, ""), "", "every tile removed and the composer cleared");
+  assert.equal(settleLimitError(limit, 4, "  \n"), "", "a blank draft counts as cleared");
+  assert.equal(settleLimitError("Offline", 0, ""), "Offline", "an unrelated error is not this helper's to clear");
+  assert.equal(settleLimitError("", 0, ""), "");
 });

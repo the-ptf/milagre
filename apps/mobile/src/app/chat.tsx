@@ -37,7 +37,15 @@ import { useComposer, usePendingChats, useSession } from "../session";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
-import { addMention, appendAttachments, ATTACHMENT_LIMIT_MESSAGE, attachmentPrompt, mentionAttachments, prepareAttachments } from "../attachments";
+import {
+  addMention,
+  appendAttachments,
+  ATTACHMENT_LIMIT_MESSAGE,
+  attachmentPrompt,
+  mentionAttachments,
+  prepareAttachments,
+  settleLimitError,
+} from "../attachments";
 import { BackgroundRing, PullRequestAction, SubagentChip } from "../status-indicators";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
@@ -664,7 +672,7 @@ export default function ChatScreen() {
   async function pasteImage(image: PastedImage) {
     if (attachmentDisabled || pickingNow.current) {
       discardPastedImage(image);
-      setError(attachments.length >= 4 ? "Attach up to 4 photos or files per message." : "Wait for the current attachment to finish, then paste again.");
+      setError(attachments.length >= 4 ? ATTACHMENT_LIMIT_MESSAGE : "Wait for the current attachment to finish, then paste again.");
       return;
     }
     pickingNow.current = true;
@@ -1703,12 +1711,14 @@ export default function ChatScreen() {
                               icon={Cancel01Icon}
                               size={32}
                               disabled={busy || picking}
-                              onPress={() =>
-                                composer.setAttachments((current) => ({
-                                  ...current,
-                                  [chatId]: (current[chatId] || []).filter((attachment) => attachment.id !== item.id),
-                                }))
-                              }
+                              onPress={() => {
+                                // Removing this tile may leave room again, which ends the limit error.
+                                setError((current) => settleLimitError(current, attachments.filter((attachment) => attachment.id !== item.id).length, draft));
+                                composer.setAttachments((currentAttachments) => ({
+                                  ...currentAttachments,
+                                  [chatId]: (currentAttachments[chatId] || []).filter((attachment) => attachment.id !== item.id),
+                                }));
+                              }}
                             />
                           </View>
                         ))}
@@ -1725,7 +1735,11 @@ export default function ChatScreen() {
                       commands={chat ? UNDO_COMMANDS : undefined}
                       // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
                       placeholder={run && !providerCapabilities(chat?.provider ?? actualProvider).steer ? "Queue a message for the next turn" : undefined}
-                      onChangeText={(value) => composer.setDrafts((current) => ({ ...current, [chatId]: value }))}
+                      onChangeText={(value) => {
+                        // Clearing the composer also clears the limit error that its mentions caused.
+                        setError((current) => settleLimitError(current, attachments.length, value));
+                        composer.setDrafts((current) => ({ ...current, [chatId]: value }));
+                      }}
                     />
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                       <PullDown
