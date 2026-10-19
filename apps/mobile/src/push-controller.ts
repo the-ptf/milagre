@@ -44,6 +44,7 @@ export const SHEETS_OVER_CHAT = new Set([
   "ports-sheet",
   "browser-sheet",
   "activity",
+  "background",
   "handoff-brief",
   "routine-form",
   "viewer",

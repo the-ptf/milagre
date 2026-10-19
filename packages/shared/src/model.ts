@@ -203,6 +203,15 @@ export interface BackgroundTask {
   startedAt: number;
 }
 
+/** The end of a background command's output (chat:task-output): the last 8 KiB it wrote, escape sequences included. */
+export interface BackgroundTaskOutput {
+  output: string;
+  /** The size of the whole output in bytes. */
+  totalBytes: number;
+  /** Whether `output` holds only the end of a longer output. */
+  truncated: boolean;
+}
+
 /** Tokens in the agent's context window, out of the model's window size. */
 export interface ContextUsage {
   used: number;

@@ -550,6 +550,7 @@ export function LinkWorkspace({
                         plan={session?.plan}
                         contextUsage={run?.contextUsage ?? session?.contextUsage}
                         subagents={session?.subagents?.filter((agent) => agent.id !== session.native_session_id)}
+                        backgroundTasks={session?.backgroundTasks}
                         ports={chatId ? ports[chatId] : undefined}
                         agentChatId={chatId ?? undefined}
                         onOpenDiff={(path, worktree) => {

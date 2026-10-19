@@ -268,6 +268,7 @@ function makeBridge(invoke, listen, send) {
     readChatMessages: (scope, chatId, options) => invoke("chat:messages", scope, chatId, options),
     searchChats: (scope, query, options) => invoke("chat:search", scope, query, options),
     readSubagent: (scope, chatId, agentId) => invoke("chat:subagent", scope, chatId, agentId),
+    readTaskOutput: (chatId, taskId) => invoke("chat:task-output", chatId, taskId),
     listAccountScopes: () => invoke("accounts:scopes"),
     getProjectAccounts: (scopeKey, refresh) => invoke("accounts:scope", scopeKey, refresh),
     assignProjectAccount: (scopeKey, provider, accountId) => invoke("accounts:assign", scopeKey, provider, accountId),

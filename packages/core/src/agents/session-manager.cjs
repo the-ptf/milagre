@@ -269,6 +269,13 @@ class SessionManager {
     return entry && !entry.session.closed ? backgroundCount(entry) : 0;
   }
 
+  /** The end of a background task's output, read from the chat's live agent process: the task dies with it. */
+  async taskOutput(chatId, taskId) {
+    const session = this.sessions.get(chatId)?.session;
+    if (!session || session.closed || typeof session.taskOutput !== "function") throw new Error("That background task has ended.");
+    return session.taskOutput(taskId);
+  }
+
   isTurnActive(chatId) {
     return Boolean(this.sessions.get(chatId)?.session.turnActive);
   }

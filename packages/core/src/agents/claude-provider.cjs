@@ -454,6 +454,16 @@ class ClaudeSession {
     }
   }
 
+  /**
+   * The end of a background command's output (the last 8 KiB), the tail Claude Code's own /tasks view reads. Only a
+   * shell or Monitor task has one; the CLI refuses any other id.
+   */
+  async taskOutput(taskId) {
+    if (!this.query || this.closed) throw new Error("That background task has ended.");
+    const { output, total_bytes: totalBytes, truncated } = await this.query.getTaskOutput(taskId);
+    return { output: typeof output === "string" ? output : "", totalBytes: Number(totalBytes) || 0, truncated: Boolean(truncated) };
+  }
+
   async readMessages(query) {
     try {
       for await (const message of query) {
