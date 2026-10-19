@@ -51,6 +51,8 @@ export function PromptField({
   const { colors, motionScale, typeScale } = useTheme();
   // Text size scales the composer too; 16 stays 16 at the default step.
   const inputSize = Math.round(16 * typeScale);
+  // The menus sit inside the translucent glass composer; an opaque surface keeps the transcript from showing through the rows.
+  const menuStyle = { maxHeight: 180, backgroundColor: colors.surface, borderRadius: 14, borderCurve: "continuous" as const };
   const paste = useImagePaste(onImagePaste);
   const { data, loading, error, refresh } = useRpc<SkillCatalog>(projectPath ? client : null, "skills:list", [projectPath]);
   const skillList = data?.skills;
@@ -126,7 +128,7 @@ export function PromptField({
         <Animated.View entering={openSkills(motionScale)}>
           <PageScroll
             accessibilityLabel="Skills"
-            style={{ maxHeight: 180 }}
+            style={menuStyle}
             contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 0 }}
             keyboardShouldPersistTaps="always"
           >
@@ -147,7 +149,7 @@ export function PromptField({
         <Animated.View entering={openSkills(motionScale)}>
           <PageScroll
             accessibilityLabel="Files"
-            style={{ maxHeight: 180 }}
+            style={menuStyle}
             contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 0 }}
             keyboardShouldPersistTaps="always"
           >
