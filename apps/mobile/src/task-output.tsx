@@ -8,7 +8,7 @@ import { useSession } from "./session";
 import { fonts, useTheme } from "./theme";
 import { ErrorNotice } from "./ui";
 
-export function TaskOutput({ chatKey, taskId }: { chatKey: string; taskId: string }) {
+export function TaskOutput({ chatKey, taskId, running }: { chatKey: string; taskId: string; running: boolean }) {
   const { colors } = useTheme();
   const { client } = useSession();
   const focused = useIsFocused();
@@ -21,7 +21,7 @@ export function TaskOutput({ chatKey, taskId }: { chatKey: string; taskId: strin
     if (!client) throw new Error("Connect to the computer to read this command's output.");
     return (await client.call("chat:task-output", [chatKey, taskId])) as BackgroundTaskOutput;
   }, [client, chatKey, taskId]);
-  const { output, error } = useTaskOutput(read, focused && foreground);
+  const { output, error } = useTaskOutput(read, focused && foreground, running);
   return (
     <View style={{ gap: 8, padding: 12, borderRadius: 12, backgroundColor: colors.field }}>
       {!!error && <ErrorNotice message={error} />}

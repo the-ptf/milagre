@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { BACKGROUND_ITEM_LABELS, plainTaskOutput, type BackgroundItem } from "@milagre/shared/chat-activity";
 import { useTaskOutput } from "@milagre/shared/use-task-output";
 import { bridgeForKey } from "../../lib/computer-bridge";
@@ -6,9 +6,15 @@ import { BackgroundIndicator } from "../ThinkingIndicator";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { SubagentDetail } from "./SubagentTrack";
 
-function CommandOutput({ chatKey, taskId }: { chatKey: string; taskId: string }) {
+function CommandOutput({ chatKey, taskId, running }: { chatKey: string; taskId: string; running: boolean }) {
+  const [visible, setVisible] = useState(document.visibilityState === "visible");
+  useEffect(() => {
+    const changed = () => setVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", changed);
+    return () => document.removeEventListener("visibilitychange", changed);
+  }, []);
   const read = useCallback(() => bridgeForKey(chatKey).readTaskOutput(chatKey, taskId), [chatKey, taskId]);
-  const { output, error } = useTaskOutput(read);
+  const { output, error } = useTaskOutput(read, visible, running);
   return (
     <div className="flex flex-col gap-2 p-2 text-[12px] text-ink-2">
       {error && (
@@ -25,13 +31,25 @@ function CommandOutput({ chatKey, taskId }: { chatKey: string; taskId: string })
 }
 
 /** The background line opens the work it counts, including commands that have no subagent pill. */
-export function BackgroundWork({ items, chatKey, mark }: { items: BackgroundItem[]; chatKey?: string | null; mark: ReactNode }) {
+export function BackgroundWork({
+  items,
+  chatKey,
+  mark,
+  showIndicator,
+}: {
+  items: BackgroundItem[];
+  chatKey?: string | null;
+  mark: ReactNode;
+  showIndicator: boolean;
+}) {
   const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
-  const child = items.find((item) => `${item.type}:${item.id}` === selected);
+  const [selected, setSelected] = useState<BackgroundItem | null>(null);
+  const current = items.find((item) => item.type === selected?.type && item.id === selected.id);
+  const child = current ?? (selected?.type === "command" ? selected : undefined);
+  if (!showIndicator && !(open && child)) return null;
   return (
-    <div className="min-w-0">
-      <BackgroundIndicator count={items.length} startedAt={items[0]?.startedAt} mark={mark} expanded={open} onClick={() => setOpen(!open)} />
+    <div className="w-full min-w-0">
+      {showIndicator && <BackgroundIndicator count={items.length} startedAt={items[0]?.startedAt} mark={mark} expanded={open} onClick={() => setOpen(!open)} />}
       {open && (
         <div data-background-tasks className="mt-1 ml-3 flex max-h-[360px] min-h-0 flex-col rounded-control border border-line bg-surface text-ink-2">
           {child ? (
@@ -40,13 +58,24 @@ export function BackgroundWork({ items, chatKey, mark }: { items: BackgroundItem
                 <button type="button" onClick={() => setSelected(null)} className="rounded px-1 py-0.5 hover:bg-hover">
                   Back to tasks
                 </button>
-                <span className="min-w-0 truncate font-medium">{child.title}</span>
+                <span className="min-w-0 flex-1 truncate font-medium">{child.title}</span>
+                {!current && <span>No longer running</span>}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    setSelected(null);
+                  }}
+                  className="rounded px-1 py-0.5 hover:bg-hover"
+                >
+                  Close
+                </button>
               </header>
               <ScrollArea chainScroll>
                 {child.agent ? (
                   <SubagentDetail chatKey={chatKey} agent={child.agent} />
                 ) : child.type === "command" && chatKey ? (
-                  <CommandOutput key={`${chatKey}:${child.id}`} chatKey={chatKey} taskId={child.id} />
+                  <CommandOutput key={`${chatKey}:${child.id}`} chatKey={chatKey} taskId={child.id} running={Boolean(current)} />
                 ) : (
                   <p className="p-3 text-[12px]">This task reports its progress back to the Chat.</p>
                 )}
@@ -59,7 +88,7 @@ export function BackgroundWork({ items, chatKey, mark }: { items: BackgroundItem
                   <button
                     type="button"
                     data-background-task={item.id}
-                    onClick={() => setSelected(`${item.type}:${item.id}`)}
+                    onClick={() => setSelected(item)}
                     className="flex w-full flex-col gap-1 rounded-control px-2 py-2 text-left text-[12.5px] hover:bg-hover"
                   >
                     <span className="break-words">{item.title}</span>

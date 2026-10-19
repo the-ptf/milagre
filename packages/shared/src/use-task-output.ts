@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { BackgroundTaskOutput } from "./model";
 
 /** Read a command's output only while its detail is visible, with at most one request in flight. */
-export function useTaskOutput(read: () => Promise<BackgroundTaskOutput>, active = true) {
+export function useTaskOutput(read: () => Promise<BackgroundTaskOutput>, active = true, poll = true) {
   const [output, setOutput] = useState<BackgroundTaskOutput | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -19,13 +19,13 @@ export function useTaskOutput(read: () => Promise<BackgroundTaskOutput>, active 
         if (cancelled) return;
         setError(failure instanceof Error ? failure.message : "Could not read the command output.");
       }
-      if (!cancelled) timer = setTimeout(refresh, 1500);
+      if (!cancelled && poll) timer = setTimeout(refresh, 1500);
     }
     void refresh();
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [read, active]);
+  }, [read, active, poll]);
   return { output, error };
 }

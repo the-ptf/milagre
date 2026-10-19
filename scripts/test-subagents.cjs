@@ -9,7 +9,7 @@ window.outputReads = [];
 window.milagre = Object.freeze({ listEditors: async () => [], readTaskOutput: async (chatId, taskId) => {
   window.outputReads.push({chatId,taskId});
   if(window.outputError) throw new Error("The command output is unavailable.");
-  return {output:"\\u001b[32mPublish watcher ready\\u001b[0m\\n",totalBytes:9000,truncated:true};
+  return {output:window.outputText ?? "\\u001b[32mPublish watcher ready\\u001b[0m\\n",totalBytes:9000,truncated:true};
 } });
 import React, { useState } from "react";
 import { chatActivity } from "@milagre/shared/chat-activity";
@@ -34,7 +34,8 @@ function Fixture() {
   const [advisorResult,setAdvisorResult]=useState(false);window.setAdvisorResult=setAdvisorResult;
   window.setSending = setSending;
   const [backgroundTasks, setBackgroundTasks] = useState([]);
-  window.setBackgroundTasks = setBackgroundTasks;
+  const [fixtureChat, setFixtureChat] = useState(false);
+  window.setBackgroundTasks = (tasks) => { setFixtureChat(true); setBackgroundTasks(tasks); };
   window.finishChildren = () => {setChildren(items=>items.map(item=>({...item,status:"completed",endedAt:Date.now()})));setSending(false);};
   const [draft, setDraft] = useState("");
   const [model, setModel] = useState(MODEL_CATALOG[0]);
@@ -54,10 +55,10 @@ function Fixture() {
     </div>
     <main data-workspace-main className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-transparent pr-3 pb-3">
     <div data-chat-pane className="min-h-0 flex-1 overflow-hidden">
-    <ChatComposer messages={messages} chatId={backgroundTasks.length ? 1 : undefined}
+    <ChatComposer messages={messages} chatId={fixtureChat ? 1 : undefined}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
       projectPath="/fixture" draft={draft} onDraftChange={setDraft} onSend={noop} isSending={sending} sendBlocked={false} subagents={children} onArchiveFinishedSubagents={archiveFinished} onArchiveSubagent={archive} onStopAdvisor={id=>controlAdvisor("stop",id)} onRetryAdvisor={id=>controlAdvisor("retry",id)} waitingForSubagents={true}
-      backgroundTasks={backgroundTasks} sessionProvider={backgroundTasks.length ? "claude" : undefined} activity={chatActivity({provider:"claude",subagents:children,backgroundTasks},sending ? {} : undefined)} agentChatId={backgroundTasks.length ? "/fixture#1" : undefined}
+      backgroundTasks={backgroundTasks} sessionProvider={backgroundTasks.length ? "claude" : undefined} activity={chatActivity({provider:"claude",subagents:children,backgroundTasks},sending ? {} : undefined)} agentChatId={fixtureChat ? "/fixture#1" : undefined}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={fastMode} onFastModeChange={setFastMode} permissionMode="auto" onPermissionModeChange={noop}
@@ -282,13 +283,46 @@ async function browserChecks() {
     await waitFor(
       'document.querySelector("[data-task-output]")?.textContent.includes("Publish watcher ready") && !document.querySelector("[data-background-tasks] [role=alert]")',
     );
+    await evaluate(
+      'Object.defineProperty(document,"visibilityState",{configurable:true,value:"hidden"}); document.dispatchEvent(new Event("visibilitychange"))',
+    );
+    await delay(100);
+    const hiddenReads = await evaluate("window.outputReads.length");
+    await delay(1700);
+    assert.equal(await evaluate("window.outputReads.length"), hiddenReads, "Hidden windows stop output polling");
+    await evaluate(
+      'Object.defineProperty(document,"visibilityState",{configurable:true,value:"visible"}); document.dispatchEvent(new Event("visibilitychange"))',
+    );
+    await waitFor(`window.outputReads.length > ${hiddenReads}`);
+    await evaluate(
+      'window.outputText="Publish completed successfully"; window.setBackgroundTasks([{id:"flow",kind:"local_workflow",title:"Deploy workflow",startedAt:Date.now()}])',
+    );
+    await waitFor('document.querySelector("[data-task-output]")?.textContent === "Publish completed successfully"');
+    assert.ok(await evaluate('document.querySelector("[data-background-tasks]").textContent.includes("No longer running")'));
+    const completedReads = await evaluate("window.outputReads.length");
+    await delay(1700);
+    assert.equal(await evaluate("window.outputReads.length"), completedReads, "Completed commands fetch final output once and stop polling");
     await evaluate('[...document.querySelectorAll("[data-background-tasks] button")].find(button=>button.textContent==="Back to tasks").click()');
     const beforeWorkflow = await evaluate("window.outputReads.length");
     await evaluate('document.querySelector("[data-background-task=flow]").click()');
     await waitFor('document.querySelector("[data-background-tasks]")?.textContent.includes("reports its progress back")');
     assert.equal(await evaluate("window.outputReads.length"), beforeWorkflow, "Workflows do not request shell output");
-    await evaluate("window.setBackgroundTasks([])");
-    await waitFor('!document.querySelector("[data-background-work]")');
+    await evaluate('[...document.querySelectorAll("[data-background-tasks] button")].find(button=>button.textContent==="Back to tasks").click()');
+    await evaluate('window.setBackgroundTasks([{id:"last",kind:"local_bash",title:"Final command",startedAt:Date.now()}])');
+    await waitFor('!!document.querySelector("[data-background-task=last]")');
+    await evaluate('document.querySelector("[data-background-task=last]").click()');
+    await waitFor('!!document.querySelector("[data-task-output]")');
+    await evaluate('window.outputText="Final command done"; window.setBackgroundTasks([]); window.setSending(true)');
+    await waitFor('document.querySelector("[data-task-output]")?.textContent === "Final command done"');
+    assert.equal(
+      await evaluate('!!document.querySelector("[data-background-work]")'),
+      false,
+      "The running indicator disappears without closing the last command's output",
+    );
+    await evaluate(
+      '[...document.querySelectorAll("[data-background-tasks] button")].find(button=>button.textContent==="Close").click(); window.setSending(false)',
+    );
+    await waitFor('!document.querySelector("[data-background-tasks]")');
     await evaluate(
       'window.setChildren([{id:"advisor:review",source:"milagre-advisor",provider:"codex",model:"reported",title:"Security",status:"running",startedAt:Date.now(),updatedAt:Date.now(),transcript:[{id:"answer",kind:"message",text:"Advisor finding: prefer validated reads."}]}]); window.setAdvisorResult(true)',
     );

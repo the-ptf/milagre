@@ -189,7 +189,7 @@ test("background tasks on the phone open command output and subagent details", (
     "expo-router": { router: { back() {} }, useLocalSearchParams: () => ({ id: "7" }) },
     "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
     "../session": { useSession: () => session },
-    "../subagent-glance": { SubagentDetail: "SubagentDetail", useWholeSubagent: (agent) => agent },
+    "../subagent-glance": { WholeSubagentDetail: "WholeSubagentDetail" },
     "../task-output": { TaskOutput: "TaskOutput" },
     "../ui": { CircleButton: "CircleButton", ListRow: "ListRow", PageScroll: "PageScroll" },
   });
@@ -199,9 +199,14 @@ test("background tasks on the phone open command output and subagent details", (
   };
   find(render(), (node) => node.type === "ListRow" && node.props.title === "Publish watcher").props.onPress();
   assert.equal(find(render(), (node) => node.type === "TaskOutput").props.taskId, "watch");
+  assert.equal(find(render(), (node) => node.type === "TaskOutput").props.running, true);
+  session.snapshot.project.state.sessions[7].backgroundTasks = [];
+  const completed = find(render(), (node) => node.type === "TaskOutput");
+  assert.equal(completed.props.taskId, "watch", "Completion preserves the selected command");
+  assert.equal(completed.props.running, false, "Completion requests the final output without continued polling");
   find(render(), (node) => node.type === "CircleButton" && node.props.label === "Back to tasks").props.onPress();
   find(render(), (node) => node.type === "ListRow" && node.props.title === "Review changes").props.onPress();
-  const detail = find(render(), (node) => typeof node.type === "function" && node.props.agent?.id === "review");
+  const detail = find(render(), (node) => node.type === "WholeSubagentDetail" && node.props.agent?.id === "review");
   assert.ok(detail, "Selecting a background subagent opens its existing detail view");
 });
 
@@ -2013,7 +2018,7 @@ function subagentsHost({ call = async () => {} } = {}) {
     "../session": { useSession: () => session },
     "../subagent-glance": {
       SubagentRow: "SubagentRow",
-      SubagentDetail: "SubagentDetail",
+      WholeSubagentDetail: "WholeSubagentDetail",
       elapsed: () => "1s",
       subagentRunning: (agent) => ["initializing", "running", "waiting"].includes(agent.status),
       useClock: () => 0,
@@ -2058,7 +2063,7 @@ test("mobile archives finished subagents without offering archived browsing", as
   );
   // One subagent is archived from its detail, which closes back to the list.
   host.open("running");
-  assert.ok(find(host.render(), (node) => typeof node.type === "function" && node.props.agent?.id === "running" && node.props.read));
+  assert.ok(find(host.render(), (node) => node.type === "WholeSubagentDetail" && node.props.agent?.id === "running" && node.props.read));
   host.button("Archive subagent").props.onPress();
   await settle();
   assert.deepEqual(host.calls[1], { method: "chat:archive-subagent", args: ["/project", 7, "running", true] });

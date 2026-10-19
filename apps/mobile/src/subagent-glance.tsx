@@ -408,3 +408,7 @@ export function SubagentDetail({ agent }: { agent: Subagent }) {
     </View>
   );
 }
+
+export function WholeSubagentDetail({ agent, read }: { agent: Subagent; read: () => Promise<Subagent> }) {
+  return <SubagentDetail agent={useWholeSubagent(agent, read)} />;
+}

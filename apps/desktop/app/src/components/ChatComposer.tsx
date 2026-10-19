@@ -1139,15 +1139,13 @@ export function ChatComposer({
                     <ThinkingIndicator startedAt={runStartedAt} label={waitingForSubagents ? "Waiting on subagents" : `Working with ${workingModelName}`} />
                   </div>
                 )}
-                {!isSending && activity?.activity === "background" && (
-                  <div className="w-full" style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
-                    <BackgroundWork
-                      items={backgroundItems({ provider: sessionProvider ?? selectedModel.provider, subagents, backgroundTasks })}
-                      chatKey={runtimeChat}
-                      mark={<ChatMarkDotInline mark="background" failed={false} background={activity.background} />}
-                    />
-                  </div>
-                )}
+                <BackgroundWork
+                  key={runtimeChat}
+                  items={backgroundItems({ provider: sessionProvider ?? selectedModel.provider, subagents, backgroundTasks })}
+                  chatKey={runtimeChat}
+                  showIndicator={!isSending && activity?.activity === "background"}
+                  mark={<ChatMarkDotInline mark="background" failed={false} background={activity?.background ?? 0} />}
+                />
                 {runtimeChat && !isSending && <NextCheck chatKey={runtimeChat} />}
                 {resume && !isSending && (
                   <div data-resume-bar className="flex w-full items-center gap-3 rounded-control border border-line px-3 py-2 text-[12px] text-ink-2">
