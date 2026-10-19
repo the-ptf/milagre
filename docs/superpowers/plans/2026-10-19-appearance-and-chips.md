@@ -158,6 +158,17 @@ Chip style: `inline-flex items-center gap-1 rounded-[6px] border px-1.5 align-[-
 - [ ] **Step 2:** `scripts/test-composer-chips.cjs` (fake bridge like `test-chat-attachments.cjs:48`): type `use /tl`, pick `tldr` → one skill chip, draft `"use /tldr "`; type `@my`, pick `src/my app.ts` → file chip, draft contains `@"src/my app.ts"`, one attachment; Backspace after the chip removes it and the attachment; ⌘Z restores both; paste `text/html` `<b>hi</b>` → draft gets `hi`; IME: dispatch `compositionstart`/`compositionupdate`/`compositionend` with `"日本"` → draft gains `日本` once and Enter during composition doesn't send; ArrowUp on the first line recalls history; reload with a saved draft `fix @src/model.ts` → chip appears after search; Enter sends and the sent message shows the chip.
 - [ ] **Step 3:** Run both, FAIL. **Step 4:** Implement. **Step 5:** Run both plus `test-chat-drafts.cjs`, `test-chat-attachments.cjs`, `test-chat-send-feedback.cjs`, `test-command-palette.cjs` (they drive the composer; update their textarea selectors to `[data-prompt-editor]`). All PASS. **Step 6:** Commit `feat(desktop): chip composer for skills and files`.
 
+### Task 7b: Custom chat width
+
+**Files:**
+- Modify: `packages/shared/src/appearance.mjs`, `.d.mts`, `appearance.test.ts` (`ChatWidth` gains `"custom"`; `Appearance` gains `chatWidthPx: number`, default 900; `CHAT_WIDTHS` gains `{ id: "custom", label: "Custom", px: null }`; `clampChatWidth(px: unknown): number` clamps to 600..2400, non-numbers → 900; `parseAppearance` runs it)
+- Modify: `apps/desktop/app/src/lib/appearance.ts` + test (`custom` → `--chat-width: "<chatWidthPx>px"`)
+- Modify: `apps/desktop/app/src/components/Settings.tsx` (Chat width row: when `custom`, a numeric field with "px" suffix beside the Select, commits on Enter/blur via `clampChatWidth`, shows the clamped value back)
+- Test: `scripts/test-settings-sections.cjs` or `scripts/test-appearance.cjs`
+
+- [ ] **Step 1:** Failing tests: `parseAppearance({chatWidth:"custom", chatWidthPx: 5000}).chatWidthPx === 2400`; `clampChatWidth("x") === 900`; `clampChatWidth(300) === 600`; `appearanceVars({...default, chatWidth:"custom", chatWidthPx: 1200}).["--chat-width"] === "1200px"`. Electron: pick Custom, type 1100 + Enter → transcript column max-width 1100px and localStorage `chatWidthPx` 1100; type 99999 + blur → field shows 2400.
+- [ ] **Step 2:** FAIL. **Step 3:** Implement. **Step 4:** PASS + typecheck + lint. **Step 5:** Commit `feat(desktop): custom chat width in px`.
+
 ### Task 8: Daemon: file search for the phone
 
 **Files:**

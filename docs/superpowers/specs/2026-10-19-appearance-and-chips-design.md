@@ -50,7 +50,7 @@ Curated lists (my call, edit freely):
 A saved font that is later uninstalled shows as the default, with the saved value kept.
 
 **Layout**
-- *Chat width*: Comfortable (default, today's 768 px), Wide (1024 px), Full (fills the pane with side padding). Applies to the transcript column, the pill row and the composer together.
+- *Chat width*: Comfortable (default, today's 768 px), Wide (1024 px), Full (fills the pane with side padding). Plus Custom (Victor, 2026-10-19): a px field appears next to the menu, saved on Enter or blur, clamped to 600-2400 px, starting at 900 px. This is the one number field on the screen, by request. Applies to the transcript column, the pill row and the composer together.
 
 **Diffs**
 - *Diff colors*: Red & green (default), Blue & orange, Purple & yellow (both colorblind-safe). Each option shows two dots. Drives `--diff-add*`, `--diff-remove*` and the colors of change counts (`+12 −3`) in the sidebar, canvas, git dialog and changes panel. Light and dark variants per pair, and the setting overrides a Custom theme's add/remove colors (my call). Red & green keeps each theme's own green/red.
@@ -63,7 +63,7 @@ Implementation shape (builder's call within this): settings live in `AppSettings
 ## Chips
 
 **Look** (from the reference): a rounded pill, 1 px tinted border, faint tinted fill, icon then label, same font size as the text, vertically centred on the line.
-- Skill chip: accent tint (purple-ish in the reference; uses the theme accent), Hugeicons cube icon, label is the skill name title-cased from the slug ("frontend-design" → "Frontend Design"). Hover shows the skill description (today's tooltip).
+- Skill chip: accent tint (purple-ish in the reference; uses the theme accent), no icon (Victor, 2026-10-19), label is the skill name title-cased from the slug ("frontend-design" → "Frontend Design"). Hover shows the skill description (today's tooltip).
 - File chip: neutral/blue tint, a file-type icon, label is the file name only. Hover shows the relative path. Click opens the file viewer (desktop file link viewer, phone `/file-preview`).
 - File-type icons (my call): there is no icon set in the repo. Add a small local map: colored letter badges for common languages (TS, JS, PY, GO, RS, MD, JSON, CSS, HTML, SH, SWIFT, KT) plus Hugeicons for React (`.tsx`/`.jsx`), images, folders, and a generic file fallback. Shared between desktop and phone (data in `packages/shared`, rendered per platform).
 
