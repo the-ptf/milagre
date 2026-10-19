@@ -1672,6 +1672,7 @@ function chatHost({
   linear = { active: false },
   routines = [],
   routinesOn = true,
+  screenWidth = 402,
   now = new Date(2026, 9, 17, 10, 30).getTime(),
   chatDefaults = require("../apps/mobile/src/chat-defaults-store.ts").createChatDefaultsStore({ getItem: () => null, setItemAsync: async () => {} }),
 } = {}) {
@@ -1771,6 +1772,7 @@ function chatHost({
     Linking: {},
     StyleSheet: { absoluteFill: {} },
     useColorScheme: () => "light",
+    useWindowDimensions: () => ({ width: screenWidth, height: 874 }),
   };
   const icons = new Proxy({}, { get: (_, name) => String(name) });
   const router = {
@@ -11701,6 +11703,38 @@ test("a phone Run Chat, hidden or kept, shows a Routine header button that opens
     find(tree, (node) => node.type === "ToolbarButton" && ["Routine", "Heartbeat"].includes(node.props.accessibilityLabel)),
     undefined,
   );
+});
+
+test("the phone Chat header keeps its title on one line with an ellipsis, clear of the toolbar group, whether or not the Routine button shows", () => {
+  const title = "Rotate staging API key before Friday";
+  const header = (screenWidth, { routines = [], routine } = {}) => {
+    const chat = chatHost({ routines, screenWidth });
+    chat.params.id = "9";
+    chat.session.snapshot.project.state.sessions[9] = { id: 9, worktree_id: 1, title, ...(routine ? { routine } : {}) };
+    const tree = chat.render();
+    const screen = find(tree, (node) => node.type === "Screen");
+    const element = screen.props.options.headerTitle();
+    const box = find(element, (node) => node.type === "View" && node.props.style?.maxWidth !== undefined);
+    const text = find(element, (node) => node.type === "Text" && textOf(node) === title);
+    assert.ok(text, "the title is in the header");
+    assert.equal(text.props.numberOfLines, 1);
+    assert.equal(text.props.ellipsizeMode, "tail");
+    assert.equal(text.props.style.flexShrink, 1, "the text gives way before the frame does");
+    return box.props.style.maxWidth;
+  };
+  const runChat = { routines: [{ ...routineFixtures()[1], enabled: false }], routine: { routineId: "tr", runId: "r1", hidden: true } };
+  const heartbeat = { routines: [heartbeatFor("/p#9")] };
+  // 402 pt: 72 pt to the sidebar button's side, and 16 + the Routine and ⋯ pill (104) + 12 to the other.
+  assert.equal(header(402, runChat), 198, "a Run Chat has the Routine button beside ⋯");
+  assert.equal(header(402, heartbeat), 198, "so does a Heartbeat Chat");
+  assert.equal(header(402), 230, "a normal Chat keeps its room: only ⋯ on the right");
+  // Narrower screens narrow the title; every case ends 12 pt clear of the pill.
+  assert.equal(header(375, runChat), 171);
+  assert.equal(header(375), 230);
+  assert.equal(header(340), 196);
+  for (const width of [320, 375, 402, 430]) {
+    for (const own of [runChat, heartbeat]) assert.ok(header(width, own) + 72 + 132 <= width, `${width} pt`);
+  }
 });
 
 test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card, out of the activity rows", () => {

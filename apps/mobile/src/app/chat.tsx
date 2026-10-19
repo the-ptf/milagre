@@ -2,7 +2,7 @@ import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Reanimated from "react-native-reanimated";
-import { Alert, Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { UltracodeGlow } from "../ultracode-glow";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
@@ -125,6 +125,21 @@ const NO_CHECKPOINTS: CheckpointApi = {
   restore: () => Promise.reject(new Error("Connect to the computer to undo changes")),
 };
 
+// The native header lays its title out between the sidebar button and the toolbar group, and lets a title wider than that run
+// under the group. These are the pieces of that room, in points: the header's inset from the screen edge, one round button,
+// the Routine and ⋯ buttons sharing a pill, and the clear space kept beside the title. The title is never wider than 230.
+const HEADER_EDGE = 16;
+const HEADER_BUTTON = 44;
+const HEADER_PILL = 104;
+const HEADER_GAP = 12;
+const HEADER_TITLE_MAX = 230;
+/** The widest the header title may be on a screen `screenWidth` wide: what is left between the sidebar button and the toolbar group. */
+function headerTitleWidth(screenWidth: number, routineButton: boolean) {
+  const left = HEADER_EDGE + HEADER_BUTTON + HEADER_GAP;
+  const right = HEADER_EDGE + (routineButton ? HEADER_PILL : HEADER_BUTTON) + HEADER_GAP;
+  return Math.max(0, Math.min(HEADER_TITLE_MAX, screenWidth - left - right));
+}
+
 export default function ChatScreen() {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -134,6 +149,7 @@ export default function ChatScreen() {
   const composer = useComposer();
   const pendingStore = usePendingChats();
   const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
   const [actionBusy, setBusy] = useState(false);
   // Answers just sent: the card leaves and the answers show at once, until the host's copy arrives.
   const [sentAnswers, setSentAnswers] = useState<{ requestId: string; message: ChatMessage | null; count: number } | null>(null);
@@ -1049,16 +1065,16 @@ export default function ChatScreen() {
   }
   const header = (
     <>
-      <View style={{ alignItems: "center", maxWidth: 230 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-          <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 16, fontWeight: "600", flexShrink: 1 }}>
+      <View style={{ alignItems: "center", maxWidth: headerTitleWidth(window.width, !!ownRoutine) }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
+          <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink, fontSize: 16, fontWeight: "600", flexShrink: 1 }}>
             {title}
           </Text>
         </View>
         {!project.link && (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 5, opacity: worktree ? 1 : 0 }}>
             <Icon icon={GitBranchIcon} tone="ink3" size={11} />
-            <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
+            <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
               {worktree?.name ?? ""}
             </Text>
             <Text style={{ fontSize: 12 }}>
