@@ -1,6 +1,9 @@
 // Routines in a Chat: the divider a run leaves, the "(pass)" reply that makes it quiet, how quiet runs fold away, and the
 // words for a Routine's trigger. Types: routines.d.mts.
 
+import { projectOfKey, sessionIdFromKey } from "./agent-runs.mjs";
+import { LOCAL_COMPUTER, computerOfKey, isLinkScopeKey } from "./chat-scopes.mjs";
+
 const SUMMARY_LIMIT = 80;
 
 /**
@@ -256,4 +259,45 @@ export function hiddenRunChats(scopes) {
       chats.push({ chatKey: `${path}#${session.id}`, routineId: session.routine.routineId, runId: session.routine.runId, unread: Boolean(session.unread) });
     }
   return chats;
+}
+
+/**
+ * The hidden Run Chats nobody has opened yet, read from the Project states a desktop window or the phone holds, one entry
+ * per Project path (so the open Project, merged in with the others, counts once). Only this Mac's Projects count: a Link's
+ * Chats and another computer's Projects belong to Routines the Routines page doesn't list, so a dot for them could never be
+ * cleared there.
+ */
+function unreadHiddenRunChats(states) {
+  const scopes = Object.entries(states)
+    .filter(([key]) => !isLinkScopeKey(key) && computerOfKey(key) === LOCAL_COMPUTER)
+    .map(([path, state]) => ({ path, state }));
+  return hiddenRunChats(scopes).filter((chat) => chat.unread);
+}
+
+/** The Routines with a hidden Run Chat nobody has opened yet: the Routines button and their rows show a dot. */
+export function unreadRunRoutines(states) {
+  return new Set(unreadHiddenRunChats(states).map((chat) => chat.routineId));
+}
+
+/** The keys ("<path>#<id>") of the hidden Run Chats nobody has opened yet: their Runs show a dot on the Routine page. */
+export function unreadRunChats(states) {
+  return new Set(unreadHiddenRunChats(states).map((chat) => chat.chatKey));
+}
+
+/**
+ * Whether a Run's Chat is there to open: its Project's state, as the client holds it, has the session, archived or not. A
+ * quiet Run archives its Chat, which stays when it ran in the Project folder or its Worktree wasn't clean; a Worktree removed
+ * with its Chat leaves no session. A Project the client holds no state for can't tell, so it counts as not there.
+ */
+export function chatLeft(states, chatKey) {
+  return states[projectOfKey(chatKey)]?.sessions[sessionIdFromKey(chatKey)] !== undefined;
+}
+
+/**
+ * The Routine a Chat's header names: the one whose Run opened the Chat (`session.routine`, hidden or kept), else an enabled
+ * Heartbeat that checks back on it. Undefined when neither is on this Mac.
+ */
+export function chatRoutine(routines, chatKey, run) {
+  const own = run ? routines.find((routine) => routine.id === run.routineId) : undefined;
+  return own ?? routines.find((routine) => routine.enabled && routine.target.kind === "chat" && routine.target.chatId === chatKey);
 }

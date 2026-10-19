@@ -2,7 +2,8 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { Routine } from "@milagre/shared/model";
 import Tooltip from "../primitives/Tooltip";
-import { chatRoutine, chipStripInsets, useRoutines } from "../../lib/routines";
+import { chatRoutine } from "@milagre/shared/routines";
+import { chipStripInsets, useRoutines } from "../../lib/routines";
 import { useWindowChrome } from "../../lib/window-chrome";
 import { routineIcon } from "./routine-icon";
 

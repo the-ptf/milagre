@@ -11,6 +11,14 @@ const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 /** A heartbeat checks back on one Chat; every other Routine starts a new Chat for each Run. */
 export const isHeartbeat = (routine: Pick<Routine, "target">) => routine.target.kind === "chat";
 
+/**
+ * What the delete confirmation says under "Delete <name>?". A Heartbeat checks back on a Chat that stays someone's own; any
+ * other Routine opens Run Chats, and the delete archives the ones nobody has kept.
+ */
+export function routineDeleteMessage(routine: Pick<Routine, "target">) {
+  return isHeartbeat(routine) ? "Its Runs stop and it is removed from this Mac." : "Its Runs stop, and its Run Chats you haven't kept are archived.";
+}
+
 /** The Routine's row icon: a pulse for a heartbeat, else what starts it. */
 export function routineIcon(routine: Pick<Routine, "target" | "trigger">): IconData {
   if (isHeartbeat(routine)) return Pulse01Icon;

@@ -2337,6 +2337,11 @@ function navigationHost(
   });
   // Groups folded by hand, as the phone's store keeps them; the tests start with none, so every group is open.
   const folded = new Set();
+  // Every Chat counts as listed here; the hidden Run Chat rule still applies (chat-list-filter.ts).
+  const chats = {
+    ...require("@milagre/shared/chats"),
+    isListedChat: (chat, count, waiting) => !require("@milagre/shared/chats").isHiddenRunChat(chat, waiting),
+  };
   const { ProjectNavigation } = load("project-navigation.tsx", {
     "./update-sheet": { UpdateSettingsBadge: "UpdateSettingsBadge" },
     react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
@@ -2360,7 +2365,9 @@ function navigationHost(
     "expo-clipboard": { setStringAsync: async () => {} },
     "@hugeicons/core-free-icons": {},
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
-    "@milagre/shared/chats": { ...require("@milagre/shared/chats"), isListedChat: () => true },
+    "@milagre/shared/chats": chats,
+    "./chat-list-filter": load("chat-list-filter.ts", { "@milagre/shared/chats": chats }),
+    "@milagre/shared/routines": require("@milagre/shared/routines"),
     "@milagre/shared/chat-summary": require("@milagre/shared/chat-summary"),
     "@milagre/shared/message-search": require("@milagre/shared/message-search"),
     "./session": { useSession: () => session, useComposer: () => session, usePendingChats: () => session },
@@ -2893,6 +2900,44 @@ test("a linked Chat shows the Link icon, and its ⋯ menu links with another Cha
       .filter((id) => id.startsWith("link")),
     [],
   );
+});
+
+test("the phone list and its Link picker leave out a running hidden Run Chat, and show it while it waits on an approval", () => {
+  const links = linksState({ projects: [{ id: "w", path: "/last", name: "web" }], links: [] });
+  const setUp = (approvals) => {
+    const nav = withTwoWorktrees(navigationHost(deferred().promise, { links }));
+    nav.state.project.state.sessions[5] = { id: 5, title: "Nightly triage", worktree_id: 2, routine: { routineId: "tr", runId: "u5", hidden: true } };
+    nav.state.runs.runs["/last#5"] = { text: "", steps: [], approvals, questions: [], answered: {} };
+    return nav;
+  };
+  const chats = (nav) =>
+    nav
+      .rows()
+      .props.data.filter((row) => row.kind === "chat")
+      .map((row) => row.chat.id);
+  const picker = (nav) => {
+    nav.more(nav.row("chat", 0)).props.onSelect("link-with");
+    return nav.linkRequests.at(-1)[1].chats.map((chat) => chat.chatId);
+  };
+  const running = setUp([]);
+  same(chats(running), [4, 3]);
+  same(picker(running), [4, 3]);
+  const waiting = setUp([{ requestId: "a1" }]);
+  same(chats(waiting), [5, 4, 3]);
+  same(picker(waiting), [5, 4, 3]);
+});
+
+test("the phone's dock Routines button shows the unread dot while a hidden Run Chat is unread", () => {
+  const dock = (unread) => {
+    const nav = navigationHost(deferred().promise);
+    nav.state.project.state.sessions[5] = { id: 5, worktree_id: 1, unread, routine: { routineId: "tr", runId: "u5", hidden: true } };
+    const tree = nav.render();
+    const button = find(tree, (node) => node.type === "IconButton" && node.props.label.startsWith("Routines"));
+    const dot = find(tree, (node) => node.type === "View" && node.props.pointerEvents === "none" && node.props.style?.position === "absolute");
+    return { label: button.props.label, dot: !!dot };
+  };
+  assert.deepEqual(dock(true), { label: "Routines, unread Runs", dot: true });
+  assert.deepEqual(dock(false), { label: "Routines", dot: false });
 });
 
 test("Choose projects opens as a sheet over the sidebar instead of closing it", () => {
@@ -10967,7 +11012,15 @@ const routineFixtures = () => [
   },
 ];
 
-function routinesHost({ routines = routineFixtures(), enabled = true, refuse = false, confined = false, slowUpdates = false } = {}) {
+function routinesHost({
+  routines = routineFixtures(),
+  enabled = true,
+  refuse = false,
+  confined = false,
+  slowUpdates = false,
+  states = {},
+  confirmed = [],
+} = {}) {
   const react = hookHost();
   const effects = [];
   const focused = [];
@@ -11020,12 +11073,14 @@ function routinesHost({ routines = routineFixtures(), enabled = true, refuse = f
     "@milagre/shared/routines": require("@milagre/shared/routines"),
     "../session": { useSession: () => ({ client }) },
     "../use-routines": useRoutines,
+    "../use-project-states": { useProjectStates: () => states },
     "../routine-rows": load("routine-rows.ts", {
       "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
       "@milagre/shared/routines": require("@milagre/shared/routines"),
     }),
-    "../confirm-store": { confirm: async () => true },
+    "../confirm-store": { confirm: async (...args) => (confirmed.push(args), true) },
     "../chat-row-store": { useActivityClock: () => Date.UTC(2026, 9, 17, 10, 30) },
+    "../status-indicators": { ChatMarkIcon: "ChatMarkIcon" },
     "../icons": { Icon: "Icon" },
     "../ui": Object.fromEntries(["ErrorNotice", "HeaderButton", "PageScroll", "PullDown", "RowSwitch"].map((name) => [name, name])),
   });
@@ -11064,8 +11119,13 @@ test("the phone Routines screen groups heartbeats and triggers, says why a trigg
   assert.deepEqual([...menu.props.sections.flatMap((section) => section.items.map((item) => item.title))], ["Edit", "Open last Chat", "Delete"]);
   const heartbeatMenu = find(heartbeat, (node) => node.type === "PullDown");
   assert.deepEqual([...heartbeatMenu.props.sections.flatMap((section) => section.items.map((item) => item.title))], ["Edit", "Run now", "Open Chat", "Delete"]);
+  // A tap opens the Routine's page; the actions stay on the long press.
+  menu.props.onPress();
   menu.props.onSelect("open");
-  assert.deepEqual(JSON.parse(JSON.stringify(host.routes)), [{ pathname: "/chat", params: { projectPath: "/p", hostId: "ws://mac", id: "9" } }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes)), [
+    { pathname: "/routine", params: { id: "tr" } },
+    { pathname: "/chat", params: { projectPath: "/p", hostId: "ws://mac", id: "9" } },
+  ]);
   assert.ok(
     allNodes(tree, (node) => node.type === "Text").some(
       (node) => textOf(node) === "Routines run while this Mac is awake. Closing the lid on battery pauses them.",
@@ -11074,6 +11134,39 @@ test("the phone Routines screen groups heartbeats and triggers, says why a trigg
   // The Paused chip keeps only the paused trigger.
   allNodes(tree, (node) => node.props?.accessibilityRole === "radio")[3].props.onPress();
   assert.deepEqual(host.groups(host.render()), ["Triggers"]);
+});
+
+test("a phone Routine row shows the unread dot while one of its hidden Run Chats is unread", async () => {
+  const runChat = (id, routineId, extra) => ({ id, routine: { routineId, runId: `u${id}`, hidden: true }, ...extra });
+  const host = routinesHost({ states: { "/p": { sessions: { 9: runChat(9, "tr", { unread: true }), 10: runChat(10, "hb") } } } });
+  host.render();
+  await host.settle();
+  const [heartbeat, trigger] = host.rows(host.render());
+  assert.ok(find(trigger, (node) => node.type === "ChatMarkIcon" && node.props.mark === "unread"));
+  assert.match(find(trigger, (node) => node.type === "PullDown").props.label, /^Issues labelled agent, unread Run Chat\. /);
+  assert.equal(
+    find(heartbeat, (node) => node.type === "ChatMarkIcon"),
+    undefined,
+  );
+});
+
+test("deleting a Routine on the phone says a Heartbeat's Chat stays and a trigger's unkept Run Chats are archived", async () => {
+  const confirmed = [];
+  const host = routinesHost({ confirmed });
+  host.render();
+  await host.settle();
+  const [heartbeat, trigger] = host.rows(host.render());
+  find(heartbeat, (node) => node.type === "PullDown").props.onSelect("delete");
+  find(trigger, (node) => node.type === "PullDown").props.onSelect("delete");
+  await host.settle();
+  assert.deepEqual(confirmed, [
+    ["Delete Babysit PR #473?", "Its Runs stop and it is removed from this Mac.", "Delete"],
+    ["Delete Issues labelled agent?", "Its Runs stop, and its Run Chats you haven't kept are archived.", "Delete"],
+  ]);
+  assert.deepEqual(
+    host.calls.filter(([method]) => method === "routines:delete").map(([, args]) => args[0]),
+    ["hb", "tr"],
+  );
 });
 
 test("flipping a Routine's switch on the phone writes routines:update with the new value and reads the list again", async () => {
@@ -11098,6 +11191,154 @@ test("with the Mac's Routines switch off, the phone says so and links to Experim
   assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Routines are off on this Mac"));
   find(tree, (node) => node.props?.accessibilityLabel === "Open Experimental settings").props.onPress();
   assert.deepEqual(host.routes, ["/experimental"]);
+});
+
+// Local times, so "Today" holds in any time zone.
+const routineNow = new Date(2026, 9, 17, 10, 30).getTime();
+const at = (hour, minute = 0) => new Date(2026, 9, 17, hour, minute).getTime();
+
+function routineHost({ id = "tr", routines = routineFixtures(), states = {}, confirmed = [] } = {}) {
+  const react = hookHost();
+  const routes = [];
+  const calls = [];
+  let backs = 0;
+  const client = {
+    url: "ws://mac",
+    async call(method, args) {
+      calls.push([method, args]);
+      return null;
+    },
+  };
+  const icons = new Proxy({}, { get: (_, key) => key });
+  const shared = require("@milagre/shared/routines");
+  const { RunList } = load("run-list.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": icons,
+    "@milagre/shared/routines": shared,
+    "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
+    "./status-indicators": { ChatMarkIcon: "ChatMarkIcon" },
+  });
+  const { default: RoutineScreen } = load("app/routine.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Platform: { OS: "ios" }, Text: "Text", View: "View" },
+    "expo-router": {
+      Stack: Object.assign(() => null, { Screen: "StackScreen", Toolbar: Object.assign(() => null, { Button: "ToolbarButton", View: "ToolbarView" }) }),
+      router: { push: (href) => routes.push(href), back: () => backs++ },
+      useLocalSearchParams: () => ({ id }),
+    },
+    "@hugeicons/core-free-icons": icons,
+    "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"),
+    "@milagre/shared/routines": shared,
+    "../session": { useSession: () => ({ client }) },
+    "../use-routines": {
+      useRoutines: () => ({ routines, enabled: true, unavailable: null, error: "", loading: false, refresh: async () => {}, update: async () => {} }),
+    },
+    "../use-project-states": { useProjectStates: () => states },
+    "../chat-row-store": { useActivityClock: () => routineNow },
+    "../routine-rows": load("routine-rows.ts", { "@hugeicons/core-free-icons": icons, "@milagre/shared/routines": shared }),
+    "../run-list": { RunList },
+    "../confirm-store": { confirm: async (...args) => (confirmed.push(args), true) },
+    "../icons": { Icon: "Icon" },
+    "../ui": Object.fromEntries(["Button", "ErrorNotice", "HeaderButton", "PageScroll", "RowSwitch"].map((name) => [name, name])),
+  });
+  const render = () => {
+    react.begin();
+    return RoutineScreen();
+  };
+  // The Runs list is a component of its own; render it to read its rows.
+  const runList = (tree) => {
+    const node = find(tree, (child) => child.type === RunList);
+    return node && node.type(node.props);
+  };
+  const rows = (list) => allNodes(list, (node) => node.type === "Pressable");
+  return { render, runList, rows, routes, calls, backs: () => backs };
+}
+
+const runsFixture = () => [
+  { id: "r6", routineId: "tr", startedAt: at(10, 15), status: "running", chatId: "/p#16" },
+  { id: "r5", routineId: "tr", startedAt: at(9), status: "acted", chatId: "/p#15", title: "Fixed the flaky login test" },
+  { id: "r4", routineId: "tr", startedAt: at(8), status: "quiet", chatId: "/p#14", summary: "CI green" },
+  { id: "r3", routineId: "tr", startedAt: at(7), status: "skipped-busy" },
+  { id: "r2", routineId: "tr", startedAt: at(6), status: "failed", chatId: "/p#12", error: "No worktree\nat git" },
+  { id: "r1", routineId: "tr", startedAt: at(5), status: "missed" },
+];
+
+test("the phone Routine screen lists its Runs: acted and failed rows, quiet stretches folded, and opens a Run's Chat while it is there", () => {
+  const [, trigger] = routineFixtures();
+  const host = routineHost({
+    routines: [{ ...trigger, runs: runsFixture() }],
+    states: {
+      "/p": {
+        sessions: { 15: { id: 15, unread: true, routine: { routineId: "tr", runId: "r5", hidden: true } }, 14: { id: 14, archived: true }, 16: { id: 16 } },
+      },
+    },
+  });
+  const tree = host.render();
+  assert.equal(find(tree, (node) => node.type === "StackScreen").props.options.title, "Issues labelled agent");
+  find(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Edit").props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes)), [{ pathname: "/routine-form", params: { id: "tr" } }]);
+  host.routes.length = 0;
+  // A Linear trigger has no Run now.
+  assert.equal(
+    find(tree, (node) => node.type === "Button" && node.props.title === "Run now"),
+    undefined,
+  );
+
+  const list = host.runList(tree);
+  assert.deepEqual(
+    host.rows(list).map((row) => [row.props.accessibilityLabel, !row.props.disabled]),
+    [
+      ["Issues labelled agent. Running. Today 10:15", true],
+      ["Fixed the flaky login test. Unread. Today 09:00", true],
+      ["1 quiet · 1 skipped · last 08:00", true],
+      ["Issues labelled agent. Failed · No worktree. Today 06:00", false],
+      ["1 missed · last 05:00", true],
+    ],
+  );
+  const [, acted, fold] = host.rows(list);
+  assert.ok(find(acted, (node) => node.type === "ChatMarkIcon" && node.props.mark === "unread"));
+  acted.props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes)), [{ pathname: "/chat", params: { projectPath: "/p", hostId: "ws://mac", id: "15" } }]);
+
+  // A fold expands in place: a quiet Run whose Chat is left (archived) opens it; a skipped one says its Chat was busy.
+  fold.props.onPress();
+  const open = host.rows(host.runList(host.render()));
+  assert.deepEqual(
+    open.slice(2, 5).map((row) => [row.props.accessibilityLabel, !row.props.disabled]),
+    [
+      ["1 quiet · 1 skipped · last 08:00", true],
+      ["CI green. Today 08:00", true],
+      ["Its Chat was busy. Today 07:00", false],
+    ],
+  );
+  open[3].props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes.at(-1))), { pathname: "/chat", params: { projectPath: "/p", hostId: "ws://mac", id: "14" } });
+});
+
+test("the phone Routine screen says No Runs yet with the next Run, and Delete archives a trigger's unkept Run Chats", async () => {
+  const [heartbeat, trigger] = routineFixtures();
+  const empty = routineHost({ id: "hb", routines: [{ ...heartbeat, nextRunAt: at(10, 45) }] });
+  const texts = allNodes(empty.render(), (node) => node.type === "Text").map(textOf);
+  assert.ok(texts.includes("No Runs yet"));
+  assert.ok(texts.includes("Next Run 10:45"));
+  assert.ok(
+    find(empty.render(), (node) => node.type === "Button" && node.props.title === "Run now"),
+    "a Heartbeat runs now",
+  );
+
+  const confirmed = [];
+  const host = routineHost({ routines: [trigger], confirmed });
+  find(host.render(), (node) => node.type === "Button" && node.props.title === "Delete").props.onPress();
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(confirmed, [["Delete Issues labelled agent?", "Its Runs stop, and its Run Chats you haven't kept are archived.", "Delete"]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(host.calls)), [["routines:delete", ["tr"]]]);
+  assert.equal(host.backs(), 1, "it goes back to the Routines list");
+
+  const gone = routineHost({ id: "nope" });
+  assert.ok(allNodes(gone.render(), (node) => node.type === "Text").some((node) => textOf(node) === "This Routine is no longer on this Mac."));
 });
 
 function routineFormHost({ params = {}, routines = [], answers = {}, created } = {}) {
@@ -11397,7 +11638,7 @@ test("a phone Chat with an enabled Heartbeat shows the Heartbeat header button a
   assert.ok(button, "the header shows the Heartbeat button");
   assert.equal(button.props.icon, "waveform.path.ecg");
   button.props.onPress();
-  assert.deepEqual(JSON.parse(JSON.stringify(chat.router.pushed)), [{ pathname: "/routine-form", params: { id: "hb1" } }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(chat.router.pushed)), [{ pathname: "/routine", params: { id: "hb1" } }], "it opens the Heartbeat's page");
   assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Next check 10:45"));
 
   const paused = chatHost({ routines: [heartbeatFor("/p#7", { enabled: false })] });
@@ -11409,6 +11650,29 @@ test("a phone Chat with an enabled Heartbeat shows the Heartbeat header button a
     undefined,
   );
   assert.ok(!allNodes(off, (node) => node.type === "Text").some((node) => textOf(node).startsWith("Next check")));
+});
+
+test("a phone Run Chat, hidden or kept, shows a Routine header button that opens its Routine's page", () => {
+  const trigger = { ...routineFixtures()[1], enabled: false };
+  for (const hidden of [true, false]) {
+    const chat = chatHost({ routines: [trigger, heartbeatFor("/p#8")] });
+    chat.params.id = "9";
+    chat.session.snapshot.project.state.sessions[9] = { id: 9, worktree_id: 1, routine: { routineId: "tr", runId: "r1", hidden } };
+    const button = find(chat.render(), (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Routine");
+    assert.ok(button, "a paused Routine's Run Chat still names it");
+    assert.equal(button.props.icon, "repeat");
+    button.props.onPress();
+    assert.deepEqual(JSON.parse(JSON.stringify(chat.router.pushed)), [{ pathname: "/routine", params: { id: "tr" } }]);
+  }
+  // A Run Chat whose Routine is gone has no button.
+  const gone = chatHost({ routines: [heartbeatFor("/p#8")] });
+  gone.params.id = "9";
+  gone.session.snapshot.project.state.sessions[9] = { id: 9, worktree_id: 1, routine: { routineId: "tr", runId: "r1", hidden: true } };
+  const tree = gone.render();
+  assert.equal(
+    find(tree, (node) => node.type === "ToolbarButton" && ["Routine", "Heartbeat"].includes(node.props.accessibilityLabel)),
+    undefined,
+  );
 });
 
 test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card, out of the activity rows", () => {

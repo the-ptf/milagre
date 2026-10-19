@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   canRunNow,
+  chatLeft,
+  chatRoutine,
   clock,
   foldRuns,
   foldText,
@@ -15,6 +17,8 @@ import {
   runTitle,
   runWhen,
   triggerText,
+  unreadRunChats,
+  unreadRunRoutines,
 } from "./routines.mjs";
 
 test("parsePass reads a leading (pass) as quiet, with the summary after it", () => {
@@ -412,4 +416,57 @@ test("foldText counts a fold's Runs by kind, leaving out the kinds it has none o
   assert.equal(foldText({ quiet: 5, skipped: 2, missed: 0, refused: 0 }, at), "5 quiet · 2 skipped · last 10:30");
   assert.equal(foldText({ quiet: 0, skipped: 0, missed: 1, refused: 3 }, at), "1 missed · 3 refused · last 10:30");
   assert.equal(foldText({ quiet: 1, skipped: 1, missed: 1, refused: 1 }, at), "1 quiet · 1 skipped · 1 missed · 1 refused · last 10:30");
+});
+
+const runChat = (id, routineId, extra = {}) => ({ id, routine: { routineId, runId: `u${id}`, hidden: true }, ...extra });
+// One Mac's Project states, the way a desktop window or the phone holds them: two Projects, a Link and another computer's.
+const unreadStates = () => ({
+  "/code/shop": { sessions: { 1: runChat(1, "r1", { unread: true }), 2: runChat(2, "r1"), 3: { id: 3, unread: true } } },
+  "/code/web": {
+    sessions: {
+      1: runChat(1, "r2", { unread: true, archived: true }),
+      2: { id: 2, unread: true, routine: { routineId: "r3", runId: "u9", hidden: false } },
+      3: runChat(3, "r4", { unread: true }),
+    },
+  },
+  "milagre-link:0b1f4a52-5c3e-4d7a-9a40-3c5b1e0d9f11": { sessions: { 1: runChat(1, "r5", { unread: true }) } },
+  "mac-2|/code/api": { sessions: { 1: runChat(1, "r6", { unread: true }) } },
+});
+
+test("unreadRunRoutines: the Routines with a hidden Run Chat nobody opened, over this Mac's Projects only", () => {
+  assert.deepEqual([...unreadRunRoutines(unreadStates())].toSorted(), ["r1", "r4"]);
+  assert.equal(unreadRunRoutines({}).size, 0);
+  assert.equal(unreadRunRoutines({ "/code/shop": { sessions: { 1: runChat(1, "r1") } } }).size, 0);
+});
+
+test("unreadRunChats: the keys of this Mac's hidden Run Chats nobody opened, for the Runs list's dots", () => {
+  assert.deepEqual([...unreadRunChats(unreadStates())].toSorted(), ["/code/shop#1", "/code/web#3"]);
+  assert.equal(unreadRunChats({}).size, 0);
+});
+
+test("chatLeft: a Chat is there to open while its Project holds its session, archived or not", () => {
+  const states = { "/code/shop": { sessions: { 1: { id: 1 }, 2: { id: 2, archived: true } } } };
+  assert.equal(chatLeft(states, "/code/shop#1"), true);
+  // A quiet Run archives its Chat; one that ran in the Project folder (or a Worktree that wasn't clean) leaves it there.
+  assert.equal(chatLeft(states, "/code/shop#2"), true);
+  // A Worktree removed with its Chat leaves no session; a Project no state is held for can't tell.
+  assert.equal(chatLeft(states, "/code/shop#3"), false);
+  assert.equal(chatLeft(states, "/code/web#1"), false);
+});
+
+test("chatRoutine: a Run Chat's own Routine, else the enabled Heartbeat that checks back on the Chat", () => {
+  const heartbeat = { id: "h1", enabled: true, target: { kind: "chat", chatId: "/code/milagre#12" } };
+  const pausedHeartbeat = { ...heartbeat, id: "h2", enabled: false };
+  const linear = { id: "l1", enabled: true, target: { kind: "new-chat", projectPath: "/code/milagre-ade", workspace: "worktree" } };
+  const webhook = { id: "w1", enabled: false, target: { kind: "new-chat", projectPath: "/code/milagre-ade", workspace: "project" } };
+  const routines = [heartbeat, pausedHeartbeat, linear, webhook];
+  // A Run Chat, hidden or kept, names the Routine whose Run opened it, switched on or off.
+  assert.equal(chatRoutine(routines, "/code/milagre-ade#4", { routineId: "l1" })?.id, "l1");
+  assert.equal(chatRoutine(routines, "/code/milagre-ade#5", { routineId: "w1" })?.id, "w1");
+  // A Heartbeat's Chat, while the Heartbeat is on.
+  assert.equal(chatRoutine(routines, "/code/milagre#12")?.id, "h1");
+  assert.equal(chatRoutine([pausedHeartbeat], "/code/milagre#12"), undefined);
+  // A Run Chat whose Routine is gone, and a Chat no Routine knows.
+  assert.equal(chatRoutine(routines, "/code/milagre-ade#6", { routineId: "gone" }), undefined);
+  assert.equal(chatRoutine(routines, "/code/milagre#1"), undefined);
 });

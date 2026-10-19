@@ -55,3 +55,27 @@ export function runTitle(run: RoutineRun, routineName: string): string;
 export function hiddenRunChats(
   scopes: ReadonlyArray<{ path: string; state: { sessions: Record<string, AgentSession> } }>,
 ): Array<{ chatKey: string; routineId: string; runId: string; unread: boolean }>;
+
+/** Project states by scope key ("<path>", a Link's or another computer's key), as a desktop window or the phone holds them. */
+export type ScopeStates = Readonly<Record<string, { sessions: Readonly<Record<string, unknown>> }>>;
+/**
+ * The Routines with a hidden Run Chat nobody has opened yet, over this Mac's Projects only (no Links, no other computer's):
+ * the Routines button and their rows show a dot.
+ */
+export function unreadRunRoutines(states: ScopeStates): Set<string>;
+/** The keys ("<path>#<id>") of this Mac's hidden Run Chats nobody has opened yet: their Runs show a dot on the Routine page. */
+export function unreadRunChats(states: ScopeStates): Set<string>;
+/**
+ * Whether a Run's Chat is there to open: its Project's state has the session, archived or not. False for a Chat gone with
+ * its Worktree, and for a Project no state is held for.
+ */
+export function chatLeft(states: ScopeStates, chatKey: string): boolean;
+/**
+ * The Routine a Chat's header names: the one whose Run opened it (`session.routine`, hidden or kept), else an enabled
+ * Heartbeat that checks back on it.
+ */
+export function chatRoutine<T extends Pick<Routine, "id" | "enabled" | "target">>(
+  routines: readonly T[],
+  chatKey: string,
+  run?: { routineId: string },
+): T | undefined;

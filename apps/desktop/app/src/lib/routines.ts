@@ -1,9 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { Routine, RoutineRun } from "@milagre/shared/model";
 import { PERMISSION_MODES } from "@milagre/shared/model-copy";
-import { LOCAL_COMPUTER, computerOfKey, isLinkScopeKey } from "@milagre/shared/chat-scopes";
-import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
-import { clock, hiddenRunChats, triggerText } from "@milagre/shared/routines";
+import { clock, triggerText } from "@milagre/shared/routines";
 import { ipcErrorMessage } from "@milagre/shared/result";
 
 /** A Routine as `listRoutines` gives it: with its latest Runs, newest first. */
@@ -108,39 +106,6 @@ export function routineStatus(routine: RoutineWithRuns, now: number): string {
   return when === "yesterday" ? `Yesterday ${clock(run.startedAt)}` : capitalized(when);
 }
 
-type ProjectStates = Readonly<Record<string, { sessions: Record<string, unknown> }>>;
-
-/**
- * The hidden Run Chats nobody has opened yet, read from the Project states a window holds, one entry per Project path (so
- * the open Project, merged in with the others, counts once). Only this Mac's Projects count: a Link's Chats and another
- * computer's Projects belong to Routines the Routines page doesn't list, so a dot for them could never be cleared there.
- */
-function unreadHiddenRunChats(states: ProjectStates) {
-  const scopes = Object.entries(states)
-    .filter(([key]) => !isLinkScopeKey(key) && computerOfKey(key) === LOCAL_COMPUTER)
-    .map(([path, state]) => ({ path, state: state as Parameters<typeof hiddenRunChats>[0][number]["state"] }));
-  return hiddenRunChats(scopes).filter((chat) => chat.unread);
-}
-
-/** The Routines with a hidden Run Chat nobody has opened yet (see unreadHiddenRunChats): the Routines button and their rows show a dot. */
-export function unreadRunRoutines(states: ProjectStates): Set<string> {
-  return new Set(unreadHiddenRunChats(states).map((chat) => chat.routineId));
-}
-
-/** The keys ("<path>#<id>") of the hidden Run Chats nobody has opened yet: their Runs show a dot on the Routine page. */
-export function unreadRunChats(states: ProjectStates): Set<string> {
-  return new Set(unreadHiddenRunChats(states).map((chat) => chat.chatKey));
-}
-
-/**
- * Whether a Run's Chat is there to open: its Project's state, as the window holds it, has the session, archived or not. A
- * quiet Run archives its Chat, which stays when it ran in the Project folder or its Worktree wasn't clean; a Worktree removed
- * with its Chat leaves no session. A Project the window holds no state for can't tell, so it counts as not there.
- */
-export function chatLeft(states: ProjectStates, chatKey: string): boolean {
-  return states[projectOfKey(chatKey)]?.sessions[sessionIdFromKey(chatKey)] !== undefined;
-}
-
 /** The chip's narrowest box over the Chat before it gives up being centered (its name truncates below that). */
 const CHIP_ROOM = 200;
 const STRIP_EDGE = 12;
@@ -154,15 +119,6 @@ export function chipStripInsets(width: number, rightGap: number, reserve: number
   const right = Math.max(STRIP_EDGE, reserve - rightGap);
   const left = Math.max(STRIP_EDGE, Math.min(right, width - right - CHIP_ROOM));
   return { left, right };
-}
-
-/**
- * The Routine a Chat's header chip names: the one whose Run opened the Chat (`session.routine`, hidden or kept), else an
- * enabled Heartbeat that checks back on it (the Chats heartbeatKeys marks). Undefined when neither is on this Mac.
- */
-export function chatRoutine<T extends Routine>(routines: readonly T[], chatKey: string, run?: { routineId: string }): T | undefined {
-  const own = run ? routines.find((routine) => routine.id === run.routineId) : undefined;
-  return own ?? routines.find((routine) => routine.enabled && routine.target.kind === "chat" && routine.target.chatId === chatKey);
 }
 
 type RoutinesSnapshot = { enabled: boolean | null; routines: RoutineWithRuns[]; error: string | null };

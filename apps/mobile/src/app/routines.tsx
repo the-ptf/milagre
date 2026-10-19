@@ -1,13 +1,15 @@
-import { Children, useState } from "react";
+import { Children, useMemo, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { Add01Icon, ArrowRight01Icon, RepeatIcon, Settings01Icon } from "@hugeicons/core-free-icons";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
-import { canRunNow } from "@milagre/shared/routines";
+import { canRunNow, unreadRunRoutines } from "@milagre/shared/routines";
 import { useSession } from "../session";
 import { useRoutines, type RoutineWithRuns } from "../use-routines";
+import { useProjectStates } from "../use-project-states";
 import { useActivityClock } from "../chat-row-store";
-import { isHeartbeat, routineIcon, routineMeta } from "../routine-rows";
+import { isHeartbeat, routineDeleteMessage, routineIcon, routineMeta } from "../routine-rows";
+import { ChatMarkIcon } from "../status-indicators";
 import { confirm } from "../confirm-store";
 import { Icon } from "../icons";
 import { ErrorNotice, HeaderButton, PageScroll, PullDown, RowSwitch, useStyles } from "../ui";
@@ -24,6 +26,10 @@ const FILTERS: { id: Filter; label: string }[] = [
 export const LID_HELP = "Routines run while this Mac is awake. Closing the lid on battery pauses them.";
 
 const newRoutine = () => router.push("/routine-form");
+const openRoutine = (routine: RoutineWithRuns) => router.push({ pathname: "/routine", params: { id: routine.id } });
+
+/** The Projects the Routines open Run Chats in, for their rows' unread dots. */
+const runProjects = (routines: RoutineWithRuns[]) => routines.flatMap((routine) => (routine.target.kind === "new-chat" ? [routine.target.projectPath] : []));
 
 /** The Chat a Routine's action opens: a heartbeat's own Chat, else the Chat its newest Run started. */
 function chatOf(routine: RoutineWithRuns) {
@@ -44,6 +50,9 @@ export default function RoutinesScreen() {
   // "2 h ago" moves on with the app's shared half-minute clock.
   const now = useActivityClock(true);
   const all = routines.routines;
+  // A Routine with a hidden Run Chat nobody opened shows a dot; each new Run reads its Project again.
+  const states = useProjectStates(runProjects(all), all.map((routine) => routine.runs?.[0]?.id ?? "").join(","));
+  const unread = useMemo(() => unreadRunRoutines(states), [states]);
   const empty = client && routines.enabled === true && !routines.loading && !all.length && !routines.error && !routines.unavailable && !error;
   const heartbeats = all.filter(isHeartbeat);
   const triggers = all.filter((routine) => !isHeartbeat(routine));
@@ -80,7 +89,7 @@ export default function RoutinesScreen() {
       if (chatId) router.push({ pathname: "/chat", params: { projectPath: projectOfKey(chatId), hostId: client.url, id: String(sessionIdFromKey(chatId)) } });
     } else if (id === "delete")
       void act(async () => {
-        if (!(await confirm(`Delete ${routine.name}?`, "Its Runs stop and it is removed from this Mac.", "Delete"))) return;
+        if (!(await confirm(`Delete ${routine.name}?`, routineDeleteMessage(routine), "Delete"))) return;
         await client.call("routines:delete", [routine.id]);
         await routines.refresh();
       }, "Could not delete this Routine.");
@@ -174,6 +183,8 @@ export default function RoutinesScreen() {
                   routine={routine}
                   now={now}
                   hasChat={!!chatOf(routine)}
+                  unread={unread.has(routine.id)}
+                  onOpen={() => openRoutine(routine)}
                   onSelect={(id) => select(routine, id)}
                   onFlip={() => flip(routine)}
                 />
@@ -209,33 +220,40 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
 }
 
 /**
- * One Routine: its icon, name and meta open its actions; the switch at the end turns it on or off. The switch sits beside
- * the menu, not inside it, since a menu's trigger takes every touch in its frame.
+ * One Routine: a tap on its icon, name and meta opens its page, a long press its actions; the switch at the end turns it on
+ * or off. The switch sits beside the menu, not inside it, since a menu's trigger takes every touch in its frame. A dot by the
+ * name says one of its hidden Run Chats is unread.
  */
 function RoutineRow({
   routine,
   now,
   hasChat,
+  unread,
+  onOpen,
   onSelect,
   onFlip,
 }: {
   routine: RoutineWithRuns;
   now: number;
   hasChat: boolean;
+  unread: boolean;
+  onOpen: () => void;
   onSelect: (id: string) => void;
   onFlip: () => void;
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const meta = routineMeta(routine, now);
+  const label = `${routine.name}${unread ? ", unread Run Chat" : ""}. ${meta}`;
   const heartbeat = isHeartbeat(routine);
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-      {/* The label is what VoiceOver reads for the row: its name, meta and any paused reason or error. */}
+      {/* The label is what VoiceOver reads for the row: its name, an unread Run Chat, meta and any paused reason or error. */}
       <PullDown
-        label={`${routine.name}. ${meta}`}
+        label={label}
         title={routine.name}
         style={{ flex: 1 }}
+        onPress={onOpen}
         sections={[
           {
             items: [
@@ -249,16 +267,18 @@ function RoutineRow({
         ]}
         onSelect={onSelect}
       >
-        <View
-          accessible
-          accessibilityLabel={`${routine.name}. ${meta}`}
-          style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 68, paddingVertical: 13 }}
-        >
+        <View accessible accessibilityLabel={label} style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 68, paddingVertical: 13 }}>
           <Icon icon={routineIcon(routine)} tone={routine.enabled ? "ink" : "ink2"} size={20} />
           <View style={{ flex: 1, gap: 3 }}>
-            <Text numberOfLines={1} style={[styles.text, { fontSize: 15, lineHeight: 20, fontWeight: "500" }, !routine.enabled && { color: colors.ink2 }]}>
-              {routine.name}
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+              <Text
+                numberOfLines={1}
+                style={[styles.text, { flexShrink: 1, fontSize: 15, lineHeight: 20, fontWeight: "500" }, !routine.enabled && { color: colors.ink2 }]}
+              >
+                {routine.name}
+              </Text>
+              {unread ? <ChatMarkIcon mark="unread" /> : null}
+            </View>
             <Text numberOfLines={routine.pausedReason || routine.lastError ? 3 : 1} style={[styles.caption, { color: colors.ink2 }]}>
               {meta}
             </Text>

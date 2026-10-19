@@ -18,6 +18,7 @@ import {
   GitForkIcon,
   LaptopIcon,
   Pulse01Icon,
+  RepeatIcon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
@@ -60,7 +61,7 @@ import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import { UndoPanel, type UndoIntent } from "../undo-panel";
 import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
 import { RoutineRunDivider } from "../routine-run-divider";
-import { clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, routineRunOf, routineRunText } from "@milagre/shared/routines";
+import { chatRoutine, clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, routineRunOf, routineRunText } from "@milagre/shared/routines";
 import { CompactionDivider } from "../compaction-divider";
 import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
@@ -583,7 +584,11 @@ export default function ChatScreen() {
     chat && beating
       ? routines.find((routine) => routine.enabled && !routine.completedAt && routine.target.kind === "chat" && routine.target.chatId === chatId)
       : undefined;
-  const openHeartbeat = () => heartbeat && router.push({ pathname: "/routine-form", params: { id: heartbeat.id } });
+  // The Routine this Chat belongs to: the one whose Run opened it (a Run Chat, hidden or kept), else its Heartbeat. Its
+  // header button opens the Routine's page; with the Mac's switch off, nothing shows, as for the Next check.
+  const ownRoutine = chat && routinesOn === true ? chatRoutine(routines, chatId, chat.routine) : undefined;
+  const ownHeartbeat = ownRoutine?.target.kind === "chat";
+  const openRoutine = () => ownRoutine && router.push({ pathname: "/routine", params: { id: ownRoutine.id } });
   const undoHighlight = (undo.view === "list" ? undo.tasks[0] : undo.view === "preview" ? undo.preview : null)?.messageId;
   // What the Chat is doing (chat-activity.mjs), the same as its sidebar row and desktop's composer show.
   const activity = chat ? chatActivity(chat, run) : undefined;
@@ -1068,13 +1073,17 @@ export default function ChatScreen() {
   );
   const more = (
     <Stack.Toolbar placement="right">
-      {/* Shown while this Chat has a Heartbeat on; it opens the Heartbeat's settings. */}
-      {heartbeat ? (
+      {/* Shown for a Run Chat and while this Chat has a Heartbeat on; it opens that Routine's page. */}
+      {ownRoutine ? (
         Platform.OS === "ios" ? (
-          <Stack.Toolbar.Button icon="waveform.path.ecg" accessibilityLabel="Heartbeat" onPress={openHeartbeat} />
+          <Stack.Toolbar.Button
+            icon={ownHeartbeat ? "waveform.path.ecg" : "repeat"}
+            accessibilityLabel={ownHeartbeat ? "Heartbeat" : "Routine"}
+            onPress={openRoutine}
+          />
         ) : (
           <Stack.Toolbar.View>
-            <HeaderButton label="Heartbeat" icon={Pulse01Icon} onPress={openHeartbeat} />
+            <HeaderButton label={ownHeartbeat ? "Heartbeat" : "Routine"} icon={ownHeartbeat ? Pulse01Icon : RepeatIcon} onPress={openRoutine} />
           </Stack.Toolbar.View>
         )
       ) : null}
