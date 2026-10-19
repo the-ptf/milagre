@@ -107,7 +107,8 @@ const designsOn = {
   save: async () => {},
   connectionChanged() {},
 };
-function load(file, modules, extra = "") {
+function load(file, modules, extra = "", cache = new Map()) {
+  if (cache.has(file)) return cache.get(file);
   // These helpers stay private in production; the source harness exposes them only to tests.
   const locals = {
     "floating-inbox-button.tsx": ["landInboxButton"],
@@ -116,9 +117,20 @@ function load(file, modules, extra = "") {
   const source = fs.readFileSync(path.join(__dirname, "..", "apps/mobile/src", file), "utf8") + extra + `\nexport { ${(locals[file] ?? []).join(",")} };`;
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const exports = {};
+  cache.set(file, exports);
   vm.runInNewContext(compiled, {
     exports,
     require: (id) => {
+      // Follow the real primitive graph, including the compatibility barrel; keep native modules at the boundary.
+      const relative = id.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(file), id)) : null;
+      if (relative?.startsWith("primitives/")) {
+        const target = [relative, `${relative}.tsx`, `${relative}.ts`].find((candidate) =>
+          fs.existsSync(path.join(__dirname, "../apps/mobile/src", candidate)),
+        );
+        assert.ok(target, `Missing primitive: ${relative}`);
+        return load(target, modules, "", cache);
+      }
+      if (relative && `./${relative}` in modules) id = `./${relative}`;
       // Image assets are opaque sources; any value stands in.
       if (id.endsWith(".png") && !(id in modules)) return { uri: id };
       if (id === "@milagre/shared/model-copy" && !(id in modules)) return require("../packages/shared/src/model-copy.ts");
