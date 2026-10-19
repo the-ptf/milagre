@@ -209,8 +209,21 @@ async function browserChecks() {
     const normal = await openWidth(40);
     assert.ok(normal.width < 300, "at normal speed the panel is still opening 40ms in (got " + normal.width + ")");
     await set({ motion: "off" });
-    const off = await openWidth(40);
-    assert.ok(off.width >= 320, "with motion off the panel is fully open within a frame or two");
+    // Counted from the frame the slot mounts in, not from the click: a slow runner can take longer than 40ms to render it.
+    const off = await evaluate(`new Promise((resolve) => {
+      window.__setPanel(false);
+      setTimeout(() => {
+        window.__setPanel(true);
+        const frames = (count, done) => (count ? requestAnimationFrame(() => frames(count - 1, done)) : done());
+        const mounted = () => {
+          const slot = document.querySelector('[data-changes-slot]');
+          if (!slot) return requestAnimationFrame(mounted);
+          frames(2, () => resolve({ width: slot.getBoundingClientRect().width, animations: document.getAnimations().length }));
+        };
+        mounted();
+      }, 600);
+    })`);
+    assert.ok(off.width >= 320, "with motion off the panel is fully open within a frame or two of mounting (got " + off.width + ")");
     assert.equal(off.animations, 0, "with motion off nothing is animating");
     // Layout animations (a PillSlot sliding over in a LayoutGroup) follow Off too: the probe lands in its final spot at once.
     const probeLeft = (shift, wait) =>
