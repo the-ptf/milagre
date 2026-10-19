@@ -74,12 +74,29 @@ function routineReply(state, sessionId) {
   return body.slice(cut).trim();
 }
 
+// A Run's title is at most this long (the model's too, see chat-title.cjs).
+const RUN_TITLE_MAX = 60;
+// A quiet Run's title: the first line of its summary, cut at 60 characters. Empty when it says nothing.
+function summaryTitle(summary) {
+  const [line = ""] = String(summary ?? "")
+    .trim()
+    .split("\n");
+  return Array.from(line.trim()).slice(0, RUN_TITLE_MAX).join("").trim();
+}
+// Whether Run `runId` opened with a Linear issue's card, which its Chat and the Run both take their name from.
+const openedWithIssue = (state, sessionId, runId) =>
+  (state?.messages ?? []).some(
+    (message) => message.session_id === sessionId && message.context?.kind === "linear-issue" && message.context.routine?.runId === runId,
+  );
+
 /**
  * The scheduler's view of the Chats (see scheduler.cjs). `cachedState(scope)` is a scope's state in memory, undefined
  * when it isn't open; `openState(scope, sessionId)` opens it if needed and resolves with the Chat's messages loaded.
  * `worktrees` makes and removes a Run's Worktree (create, remove, removable, base, projectWorktree) and `archiveChat`
  * archives a Chat as the user would. `projects()` lists the Projects Milagre has and `projectState(path)` reads one (its
- * Worktrees and Chats, without opening it), for finding the Chat a Linear issue's comments go into.
+ * Worktrees and Chats, without opening it), for finding the Chat a Linear issue's comments go into. `hasRun(runId)` and
+ * `setRunTitle(runId, title)` are the store's, and `generateRunTitle({ reply, provider, projectPath })` names a Run from
+ * its final reply (resolving with null when it can't), for `nameRun`.
  */
 function routineChats({
   chats,
@@ -97,6 +114,9 @@ function routineChats({
   now = Date.now,
   timeoutMs = START_TIMEOUT_MS,
   hooks = () => null,
+  hasRun = () => false,
+  setRunTitle = () => false,
+  generateRunTitle = async () => null,
 }) {
   // runId -> the webhook delivery its first message was worded from, deleted once that message is sent.
   const webhookRuns = new Map();
@@ -174,7 +194,8 @@ function routineChats({
   }
 
   /**
-   * Makes a Run's Chat, marked with its Run and named after the Routine (or the issue), and words its first message. It
+   * Makes a Run's Chat, marked with its Run (and hidden from the Chat lists, see ChatHost.emptyChat) and named for the
+   * issue, or after the Routine until the Run has ended and says what it did (see nameRun), and words its first message. It
    * sends nothing. A Chat that can't be made takes the Worktree made for it back with it.
    */
   async function startChat({ routine, run }) {
@@ -198,7 +219,8 @@ function routineChats({
     try {
       const sessionId = await chats.emptyChat(projectPath, worktreeId, {
         origin: { routineId: routine.id, runId: run.id },
-        title: issue ? `${issue.key} ${issue.title}` : routine.name,
+        // The Routine's name is only a placeholder: the first-message naming leaves it alone and the Run's end replaces it.
+        ...(issue ? { title: `${issue.key} ${issue.title}` } : { generatedTitle: routine.name }),
         // The Project folder's empty Chat may be one the user is about to type in.
         ...(createdWorktree ? {} : { fresh: true }),
       });
@@ -327,6 +349,35 @@ function routineChats({
     // Called on the turn's end, which is published after it was folded into the saved reply (ChatHost.receive).
     replyText: (chatId) => routineReply(cachedState(projectOfKey(chatId)), sessionIdFromKey(chatId)),
     startChat: (request) => startChat(request),
+    /**
+     * Titles a Run that has just ended from what it did, and its Chat with it when the Chat is the Run's own and still
+     * unnamed by the user. `quietSummary` (a quiet Run's `(pass)` line) is the title as it is; otherwise the title comes
+     * from the Run's final reply. A Linear issue's Run keeps the issue's key and title. Called as the turn's end is observed
+     * and reads the reply before it first waits, while the turn's text is still in memory. Never throws: a Run that can't be
+     * named keeps the Routine's name, and the problem is logged.
+     */
+    async nameRun(chatId, runId, { quietSummary } = {}) {
+      try {
+        if (!hasRun(runId)) return;
+        const projectPath = projectOfKey(chatId);
+        const sessionId = sessionIdFromKey(chatId);
+        const state = cachedState(projectPath);
+        if (openedWithIssue(state, sessionId, runId)) return;
+        let title;
+        if (quietSummary === undefined) {
+          const reply = routineReply(state, sessionId);
+          if (!reply) return;
+          title = await generateRunTitle({ reply, provider: state?.sessions?.[sessionId]?.provider, projectPath });
+        } else {
+          title = summaryTitle(quietSummary);
+        }
+        // The Run may be gone, or Milagre closing, by the time a model has answered.
+        if (!title || isClosing() || !setRunTitle(runId, title)) return;
+        await chats.nameRunChat(projectPath, sessionId, runId, title);
+      } catch (error) {
+        console.warn("[routines] couldn't name a Run", error);
+      }
+    },
     archive: (chatId, options) => archive(chatId, options),
     linkedChat: (issue) => linkedChat(issue),
     // `session` patches the Chat in the same change (see ChatHost.patchMessageContext). A Linear Run's card keeps its
@@ -412,6 +463,8 @@ function createRoutines({
   // The Projects Milagre lists ([{ path }]): a Routine runs only in one of them. `projectState(path)` reads one.
   projects = async () => [],
   projectState = async () => null,
+  // Names a Run from its final reply ({ reply, provider, projectPath }): a title, or null. Read lazily, like `linear`.
+  generateRunTitle = async () => null,
   timers = {},
 }) {
   const now = timers.now ?? Date.now;
@@ -460,6 +513,14 @@ function createRoutines({
     archiveChat,
     now,
     hooks: hooksNow,
+    hasRun: (runId) => store.hasRun(runId),
+    // A title is a change to the Routines the UI lists, so it says so like any other.
+    setRunTitle(runId, title) {
+      const saved = store.setRunTitle(runId, title);
+      if (saved) changed();
+      return saved;
+    },
+    generateRunTitle: (request) => generateRunTitle(request),
   });
   const scheduler = createRoutineScheduler({
     store,

@@ -15,7 +15,7 @@ const { compactionMessage } = require("@milagre/shared/compaction");
 const { RELOAD_TEXT } = require("@milagre/shared/chat-reload");
 const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
 const { issueFirstMessage, linearIssueContext, linearIssuePrompt, linearIssueRequest } = require("@milagre/shared/linear-issue");
-const { ChatTitles, createChatTitleModels, generateChatTitle } = require("./chat-title.cjs");
+const { ChatTitles, createChatTitleModels, generateChatTitle, generateRunTitle } = require("./chat-title.cjs");
 const { createGit } = require("./git/client.cjs");
 const { syncMainBranch } = require("./main-sync.cjs");
 const fs = require("node:fs/promises");
@@ -1112,6 +1112,9 @@ function createRuntime(options) {
   // A Project's state for a lookup that must change nothing: an open one from memory, another from its saved file. It is
   // never opened, so nothing a quit stopped resumes and no recovery or diff refresh runs (Routines' targets and comment lookups).
   const projectStateReadOnly = (projectPath) => (states.has(projectPath) ? states.get(projectPath) : readRawState(projectPath));
+  // The models that name Chats and Runs: the Project's own accounts' CLIs (agentCli is declared further down; read lazily).
+  const titleModels = (projectPath) =>
+    options.titleModels ?? createChatTitleModels({ cli: (provider) => agentCli(provider, projectPath), clientVersion: version });
   routines = createRoutines({
     file: path.join(dataDir, "routines.json"),
     chats,
@@ -1154,6 +1157,8 @@ function createRuntime(options) {
     projects: () => projectRegistry().list(),
     // Read only: an open Project's state from memory, another's saved file, never opening it (no resume, no recovery).
     projectState: (projectPath) => projectStateReadOnly(projectPath),
+    // A Run that ends is named from its final reply, with the models that name Chats.
+    generateRunTitle: (request) => generateRunTitle(request, { models: titleModels(request.projectPath) }),
     timers: options.routines,
   });
   routines.start();
@@ -1303,10 +1308,7 @@ function createRuntime(options) {
   const chatTitles = new ChatTitles({
     states: scopeStates,
     update: updateProject,
-    generate: (request) =>
-      generateChatTitle(request, {
-        models: options.titleModels ?? createChatTitleModels({ cli: (provider) => agentCli(provider, request.projectPath), clientVersion: version }),
-      }),
+    generate: (request) => generateChatTitle(request, { models: titleModels(request.projectPath) }),
   });
 
   commands.handle("usage:read", async (_event, scope) => {

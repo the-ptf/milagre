@@ -20,7 +20,7 @@ async function eventually(check, { timeoutMs = 3000 } = {}) {
 // A runtime with one Chat on a fake agent, the routine clock and timer in the test's hands.
 // `restart` ({ dir, clock }) starts a second runtime on the data an earlier one left, as Milagre does after a quit: it
 // sends nothing of its own.
-async function fixture(t, { enable = true, restart, open = true } = {}) {
+async function fixture(t, { enable = true, restart, open = true, titleModels = {} } = {}) {
   const dir = restart?.dir ?? (await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "runtime-routines-"))));
   const project = path.join(dir, "project");
   if (!restart) {
@@ -43,7 +43,7 @@ async function fixture(t, { enable = true, restart, open = true } = {}) {
     // The Project registry lists only what the test opens, not folders found on this Mac.
     registryRoots: [],
     environmentReady: Promise.resolve(),
-    titleModels: {},
+    titleModels,
     agentCli: async () => ({ command: "fixture" }),
     emit: (channel, payload) => emitted.push({ channel, payload }),
     observeAgentEvent: (chatId, event) =>
@@ -354,8 +354,10 @@ test("a schedule Routine starts a Chat of its own in a new Worktree; a quiet Run
   const { state, session, agent, chatId } = await runChat(f);
   assert.equal(Object.keys(state.worktrees).length, before + 1, "one new Worktree");
   const run = await latestRun(f);
-  assert.deepEqual(session.routine, { routineId: routine.id, runId: run.id });
-  assert.equal(session.title, "Morning triage");
+  // The Chat starts hidden from the Chat lists, with the Routine's name as a placeholder the user's own name would beat.
+  assert.deepEqual(session.routine, { routineId: routine.id, runId: run.id, hidden: true });
+  assert.equal(session.title, undefined);
+  assert.equal(session.generatedTitle, "Morning triage");
   assert.notEqual(state.worktrees[session.worktree_id].path, f.project);
   const first = state.messages.find((message) => message.session_id === session.id && message.role === "user");
   assert.equal(first.context.kind, "routine-run");
@@ -374,6 +376,100 @@ test("a schedule Routine starts a Chat of its own in a new Worktree; a quiet Run
   agent.finish("(pass) inbox empty");
   await eventually(async () => (await latestRun(f)).status === "quiet");
   await eventually(async () => !(await snapshot(f)).worktrees[worktreeId], { timeoutMs: 10_000 });
+});
+
+// Models that name a scheduled run (and only that: a Chat's first message gets no title from them).
+const runTitleModels = (title) => {
+  const named = async ({ system }) => (/scheduled run/.test(system) ? JSON.stringify({ title }) : "");
+  return { claude: named, codex: named, antigravity: named };
+};
+
+test("an acted Run is titled from its final reply: the Run and its hidden Chat take the title, and a user's name still wins", async (t) => {
+  const f = await fixture(t, { titleModels: runTitleModels("Fixed flaky sidebar test") });
+  await f.finish("ok");
+  await createTriage(f);
+  await f.beat();
+  const { session, agent } = await runChat(f);
+  agent.finish("Fixed the flaky sidebar test.");
+  await eventually(async () => (await latestRun(f)).title === "Fixed flaky sidebar test");
+  const run = await latestRun(f);
+  assert.equal(run.status, "acted");
+  await f.runtime.routines.idle();
+  const named = (await snapshot(f)).sessions[session.id];
+  assert.equal(named.generatedTitle, "Fixed flaky sidebar test");
+  assert.equal(named.title, undefined);
+  assert.equal(named.routine.hidden, true);
+});
+
+test("an acted Run in a Chat the user renamed keeps that name; the Run is still titled", async (t) => {
+  const f = await fixture(t, { titleModels: runTitleModels("Fixed flaky sidebar test") });
+  await f.finish("ok");
+  await createTriage(f);
+  await f.beat();
+  const { session, agent } = await runChat(f);
+  await f.runtime.invoke("chat:patch", [f.project, session.id, { title: "My triage" }]);
+  agent.finish("Fixed the flaky sidebar test.");
+  await eventually(async () => (await latestRun(f)).title === "Fixed flaky sidebar test");
+  await f.runtime.routines.idle();
+  const kept = (await snapshot(f)).sessions[session.id];
+  assert.equal(kept.title, "My triage");
+  assert.equal(kept.generatedTitle, "Morning triage", "the placeholder is left as it was");
+});
+
+test("a title that fails to generate leaves the Run untitled and its Chat named for the Routine", async (t) => {
+  for (const titleModels of [{}, runTitleModels(""), runTitleModels("a".repeat(61))]) {
+    const f = await fixture(t, { titleModels });
+    await f.finish("ok");
+    await createTriage(f);
+    await f.beat();
+    const { session, agent } = await runChat(f);
+    agent.finish("Fixed the flaky sidebar test.");
+    await eventually(async () => (await latestRun(f)).status === "acted");
+    await f.runtime.routines.idle();
+    assert.equal((await latestRun(f)).title, undefined);
+    assert.equal((await snapshot(f)).sessions[session.id].generatedTitle, "Morning triage");
+  }
+});
+
+test("a quiet Run is titled with its summary's first line, cut at 60, with no model asked", async (t) => {
+  let asked = false;
+  const f = await fixture(t, {
+    titleModels: {
+      claude: async () => {
+        asked = true;
+        return "";
+      },
+    },
+  });
+  await f.finish("ok");
+  asked = false;
+  await createTriage(f);
+  await f.beat();
+  const { agent } = await runChat(f);
+  agent.finish(`(pass) ${"inbox empty ".repeat(8)}`);
+  await eventually(async () => (await latestRun(f)).status === "quiet");
+  await eventually(async () => (await latestRun(f)).title !== undefined);
+  const run = await latestRun(f);
+  assert.equal(run.title, run.summary.slice(0, 60).trim());
+  assert.ok(run.title.length <= 60 && run.title.startsWith("inbox empty"));
+  assert.equal(asked, false);
+});
+
+test("a heartbeat's acted beat is titled on the Run alone: its Chat keeps its names", async (t) => {
+  const f = await fixture(t, { titleModels: runTitleModels("Fixed flaky sidebar test") });
+  await runTool(f.tool("heartbeat_create"), { name: "Babysit", prompt: "Check CI", every: "5m" });
+  await f.finish("Watching.");
+  await f.runtime.routines.idle();
+  const before = (await snapshot(f)).sessions[f.id];
+  await f.beat();
+  await waitUntil(() => f.session.turns.length === 2);
+  await f.finish("CI failed, fixing the test.");
+  await eventually(async () => (await latestRun(f)).title === "Fixed flaky sidebar test");
+  await f.runtime.routines.idle();
+  const after = (await snapshot(f)).sessions[f.id];
+  assert.equal(after.title, before.title);
+  assert.equal(after.generatedTitle, before.generatedTitle);
+  assert.equal(after.routine, undefined);
 });
 
 test("a quiet Run keeps a Worktree with uncommitted work", async (t) => {
