@@ -41,3 +41,28 @@ test("failed file upload leaves attachments intact and prevents sending partial 
   );
   assert.equal(attachments.length, 1);
 });
+test("a busy Mac retries the one upload it turned away, not the files already sent", async () => {
+  const uploads: string[] = [];
+  let refusals = 1;
+  const client = {
+    upload: async (_project: string, name: string) => {
+      uploads.push(name);
+      if (name === "b.txt" && refusals-- > 0) throw Object.assign(new Error("busy"), { status: 429 });
+      return { path: `/host/${name}`, name };
+    },
+  } as unknown as Client;
+  const retry = async <T>(upload: () => Promise<T>) => {
+    try {
+      return await upload();
+    } catch {
+      return upload();
+    }
+  };
+  const attachments = [
+    { id: "a", name: "a.txt", uri: "file:///a", base64: "aGk=" },
+    { id: "b", name: "b.txt", uri: "file:///b", base64: "aGk=" },
+  ];
+  const result = await prepareAttachments(client, "/p", attachments, retry);
+  assert.deepEqual(result.files, ["/host/a.txt", "/host/b.txt"]);
+  assert.deepEqual(uploads, ["a.txt", "b.txt", "b.txt"]);
+});

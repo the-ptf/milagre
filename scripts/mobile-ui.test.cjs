@@ -163,6 +163,69 @@ function load(file, modules, extra = "", cache = new Map()) {
 }
 const jsx = (type, props, key) => ({ type, props, key });
 
+test("background tasks on the phone open command output and subagent details", () => {
+  const react = hookHost();
+  const session = {
+    snapshot: {
+      project: {
+        path: "/project",
+        state: {
+          sessions: {
+            7: {
+              provider: "claude",
+              backgroundTasks: [{ id: "watch", kind: "local_bash", title: "Publish watcher", startedAt: 1 }],
+              subagents: [{ id: "review", title: "Review changes", background: true, status: "running", startedAt: 2, transcript: [] }],
+            },
+          },
+        },
+      },
+    },
+    client: { call: async () => {} },
+  };
+  const { default: BackgroundSheet } = load("app/background.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { router: { back() {} }, useLocalSearchParams: () => ({ id: "7" }) },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
+    "../session": { useSession: () => session },
+    "../subagent-glance": { WholeSubagentDetail: "WholeSubagentDetail" },
+    "../task-output": { TaskOutput: "TaskOutput" },
+    "../ui": { CircleButton: "CircleButton", ListRow: "ListRow", PageScroll: "PageScroll" },
+  });
+  const render = () => {
+    react.begin();
+    return BackgroundSheet();
+  };
+  find(render(), (node) => node.type === "ListRow" && node.props.title === "Publish watcher").props.onPress();
+  assert.equal(find(render(), (node) => node.type === "TaskOutput").props.taskId, "watch");
+  assert.equal(find(render(), (node) => node.type === "TaskOutput").props.running, true);
+  session.snapshot.project.state.sessions[7].backgroundTasks = [];
+  const completed = find(render(), (node) => node.type === "TaskOutput");
+  assert.equal(completed.props.taskId, "watch", "Completion preserves the selected command");
+  assert.equal(completed.props.running, false, "Completion requests the final output without continued polling");
+  find(render(), (node) => node.type === "CircleButton" && node.props.label === "Back to tasks").props.onPress();
+  find(render(), (node) => node.type === "ListRow" && node.props.title === "Review changes").props.onPress();
+  const detail = find(render(), (node) => node.type === "WholeSubagentDetail" && node.props.agent?.id === "review");
+  assert.ok(detail, "Selecting a background subagent opens its existing detail view");
+});
+
+test("the phone's background line opens the numeric Chat in its tasks sheet", () => {
+  const host = chatHost();
+  host.params.id = "7";
+  host.session.snapshot.project.state.sessions[7] = {
+    id: 7,
+    provider: "claude",
+    worktree_id: 1,
+    backgroundTasks: [{ id: "watch", kind: "local_bash", title: "Publish watcher", startedAt: 1 }],
+  };
+  const line = find(host.render(), (node) => node.type === "BackgroundIndicator");
+  line.props.onPress();
+  const route = host.router.pushed.at(-1);
+  assert.equal(route.pathname, "/background");
+  assert.equal(route.params.id, "7");
+});
+
 test("the phone selects the computer's shell for new Terminals and keeps selection on save failure", async (t) => {
   const react = hookHost();
   t.after(() => react.cleanup());
@@ -1850,7 +1913,7 @@ function chatHost({
     }),
     "../dot-background": { useDotBackground: () => ({}) },
     "react-native-keyboard-controller": { KeyboardChatScrollView: "KeyboardChatScrollView", KeyboardStickyView: "KeyboardStickyView" },
-    "../running-logo": { ThinkingIndicator: "ThinkingIndicator" },
+    "../running-logo": { ThinkingIndicator: "ThinkingIndicator", BackgroundIndicator: "BackgroundIndicator" },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
     "@milagre/shared/model": require("@milagre/shared/model"),
     "@milagre/shared/agent-runs": { ...require("@milagre/shared/agent-runs"), lastUserModel: () => "" },
@@ -1866,10 +1929,12 @@ function chatHost({
     "../use-worktree-linear-issues": { useWorktreeLinearIssues: () => ({}) },
     "../choice-store": { showChoiceSheet: (request) => choices.push(request) },
     "../session": { useSession: () => session, useComposer: () => session, usePendingChats: () => session },
+    "../pending-chats": require("../apps/mobile/src/pending-chats.ts"),
+    "@milagre/shared/send-retry": require("@milagre/shared/send-retry"),
     "../attachment-picker": { pickAttachments, preparePastedImage, discardPastedImage() {} },
     "../attachments": require("../apps/mobile/src/attachments.ts"),
     // A test can show the Worktree branch's PR with globalThis.chatPullRequest, and PRs the Chat named with globalThis.chatNamedPullRequests.
-    "../status-indicators": { PullRequestAction: "PullRequestAction", SubagentChip: "SubagentChip" },
+    "../status-indicators": { PullRequestAction: "PullRequestAction", SubagentChip: "SubagentChip", BackgroundRing: "BackgroundRing" },
     "../use-chat-pull-requests": {
       useChatPullRequests: (_client, targets) =>
         Object.fromEntries(targets.map(({ path }) => [path, { branch: globalThis.chatPullRequest, found: globalThis.chatNamedPullRequests ?? {} }])),
@@ -1957,11 +2022,10 @@ function subagentsHost({ call = async () => {} } = {}) {
     "../session": { useSession: () => session },
     "../subagent-glance": {
       SubagentRow: "SubagentRow",
-      SubagentDetail: "SubagentDetail",
+      WholeSubagentDetail: "WholeSubagentDetail",
       elapsed: () => "1s",
       subagentRunning: (agent) => ["initializing", "running", "waiting"].includes(agent.status),
       useClock: () => 0,
-      useWholeSubagent: (agent) => agent,
     },
     "../icons": { Icon: "Icon" },
     "../ui": {
@@ -2002,7 +2066,7 @@ test("mobile archives finished subagents without offering archived browsing", as
   );
   // One subagent is archived from its detail, which closes back to the list.
   host.open("running");
-  assert.ok(find(host.render(), (node) => typeof node.type === "function" && node.props.agent?.id === "running" && node.props.read));
+  assert.ok(find(host.render(), (node) => node.type === "WholeSubagentDetail" && node.props.agent?.id === "running" && node.props.read));
   host.button("Archive subagent").props.onPress();
   await settle();
   assert.deepEqual(host.calls[1], { method: "chat:archive-subagent", args: ["/project", 7, "running", true] });
@@ -3678,7 +3742,9 @@ test("new-worktree preparation finishes its send in the background without navig
   assert.equal(screen.calls.filter((call) => call.method === "chat:send").length, 1);
   assert.equal(screen.calls.find((call) => call.method === "chat:send").args[0].projectPath, "/p");
   assert.equal(screen.params.id, undefined);
-  assert.equal(screen.session.drafts["/p#new:1"], undefined);
+  // The sent text left the composer when it was sent; the composer is now the next New Chat's, so it stays put.
+  assert.equal(screen.session.drafts["/p#new:1"], "");
+  assert.equal(screen.session.drafts["/p#7"], undefined);
 });
 
 test("the attachment pull-down opens the selected picker and blocks a second pick", async () => {
@@ -3854,6 +3920,123 @@ test("a failed first send restores the sent text alongside the next draft and re
   const button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
   assert.equal(button.props.disabled, false);
   assert.equal(find(screen.render(), (node) => node.type === "ErrorNotice").props.message, "Connection lost");
+});
+
+test("a New Chat opened while another one is still sending starts empty and sends its own", async () => {
+  const first = chatHost();
+  first.send();
+  await settle();
+  assert.equal(transcriptMessages(first)[0]?.body, "first message");
+  // The drawer's New Chat: another screen for the same Worktree, with the same pending sends and composers.
+  const second = chatHost();
+  Object.defineProperty(second.session, "pendingChats", { get: () => first.session.pendingChats });
+  second.session.setPendingChats = first.session.setPendingChats;
+  second.session.drafts = first.session.drafts;
+  second.session.setDrafts = (fn) => {
+    first.session.drafts = second.session.drafts = fn(second.session.drafts);
+  };
+  assert.deepEqual(transcriptMessages(second), []);
+  assert.equal(second.field().value, "");
+  second.field().onChangeText("second message");
+  second.send();
+  await settle();
+  assert.deepEqual(
+    second.calls.filter((call) => call.method === "chat:send").map((call) => call.args[0].body),
+    ["second message"],
+  );
+  assert.equal(Object.keys(first.session.pendingChats).length, 2, "both sends are pending, each under its own screen");
+  // The first Mac answer reaches only the screen that sent it.
+  first.sending.resolve({ sessionId: 42 });
+  await settle();
+  assert.equal(first.params.id, "42");
+  assert.equal(second.params.id, undefined);
+  assert.equal(transcriptMessages(second)[0]?.body, "second message");
+});
+
+test("the drawer reopens a New Chat that is still sending", async () => {
+  const first = chatHost();
+  first.send();
+  await settle();
+  const [pending] = Object.values(first.session.pendingChats);
+  assert.ok(pending.draft);
+  const reopened = chatHost();
+  reopened.session.pendingChats = first.session.pendingChats;
+  reopened.params.draft = pending.draft;
+  assert.equal(transcriptMessages(reopened)[0]?.body, "first message");
+});
+
+test("a busy Mac takes the first send on a later try, with no error and one message", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let tries = 0;
+  const screen = chatHost({
+    call: (method) => {
+      if (method === "project:branches") return Promise.resolve(["main"]);
+      if (method !== "chat:send") return Promise.resolve();
+      tries++;
+      return tries < 3
+        ? Promise.reject(Object.assign(new Error("Your computer is busy right now. Try again in a moment."), { status: 429 }))
+        : Promise.resolve({ sessionId: 42 });
+    },
+  });
+  screen.send();
+  await settle();
+  assert.equal(tries, 1);
+  assert.equal(transcriptMessages(screen)[0]?.body, "first message", "the message shows as sending meanwhile");
+  assert.equal(
+    find(screen.render(), (node) => node.type === "ErrorNotice"),
+    undefined,
+  );
+  t.mock.timers.tick(1000);
+  await settle();
+  t.mock.timers.tick(2000);
+  await settle();
+  await settle();
+  const sends = screen.calls.filter((call) => call.method === "chat:send").map((call) => call.args[0].clientMessageId);
+  assert.equal(sends.length, 3);
+  assert.equal(new Set(sends).size, 1, "every try carries the same id, so the Mac saves it once");
+  assert.equal(screen.params.id, "42");
+  assert.equal(
+    find(screen.render(), (node) => node.type === "ErrorNotice"),
+    undefined,
+  );
+});
+
+test("a send that lands after its New Chat was left keeps out of the next New Chat's composer", async () => {
+  const screen = chatHost();
+  screen.send();
+  await settle();
+  screen.session.isSelected = () => false;
+  screen.session.drafts = { ...screen.session.drafts, "/p#new:1": "the next chat" };
+  screen.sending.resolve({ sessionId: 42 });
+  await settle();
+  assert.equal(screen.session.drafts["/p#new:1"], "the next chat");
+  assert.equal(screen.session.drafts["/p#42"], undefined);
+});
+
+test("an open Chat whose page already holds the sent follow-up shows it once", async (t) => {
+  const screen = chatHost({ effects: true });
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.messagesInChats = true;
+  state.sessions[42] = { id: 42, worktree_id: 1, provider: "codex", status: "Created", summary: { count: 1 } };
+  screen.session.drafts["/p#42"] = "follow up";
+  let page = [{ id: 3, session_id: 42, role: "user", body: "start" }];
+  globalThis.chatPage = (client, _path, id) =>
+    client && id === 42 ? { messages: page, hasMore: false, total: page.length, loading: false, loadEarlier: async () => {} } : undefined;
+  t.after(() => delete globalThis.chatPage);
+  screen.send();
+  await settle();
+  assert.deepEqual(
+    transcriptMessages(screen).map((message) => message.body),
+    ["start", "follow up"],
+  );
+  // A runs update read the page again before the snapshot's summary named the send.
+  const request = screen.calls.find((call) => call.method === "chat:send").args[0];
+  page = [...page, { id: 4, session_id: 42, role: "user", body: "follow up", clientMessageId: request.clientMessageId }];
+  assert.deepEqual(
+    transcriptMessages(screen).map((message) => message.id),
+    [3, 4],
+  );
 });
 
 test("the transcript follows new content, also after the agent settings sheet opens", () => {
@@ -8096,13 +8279,13 @@ test("mobile subagent rows say what it does now and how far it got, and a finish
 });
 
 test("mobile subagent detail shows its plan with what it does now, else its steps; the log waits behind Full log", () => {
-  const { SubagentDetail, render } = subagentGlance();
+  const { WholeSubagentDetail, render } = subagentGlance();
   const tasks = [
     { id: "0", content: "Read the refresh code", status: "completed" },
     { id: "1", content: "Run the auth tests", activeForm: "Running the auth tests", status: "in_progress" },
     { id: "2", content: "Write it up", status: "pending" },
   ];
-  const plan = texts(render(SubagentDetail, { agent: { ...glanceAgent, tasks } }));
+  const plan = texts(render(WholeSubagentDetail, { agent: { ...glanceAgent, tasks } }));
   for (const text of [
     "Plan",
     "1 of 3 done",
@@ -8113,7 +8296,7 @@ test("mobile subagent detail shows its plan with what it does now, else its step
   ])
     assert.ok(plan.includes(text), text);
   assert.equal(plan.includes("Read `auth.ts`"), false, "tool calls stay in the log");
-  const steps = render(SubagentDetail, { agent: glanceAgent });
+  const steps = render(WholeSubagentDetail, { agent: glanceAgent });
   const shown = texts(steps);
   for (const text of [
     "Now · step 2",
@@ -8125,12 +8308,12 @@ test("mobile subagent detail shows its plan with what it does now, else its step
   ])
     assert.ok(shown.includes(text), text);
   find(steps, (node) => node.props?.accessibilityState?.expanded === false).props.onPress();
-  assert.ok(texts(render(SubagentDetail, { agent: glanceAgent })).includes("Read `auth.ts`"), "Full log shows the calls");
+  assert.ok(texts(render(WholeSubagentDetail, { agent: glanceAgent })).includes("Read `auth.ts`"), "Full log shows the calls");
 });
 
 test("mobile subagent detail reads the whole transcript when the host sent only its end", async () => {
   const react = hookHost({ effects: true });
-  const { useWholeSubagent } = load("subagent-glance.tsx", {
+  const { WholeSubagentDetail } = load("subagent-glance.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
@@ -8145,7 +8328,7 @@ test("mobile subagent detail reads the whole transcript when the host sent only 
   const read = async () => (reads++, glanceAgent);
   const use = () => {
     react.begin();
-    const agent = useWholeSubagent(tail, read);
+    const agent = WholeSubagentDetail({ agent: tail, read }).props.agent;
     react.flush();
     return agent;
   };
@@ -8155,7 +8338,7 @@ test("mobile subagent detail reads the whole transcript when the host sent only 
   assert.equal(use().transcript.length, 4);
   const short = { ...glanceAgent, transcriptLength: undefined };
   react.begin();
-  assert.equal(useWholeSubagent(short, read), short, "a whole transcript isn't read again");
+  assert.equal(WholeSubagentDetail({ agent: short, read }).props.agent, short, "a whole transcript isn't read again");
 });
 
 test("mobile main sync switch re-reads the Mac's default on focus and shows a refused save", async () => {

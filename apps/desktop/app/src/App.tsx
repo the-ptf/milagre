@@ -94,7 +94,8 @@ import { activeChatKeys, gridChats, readChatLayout, saveChatLayout, type ChatLay
 import { ChatGrid } from "./components/ChatGrid";
 import { chatRevealPath } from "./lib/reveal";
 import type { SettingsSection } from "./components/Settings";
-import { createPendingChat, createResendMemory, pendingChatSessionId, withPendingChat, type PendingChat } from "@milagre/shared/chats";
+import { createPendingChat, createResendMemory, pendingChatSessionId, withPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
+import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import { getSettings, toggleTheme, updateSettings, useApplyTheme, useSettings } from "./lib/settings";
 import { EditorLinks, Notice } from "./components/editor-links";
 // Notice above is editor-links' toast; this is the dismissable notice card.
@@ -575,7 +576,7 @@ function App() {
           ? lean
             ? canonicalWindow.messages
             : state!.messages.filter((message) => message.session_id === pendingCanonicalId)
-          : [...messages, pendingSend.message]
+          : withPreview(messages, pendingSend)
         : messages,
     // oxlint-disable-next-line react/preserve-manual-memoization -- the callback reads state!.messages (non-null assertion) and the list names state?.messages, the same value; the compiler infers state itself from the assertion
     [pendingHere, pendingSend, pendingCanonicalId, state?.messages, messages, lean, canonicalWindow.messages],
@@ -1394,12 +1395,17 @@ function App() {
     if (isolation === "local" && !issue) return { sessionId: null, worktreeId: selectedWorktree.id };
     setBaseBranch(effectiveBaseBranch);
     saveChatPreferences(localStorage, project.path, { baseBranch: effectiveBaseBranch });
-    const created = await bridgeForKey(project.path).createWorktree({
-      projectPath: project.path,
-      baseBranch: effectiveBaseBranch,
-      prompt: body,
-      ...(issue ? { issueKey: issue.key, ...(issue.workspace ? { issueWorkspace: issue.workspace } : {}) } : {}),
-    });
+    // A worktree:create has no id the host could match a resend by: it is tried again only while the host is unreachable.
+    const created = await retrySend(
+      () =>
+        bridgeForKey(project.path).createWorktree({
+          projectPath: project.path,
+          baseBranch: effectiveBaseBranch,
+          prompt: body,
+          ...(issue ? { issueKey: issue.key, ...(issue.workspace ? { issueWorkspace: issue.workspace } : {}) } : {}),
+        }),
+      { retryable: (error) => retryKind(error) === "unsent" },
+    );
     receiveState(project.path, created.project.state);
     const session = sessionForWorktree(created.project.state, created.worktreeId);
     if (!session) throw new Error(`No chat session was created for ${created.project.state.worktrees[created.worktreeId]?.name}.`);
@@ -1490,22 +1496,28 @@ function App() {
       setPendingSend((pending) =>
         pending ? { ...pending, targetSessionId: target!.sessionId, session: { ...pending.session, worktree_id: target!.worktreeId } } : pending,
       );
-      // The main process saves the message, then starts the Chat's turn, even if the user has navigated away.
-      const { sessionId } = await agentRuns.send({
-        projectPath: project.path,
-        clientMessageId: preview.message.clientMessageId,
-        sessionId: target.sessionId,
-        worktreeId: target.worktreeId,
-        body,
-        images,
-        files,
-        // A Mac that predates PR actions ignores prAction and sends this prompt as it is.
-        prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(body, files),
-        ...options,
-        ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
-        // A Mac that predates issue cards ignores linearIssue and sends the body as a plain message.
-        ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: submittedDraft })! } : {}),
-      });
+      const sendTarget = target;
+      // The main process saves the message, then starts the Chat's turn, even if the user has navigated away. A busy or
+      // restarting host gets it again until it takes it; the host recognises a resend by its clientMessageId.
+      const { sessionId } = await retrySend(
+        () =>
+          agentRuns.send({
+            projectPath: project.path,
+            clientMessageId: preview.message.clientMessageId,
+            sessionId: sendTarget.sessionId,
+            worktreeId: sendTarget.worktreeId,
+            body,
+            images,
+            files,
+            // A Mac that predates PR actions ignores prAction and sends this prompt as it is.
+            prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(body, files),
+            ...options,
+            ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
+            // A Mac that predates issue cards ignores linearIssue and sends the body as a plain message.
+            ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: submittedDraft })! } : {}),
+          }),
+        { retryable: (error) => retryKind(error) !== null },
+      );
       if (preparedTarget.current?.view === view) preparedTarget.current = null;
       sent = true;
       failedSendIds.current.forget(resendKey);
@@ -2568,6 +2580,7 @@ function App() {
                       streamingText={run?.text}
                       streamingSteps={run?.steps}
                       subagents={subagents}
+                      backgroundTasks={selectedSession?.backgroundTasks}
                       onArchiveFinishedSubagents={archiveFinishedChildren}
                       onArchiveSubagent={archiveChild}
                       onStopAdvisor={(id) => controlAdvisor("stop", id)}

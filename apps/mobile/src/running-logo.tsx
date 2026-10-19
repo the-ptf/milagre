@@ -1,5 +1,7 @@
 import { memo, useEffect, useMemo, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
-import { AccessibilityInfo, Animated, Easing, StyleSheet, Text, View, type EasingFunction, type TextStyle } from "react-native";
+import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, Text, View, type EasingFunction, type TextStyle } from "react-native";
+import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
+import { Icon } from "./icons";
 import Svg, { Path } from "react-native-svg";
 import RNCMaskedView from "@react-native-masked-view/masked-view";
 import { LinearGradient } from "expo-linear-gradient";
@@ -147,29 +149,38 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
  * Desktop's BackgroundIndicator: the Chat's turn ended, but background work goes on (chat-activity.mjs). How many
  * tasks, and for how long the oldest has run; no running mark, since no turn runs.
  */
-export function BackgroundIndicator({ count, startedAt, mark }: { count: number; startedAt?: number; mark: ReactNode }) {
+export function BackgroundIndicator({ count, startedAt, mark, onPress }: { count: number; startedAt?: number; mark: ReactNode; onPress: () => void }) {
   const { colors } = useTheme();
   const label = `${backgroundLabel(count)} running`;
   return (
-    <View
-      accessible
-      accessibilityRole="text"
-      accessibilityLabel={label}
-      style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 4, paddingVertical: 4 }}
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label}. Show background tasks`}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        minHeight: 36,
+        paddingHorizontal: 4,
+        paddingVertical: 4,
+        opacity: pressed ? 0.5 : 1,
+      })}
     >
       {mark}
-      <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 12, flexShrink: 1 }}>
+      <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
         {label}
       </Text>
-      <Elapsed startedAt={startedAt} />
-    </View>
+      <Elapsed startedAt={startedAt} color={colors.ink2} />
+      <Icon icon={ArrowRight01Icon} tone="ink3" size={12} />
+    </Pressable>
   );
 }
 
 /** Only this Text re-renders on each tick. */
-function Elapsed({ startedAt }: { startedAt?: number }) {
+function Elapsed({ startedAt, color }: { startedAt?: number; color?: string }) {
   const { colors } = useTheme();
-  return <Text style={{ color: colors.ink3, fontSize: 12, fontFamily: fonts.mono, fontVariant: ["tabular-nums"] }}>{useElapsed(startedAt)}</Text>;
+  return <Text style={{ color: color ?? colors.ink3, fontSize: 12, fontFamily: fonts.mono, fontVariant: ["tabular-nums"] }}>{useElapsed(startedAt)}</Text>;
 }
 
 // step-shimmer: a 320px tile (ink-3 to 110px, ink at 160px, ink-3 from 210px) slides one tile right every 1.2s.

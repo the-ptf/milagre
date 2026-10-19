@@ -4,6 +4,7 @@ import type { McpAccount, McpAccountCheck, McpChangedEvent, McpProvider, McpServ
 import type { LocalMcpApi } from "@milagre/shared/local-mcp";
 import type { LinearIssue, LinearIssuesResult, LinearStatus } from "@milagre/shared/linear";
 import type {
+  BackgroundTaskOutput,
   ProjectAccountScope,
   ProjectAccountsSnapshot,
   NamedProjectLink,
@@ -507,6 +508,8 @@ export type MilagreBridge = {
   searchChats: (scope: string, query: string, options?: { limit?: number }) => Promise<ChatSearchMatch[]>;
   /** One subagent of Chat `chatId` with its whole transcript (subagent-tails-v1). */
   readSubagent: (scope: string, chatId: number, agentId: string) => Promise<Subagent>;
+  /** The end of a background command's output in Chat `chatId` (a chat key), read from its live agent process. */
+  readTaskOutput: (chatId: string, taskId: string) => Promise<BackgroundTaskOutput>;
   /** Every chat's listening ports now, by chat key. */
   getAgentPorts: () => Promise<AgentPorts>;
   /** Stops the command listening on one of a chat's ports; false when the chat's list doesn't show that pid. */

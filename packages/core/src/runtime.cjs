@@ -1555,6 +1555,13 @@ function createRuntime(options) {
     await agents.closeChat(chatId);
   });
 
+  // The end of a background command's output, for the Chat's background line: what the agent left running in it.
+  commands.handle("chat:task-output", async (_event, chatId, taskId) => {
+    await existingChat("reading a background task")(chatId);
+    if (typeof taskId !== "string" || !taskId || taskId.length > 200) throw new Error("That background task isn't valid.");
+    return agents.taskOutput(chatId, taskId);
+  });
+
   async function stopChat(chatId) {
     // Stop the report before advisor cancellation can make an idle parent look complete. Provider teardown can be slow.
     await linked.stop({ chatKey: chatId });

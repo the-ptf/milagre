@@ -129,6 +129,7 @@ export default function Layout() {
                         options={{ presentation: "fullScreenModal", headerShown: false, contentStyle: { backgroundColor: palette.surface } }}
                       />
                       <Stack.Screen name="activity" options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }} />
+                      <Stack.Screen name="background" options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }} />
                       <Stack.Screen name="handoff-brief" options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }} />
                       <Stack.Screen
                         name="viewer"

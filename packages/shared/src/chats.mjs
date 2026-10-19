@@ -151,6 +151,15 @@ export function pendingChatSessionId(state, pending) {
   );
 }
 
+/**
+ * The open Chat's messages with a pending send's preview after them. The page of messages and the summary that names
+ * the saved send (pendingChatSessionId) arrive separately, so a page that already holds the saved copy shows it alone.
+ */
+export function withPreview(messages, pending) {
+  const id = pending.message.clientMessageId;
+  return id && messages.some((message) => message.clientMessageId === id) ? messages : [...messages, pending.message];
+}
+
 /** A display projection shared by desktop's sidebar and the phone's drawer; canonical input replaces its preview. */
 export function withPendingChat(state, pending) {
   if (!pending || pendingChatSessionId(state, pending) !== null) return state;

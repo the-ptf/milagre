@@ -200,6 +200,10 @@
       "types": "./src/result.d.mts",
       "default": "./src/result.mjs"
     },
+    "./send-retry": {
+      "types": "./src/send-retry.d.mts",
+      "default": "./src/send-retry.mjs"
+    },
     "./git-codes": {
       "types": "./src/git-codes.d.mts",
       "default": "./src/git-codes.mjs"
@@ -294,6 +298,7 @@
     },
     "./agent-activity": "./src/agent-activity.ts",
     "./advisor-result": "./src/advisor-result.ts",
+    "./use-task-output": "./src/use-task-output.ts",
     "./themes": "./src/themes/index.ts",
     "./chat-row": "./src/chat-row.ts",
     "./chat-display": "./src/chat-display.ts",

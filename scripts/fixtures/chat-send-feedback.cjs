@@ -45,6 +45,14 @@ window.transcriptRenders = 0;
 window.railItemsRendered = 0;
 const listeners = new Set();
 window.emitAgent = (sessionId, event) => listeners.forEach(listener => listener({ chatId: "/fixture#" + sessionId, event }));
+// Read messages independently of a stale summary, as a reconnect can do while a send is pending.
+window.preparePageRefresh = () => {
+  const snapshot = leanState();
+  window.milagre.readState = async () => ({ epoch: "fixture", version: 1, state: snapshot });
+  window.refreshPages = () => listeners.forEach(listener => listener({
+    chatId: "/fixture#2", event: { type: "message-sent" }, epoch: "fixture", version: 1, base: 0, resync: true,
+  }));
+};
 window.calls = { created: 0, sent: [] };
 window.milagre = new Proxy({
   getRuntimeConnection: async () => ({ connected: true }),
@@ -86,7 +94,7 @@ window.milagre = new Proxy({
   sendMessage: request => {
     window.calls.sent.push(request);
     return new Promise((resolve, reject) => {
-      window.failSend = () => reject(new Error("Disk full"));
+      window.failSend = (message = "Disk full") => reject(new Error(message));
       window.saveSend = () => {
         const sessionId = request.sessionId ?? state.next_id++;
         state.sessions[sessionId] ??= { id: sessionId, worktree_id: request.worktreeId, agent_name: "Local chat", status: "Created" };
@@ -114,5 +122,25 @@ window.milagre = new Proxy({
 }, { get(target, key) { return target[key] ?? (String(key).startsWith("on") ? () => () => {} : async () => null); } });
 localStorage.setItem("milagre-settings", JSON.stringify({ defaultModelId: "claude-opus-5-5" }));
 const { default: App } = await import("/src/App");
-createRoot(document.getElementById("root")).render(<App />);
+if (new URLSearchParams(location.search).has("link")) {
+  const { LinkWorkspace } = await import("/src/components/LinkWorkspace");
+  const { createScopeDrafts } = await import("/src/lib/link-scope");
+  const linkState = { next_id: 1, sessions: {}, messages: [], preparations: {} };
+  const opened = { link: { id: "11111111-1111-4111-8111-111111111111", name: "Shared work", projectIds: [], createdAt: "" }, state: linkState, projects: [] };
+  const noop = () => {};
+  const model = { id: "claude-opus-5-5", name: "Opus", provider: "claude" };
+  window.milagre.sendLinkMessage = async request => {
+    window.calls.sent.push(request);
+    if (window.calls.sent.length === 1) throw new Error("Milagre host is disconnected. Your command was not sent.");
+    return { sessionId: 1 };
+  };
+  createRoot(document.getElementById("root")).render(<LinkWorkspace
+    opened={opened} state={linkState} agents={{ runs: {} }} drafts={createScopeDrafts()}
+    preferences={{ models: [model], selectedModel: model, onModelChange: noop, cliStatus: {}, onModelPickerOpen: noop, onUpdateCli: noop,
+      capability: { efforts: ["high"], ultracode: false, fastMode: false } }}
+    hostConnection={{ connected: true }} ports={{}} linkedWork={{ delegations: [], negotiations: [], receiveOnly: [] }}
+    onSwitchProject={noop} onSwitchLink={noop} onLinkProject={noop} onEditLink={noop} onOpenProject={noop}
+    onSettings={noop} onOpenAccounts={noop} onCanvasChat={noop}
+  />);
+} else createRoot(document.getElementById("root")).render(<App />);
 `;

@@ -136,9 +136,10 @@ function renderNotes({ intro, commits, repo, outro }) {
 }
 
 /**
- * The next beta from `sha`. Its version line is the last stable plus the biggest change since it; a line already
- * shipped as a beta above that (only true on the switch from per-merge tags) is passed with a minor bump, since beta
- * installs never downgrade. The notes cover the changes since the previous beta (or stable, if it is newer).
+ * The next beta from `sha`. Its version line is the last stable plus the biggest change since it. A line already
+ * shipped as a beta above that (only true on the switch from per-merge tags) is continued, since beta installs never
+ * downgrade, or passed with a minor bump when its stable tag is a leftover. The notes cover the changes since the
+ * previous beta (or stable, if it is newer).
  */
 function planBeta({ exec, repo, sha, scheduled = false }) {
   const published = publishedVersions(exec);
@@ -149,10 +150,11 @@ function planBeta({ exec, repo, sha, scheduled = false }) {
   if (!sincePrevious.length) return { changed: false, previous: previous.tag, reason: `Nothing new since ${previous.tag}` };
   if (scheduled && !highestLevel(sincePrevious)) return { changed: false, previous: previous.tag, reason: `Only maintenance changes since ${previous.tag}` };
   let core = bump(stable.core, highestLevel(commitsSince(exec, stable.tag, sha)) ?? "patch");
-  const shipped = newestOf(published.filter((version) => version.beta !== null && compareCore(version.core, stable.core) > 0));
-  if (shipped && compareCore(core, shipped.core) < 0) core = bump(shipped.core, "minor");
-  const base = formatCore(core);
   const tags = existingTags(exec);
+  const shipped = newestOf(published.filter((version) => version.beta !== null && compareCore(version.core, stable.core) > 0));
+  // Continue the line beta installs already run; pass it only when its stable tag is taken (a per-merge leftover).
+  if (shipped && compareCore(core, shipped.core) < 0) core = tags.has(`v${formatCore(shipped.core)}`) ? bump(shipped.core, "minor") : shipped.core;
+  const base = formatCore(core);
   if (tags.has(`v${base}`)) throw new Error(`Tag v${base} already exists, so this line could never be promoted; delete the stray tag`);
   const numbers = [...tags, ...published.map((version) => version.tag)].flatMap((tag) => {
     const version = parseTag(tag);
@@ -200,13 +202,18 @@ function nextDraft(plan) {
   return { title: `Next beta: ${plan.releaseTag}`, body: plan.notes.replace(/^Changes since [^\n]+\n/, `${intro}\n`) };
 }
 
-/** Rewrites the one untagged Next beta draft, creating it the first time. */
+/**
+ * Rewrites the one untagged Next beta draft, creating it the first time. An update that leaves out tag_name turns a
+ * draft whose tag doesn't exist into "untagged-<random>", so every update sends it, and the lookup also matches the
+ * title to find a draft that lost it.
+ */
 function writeNextDraft({ exec, title, body }) {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "milagre-next-beta-")), "body.md");
   fs.writeFileSync(file, body);
-  const query = `.[] | select(.draft and .tag_name == "${NEXT_DRAFT_TAG}") | .id`;
-  const [id] = exec("gh", ["api", "--paginate", "repos/{owner}/{repo}/releases", "--jq", query]).split("\n").filter(Boolean);
-  if (id) exec("gh", ["api", "-X", "PATCH", `repos/{owner}/{repo}/releases/${id}`, "-f", `name=${title}`, "-F", `body=@${file}`]);
+  const query = `.[] | select(.draft and (.tag_name == "${NEXT_DRAFT_TAG}" or ((.name // "") | startswith("Next beta")))) | .id`;
+  const id = exec("gh", ["api", "--paginate", "repos/{owner}/{repo}/releases", "--jq", query]).split("\n").find(Boolean);
+  if (id)
+    exec("gh", ["api", "-X", "PATCH", `repos/{owner}/{repo}/releases/${id}`, "-f", `tag_name=${NEXT_DRAFT_TAG}`, "-f", `name=${title}`, "-F", `body=@${file}`]);
   else
     exec("gh", [
       "api",

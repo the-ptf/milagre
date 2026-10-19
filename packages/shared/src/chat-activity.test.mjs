@@ -3,11 +3,13 @@ import test from "node:test";
 import {
   activityOf,
   backgroundBusyMessage,
+  backgroundItems,
   backgroundLabel,
   backgroundSubagents,
   backgroundTasks,
   chatActivity,
   createActivityTracker,
+  plainTaskOutput,
   processWork,
 } from "./chat-activity.mjs";
 
@@ -90,6 +92,38 @@ test("background tasks the agent process reports count as background work, after
   // A Codex Chat's process reports none; a saved set from a Claude turn before a switch doesn't count.
   assert.deepEqual(backgroundTasks({ ...chat, provider: "codex" }), []);
   assert.equal(chatActivity(session({ backgroundTasks: [task("shell", "local_bash", 1)], summary: { lastOutcome: "failed" } }), undefined).activity, "failed");
+});
+
+test("backgroundItems lists the background line's work oldest first, with what each is", () => {
+  const task = (id, kind, startedAt) => ({ id, kind, title: `${id} title`, startedAt });
+  const chat = session({
+    provider: "claude",
+    subagents: [agent("bg", { background: true, startedAt: 30 }), agent("advisor", { source: "milagre-advisor", startedAt: 50 }), agent("foreground")],
+    backgroundTasks: [task("shell", "local_bash", 20), task("flow", "local_workflow", 40), task("mcp", "mcp_task", 60)],
+  });
+  const items = backgroundItems(chat);
+  assert.deepEqual(
+    items.map(({ type, id, title, startedAt }) => ({ type, id, title, startedAt })),
+    [
+      { type: "command", id: "shell", title: "shell title", startedAt: 20 },
+      { type: "subagent", id: "bg", title: "bg", startedAt: 30 },
+      { type: "workflow", id: "flow", title: "flow title", startedAt: 40 },
+      { type: "advisor", id: "advisor", title: "advisor", startedAt: 50 },
+      { type: "task", id: "mcp", title: "mcp title", startedAt: 60 },
+    ],
+  );
+  // A subagent or advisor carries itself, for its transcript; a task has none.
+  assert.equal(items[1].agent, chat.subagents[0]);
+  assert.equal(items[0].agent, undefined);
+  // The line counts what it lists.
+  assert.equal(items.length, chatActivity(chat, undefined).background);
+});
+
+test("plainTaskOutput drops escape sequences and keeps a redrawn line's last state", () => {
+  assert.equal(plainTaskOutput("\u001b[32m✓\u001b[0m build\r\n"), "✓ build\n");
+  assert.equal(plainTaskOutput("\u001b]0;title\u0007 10%\r 50%\r100% done\nnext"), "100% done\nnext");
+  assert.equal(plainTaskOutput("\u001b[2K\u001b[1Gwaiting\u001b(B"), "waiting");
+  assert.equal(plainTaskOutput(undefined), "");
 });
 
 test("backgroundLabel and the guard's message", () => {

@@ -80,6 +80,15 @@ async function browserChecks() {
   }
   const occurrences = (body) => evaluate(`(${transcript}?.textContent.match(new RegExp(${JSON.stringify(body)}, 'g')) ?? []).length`);
   try {
+    await window.loadURL(process.argv[2] + "?link=1");
+    await waitFor(`!!document.querySelector(${JSON.stringify(prompt)})`, 1200);
+    await send("Retry a shared Chat");
+    await waitFor("window.calls.sent.length === 2");
+    const sharedSends = await evaluate("window.calls.sent");
+    assert.equal(sharedSends[0].operationId, sharedSends[1].operationId, "a shared Chat retry keeps its operation id");
+    await waitFor(`document.querySelector(${JSON.stringify(prompt)}).value === ''`);
+    assert.equal(await evaluate("document.body.textContent.includes('Your command was not sent')"), false);
+
     // A chat on an agent that can't steer: its held queue sits above the composer, each message with Send now and Remove.
     await window.loadURL(process.argv[2] + "?queue=1");
     // The first page of the run waits on Vite's cold transforms.
@@ -384,6 +393,20 @@ async function browserChecks() {
     await delay(100);
     assert.deepEqual(await evaluate(leanChatIds), ["4", "2"], "saving the follow-up keeps the same order");
 
+    await send("Retry after a lost acknowledgement");
+    await immediate("Retry after a lost acknowledgement");
+    const beforeRetry = await evaluate("window.calls.sent.length");
+    await evaluate("window.failSend('Daemon connection closed')");
+    await waitFor(`window.calls.sent.length === ${beforeRetry + 1}`);
+    const retried = await evaluate("window.calls.sent.slice(-2)");
+    assert.equal(retried[0].clientMessageId, retried[1].clientMessageId);
+    await evaluate("window.preparePageRefresh(); window.holdState = true; window.saveSend(); window.refreshPages()");
+    await waitFor(`${transcript}?.querySelectorAll('[data-slot="message"]').length >= 3`);
+    await delay(300);
+    assert.equal(await occurrences("Retry after a lost acknowledgement"), 1, "a message page arriving before its summary replaces the preview");
+    await evaluate("window.releaseState(); window.ackSend()");
+    await waitFor(acknowledged);
+
     // A host that keeps messages by Chat: the newest turns come as a page, and Show earlier reads the next one.
     await window.loadURL(process.argv[2] + "?long=1&lean=1");
     await waitFor(`document.querySelectorAll('[data-slot="message"]').length === 40`);
@@ -496,10 +519,10 @@ async function main() {
           if (id.split("?")[0].endsWith("/components/ChatComposer.tsx")) {
             // Count real saved-card renders without changing production components or timing assertions.
             assert.ok(code.includes("const linked = linkedContext(message);"));
-            assert.ok(code.includes("const transcript = messages.slice(start);"));
+            assert.ok(code.includes("const transcript = grouped.slice(start).filter((entry) => !entry.hidden);"));
             return code
               .replace("const linked = linkedContext(message);", "window.renderedMessageIds.push(message.id); const linked = linkedContext(message);")
-              .replace("const transcript = messages.slice(start);", "window.transcriptRenders++; const transcript = messages.slice(start);");
+              .replace("const transcript = grouped.slice(start)", "window.transcriptRenders++; const transcript = grouped.slice(start)");
           }
         },
         resolveId(id) {

@@ -493,6 +493,8 @@ export type MobilePendingChat = {
   hostId: string;
   projectPath: string;
   originChatId: string;
+  /** The New Chat screen's draft id (pending-chats.ts), so the drawer reopens that screen. */
+  draft?: string;
   originSessionId: number | null;
   worktreeId: number;
   newWorktree: boolean;

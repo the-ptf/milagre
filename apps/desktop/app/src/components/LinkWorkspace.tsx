@@ -22,6 +22,7 @@ import { useHiddenProjects } from "../lib/hidden-projects";
 import { useSettings } from "../lib/settings";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { ipcErrorMessage } from "@milagre/shared/result";
+import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import { DotBackground } from "./DotBackground";
 import SidebarNav from "./SidebarNav";
 import { runKeys } from "../lib/sidebar-scopes";
@@ -316,7 +317,7 @@ export function LinkWorkspace({
     // The picker decides the provider: a chat on another one hands off to it.
     const model = preferences.selectedModel;
     try {
-      const sent = await bridge.sendLinkMessage({
+      const request = {
         linkId: opened.link.id,
         sessionId,
         operationId: operation,
@@ -332,7 +333,8 @@ export function LinkWorkspace({
         fastMode: composerPrefs.fastMode,
         replies: getSettings().claudeReplies,
         tldrEnabled: getSettings().tldrEnabled,
-      });
+      };
+      const sent = await retrySend(() => bridge.sendLinkMessage(request), { retryable: (error) => retryKind(error) !== null });
       drafts.acknowledgeSend(operation, sent.sessionId);
       if (pendingOperation.current === operation) pendingOperation.current = null;
       if (latest.current.active && latest.current.selection === selection) {
@@ -550,6 +552,7 @@ export function LinkWorkspace({
                         plan={session?.plan}
                         contextUsage={run?.contextUsage ?? session?.contextUsage}
                         subagents={session?.subagents?.filter((agent) => agent.id !== session.native_session_id)}
+                        backgroundTasks={session?.backgroundTasks}
                         ports={chatId ? ports[chatId] : undefined}
                         agentChatId={chatId ?? undefined}
                         onOpenDiff={(path, worktree) => {

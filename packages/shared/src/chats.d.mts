@@ -46,4 +46,5 @@ export type ResendMemory = {
 };
 export function createResendMemory(): ResendMemory;
 export function pendingChatSessionId(state: CoordinatorState, pending: PendingChat | null | undefined): number | null;
+export function withPreview(messages: readonly ChatMessage[], pending: Pick<PendingChat, "message">): ChatMessage[];
 export function withPendingChat(state: CoordinatorState, pending: PendingChat | null | undefined): CoordinatorState;

@@ -103,6 +103,20 @@ test("follow-up input stays pending until its own message arrives and keeps the 
   assert.equal(withPendingChat(saved, pending), saved);
 });
 
+test("an open Chat's page that already holds the saved send shows it once, not with its preview", async () => {
+  const { createPendingChat, withPreview } = await import("./chats.mjs");
+  const state: CoordinatorState = { next_id: 4, projects: {}, worktrees: {}, sessions: { 1: session }, messages: [], tasks: {} };
+  const pending = createPendingChat({ state, worktreeId: 1, sessionId: 1, body: "Follow up", model: "m", provider: "codex" });
+  const before = [{ id: 3, session_id: 1, body: "Original title", role: "user" as const, context: null }];
+  assert.deepEqual(withPreview(before, pending), [...before, pending.message]);
+  // The page was read again (a runs update) before the snapshot's summary named the send.
+  const page = [...before, { ...pending.message, id: 4 }];
+  assert.equal(withPreview(page, pending), page);
+  // Another client's identical text is not this send.
+  const other = [...before, { id: 4, session_id: 1, body: "Follow up", role: "user" as const, context: null, clientMessageId: "another" }];
+  assert.deepEqual(withPreview(other, pending), [...other, pending.message]);
+});
+
 test("legacy acknowledgement requires an accepted target and a new untagged matching input", async () => {
   const { createPendingChat, pendingChatSessionId } = await import("./chats.mjs");
   const state: CoordinatorState = { next_id: 4, projects: {}, worktrees: {}, sessions: { 1: session }, messages: [], tasks: {} };
