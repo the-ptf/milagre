@@ -2526,6 +2526,7 @@ function App() {
                       streamingText={run?.text}
                       streamingSteps={run?.steps}
                       subagents={subagents}
+                      backgroundTasks={selectedSession?.backgroundTasks}
                       onArchiveFinishedSubagents={archiveFinishedChildren}
                       onArchiveSubagent={archiveChild}
                       onStopAdvisor={(id) => controlAdvisor("stop", id)}

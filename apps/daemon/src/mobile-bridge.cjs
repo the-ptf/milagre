@@ -159,6 +159,8 @@ const METHODS = new Set([
   "chat:archive-finished-subagents",
   // One subagent whole: the phone gets only the end of each transcript, and its subagent detail reads the rest.
   "chat:subagent",
+  // The end of a background command's output, for the Chat's background line.
+  "chat:task-output",
   "attachment:preview",
   "worktree:pull-request",
   "worktree:pull-requests",

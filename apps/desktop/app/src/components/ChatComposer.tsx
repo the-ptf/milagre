@@ -15,7 +15,7 @@ import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import { useEvent } from "../lib/stable";
-import type { AgentPort, ChatPlan, ContextUsage, Subagent } from "../model";
+import type { AgentPort, BackgroundTask, ChatPlan, ContextUsage, Subagent } from "../model";
 import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -50,7 +50,9 @@ import { LinearIssuePicker } from "./LinearIssuePicker";
 import Tooltip from "./primitives/Tooltip";
 import { PillSlot, StatusPill } from "./primitives/StatusPill";
 import { AnimatePresence, LayoutGroup } from "motion/react";
-import { BackgroundIndicator, ThinkingIndicator } from "./ThinkingIndicator";
+import { ThinkingIndicator } from "./ThinkingIndicator";
+import { BackgroundWork } from "./agents/BackgroundWork";
+import { backgroundItems } from "@milagre/shared/chat-activity";
 import { ChatMarkDotInline } from "./sidebar/ChatRow";
 import type { ChatActivity } from "@milagre/shared/chat-activity";
 import { HandoffDivider } from "./Handover";
@@ -579,6 +581,7 @@ interface ChatComposerProps {
   /** The running turn's tool steps, where they happened in `streamingText`. */
   streamingSteps?: ChatStep[];
   subagents?: Subagent[];
+  backgroundTasks?: BackgroundTask[];
   onArchiveFinishedSubagents?: () => void;
   onArchiveSubagent?: (id: string, archived: boolean) => void;
   onStopAdvisor?: (id: string) => void;
@@ -877,6 +880,7 @@ export function ChatComposer({
   streamingText,
   streamingSteps,
   subagents = EMPTY_SUBAGENTS,
+  backgroundTasks,
   onArchiveFinishedSubagents,
   onArchiveSubagent,
   onStopAdvisor,
@@ -1137,9 +1141,9 @@ export function ChatComposer({
                 )}
                 {!isSending && activity?.activity === "background" && (
                   <div className="w-full" style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
-                    <BackgroundIndicator
-                      count={activity.background}
-                      startedAt={activity.since}
+                    <BackgroundWork
+                      items={backgroundItems({ provider: sessionProvider ?? selectedModel.provider, subagents, backgroundTasks })}
+                      chatKey={runtimeChat}
                       mark={<ChatMarkDotInline mark="background" failed={false} background={activity.background} />}
                     />
                   </div>

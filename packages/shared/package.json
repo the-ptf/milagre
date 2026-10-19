@@ -294,6 +294,7 @@
     },
     "./agent-activity": "./src/agent-activity.ts",
     "./advisor-result": "./src/advisor-result.ts",
+    "./use-task-output": "./src/use-task-output.ts",
     "./themes": "./src/themes/index.ts",
     "./chat-row": "./src/chat-row.ts",
     "./chat-display": "./src/chat-display.ts",

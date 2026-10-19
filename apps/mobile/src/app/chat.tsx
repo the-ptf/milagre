@@ -1330,7 +1330,12 @@ export default function ChatScreen() {
               />
             )}
             {!run && !pending && activity?.activity === "background" && (
-              <BackgroundIndicator count={activity.background} startedAt={activity.since} mark={<BackgroundRing count={activity.background} />} />
+              <BackgroundIndicator
+                count={activity.background}
+                startedAt={activity.since}
+                mark={<BackgroundRing count={activity.background} />}
+                onPress={() => chat && router.push({ pathname: "/background", params: { id: String(chat.id) } })}
+              />
             )}
             {heartbeat && !run && !pending && typeof heartbeat.nextRunAt === "number" && heartbeat.nextRunAt > now ? (
               <Text style={{ color: colors.ink2, fontSize: 12, textAlign: "center" }}>{`Next check ${clock(heartbeat.nextRunAt)}`}</Text>

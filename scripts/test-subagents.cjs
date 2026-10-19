@@ -5,8 +5,14 @@ const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 
 const fixture = `
-window.milagre = Object.freeze({ listEditors: async () => [] });
+window.outputReads = [];
+window.milagre = Object.freeze({ listEditors: async () => [], readTaskOutput: async (chatId, taskId) => {
+  window.outputReads.push({chatId,taskId});
+  if(window.outputError) throw new Error("The command output is unavailable.");
+  return {output:"\\u001b[32mPublish watcher ready\\u001b[0m\\n",totalBytes:9000,truncated:true};
+} });
 import React, { useState } from "react";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
 import { DotBackground } from "/src/components/DotBackground";
@@ -27,6 +33,8 @@ function Fixture() {
   const controlAdvisor = (action,id) => {window.advisorActions.push({action,id});setChildren(items=>items.map(item=>item.id===id?{...item,status:action==="stop"?"cancelled":"running",retryable:action==="stop"}:item));};
   const [advisorResult,setAdvisorResult]=useState(false);window.setAdvisorResult=setAdvisorResult;
   window.setSending = setSending;
+  const [backgroundTasks, setBackgroundTasks] = useState([]);
+  window.setBackgroundTasks = setBackgroundTasks;
   window.finishChildren = () => {setChildren(items=>items.map(item=>({...item,status:"completed",endedAt:Date.now()})));setSending(false);};
   const [draft, setDraft] = useState("");
   const [model, setModel] = useState(MODEL_CATALOG[0]);
@@ -46,9 +54,10 @@ function Fixture() {
     </div>
     <main data-workspace-main className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-transparent pr-3 pb-3">
     <div data-chat-pane className="min-h-0 flex-1 overflow-hidden">
-    <ChatComposer messages={messages}
+    <ChatComposer messages={messages} chatId={backgroundTasks.length ? 1 : undefined}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
       projectPath="/fixture" draft={draft} onDraftChange={setDraft} onSend={noop} isSending={sending} sendBlocked={false} subagents={children} onArchiveFinishedSubagents={archiveFinished} onArchiveSubagent={archive} onStopAdvisor={id=>controlAdvisor("stop",id)} onRetryAdvisor={id=>controlAdvisor("retry",id)} waitingForSubagents={true}
+      backgroundTasks={backgroundTasks} sessionProvider={backgroundTasks.length ? "claude" : undefined} activity={chatActivity({provider:"claude",subagents:children,backgroundTasks},sending ? {} : undefined)} agentChatId={backgroundTasks.length ? "/fixture#1" : undefined}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={fastMode} onFastModeChange={setFastMode} permissionMode="auto" onPermissionModeChange={noop}
@@ -242,6 +251,44 @@ async function browserChecks() {
     await waitFor('document.querySelectorAll("[data-subagent-row]").length===1');
     await evaluate("window.setChildren([])");
     await waitFor('!document.querySelector("[data-slot=subagent-track]")');
+    await evaluate(
+      'window.setSending(false); window.setBackgroundTasks([{id:"publish",kind:"local_bash",title:"Publish watcher",startedAt:Date.now()-5000},{id:"flow",kind:"local_workflow",title:"Deploy workflow",startedAt:Date.now()}])',
+    );
+    await waitFor('!!document.querySelector("button[data-background-work]")');
+    assert.equal(
+      await evaluate(
+        '(() => {const probe=document.createElement("span");probe.style.color="var(--ink-2)";document.body.append(probe);const same=getComputedStyle(document.querySelector("button[data-background-work]")).color===getComputedStyle(probe).color;probe.remove();return same})()',
+      ),
+      true,
+      "Background text uses the activity summary color",
+    );
+    await evaluate('document.querySelector("button[data-background-work]").click()');
+    await waitFor('document.querySelector("[data-background-tasks]")?.textContent.includes("Publish watcher")');
+    assert.deepEqual(await evaluate("window.outputReads"), [], "Opening the list does not poll unselected tasks");
+    await evaluate('document.querySelector("[data-background-task=publish]").click()');
+    await waitFor('document.querySelector("[data-task-output]")?.textContent.includes("Publish watcher ready")');
+    assert.deepEqual(await evaluate("window.outputReads[0]"), { chatId: "/fixture#1", taskId: "publish" });
+    assert.equal(await evaluate('document.querySelector("[data-task-output]").textContent.includes("\\u001b")'), false);
+    assert.ok(await evaluate('document.querySelector("[data-background-tasks]").textContent.includes("Showing the latest output")'));
+    await screenshot("background-command-output");
+    await evaluate('document.querySelector("button[data-background-work]").click()');
+    await delay(100);
+    const reads = await evaluate("window.outputReads.length");
+    await delay(1700);
+    assert.equal(await evaluate("window.outputReads.length"), reads, "Closing the details stops output polling");
+    await evaluate('window.outputError=true; document.querySelector("button[data-background-work]").click()');
+    await waitFor('document.querySelector("[data-background-tasks] [role=alert]")?.textContent.includes("unavailable")');
+    await evaluate("window.outputError=false");
+    await waitFor(
+      'document.querySelector("[data-task-output]")?.textContent.includes("Publish watcher ready") && !document.querySelector("[data-background-tasks] [role=alert]")',
+    );
+    await evaluate('[...document.querySelectorAll("[data-background-tasks] button")].find(button=>button.textContent==="Back to tasks").click()');
+    const beforeWorkflow = await evaluate("window.outputReads.length");
+    await evaluate('document.querySelector("[data-background-task=flow]").click()');
+    await waitFor('document.querySelector("[data-background-tasks]")?.textContent.includes("reports its progress back")');
+    assert.equal(await evaluate("window.outputReads.length"), beforeWorkflow, "Workflows do not request shell output");
+    await evaluate("window.setBackgroundTasks([])");
+    await waitFor('!document.querySelector("[data-background-work]")');
     await evaluate(
       'window.setChildren([{id:"advisor:review",source:"milagre-advisor",provider:"codex",model:"reported",title:"Security",status:"running",startedAt:Date.now(),updatedAt:Date.now(),transcript:[{id:"answer",kind:"message",text:"Advisor finding: prefer validated reads."}]}]); window.setAdvisorResult(true)',
     );

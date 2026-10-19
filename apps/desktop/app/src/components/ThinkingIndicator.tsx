@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 
 /** The Milagre mark running: the legs take turns striding while the sparkle bobs and turns a quarter on each step. */
 function RunningLogo() {
@@ -59,11 +61,30 @@ export function ThinkingIndicator({ label, showLabel = false, startedAt }: { lab
  * The Chat's turn ended, but background work goes on (chat-activity.mjs): how many tasks, and for how long the oldest
  * has run. Their results come back to the Chat by themselves; no turn runs, so there is no running mark.
  */
-export function BackgroundIndicator({ count, startedAt, mark }: { count: number; startedAt?: number; mark: ReactNode }) {
+export function BackgroundIndicator({
+  count,
+  startedAt,
+  mark,
+  onClick,
+  expanded,
+}: {
+  count: number;
+  startedAt?: number;
+  mark: ReactNode;
+  onClick: () => void;
+  expanded: boolean;
+}) {
   const elapsed = useElapsed(startedAt);
   const label = `${backgroundLabel(count)} running`;
   return (
-    <div role="status" aria-label={label} data-background-work={count} className="flex w-fit items-center gap-2 px-1 py-1 text-[12px] text-ink-3">
+    <button
+      type="button"
+      aria-label={`${label}. Show background tasks`}
+      aria-expanded={expanded}
+      onClick={onClick}
+      data-background-work={count}
+      className="flex w-fit max-w-full items-center gap-2 rounded-[8px] px-1 py-1 text-left text-[12px] text-ink-2 transition-colors hover:bg-hover hover:text-ink"
+    >
       {mark}
       <span aria-hidden className="min-w-0 truncate">
         {label}
@@ -71,6 +92,7 @@ export function BackgroundIndicator({ count, startedAt, mark }: { count: number;
       <span aria-hidden className="font-mono tabular-nums">
         {elapsed}
       </span>
-    </div>
+      <HugeiconsIcon aria-hidden icon={ArrowDown01Icon} size={12} className={`shrink-0 text-ink-3 transition-transform ${expanded ? "rotate-180" : ""}`} />
+    </button>
   );
 }

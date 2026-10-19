@@ -163,6 +163,64 @@ function load(file, modules, extra = "", cache = new Map()) {
 }
 const jsx = (type, props, key) => ({ type, props, key });
 
+test("background tasks on the phone open command output and subagent details", () => {
+  const react = hookHost();
+  const session = {
+    snapshot: {
+      project: {
+        path: "/project",
+        state: {
+          sessions: {
+            7: {
+              provider: "claude",
+              backgroundTasks: [{ id: "watch", kind: "local_bash", title: "Publish watcher", startedAt: 1 }],
+              subagents: [{ id: "review", title: "Review changes", background: true, status: "running", startedAt: 2, transcript: [] }],
+            },
+          },
+        },
+      },
+    },
+    client: { call: async () => {} },
+  };
+  const { default: BackgroundSheet } = load("app/background.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { router: { back() {} }, useLocalSearchParams: () => ({ id: "7" }) },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
+    "../session": { useSession: () => session },
+    "../subagent-glance": { SubagentDetail: "SubagentDetail", useWholeSubagent: (agent) => agent },
+    "../task-output": { TaskOutput: "TaskOutput" },
+    "../ui": { CircleButton: "CircleButton", ListRow: "ListRow", PageScroll: "PageScroll" },
+  });
+  const render = () => {
+    react.begin();
+    return BackgroundSheet();
+  };
+  find(render(), (node) => node.type === "ListRow" && node.props.title === "Publish watcher").props.onPress();
+  assert.equal(find(render(), (node) => node.type === "TaskOutput").props.taskId, "watch");
+  find(render(), (node) => node.type === "CircleButton" && node.props.label === "Back to tasks").props.onPress();
+  find(render(), (node) => node.type === "ListRow" && node.props.title === "Review changes").props.onPress();
+  const detail = find(render(), (node) => typeof node.type === "function" && node.props.agent?.id === "review");
+  assert.ok(detail, "Selecting a background subagent opens its existing detail view");
+});
+
+test("the phone's background line opens the numeric Chat in its tasks sheet", () => {
+  const host = chatHost();
+  host.params.id = "7";
+  host.session.snapshot.project.state.sessions[7] = {
+    id: 7,
+    provider: "claude",
+    worktree_id: 1,
+    backgroundTasks: [{ id: "watch", kind: "local_bash", title: "Publish watcher", startedAt: 1 }],
+  };
+  const line = find(host.render(), (node) => node.type === "BackgroundIndicator");
+  line.props.onPress();
+  const route = host.router.pushed.at(-1);
+  assert.equal(route.pathname, "/background");
+  assert.equal(route.params.id, "7");
+});
+
 test("the phone selects the computer's shell for new Terminals and keeps selection on save failure", async (t) => {
   const react = hookHost();
   t.after(() => react.cleanup());
@@ -1848,7 +1906,7 @@ function chatHost({
     }),
     "../dot-background": { useDotBackground: () => ({}) },
     "react-native-keyboard-controller": { KeyboardChatScrollView: "KeyboardChatScrollView", KeyboardStickyView: "KeyboardStickyView" },
-    "../running-logo": { ThinkingIndicator: "ThinkingIndicator" },
+    "../running-logo": { ThinkingIndicator: "ThinkingIndicator", BackgroundIndicator: "BackgroundIndicator" },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
     "@milagre/shared/model": require("@milagre/shared/model"),
     "@milagre/shared/agent-runs": { ...require("@milagre/shared/agent-runs"), lastUserModel: () => "" },
@@ -1867,7 +1925,7 @@ function chatHost({
     "../attachment-picker": { pickAttachments, preparePastedImage, discardPastedImage() {} },
     "../attachments": require("../apps/mobile/src/attachments.ts"),
     // A test can show the Worktree branch's PR with globalThis.chatPullRequest, and PRs the Chat named with globalThis.chatNamedPullRequests.
-    "../status-indicators": { PullRequestAction: "PullRequestAction", SubagentChip: "SubagentChip" },
+    "../status-indicators": { PullRequestAction: "PullRequestAction", SubagentChip: "SubagentChip", BackgroundRing: "BackgroundRing" },
     "../use-chat-pull-requests": {
       useChatPullRequests: (_client, targets) =>
         Object.fromEntries(targets.map(({ path }) => [path, { branch: globalThis.chatPullRequest, found: globalThis.chatNamedPullRequests ?? {} }])),
