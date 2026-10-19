@@ -11,6 +11,7 @@ import { FileChip } from "./file-chip";
 import { promptParts } from "@milagre/shared/prompt-parts";
 import { isMentionOfFile, mentionedFile, mentionedFiles } from "@milagre/shared/prompt-mentions";
 import { FileMentionChip, SkillChip } from "./prompt-chip";
+import { promptAccessibilityLabel } from "./prompt-label";
 import { useSkillNames } from "./use-skill-names";
 import { Markdown } from "./markdown";
 import { Icon } from "./icons";
@@ -347,7 +348,7 @@ export const ChatReply = memo(function ChatReply({
                 ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
               }}
             >
-              <Text selectable style={{ color: colors.ink, fontSize: textPx, lineHeight }}>
+              <Text selectable accessibilityLabel={promptAccessibilityLabel(parts)} style={{ color: colors.ink, fontSize: textPx, lineHeight }}>
                 {parts.map((part, index) =>
                   part.kind === "skill" ? (
                     <SkillChip key={index} name={part.name} />

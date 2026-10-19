@@ -137,7 +137,7 @@ function load(file, modules, extra = "", cache = new Map()) {
       if (/^\.\/use-skill-names$/.test(id) && !(id in modules)) return { useSkillNames: () => [] };
       // The chips draw as named elements, like the other components these tests do not render.
       if (/^\.\/prompt-chip$/.test(id) && !(id in modules)) return { SkillChip: "SkillChip", FileMentionChip: "FileMentionChip" };
-      if (/^\.\.?\/(draft-clear|file-mentions)$/.test(id) && !(id in modules)) return load(`${id.replace(/^\.\.?\//, "")}.ts`, modules, "", cache);
+      if (/^\.\.?\/(draft-clear|file-mentions|prompt-label)$/.test(id) && !(id in modules)) return load(`${id.replace(/^\.\.?\//, "")}.ts`, modules, "", cache);
       if (
         (id === "@milagre/shared/prompt-parts" ||
           id === "@milagre/shared/appearance" ||
