@@ -51,6 +51,7 @@ export function Select<T extends string>({
   disabled = false,
   triggerClassName = "",
   searchable = false,
+  variant = "field",
   onOpenChange,
 }: {
   label: string;
@@ -63,14 +64,12 @@ export function Select<T extends string>({
   triggerClassName?: string;
   /** A search field over a long list (e.g. time zones); it filters by label. */
   searchable?: boolean;
-  /** Told each time the menu opens or closes. */
+  /** `text`: the trigger reads as plain text with a chevron (a heading that is also a choice), and the panel opens from its left edge. */
+  variant?: "field" | "text";
+  /** Told each time the menu opens or closes: a hover surface the trigger sits in (the usage card) stays open while the panel is in use, and the Appearance preview highlights the row's area. */
   onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpenState] = useState(false);
-  const setOpen = (next: boolean) => {
-    setOpenState(next);
-    onOpenChange?.(next);
-  };
+  const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number }>({ left: 0, maxHeight: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -85,7 +84,7 @@ export function Select<T extends string>({
     setHost(triggerRef.current?.closest("dialog[open]") ?? null);
     const trigger = triggerRef.current?.getBoundingClientRect();
     if (!trigger) return;
-    const left = Math.max(INSET, Math.min(trigger.right - width, window.innerWidth - width - INSET));
+    const left = Math.max(INSET, Math.min(variant === "text" ? trigger.left : trigger.right - width, window.innerWidth - width - INSET));
     const roomBelow = window.innerHeight - trigger.bottom - GAP - INSET;
     const roomAbove = trigger.top - GAP - INSET;
     // Open upward when the panel would not fit below and there is more room above, so a trigger near the bottom shows its rows.
@@ -97,8 +96,13 @@ export function Select<T extends string>({
     );
   }
 
+  function setShown(next: boolean) {
+    setOpen(next);
+    onOpenChange?.(next);
+  }
+
   function close(refocus = true) {
-    setOpen(false);
+    setShown(false);
     if (refocus) triggerRef.current?.focus();
   }
 
@@ -136,7 +140,7 @@ export function Select<T extends string>({
     event.preventDefault();
     setQuery("");
     place();
-    setOpen(true);
+    setShown(true);
   }
 
   return (
@@ -156,12 +160,16 @@ export function Select<T extends string>({
           // A new search each time it opens; place() also runs on resize and scroll, which keep the query.
           setQuery("");
           place();
-          setOpen(true);
+          setShown(true);
         }}
         onKeyDown={onTriggerKeyDown}
-        className={`flex h-8 items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"} ${triggerClassName}`}
+        className={
+          variant === "text"
+            ? `-mx-1.5 flex min-w-0 max-w-full items-center gap-1 rounded-[6px] px-1.5 text-left text-ink transition-colors hover:bg-hover-2 ${open ? "bg-hover-2" : ""} ${triggerClassName}`
+            : `flex h-8 items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"} ${triggerClassName}`
+        }
       >
-        {selected?.icon}
+        {variant === "field" && selected?.icon}
         {selected?.display ?? (
           <span style={selected?.style} className="min-w-0 flex-1 truncate text-left">
             {selected?.label ?? ""}
@@ -182,7 +190,10 @@ export function Select<T extends string>({
             style={{ left: position.left, top: position.top, bottom: position.bottom, width }}
           >
             <PickerPanel
-              style={{ maxHeight: position.maxHeight, transformOrigin: `${position.top === undefined ? "bottom" : "top"} right` }}
+              style={{
+                maxHeight: position.maxHeight,
+                transformOrigin: `${position.top === undefined ? "bottom" : "top"} ${variant === "text" ? "left" : "right"}`,
+              }}
               {...(searchable ? { query, onQueryChange: setQuery, placeholder: "Search", isEmpty: shown.length === 0, emptyLabel: "No matches" } : {})}
             >
               {shown.map((option, index) => (

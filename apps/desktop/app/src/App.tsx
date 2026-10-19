@@ -1921,8 +1921,9 @@ function App() {
   // Saved message cards also receive this callback: keep their memoization during sends and streamed updates.
   const openLinkedChat = useEvent((key: string) => void openCanvasChat(projectOfKey(key), sessionIdFromKey(key)));
   const sidebarUsage = useMemo(
-    () => (showUsageInSidebar && usage.snapshot && visibleProviders(usage.snapshot).length > 0 ? <SidebarUsage usage={usage} /> : undefined),
-    [showUsageInSidebar, usage.snapshot, usage.loading],
+    () =>
+      showUsageInSidebar && usage.snapshot && visibleProviders(usage.snapshot).length > 0 ? <SidebarUsage usage={usage} scope={accountScope} /> : undefined,
+    [showUsageInSidebar, usage.snapshot, usage.loading, accountScope],
   );
   const composerWorktrees = useMemo(
     () => worktrees.filter((worktree) => !worktree.sharedChat).map((worktree) => ({ id: worktree.id, name: worktree.name, path: worktree.path })),
