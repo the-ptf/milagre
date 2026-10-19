@@ -161,6 +161,70 @@ test("no run title for an empty reply, a missing model, a stuck model, or an ans
   assert.equal(signal.aborted, true);
 });
 
+// Run titles are made in the background on a Mac that may be busy: the model call gets a long budget (it also covers
+// spawning the CLI) and one more try when the first yields nothing.
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+test("a run title waits 60 seconds for the model, a chat title 15", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const signals = [];
+  const stuck = async (request) => (signals.push(request.signal), new Promise(() => {}));
+  const run = generateRunTitle({ reply: "Did it" }, { models: { claude: stuck } });
+  await settle();
+  t.mock.timers.tick(59_999);
+  await settle();
+  assert.equal(signals[0].aborted, false);
+  t.mock.timers.tick(1);
+  await settle();
+  assert.equal(signals[0].aborted, true);
+  // The retry is a new call with its own 60 seconds.
+  assert.equal(signals.length, 2);
+  t.mock.timers.tick(59_999);
+  await settle();
+  assert.equal(signals[1].aborted, false);
+  t.mock.timers.tick(1);
+  assert.equal(await run, null);
+  assert.equal(signals[1].aborted, true);
+
+  const chat = generateChatTitle({ prompt: "fix login" }, { models: { claude: stuck } });
+  await settle();
+  t.mock.timers.tick(14_999);
+  await settle();
+  assert.equal(signals[2].aborted, false);
+  t.mock.timers.tick(1);
+  assert.equal(await chat, null);
+  assert.equal(signals[2].aborted, true);
+  assert.equal(signals.length, 3, "a chat title is not retried");
+});
+
+test("a run title is tried once more when the first attempt yields nothing", async () => {
+  for (const first of [null, "", "not json", '{"title":""}', JSON.stringify({ title: "a".repeat(61) }), "throw", "hang"]) {
+    let calls = 0;
+    const claude = async () => {
+      calls += 1;
+      if (calls > 1) return '{"title":"Second try title"}';
+      if (first === "throw") throw new Error("spawn failed");
+      if (first === "hang") return new Promise(() => {});
+      return first;
+    };
+    const title = await generateRunTitle({ reply: "Did it" }, { timeoutMs: 10, models: { claude } });
+    assert.equal(title, "Second try title", String(first));
+    assert.equal(calls, 2, String(first));
+  }
+});
+
+test("a run title that comes at once is not retried, and two failures give null after exactly two calls", async () => {
+  let calls = 0;
+  assert.equal(await generateRunTitle({ reply: "Did it" }, { models: { claude: async () => (calls++, fineTitle()) } }), "Fine title");
+  assert.equal(calls, 1);
+  calls = 0;
+  assert.equal(await generateRunTitle({ reply: "Did it" }, { models: { claude: async () => (calls++, "nope") } }), null);
+  assert.equal(calls, 2);
+  // No model for the provider: nothing to try twice.
+  assert.equal(await generateRunTitle({ reply: "Did it", provider: "codex" }, { models: { claude: async () => (calls++, fineTitle()) } }), null);
+  assert.equal(calls, 2);
+});
+
 const { ChatTitles } = require("./chat-title.cjs");
 const { ProjectStates } = require("./project-states.cjs");
 const { ChatHost } = require("./agents/chat-host.cjs");

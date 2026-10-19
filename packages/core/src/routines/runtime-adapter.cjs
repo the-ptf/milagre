@@ -355,7 +355,7 @@ function routineChats({
      * unnamed by the user. `quietSummary` (a quiet Run's `(pass)` line) is the title as it is; otherwise the title comes
      * from the Run's final reply. A Linear issue's Run keeps the issue's key and title. Called as the turn's end is observed
      * and reads the reply before it first waits, while the turn's text is still in memory. Never throws: a Run that can't be
-     * named keeps the Routine's name, and the problem is logged.
+     * named keeps the Routine's name, and the problem is logged (one line when the model gave no title, see generateRunTitle).
      */
     async nameRun(chatId, runId, { quietSummary } = {}) {
       try {
@@ -369,6 +369,7 @@ function routineChats({
           const reply = routineReply(state, sessionId);
           if (!reply) return;
           title = await generateRunTitle({ reply, provider: state?.sessions?.[sessionId]?.provider, projectPath });
+          if (!title) console.warn(`[routines] couldn't name Run ${runId}: the title model gave no usable title, so it keeps the Routine's name`);
         } else {
           title = summaryTitle(quietSummary);
         }

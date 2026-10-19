@@ -1133,11 +1133,26 @@ test("nameRun names nothing for a quiet Run whose summary is blank, or an acted 
   assert.deepEqual([calls.generated, calls.titled, calls.named], [[], [], []]);
 });
 
-test("a title that fails to generate leaves the Run and its Chat as they are", async () => {
+test("a title that fails to generate leaves the Run and its Chat as they are, and logs one line naming the Run", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
   const { adapter, calls } = nameFixture({ title: null });
   await adapter.nameRun(chatId, "run-1", {});
   assert.equal(calls.generated.length, 1);
   assert.deepEqual([calls.titled, calls.named], [[], []]);
+  assert.equal(warn.mock.calls.length, 1);
+  assert.match(String(warn.mock.calls[0].arguments[0]), /^\[routines\] couldn't name Run run-1\b/);
+});
+
+test("nothing is logged for a Run that is named, a quiet one, or one with no reply to name", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  await nameFixture().adapter.nameRun(chatId, "run-1", {});
+  await nameFixture({ title: null }).adapter.nameRun(chatId, "run-1", { quietSummary: "CI green" });
+  await nameFixture({ title: null }).adapter.nameRun(chatId, "run-1", { quietSummary: "  " });
+  await nameFixture({
+    title: null,
+    messages: [{ id: 1, session_id: 2, role: "user", body: "Triage", context: { kind: "routine-run", routineId: "r9", runId: "run-1" } }],
+  }).adapter.nameRun(chatId, "run-1", {});
+  assert.equal(warn.mock.calls.length, 0);
 });
 
 test("a Linear Run's Chat is not renamed: the issue key and title stay, on the Run and the Chat", async () => {

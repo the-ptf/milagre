@@ -45,10 +45,19 @@ async function generateChatTitle({ prompt, provider = "claude" }, { models = {},
   return modelTitle({ system: SYSTEM, prompt: `<first_message>\n${prompt.slice(0, 4000)}\n</first_message>`, provider, models, timeoutMs });
 }
 
-/** A Routine Run's title from the reply it ended with (what it did), under the same limits as a Chat's title. */
-async function generateRunTitle({ reply, provider = "claude" }, { models = {}, timeoutMs = 15_000 } = {}) {
-  if (typeof reply !== "string" || !reply.trim()) return null;
-  return modelTitle({ system: RUN_SYSTEM, prompt: `<final_reply>\n${reply.slice(0, 4000)}\n</final_reply>`, provider, models, timeoutMs });
+// A Run is titled in the background, so its model call may take long: the budget also covers resolving the CLI, importing
+// the SDK and spawning it, and a busy Mac took 18 to 22 s where the 15 s of a Chat's title (which is waited for) cut it off.
+const RUN_TITLE_TIMEOUT_MS = 60_000;
+
+/**
+ * A Routine Run's title from the reply it ended with (what it did), under the same limits as a Chat's title. Each of two
+ * attempts gets `timeoutMs`; the second is made only when the first yielded no title (timed out, failed, or an answer that
+ * isn't one). Resolves with null when neither did, or there is no model for the provider.
+ */
+async function generateRunTitle({ reply, provider = "claude" }, { models = {}, timeoutMs = RUN_TITLE_TIMEOUT_MS } = {}) {
+  if (typeof reply !== "string" || !reply.trim() || !models[provider]) return null;
+  const request = { system: RUN_SYSTEM, prompt: `<final_reply>\n${reply.slice(0, 4000)}\n</final_reply>`, provider, models, timeoutMs };
+  return (await modelTitle(request)) ?? modelTitle(request);
 }
 
 /** Background naming lives with the main process's serialized project state. */
