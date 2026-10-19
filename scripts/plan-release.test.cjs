@@ -143,6 +143,24 @@ test("the switch from per-merge tags starts above the beta installs already run"
   assert.match(plan.notes, /compare\/v0\.203\.0\.\.\.v0\.229\.0-beta\.1/);
 });
 
+test("after the switch, the next beta continues the line beta installs run instead of jumping past it", (t) => {
+  const f = fixture(t);
+  f.commit("feat: initial");
+  f.release("v0.203.0");
+  f.commit("feat: many merges later (#479)");
+  f.release("v0.228.0-beta.1");
+  f.commit("fix: discover models (#533)");
+  f.release("v0.229.0-beta.1");
+  f.commit("fix(release): keep the draft's tag (#535)");
+  const plan = planBeta({ exec: f.exec, repo: REPO, sha: head(f) });
+  assert.equal(plan.releaseTag, "v0.229.0-beta.2");
+  assert.match(plan.notes, /^Changes since v0\.229\.0-beta\.1\./);
+  f.release("v0.229.0-beta.2");
+  f.release("v0.229.0");
+  f.commit("fix: after the promotion (#536)");
+  assert.equal(planBeta({ exec: f.exec, repo: REPO, sha: head(f) }).releaseTag, "v0.229.1-beta.1");
+});
+
 test("drafts and the Next beta draft never count as releases", (t) => {
   const f = fixture(t);
   f.commit("feat: initial");
