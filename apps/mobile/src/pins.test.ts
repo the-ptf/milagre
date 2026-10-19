@@ -12,7 +12,7 @@ const chat = (id: number, pin_order?: number): AgentSession => ({
 });
 
 test("pinPatch pins at the end, unpins, and moves a pinned Chat one place", () => {
-  const sessions = [chat(1, 0), chat(2, 1), chat(3, 2), chat(4)];
+  const sessions: [AgentSession, AgentSession, AgentSession, AgentSession] = [chat(1, 0), chat(2, 1), chat(3, 2), chat(4)];
   assert.deepEqual(pinPatch("pin", sessions[3], sessions), { pinned: true, pin_order: 3 });
   assert.deepEqual(pinPatch("unpin", sessions[1], sessions), { pinned: false });
   assert.deepEqual(pinPatch("pin-up", sessions[2], sessions), { pinned: true, pin_order: 0.5 });

@@ -637,11 +637,11 @@ test("an Antigravity session's models are recorded for its account once the turn
   created[0].currentModel = "gemini-new-low";
   await manager.startTurn(base);
   assert.deepEqual(
-    listAntigravityModels({ accountId: "acct" }).map(({ id, efforts, defaultEffort }) => ({ id, efforts, defaultEffort })),
+    (await listAntigravityModels({ accountId: "acct" })).map(({ id, efforts, defaultEffort }) => ({ id, efforts, defaultEffort })),
     [{ id: "gemini-new", efforts: ["low", "high"], defaultEffort: "low" }],
   );
   assert.notDeepEqual(
-    listAntigravityModels({ accountId: "other" }).map((model) => model.id),
+    (await listAntigravityModels({ accountId: "other" })).map((model) => model.id),
     ["gemini-new"],
   );
   forgetAntigravityModels();

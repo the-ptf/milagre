@@ -97,7 +97,12 @@ export function PortsSheet({ hostId, chatId }: { hostId?: string; chatId?: strin
     setActionError("");
     try {
       const results = await Promise.allSettled(targets.map((pid) => source.call<boolean>("agent:stop-port", [chatId, pid])));
-      drop(targets.filter((_, index) => results[index].status === "fulfilled" && results[index].value === true));
+      drop(
+        targets.filter((_, index) => {
+          const result = results[index];
+          return result?.status === "fulfilled" && result.value === true;
+        }),
+      );
       await refresh();
       const failure = results.find((result) => result.status === "rejected");
       if (failure?.status === "rejected") throw failure.reason;

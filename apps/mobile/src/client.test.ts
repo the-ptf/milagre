@@ -19,6 +19,7 @@ test("recent scopes carry Link visibility so a desktop-hidden Link stays out of 
     return new Response(JSON.stringify({ v: 1, result }));
   });
   const recent = await client.recentScopes();
+  assert.ok(recent[0] !== undefined);
   assert.equal(recent[0].hidden, true);
   assert.equal(recent.filter((item) => !item.hidden).length, 0);
 });
@@ -213,6 +214,7 @@ test("a relay host sends its calls through the relay transport and reads the JSO
   );
   assert.equal(client.url, `relay://${hostId}`);
   assert.deepEqual(await client.call("daemon:status"), { running: true });
+  assert.ok(relay.sent[0] !== undefined);
   assert.equal(relay.sent[0].method, "POST");
   assert.equal(relay.sent[0].path, "/rpc");
   assert.deepEqual(JSON.parse(String(relay.sent[0].body)), { v: 1, method: "daemon:status", args: [] });
@@ -248,6 +250,7 @@ test("a relay snapshot answered with 304 reuses the cached one", async () => {
       ["GET", '"abc"'],
     ],
   );
+  assert.ok(relay.sent[0] !== undefined);
   assert.equal(relay.sent[0].path, "/snapshot?projectPath=%2Fp");
 });
 
@@ -306,6 +309,7 @@ test("the live socket of a relay host rides the transport and keeps the same sig
     statuses: boolean[] = [];
   const live = client.live("/p q", { onSignal: (signal) => signals.push(signal), onStatus: (open) => statuses.push(open) });
   await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(relay.lives[0] !== undefined);
   assert.equal(relay.lives[0].path, "/live?projectPath=%2Fp%20q");
   relay.lives[0].onStatus(true);
   relay.lives[0].onData('{"type":"runs"}');
@@ -343,6 +347,7 @@ test("relay images are fetched once into the cache folder and come back as file 
   assert.equal(first, second);
   assert.match(first, /^file:\/\/\/cache\/relay-media\/[a-f0-9]{16}\.png$/);
   assert.equal(relay.sent.length, 1);
+  assert.ok(relay.sent[0] !== undefined);
   assert.equal(relay.sent[0].method, "GET");
   assert.equal(relay.sent[0].path, "/media?projectPath=%2Fp&path=%2Fp%2Fshot.png");
   assert.deepEqual([...relay.written.values()], [png]);
@@ -388,6 +393,7 @@ test("relay images load at most 4 at a time, in order, and calls never wait behi
   const media = () => relay.sent.filter((sent) => sent.path.startsWith("/media")).map((sent) => new URLSearchParams(sent.path.split("?")[1]).get("path"));
   assert.deepEqual(media(), ["/p/0.png", "/p/1.png", "/p/2.png", "/p/3.png"]);
   assert.equal(await client.call("daemon:status"), "ok");
+  assert.ok(held[0] !== undefined);
   held[0].release();
   await settle();
   assert.deepEqual(media().slice(4), ["/p/4.png"]);
@@ -414,7 +420,9 @@ test("drawer previews use a separate ETag route and accept full snapshots from a
   });
   assert.deepEqual(await client.preview("/p"), full);
   await client.snapshot("/p");
+  assert.ok(routes[0] !== undefined);
   assert.ok(routes[0].endsWith("/snapshot?projectPath=%2Fp&view=chats"));
+  assert.ok(routes[1] !== undefined);
   assert.ok(routes[1].endsWith("/snapshot?projectPath=%2Fp"));
 });
 
@@ -458,6 +466,7 @@ test("a Cloudflare computer's requests go through the LAN transport while it is 
   view.switch(lan.transport);
   assert.equal(await client.call("daemon:status"), "over-lan");
   assert.equal(lan.sent.length, 1);
+  assert.ok(lan.sent[0] !== undefined);
   assert.equal(lan.sent[0].path, "/rpc");
   assert.equal(lan.sent[0].headers.Authorization, undefined, "the LAN handshake carries the token, not each request");
   assert.equal(lan.opened.length, 0, "a Cloudflare computer has no relay to open");
@@ -514,11 +523,13 @@ test("a Cloudflare computer's live stream follows the LAN: the old stream closes
   const client = createClient(cloudflareHost, fetch, 30000, { ...lan.runtime, lan: () => view });
   const live = client.live("/p", { onSignal() {}, onStatus: (up) => statuses.push(up), create });
   assert.equal(sockets.length, 1, "opened over the tunnel");
+  assert.ok(sockets[0] !== undefined);
   assert.equal(sockets[0].url, "wss://mac.example.com/live?projectPath=%2Fp");
   view.switch(lan.transport);
   await settle();
   assert.equal(sockets[0].closed, true, "the tunnel stream closed");
   assert.equal(lan.lives.length, 1, "reopened on the LAN");
+  assert.ok(lan.lives[0] !== undefined);
   assert.equal(lan.lives[0].path, "/live?projectPath=%2Fp");
   assert.equal(sockets.length, 1);
   assert.deepEqual(statuses, [false]);
@@ -527,6 +538,7 @@ test("a Cloudflare computer's live stream follows the LAN: the old stream closes
   assert.equal(lan.lives[0].closed, true, "the LAN stream closed when the LAN went away");
   assert.equal(sockets.length, 2, "back on the tunnel");
   live.close();
+  assert.ok(sockets[1] !== undefined);
   assert.equal(sockets[1].closed, true);
   assert.equal(listeners.size, 0, "closing the stream stops watching the route");
 });
@@ -542,14 +554,17 @@ test("a relay computer's live stream reopens on the LAN, and back on the relay, 
   assert.equal(relay.lives.length, 1);
   view.switch(lan.transport);
   await settle();
+  assert.ok(relay.lives[0] !== undefined);
   assert.equal(relay.lives[0].closed, true);
   assert.equal(lan.lives.length, 1);
+  assert.ok(lan.lives[0] !== undefined);
   lan.lives[0].onData('{"type":"runs"}');
   assert.deepEqual(signals, ["runs"]);
   view.switch(null);
   await settle();
   assert.equal(lan.lives[0].closed, true);
   assert.equal(relay.lives.length, 2);
+  assert.ok(relay.lives[1] !== undefined);
   assert.equal(relay.lives[1].closed, false);
   live.close();
   assert.equal(relay.lives[1].closed, true);
@@ -565,6 +580,7 @@ test("a route change that leaves the same transport in place does not reopen the
   view.switch(lan.transport);
   await settle();
   assert.equal(lan.lives.length, 1);
+  assert.ok(lan.lives[0] !== undefined);
   assert.equal(lan.lives[0].closed, false);
   live.close();
 });
@@ -583,6 +599,7 @@ test("images of a Cloudflare computer load through the LAN transport while it is
   const source = client.image("/p", "/p/a.png");
   assert.ok(source instanceof Promise, "an image over the LAN is fetched to a file");
   assert.match((await source).uri, /^file:\/\/\/cache\/relay-media\/[a-f0-9]{16}\.png$/);
+  assert.ok(lan.sent[0] !== undefined);
   assert.equal(lan.sent[0].path, "/media?projectPath=%2Fp&path=%2Fp%2Fa.png");
   assert.throws(() => client.media("/p", "/p/a.png"), /mediaFile/);
 });
@@ -604,10 +621,12 @@ test("an image queued behind four others rides the route that is current when it
   await settle();
   assert.equal(lan.sent.length, 4);
   view.switch(null);
+  assert.ok(held[0] !== undefined);
   held[0]();
   await settle();
   assert.equal(lan.sent.length, 4, "the fifth image must not start on the LAN transport that was replaced");
   assert.equal(relay.sent.length, 1);
+  assert.ok(relay.sent[0] !== undefined);
   assert.match(relay.sent[0].path, /%2Fp%2F4\.png/);
   held.slice(1).forEach((release) => release());
   await Promise.all(loads);
@@ -651,7 +670,9 @@ test("the app asks for snapshots without messages and reads a Chat's as pages", 
   });
   await client.snapshot("/p");
   await client.chatMessages("/p", 7, { before: 40, turns: 5 });
+  assert.ok(sent[0] !== undefined);
   assert.equal(sent[0].pages, "1");
+  assert.ok(sent[1] !== undefined);
   assert.ok(sent[1].url.endsWith("/chat-messages?projectPath=%2Fp&chatId=7&before=40&turns=5"));
 });
 

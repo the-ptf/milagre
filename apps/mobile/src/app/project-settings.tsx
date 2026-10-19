@@ -15,6 +15,7 @@ async function pickIcon() {
   const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1] });
   if (result.canceled) return undefined;
   const asset = result.assets[0];
+  if (!asset) throw new Error("Could not read this photo.");
   const context = ImageManipulator.manipulate(asset.uri);
   context.resize(asset.width > asset.height ? { width: Math.min(asset.width, 256) } : { height: Math.min(asset.height, 256) });
   const rendered = await context.renderAsync();

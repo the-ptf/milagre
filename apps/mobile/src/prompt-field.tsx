@@ -73,7 +73,7 @@ export function PromptField({
     if (!query) return;
     const command = `/${name}`;
     const suffix = draft.slice(query.end);
-    const [, punctuation, whitespace] = /^([.,!?;:()[\]{}]*)(\s?)/.exec(suffix)!;
+    const [, punctuation = "", whitespace = ""] = /^([.,!?;:()[\]{}]*)(\s?)/.exec(suffix) ?? [];
     const gap = whitespace || " ";
     const next = `${draft.slice(0, query.start)}${command}${punctuation}${gap}${suffix.slice(punctuation.length + whitespace.length)}`;
     const caret = query.start + command.length + punctuation.length + gap.length;

@@ -3,27 +3,28 @@
 // efforts, like Claude and Codex. The agent's ids are irregular ("gemini-pro-agent" is Pro at High), so each family
 // keeps a table from effort to the agent's own id.
 
-/** What Antigravity 1.3.0 reports, in its order. The picker groups these until a session reports its own. */
+/**
+ * Personal-account options reported by ACP 1.3.0 on 2026-10-18, in its order. The picker groups these until
+ * a session reports its account's own list. Pro 3.1 and Flash 3.7/3.6 are now Enterprise-only:
+ * https://antigravity.google/docs/models. Partner models are offered only when ACP reports them.
+ */
 export const ANTIGRAVITY_AGENT_OPTIONS = Object.freeze([
+  { value: "gemini-4-argon-medium", name: "Gemini 4 Argon (Medium)" },
+  { value: "gemini-4-argon-high", name: "Gemini 4 Argon (High)" },
+  { value: "gemini-4-argon-low", name: "Gemini 4 Argon (Low)" },
   { value: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" },
   { value: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash (Medium)" },
   { value: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" },
-  { value: "gemini-pro-agent", name: "Gemini 3.1 Pro (High)" },
-  { value: "gemini-3.1-pro-low", name: "Gemini 3.1 Pro (Low)" },
-  { value: "gemini-3.7-flash-high", name: "Gemini 3.7 Flash (High)" },
-  { value: "gemini-3.7-flash-medium", name: "Gemini 3.7 Flash (Medium)" },
-  { value: "gemini-3.7-flash-low", name: "Gemini 3.7 Flash (Low)" },
-  { value: "gemini-3.6-flash-high", name: "Gemini 3.6 Flash (High)" },
-  { value: "gemini-3.6-flash-medium", name: "Gemini 3.6 Flash (Medium)" },
-  { value: "gemini-3.6-flash-low", name: "Gemini 3.6 Flash (Low)" },
 ]);
 
 /** Milagre's wording and recommendations per family, by family id; the agent describes models only by their ids. */
 export const ANTIGRAVITY_FAMILY_COPY = {
+  "gemini-4-argon": { description: "For complex work", recommended: true },
   "gemini-3.8-flash": { description: "Fast", recommended: true },
-  "gemini-3.1-pro": { description: "Most capable for complex work", recommended: true },
-  "gemini-3.7-flash": { description: "Previous generation fast model" },
-  "gemini-3.6-flash": { description: "Older fast model" },
+  // These stay available when an Enterprise session reports them, without advertising them in the fallback.
+  "gemini-3.1-pro": { description: "For complex work (Enterprise)" },
+  "gemini-3.7-flash": { description: "Previous generation fast model (Enterprise)" },
+  "gemini-3.6-flash": { description: "Older fast model (Enterprise)" },
 };
 
 /** The family the text generator asks, and at which effort: the fastest current model at its lightest level. */
@@ -46,7 +47,7 @@ export function familySlug(name) {
 /** "Gemini 3.1 Pro (High)" -> { family: "Gemini 3.1 Pro", level: "high" }; a name without "(Level)" has no level. */
 export function splitModelName(name) {
   const match = /^(.*\S)\s*\(\s*([A-Za-z][\w-]*)\s*\)$/.exec(name.trim());
-  return match ? { family: match[1], level: match[2].toLowerCase() } : { family: name.trim(), level: null };
+  return match && match[2].toLowerCase() !== "thinking" ? { family: match[1], level: match[2].toLowerCase() } : { family: name.trim(), level: null };
 }
 
 /**
@@ -60,7 +61,9 @@ export function antigravityFamilies(options, current) {
   for (const option of options ?? []) {
     if (typeof option?.value !== "string" || !option.value) continue;
     const { family: name, level } = splitModelName(option.name?.trim() || option.value);
-    const id = familySlug(name) || option.value;
+    const slug = familySlug(name) || option.value;
+    // Partner models use Antigravity's Account and quota, even when the same model also has its own provider.
+    const id = /^(claude|gpt)(-|$)/.test(slug) ? `antigravity:${slug}` : slug;
     let family = families.get(id);
     if (!family) {
       family = { id, name, efforts: [], variants: {}, options: [] };
@@ -95,7 +98,7 @@ export function antigravityFamilies(options, current) {
 export function resolveAntigravityModel(families, model, effort) {
   if (!model) return undefined;
   if (families.some((family) => Object.values(family.variants).includes(model))) return model;
-  const family = families.find((item) => item.id === model);
+  const family = families.find((item) => item.id === model || item.id === `antigravity:${model}`);
   if (!family) return undefined;
   if (!family.efforts.length) return family.variants[""] ?? family.options[0]?.value;
   const level = effort && family.efforts.includes(effort) ? effort : (family.defaultEffort ?? family.efforts.at(-1));
