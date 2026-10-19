@@ -117,32 +117,46 @@ async function browserChecks() {
       "red-green keeps today's green",
     );
 
-    // Chat width.
-    await set({ chatWidth: "wide" });
-    await waitFor(`document.querySelector('.chat-column').getBoundingClientRect().width > 768`);
-    assert.equal(await columnWidth(), 1024, "wide caps the column at 1024px");
-    await set({ chatWidth: "full" });
-    await waitFor(`document.querySelector('.chat-column').getBoundingClientRect().width > 1024`);
-    assert.ok((await columnWidth()) > 1024, "full fills the pane at a 1600px window");
-    // Full: the chip row and composer share the transcript column's side insets.
+    // The composer (and the chip row above it) take the transcript column's side insets, whatever the width setting,
+    // so the composer card's edges line up with the transcript's text edges.
     const edges = (selector) =>
       evaluate(
         `(() => { const el = document.querySelector(${JSON.stringify(selector)}); const r = el.getBoundingClientRect(); const c = getComputedStyle(el); return { left: r.left + parseFloat(c.paddingLeft), right: r.right - parseFloat(c.paddingRight) }; })()`,
       );
-    const transcriptEdges = await edges(".chat-column");
-    const composerEdges = await edges("[data-composer-wrap]");
-    assert.ok(
-      Math.abs(transcriptEdges.left - composerEdges.left) <= 2,
-      "full: composer left edge lines up with the transcript " + JSON.stringify([transcriptEdges, composerEdges]),
-    );
-    assert.ok(
-      Math.abs(transcriptEdges.right - composerEdges.right) <= 2,
-      "full: composer right edge lines up with the transcript " + JSON.stringify([transcriptEdges, composerEdges]),
-    );
+    const assertAligned = async (label) => {
+      const transcriptEdges = await edges(".chat-column");
+      const composerEdges = await edges("[data-composer-wrap]");
+      assert.ok(
+        Math.abs(transcriptEdges.left - composerEdges.left) <= 2,
+        label + ": composer left edge lines up with the transcript " + JSON.stringify([transcriptEdges, composerEdges]),
+      );
+      assert.ok(
+        Math.abs(transcriptEdges.right - composerEdges.right) <= 2,
+        label + ": composer right edge lines up with the transcript " + JSON.stringify([transcriptEdges, composerEdges]),
+      );
+    };
+    await assertAligned("comfortable");
+
+    // Chat width.
+    await set({ chatWidth: "wide" });
+    await waitFor(`document.querySelector('.chat-column').getBoundingClientRect().width > 768`);
+    assert.equal(await columnWidth(), 1024, "wide caps the column at 1024px");
+    await assertAligned("wide");
+    await set({ chatWidth: "full" });
+    await waitFor(`document.querySelector('.chat-column').getBoundingClientRect().width > 1024`);
+    assert.ok((await columnWidth()) > 1024, "full fills the pane at a 1600px window");
+    await assertAligned("full");
     await set({ chatWidth: "custom", chatWidthPx: 1100 });
     await waitFor(`document.querySelector('.chat-column').getBoundingClientRect().width === 1100`);
     assert.equal(await columnWidth(), 1100, "custom caps the column at its px");
+    await assertAligned("custom");
     await set({ chatWidth: "comfortable" });
+    // A pane narrower than the column: the transcript's rail lane widens its left inset and the composer follows.
+    window.setContentSize(900, 900);
+    await waitFor(`document.querySelector('.chat-column').getBoundingClientRect().width < 700`);
+    await assertAligned("narrow comfortable");
+    window.setContentSize(1600, 900);
+    await waitFor(`document.querySelector('.chat-column').getBoundingClientRect().width > 700`);
 
     // Sizes.
     await set({ chatSize: "large", codeSize: "large", sidebarSize: "larger" });

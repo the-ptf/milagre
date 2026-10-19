@@ -638,24 +638,28 @@ a {
 
 /* The conversation rail sits over the left edge of the transcript. When the
  * window is too narrow for the centred column to clear it, the column's left
- * padding grows so the ticks keep their own lane (36px from the edge). */
-.chat-column {
+ * padding grows so the ticks keep their own lane (36px from the edge).
+ * The chip row and composer share these insets (.chat-gutter), so the composer card's
+ * edges line up with the transcript's text edges at every width setting. */
+.chat-column,
+.chat-gutter {
   --column: 768px;
   padding-left: clamp(12px, calc(36px - (100% - var(--column)) / 2), 36px);
 }
-.chat-column[data-chat-width="wide"] {
+/* The composer wrap is p-1.5; its sides take the transcript's 12px (the column's px-3). */
+.chat-gutter {
+  padding-right: 12px;
+}
+.chat-column[data-chat-width="wide"],
+.chat-gutter[data-chat-width="wide"] {
   --column: 1024px;
 }
-.chat-column[data-chat-width="custom"] {
+.chat-column[data-chat-width="custom"],
+.chat-gutter[data-chat-width="custom"] {
   --column: var(--chat-width);
 }
 /* Full: the column fills the pane, so the rail lane is plain padding. */
-.chat-column[data-chat-width="full"] {
-  padding-left: 36px;
-  padding-right: 24px;
-}
-
-/* Full: the chip row and composer take the transcript column's side insets so their edges line up. */
+.chat-column[data-chat-width="full"],
 .chat-gutter[data-chat-width="full"] {
   padding-left: 36px;
   padding-right: 24px;
