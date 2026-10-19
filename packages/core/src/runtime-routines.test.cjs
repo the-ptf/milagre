@@ -431,7 +431,7 @@ test("a title that fails to generate leaves the Run untitled and its Chat named 
   }
 });
 
-test("a quiet Run is titled with its summary's first line, cut at 60, with no model asked", async (t) => {
+test("a quiet Run is titled with its summary's first line, cut like a Chat's title, with no model asked", async (t) => {
   let asked = false;
   const f = await fixture(t, {
     titleModels: {
@@ -450,8 +450,10 @@ test("a quiet Run is titled with its summary's first line, cut at 60, with no mo
   await eventually(async () => (await latestRun(f)).status === "quiet");
   await eventually(async () => (await latestRun(f)).title !== undefined);
   const run = await latestRun(f);
-  assert.equal(run.title, run.summary.slice(0, 60).trim());
-  assert.ok(run.title.length <= 60 && run.title.startsWith("inbox empty"));
+  // The summary is over 60 characters: 57 of them and an ellipsis, as a long Chat title is cut.
+  assert.ok(run.summary.length > 60);
+  assert.equal(run.title, `${run.summary.slice(0, 57)}…`);
+  assert.equal(run.title.length, 58);
   assert.equal(asked, false);
 });
 

@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSession, ChatMessage, CoordinatorState } from "./model.ts";
-import { chatTitle, comparePins, pinOrderAt } from "./chats.mjs";
+import { chatTitle, comparePins, pinOrderAt, shortTitle } from "./chats.mjs";
 
 const session: AgentSession = { id: 1, worktree_id: 1, agent_name: "main", status: "Created" };
+
+test("shortTitle keeps a line of 60 characters whole and cuts a longer one to 57 and an ellipsis", () => {
+  assert.equal(shortTitle("CI green"), "CI green");
+  assert.equal(shortTitle("x".repeat(60)), "x".repeat(60));
+  assert.equal(shortTitle("x".repeat(61)), `${"x".repeat(57)}…`);
+  assert.equal(shortTitle("x".repeat(61)).length, 58);
+});
 
 test("chatTitle prefers the user's name, then the first message's first line", () => {
   const messages = [

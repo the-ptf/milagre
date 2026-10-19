@@ -1098,19 +1098,24 @@ test("nameRun reads only the text after the reply's last tool step", async () =>
   assert.equal(calls.generated[0].reply, "Sorted 4 issues.");
 });
 
-test("nameRun titles a quiet Run from its summary's first line, cut at 60, with no model", async () => {
+test("nameRun titles a quiet Run from its summary's first line, cut like a Chat's title, with no model", async () => {
   const { adapter, calls } = nameFixture();
   await adapter.nameRun(chatId, "run-1", { quietSummary: "  CI green\nall 40 checks passed  " });
   assert.deepEqual(calls.generated, []);
   assert.deepEqual(calls.titled, [["run-1", "CI green"]]);
   assert.deepEqual(calls.named, [["/project", 2, "run-1", "CI green"]]);
+  // 60 characters stay whole; more keep the first 57 and an ellipsis, as chatTitle cuts a first message.
+  const exact = nameFixture();
+  await exact.adapter.nameRun(chatId, "run-1", { quietSummary: "x".repeat(60) });
+  assert.deepEqual(exact.calls.titled, [["run-1", "x".repeat(60)]]);
   const long = nameFixture();
-  await long.adapter.nameRun(chatId, "run-1", { quietSummary: "x".repeat(80) });
-  assert.deepEqual(long.calls.titled, [["run-1", "x".repeat(60)]]);
-  // A cut never leaves a space at the end.
-  const spaced = nameFixture();
-  await spaced.adapter.nameRun(chatId, "run-1", { quietSummary: `${"y".repeat(59)} tail` });
-  assert.deepEqual(spaced.calls.titled, [["run-1", "y".repeat(59)]]);
+  await long.adapter.nameRun(chatId, "run-1", { quietSummary: "x".repeat(61) });
+  assert.deepEqual(long.calls.titled, [["run-1", `${"x".repeat(57)}…`]]);
+  assert.deepEqual(long.calls.named, [["/project", 2, "run-1", `${"x".repeat(57)}…`]]);
+  // Only the first line is cut: a long second line changes nothing.
+  const lines = nameFixture();
+  await lines.adapter.nameRun(chatId, "run-1", { quietSummary: `short first line\n${"z".repeat(90)}` });
+  assert.deepEqual(lines.calls.titled, [["run-1", "short first line"]]);
 });
 
 test("nameRun names nothing for a quiet Run whose summary is blank, or an acted one with no reply", async () => {

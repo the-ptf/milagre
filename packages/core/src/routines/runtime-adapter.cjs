@@ -3,6 +3,7 @@ const path = require("node:path");
 const { chatKey, lastUserModel, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { backgroundWork, holdsAnnouncement } = require("@milagre/shared/chat-activity");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
+const { shortTitle } = require("@milagre/shared/chats");
 const { routineIssueContext } = require("@milagre/shared/linear-issue");
 const { routineRunOf } = require("@milagre/shared/routines");
 const { PERMISSION_MODES } = require("../agents/permissions.cjs");
@@ -74,14 +75,13 @@ function routineReply(state, sessionId) {
   return body.slice(cut).trim();
 }
 
-// A Run's title is at most this long (the model's too, see chat-title.cjs).
-const RUN_TITLE_MAX = 60;
-// A quiet Run's title: the first line of its summary, cut at 60 characters. Empty when it says nothing.
+// A quiet Run's title: the first line of its summary, cut as a Chat's title is (57 characters and an ellipsis past 60).
+// Empty when it says nothing.
 function summaryTitle(summary) {
   const [line = ""] = String(summary ?? "")
     .trim()
     .split("\n");
-  return Array.from(line.trim()).slice(0, RUN_TITLE_MAX).join("").trim();
+  return shortTitle(line.trim());
 }
 // Whether Run `runId` opened with a Linear issue's card, which its Chat and the Run both take their name from.
 const openedWithIssue = (state, sessionId, runId) =>

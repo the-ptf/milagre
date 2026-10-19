@@ -5,6 +5,8 @@ export function chatMarkTone(
   mark: "question" | "waiting" | "delegated" | "interrupted" | "running" | "background" | "failed" | "unread" | "idle",
 ): "accent" | "orange" | "red" | "ink3";
 
+/** A one-line title of at most 60 characters: a longer line keeps its first 57 and an ellipsis. */
+export function shortTitle(line: string): string;
 export function chatTitle(session: AgentSession | LinkChatSession, messages?: readonly ChatMessage[]): string;
 export function isHandoverChat(session: AgentSession | LinkChatSession | undefined): boolean;
 /** Whether a Routine's Run created the Chat and keeps it out of the lists (`routine.hidden`) unless `waiting` says it waits on someone. */
