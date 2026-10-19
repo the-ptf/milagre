@@ -6,18 +6,13 @@ import { formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
 import { withAlpha } from "@milagre/shared/themes";
 import { promptSkillAtSelection, promptSkillParts, promptSkillQuery } from "@milagre/shared/prompt-skills";
 import type { Client } from "./client";
+import { exactMatch, fileQueryAt, isOldMacError, mentionPaths, type KnownFiles } from "./file-mentions";
 import { useRpc } from "./use-rpc";
 import { Field, ListRow, PageScroll } from "./ui";
 import { useTheme } from "./theme";
 import { useImagePaste } from "./use-image-paste";
 import type { PastedImage } from "./attachment-picker";
 
-/** `@query` at the caret: the start of the token and what was typed after the `@`. */
-export function fileQueryAt(draft: string, caret: number) {
-  const match = /(^|\s)@([^\s@"]*)$/.exec(draft.slice(0, caret));
-  return match ? { start: match.index + (match[1]?.length ?? 0), end: caret, query: match[2] ?? "" } : null;
-}
-const OLD_MAC = /not available from mobile/i;
 const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
 
 const openSkills = (scale: number) =>
@@ -36,7 +31,7 @@ export function PromptField({
   onChangeText,
   onImagePaste,
   commands,
-  mentioned,
+  known,
   onMention,
   placeholder = "Message the agent",
 }: {
@@ -47,8 +42,8 @@ export function PromptField({
   onImagePaste?: (image: PastedImage) => void;
   /** Milagre's own slash commands, offered with the skills: `/undo` in a saved Chat. */
   commands?: { name: string; description: string }[];
-  /** Project files picked from the @ menu (relative paths): their mentions are tinted like skills. */
-  mentioned?: ReadonlySet<string>;
+  /** Which typed `@path`s name a Project file (asked of the Mac as they are typed): those are tinted like skills. */
+  known?: KnownFiles;
   /** Called with a picked file's path relative to the Project; the screen attaches it. */
   onMention?: (path: string) => void;
   placeholder?: string;
@@ -66,18 +61,20 @@ export function PromptField({
       ),
     [draft, skills],
   );
-  const marks = useMemo(
-    () => promptParts(draft, { skills: (skills ?? []).map((item) => item.name), files: (path) => !!mentioned?.has(path) }),
-    [draft, skills, mentioned],
-  );
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [focused, setFocused] = useState(false);
+  const typing = onMention && focused ? fileQueryAt(draft, selection.start)?.query : undefined;
+  const lookups = useMentionLookups(client, projectPath, draft, known, typing);
+  const marks = useMemo(
+    () => promptParts(draft, { skills: (skills ?? []).map((item) => item.name), files: (path) => !!known?.has(projectPath, path) }),
+    [draft, skills, known, projectPath, lookups],
+  );
   const [requested, setRequested] = useState<{ draft: string; selection: typeof selection } | null>(null);
-  const [rendered, setRendered] = useState({ draft, parts, restore: undefined as typeof selection | undefined });
+  const [rendered, setRendered] = useState({ draft, parts: marks, restore: undefined as typeof selection | undefined });
   // Recoloring after the catalog loads must preserve a selected range. Ordinary edits keep native caret control.
-  const changed = rendered.draft !== draft || rendered.parts !== parts;
+  const changed = rendered.draft !== draft || rendered.parts !== marks;
   const restore = requested?.draft === draft ? requested.selection : changed ? (rendered.draft === draft ? selection : undefined) : rendered.restore;
-  if (changed) setRendered({ draft, parts, restore });
+  if (changed) setRendered({ draft, parts: marks, restore });
   const name = focused ? promptSkillAtSelection(parts, selection) : null;
   const skill = name ? skills?.find((item) => item.name.toLowerCase() === name) : null;
   const query = focused
@@ -156,7 +153,7 @@ export function PromptField({
               <ListRow key={path} title={path.split("/").pop()!} subtitle={path} onPress={() => chooseFile(path)} />
             ))}
             {files.error ? (
-              OLD_MAC.test(files.error) ? (
+              isOldMacError(files.error) ? (
                 <ListRow title={OLD_MAC_ROW} onPress={files.retry} />
               ) : (
                 <ListRow title="Could not load files" subtitle={`${files.error} Tap to retry`} onPress={files.retry} />
@@ -222,6 +219,34 @@ export function PromptField({
       ) : null}
     </View>
   );
+}
+
+/** Asks the Mac whether each typed `@path` is a Project file (~150 ms after typing stops, three at a time); the count changes as answers arrive. */
+function useMentionLookups(client: Client, root: string, draft: string, known: KnownFiles | undefined, typing: string | undefined) {
+  const [answers, setAnswers] = useState(0);
+  useEffect(() => {
+    if (!known || !root) return;
+    const timer = setTimeout(() => {
+      // The token under the caret is still being typed; it is looked up once the caret leaves it.
+      for (const path of known.claim(
+        root,
+        mentionPaths(draft).filter((item) => item !== typing),
+      )) {
+        client
+          .call<string[]>("project:files", [root, path])
+          .then((results) => {
+            known.record(root, path, exactMatch(results, path));
+            setAnswers((count) => count + 1);
+          })
+          .catch((error: Error) => {
+            if (isOldMacError(error.message)) known.record(root, path, false);
+            else known.release(root, path);
+          });
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [client, root, draft, known, typing]);
+  return answers;
 }
 
 /** Project files matching `query` (null: no search), kept while the next answer loads so the menu does not flash empty. */

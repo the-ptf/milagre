@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appendAttachments, attachmentPrompt, mentionAttachment, mentionAttachments, prepareAttachments, type Attachment } from "./attachments.ts";
+import { appendAttachments, attachmentPrompt, addMention, mentionAttachment, mentionAttachments, prepareAttachments, type Attachment } from "./attachments.ts";
 import type { Client } from "./client.ts";
 test("attachment drafts are bounded without dropping an existing selection", () => {
   const file = { id: "a", name: "a.txt", uri: "file:///a" };
@@ -74,12 +74,35 @@ test("a mentioned file attaches by its absolute path and never leaves the projec
   assert.throws(() => mentionAttachment("/w", "../x"), /inside the project/);
   assert.throws(() => mentionAttachment("/w", "/etc/passwd"), /inside the project/);
 });
-test("send attaches each mentioned file once, within the limit", () => {
+test("a mention with a ./ segment is refused too", () => {
+  assert.throws(() => mentionAttachment("/w", "./a.ts"), /inside the project/);
+  assert.throws(() => mentionAttachment("/w", "a/./b.ts"), /inside the project/);
+});
+test("mentioning a file at the limit reports it instead of throwing, and a repeat changes nothing", () => {
+  const full = ["a", "b", "c", "d"].map((name) => mentionAttachment("/w", `${name}.ts`));
+  const over = addMention(full, "/w", "e.ts");
+  assert.equal(over.next, full);
+  assert.match(over.error ?? "", /up to 4/);
+  assert.equal(addMention(full, "/w", "a.ts").error, undefined);
+  assert.equal(addMention([], "/w", "../x").error, "Mention a file inside the project.");
+  assert.equal(addMention(full.slice(0, 3), "/w", "e.ts").next.length, 4);
+});
+test("send attaches each confirmed mention once, within the limit, and says when the limit dropped one", () => {
   const have = [mentionAttachment("/w", "a.ts")];
-  const added = mentionAttachments('see @a.ts @b.ts @b.ts @"c d.ts" @../x and @e.ts @f.ts', "/w", have);
+  const result = mentionAttachments('see @a.ts @b.ts @b.ts @"c d.ts" @../x @team', "/w", have, (path) => path !== "team");
   assert.deepEqual(
-    added.map((item) => item.path),
-    ["/w/b.ts", "/w/c d.ts", "/w/e.ts"],
+    result.added.map((item) => item.path),
+    ["/w/b.ts", "/w/c d.ts"],
   );
-  assert.deepEqual(mentionAttachments("no mentions", "/w", []), []);
+  assert.equal(result.dropped, false);
+  const capped = mentionAttachments("@b.ts @c.ts @d.ts @e.ts", "/w", have, () => true);
+  assert.deepEqual(
+    capped.added.map((item) => item.name),
+    ["b.ts", "c.ts", "d.ts"],
+  );
+  assert.equal(capped.dropped, true);
+  assert.deepEqual(
+    mentionAttachments("no mentions", "/w", [], () => true),
+    { added: [], dropped: false },
+  );
 });

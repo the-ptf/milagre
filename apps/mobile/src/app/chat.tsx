@@ -37,7 +37,7 @@ import { useComposer, usePendingChats, useSession } from "../session";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
-import { appendAttachments, attachmentPrompt, mentionAttachment, mentionAttachments, prepareAttachments } from "../attachments";
+import { addMention, appendAttachments, ATTACHMENT_LIMIT_MESSAGE, attachmentPrompt, mentionAttachments, prepareAttachments } from "../attachments";
 import { BackgroundRing, PullRequestAction, SubagentChip } from "../status-indicators";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
@@ -84,6 +84,7 @@ import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
 import { ErrorNotice, GlassIconButton, HeaderButton, IconButton, PageScroll, PillButton, PullDown, useStyles } from "../ui";
 import { PromptField } from "../prompt-field";
+import { createKnownFiles } from "../file-mentions";
 import { ContextRing } from "../context-ring";
 import { PlanPanel, PlanPill, usePlanPanel } from "../plan-pill";
 import { useTheme } from "../theme";
@@ -142,8 +143,8 @@ export default function ChatScreen() {
   // Answers just sent: the card leaves and the answers show at once, until the host's copy arrives.
   const [sentAnswers, setSentAnswers] = useState<{ requestId: string; message: ChatMessage | null; count: number } | null>(null);
   const sendingRef = useRef(false);
-  /** Project files picked from the @ menu, by Chat: only those are tinted and attached at send. */
-  const mentionedFiles = useRef<Record<string, Set<string>>>({});
+  /** Which typed @mentions name a Project file: those are tinted and attached at send. */
+  const knownFiles = useRef(createKnownFiles());
   // The id of a send that failed before the host answered: it may have been saved, so the same text resent reuses it.
   const failedSends = useRef(createResendMemory());
   const [picking, setPicking] = useState(false);
@@ -652,14 +653,11 @@ export default function ChatScreen() {
   function mentionFile(path: string) {
     const root = worktree?.path;
     if (!root) return;
-    const known = (mentionedFiles.current[chatId] ||= new Set());
-    known.add(path);
-    try {
-      const item = mentionAttachment(root, path);
-      if (attachments.some((other) => other.path === item.path)) return;
-      composer.setAttachments((current) => ({ ...current, [chatId]: appendAttachments(current[chatId] || [], [item]) }));
-    } catch (failure) {
-      setError((failure as Error).message);
+    const { error: refused } = addMention(attachments, root, path);
+    if (refused) setError(refused);
+    else {
+      composer.setAttachments((current) => ({ ...current, [chatId]: addMention(current[chatId] || [], root, path).next }));
+      knownFiles.current.seed(root, path);
     }
   }
   async function pasteImage(image: PastedImage) {
@@ -757,20 +755,23 @@ export default function ChatScreen() {
     // A turn running now takes this message as a steer, on the provider it already runs.
     const steered = Boolean(run);
     if (!body && !(withAttachments && attachments.length)) return false;
+    // Mentioned files attach when the message goes (a removed tile does not unmention the file); a file the limit leaves out stops the send.
+    const mentionRoot = worktree?.path;
+    const mentions =
+      withAttachments && mentionRoot
+        ? mentionAttachments(body, mentionRoot, attachments, (path) => knownFiles.current.has(mentionRoot, path))
+        : { added: [], dropped: false };
+    if (mentions.dropped) {
+      setError(ATTACHMENT_LIMIT_MESSAGE);
+      return false;
+    }
     if (busy || sendingRef.current || pending || picking) return "busy";
     sendingRef.current = true;
     setBusy(true);
     setError("");
     const sent = body;
     const sendingProjectPath = project.path;
-    // Mentions attach when the message goes (a removed tile does not unmention the file), only the ones picked from the menu.
-    const mentionRoot = worktree?.path;
-    const picked = mentionedFiles.current[chatId];
-    const mentions =
-      withAttachments && mentionRoot && picked
-        ? mentionAttachments(sent, mentionRoot, attachments).filter((item) => picked.has(item.path!.slice(mentionRoot.replace(/\/$/, "").length + 1)))
-        : [];
-    const sending = withAttachments ? [...attachments, ...mentions] : [];
+    const sending = withAttachments ? [...attachments, ...mentions.added] : [];
     const focus = focused.current;
     const current = () => focus !== null && focused.current === focus && session.isSelected();
     const clearsDraft = sent === draft || issueKey !== undefined;
@@ -1712,7 +1713,7 @@ export default function ChatScreen() {
                       projectPath={worktree?.path || (project.link ? "" : project.path)}
                       draft={draft}
                       onImagePaste={(image) => void pasteImage(image)}
-                      mentioned={mentionedFiles.current[chatId]}
+                      known={knownFiles.current}
                       onMention={worktree?.path ? mentionFile : undefined}
                       commands={chat ? UNDO_COMMANDS : undefined}
                       // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).

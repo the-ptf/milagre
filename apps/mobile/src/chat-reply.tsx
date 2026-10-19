@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useEffect, useRef, useState } from "react";
 import { Image, Pressable, Text, View, type ImageSourcePropType, type ViewInstance } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { router } from "expo-router";
@@ -257,6 +257,12 @@ export const ChatReply = memo(function ChatReply({
   const { colors, textPx } = useTheme();
   const styles = useStyles();
   const skillNames = useSkillNames(message?.role === "user" ? basePath : undefined);
+  const userText = message?.role === "user" ? (run?.text ?? message.body ?? "") : "";
+  const userFiles = message?.files;
+  const userParts = useMemo(
+    () => promptParts(userText, { skills: skillNames, files: isMentionOfFile(userFiles ?? [], basePath ?? "") }),
+    [userText, skillNames, userFiles, basePath],
+  );
   const [toolCallDisplay] = useToolCallDisplay();
   const savedMedia = useCallback((path: string) => media(message?.images?.find((image) => image.sourcePath === path)?.path || path), [media, message?.images]);
   const openActivity = () => onActivity(message ? String(message.id) : "run");
@@ -311,7 +317,7 @@ export const ChatReply = memo(function ChatReply({
     const attached = message.files ?? [];
     // A file the text names with @ shows as a chip in the text, so it gets no tile of its own.
     const inline = mentionedFiles(text, attached, root);
-    const parts = promptParts(text, { skills: skillNames, files: isMentionOfFile(attached, root) });
+    const parts = userParts;
     const lineHeight = Math.round(textPx * 1.4667);
     return (
       <View style={{ alignSelf: "flex-end", alignItems: "flex-end", gap: 6, maxWidth: "88%" }}>

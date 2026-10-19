@@ -34,6 +34,7 @@ function Box({
     borderColor: color,
     backgroundColor: fill,
     transform: [{ translateY: chipShift(px) }],
+    maxWidth: px * 16,
   };
   if (onPress)
     return (

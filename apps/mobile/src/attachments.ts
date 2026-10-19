@@ -7,7 +7,7 @@ export const MAX_ATTACHMENTS = 4;
 export const MAX_PHOTO_BYTES = 160 * 1024;
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
 export function appendAttachments(current: Attachment[], added: Attachment[]) {
-  if (current.length + added.length > MAX_ATTACHMENTS) throw new Error("Attach up to 4 photos or files per message.");
+  if (current.length + added.length > MAX_ATTACHMENTS) throw new Error(ATTACHMENT_LIMIT_MESSAGE);
   return [...current, ...added];
 }
 /** Uploads the files a message carries. `retry` runs each upload, so a busy Mac retries one file, not the ones already sent. */
@@ -36,20 +36,31 @@ export function mentionAttachment(root: string, path: string): Attachment {
   const absolute = `${root.replace(/\/$/, "")}/${path}`;
   return { id: `mention:${absolute}`, name: path.split("/").pop()!, uri: absolute, path: absolute };
 }
-/** The files `@mentions` in a message name that are not attached yet, as attachments, up to the attachment limit. Mentions that leave the root are left alone. */
-export function mentionAttachments(body: string, root: string, attached: Attachment[]): Attachment[] {
-  const known = new Set(attached.map((item) => item.path).filter(Boolean));
-  const added: Attachment[] = [];
-  for (const part of promptParts(body, { skills: [], files: () => true })) {
-    if (part.kind !== "file" || attached.length + added.length >= MAX_ATTACHMENTS) continue;
-    let item: Attachment;
-    try {
-      item = mentionAttachment(root, part.path);
-    } catch {
-      continue;
-    }
-    if (known.has(item.path) || added.some((other) => other.path === item.path)) continue;
-    added.push(item);
+export const ATTACHMENT_LIMIT_MESSAGE = "Attach up to 4 photos or files per message.";
+/** The attachments after a file is mentioned: unchanged when already attached, an error at the limit or for a path outside the project. */
+export function addMention(current: Attachment[], root: string, path: string): { next: Attachment[]; error?: string } {
+  let item: Attachment;
+  try {
+    item = mentionAttachment(root, path);
+  } catch (failure) {
+    return { next: current, error: (failure as Error).message };
   }
-  return added;
+  if (current.some((other) => other.path === item.path)) return { next: current };
+  if (current.length >= MAX_ATTACHMENTS) return { next: current, error: ATTACHMENT_LIMIT_MESSAGE };
+  return { next: [...current, item] };
+}
+/**
+ * The files the message's `@mentions` name (`isFile` says which are real project files) that are not attached yet, as
+ * attachments. `dropped` is set when the attachment limit left one out.
+ */
+export function mentionAttachments(body: string, root: string, attached: Attachment[], isFile: (path: string) => boolean) {
+  let next = attached;
+  let dropped = false;
+  for (const part of promptParts(body, { skills: [], files: isFile })) {
+    if (part.kind !== "file") continue;
+    const result = addMention(next, root, part.path);
+    if (result.error === ATTACHMENT_LIMIT_MESSAGE) dropped = true;
+    next = result.next;
+  }
+  return { added: next.slice(attached.length), dropped };
 }
