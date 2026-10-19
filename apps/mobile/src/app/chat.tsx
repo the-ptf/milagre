@@ -763,7 +763,9 @@ export default function ChatScreen() {
     // Mentioned files attach when the message goes (a removed tile does not unmention the file). A mention not yet checked
     // against the Project (the one just typed) is asked about now, for up to a second; a file the limit leaves out stops the send.
     const mentionRoot = worktree?.path;
-    if (withAttachments && mentionRoot) await knownFiles.current.resolve(client, mentionRoot, mentionPaths(body));
+    // Only a mention the Mac has not answered about waits (up to a second); an ordinary send still clears the composer before its first await.
+    if (withAttachments && mentionRoot && knownFiles.current.unchecked(mentionRoot, mentionPaths(body), 1).length)
+      await knownFiles.current.resolve(client, mentionRoot, mentionPaths(body));
     const mentions =
       withAttachments && mentionRoot
         ? mentionAttachments(body, mentionRoot, attachments, (path) => knownFiles.current.has(mentionRoot, path))
