@@ -11240,6 +11240,7 @@ function routineHost({ id = "tr", routines = routineFixtures(), states = {}, con
     "../chat-row-store": { useActivityClock: () => routineNow },
     "../routine-rows": load("routine-rows.ts", { "@hugeicons/core-free-icons": icons, "@milagre/shared/routines": shared }),
     "../run-list": { RunList },
+    "../run-chats": load("run-chats.ts", { "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"), "@milagre/shared/routines": shared }),
     "../confirm-store": { confirm: async (...args) => (confirmed.push(args), true) },
     "../icons": { Icon: "Icon" },
     "../ui": Object.fromEntries(["Button", "ErrorNotice", "HeaderButton", "PageScroll", "RowSwitch"].map((name) => [name, name])),
@@ -11316,6 +11317,15 @@ test("the phone Routine screen lists its Runs: acted and failed rows, quiet stre
   );
   open[3].props.onPress();
   assert.deepEqual(JSON.parse(JSON.stringify(host.routes.at(-1))), { pathname: "/chat", params: { projectPath: "/p", hostId: "ws://mac", id: "14" } });
+});
+
+test("the phone Routine screen opens a Run's Chat in a Project it holds no state for, and the Chat screen loads it", () => {
+  const [, trigger] = routineFixtures();
+  const host = routineHost({ routines: [{ ...trigger, runs: [{ id: "r9", routineId: "tr", startedAt: at(9), status: "acted", chatId: "/q#3" }] }] });
+  const [row] = host.rows(host.runList(host.render()));
+  assert.equal(row.props.disabled, false);
+  row.props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.routes)), [{ pathname: "/chat", params: { projectPath: "/q", hostId: "ws://mac", id: "3" } }]);
 });
 
 test("the phone Routine screen says No Runs yet with the next Run, and Delete archives a trigger's unkept Run Chats", async () => {

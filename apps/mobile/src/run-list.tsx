@@ -36,14 +36,14 @@ function foldedLine(run: RoutineRun): { icon: IconData; text: string } {
 /**
  * A Routine's Runs, newest first, in one card, as desktop's Runs list: a row for each Run that did something (running,
  * acted, failed) and one line for each stretch of Runs that didn't, which expands in place. A row, or a quiet Run's line,
- * opens the Run's Chat while that Chat is still there (`hasChat`, archived or not).
+ * opens the Run's Chat when `canOpen` says it can (canOpenRunChat: still there, archived or not, or in a Project not held).
  */
 export function RunList({
   runs,
   routineName,
   now,
   unreadChats,
-  hasChat,
+  canOpen,
   onOpenChat,
 }: {
   runs: RoutineRun[];
@@ -51,8 +51,8 @@ export function RunList({
   now: number;
   /** The keys of hidden Run Chats nobody opened: their rows show the unread dot. */
   unreadChats: ReadonlySet<string>;
-  /** Whether a Chat is still there to open, archived or not (chatLeft). */
-  hasChat: (chatKey: string) => boolean;
+  /** Whether a Run's Chat can be opened (canOpenRunChat). */
+  canOpen: (chatKey: string) => boolean;
   onOpenChat: (chatKey: string) => void;
 }) {
   const styles = useStyles();
@@ -78,7 +78,7 @@ export function RunList({
           const title = runTitle(run, routineName);
           const when = runWhen(run.startedAt, now);
           // A Run whose Chat is gone opens nothing, rather than a Chat the Project no longer has.
-          const chat = run.chatId && hasChat(run.chatId) ? run.chatId : undefined;
+          const chat = run.chatId && canOpen(run.chatId) ? run.chatId : undefined;
           const unread = chat !== undefined && unreadChats.has(chat);
           return (
             <View key={run.id}>
@@ -141,7 +141,7 @@ export function RunList({
                 {entry.runs.map((run) => {
                   const line = foldedLine(run);
                   const when = runWhen(run.startedAt, now);
-                  const chat = run.status === "quiet" && !run.rejected && run.chatId && hasChat(run.chatId) ? run.chatId : undefined;
+                  const chat = run.status === "quiet" && !run.rejected && run.chatId && canOpen(run.chatId) ? run.chatId : undefined;
                   return (
                     <Pressable
                       key={run.id}
