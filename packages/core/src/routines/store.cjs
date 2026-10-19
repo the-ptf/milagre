@@ -179,6 +179,7 @@ function finish(state, routine, run, status, extra, at, countsToFailures = true)
   run.status = status;
   run.endedAt = at;
   if (extra.summary !== undefined) run.summary = extra.summary;
+  if (extra.title !== undefined) run.title = extra.title;
   if (extra.error !== undefined) run.error = extra.error;
   if (extra.chatId !== undefined) run.chatId = extra.chatId;
   routine.lastRunAt = run.startedAt;
@@ -204,21 +205,25 @@ function finish(state, routine, run, status, extra, at, countsToFailures = true)
   }
 }
 
-// The newest SKIPPED_KEPT Runs that never ran, and the newest MAX_RUNS_KEPT of the rest, oldest out first. A Run still in
-// flight is never dropped, whatever floods in after it: finishing it needs its record.
+// The newest SKIPPED_KEPT Runs that never ran, the newest MAX_RUNS_KEPT acted ones (the Runs people open) and the newest
+// MAX_RUNS_KEPT of the rest (quiet, failed and running), oldest out first, so a run of quiet Runs can't push out the ones
+// that did something. A Run still in flight is never dropped, whatever floods in after it: finishing it needs its record.
 function trimRuns(runs) {
   let skippedOver = -SKIPPED_KEPT;
   let rejectedOver = -REJECTED_KEPT;
+  let actedOver = -MAX_RUNS_KEPT;
   let restOver = -MAX_RUNS_KEPT;
   for (const run of runs) {
     if (run.rejected === true) rejectedOver += 1;
     else if (SKIPPED.has(run.status)) skippedOver += 1;
+    else if (run.status === "acted") actedOver += 1;
     else restOver += 1;
   }
-  if (skippedOver <= 0 && rejectedOver <= 0 && restOver <= 0) return runs;
+  if (skippedOver <= 0 && rejectedOver <= 0 && actedOver <= 0 && restOver <= 0) return runs;
   return runs.filter((run) => {
     if (run.rejected === true) return rejectedOver-- <= 0;
     if (SKIPPED.has(run.status)) return skippedOver-- <= 0;
+    if (run.status === "acted") return actedOver-- <= 0;
     return run.status === "running" || restOver-- <= 0;
   });
 }
@@ -364,6 +369,15 @@ function indexRuns(state) {
   return index;
 }
 
+// The Runs that have a Chat, as `{ routineId, runId, chatId }`. Taken before a change, they say which Chats lost their Run.
+function chatRuns(state) {
+  const found = [];
+  for (const [routineId, runs] of Object.entries(state.runs)) {
+    for (const run of runs) if (text(run.chatId) && run.chatId !== "") found.push({ routineId, runId: run.id, chatId: run.chatId });
+  }
+  return found;
+}
+
 /**
  * The daemon's Routines and their Runs in one JSON file, with the queue of events each trigger is waiting to run (`queues`),
  * the keys of the events it has seen (`seen`) and how far each Linear workspace has been read (`linear`). Reads are cached
@@ -371,9 +385,11 @@ function indexRuns(state) {
  * (temp file plus rename, like limit-switch.cjs), and only then makes the copy current, so a failed write changes nothing.
  * A file it can't read (other than a missing one) or doesn't understand is never written: the store opens read-only.
  * `onPurged(ids)` hears which Routines upkeep purged (on load, and after the write that purged them), so what lives
- * outside the store, a webhook's secret, can go with them.
+ * outside the store, a webhook's secret, can go with them. `onRunsDropped([{ routineId, runId, chatId }])` hears the Runs
+ * that had a Chat and are no longer in the store (trimmed, deleted with their Routine, or purged, on load too), once per
+ * write or load, after it, so the Chats they left can be tidied. A Run without a Chat is never reported.
  */
-function createRoutineStore({ file, now = Date.now, id = () => crypto.randomBytes(4).toString("hex"), onPurged = () => {} }) {
+function createRoutineStore({ file, now = Date.now, id = () => crypto.randomBytes(4).toString("hex"), onPurged = () => {}, onRunsDropped = () => {} }) {
   // Why every mutation is refused, or null.
   let readOnly = null;
   let maintainedAt = now();
@@ -382,15 +398,31 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
   let positions;
   publish(load());
   const purgedOnLoad = [];
+  const chatRunsOnLoad = chatRuns(data);
   maintain(data, maintainedAt, purgedOnLoad);
   publish(data);
   if (purgedOnLoad.length) told(purgedOnLoad);
+  toldDropped(droppedSince(chatRunsOnLoad));
 
   function told(ids) {
     try {
       onPurged(ids);
     } catch (error) {
       console.warn("[routines] couldn't clear up after purged Routines", error);
+    }
+  }
+
+  // Of the Runs with a Chat taken before a change, those the published store no longer holds.
+  function droppedSince(before) {
+    return before.filter((run) => !runIndex.has(run.runId));
+  }
+
+  function toldDropped(dropped) {
+    if (dropped.length === 0) return;
+    try {
+      onRunsDropped(dropped);
+    } catch (error) {
+      console.warn("[routines] couldn't clear up after dropped Runs", error);
     }
   }
 
@@ -536,11 +568,15 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     const upkeep = at - maintainedAt >= MAINTAIN_EVERY_MS;
     const purgedIds = [];
     if (upkeep && maintain(draft, at, purgedIds)) tx.changed = true;
+    let dropped = [];
     if (tx.changed) {
+      const before = chatRuns(data);
       write(draft);
       publish(draft);
+      dropped = droppedSince(before);
     }
     if (purgedIds.length) told(purgedIds);
+    toldDropped(dropped);
     if (upkeep) maintainedAt = at;
     return result;
   }
@@ -974,15 +1010,27 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     });
   }
 
-  function finishRun(runId, { status, summary, error, chatId }) {
+  function finishRun(runId, { status, summary, error, chatId, title }) {
     if (!FINISH_STATUSES.has(status)) throw new Error(`Invalid run status: ${JSON.stringify(status)}`);
     return transact((state, tx) => {
       const found = findRun(state, runId);
       // Only a run still in flight can be finished; a second call must not recount it.
       if (!found || found.run.status !== "running") return null;
-      finish(state, found.routine, found.run, status, { summary, error, chatId }, now());
+      finish(state, found.routine, found.run, status, { summary, error, chatId, title }, now());
       tx.changed = true;
       return copy(found.routine);
+    });
+  }
+
+  // Names a Run, usually once it has ended. False when the Run is gone (trimmed, or its Routine deleted).
+  function setRunTitle(runId, title) {
+    checkText(title, "title");
+    return transact((state, tx) => {
+      const found = findRun(state, runId);
+      if (!found) return false;
+      found.run.title = title;
+      tx.changed = true;
+      return true;
     });
   }
 
@@ -1104,6 +1152,11 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     deferRun,
     attachChat,
     finishRun,
+    setRunTitle,
+    // Whether a Run is still in the store.
+    hasRun: (runId) => runIndex.has(runId),
+    // Why every write is refused (a file this Milagre can't read or understand), or null when the store writes.
+    readOnlyReason: () => readOnly,
     complete,
     pause,
     setLastError,
