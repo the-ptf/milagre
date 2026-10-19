@@ -464,7 +464,12 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
     else if (pending)
       onNavigate({
         pathname: "/chat",
-        params: { ...params, ...(pending.originSessionId !== null ? { id: String(pending.originSessionId) } : { worktreeId: String(pending.worktreeId) }) },
+        params: {
+          ...params,
+          ...(pending.originSessionId !== null
+            ? { id: String(pending.originSessionId) }
+            : { worktreeId: String(pending.worktreeId), ...(pending.draft ? { draft: pending.draft } : {}) }),
+        },
       });
     else onNavigate({ pathname: "/chat", params: { ...params, id: String(chatId) } });
   }

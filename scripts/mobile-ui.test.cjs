@@ -1927,6 +1927,8 @@ function chatHost({
     "../use-worktree-linear-issues": { useWorktreeLinearIssues: () => ({}) },
     "../choice-store": { showChoiceSheet: (request) => choices.push(request) },
     "../session": { useSession: () => session, useComposer: () => session, usePendingChats: () => session },
+    "../pending-chats": require("../apps/mobile/src/pending-chats.ts"),
+    "@milagre/shared/send-retry": require("@milagre/shared/send-retry"),
     "../attachment-picker": { pickAttachments, preparePastedImage, discardPastedImage() {} },
     "../attachments": require("../apps/mobile/src/attachments.ts"),
     // A test can show the Worktree branch's PR with globalThis.chatPullRequest, and PRs the Chat named with globalThis.chatNamedPullRequests.
@@ -3674,7 +3676,9 @@ test("new-worktree preparation finishes its send in the background without navig
   assert.equal(screen.calls.filter((call) => call.method === "chat:send").length, 1);
   assert.equal(screen.calls.find((call) => call.method === "chat:send").args[0].projectPath, "/p");
   assert.equal(screen.params.id, undefined);
-  assert.equal(screen.session.drafts["/p#new:1"], undefined);
+  // The sent text left the composer when it was sent; the composer is now the next New Chat's, so it stays put.
+  assert.equal(screen.session.drafts["/p#new:1"], "");
+  assert.equal(screen.session.drafts["/p#7"], undefined);
 });
 
 test("the attachment pull-down opens the selected picker and blocks a second pick", async () => {
@@ -3850,6 +3854,123 @@ test("a failed first send restores the sent text alongside the next draft and re
   const button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
   assert.equal(button.props.disabled, false);
   assert.equal(find(screen.render(), (node) => node.type === "ErrorNotice").props.message, "Connection lost");
+});
+
+test("a New Chat opened while another one is still sending starts empty and sends its own", async () => {
+  const first = chatHost();
+  first.send();
+  await settle();
+  assert.equal(transcriptMessages(first)[0]?.body, "first message");
+  // The drawer's New Chat: another screen for the same Worktree, with the same pending sends and composers.
+  const second = chatHost();
+  Object.defineProperty(second.session, "pendingChats", { get: () => first.session.pendingChats });
+  second.session.setPendingChats = first.session.setPendingChats;
+  second.session.drafts = first.session.drafts;
+  second.session.setDrafts = (fn) => {
+    first.session.drafts = second.session.drafts = fn(second.session.drafts);
+  };
+  assert.deepEqual(transcriptMessages(second), []);
+  assert.equal(second.field().value, "");
+  second.field().onChangeText("second message");
+  second.send();
+  await settle();
+  assert.deepEqual(
+    second.calls.filter((call) => call.method === "chat:send").map((call) => call.args[0].body),
+    ["second message"],
+  );
+  assert.equal(Object.keys(first.session.pendingChats).length, 2, "both sends are pending, each under its own screen");
+  // The first Mac answer reaches only the screen that sent it.
+  first.sending.resolve({ sessionId: 42 });
+  await settle();
+  assert.equal(first.params.id, "42");
+  assert.equal(second.params.id, undefined);
+  assert.equal(transcriptMessages(second)[0]?.body, "second message");
+});
+
+test("the drawer reopens a New Chat that is still sending", async () => {
+  const first = chatHost();
+  first.send();
+  await settle();
+  const [pending] = Object.values(first.session.pendingChats);
+  assert.ok(pending.draft);
+  const reopened = chatHost();
+  reopened.session.pendingChats = first.session.pendingChats;
+  reopened.params.draft = pending.draft;
+  assert.equal(transcriptMessages(reopened)[0]?.body, "first message");
+});
+
+test("a busy Mac takes the first send on a later try, with no error and one message", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let tries = 0;
+  const screen = chatHost({
+    call: (method) => {
+      if (method === "project:branches") return Promise.resolve(["main"]);
+      if (method !== "chat:send") return Promise.resolve();
+      tries++;
+      return tries < 3
+        ? Promise.reject(Object.assign(new Error("Your computer is busy right now. Try again in a moment."), { status: 429 }))
+        : Promise.resolve({ sessionId: 42 });
+    },
+  });
+  screen.send();
+  await settle();
+  assert.equal(tries, 1);
+  assert.equal(transcriptMessages(screen)[0]?.body, "first message", "the message shows as sending meanwhile");
+  assert.equal(
+    find(screen.render(), (node) => node.type === "ErrorNotice"),
+    undefined,
+  );
+  t.mock.timers.tick(1000);
+  await settle();
+  t.mock.timers.tick(2000);
+  await settle();
+  await settle();
+  const sends = screen.calls.filter((call) => call.method === "chat:send").map((call) => call.args[0].clientMessageId);
+  assert.equal(sends.length, 3);
+  assert.equal(new Set(sends).size, 1, "every try carries the same id, so the Mac saves it once");
+  assert.equal(screen.params.id, "42");
+  assert.equal(
+    find(screen.render(), (node) => node.type === "ErrorNotice"),
+    undefined,
+  );
+});
+
+test("a send that lands after its New Chat was left keeps out of the next New Chat's composer", async () => {
+  const screen = chatHost();
+  screen.send();
+  await settle();
+  screen.session.isSelected = () => false;
+  screen.session.drafts = { ...screen.session.drafts, "/p#new:1": "the next chat" };
+  screen.sending.resolve({ sessionId: 42 });
+  await settle();
+  assert.equal(screen.session.drafts["/p#new:1"], "the next chat");
+  assert.equal(screen.session.drafts["/p#42"], undefined);
+});
+
+test("an open Chat whose page already holds the sent follow-up shows it once", async (t) => {
+  const screen = chatHost({ effects: true });
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.messagesInChats = true;
+  state.sessions[42] = { id: 42, worktree_id: 1, provider: "codex", status: "Created", summary: { count: 1 } };
+  screen.session.drafts["/p#42"] = "follow up";
+  let page = [{ id: 3, session_id: 42, role: "user", body: "start" }];
+  globalThis.chatPage = (client, _path, id) =>
+    client && id === 42 ? { messages: page, hasMore: false, total: page.length, loading: false, loadEarlier: async () => {} } : undefined;
+  t.after(() => delete globalThis.chatPage);
+  screen.send();
+  await settle();
+  assert.deepEqual(
+    transcriptMessages(screen).map((message) => message.body),
+    ["start", "follow up"],
+  );
+  // A runs update read the page again before the snapshot's summary named the send.
+  const request = screen.calls.find((call) => call.method === "chat:send").args[0];
+  page = [...page, { id: 4, session_id: 42, role: "user", body: "follow up", clientMessageId: request.clientMessageId }];
+  assert.deepEqual(
+    transcriptMessages(screen).map((message) => message.id),
+    [3, 4],
+  );
 });
 
 test("the transcript follows new content, also after the agent settings sheet opens", () => {
