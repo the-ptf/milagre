@@ -1,5 +1,6 @@
 import { Platform, Pressable, Text, View } from "react-native";
 import * as Haptics from "expo-haptics";
+import { DIFF_PAIRS, MOTION_SPEEDS, PHONE_CODE_SIZES, PHONE_TEXT_SIZES } from "@milagre/shared/appearance";
 import { DEFAULT_THEME_ID, seedsFrom, themes, themeSwatch, type ThemeChoice, type ThemeGroup } from "@milagre/shared/themes";
 import { CustomThemeSection } from "./custom-theme-section";
 import { useTheme } from "./theme";
@@ -11,6 +12,36 @@ const MODES = [
   { value: "light", title: "Light" },
   { value: "dark", title: "Dark" },
 ];
+
+const asOptions = (list: readonly { id: string; label: string }[]) => list.map((entry) => ({ value: entry.id, title: entry.label }));
+const TEXT_SIZES = asOptions(PHONE_TEXT_SIZES);
+const CODE_SIZES = asOptions(PHONE_CODE_SIZES);
+const DIFF_COLORS = asOptions(DIFF_PAIRS);
+const MOTIONS = asOptions(MOTION_SPEEDS);
+
+/** One choice row: a label, a segmented control and a line of what it changes. */
+function Choice({
+  label,
+  detail,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  detail: string;
+  value: string;
+  options: { value: string; title: string }[];
+  onChange: (value: string) => void;
+}) {
+  const styles = useStyles();
+  return (
+    <View style={{ gap: 8 }}>
+      <Text style={styles.label}>{label}</Text>
+      <Segmented label={label} value={value} options={options} onChange={onChange} />
+      <Text style={styles.caption}>{detail}</Text>
+    </View>
+  );
+}
 
 function Tile({ id, label, name, detail }: { id: ThemeChoice; label: string; name: string; detail: string }) {
   const { colors, settings, set } = useTheme();
@@ -79,6 +110,39 @@ export function AppearanceSection() {
       <View style={styles.card}>
         <Text style={styles.label}>Mode</Text>
         <Segmented label="Mode" value={settings.mode} options={MODES} onChange={(mode) => set({ mode: mode as typeof settings.mode })} />
+      </View>
+      <View style={{ gap: 8 }}>
+        <Text style={styles.section}>Text and motion</Text>
+        <View style={[styles.card, { gap: 16 }]}>
+          <Choice
+            label="Text size"
+            detail="Messages and the composer."
+            value={settings.textSize}
+            options={TEXT_SIZES}
+            onChange={(textSize) => set({ textSize: textSize as typeof settings.textSize })}
+          />
+          <Choice
+            label="Code size"
+            detail="Code blocks and diffs."
+            value={settings.codeSize}
+            options={CODE_SIZES}
+            onChange={(codeSize) => set({ codeSize: codeSize as typeof settings.codeSize })}
+          />
+          <Choice
+            label="Diff colors"
+            detail="Additions and deletions, including change counts."
+            value={settings.diffColors}
+            options={DIFF_COLORS}
+            onChange={(diffColors) => set({ diffColors: diffColors as typeof settings.diffColors })}
+          />
+          <Choice
+            label="Animations"
+            detail="In-app motion. Navigation transitions stay native."
+            value={settings.motion}
+            options={MOTIONS}
+            onChange={(motion) => set({ motion: motion as typeof settings.motion })}
+          />
+        </View>
       </View>
       {GROUPS.map((group) => (
         <View key={group} style={{ gap: 8 }} accessibilityRole="radiogroup" accessibilityLabel={group}>

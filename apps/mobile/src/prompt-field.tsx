@@ -10,10 +10,13 @@ import { useTheme } from "./theme";
 import { useImagePaste } from "./use-image-paste";
 import type { PastedImage } from "./attachment-picker";
 
-const OPEN_SKILLS = FadeInDown.duration(140)
-  .easing(Easing.bezier(0.23, 1, 0.32, 1))
-  .withInitialValues({ opacity: 0, transform: [{ translateY: 6 }] })
-  .reduceMotion(ReduceMotion.System);
+const openSkills = (scale: number) =>
+  scale <= 0
+    ? undefined
+    : FadeInDown.duration(Math.round(140 * scale))
+        .easing(Easing.bezier(0.23, 1, 0.32, 1))
+        .withInitialValues({ opacity: 0, transform: [{ translateY: 6 }] })
+        .reduceMotion(ReduceMotion.System);
 
 /** Native attributed text keeps skill colors in the editable input, including wrapped/scrolled lines. */
 export function PromptField({
@@ -34,7 +37,7 @@ export function PromptField({
   commands?: { name: string; description: string }[];
   placeholder?: string;
 }) {
-  const { colors } = useTheme();
+  const { colors, motionScale } = useTheme();
   const paste = useImagePaste(onImagePaste);
   const { data, loading, error, refresh } = useRpc<SkillCatalog>(projectPath ? client : null, "skills:list", [projectPath]);
   const skillList = data?.skills;
@@ -86,7 +89,7 @@ export function PromptField({
   return (
     <View>
       {query ? (
-        <Animated.View entering={OPEN_SKILLS}>
+        <Animated.View entering={openSkills(motionScale)}>
           <PageScroll
             accessibilityLabel="Skills"
             style={{ maxHeight: 180 }}

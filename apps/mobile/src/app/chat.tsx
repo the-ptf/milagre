@@ -1074,9 +1074,9 @@ export default function ChatScreen() {
               {worktree?.name ?? ""}
             </Text>
             <Text style={{ fontSize: 12 }}>
-              <Text style={{ color: colors.green }}>{diff && (diff.added > 0 || diff.removed > 0) ? `+${diff.added}` : ""}</Text>
+              <Text style={{ color: colors.add }}>{diff && (diff.added > 0 || diff.removed > 0) ? `+${diff.added}` : ""}</Text>
               {diff && (diff.added > 0 || diff.removed > 0) ? " " : ""}
-              <Text style={{ color: colors.red }}>{diff && (diff.added > 0 || diff.removed > 0) ? `−${diff.removed}` : ""}</Text>
+              <Text style={{ color: colors.remove }}>{diff && (diff.added > 0 || diff.removed > 0) ? `−${diff.removed}` : ""}</Text>
             </Text>
           </View>
         )}

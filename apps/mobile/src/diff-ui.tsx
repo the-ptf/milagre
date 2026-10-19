@@ -4,8 +4,8 @@ import { fonts, useTheme, type Palette } from "./theme";
 
 const statusTable = (colors: Palette) =>
   ({
-    added: { letter: "A", label: "Added", color: colors.green, tint: colors.greenTint },
-    deleted: { letter: "D", label: "Deleted", color: colors.red, tint: colors.redTint },
+    added: { letter: "A", label: "Added", color: colors.add, tint: colors.greenTint },
+    deleted: { letter: "D", label: "Deleted", color: colors.remove, tint: colors.redTint },
     modified: { letter: "M", label: "Modified", color: colors.orange, tint: colors.orangeTint },
     renamed: { letter: "R", label: "Renamed", color: colors.accentInk, tint: colors.accentTint },
   }) as const;
@@ -15,7 +15,7 @@ export function Counts({ added, removed, size = 12 }: { added: number; removed: 
   const { colors } = useTheme();
   return (
     <Text accessibilityLabel={`${added} added, ${removed} removed`} style={{ fontFamily: fonts.mono, fontSize: size, fontVariant: ["tabular-nums"] }}>
-      <Text style={{ color: colors.green }}>+{added}</Text> <Text style={{ color: colors.red }}>−{removed}</Text>
+      <Text style={{ color: colors.add }}>+{added}</Text> <Text style={{ color: colors.remove }}>−{removed}</Text>
     </Text>
   );
 }

@@ -245,7 +245,7 @@ export const ChatReply = memo(function ChatReply({
   /** Set when a usage-limit reply is the Chat's last message with no turn running: its card then offers other accounts for this Project. */
   limitProjectPath?: string;
 }) {
-  const { colors } = useTheme();
+  const { colors, textPx } = useTheme();
   const styles = useStyles();
   const [toolCallDisplay] = useToolCallDisplay();
   const savedMedia = useCallback((path: string) => media(message?.images?.find((image) => image.sourcePath === path)?.path || path), [media, message?.images]);
@@ -290,7 +290,7 @@ export const ChatReply = memo(function ChatReply({
             ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
           }}
         >
-          <Text selectable style={{ color: colors.ink, fontSize: 15, lineHeight: 22 }}>
+          <Text selectable style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) }}>
             {text}
           </Text>
         </View>
@@ -325,7 +325,7 @@ export const ChatReply = memo(function ChatReply({
                 ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
               }}
             >
-              <Text selectable style={{ color: colors.ink, fontSize: 15, lineHeight: 22 }}>
+              <Text selectable style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) }}>
                 {text}
               </Text>
             </View>

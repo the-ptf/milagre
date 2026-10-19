@@ -15,16 +15,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureDetector, usePanGesture } from "react-native-gesture-handler";
-import Animated, {
-  cancelAnimation,
-  Easing,
-  ReduceMotion,
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withDelay,
-  withTiming,
-} from "react-native-reanimated";
+import Animated, { cancelAnimation, Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { ArrowShrink02Icon, ListTodoIcon } from "@hugeicons/core-free-icons";
 import { taskCounts } from "@milagre/shared/chat-plan";
@@ -33,6 +24,7 @@ import { Icon } from "./icons";
 import { planPillLabel } from "./plan-label";
 import { morphRect, planPanelFrame } from "./plan-panel-frame";
 import { PlanPhaseGraph, PlanTree } from "./plan-view";
+import { useMotionScale, useReducedMotion } from "./motion";
 import { useTheme } from "./theme";
 import { IconButton, PageScroll } from "./ui";
 
@@ -206,6 +198,7 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
   const reduced = useReducedMotion();
+  const scale = useMotionScale();
   const [header, setHeader] = useState(0);
   const [body, setBody] = useState(0);
   const progress = useSharedValue(0);
@@ -226,8 +219,8 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
   const pillStyle = useAnimatedStyle(() => ({ opacity: pillFace.get() }));
   const panelStyle = useAnimatedStyle(() => ({ opacity: panelFace.get() }));
   useEffect(() => {
-    const timing = (duration: number) => ({ duration: reduced ? 0 : duration, easing: EASE, reduceMotion: ReduceMotion.System });
-    const later = reduced ? 0 : 60;
+    const timing = (duration: number) => ({ duration: reduced ? 0 : Math.round(duration * scale), easing: EASE, reduceMotion: ReduceMotion.System });
+    const later = reduced ? 0 : Math.round(60 * scale);
     if (phase === "open") {
       progress.set(withTiming(1, timing(300)));
       pillFace.set(withTiming(0, timing(100)));
@@ -248,7 +241,7 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
       pillFace.set(1);
       panelFace.set(0);
     }
-  }, [phase, reduced, settle, progress, drag, pillFace, panelFace]);
+  }, [phase, reduced, scale, settle, progress, drag, pillFace, panelFace]);
   // Opening moves the screen reader into the panel, onto its heading, as desktop focuses the dialog.
   useEffect(() => {
     if (phase === "open" && heading.current) AccessibilityInfo.sendAccessibilityEvent(heading.current, "focus");
@@ -263,7 +256,7 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
     onDeactivate: (event) => {
       "worklet";
       if (!event.canceled && (event.translationY > DRAG_CLOSE || event.velocityY > FLING_CLOSE)) scheduleOnRN(close);
-      else drag.set(withTiming(0, { duration: 200, easing: EASE, reduceMotion: ReduceMotion.System }));
+      else drag.set(withTiming(0, { duration: Math.round(200 * scale), easing: EASE, reduceMotion: ReduceMotion.System }));
     },
   });
   if (!plan || !label) return null;
