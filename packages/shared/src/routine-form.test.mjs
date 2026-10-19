@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   EVERY_HOURS,
   EVERY_MINUTES,
+  deleteWarning,
   emptyRoutineForm,
   formFromRoutine,
   isCommentRoutine,
@@ -365,4 +366,12 @@ test("a Linear comment Routine has no Each run: comments go into the Chat linked
   const { patch } = formToUpdate({ ...edited, projectPath: "", runIn: "worktree" }, routine, NOW);
   assert.equal("target" in patch, false);
   assert.equal(patch.prompt, "Reply to {{comment.body}}");
+});
+
+test("deleteWarning: a Heartbeat's Chat stays; a Routine that opens Chats archives the Run Chats nobody kept", () => {
+  assert.equal(deleteWarning({ target: { kind: "chat", chatId: "/p#1" } }), "Its Chats stay.");
+  assert.equal(
+    deleteWarning({ target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" } }),
+    "Its Runs stop, and its Run Chats you haven't kept are archived.",
+  );
 });

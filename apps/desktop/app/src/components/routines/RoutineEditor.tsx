@@ -17,7 +17,7 @@ import {
 import type { ModelOption, Routine } from "@milagre/shared/model";
 import { clock } from "@milagre/shared/routines";
 import { ipcErrorMessage } from "@milagre/shared/result";
-import type { RoutineFormState } from "@milagre/shared/routine-form";
+import { PROMPT_HINT, PROMPT_PLACEHOLDER, type RoutineFormState } from "@milagre/shared/routine-form";
 import { Select } from "../primitives/Select";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { PlaceholderTextarea } from "./PlaceholderTextarea";
@@ -35,8 +35,6 @@ const DAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAY_MS = 864e5;
 const DEFAULT_SIGNATURE_HEADER = "sentry-hook-signature";
-export const PROMPT_HINT = "Type {{ for the Run's fields";
-export const PROMPT_PLACEHOLDER = "What should the agent do on each Run? End with (pass) when there's nothing to do.";
 
 /** A date input's value for `at`, in this computer's time zone. */
 function dateValue(at: number): string {

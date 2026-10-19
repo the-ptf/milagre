@@ -111,3 +111,8 @@ export function formToUpdate(
   routine: Routine,
   now?: number,
 ): { patch: RoutineFormPatch; field?: undefined } | (RoutineFormProblem & { patch?: undefined });
+/** The New Routine and Edit forms' prompt placeholder and the hint under it. */
+export const PROMPT_PLACEHOLDER: string;
+export const PROMPT_HINT: string;
+/** What deleting a Routine does: "Its Chats stay." for a Heartbeat, else that its Runs stop and unkept Run Chats are archived. */
+export function deleteWarning(routine: Pick<Routine, "target">): string;

@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { Routine, RoutineRun } from "@milagre/shared/model";
 import { PERMISSION_MODES } from "@milagre/shared/model-copy";
 import { clock, triggerText } from "@milagre/shared/routines";
+import { deleteWarning } from "@milagre/shared/routine-form";
 import { ipcErrorMessage } from "@milagre/shared/result";
 
 /** A Routine as `listRoutines` gives it: with its latest Runs, newest first. */
@@ -22,10 +23,8 @@ export function routineDeleteQuestion(routine: Routine): string {
   return `Delete ${routine.name}? ${routineDeleteWarning(routine)}`;
 }
 
-/** What deleting does, as the Edit form's Delete Routine row says it. */
-export function routineDeleteWarning(routine: Routine): string {
-  return isHeartbeat(routine) ? "Its Chats stay." : "Its Runs stop, and its Run Chats you haven't kept are archived.";
-}
+/** What deleting does, as the Edit form's Delete Routine row says it (shared with the phone). */
+export const routineDeleteWarning = (routine: Routine): string => deleteWarning(routine);
 
 /** The page's groups. Paused Routines (switched off) stay in their group too, so the chips' counts overlap. */
 export function groupRoutines<T extends Routine>(routines: readonly T[]): { heartbeats: T[]; triggers: T[]; paused: T[] } {

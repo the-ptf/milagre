@@ -16,6 +16,19 @@ const HOURS_RULE = `Every N hours must divide 24 (${EVERY_HOURS.join(", ")})`;
 const CHAT_ONLY_SCHEDULE = "Only schedule triggers can target an existing Chat";
 const SIGNED_NEEDS_SECRET = "A signed webhook needs a signing secret";
 
+/** The New Routine and Edit forms' prompt copy, the same on desktop and the phone. */
+export const PROMPT_PLACEHOLDER = "What should the agent do on each Run? End with (pass) when there's nothing to do.";
+export const PROMPT_HINT = "Type {{ for the Run's fields";
+
+/**
+ * What deleting a Routine does, as its delete confirmation and the Edit form's Delete Routine row say it. A Heartbeat checks
+ * back on a Chat that is someone's own, and the delete leaves that Chat alone; any other Routine opens Run Chats, and the
+ * delete archives the ones nobody has kept.
+ */
+export function deleteWarning(routine) {
+  return routine?.target?.kind === "chat" ? "Its Chats stay." : "Its Runs stop, and its Run Chats you haven't kept are archived.";
+}
+
 const text = (value) => (typeof value === "string" ? value.trim() : "");
 const fail = (field, error) => ({ field, error });
 
