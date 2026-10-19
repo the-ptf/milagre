@@ -14,7 +14,8 @@ import { CodeBlock } from "/src/components/markdown/CodeBlock";
 import { ChatRow } from "/src/components/sidebar/ChatRow";
 import { ChangesPanelSlot } from "/src/components/changes/ChangesPanelSlot";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
-import { LayoutGroup, motion } from "motion/react";
+import { LayoutGroup } from "motion/react";
+import { PillSlot } from "/src/components/primitives/StatusPill";
 import { AppMotionConfig } from "/src/components/motion/AppMotionConfig";
 import { useApplyTheme, updateSettings, getSettings } from "/src/lib/settings";
 import { attachTerminal } from "/src/lib/terminal-sessions";
@@ -47,7 +48,7 @@ function Fixture() {
       <CodeBlock code={"-const greeting = 'hi';\\n+const greeting = 'hello';"} fence="diff" diff />
     </aside>
     <LayoutGroup>
-      <motion.div layout data-layout-probe style={{ position: "fixed", top: 0, left: shift ? 400 : 100, width: 20, height: 20 }} />
+      <PillSlot slot="layout-probe" style={{ position: "fixed", top: 0, left: shift ? 400 : 100 }}><span style={{ display: "block", width: 20, height: 20 }} /></PillSlot>
     </LayoutGroup>
     <main style={{ flex: 1, minWidth: 0 }}>
       <ChatComposer messages={messages}
@@ -175,11 +176,11 @@ async function browserChecks() {
     const off = await openWidth(40);
     assert.ok(off.width >= 320, "with motion off the panel is fully open within a frame or two");
     assert.equal(off.animations, 0, "with motion off nothing is animating");
-    // Layout animations (a pill sliding over in a LayoutGroup) follow Off too: the probe lands in its final spot at once.
+    // Layout animations (a PillSlot sliding over in a LayoutGroup) follow Off too: the probe lands in its final spot at once.
     const probeLeft = (shift, wait) =>
       evaluate(`new Promise((resolve) => {
       window.__setShift(${shift});
-      setTimeout(() => resolve(document.querySelector('[data-layout-probe]').getBoundingClientRect().left), ${wait});
+      setTimeout(() => resolve(document.querySelector('[data-slot="layout-probe"]').getBoundingClientRect().left), ${wait});
     })`);
     await set({ motion: "normal" });
     await probeLeft(false, 700);
