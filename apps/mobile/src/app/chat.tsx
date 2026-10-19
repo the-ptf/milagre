@@ -83,6 +83,7 @@ import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
 import { ErrorNotice, GlassIconButton, HeaderButton, IconButton, PageScroll, PillButton, PullDown, useStyles } from "../ui";
+import { clearSentDraft } from "../draft-clear";
 import { PromptField } from "../prompt-field";
 import { createKnownFiles, mentionPaths } from "../file-mentions";
 import { ContextRing } from "../context-ring";
@@ -810,7 +811,7 @@ export default function ChatScreen() {
         accepted: false,
       },
     }));
-    if (clearsDraft) composer.setDrafts((current) => ({ ...current, [chatId]: "" }));
+    if (clearsDraft) composer.setDrafts((current) => clearSentDraft(current, chatId, sent, issueKey !== undefined));
     const sentIds = new Set(sending.map((item) => item.id));
     composer.setAttachments((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((item) => !sentIds.has(item.id)) }));
     following.current = true;

@@ -48,7 +48,9 @@ export function PromptField({
   onMention?: (path: string) => void;
   placeholder?: string;
 }) {
-  const { colors, motionScale } = useTheme();
+  const { colors, motionScale, typeScale } = useTheme();
+  // Text size scales the composer too; 16 stays 16 at the default step.
+  const inputSize = Math.round(16 * typeScale);
   const paste = useImagePaste(onImagePaste);
   const { data, loading, error, refresh } = useRpc<SkillCatalog>(projectPath ? client : null, "skills:list", [projectPath]);
   const skillList = data?.skills;
@@ -191,9 +193,9 @@ export function PromptField({
           setFocused(true);
         }}
         onBlur={() => setFocused(false)}
-        style={{ backgroundColor: "transparent", minHeight: 44, maxHeight: 140, paddingHorizontal: 10, paddingVertical: 6 }}
+        style={{ backgroundColor: "transparent", fontSize: inputSize, minHeight: 44, maxHeight: 140, paddingHorizontal: 10, paddingVertical: 6 }}
       >
-        <Text style={{ fontSize: 16, color: colors.ink }}>
+        <Text style={{ fontSize: inputSize, color: colors.ink }}>
           {marks.map((part, index) => (
             <Text
               key={index}
