@@ -217,9 +217,10 @@ const midnight = (at) => {
  */
 export function runWhen(at, now) {
   const time = clock(at);
-  // Rounded: a day that DST shortens or lengthens is still one day.
+  // Rounded: a day that DST shortens or lengthens is still one day. A clock read a little before midnight (the lists tick
+  // every 30 s or so) puts a Run just after it on "tomorrow", which is still today.
   const days = Math.round((midnight(now) - midnight(at)) / DAY);
-  if (days === 0) return `Today ${time}`;
+  if (days <= 0) return `Today ${time}`;
   if (days === 1) return `Yesterday ${time}`;
   const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
   const date = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) }).format(at);

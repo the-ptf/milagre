@@ -408,6 +408,13 @@ test("runWhen says Today or Yesterday with the time, and the date before that", 
   assert.equal(runWhen(new Date(2026, 0, 3, 7, 30).getTime(), now), "Jan 3 07:30");
 });
 
+test("runWhen says Today for a Run just after midnight when the clock it is read with is a little stale", () => {
+  // The Runs list's clock ticks every 30 s, so a Run that starts a few seconds into the day can be read with a `now` from
+  // just before midnight.
+  const at = new Date(2026, 9, 18, 0, 0, 5).getTime();
+  assert.equal(runWhen(at, at - 20_000), "Today 00:00");
+});
+
 test("runWhen adds the year to a date from another year", () => {
   assert.equal(runWhen(new Date(2025, 11, 30, 8, 0).getTime(), local(18, 12, 0)), "Dec 30, 2025 08:00");
 });
