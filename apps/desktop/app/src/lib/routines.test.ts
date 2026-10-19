@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { clock } from "@milagre/shared/routines";
 import {
+  chatLeft,
   chatRoutine,
+  chipStripInsets,
   groupRoutines,
   refreshRoutines,
   routineDeleteQuestion,
@@ -200,4 +202,26 @@ test("chatRoutine: a Run Chat's own Routine, else the enabled Heartbeat that che
   // A Run Chat whose Routine is gone, and a Chat no Routine knows.
   assert.equal(chatRoutine(routines, "/code/milagre-ade#6", { routineId: "gone" }), undefined);
   assert.equal(chatRoutine(routines, "/code/milagre#1"), undefined);
+});
+
+test("chatLeft: a Chat is there to open while its Project holds its session, archived or not", () => {
+  const states = { "/code/shop": { sessions: { 1: { id: 1 }, 2: { id: 2, archived: true } } } } as never;
+  assert.equal(chatLeft(states, "/code/shop#1"), true);
+  // A quiet Run archives its Chat; one that ran in the Project folder (or a Worktree that wasn't clean) leaves it there.
+  assert.equal(chatLeft(states, "/code/shop#2"), true);
+  // A Worktree removed with its Chat leaves no session; a Project the window holds no state for can't tell.
+  assert.equal(chatLeft(states, "/code/shop#3"), false);
+  assert.equal(chatLeft(states, "/code/web#1"), false);
+});
+
+test("chipStripInsets centers the chip over <main> and keeps it clear of the window's corner buttons", () => {
+  // <main> reaches the window's right edge: the corner's 300px are kept on both sides, so the chip stays centered.
+  assert.deepEqual(chipStripInsets(1000, 0, 300), { left: 300, right: 300 });
+  // Narrower: the right side is still kept clear; the left gives way so the chip keeps 200px.
+  assert.deepEqual(chipStripInsets(700, 0, 300), { left: 200, right: 300 });
+  // Narrower still: the chip gets what is left and truncates its name.
+  assert.deepEqual(chipStripInsets(450, 0, 300), { left: 12, right: 300 });
+  // A side panel between <main> and the window's edge takes some or all of the corner.
+  assert.deepEqual(chipStripInsets(800, 150, 300), { left: 150, right: 150 });
+  assert.deepEqual(chipStripInsets(800, 400, 300), { left: 12, right: 12 });
 });

@@ -32,7 +32,7 @@ export function RoutinePage({
   unreadChats: ReadonlySet<string>;
   /** A Chat's title, for a Heartbeat's meta line ("in Notification chimes"). */
   chatTitle?: (chatId: string) => string | undefined;
-  /** Whether a Chat is still there to open (not archived); a quiet Run's line opens only such a Chat. */
+  /** Whether a Run's Chat is still there to open, archived or not (chatLeft); a Run without one opens nothing. */
   hasChat?: (chatKey: string) => boolean;
   onBack: () => void;
   onEdit: () => void;

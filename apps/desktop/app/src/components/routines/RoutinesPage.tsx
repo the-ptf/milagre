@@ -39,7 +39,7 @@ export function RoutinesPage({
   routineId?: string | null;
   /** The keys of hidden Run Chats nobody opened: their Runs show a dot on the Routine's page. */
   unreadChats?: ReadonlySet<string>;
-  /** Whether a Chat is still there to open (not archived), for a quiet Run's line. */
+  /** Whether a Run's Chat is still there to open, archived or not (chatLeft). */
   hasChat?: (chatKey: string) => boolean;
   /** Opens a Routine's page (a row's click), or goes back to the list with null. */
   onOpenRoutine?: (routineId: string | null) => void;

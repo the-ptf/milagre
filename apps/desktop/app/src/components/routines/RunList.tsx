@@ -7,7 +7,7 @@ import { foldRuns, foldText, runTitle, runWhen } from "@milagre/shared/routines"
 type HugeIconData = typeof Tick02Icon;
 const card = "divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface";
 
-/** Without a way to tell, a quiet Run's Chat counts as gone: a quiet Run in a Chat of its own archives it. */
+/** Without a way to tell whether a Run's Chat is still there, no row opens one. */
 const noChat = () => false;
 
 /** The first line of a failed Run's error, as its row shows it. */
@@ -66,8 +66,9 @@ const Icon = ({ icon, spin = false, className }: { icon: HugeIconData; spin?: bo
 
 /**
  * A Routine's Runs, newest first, in the Routines page's card: a row for each Run that did something (running, acted,
- * failed) and one line for each stretch of Runs that didn't, which expands in place. A row opens its Run's Chat; a quiet
- * line opens one only while its Chat is still there (`hasChat`), since a quiet Run in a Chat of its own archives it.
+ * failed) and one line for each stretch of Runs that didn't, which expands in place. A row, or a quiet Run's line, opens the
+ * Run's Chat while that Chat is still there (`hasChat`, archived or not): a quiet Run's Worktree removed with its Chat
+ * leaves nothing to open.
  */
 export function RunList({
   runs,
@@ -82,7 +83,7 @@ export function RunList({
   now: number;
   /** The keys of hidden Run Chats nobody opened: their rows show a dot. */
   unreadChats: ReadonlySet<string>;
-  /** Whether a Chat is still there to open (not archived). */
+  /** Whether a Chat is still there to open, archived or not (chatLeft). */
   hasChat?: (chatKey: string) => boolean;
   onOpenChat: (chatKey: string) => void;
 }) {
@@ -102,7 +103,8 @@ export function RunList({
         if (entry.kind === "run") {
           const { run } = entry;
           const look = runLook(run);
-          const chat = run.chatId;
+          // A Run whose Chat is gone opens nothing, rather than a Chat the Project no longer has.
+          const chat = run.chatId && hasChat(run.chatId) ? run.chatId : undefined;
           const unread = chat !== undefined && unreadChats.has(chat);
           return (
             <RowShell

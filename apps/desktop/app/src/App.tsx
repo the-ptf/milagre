@@ -124,7 +124,7 @@ import { restoredChatsNotice } from "./lib/restored-chats";
 import { lazyView } from "./lib/lazy-view";
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
-import { unreadRunChats, unreadRunRoutines } from "./lib/routines";
+import { chatLeft, unreadRunChats, unreadRunRoutines } from "./lib/routines";
 import { RoutineChip } from "./components/routines/RoutineChip";
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
 import { DraftChatComposer } from "./components/DraftChatComposer";
@@ -787,14 +787,8 @@ function App() {
   const unreadRunRoutineIds = useStableSet(useMemo(() => unreadRunRoutines(gridStates), [gridStates]));
   // The hidden Run Chats nobody opened: their Runs show a dot on their Routine's page.
   const unreadRunChatKeys = useStableSet(useMemo(() => unreadRunChats(gridStates), [gridStates]));
-  // Whether a Chat is still there to open: a quiet Run's line on a Routine's page opens only such a Chat.
-  const hasChat = useCallback(
-    (key: string) => {
-      const session = gridStates[projectOfKey(key)]?.sessions[sessionIdFromKey(key)];
-      return Boolean(session && !session.archived);
-    },
-    [gridStates],
-  );
+  // Whether a Run's Chat is still there to open, archived or not: a Run on a Routine's page without one opens nothing.
+  const hasChat = useCallback((key: string) => chatLeft(gridStates, key), [gridStates]);
   const focusedChatKey = project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null;
   const activeKeys = useMemo(
     () => (gridOn ? activeChatKeys(agentRuns.runs, linkedWork, gridStates) : NO_KEYS),
@@ -2457,9 +2451,9 @@ function App() {
               <AnimatePresence initial={false} onExitComplete={diffPresence.onExitComplete}>
                 {diffShowing && <DiffView key="diff" changes={changes} prefs={diffPrefs} comments={diffComments} />}
               </AnimatePresence>
-              {/* The open Chat's Routine (a Run Chat's, or a Heartbeat's), over the Chat; a grid's tiles name their own Chats. */}
+              {/* The open Chat's Routine (a Run Chat's, or a Heartbeat's), over the Chat; a grid's tiles show theirs in their headers. */}
               {view === "chat" && !diffPresence.occupied && shownTiles.length === 0 && focusedChatKey && !isRemoteKey(project.path) && (
-                <RoutineChip chatKey={focusedChatKey} run={selectedSession?.routine} onOpen={openRoutine} />
+                <RoutineChip chatKey={focusedChatKey} run={selectedSession?.routine} place="strip" onOpen={openRoutine} />
               )}
               {view === "settings" && (
                 <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -2521,6 +2515,7 @@ function App() {
                   delegated={delegatedKeys}
                   models={models}
                   onFocus={openLinkedChat}
+                  onOpenRoutine={openRoutine}
                   onDismiss={(key) =>
                     void reportChatAction(
                       bridgeForKey(projectOfKey(key)).patchChat(projectOfKey(key), sessionIdFromKey(key), { unread: false }),

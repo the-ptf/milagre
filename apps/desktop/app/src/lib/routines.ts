@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { Routine, RoutineRun } from "@milagre/shared/model";
 import { PERMISSION_MODES } from "@milagre/shared/model-copy";
 import { LOCAL_COMPUTER, computerOfKey, isLinkScopeKey } from "@milagre/shared/chat-scopes";
+import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { clock, hiddenRunChats, triggerText } from "@milagre/shared/routines";
 import { ipcErrorMessage } from "@milagre/shared/result";
 
@@ -129,6 +130,30 @@ export function unreadRunRoutines(states: ProjectStates): Set<string> {
 /** The keys ("<path>#<id>") of the hidden Run Chats nobody has opened yet: their Runs show a dot on the Routine page. */
 export function unreadRunChats(states: ProjectStates): Set<string> {
   return new Set(unreadHiddenRunChats(states).map((chat) => chat.chatKey));
+}
+
+/**
+ * Whether a Run's Chat is there to open: its Project's state, as the window holds it, has the session, archived or not. A
+ * quiet Run archives its Chat, which stays when it ran in the Project folder or its Worktree wasn't clean; a Worktree removed
+ * with its Chat leaves no session. A Project the window holds no state for can't tell, so it counts as not there.
+ */
+export function chatLeft(states: ProjectStates, chatKey: string): boolean {
+  return states[projectOfKey(chatKey)]?.sessions[sessionIdFromKey(chatKey)] !== undefined;
+}
+
+/** The chip's narrowest box over the Chat before it gives up being centered (its name truncates below that). */
+const CHIP_ROOM = 200;
+const STRIP_EDGE = 12;
+
+/**
+ * The Routine chip's strip over the open Chat: left and right padding inside <main> (`width` wide, `rightGap` short of the
+ * window's right edge) that keep the chip clear of the window corner's buttons (`reserve` px from that edge). The chip
+ * stays centered while it has CHIP_ROOM; on a narrower <main> the left side gives way first, never the right.
+ */
+export function chipStripInsets(width: number, rightGap: number, reserve: number): { left: number; right: number } {
+  const right = Math.max(STRIP_EDGE, reserve - rightGap);
+  const left = Math.max(STRIP_EDGE, Math.min(right, width - right - CHIP_ROOM));
+  return { left, right };
 }
 
 /**
