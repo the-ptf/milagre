@@ -628,7 +628,8 @@ function createRoutines({
 
   /**
    * Run Chats in the Project at `projectPath`, as `state` holds them (never a Link's: Routines don't run there). A Chat
-   * saved before Run Chats could be hidden (no `hidden`) is decided once. A hidden Run Chat whose Run left the store (see
+   * saved before Run Chats could be hidden (no `hidden`) is decided once, by a store that knows its Routine (see
+   * knowsRoutine); one that doesn't leaves it undecided, and listed. A hidden Run Chat whose Run left the store (see
    * runLeft) is archived, so none outlives its place in the Runs list; one whose turn is running waits for the turn to
    * end. A store that opened read-only holds no Runs, so it sweeps nothing.
    */
@@ -640,7 +641,7 @@ function createRoutines({
     const runChats = Object.values(state?.sessions ?? {}).filter((session) => !session.archived && isRunChat(session));
     if (runChats.length === 0) return;
     const hidden = new Map(runChats.map((session) => [session.id, session.routine.hidden]));
-    const undecided = runChats.filter((session) => session.routine.hidden === undefined);
+    const undecided = runChats.filter((session) => session.routine.hidden === undefined && knowsRoutine(session.routine));
     if (undecided.length) {
       const decided = await decideRunChats(projectPath, undecided);
       await markRunChats(projectPath, decided);
@@ -659,16 +660,21 @@ function createRoutines({
   }
 
   /**
+   * Whether this store knows a Run Chat's Routine: it is here, or it was deleted or purged here. A store that never knew it
+   * (a fresh profile or a dev copy opening a real Project, a damaged file set aside) can't tell what its Chats are, so it
+   * neither decides nor archives them.
+   */
+  const knowsRoutine = ({ routineId }) => store.get(routineId) !== null || store.wasRemoved(routineId);
+  /**
    * Whether a Run Chat's Run left this store: its Routine is here without it (trimmed), or the Routine was deleted or
-   * purged here. A store that never knew the Routine (a fresh profile or a dev copy opening a real Project, a damaged file
-   * set aside) can't tell, and says no.
+   * purged here. A store that never knew the Routine can't tell, and says no.
    */
   const runLeft = ({ routineId, runId }) => (store.get(routineId) !== null && !store.hasRun(runId)) || store.wasRemoved(routineId);
 
   /**
    * Whether a Run Chat saved before `hidden` existed has a name the user gave it. Its Run named it after the Routine, or a
    * Linear issue Run after its issue ("MIL-12 Issue title"); any other title is the user's, and so is any title at all when
-   * this store doesn't know the Routine.
+   * the Routine was removed here, its name gone with it (one this store never knew isn't decided; see knowsRoutine).
    */
   function renamed(session) {
     if (typeof session.title !== "string" || session.title.trim() === "") return false;

@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { createRoutines, routineChats, routineReply, routineTargets } = require("./runtime-adapter.cjs");
 const { createRoutineStore } = require("./store.cjs");
+const { isHiddenRunChat } = require("@milagre/shared/chats");
 
 const chatId = "/project#2";
 const baseState = {
@@ -1612,8 +1613,32 @@ test("a store that never knew a Run Chat's Routine archives nothing: a fresh pro
   });
   await f.routines.sweepRunChats("/project", f.state);
   assert.deepEqual(f.calls.archived, []);
-  // The Chat saved before hidden is still decided; it just isn't archived on this store's word.
-  assert.deepEqual(f.calls.marked, [{ projectPath: "/project", decided: { 4: true } }]);
+  // The Chat saved before hidden isn't decided on this store's word either: it stays listed, as it was, for a store that
+  // knows its Routine to decide.
+  assert.deepEqual(f.calls.marked, []);
+  assert.deepEqual(f.calls.read, []);
+  assert.equal(f.state.sessions[4].routine.hidden, undefined);
+  assert.equal(isHiddenRunChat(f.state.sessions[4]), false);
+});
+
+test("a Run Chat saved before hidden whose Routine was removed here is decided by the same rules, and archived when hidden", async (t) => {
+  const f = sweepFixture(t, {
+    prepare(store, ids) {
+      const routine = makeTriage(store);
+      for (const n of [3, 4, 5]) ids[n] = endedRun(store, routine, `/project#${n}`);
+      store.remove(routine.id);
+    },
+    messages: [3, 4, 5].map((n) => runMessage(n, n)),
+  });
+  f.state.sessions = {
+    3: runChat(3, f.ids[3]),
+    4: runChat(4, f.ids[4], { pinned: true }),
+    // The Routine's name went with it, so any title may be the user's.
+    5: runChat(5, f.ids[5], { title: "Morning triage" }),
+  };
+  await f.routines.sweepRunChats("/project", f.state);
+  assert.deepEqual(f.calls.marked, [{ projectPath: "/project", decided: { 3: true, 4: false, 5: false } }]);
+  assert.deepEqual(f.calls.archived, [["/project#3", f.ids[3]]]);
 });
 
 test("a Run Chat whose turn runs is swept once the turn ends, not archived from under it", async (t) => {
@@ -1824,12 +1849,14 @@ test("a Run Chat saved before hidden and renamed is kept: its title is neither i
     3: runChat(3, f.ids[3], { title: "My triage" }),
     4: runChat(4, f.ids[4], { title: "Morning triage" }),
     5: runChat(5, f.ids[5], { routineId: f.ids.linear, title: "MIL-1 Paste images" }),
-    // A Routine this store never knew: any title may be the user's.
+    // A Routine this store never knew: it can't tell, so the Chat stays undecided and listed.
     6: runChat(6, "gone", { routineId: "elsewhere", title: "Release notes" }),
   };
   await f.routines.sweepRunChats("/project", f.state);
-  assert.deepEqual(f.calls.marked, [{ projectPath: "/project", decided: { 3: false, 4: true, 5: true, 6: false } }]);
+  assert.deepEqual(f.calls.marked, [{ projectPath: "/project", decided: { 3: false, 4: true, 5: true } }]);
   assert.deepEqual(f.calls.read, [[4, 5]], "a renamed Chat is decided without reading a message");
+  assert.equal(f.state.sessions[6].routine.hidden, undefined);
+  assert.equal(isHiddenRunChat(f.state.sessions[6]), false);
 });
 
 test("a kept Run Chat's agent gets the Routine tools back; a hidden or undecided one's doesn't", (t) => {
