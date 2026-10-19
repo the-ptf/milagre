@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createClient, localEndpoint, type RelayRuntime, type RouteView } from "./client.ts";
 import { RelayTransportError, type RelayResponse, type RelayTransport } from "./relay-transport.ts";
+import { retryKind } from "@milagre/shared/send-retry";
 
 test("recent scopes carry Link visibility so a desktop-hidden Link stays out of the phone sidebar", async () => {
   const link = { id: "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7", name: "Checkout", projectIds: ["shop", "api"], hidden: true };
@@ -50,7 +51,12 @@ test("one send carries token/version and is never retried after a network failur
     assert.deepEqual(JSON.parse(init?.body as string), { v: 1, method: "chat:send", args: [{ body: "hello" }] });
     throw new Error("offline");
   });
-  await assert.rejects(client.call("chat:send", [{ body: "hello" }]), /Connection lost.*Check the Chat before sending again/);
+  await assert.rejects(client.call("chat:send", [{ body: "hello" }]), (error) => {
+    assert.match((error as Error).message, /Connection lost.*Check the Chat before sending again/);
+    // The send may have reached the Mac: only a caller that dedupes may try it again.
+    assert.equal(retryKind(error), "unknown");
+    return true;
+  });
   assert.equal(calls, 1);
 });
 
@@ -67,7 +73,7 @@ test("errors and incompatible responses are explicit, and timeouts abort the fet
       }),
     10,
   );
-  await assert.rejects(client.call("daemon:status"), /Connection lost/);
+  await assert.rejects(client.call("daemon:status"), (error) => retryKind(error) === "unknown" && /Connection lost/.test((error as Error).message));
 });
 
 test("slow Worktree and page-sharing calls get the desktop deadline instead of the normal request timeout", async (t) => {
@@ -232,7 +238,12 @@ test("a Mac refusing a relayed call because its queue is full reads as busy", as
     30000,
     relay.runtime,
   );
-  await assert.rejects(client.call("daemon:status"), { message: "Your computer is busy right now. Try again in a moment." });
+  await assert.rejects(client.call("daemon:status"), (error) => {
+    assert.equal((error as Error).message, "Your computer is busy right now. Try again in a moment.");
+    // The Mac turned it away unread, so it is safe to send again.
+    assert.equal(retryKind(error), "unsent");
+    return true;
+  });
 });
 
 test("a relay snapshot answered with 304 reuses the cached one", async () => {

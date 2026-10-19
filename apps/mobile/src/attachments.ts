@@ -9,12 +9,18 @@ export function appendAttachments(current: Attachment[], added: Attachment[]) {
   if (current.length + added.length > MAX_ATTACHMENTS) throw new Error("Attach up to 4 photos or files per message.");
   return [...current, ...added];
 }
-export async function prepareAttachments(client: Client, projectPath: string, attachments: Attachment[]) {
+/** Uploads the files a message carries. `retry` runs each upload, so a busy Mac retries one file, not the ones already sent. */
+export async function prepareAttachments(
+  client: Client,
+  projectPath: string,
+  attachments: Attachment[],
+  retry: <T>(upload: () => Promise<T>) => Promise<T> = (upload) => upload(),
+) {
   const files: string[] = [];
   const images: ImageAttachment[] = [];
   for (const item of attachments) {
     if (item.image) images.push(item.image);
-    else files.push(item.path || (await client.upload(projectPath, item.name, item.base64!)).path);
+    else files.push(item.path || (await retry(() => client.upload(projectPath, item.name, item.base64!))).path);
   }
   return { files, images };
 }

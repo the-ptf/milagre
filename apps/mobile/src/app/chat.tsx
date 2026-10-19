@@ -23,7 +23,7 @@ import {
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext } from "@milagre/shared/model";
-import { chatPullRequests, chatTitle, createPendingChat, createResendMemory, pendingChatSessionId, pullRequestRefs } from "@milagre/shared/chats";
+import { chatPullRequests, chatTitle, createPendingChat, createResendMemory, pendingChatSessionId, pullRequestRefs, withPreview } from "@milagre/shared/chats";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import { LINK_PR_HINT, issueChipLabel, issueFirstMessage, type LinearIssue, type LinearIssuesResult } from "@milagre/shared/linear";
@@ -34,6 +34,8 @@ import { pullRequestAction, pullRequestBlockers, rowPullRequests } from "@milagr
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
 import { useComposer, usePendingChats, useSession } from "../session";
+import { pendingOnScreen, pendingOrigin } from "../pending-chats";
+import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
 import { appendAttachments, attachmentPrompt, prepareAttachments } from "../attachments";
 import { BackgroundRing, PullRequestAction, SubagentChip } from "../status-indicators";
@@ -128,7 +130,10 @@ export default function ChatScreen() {
   const { colors } = useTheme();
   const styles = useStyles();
   const navigation = useNavigation<NavigationProp<{ chat: { worktreeId?: string } }, "chat">>();
-  const params = useLocalSearchParams<{ id?: string; worktreeId?: string; projectPath?: string; hostId?: string }>();
+  const params = useLocalSearchParams<{ id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string }>();
+  // This New Chat's own id; the drawer passes a sending one's back to reopen it (pending-chats.ts).
+  const [ownDraft] = useState(() => randomUUID());
+  const draftId = params.draft || ownDraft;
   const session = useSession();
   const composer = useComposer();
   const pendingStore = usePendingChats();
@@ -271,14 +276,9 @@ export default function ChatScreen() {
   const now = useActivityClock(beating);
   const linearIssues = useWorktreeLinearIssues(connected, linearActive && projectPath && !session.snapshot?.project.link ? [projectPath] : [], linkVersion);
   const targetMatches = (!params.projectPath || params.projectPath === projectPath) && (!params.hostId || params.hostId === connected?.url);
-  const originChatId = `${projectPath}#${params.id ?? `new:${params.worktreeId}`}`;
+  const originChatId = pendingOrigin(projectPath, params.id, params.worktreeId, draftId);
   const pending = targetMatches
-    ? Object.values(pendingStore.pendingChats).find(
-        (item) =>
-          item.hostId === connected?.url &&
-          item.projectPath === projectPath &&
-          (item.originChatId === originChatId || (!!params.id && item.preview.targetSessionId === Number(params.id))),
-      )
+    ? pendingOnScreen(pendingStore.pendingChats, { hostId: connected?.url, projectPath, origin: originChatId, id: params.id })
     : undefined;
   const pendingCanonicalId = pending && session.snapshot ? pendingChatSessionId(session.snapshot.project.state, pending.preview) : null;
   const archiveRequest = useRef(false);
@@ -335,7 +335,7 @@ export default function ChatScreen() {
           ? lean
             ? canonicalPage.messages
             : (allMessages || []).filter((message) => message.session_id === pendingCanonicalId)
-          : [...savedMessages, pending.preview.message]
+          : withPreview(savedMessages, pending.preview)
         : savedMessages,
     [pending, pendingCanonicalId, lean, canonicalPage.messages, allMessages, savedMessages],
   );
@@ -752,7 +752,8 @@ export default function ChatScreen() {
     const current = () => focus !== null && focused.current === focus && session.isSelected();
     const clearsDraft = sent === draft || issueKey !== undefined;
     const creates = newWorktree || issueKey !== undefined;
-    const key = `${client.url}|${chatId}`;
+    // A new Chat's send is this screen's, not every New Chat's in the Worktree (pending-chats.ts).
+    const key = `${client.url}|${originChatId}`;
     const operationId = project.link ? composer.linkOperations.forSend(key, JSON.stringify([sent, sending.map((item) => item.id)]), randomUUID) : null;
     const resendParts = sending.map((item) => item.id);
     const preview = createPendingChat({
@@ -773,7 +774,8 @@ export default function ChatScreen() {
         preview,
         hostId: client.url,
         projectPath: sendingProjectPath,
-        originChatId: chatId,
+        originChatId,
+        ...(params.id ? {} : { draft: draftId }),
         originSessionId: params.id ? Number(params.id) : null,
         worktreeId,
         newWorktree: creates,
@@ -786,22 +788,29 @@ export default function ChatScreen() {
     following.current = true;
     Keyboard.dismiss();
     const options = sendOptions(model, preferences);
+    // A busy or unreachable Mac gets the send again until it takes it; the message shows as sending meanwhile. The host
+    // recognises a resend by its clientMessageId (or a Link's operationId), so only a new Worktree, which has no such
+    // id, waits for a Mac that never read the request.
+    const retried = <T,>(work: () => Promise<T>) => retrySend(work, { retryable: (error) => retryKind(error) !== null });
+    const retriedUnsent = <T,>(work: () => Promise<T>) => retrySend(work, { retryable: (error) => retryKind(error) === "unsent" });
     let accepted = false;
     try {
-      const media = await prepareAttachments(client, sendingProjectPath, sending);
+      const media = await prepareAttachments(client, sendingProjectPath, sending, retried);
       let target = { sessionId: params.id ? Number(params.id) : (null as number | null), worktreeId };
       if (creates) {
         if (!base) throw new Error(branches?.error || "Choose a base branch before sending.");
         let ready = preparedTarget.current;
         if (!ready || ready.client !== client || ready.path !== sendingProjectPath || ready.base !== base || ready.issueKey !== issueKey) {
-          const created = await client.call<{ project: OpenProject; worktreeId: number }>("worktree:create", [
-            {
-              projectPath: sendingProjectPath,
-              baseBranch: base,
-              prompt: sent,
-              ...(issueKey !== undefined ? { issueKey, ...(issue?.workspace ? { issueWorkspace: issue.workspace } : {}) } : {}),
-            },
-          ]);
+          const created = await retriedUnsent(() =>
+            client.call<{ project: OpenProject; worktreeId: number }>("worktree:create", [
+              {
+                projectPath: sendingProjectPath,
+                baseBranch: base,
+                prompt: sent,
+                ...(issueKey !== undefined ? { issueKey, ...(issue?.workspace ? { issueWorkspace: issue.workspace } : {}) } : {}),
+              },
+            ]),
+          );
           const chat = sessionForWorktree(created.project.state, created.worktreeId);
           if (!chat) throw new Error("No Chat was created for the new worktree.");
           ready = { client, path: sendingProjectPath, base, issueKey, worktreeId: created.worktreeId, sessionId: chat.id };
@@ -812,34 +821,37 @@ export default function ChatScreen() {
       pendingStore.setPendingChats((current) =>
         current[key] ? { ...current, [key]: { ...current[key], preview: { ...current[key].preview, targetSessionId: target.sessionId } } } : current,
       );
-      const result = project.link
-        ? await client.call<{ sessionId: number }>("link:send", [
-            {
-              linkId: project.link.link.id,
-              sessionId: params.id ? Number(params.id) : null,
-              operationId,
-              clientMessageId: preview.message.clientMessageId,
-              body: sent,
-              ...media,
-              prompt: attachmentPrompt(sent, media.files),
-              ...options,
-            },
-          ])
-        : await client.call<{ sessionId: number }>("chat:send", [
-            {
-              projectPath: sendingProjectPath,
-              ...target,
-              clientMessageId: preview.message.clientMessageId,
-              body: sent,
-              ...media,
-              // A Mac that predates PR actions ignores prAction and sends this prompt as it is.
-              prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(sent, media.files),
-              ...options,
-              ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
-              // A Mac that predates issue cards ignores linearIssue and sends the body as a plain message.
-              ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
-            },
-          ]);
+      const link = project.link;
+      const result = await retried(() =>
+        link
+          ? client.call<{ sessionId: number }>("link:send", [
+              {
+                linkId: link.link.id,
+                sessionId: params.id ? Number(params.id) : null,
+                operationId,
+                clientMessageId: preview.message.clientMessageId,
+                body: sent,
+                ...media,
+                prompt: attachmentPrompt(sent, media.files),
+                ...options,
+              },
+            ])
+          : client.call<{ sessionId: number }>("chat:send", [
+              {
+                projectPath: sendingProjectPath,
+                ...target,
+                clientMessageId: preview.message.clientMessageId,
+                body: sent,
+                ...media,
+                // A Mac that predates PR actions ignores prAction and sends this prompt as it is.
+                prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(sent, media.files),
+                ...options,
+                ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
+                // A Mac that predates issue cards ignores linearIssue and sends the body as a plain message.
+                ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
+              },
+            ]),
+      );
       accepted = true;
       failedSends.current.forget(key);
       if (operationId) composer.linkOperations.accepted(key, operationId);
@@ -858,7 +870,10 @@ export default function ChatScreen() {
           : current,
       );
       const destination = `${sendingProjectPath}#${result.sessionId}`;
-      if (clearsDraft || destination !== chatId)
+      // What was typed here while the send went belongs to the Chat it made. Once a New Chat's screen is gone, the
+      // composer under chatId is the next New Chat's, so it stays put; an open Chat's composer is its own.
+      const here = promote || !!params.id;
+      if (here && (clearsDraft || destination !== chatId))
         composer.setDrafts((current) => {
           const remaining = current[chatId] || "";
           const preserved = destination !== chatId ? current[destination] || "" : "";
@@ -866,17 +881,18 @@ export default function ChatScreen() {
           if (destination !== chatId) delete next[chatId];
           return next;
         });
-      composer.setAttachments((current) => {
-        const sentIds = new Set(sending.map((item) => item.id));
-        const remaining = (current[chatId] || []).filter((item) => !sentIds.has(item.id));
-        const preserved = destination !== chatId ? current[destination] || [] : [];
-        const next = { ...current, [destination]: [...preserved, ...remaining] };
-        if (destination !== chatId) delete next[chatId];
-        return next;
-      });
+      if (here)
+        composer.setAttachments((current) => {
+          const sentIds = new Set(sending.map((item) => item.id));
+          const remaining = (current[chatId] || []).filter((item) => !sentIds.has(item.id));
+          const preserved = destination !== chatId ? current[destination] || [] : [];
+          const next = { ...current, [destination]: [...preserved, ...remaining] };
+          if (destination !== chatId) delete next[chatId];
+          return next;
+        });
       composer.setPreferences((current) => {
-        const next = { ...current, [destination]: afterSend(current[chatId] || preferences, turn, chat?.provider, model.id, steered) };
-        if (destination !== chatId) delete next[chatId];
+        const next = { ...current, [destination]: afterSend((here && current[chatId]) || preferences, turn, chat?.provider, model.id, steered) };
+        if (here && destination !== chatId) delete next[chatId];
         return next;
       });
       session.expectActivity();
@@ -885,7 +901,8 @@ export default function ChatScreen() {
         Keyboard.dismiss();
         if (!params.id) adoptChat(result.sessionId);
       }
-      await session.refresh();
+      // The message went; a busy Mac that can't answer this read yet is caught up by the live connection.
+      await session.refresh().catch(() => {});
       return true;
     } catch (e) {
       if (!accepted) {
