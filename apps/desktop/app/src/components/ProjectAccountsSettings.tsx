@@ -5,7 +5,7 @@ import { accountType, providerName } from "@milagre/shared/providers";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Briefcase01Icon, UserIcon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import { ipcErrorMessage } from "@milagre/shared/result";
-import { Select } from "./primitives/Select";
+import { Select, type SelectOption } from "./primitives/Select";
 import { ProjectAvatarStack } from "./ProjectAvatarStack";
 import { ProviderLogo } from "./ProviderLogo";
 import { bridgeForKey } from "../lib/computer-bridge";
@@ -22,8 +22,39 @@ function AccountIcon({ plan }: { plan?: string }) {
 const statusLabel = (state: string) =>
   state === "signing-in" ? "Signing in" : state === "error" ? "Account error" : state === "unknown" ? "Not checked" : "Not signed in";
 
+type ProviderAccounts = ProjectAccountsSnapshot["providers"][number];
+
+/** The choices for one provider in a Project or Link: the computer default, then each saved account. Settings and the usage card share them. */
+export function projectAccountOptions(group: ProviderAccounts): SelectOption<string>[] {
+  const effective = group.accounts.find((account) => account.id === group.effectiveId);
+  const missing = group.accountId !== null && (!effective || effective.missing === true);
+  const defaultAccount = group.accounts.find((account) => account.id === group.defaultId);
+  return [
+    {
+      value: "",
+      label: "Use computer default",
+      description: defaultAccount?.email || defaultAccount?.label || "No computer default",
+      icon: <AccountIcon plan={defaultAccount?.plan} />,
+      display: (
+        <>
+          <span className="truncate">{defaultAccount?.email || defaultAccount?.label || "Use computer default"}</span>
+          <span className="shrink-0 rounded-md bg-hover px-1.5 py-0.5 text-[10.5px] font-medium text-ink-3">Default</span>
+        </>
+      ),
+    },
+    ...(missing && !effective ? [{ value: group.accountId!, label: "Unavailable account", disabled: true }] : []),
+    ...group.accounts.map((account) => ({
+      value: account.id,
+      label: account.missing ? "Unavailable account" : account.email || account.label,
+      description: account.missing ? "Removed account" : account.state === "ready" ? undefined : statusLabel(account.state),
+      disabled: account.missing || account.state !== "ready",
+      icon: <AccountIcon plan={account.plan} />,
+    })),
+  ];
+}
+
 // Loads one Project's or Link's accounts and keeps them current while sign-ins finish.
-function useProjectAccounts(scope: string) {
+export function useProjectAccounts(scope: string) {
   const [snapshot, setSnapshot] = useState<ProjectAccountsSnapshot | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -102,7 +133,6 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
   return shown.providers.map((group) => {
     const effective = group.accounts.find((account) => account.id === group.effectiveId);
     const missing = group.accountId !== null && (!effective || effective.missing === true);
-    const defaultAccount = group.accounts.find((account) => account.id === group.defaultId);
     const needsSignIn = !!effective && !missing && effective.state !== "ready";
     const name = providerName(group.provider);
     return (
@@ -118,28 +148,7 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
             width={340}
             disabled={busy}
             onChange={(id) => void act(() => bridgeForKey(scope).assignProjectAccount(scope, group.provider as ModelProvider, id || null))}
-            options={[
-              {
-                value: "",
-                label: "Use computer default",
-                description: defaultAccount?.email || defaultAccount?.label || "No computer default",
-                icon: <AccountIcon plan={defaultAccount?.plan} />,
-                display: (
-                  <>
-                    <span className="truncate">{defaultAccount?.email || defaultAccount?.label || "Use computer default"}</span>
-                    <span className="shrink-0 rounded-md bg-hover px-1.5 py-0.5 text-[10.5px] font-medium text-ink-3">Default</span>
-                  </>
-                ),
-              },
-              ...(missing && !effective ? [{ value: group.accountId!, label: "Unavailable account", disabled: true }] : []),
-              ...group.accounts.map((account) => ({
-                value: account.id,
-                label: account.missing ? "Unavailable account" : account.email || account.label,
-                description: account.missing ? "Removed account" : account.state === "ready" ? undefined : statusLabel(account.state),
-                disabled: account.missing || account.state !== "ready",
-                icon: <AccountIcon plan={account.plan} />,
-              })),
-            ]}
+            options={projectAccountOptions(group)}
           />
         </div>
         {(missing || needsSignIn) && (
