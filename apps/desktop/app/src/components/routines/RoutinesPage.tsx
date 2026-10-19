@@ -25,7 +25,7 @@ export function RoutinesPage({
   unreadRoutines,
   routineId = null,
   unreadChats = NO_CHATS,
-  hasChat,
+  canOpen,
   onOpenRoutine,
   onOpenChat,
   onOpenExperimental,
@@ -39,8 +39,8 @@ export function RoutinesPage({
   routineId?: string | null;
   /** The keys of hidden Run Chats nobody opened: their Runs show a dot on the Routine's page. */
   unreadChats?: ReadonlySet<string>;
-  /** Whether a Run's Chat is still there to open, archived or not (chatLeft). */
-  hasChat?: (chatKey: string) => boolean;
+  /** Whether a Run's row opens its Chat (canOpenRunChat). */
+  canOpen?: (chatKey: string) => boolean;
   /** Opens a Routine's page (a row's click), or goes back to the list with null. */
   onOpenRoutine?: (routineId: string | null) => void;
   onOpenChat: (chatKey: string) => void;
@@ -150,7 +150,7 @@ export function RoutinesPage({
           models={models}
           unreadChats={unreadChats}
           chatTitle={(id) => chatTitles.get(id)}
-          hasChat={hasChat}
+          canOpen={canOpen}
           onBack={() => onOpenRoutine?.(null)}
           onEdit={() => setForm(selected)}
           onOpenChat={onOpenChat}

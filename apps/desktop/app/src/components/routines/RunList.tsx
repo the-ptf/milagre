@@ -67,15 +67,15 @@ const Icon = ({ icon, spin = false, className }: { icon: HugeIconData; spin?: bo
 /**
  * A Routine's Runs, newest first, in the Routines page's card: a row for each Run that did something (running, acted,
  * failed) and one line for each stretch of Runs that didn't, which expands in place. A row, or a quiet Run's line, opens the
- * Run's Chat while that Chat is still there (`hasChat`, archived or not): a quiet Run's Worktree removed with its Chat
- * leaves nothing to open.
+ * Run's Chat when `canOpen` says it can (canOpenRunChat: still there, archived or not, or in a Project the window holds no
+ * state for): a quiet Run's Worktree removed with its Chat leaves nothing to open.
  */
 export function RunList({
   runs,
   routineName,
   now,
   unreadChats,
-  hasChat = noChat,
+  canOpen = noChat,
   onOpenChat,
 }: {
   runs: RoutineRun[];
@@ -83,8 +83,8 @@ export function RunList({
   now: number;
   /** The keys of hidden Run Chats nobody opened: their rows show a dot. */
   unreadChats: ReadonlySet<string>;
-  /** Whether a Chat is still there to open, archived or not (chatLeft). */
-  hasChat?: (chatKey: string) => boolean;
+  /** Whether a Run's row opens its Chat (canOpenRunChat). */
+  canOpen?: (chatKey: string) => boolean;
   onOpenChat: (chatKey: string) => void;
 }) {
   const entries = useMemo(() => foldRuns(runs), [runs]);
@@ -104,7 +104,7 @@ export function RunList({
           const { run } = entry;
           const look = runLook(run);
           // A Run whose Chat is gone opens nothing, rather than a Chat the Project no longer has.
-          const chat = run.chatId && hasChat(run.chatId) ? run.chatId : undefined;
+          const chat = run.chatId && canOpen(run.chatId) ? run.chatId : undefined;
           const unread = chat !== undefined && unreadChats.has(chat);
           return (
             <RowShell
@@ -153,7 +153,7 @@ export function RunList({
               <div className="pb-1.5">
                 {entry.runs.map((run) => {
                   const line = foldedLine(run);
-                  const chat = run.status === "quiet" && !run.rejected && run.chatId && hasChat(run.chatId) ? run.chatId : undefined;
+                  const chat = run.status === "quiet" && !run.rejected && run.chatId && canOpen(run.chatId) ? run.chatId : undefined;
                   return (
                     <RowShell
                       key={run.id}

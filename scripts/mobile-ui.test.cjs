@@ -11240,7 +11240,6 @@ function routineHost({ id = "tr", routines = routineFixtures(), states = {}, con
     "../chat-row-store": { useActivityClock: () => routineNow },
     "../routine-rows": load("routine-rows.ts", { "@hugeicons/core-free-icons": icons, "@milagre/shared/routines": shared }),
     "../run-list": { RunList },
-    "../run-chats": load("run-chats.ts", { "@milagre/shared/agent-runs": require("@milagre/shared/agent-runs"), "@milagre/shared/routines": shared }),
     "../confirm-store": { confirm: async (...args) => (confirmed.push(args), true) },
     "../icons": { Icon: "Icon" },
     "../ui": Object.fromEntries(["Button", "ErrorNotice", "HeaderButton", "PageScroll", "RowSwitch"].map((name) => [name, name])),

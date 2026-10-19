@@ -124,7 +124,7 @@ import { restoredChatsNotice } from "./lib/restored-chats";
 import { lazyView } from "./lib/lazy-view";
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
-import { chatLeft, unreadRunChats, unreadRunRoutines } from "@milagre/shared/routines";
+import { canOpenRunChat, unreadRunChats, unreadRunRoutines } from "@milagre/shared/routines";
 import { RoutineChip } from "./components/routines/RoutineChip";
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
 import { DraftChatComposer } from "./components/DraftChatComposer";
@@ -787,8 +787,9 @@ function App() {
   const unreadRunRoutineIds = useStableSet(useMemo(() => unreadRunRoutines(gridStates), [gridStates]));
   // The hidden Run Chats nobody opened: their Runs show a dot on their Routine's page.
   const unreadRunChatKeys = useStableSet(useMemo(() => unreadRunChats(gridStates), [gridStates]));
-  // Whether a Run's Chat is still there to open, archived or not: a Run on a Routine's page without one opens nothing.
-  const hasChat = useCallback((key: string) => chatLeft(gridStates, key), [gridStates]);
+  // Whether a Run's row opens its Chat: one still there, archived or not, or one in a Project the window holds no state for,
+  // which opening loads by path (openCanvasChat). A Run whose Chat left with its Worktree opens nothing.
+  const canOpenRun = useCallback((key: string) => canOpenRunChat(gridStates, key), [gridStates]);
   const focusedChatKey = project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null;
   const activeKeys = useMemo(
     () => (gridOn ? activeChatKeys(agentRuns.runs, linkedWork, gridStates) : NO_KEYS),
@@ -2479,7 +2480,7 @@ function App() {
                   unreadRoutines={unreadRunRoutineIds}
                   routineId={routineId}
                   unreadChats={unreadRunChatKeys}
-                  hasChat={hasChat}
+                  canOpen={canOpenRun}
                   onOpenRoutine={openRoutine}
                   onOpenChat={openLinkedChat}
                   onOpenExperimental={openExperimental}

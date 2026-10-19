@@ -294,6 +294,16 @@ export function chatLeft(states, chatKey) {
 }
 
 /**
+ * Whether a Run's row opens its Chat. While the client holds its Project's state, only a Chat still there does (chatLeft,
+ * archived or not): a Worktree removed with its Chat leaves nothing to open. A Project the client holds no state for can't
+ * tell, so the row opens, and opening the Chat loads that Project (the desktop window by path, as the canvas does; the
+ * phone's Chat screen, which says so if the Chat is gone).
+ */
+export function canOpenRunChat(states, chatKey) {
+  return !states[projectOfKey(chatKey)] || chatLeft(states, chatKey);
+}
+
+/**
  * The Routine a Chat's header names: the one whose Run opened the Chat (`session.routine`, hidden or kept), else an enabled
  * Heartbeat that checks back on it. Undefined when neither is on this Mac.
  */

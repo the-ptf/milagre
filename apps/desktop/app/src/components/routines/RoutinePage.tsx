@@ -21,7 +21,7 @@ export function RoutinePage({
   models,
   unreadChats,
   chatTitle,
-  hasChat,
+  canOpen,
   onBack,
   onEdit,
   onOpenChat,
@@ -32,8 +32,8 @@ export function RoutinePage({
   unreadChats: ReadonlySet<string>;
   /** A Chat's title, for a Heartbeat's meta line ("in Notification chimes"). */
   chatTitle?: (chatId: string) => string | undefined;
-  /** Whether a Run's Chat is still there to open, archived or not (chatLeft); a Run without one opens nothing. */
-  hasChat?: (chatKey: string) => boolean;
+  /** Whether a Run's row opens its Chat (canOpenRunChat); a Run whose Chat is gone opens nothing. */
+  canOpen?: (chatKey: string) => boolean;
   onBack: () => void;
   onEdit: () => void;
   onOpenChat: (chatKey: string) => void;
@@ -135,7 +135,7 @@ export function RoutinePage({
         <section data-routine-runs className="mt-7 space-y-2">
           <h2 className="px-1 text-[13px] font-semibold text-ink">Runs</h2>
           {routine.runs.length > 0 ? (
-            <RunList runs={routine.runs} routineName={routine.name} now={now} unreadChats={unreadChats} hasChat={hasChat} onOpenChat={onOpenChat} />
+            <RunList runs={routine.runs} routineName={routine.name} now={now} unreadChats={unreadChats} canOpen={canOpen} onOpenChat={onOpenChat} />
           ) : (
             <div data-routine-runs-empty className="flex flex-col items-center gap-1 rounded-xl border border-line bg-surface px-6 py-8 text-center">
               <p className="text-[13px] text-ink-2">No Runs yet</p>

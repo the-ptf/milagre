@@ -71,6 +71,11 @@ export function unreadRunChats(states: ScopeStates): Set<string>;
  */
 export function chatLeft(states: ScopeStates, chatKey: string): boolean;
 /**
+ * Whether a Run's row opens its Chat: while its Project's state is held, only a Chat still there does (chatLeft); a Project
+ * no state is held for can't tell, so the row opens and opening the Chat loads that Project.
+ */
+export function canOpenRunChat(states: ScopeStates, chatKey: string): boolean;
+/**
  * The Routine a Chat's header names: the one whose Run opened it (`session.routine`, hidden or kept), else an enabled
  * Heartbeat that checks back on it.
  */

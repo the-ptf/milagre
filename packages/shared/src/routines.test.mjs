@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  canOpenRunChat,
   canRunNow,
   chatLeft,
   chatRoutine,
@@ -452,6 +453,18 @@ test("chatLeft: a Chat is there to open while its Project holds its session, arc
   // A Worktree removed with its Chat leaves no session; a Project no state is held for can't tell.
   assert.equal(chatLeft(states, "/code/shop#3"), false);
   assert.equal(chatLeft(states, "/code/web#1"), false);
+});
+
+test("canOpenRunChat: a Run's Chat opens while its held Project has it, archived or not, and not once it is gone", () => {
+  const states = { "/p": { sessions: { 4: { id: 4 }, 5: { id: 5, archived: true } } } };
+  assert.equal(canOpenRunChat(states, "/p#4"), true);
+  assert.equal(canOpenRunChat(states, "/p#5"), true);
+  assert.equal(canOpenRunChat(states, "/p#6"), false);
+});
+
+test("canOpenRunChat: a Run's Chat in a Project the client holds no state for opens, and opening it loads that Project", () => {
+  assert.equal(canOpenRunChat({}, "/q#4"), true);
+  assert.equal(canOpenRunChat({ "/p": { sessions: {} } }, "/q#4"), true);
 });
 
 test("chatRoutine: a Run Chat's own Routine, else the enabled Heartbeat that checks back on the Chat", () => {
