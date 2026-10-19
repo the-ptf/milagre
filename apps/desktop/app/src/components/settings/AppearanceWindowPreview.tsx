@@ -416,11 +416,16 @@ export function AppearanceWindowPreview({ highlight, playMotion }: { highlight: 
   useLayoutEffect(() => {
     const node = frame.current;
     if (!node) return;
-    const fit = () => setScale(node.clientWidth / WINDOW_WIDTH);
+    // Fits the card's width, but never takes more than 45% of the window's height so the sticky preview leaves room for the rows.
+    const fit = () => setScale(Math.min(node.clientWidth / WINDOW_WIDTH, (0.45 * window.innerHeight) / WINDOW_HEIGHT));
     fit();
     const observer = new ResizeObserver(fit);
     observer.observe(node);
-    return () => observer.disconnect();
+    window.addEventListener("resize", fit);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", fit);
+    };
   }, []);
 
   useEffect(() => {
@@ -432,54 +437,55 @@ export function AppearanceWindowPreview({ highlight, playMotion }: { highlight: 
   }, [playMotion]);
 
   return (
-    <div
-      ref={frame}
-      data-slot="appearance-window-preview"
-      role="img"
-      aria-label="Preview of the app window with these settings"
-      className="relative w-full overflow-hidden rounded-[12px] shadow-card"
-      style={{ height: WINDOW_HEIGHT * scale }}
-    >
-      <HighlightContext.Provider value={highlight}>
-        <div
-          aria-hidden
-          className="pointer-events-none absolute top-0 left-0 font-sans text-ink select-none"
-          style={{
-            width: WINDOW_WIDTH,
-            height: WINDOW_HEIGHT,
-            transform: `scale(${scale})`,
-            transformOrigin: "0 0",
-            backgroundColor: "var(--stripe-bg)",
-            backgroundImage: "repeating-linear-gradient(-45deg, transparent 0, transparent 7px, var(--stripe) 7px, var(--stripe) 8px)",
-          }}
-        >
-          <Part area="ui" className="absolute inset-0 flex rounded-[12px] outline-offset-[-8px]!">
-            {/* The title bar: traffic lights and the sidebar toggle over the sidebar, terminal and changes at the right. */}
-            <Part keep={["ui"]} className="absolute top-0 right-0 left-0 flex h-11 items-center px-5 text-ink-3">
-              <span className="flex gap-2">
-                <span className="size-3 rounded-full bg-[#ff5f57]" />
-                <span className="size-3 rounded-full bg-[#febc2e]" />
-                <span className="size-3 rounded-full bg-[#28c840]" />
-              </span>
-              <span className="ml-[54px] flex">
-                <Icon icon={SidebarLeft01Icon} size={18} />
-              </span>
-              <span className="ml-auto flex items-center gap-4">
-                <Icon icon={ComputerTerminal01Icon} size={18} />
-                <Icon icon={GitPullRequestIcon} size={18} />
-                <Icon icon={GitBranchIcon} size={18} />
-              </span>
-            </Part>
-            <div className="flex h-full w-full gap-3 pt-11 pb-2 pl-2">
-              <Sidebar />
-              <div className="relative -mt-11 flex min-w-0 flex-1 flex-col pr-3 pb-1">
-                <ChatColumn widthPx={chatWidthPx(appearance.chatWidth, appearance.chatWidthPx)} />
+    <div ref={frame} className="flex w-full justify-center">
+      <div
+        data-slot="appearance-window-preview"
+        role="img"
+        aria-label="Preview of the app window with these settings"
+        className="relative overflow-hidden rounded-[12px] shadow-card"
+        style={{ width: WINDOW_WIDTH * scale, height: WINDOW_HEIGHT * scale }}
+      >
+        <HighlightContext.Provider value={highlight}>
+          <div
+            aria-hidden
+            className="pointer-events-none absolute top-0 left-0 font-sans text-ink select-none"
+            style={{
+              width: WINDOW_WIDTH,
+              height: WINDOW_HEIGHT,
+              transform: `scale(${scale})`,
+              transformOrigin: "0 0",
+              backgroundColor: "var(--stripe-bg)",
+              backgroundImage: "repeating-linear-gradient(-45deg, transparent 0, transparent 7px, var(--stripe) 7px, var(--stripe) 8px)",
+            }}
+          >
+            <Part area="ui" className="absolute inset-0 flex rounded-[12px] outline-offset-[-8px]!">
+              {/* The title bar: traffic lights and the sidebar toggle over the sidebar, terminal and changes at the right. */}
+              <Part keep={["ui"]} className="absolute top-0 right-0 left-0 flex h-11 items-center px-5 text-ink-3">
+                <span className="flex gap-2">
+                  <span className="size-3 rounded-full bg-[#ff5f57]" />
+                  <span className="size-3 rounded-full bg-[#febc2e]" />
+                  <span className="size-3 rounded-full bg-[#28c840]" />
+                </span>
+                <span className="ml-[54px] flex">
+                  <Icon icon={SidebarLeft01Icon} size={18} />
+                </span>
+                <span className="ml-auto flex items-center gap-4">
+                  <Icon icon={ComputerTerminal01Icon} size={18} />
+                  <Icon icon={GitPullRequestIcon} size={18} />
+                  <Icon icon={GitBranchIcon} size={18} />
+                </span>
+              </Part>
+              <div className="flex h-full w-full gap-3 pt-11 pb-2 pl-2">
+                <Sidebar />
+                <div className="relative -mt-11 flex min-w-0 flex-1 flex-col pr-3 pb-1">
+                  <ChatColumn widthPx={chatWidthPx(appearance.chatWidth, appearance.chatWidthPx)} />
+                </div>
+                <ChangesPanel open={panel} />
               </div>
-              <ChangesPanel open={panel} />
-            </div>
-          </Part>
-        </div>
-      </HighlightContext.Provider>
+            </Part>
+          </div>
+        </HighlightContext.Provider>
+      </div>
     </div>
   );
 }
