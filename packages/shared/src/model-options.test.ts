@@ -16,14 +16,10 @@ test("Antigravity's per-level models group into one family per name, levels as e
   assert.deepEqual(
     families.map(({ id, name, efforts, defaultEffort }) => ({ id, name, efforts, defaultEffort })),
     [
+      { id: "gemini-4-argon", name: "Gemini 4 Argon", efforts: ["low", "medium", "high"], defaultEffort: "high" },
       { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", efforts: ["low", "medium", "high"], defaultEffort: "high" },
-      { id: "gemini-3.1-pro", name: "Gemini 3.1 Pro", efforts: ["low", "high"], defaultEffort: "high" },
-      { id: "gemini-3.7-flash", name: "Gemini 3.7 Flash", efforts: ["low", "medium", "high"], defaultEffort: "high" },
-      { id: "gemini-3.6-flash", name: "Gemini 3.6 Flash", efforts: ["low", "medium", "high"], defaultEffort: "high" },
     ],
   );
-  // Irregular agent ids map through the variant table: Pro at High is "gemini-pro-agent".
-  assert.deepEqual(families[1].variants, { high: "gemini-pro-agent", low: "gemini-3.1-pro-low" });
 });
 
 test("a name without a level is its own family with no efforts; unknown levels sort after low, medium and high", () => {
@@ -50,37 +46,63 @@ test("a name without a level is its own family with no efforts; unknown levels s
   assert.equal(familySlug("Gemini 3.1 Pro"), "gemini-3.1-pro");
 });
 
+test("Antigravity partner families keep their provider identity and Thinking is a model label, not an effort", () => {
+  const families = antigravityFamilies([
+    { value: "sonnet-low", name: "Claude Sonnet 5.5 (Low)" },
+    { value: "sonnet-high", name: "Claude Sonnet 5.5 (High)" },
+    { value: "opus-thinking", name: "Claude Opus 4.6 (Thinking)" },
+    { value: "oss-medium", name: "GPT-OSS 120B (Medium)" },
+  ]);
+  assert.deepEqual(
+    families.map(({ id, efforts }) => ({ id, efforts })),
+    [
+      { id: "antigravity:claude-sonnet-5.5", efforts: ["low", "high"] },
+      { id: "antigravity:claude-opus-4.6-thinking", efforts: [] },
+      { id: "antigravity:gpt-oss-120b", efforts: ["medium"] },
+    ],
+  );
+  assert.equal(resolveAntigravityModel(families, "antigravity:claude-sonnet-5.5", "low"), "sonnet-low");
+  assert.equal(resolveAntigravityModel(families, "antigravity:claude-opus-4.6-thinking", "high"), "opus-thinking");
+  // Saved family IDs from before provider namespacing still resolve within an Antigravity session.
+  assert.equal(resolveAntigravityModel(families, "claude-sonnet-5.5", "high"), "sonnet-high");
+});
+
 test("the session's current model sets its family's default effort", () => {
   const families = antigravityFamilies(ANTIGRAVITY_AGENT_OPTIONS, "gemini-3.8-flash-medium");
-  assert.equal(families[0].defaultEffort, "medium");
-  assert.equal(families[1].defaultEffort, "high");
+  assert.equal(families[0].defaultEffort, "high");
+  assert.equal(families[1].defaultEffort, "medium");
   assert.equal(resolveAntigravityModel(families, "gemini-3.8-flash"), "gemini-3.8-flash-medium");
 });
 
 test("resolveAntigravityModel maps a family and effort to the agent id, keeps raw agent ids, and knows nothing else", () => {
-  const families = antigravityFamilies(ANTIGRAVITY_AGENT_OPTIONS);
+  const families = antigravityFamilies([
+    ...ANTIGRAVITY_AGENT_OPTIONS,
+    { value: "gemini-pro-agent", name: "Gemini 3.1 Pro (High)" },
+    { value: "gemini-3.1-pro-low", name: "Gemini 3.1 Pro (Low)" },
+  ]);
   assert.equal(resolveAntigravityModel(families, "gemini-3.1-pro", "high"), "gemini-pro-agent");
   assert.equal(resolveAntigravityModel(families, "gemini-3.1-pro", "low"), "gemini-3.1-pro-low");
   // Pro has no Medium: its default effort.
   assert.equal(resolveAntigravityModel(families, "gemini-3.1-pro", "medium"), "gemini-pro-agent");
   assert.equal(resolveAntigravityModel(families, "gemini-3.8-flash", undefined), "gemini-3.8-flash-high");
   assert.equal(resolveAntigravityModel(families, "gemini-3.8-flash-low", "high"), "gemini-3.8-flash-low");
+  for (const effort of ["low", "medium", "high"]) {
+    assert.equal(resolveAntigravityModel(families, "gemini-4-argon", effort), `gemini-4-argon-${effort}`);
+  }
   assert.equal(resolveAntigravityModel(families, "nope", "high"), undefined);
   assert.equal(resolveAntigravityModel(families, undefined, "high"), undefined);
 });
 
-test("the catalog lists Antigravity's four families, and capabilityFor offers each family's efforts", () => {
+test("the catalog offers current ACP families and their efforts without Enterprise-only models", () => {
   const antigravity = MODEL_CATALOG.filter((model) => model.provider === "antigravity");
   assert.deepEqual(
     antigravity.map((model) => [model.id, model.name, model.description, model.recommended === true]),
     [
+      ["gemini-4-argon", "Gemini 4 Argon", "For complex work", true],
       ["gemini-3.8-flash", "Gemini 3.8 Flash", "Fast", true],
-      ["gemini-3.1-pro", "Gemini 3.1 Pro", "Most capable for complex work", true],
-      ["gemini-3.7-flash", "Gemini 3.7 Flash", "Previous generation fast model", false],
-      ["gemini-3.6-flash", "Gemini 3.6 Flash", "Older fast model", false],
     ],
   );
-  assert.deepEqual(capabilityFor(antigravity[1], null), { efforts: ["low", "high"], defaultEffort: "high", ultracode: false, fastMode: false });
+  assert.deepEqual(capabilityFor(antigravity[1], null), { efforts: ["low", "medium", "high"], defaultEffort: "high", ultracode: false, fastMode: false });
   assert.deepEqual(capabilityFor(antigravity[0], null), { efforts: ["low", "medium", "high"], defaultEffort: "high", ultracode: false, fastMode: false });
   // A raw agent id saved by an older chat has no effort control.
   assert.deepEqual(capabilityFor({ id: "gemini-pro-agent", name: "x", provider: "antigravity", description: "" }, null), {

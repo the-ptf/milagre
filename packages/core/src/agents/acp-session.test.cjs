@@ -368,10 +368,10 @@ test("a family and effort resolve to the agent's id from the session's own optio
 });
 
 test("a family the session doesn't offer resolves through the catalog", () => {
-  assert.equal(antigravityAcp.resolveModel({ model: "gemini-3.1-pro", effort: "low", offered: null }), "gemini-3.1-pro-low");
+  assert.equal(antigravityAcp.resolveModel({ model: "gemini-4-argon", effort: "low", offered: null }), "gemini-4-argon-low");
   assert.equal(
-    antigravityAcp.resolveModel({ model: "gemini-3.7-flash", effort: "medium", offered: [{ value: "x", name: "Other (High)" }] }),
-    "gemini-3.7-flash-medium",
+    antigravityAcp.resolveModel({ model: "gemini-4-argon", effort: "medium", offered: [{ value: "x", name: "Other (High)" }] }),
+    "gemini-4-argon-medium",
   );
   assert.equal(antigravityAcp.resolveModel({ model: "nope", effort: "high", offered: null }), "nope");
 });
