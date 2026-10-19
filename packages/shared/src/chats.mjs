@@ -1,6 +1,6 @@
 // How a chat is named, shared by the sidebar and the main process's notifications. Types: chats.d.mts.
 export { pullRequestRefs, pullRequestRefsCache, chatPullRequests } from "./chat-pull-requests.mjs";
-import { summarizeChat } from "./chat-summary.mjs";
+import { chatSummary, summarizeChat } from "./chat-summary.mjs";
 
 /** The same status palette for desktop and mobile chat lists. */
 export function chatMarkTone(mark) {
@@ -53,7 +53,7 @@ export function pinOrderAt(orders, index) {
 let nextPreviewId = -2;
 
 /** A local message preview. It is never written into the Project's persisted state. */
-export function createPendingChat({ state, worktreeId, sessionId = null, body, images = [], files = [], model, provider, context = null }) {
+export function createPendingChat({ state, worktreeId, sessionId = null, body, images = [], files = [], model, provider, context = null, clientMessageId }) {
   const id = nextPreviewId--;
   const session = state.sessions[sessionId] ?? {
     id,
@@ -71,7 +71,7 @@ export function createPendingChat({ state, worktreeId, sessionId = null, body, i
     images,
     files,
     model,
-    clientMessageId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${-id}`,
+    clientMessageId: clientMessageId ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${-id}`,
   };
   const messages = state.messages.filter((item) => item.session_id === session.id);
   return {
@@ -83,11 +83,42 @@ export function createPendingChat({ state, worktreeId, sessionId = null, body, i
   };
 }
 
+/**
+ * Remembers the clientMessageId of a send that failed before the host answered, with what was put back in the
+ * composer. The host may have saved that message and lost only the answer, so the same text sent again reuses the id
+ * and the host recognises it instead of running it twice. Keyed by the composer (a Chat, or the new-Chat view).
+ */
+export function createResendMemory() {
+  const failed = new Map();
+  const signature = (body, attachments) => JSON.stringify([body, ...attachments]);
+  return {
+    /** Keeps `clientMessageId` for the next send of the same body and attachments from `key`. */
+    remember(key, clientMessageId, body, attachments = []) {
+      failed.set(key, { clientMessageId, signature: signature(body, attachments) });
+    },
+    /** The id to resend with, or undefined for a fresh message. Anything that differs from the failed send forgets it. */
+    reuse(key, body, attachments = []) {
+      const entry = failed.get(key);
+      if (!entry) return undefined;
+      if (entry.signature === signature(body, attachments)) return entry.clientMessageId;
+      failed.delete(key);
+      return undefined;
+    },
+    /** The send went through. */
+    forget(key) {
+      failed.delete(key);
+    },
+  };
+}
+
 /** The saved Chat may arrive over the live connection before the send response does. */
 export function pendingChatSessionId(state, pending) {
   if (!pending) return null;
   const canonical = state.messages.find((message) => message.clientMessageId === pending.message.clientMessageId);
   if (canonical) return canonical.session_id;
+  // A message sent while a turn that can't be steered runs waits in its Chat's queue.
+  const queued = Object.values(state.sessions).find((session) => session.queued?.some((item) => item.clientMessageId === pending.message.clientMessageId));
+  if (queued) return queued.id;
   // A window that holds no messages (chat-pages-v1) has each Chat's last sends in its summary.
   const summarized = Object.values(state.sessions).find((session) => session.summary?.clientMessageIds?.includes(pending.message.clientMessageId));
   if (summarized) return summarized.id;
@@ -109,8 +140,24 @@ export function pendingChatSessionId(state, pending) {
 /** A display projection shared by desktop's sidebar and the phone's drawer; canonical input replaces its preview. */
 export function withPendingChat(state, pending) {
   if (!pending || pendingChatSessionId(state, pending) !== null) return state;
-  const messages = [...state.messages, { ...pending.message, id: pending.sortId }];
-  // The preview counts in its Chat's summary, so the lists show it (and order it) before the host saves it.
-  const summary = summarizeChat(messages.filter((message) => message.session_id === pending.session.id));
-  return { ...state, sessions: { ...state.sessions, [pending.session.id]: { ...pending.session, summary } }, messages };
+  const message = { ...pending.message, id: pending.sortId };
+  const messages = [...state.messages, message];
+  const session = state.sessions[pending.session.id] ?? pending.session;
+  // The host may keep every saved message off the client. Extend its summary rather than replacing the Chat's
+  // history with this one input, and keep settings that changed since the send began (pins, title, etc.).
+  const saved = chatSummary(
+    session,
+    state.messages.filter((item) => item.session_id === session.id),
+  );
+  const summary = {
+    ...summarizeChat([message]),
+    ...saved,
+    count: saved.count + 1,
+    firstId: saved.firstId ?? pending.sortId,
+    lastId: pending.sortId,
+    lastAt: pending.startedAt,
+    ...(message.model ? { lastModel: message.model } : {}),
+    clientMessageIds: [...(saved.clientMessageIds ?? []), ...(message.clientMessageId ? [message.clientMessageId] : [])].slice(-5),
+  };
+  return { ...state, sessions: { ...state.sessions, [session.id]: { ...session, summary } }, messages };
 }

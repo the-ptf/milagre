@@ -982,12 +982,14 @@ test("a client that reads transcripts on demand gets each subagent with the end 
 
 test("a client that reads archived subagents on demand gets each as a summary, in states, patches and updates", async (t) => {
   const entry = (n) => ({ id: `e${n}`, kind: "message", text: `Entry ${n}` });
+  let emit;
   const { project, client } = await fixture(t, {
     createSession(_provider, options) {
+      emit = options.emit;
       return {
         closed: false,
         async startTurn() {
-          // An archived child that runs again: archiving only hides it.
+          // An archived child that ended runs again, as a resumed session picks up its background agents.
           options.emit({ type: "turn-started", turnId: "turn-1" });
           options.emit({
             type: "subagent-update",
@@ -1013,7 +1015,6 @@ test("a client that reads archived subagents on demand gets each as a summary, i
     archived: true,
     prompt: "Check the auth flow",
     latestActivity: "Reading auth.ts",
-    communications: [{ id: "c1", fromId: null, toId: "child", text: "Look at the tests too", at: 1 }],
     transcript,
   };
   const live = { id: "live", title: "Tests", status: "completed", startedAt: 1, updatedAt: 2, latestActivity: "Finished", transcript: [entry(1)] };
@@ -1062,7 +1063,6 @@ test("a client that reads archived subagents on demand gets each as a summary, i
   const read = await desktop.call("chat:subagent", [project, 2, "child"]);
   assert.equal(read.prompt, "Check the auth flow");
   assert.equal(read.latestActivity, "Reading auth.ts");
-  assert.deepEqual(read.communications, child.communications);
   assert.deepEqual(read.transcript, transcript);
 
   // Restoring it sends its details as a patch on the summary; archiving it again takes them back out.
@@ -1083,17 +1083,26 @@ test("a client that reads archived subagents on demand gets each as a summary, i
   assert.equal(archivedAgain.detailsOnDemand, true);
   assert.equal("latestActivity" in archivedAgain, false);
 
-  // A running archived child's update goes to this client as a summary, and to the other with its tail.
+  // An ended child that runs again is back on the track, so its update goes whole.
   await desktop.call("chat:send", [{ projectPath: project, sessionId: 2, body: "Go", provider: "codex", model: "test", permissionMode: "ask" }]);
   const isUpdate = (event) => event.channel === "agent:event" && event.payload.event.type === "subagent-update";
-  const update = (await waitFor(() => events.find(isUpdate))).payload.event.agent;
+  const resumed = (await waitFor(() => events.find(isUpdate))).payload.event.agent;
+  assert.equal(resumed.detailsOnDemand, undefined);
+  assert.equal(resumed.latestActivity, "Writing");
+  // One archived while it runs stays archived: its update goes to this client as a summary, and to the other with its tail.
+  await desktop.call("chat:archive-subagent", [project, 2, "child", true]);
+  emit({
+    type: "subagent-update",
+    agent: { id: "child", title: "Review", status: "running", startedAt: 1, updatedAt: Date.now(), latestActivity: "Testing", transcript: [entry(22)] },
+  });
+  const update = (await waitFor(() => events.filter(isUpdate)[1])).payload.event.agent;
   assert.equal(update.detailsOnDemand, true);
   assert.deepEqual(update.transcript, []);
   assert.equal("latestActivity" in update, false);
-  const tailUpdate = (await waitFor(() => tailEvents.find(isUpdate))).payload.event.agent;
-  assert.equal(tailUpdate.latestActivity, "Writing");
-  assert.equal(tailUpdate.transcriptLength, 21);
-  assert.equal((await desktop.call("chat:subagent", [project, 2, "child"])).latestActivity, "Writing");
+  const tailUpdate = (await waitFor(() => tailEvents.filter(isUpdate)[1])).payload.event.agent;
+  assert.equal(tailUpdate.latestActivity, "Testing");
+  assert.equal(tailUpdate.transcriptLength, 22);
+  assert.equal((await desktop.call("chat:subagent", [project, 2, "child"])).latestActivity, "Testing");
 });
 
 test("a client that reads messages by Chat gets states without them, and each change's messages beside its patch", async (t) => {

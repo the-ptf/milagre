@@ -1,7 +1,8 @@
+import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Reanimated from "react-native-reanimated";
-import { Alert, Image, Keyboard, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { UltracodeGlow } from "../ultracode-glow";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
@@ -16,11 +17,13 @@ import {
   GitBranchIcon,
   GitForkIcon,
   LaptopIcon,
+  Pulse01Icon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
-import type { ChatMessage, LinkIssueResult, PullRequestActionContext } from "@milagre/shared/model";
-import { chatPullRequests, chatTitle, createPendingChat, pendingChatSessionId, pullRequestRefs } from "@milagre/shared/chats";
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
+import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext } from "@milagre/shared/model";
+import { chatPullRequests, chatTitle, createPendingChat, createResendMemory, pendingChatSessionId, pullRequestRefs } from "@milagre/shared/chats";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import { LINK_PR_HINT, issueChipLabel, issueFirstMessage, type LinearIssue, type LinearIssuesResult } from "@milagre/shared/linear";
@@ -33,7 +36,8 @@ import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-i
 import { useComposer, usePendingChats, useSession } from "../session";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
 import { appendAttachments, attachmentPrompt, prepareAttachments } from "../attachments";
-import { PullRequestAction, SubagentChip } from "../status-indicators";
+import { BackgroundRing, PullRequestAction, SubagentChip } from "../status-indicators";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
 import { SimulatorChip } from "../simulator";
 import { BrowserChip } from "../browser";
@@ -49,25 +53,34 @@ import { showBrief } from "../handoff-brief-store";
 import { WorktreeLinkDivider } from "../worktree-link-divider";
 import { AccountSwitchDivider } from "../account-switch-divider";
 import { ChatReloadDivider } from "../chat-reload-divider";
+import { CheckpointRestoreDivider } from "../checkpoint-restore-divider";
+import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
+import { useCheckpoints } from "@milagre/shared/use-checkpoints";
+import type { CheckpointApi } from "@milagre/shared/checkpoints";
+import { UndoPanel, type UndoIntent } from "../undo-panel";
 import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
+import { RoutineRunDivider } from "../routine-run-divider";
+import { clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, routineRunOf, routineRunText } from "@milagre/shared/routines";
 import { CompactionDivider } from "../compaction-divider";
 import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
 import { accountSwitchText, isAccountSwitch } from "@milagre/shared/usage-limit";
 import { isWorktreeLinked, worktreeLinkText } from "@milagre/shared/worktree-link";
-import { ThinkingIndicator } from "../running-logo";
+import { BackgroundIndicator, ThinkingIndicator } from "../running-logo";
 import { BottomFade, EdgeFade } from "../bottom-fade";
 import { useDotBackground } from "../dot-background";
 import { Approval, ActivityQuestions } from "../questions";
+import { QueuedMessages } from "../queued-messages";
 import { AgentControls, PermissionChip } from "../agent-controls";
 import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
 // Linear's mark as a template image, so iOS tints it like the SF Symbols beside it in menus.
 import LINEAR_MARK from "../../assets/linear-mark.png";
 import { Icon, LinearLogo } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
+import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
-import { ErrorNotice, GlassIconButton, IconButton, PageScroll, PillButton, PullDown, useStyles } from "../ui";
+import { ErrorNotice, GlassIconButton, HeaderButton, IconButton, PageScroll, PillButton, PullDown, useStyles } from "../ui";
 import { PromptField } from "../prompt-field";
 import { ContextRing } from "../context-ring";
 import { PlanPanel, PlanPill, usePlanPanel } from "../plan-pill";
@@ -80,6 +93,8 @@ import { useChatPage } from "../chat-pages";
 import { MessageNavigation } from "../message-navigation";
 import { AttentionPill } from "../attention";
 import { useLinear } from "../use-linear";
+import { useRoutines } from "../use-routines";
+import { useActivityClock } from "../chat-row-store";
 import { useWorktreeLinearIssues } from "../use-worktree-linear-issues";
 import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
@@ -87,6 +102,12 @@ import { showChoiceSheet } from "../choice-store";
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
 const PLACE_FALLBACK_MS = 500;
+
+// A Linear Run's first message is its issue card carrying the Run: its divider shows above the card.
+function issueRunDivider(message: ChatMessage, merged?: { count: number; last: RoutineRunContext }) {
+  const run = isRoutineRun(message) ? null : routineRunOf(message);
+  return run ? <RoutineRunDivider context={run} merged={merged} /> : null;
+}
 
 /** A row's id: two workspaces can both have an ENG-1. A Mac that predates workspaces sends the key alone. */
 const issueChoiceId = (issue: LinearIssue) => (issue.workspace ? `${issue.workspace}:${issue.key}` : issue.key);
@@ -96,6 +117,12 @@ function issueChoices(issues: LinearIssue[]) {
 }
 /** The workspace the issue sheet showed last, so it opens there again. */
 let lastLinearWorkspace: string | undefined;
+const UNDO_COMMANDS = [{ name: "undo", description: "Undo a task's file changes" }];
+const NO_CHECKPOINTS: CheckpointApi = {
+  list: async () => [],
+  preview: () => Promise.reject(new Error("Connect to the computer to undo changes")),
+  restore: () => Promise.reject(new Error("Connect to the computer to undo changes")),
+};
 
 export default function ChatScreen() {
   const { colors } = useTheme();
@@ -110,6 +137,8 @@ export default function ChatScreen() {
   // Answers just sent: the card leaves and the answers show at once, until the host's copy arrives.
   const [sentAnswers, setSentAnswers] = useState<{ requestId: string; message: ChatMessage | null; count: number } | null>(null);
   const sendingRef = useRef(false);
+  // The id of a send that failed before the host answered: it may have been saved, so the same text resent reuses it.
+  const failedSends = useRef(createResendMemory());
   const [picking, setPicking] = useState(false);
   const [dockHeight, setDockHeight] = useState(140);
   const [error, setError] = useState("");
@@ -123,6 +152,21 @@ export default function ChatScreen() {
     },
     [],
   );
+  // Undo changes: the Chat's task checkpoints, shown in the composer's place from ⋯, /undo or an undo line's Redo.
+  const undoClient = session.client;
+  const checkpointApi = useMemo<CheckpointApi | null>(
+    () =>
+      undoClient
+        ? {
+            list: (request) => undoClient.call("checkpoint:list", [request]),
+            preview: (request) => undoClient.call("checkpoint:preview", [request]),
+            restore: (request) => undoClient.call("checkpoint:restore", [request]),
+          }
+        : null,
+    [undoClient],
+  );
+  const undo = useCheckpoints(checkpointApi ?? NO_CHECKPOINTS, session.snapshot && params.id ? `${session.snapshot.project.path}#${params.id}` : "");
+  const [undoIntent, setUndoIntent] = useState<UndoIntent>("Undo");
   const targetHost = params.hostId || session.client?.url || "";
   const targetProject = params.projectPath || session.snapshot?.project.path || "";
   const targetScope = JSON.stringify([targetHost, targetProject]);
@@ -219,6 +263,12 @@ export default function ChatScreen() {
   const projectPath = session.snapshot?.project.path;
   // Linear is read only while the Mac has it on and connected; a linked Chat has no Worktrees of its own.
   const { active: linearActive } = useLinear(connected);
+  // The Mac's Routines, for this Chat's Heartbeat: the header button and the Next check line.
+  // With the Mac's switch off nothing runs, so a listed Heartbeat promises no check.
+  const { routines, enabled: routinesOn } = useRoutines(connected);
+  const beating = routinesOn === true && routines.some((routine) => routine.enabled && routine.target.kind === "chat");
+  // Now, to the half minute, only while some Heartbeat could show a Next check.
+  const now = useActivityClock(beating);
   const linearIssues = useWorktreeLinearIssues(connected, linearActive && projectPath && !session.snapshot?.project.link ? [projectPath] : [], linkVersion);
   const targetMatches = (!params.projectPath || params.projectPath === projectPath) && (!params.hostId || params.hostId === connected?.url);
   const originChatId = `${projectPath}#${params.id ?? `new:${params.worktreeId}`}`;
@@ -312,6 +362,8 @@ export default function ChatScreen() {
   // Long Chats mount their newest messages first; earlier ones load on request.
   const [shown, setShown] = useState({ key: scrollKey, count: PAGE });
   const visible = shown.key === scrollKey ? shown.count : PAGE;
+  // Quiet heartbeats fold into one line and their replies drop out.
+  const groupedMessages = useMemo(() => groupQuietRuns(messages), [messages]);
   async function showEarlier() {
     if (historyRead.current || historyAnchor.current || messages.length + remote <= visible) return;
     const request = {};
@@ -321,7 +373,8 @@ export default function ChatScreen() {
     try {
       if (messages.length <= visible) await historyPage.loadEarlier();
       if (currentScrollKey.current !== scrollKey) return;
-      const first = messages[Math.max(0, messages.length - visible)];
+      // A hidden heartbeat reply never lays out, so anchor on the first message after it that does.
+      const first = groupedMessages.slice(Math.max(0, messages.length - visible)).find((entry) => !entry.hidden)?.message;
       const y = first && messagePositions.current.get(first.id);
       historyAnchor.current = first && y !== undefined ? { id: first.id, y, offset: scrollOffset.current, key: scrollKey } : null;
       setShown({ key: scrollKey, count: visible + PAGE });
@@ -335,23 +388,37 @@ export default function ChatScreen() {
     }
   }
   const handoffModels = useMemo(() => [...modelsFor("claude", session.models), ...modelsFor("codex", session.models)], [session.models]);
+  // The rail runs over what the transcript shows: hidden (pass) replies and merged-away quiet dividers are not stops.
+  const shownEntries = useMemo(() => groupedMessages.filter((entry) => !entry.hidden), [groupedMessages]);
   const navigationItems = useMemo(
     () =>
-      messageNavigationIndices(messages.length).map((index) => ({
-        index,
-        label: isHandoff(messages[index])
-          ? `Go to ${handoffSides(messages[index].context, handoffModels).restored ? "context restored" : "context handoff"} ${index + 1} of ${messages.length}.`
-          : isWorktreeLinked(messages[index])
-            ? `Go to ${worktreeLinkText(messages[index].context)}, ${index + 1} of ${messages.length}.`
-            : isCompaction(messages[index])
-              ? `Go to ${compactionText(messages[index].context)}, ${index + 1} of ${messages.length}.`
-              : isAccountSwitch(messages[index])
-                ? `Go to ${accountSwitchText(messages[index].context)}, ${index + 1} of ${messages.length}.`
-                : isChatReload(messages[index])
-                  ? `Go to ${RELOAD_TEXT}, ${index + 1} of ${messages.length}.`
-                  : `Go to ${messageSender(messages[index])} message ${index + 1} of ${messages.length}. ${messages[index].body.slice(0, 88)}`,
-      })),
-    [messages, handoffModels],
+      messageNavigationIndices(shownEntries.length).flatMap((index) => {
+        const entry = shownEntries[index];
+        if (!entry) return [];
+        const { message, merged } = entry;
+        const position = `${index + 1} of ${shownEntries.length}`;
+        // A routine-run divider, or a Linear Run's issue card carrying its Run.
+        const run = routineRunOf(message);
+        return {
+          index,
+          label: isHandoff(message)
+            ? `Go to ${handoffSides(message.context, handoffModels).restored ? "context restored" : "context handoff"} ${position}.`
+            : isWorktreeLinked(message)
+              ? `Go to ${worktreeLinkText(message.context)}, ${position}.`
+              : isCompaction(message)
+                ? `Go to ${compactionText(message.context)}, ${position}.`
+                : isAccountSwitch(message)
+                  ? `Go to ${accountSwitchText(message.context)}, ${position}.`
+                  : isChatReload(message)
+                    ? `Go to ${RELOAD_TEXT}, ${position}.`
+                    : run
+                      ? `Go to ${merged ? mergedRoutineRunText(merged) : routineRunText(run)}, ${position}.`
+                      : isCheckpointRestore(message)
+                        ? `Go to ${message.body}, ${position}.`
+                        : `Go to ${messageSender(message)} message ${position}. ${message.body.slice(0, 88)}`,
+        };
+      }),
+    [shownEntries, handoffModels],
   );
   const messagePositions = useRef(new Map<number, number>());
   const navigationTarget = useRef<number | null>(null);
@@ -359,8 +426,11 @@ export default function ChatScreen() {
     messagePositions.current.clear();
     navigationTarget.current = null;
   }, [params.id]);
-  const navigateToMessage = (index: number) => {
-    if (index === messages.length - 1) {
+  const navigateToMessage = (stop: number) => {
+    const target = shownEntries[stop]?.message;
+    const index = target ? messages.indexOf(target) : -1;
+    if (!target || index < 0) return;
+    if (stop === shownEntries.length - 1) {
       navigationTarget.current = null;
       following.current = true;
       scrollToBottom(true);
@@ -368,7 +438,7 @@ export default function ChatScreen() {
     }
     following.current = false;
     scrollingToBottom.current = false;
-    const id = messages[index].id;
+    const id = target.id;
     navigationTarget.current = id;
     if (index < messages.length - visible) {
       messagePositions.current.clear();
@@ -386,6 +456,11 @@ export default function ChatScreen() {
     router.push("/handoff-brief");
   }, []);
   const openActivity = useCallback((message: string) => router.push({ pathname: "/activity", params: { id: String(params.id), message } }), [params.id]);
+  // The Chat a Delegation came from or went to, on the same computer, as the attention pill opens one.
+  const openOtherChat = useCallback(
+    (key: string) => router.replace({ pathname: "/chat", params: { projectPath: projectOfKey(key), hostId: targetHost, id: String(sessionIdFromKey(key)) } }),
+    [targetHost],
+  );
   const { rememberChat } = session;
   const canRemember = !!params.id && !!session.snapshot?.project.state.sessions[Number(params.id)] && targetMatches;
   useFocusEffect(
@@ -397,6 +472,7 @@ export default function ChatScreen() {
     chatId: pending ? (pendingCanonicalId ?? pending.preview.session.id) : params.id ? Number(params.id) : undefined,
     worktreeId: targetMatches && worktreeOf ? worktreeOf.id : undefined,
   });
+  useReadOpenChat(connected, projectPath, targetMatches && params.id ? session.snapshot?.project.state.sessions[Number(params.id)] : undefined, !!panels.open);
   // A Chat picked in another Project opens that Project here, behind the splash mark, rather than in the navigation.
   const { wanted, error: openError, retry: retryOpen } = useOpenProject(params);
   // A new Chat picked without a Worktree starts in the Project's own checkout once the Project is here.
@@ -503,6 +579,14 @@ export default function ChatScreen() {
   const attachments = composer.attachments[chatId] || [];
   const attachmentDisabled = busy || picking || attachments.length >= 4;
   const run = chat ? runs.runs[chatId] : undefined;
+  const heartbeat =
+    chat && beating
+      ? routines.find((routine) => routine.enabled && !routine.completedAt && routine.target.kind === "chat" && routine.target.chatId === chatId)
+      : undefined;
+  const openHeartbeat = () => heartbeat && router.push({ pathname: "/routine-form", params: { id: heartbeat.id } });
+  const undoHighlight = (undo.view === "list" ? undo.tasks[0] : undo.view === "preview" ? undo.preview : null)?.messageId;
+  // What the Chat is doing (chat-activity.mjs), the same as its sidebar row and desktop's composer show.
+  const activity = chat ? chatActivity(chat, run) : undefined;
   // Feedback cards read the agent's resolutions again only when a comment may have changed.
   const designsMoved = designActivity(
     [...messages.flatMap((message) => message.steps ?? []), ...(run?.steps ?? [])],
@@ -646,6 +730,13 @@ export default function ChatScreen() {
   }
   /** Whether the message went: "busy" when it wasn't tried, the Chat being busy. An issue key starts the Chat in its own new worktree. */
   async function send(body = draft, withAttachments = true, prAction?: PullRequestActionContext, issue?: LinearIssue): Promise<boolean | "busy"> {
+    // `/undo` opens Undo changes instead of reaching the agent, even mid-turn; its preview waits for the turn to end.
+    if (chat && withAttachments && body.trim() === "/undo") {
+      composer.setDrafts((current) => ({ ...current, [chatId]: "" }));
+      setUndoIntent("Undo");
+      void undo.open();
+      return false;
+    }
     const issueKey = issue?.key;
     // A turn running now takes this message as a steer, on the provider it already runs.
     const steered = Boolean(run);
@@ -663,7 +754,9 @@ export default function ChatScreen() {
     const creates = newWorktree || issueKey !== undefined;
     const key = `${client.url}|${chatId}`;
     const operationId = project.link ? composer.linkOperations.forSend(key, JSON.stringify([sent, sending.map((item) => item.id)]), randomUUID) : null;
+    const resendParts = sending.map((item) => item.id);
     const preview = createPendingChat({
+      clientMessageId: failedSends.current.reuse(key, sent, resendParts),
       state: project.state,
       worktreeId,
       sessionId: params.id ? Number(params.id) : null,
@@ -748,6 +841,7 @@ export default function ChatScreen() {
             },
           ]);
       accepted = true;
+      failedSends.current.forget(key);
       if (operationId) composer.linkOperations.accepted(key, operationId);
       const promote = current();
       pendingStore.setPendingChats((current) =>
@@ -795,6 +889,8 @@ export default function ChatScreen() {
       return true;
     } catch (e) {
       if (!accepted) {
+        // The host may have saved the message and lost only its answer: a resend of this text carries the same id.
+        failedSends.current.remember(key, preview.message.clientMessageId!, sent, resendParts);
         pendingStore.setPendingChats((current) => {
           const next = { ...current };
           delete next[key];
@@ -815,6 +911,10 @@ export default function ChatScreen() {
   }
   function headerAction(id: string) {
     if (id === "changes") panels.show("right");
+    else if (id === "undo" && chat) {
+      setUndoIntent("Undo");
+      void undo.open();
+    }
     // oxlint-disable-next-line unicorn/prefer-string-starts-ends-with -- pr comes unvalidated from the host's JSON response, so pr.url may be missing and startsWith would throw
     else if (id === "pr" && pr && /^https:\/\//.test(pr.url)) void Linking.openURL(pr.url).catch(() => {});
     else if (id === "agents" && chat) router.push({ pathname: "/agents", params: { id: String(chat.id) } });
@@ -968,6 +1068,16 @@ export default function ChatScreen() {
   );
   const more = (
     <Stack.Toolbar placement="right">
+      {/* Shown while this Chat has a Heartbeat on; it opens the Heartbeat's settings. */}
+      {heartbeat ? (
+        Platform.OS === "ios" ? (
+          <Stack.Toolbar.Button icon="waveform.path.ecg" accessibilityLabel="Heartbeat" onPress={openHeartbeat} />
+        ) : (
+          <Stack.Toolbar.View>
+            <HeaderButton label="Heartbeat" icon={Pulse01Icon} onPress={openHeartbeat} />
+          </Stack.Toolbar.View>
+        )
+      ) : null}
       <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="Chat actions">
         <Stack.Toolbar.MenuAction
           icon="doc.text.magnifyingglass"
@@ -976,6 +1086,11 @@ export default function ChatScreen() {
         >
           View changes
         </Stack.Toolbar.MenuAction>
+        {chat && (
+          <Stack.Toolbar.MenuAction icon="arrow.uturn.backward" disabled={!!run} onPress={() => headerAction("undo")}>
+            Undo changes
+          </Stack.Toolbar.MenuAction>
+        )}
         {pr && (
           <Stack.Toolbar.MenuAction
             icon="arrow.triangle.pull"
@@ -1114,7 +1229,7 @@ export default function ChatScreen() {
                 <Text style={styles.subtitle}>What are we working on?</Text>
                 <Text style={[styles.muted, { textAlign: "center" }]}>
                   {project.link
-                    ? "One Chat, with a new Worktree in each linked Project on your computer."
+                    ? LINK_CHAT_WORKTREES_TEXT
                     : newWorktree
                       ? `Your agent starts in a new worktree from ${base || "the selected branch"} on your computer.`
                       : `Your agent runs in ${worktree?.name || "this Worktree"} on your computer.`}
@@ -1136,51 +1251,75 @@ export default function ChatScreen() {
                 style={{ alignSelf: "center" }}
               />
             )}
-            {messages.slice(-visible).flatMap((message) => [
+            {groupedMessages.slice(-visible).flatMap(({ message, hidden, merged }) => [
               ...(liveReply && message === pendingInput ? [liveReply] : []),
-              <View
-                key={message.clientMessageId ?? message.id}
-                nativeID={`chat-message-${message.id}`}
-                onLayout={({ nativeEvent: { layout } }) => {
-                  messagePositions.current.set(message.id, layout.y);
-                  const anchor = historyAnchor.current;
-                  if (anchor?.key === scrollKey && anchor.id === message.id) {
-                    historyAnchor.current = null;
-                    // From the offset when the page was asked for: the native position keeping may have moved it already.
-                    const y = Math.max(0, anchor.offset + layout.y - anchor.y);
-                    scrollOffset.current = y;
-                    scroll.current?.scrollTo({ y, animated: false });
-                  }
-                  if (navigationTarget.current === message.id) {
-                    navigationTarget.current = null;
-                    scroll.current?.scrollTo({ y: Math.max(0, layout.y - insets.top - 72), animated: true });
-                  }
-                }}
-              >
-                {isHandoff(message) ? (
-                  <HandoffDivider context={message.context} models={handoffModels} onOpen={openBrief} />
-                ) : isWorktreeLinked(message) ? (
-                  <WorktreeLinkDivider context={message.context} client={session.client} onOpen={(title, text) => openBrief(text, title)} />
-                ) : isCompaction(message) ? (
-                  <CompactionDivider context={message.context} />
-                ) : isAccountSwitch(message) ? (
-                  <AccountSwitchDivider context={message.context} />
-                ) : isChatReload(message) ? (
-                  <ChatReloadDivider />
-                ) : (
-                  <ChatReply
-                    message={message}
-                    media={media}
-                    basePath={worktree?.path || project.path}
-                    chatId={chatId}
-                    designChoice={designChoice}
-                    designsMoved={designsMoved}
-                    // A limit card offers other accounts only on the Chat's last message, with no turn running.
-                    limitProjectPath={!run && !pending && message === messages[messages.length - 1] ? project.path : undefined}
-                    onActivity={openActivity}
-                  />
-                )}
-              </View>,
+              ...(hidden
+                ? []
+                : [
+                    <View
+                      key={message.clientMessageId ?? message.id}
+                      nativeID={`chat-message-${message.id}`}
+                      onLayout={({ nativeEvent: { layout } }) => {
+                        messagePositions.current.set(message.id, layout.y);
+                        const anchor = historyAnchor.current;
+                        if (anchor?.key === scrollKey && anchor.id === message.id) {
+                          historyAnchor.current = null;
+                          // From the offset when the page was asked for: the native position keeping may have moved it already.
+                          const y = Math.max(0, anchor.offset + layout.y - anchor.y);
+                          scrollOffset.current = y;
+                          scroll.current?.scrollTo({ y, animated: false });
+                        }
+                        if (navigationTarget.current === message.id) {
+                          navigationTarget.current = null;
+                          scroll.current?.scrollTo({ y: Math.max(0, layout.y - insets.top - 72), animated: true });
+                        }
+                      }}
+                    >
+                      {isHandoff(message) ? (
+                        <HandoffDivider context={message.context} models={handoffModels} onOpen={openBrief} />
+                      ) : isWorktreeLinked(message) ? (
+                        <WorktreeLinkDivider context={message.context} client={session.client} onOpen={(title, text) => openBrief(text, title)} />
+                      ) : isCompaction(message) ? (
+                        <CompactionDivider context={message.context} />
+                      ) : isAccountSwitch(message) ? (
+                        <AccountSwitchDivider context={message.context} />
+                      ) : isChatReload(message) ? (
+                        <ChatReloadDivider />
+                      ) : isRoutineRun(message) ? (
+                        <RoutineRunDivider context={message.context} merged={merged} />
+                      ) : isCheckpointRestore(message) ? (
+                        <CheckpointRestoreDivider
+                          context={message.context}
+                          onPreview={
+                            run
+                              ? undefined
+                              : (recoveryId, intent) => {
+                                  setUndoIntent(intent);
+                                  void undo.inspect(recoveryId);
+                                }
+                          }
+                        />
+                      ) : (
+                        <>
+                          {/* A Linear Run's first message is its issue card carrying the Run: the divider, then the card. */}
+                          {issueRunDivider(message, merged)}
+                          <ChatReply
+                            message={message}
+                            media={media}
+                            basePath={worktree?.path || project.path}
+                            chatId={chatId}
+                            designChoice={designChoice}
+                            designsMoved={designsMoved}
+                            // A limit card offers other accounts only on the Chat's last message, with no turn running.
+                            limitProjectPath={!run && !pending && message === messages[messages.length - 1] ? project.path : undefined}
+                            onActivity={openActivity}
+                            highlighted={message.id === undoHighlight}
+                            onOpenChat={openOtherChat}
+                          />
+                        </>
+                      )}
+                    </View>,
+                  ]),
             ])}
             {!pendingInput && liveReply}
             {answerPreview && <ChatReply key="answers" message={answerPreview} media={media} chatId={chatId} onActivity={openActivity} />}
@@ -1190,6 +1329,12 @@ export default function ChatScreen() {
                 label={run?.waitingForSubagents ? "Waiting on subagents" : `Working with ${model.name}`}
               />
             )}
+            {!run && !pending && activity?.activity === "background" && (
+              <BackgroundIndicator count={activity.background} startedAt={activity.since} mark={<BackgroundRing count={activity.background} />} />
+            )}
+            {heartbeat && !run && !pending && typeof heartbeat.nextRunAt === "number" && heartbeat.nextRunAt > now ? (
+              <Text style={{ color: colors.ink2, fontSize: 12, textAlign: "center" }}>{`Next check ${clock(heartbeat.nextRunAt)}`}</Text>
+            ) : null}
             {chat?.resumeTurn && !run && (
               <PillButton
                 title="Continue interrupted turn"
@@ -1251,6 +1396,16 @@ export default function ChatScreen() {
                   {agents.length > 0 && <SubagentChip agents={agents} onPress={() => headerAction("agents")} />}
                 </ScrollView>
               )}
+              {chat?.queued?.length ? (
+                <QueuedMessages
+                  items={chat.queued}
+                  held={Boolean(chat.queueHeld)}
+                  running={Boolean(run)}
+                  disabled={actionBusy}
+                  onSendNow={(id) => void action(() => client.call("chat:queue-send", [chatId, id]), true)}
+                  onRemove={(id) => void action(() => client.call("chat:queue-remove", [chatId, id]), true)}
+                />
+              ) : null}
               {run?.approvals.map((approval) => (
                 <Approval
                   key={approval.requestId}
@@ -1291,300 +1446,323 @@ export default function ChatScreen() {
                   />
                 </View>
               )}
-              {(!question || answering) && (
-                <View
-                  style={{
-                    backgroundColor: "transparent",
-                    borderWidth: 1,
-                    borderColor: colors.lineStrong,
-                    borderRadius: 24,
-                    borderCurve: "continuous",
-                    overflow: "hidden",
-                    paddingTop: 8,
-                    paddingHorizontal: 8,
-                    paddingBottom: 6,
-                    gap: 4,
-                    boxShadow: ultracodeOn ? `0 4px 22px ${colors.purple}47` : "0 4px 20px #0000000f",
-                  }}
-                >
-                  <LiquidGlassView
-                    pointerEvents="none"
-                    glassType="clear"
-                    isInteractive={false}
-                    reducedTransparencyFallbackColor={colors.surface}
-                    style={[StyleSheet.absoluteFill, { borderRadius: 24, borderCurve: "continuous" }]}
-                  />
-                  {/* With Ultracode on, the composer takes its purple: a breathing tint and border, and a glow. */}
-                  {ultracodeOn && <UltracodeGlow radius={24} />}
-                  {!params.id && !project.link && (
-                    <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
-                      <PullDown
-                        label="Choose isolation"
-                        nativeTrigger={{
-                          title: isolation === "local" ? "Local" : "New worktree",
-                          systemImage: isolation === "local" ? "laptopcomputer" : "arrow.triangle.branch",
-                          icon: isolation === "local" ? "laptop" : "fork",
-                          disabled: targetDisabled,
-                        }}
-                        sections={[
-                          {
-                            title: "Isolation",
-                            items: [
-                              {
-                                id: "local",
-                                title: "Local",
-                                systemImage: "laptopcomputer",
-                                icon: "laptop",
-                                checked: isolation === "local",
-                                disabled: targetDisabled,
-                              },
-                              {
-                                id: "worktree",
-                                title: "New worktree",
-                                systemImage: "arrow.triangle.branch",
-                                icon: "fork",
-                                checked: isolation === "worktree",
-                                disabled: targetDisabled,
-                              },
-                            ],
-                          },
-                        ]}
-                        onSelect={(id) => {
-                          if (!targetDisabled) chooseTarget({ isolation: id === "worktree" ? "worktree" : "local" });
-                        }}
-                      >
-                        <View
-                          style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 6,
-                            paddingHorizontal: 10,
-                            paddingVertical: 6,
-                            opacity: targetDisabled ? 0.35 : 1,
+              {undo.view !== "closed" && chat ? (
+                <UndoPanel
+                  review={undo}
+                  intent={undoIntent}
+                  onOpenFile={
+                    project.link || !worktree
+                      ? undefined
+                      : (file) => router.push({ pathname: "/diff", params: { worktreeId: String(worktreeId), path: file.path, mode: "uncommitted" } })
+                  }
+                />
+              ) : (
+                (!question || answering) && (
+                  <View
+                    style={{
+                      backgroundColor: "transparent",
+                      borderWidth: 1,
+                      borderColor: colors.lineStrong,
+                      borderRadius: 24,
+                      borderCurve: "continuous",
+                      overflow: "hidden",
+                      paddingTop: 8,
+                      paddingHorizontal: 8,
+                      paddingBottom: 6,
+                      gap: 4,
+                      boxShadow: ultracodeOn ? `0 4px 22px ${colors.purple}47` : "0 4px 20px #0000000f",
+                    }}
+                  >
+                    <LiquidGlassView
+                      pointerEvents="none"
+                      glassType="clear"
+                      isInteractive={false}
+                      reducedTransparencyFallbackColor={colors.surface}
+                      style={[StyleSheet.absoluteFill, { borderRadius: 24, borderCurve: "continuous" }]}
+                    />
+                    {/* With Ultracode on, the composer takes its purple: a breathing tint and border, and a glow. */}
+                    {ultracodeOn && <UltracodeGlow radius={24} />}
+                    {!params.id && !project.link && (
+                      <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+                        <PullDown
+                          label="Choose isolation"
+                          nativeTrigger={{
+                            title: isolation === "local" ? "Local" : "New worktree",
+                            systemImage: isolation === "local" ? "laptopcomputer" : "arrow.triangle.branch",
+                            icon: isolation === "local" ? "laptop" : "fork",
+                            disabled: targetDisabled,
                           }}
-                        >
-                          <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={14} />
-                          <Text style={styles.label}>{isolation === "local" ? "Local" : "New worktree"}</Text>
-                          <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
-                        </View>
-                      </PullDown>
-                      <PullDown
-                        label="Choose branch"
-                        searchable={{
-                          placeholder: newWorktree ? "Search branches" : "Search worktrees",
-                          emptyLabel: newWorktree ? "No branches found." : "No worktrees found.",
-                        }}
-                        nativeTrigger={{ title: branchName, systemImage: "arrow.triangle.branch", disabled: branchDisabled, maxWidth: 180 }}
-                        sections={[
-                          {
-                            title: newWorktree ? "Branch from" : "Choose a worktree",
-                            items: newWorktree
-                              ? (branches?.items || []).map((item) => ({
-                                  id: item,
-                                  title: item,
-                                  checked: item === base,
-                                  systemImage: "arrow.triangle.branch",
-                                  disabled: branchDisabled,
-                                }))
-                              : Object.values(project.state.worktrees).map((item) => ({
-                                  id: String(item.id),
-                                  title: item.name,
-                                  subtitle: item.path?.split("/").filter(Boolean).pop(),
-                                  checked: item.id === worktreeId,
-                                  systemImage: "arrow.triangle.branch",
+                          sections={[
+                            {
+                              title: "Isolation",
+                              items: [
+                                {
+                                  id: "local",
+                                  title: "Local",
+                                  systemImage: "laptopcomputer",
+                                  icon: "laptop",
+                                  checked: isolation === "local",
                                   disabled: targetDisabled,
-                                })),
-                          },
-                        ]}
-                        onSelect={(id) => {
-                          if (!branchDisabled) {
-                            if (newWorktree) chooseTarget({ baseBranch: id });
-                            else navigation.setParams({ worktreeId: id });
-                          }
-                        }}
-                      >
-                        <View
-                          style={{
-                            maxWidth: 180,
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 6,
-                            paddingHorizontal: 10,
-                            paddingVertical: 6,
-                            opacity: branchDisabled ? 0.35 : 1,
+                                },
+                                {
+                                  id: "worktree",
+                                  title: "New worktree",
+                                  systemImage: "arrow.triangle.branch",
+                                  icon: "fork",
+                                  checked: isolation === "worktree",
+                                  disabled: targetDisabled,
+                                },
+                              ],
+                            },
+                          ]}
+                          onSelect={(id) => {
+                            if (!targetDisabled) chooseTarget({ isolation: id === "worktree" ? "worktree" : "local" });
                           }}
                         >
-                          <Icon icon={GitBranchIcon} tone="ink2" size={14} />
-                          <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
-                            {branchName}
-                          </Text>
-                          <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
-                        </View>
-                      </PullDown>
-                      {linearActive && (
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel="Start from a Linear issue"
-                          disabled={targetDisabled}
-                          onPress={() => void chooseIssue()}
-                          style={({ pressed }) => ({
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 6,
-                            paddingHorizontal: 10,
-                            paddingVertical: 6,
-                            opacity: targetDisabled ? 0.35 : pressed ? 0.6 : 1,
-                          })}
-                        >
-                          <LinearLogo size={13} />
-                          <Text style={styles.label}>Linear issue</Text>
-                        </Pressable>
-                      )}
-                    </View>
-                  )}
-                  {!!attachments.length && (
-                    <PageScroll horizontal contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 8 }}>
-                      {attachments.map((item) => (
-                        <View
-                          key={item.id}
-                          style={{
-                            backgroundColor: colors.field,
-                            borderRadius: 12,
-                            borderCurve: "continuous",
-                            paddingLeft: item.image ? 4 : 10,
-                            flexDirection: "row",
-                            alignItems: "center",
-                            maxWidth: 220,
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 6,
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
+                              opacity: targetDisabled ? 0.35 : 1,
+                            }}
+                          >
+                            <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={14} />
+                            <Text style={styles.label}>{isolation === "local" ? "Local" : "New worktree"}</Text>
+                            <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
+                          </View>
+                        </PullDown>
+                        <PullDown
+                          label="Choose branch"
+                          searchable={{
+                            placeholder: newWorktree ? "Search branches" : "Search worktrees",
+                            emptyLabel: newWorktree ? "No branches found." : "No worktrees found.",
+                          }}
+                          nativeTrigger={{ title: branchName, systemImage: "arrow.triangle.branch", disabled: branchDisabled, maxWidth: 180 }}
+                          sections={[
+                            {
+                              title: newWorktree ? "Branch from" : "Choose a worktree",
+                              items: newWorktree
+                                ? (branches?.items || []).map((item) => ({
+                                    id: item,
+                                    title: item,
+                                    checked: item === base,
+                                    systemImage: "arrow.triangle.branch",
+                                    disabled: branchDisabled,
+                                  }))
+                                : Object.values(project.state.worktrees).map((item) => ({
+                                    id: String(item.id),
+                                    title: item.name,
+                                    subtitle: item.path?.split("/").filter(Boolean).pop(),
+                                    checked: item.id === worktreeId,
+                                    systemImage: "arrow.triangle.branch",
+                                    disabled: targetDisabled,
+                                  })),
+                            },
+                          ]}
+                          onSelect={(id) => {
+                            if (!branchDisabled) {
+                              if (newWorktree) chooseTarget({ baseBranch: id });
+                              else navigation.setParams({ worktreeId: id });
+                            }
                           }}
                         >
-                          {item.image ? (
-                            <Image source={{ uri: item.uri }} accessibilityLabel={item.name} style={{ width: 44, height: 44, borderRadius: 8 }} />
-                          ) : (
-                            <Pressable
-                              accessibilityRole="button"
-                              accessibilityLabel={`Preview ${item.name}`}
-                              onPress={() =>
-                                router.push({ pathname: "/file-preview", params: item.path ? { path: item.path } : { uri: item.uri, name: item.name } })
-                              }
-                              style={{ flexDirection: "row", alignItems: "center", flexShrink: 1 }}
-                            >
-                              <Icon icon={File01Icon} tone="ink2" size={18} />
+                          <View
+                            style={{
+                              maxWidth: 180,
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 6,
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
+                              opacity: branchDisabled ? 0.35 : 1,
+                            }}
+                          >
+                            <Icon icon={GitBranchIcon} tone="ink2" size={14} />
+                            <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
+                              {branchName}
+                            </Text>
+                            <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
+                          </View>
+                        </PullDown>
+                        {linearActive && (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Start from a Linear issue"
+                            disabled={targetDisabled}
+                            onPress={() => void chooseIssue()}
+                            style={({ pressed }) => ({
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 6,
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
+                              opacity: targetDisabled ? 0.35 : pressed ? 0.6 : 1,
+                            })}
+                          >
+                            <LinearLogo size={13} />
+                            <Text style={styles.label}>Linear issue</Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    )}
+                    {!!attachments.length && (
+                      <PageScroll horizontal contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 8 }}>
+                        {attachments.map((item) => (
+                          <View
+                            key={item.id}
+                            style={{
+                              backgroundColor: colors.field,
+                              borderRadius: 12,
+                              borderCurve: "continuous",
+                              paddingLeft: item.image ? 4 : 10,
+                              flexDirection: "row",
+                              alignItems: "center",
+                              maxWidth: 220,
+                            }}
+                          >
+                            {item.image ? (
+                              <Image source={{ uri: item.uri }} accessibilityLabel={item.name} style={{ width: 44, height: 44, borderRadius: 8 }} />
+                            ) : (
+                              <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel={`Preview ${item.name}`}
+                                onPress={() =>
+                                  router.push({ pathname: "/file-preview", params: item.path ? { path: item.path } : { uri: item.uri, name: item.name } })
+                                }
+                                style={{ flexDirection: "row", alignItems: "center", flexShrink: 1 }}
+                              >
+                                <Icon icon={File01Icon} tone="ink2" size={18} />
+                                <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
+                                  {item.name}
+                                </Text>
+                              </Pressable>
+                            )}
+                            {item.image && (
                               <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
                                 {item.name}
                               </Text>
-                            </Pressable>
-                          )}
-                          {item.image && (
-                            <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
-                              {item.name}
-                            </Text>
-                          )}
-                          <IconButton
-                            label={`Remove ${item.name}`}
-                            icon={Cancel01Icon}
-                            size={32}
-                            disabled={busy || picking}
-                            onPress={() =>
-                              composer.setAttachments((current) => ({
-                                ...current,
-                                [chatId]: (current[chatId] || []).filter((attachment) => attachment.id !== item.id),
-                              }))
-                            }
-                          />
-                        </View>
-                      ))}
-                    </PageScroll>
-                  )}
-                  <PromptField
-                    key={chatId}
-                    client={client}
-                    projectPath={worktree?.path || (project.link ? "" : project.path)}
-                    draft={draft}
-                    onImagePaste={(image) => void pasteImage(image)}
-                    onChangeText={(value) => composer.setDrafts((current) => ({ ...current, [chatId]: value }))}
-                  />
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                    <PullDown
-                      label="Add photos or files"
-                      nativeTrigger={{ systemImage: "plus", disabled: attachmentDisabled }}
-                      sections={[
-                        {
-                          items: [
-                            { id: "photos", title: "Photo Library", systemImage: "photo.on.rectangle", disabled: attachmentDisabled },
-                            { id: "camera", title: "Take Photo", systemImage: "camera", disabled: attachmentDisabled },
-                            { id: "files", title: "Choose Files", systemImage: "folder", disabled: attachmentDisabled },
-                            { id: "paste", title: "Paste image", systemImage: "doc.on.clipboard", disabled: attachmentDisabled },
-                          ],
-                        },
-                      ]}
-                      onSelect={(kind) => void pick(kind as "photos" | "camera" | "files" | "paste")}
-                    >
-                      <View style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", opacity: attachmentDisabled ? 0.35 : 1 }}>
-                        <Icon icon={Add01Icon} tone="ink2" size={21} />
-                      </View>
-                    </PullDown>
-                    <AgentControls
-                      model={model}
-                      effort={preferences.effort}
-                      fastMode={preferences.fastMode}
-                      ultracode={preferences.ultracode}
-                      onToggle={() => {
-                        router.push({
-                          pathname: "/model-sheet",
-                          params: {
-                            chatId,
-                            model: model.id,
-                            provider: actualProvider,
-                            ...(chat?.provider ? { on: chat.provider } : {}),
-                            ...(run ? { busy: "1" } : {}),
+                            )}
+                            <IconButton
+                              label={`Remove ${item.name}`}
+                              icon={Cancel01Icon}
+                              size={32}
+                              disabled={busy || picking}
+                              onPress={() =>
+                                composer.setAttachments((current) => ({
+                                  ...current,
+                                  [chatId]: (current[chatId] || []).filter((attachment) => attachment.id !== item.id),
+                                }))
+                              }
+                            />
+                          </View>
+                        ))}
+                      </PageScroll>
+                    )}
+                    <PromptField
+                      key={chatId}
+                      client={client}
+                      projectPath={worktree?.path || (project.link ? "" : project.path)}
+                      draft={draft}
+                      onImagePaste={(image) => void pasteImage(image)}
+                      commands={chat ? UNDO_COMMANDS : undefined}
+                      // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
+                      placeholder={run && !providerCapabilities(chat?.provider ?? actualProvider).steer ? "Queue a message for the next turn" : undefined}
+                      onChangeText={(value) => composer.setDrafts((current) => ({ ...current, [chatId]: value }))}
+                    />
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <PullDown
+                        label="Add photos or files"
+                        nativeTrigger={{ systemImage: "plus", disabled: attachmentDisabled }}
+                        sections={[
+                          {
+                            items: [
+                              { id: "photos", title: "Photo Library", systemImage: "photo.on.rectangle", disabled: attachmentDisabled },
+                              { id: "camera", title: "Take Photo", systemImage: "camera", disabled: attachmentDisabled },
+                              { id: "files", title: "Choose Files", systemImage: "folder", disabled: attachmentDisabled },
+                              { id: "paste", title: "Paste image", systemImage: "doc.on.clipboard", disabled: attachmentDisabled },
+                            ],
                           },
-                        });
-                      }}
-                    />
-                    <PermissionChip
-                      mode={preferences.permissionMode}
-                      onPress={() => router.push({ pathname: "/permission-sheet", params: { chatId, ...(run ? { busy: "1" } : {}) } })}
-                    />
-                    <View style={{ flex: 1 }} />
-                    <PlanPill panel={planPanel} />
-                    {contextUsage && contextUsage.size > 0 && params.id && (
-                      <ContextRing
-                        {...contextUsage}
-                        canCompact={Boolean(chat) && (chat?.provider ?? "claude") === "claude"}
-                        onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
+                        ]}
+                        onSelect={(kind) => void pick(kind as "photos" | "camera" | "files" | "paste")}
+                      >
+                        <View style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", opacity: attachmentDisabled ? 0.35 : 1 }}>
+                          <Icon icon={Add01Icon} tone="ink2" size={21} />
+                        </View>
+                      </PullDown>
+                      <AgentControls
+                        model={model}
+                        effort={preferences.effort}
+                        fastMode={preferences.fastMode}
+                        ultracode={preferences.ultracode}
+                        onToggle={() => {
+                          router.push({
+                            pathname: "/model-sheet",
+                            params: {
+                              chatId,
+                              model: model.id,
+                              provider: actualProvider,
+                              ...(chat?.provider ? { on: chat.provider } : {}),
+                              ...(run ? { busy: "1" } : {}),
+                            },
+                          });
+                        }}
                       />
-                    )}
-                    {run && !draft.trim() && !attachments.length && (
-                      <IconButton
-                        label="Stop"
-                        icon={StopIcon}
-                        filled
-                        size={34}
-                        disabled={actionBusy}
-                        onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
+                      <PermissionChip
+                        mode={preferences.permissionMode}
+                        onPress={() => router.push({ pathname: "/permission-sheet", params: { chatId, ...(run ? { busy: "1" } : {}) } })}
                       />
-                    )}
-                    {(!run || !!draft.trim() || !!attachments.length) && (
-                      <IconButton
-                        label={busy ? "Sending..." : run ? "Send follow-up" : "Send message"}
-                        icon={ArrowUp01Icon}
-                        filled
-                        size={34}
-                        loading={busy}
-                        disabled={
-                          busy ||
-                          picking ||
-                          (newWorktree && !base) ||
-                          (!draft.trim() && !attachments.length) ||
-                          !!session.error ||
-                          !!chat?.archived ||
-                          unavailable
-                        }
-                        onPress={() => void send()}
-                      />
-                    )}
+                      <View style={{ flex: 1 }} />
+                      <PlanPill panel={planPanel} />
+                      {contextUsage && contextUsage.size > 0 && params.id && (
+                        <ContextRing
+                          {...contextUsage}
+                          canCompact={Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact}
+                          onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
+                        />
+                      )}
+                      {run && !draft.trim() && !attachments.length && (
+                        <IconButton
+                          label="Stop"
+                          icon={StopIcon}
+                          filled
+                          size={34}
+                          disabled={actionBusy}
+                          onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
+                        />
+                      )}
+                      {(!run || !!draft.trim() || !!attachments.length) && (
+                        <IconButton
+                          label={
+                            busy
+                              ? "Sending..."
+                              : run
+                                ? providerCapabilities(chat?.provider ?? actualProvider).steer
+                                  ? "Send follow-up"
+                                  : "Queue message"
+                                : "Send message"
+                          }
+                          icon={ArrowUp01Icon}
+                          filled
+                          size={34}
+                          loading={busy}
+                          disabled={
+                            busy ||
+                            picking ||
+                            (newWorktree && !base) ||
+                            (!draft.trim() && !attachments.length) ||
+                            !!session.error ||
+                            !!chat?.archived ||
+                            unavailable
+                          }
+                          onPress={() => void send()}
+                        />
+                      )}
+                    </View>
                   </View>
-                </View>
+                )
               )}
             </View>
             {/* Drawn last and floated above the dock, so showing it changes no other view's layout or order: either

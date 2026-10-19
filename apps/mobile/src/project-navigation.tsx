@@ -1,6 +1,7 @@
+import { UpdateSettingsBadge } from "./update-sheet";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { AppState, FlatList, KeyboardAvoidingView, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import type { Href } from "expo-router";
 import {
@@ -17,6 +18,7 @@ import {
   Link04Icon,
   MoreHorizontalIcon,
   PinIcon,
+  RepeatIcon,
   Search01Icon,
   Settings01Icon,
   UnfoldMoreIcon,
@@ -40,10 +42,12 @@ import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { useComposer, usePendingChats, useSession, type MobilePendingChat } from "./session";
 import { savedFoldedProjects } from "./hosts-native";
 import { useLinks } from "./use-links";
+import { useRoutinesAvailable } from "./use-routines";
 import { endNamer, linkMenuSection, linkWorktree, linkedAccessibilityLabel, linkedLabels, type LinkChat } from "./chat-links";
 import { linkWithChat, removeLinkFromChat } from "./link-actions";
 import { afterSend, selectedModel, sendOptions, turnTarget } from "./turn-options";
 import { chatMark, type ChatMark } from "./indicators";
+import { backgroundLabel, chatActivity } from "@milagre/shared/chat-activity";
 import { ChatMarkIcon } from "./status-indicators";
 import { Icon } from "./icons";
 import { LoadingLogo } from "./loading-logo";
@@ -75,6 +79,8 @@ type Row = { key: string; path: string } & (
       title: string;
       worktree: string;
       mark: ChatMark;
+      /** With a background mark: how many background agents still work. */
+      background?: number;
       pending?: MobilePendingChat;
       prPath?: string;
       prRefs?: string[];
@@ -106,6 +112,7 @@ const NEEDS: ChatMark[] = ["question", "waiting", "interrupted", "failed", "unre
 const labels: Record<ChatMark, string> = {
   idle: "",
   running: "Running",
+  background: "In the background",
   question: "Needs reply",
   waiting: "Needs approval",
   interrupted: "Interrupted",
@@ -129,6 +136,8 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
   const composer = useComposer();
   const { pendingChats } = usePendingChats();
   const links = useLinks(session.client);
+  // An older Mac or a confined phone has no Routines to show, so the dock leaves the button out.
+  const routinesAvailable = useRoutinesAvailable(session.client);
   const insets = useSafeAreaInsets();
   const attention = useAttention();
   const { reloadProjects, previewProject, cachedProject } = session;
@@ -195,13 +204,37 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
   const listed = useMemo(() => session.recent.filter((item) => !item.hidden), [session.recent]);
   // Searching or filtering reads every Project; ordinary browsing only reads open groups.
   const searching = !!query.trim() || show !== "all";
+  // The selected Project has its own subscription in session.tsx. Refresh the other visible groups, including
+  // before the phone opens a Chat. Polling avoids using one of the host's limited live sockets per Project.
+  const previewPaths =
+    foldsRead || searching
+      ? listed
+          .filter((item) => item.path !== currentPath && (searching || !folded.has(item.path)))
+          .map((item) => item.path)
+          .join("\n")
+      : "";
   useEffect(() => {
-    // Until the folds are read, a folded group would be read for nothing.
-    if (!foldsRead && !searching) return;
-    const paths = listed.filter((item) => searching || !folded.has(item.path)).map((item) => item.path);
-    // One slow Project must not hold up the other open groups.
-    void Promise.all(paths.map(load));
-  }, [folded, foldsRead, searching, listed, load]);
+    if (!session.client || !previewPaths) return;
+    const paths = previewPaths.split("\n");
+    let generation = 0;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      const current = ++generation;
+      clearTimeout(timer);
+      if (stopped || AppState.currentState !== "active") return;
+      await Promise.all(paths.map(load));
+      if (!stopped && current === generation && AppState.currentState === "active") timer = setTimeout(refresh, 4000);
+    };
+    const subscription = AppState.addEventListener("change", () => void refresh());
+    void refresh();
+    return () => {
+      stopped = true;
+      generation++;
+      clearTimeout(timer);
+      subscription.remove();
+    };
+  }, [session.client, previewPaths, load]);
   // Projects held without their messages (a drawer preview, or a host that keeps them by Chat) are searched on the host.
   const [hostMatches, setHostMatches] = useState<{ query: string; matches: Record<string, ChatSearchMatch[]> }>({ query: "", matches: {} });
   const hostSearchPaths = useMemo(
@@ -263,10 +296,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
       const marked = Object.values(copy?.project.state.sessions || {}).map((chat) => {
         const run = copy?.runs.runs[`${copy.project.path}#${chat.id}`];
         const pending = pendingById.get(chat.id);
-        const sortId =
-          pending && !byChat.get(chat.id)?.some((message) => message.clientMessageId !== pending.preview.message.clientMessageId)
-            ? pending.preview.sortId
-            : chat.id;
+        const sortId = chatSummary(chat, byChat.get(chat.id)).firstId ?? chat.id;
         return {
           chat,
           title: chatTitle(chat, byChat.get(chat.id)),
@@ -274,6 +304,8 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
           pending,
           sortId,
           mark: pending && !pending.accepted ? ("running" as const) : chatMark(chat, run, byChat.get(chat.id) || []),
+          // How many background agents still work, for a background mark (chat-activity.mjs).
+          background: chatActivity(chat, run).background,
         };
       });
       // Like desktop's sidebar, a worktree's empty starter Chat stays out until it has a message or a turn is starting.
@@ -285,7 +317,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
             (run || isListedChat(chat, chatSummary(chat, byChat.get(chat.id)).count)),
         )
         .filter(({ mark }) => show !== "needs" || NEEDS.includes(mark))
-        .filter(({ mark }) => show !== "running" || mark === "running");
+        .filter(({ mark }) => show !== "running" || mark === "running" || mark === "background");
       if (needle && copy)
         searchable.push({
           path: project.path,
@@ -305,7 +337,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
         result.push({ key: `section:${section}`, path: "", kind: "section", name: section });
       result.push({ key: project.path, path: project.path, kind: "project", name, expanded: open, members: project.projects });
       if (!open) continue;
-      for (const { chat, title, mark, pending } of chats)
+      for (const { chat, title, mark, background, pending } of chats)
         result.push({
           key: `${project.path}#${chat.id}`,
           path: project.path,
@@ -317,6 +349,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
           prPath: !pending && !copy?.project.link ? copy?.project.state.worktrees[chat.worktree_id]?.path : undefined,
           prRefs: chat.summary?.pullRequests ?? copy?.project.pullRequestRefs?.[chat.id] ?? pullRequestRefs(byChat.get(chat.id) || []),
           mark,
+          background,
         });
       if (failures[project.path])
         result.push({
@@ -625,7 +658,11 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <IconButton label="Canvas" icon={GitMergeIcon} size={44} disabled={busy} onPress={() => onNavigate("/canvas", true)} />
         <IconButton label="Link projects" icon={Link04Icon} size={44} disabled={busy} onPress={() => onNavigate("/link-projects", true)} />
-        <IconButton label="Settings" icon={Settings01Icon} size={44} onPress={() => onNavigate("/settings", true)} />
+        {routinesAvailable && <IconButton label="Routines" icon={RepeatIcon} size={44} disabled={busy} onPress={() => onNavigate("/routines", true)} />}
+        <View>
+          <IconButton label="Settings" icon={Settings01Icon} size={44} onPress={() => onNavigate("/settings", true)} />
+          <UpdateSettingsBadge />
+        </View>
       </View>
     </View>
   );
@@ -877,7 +914,8 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
               <Icon icon={Link04Icon} tone="ink3" size={12} />
             </View>
           ) : null;
-          const secondLine = !!branchLine || !!diff || lastAt !== undefined || !!item.chat.pinned || !!linkedIcon || !!labels[item.mark];
+          const markLabel = item.mark === "background" && item.background ? backgroundLabel(item.background) : labels[item.mark];
+          const secondLine = !!branchLine || !!diff || lastAt !== undefined || !!item.chat.pinned || !!linkedIcon || !!markLabel;
           const menu = chatMenu(
             item.chat,
             copy?.project.link ? { path: copy.project.state.worktrees[item.chat.worktree_id]?.path } : copy?.project.state.worktrees[item.chat.worktree_id],
@@ -894,7 +932,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
                 importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
               >
                 <PullDown
-                  label={`${title}${item.chat.pinned ? ", pinned" : ""}, ${item.worktree}${labels[item.mark] ? `, ${labels[item.mark]}` : ""}${linked.length ? `, ${linkedAccessibilityLabel(linked)}` : ""}`}
+                  label={`${title}${item.chat.pinned ? ", pinned" : ""}, ${item.worktree}${markLabel ? `, ${markLabel}` : ""}${linked.length ? `, ${linkedAccessibilityLabel(linked)}` : ""}`}
                   title={title}
                   sections={item.pending || archiving ? [] : menu}
                   onSelect={(action) => {
@@ -906,7 +944,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
                   style={{ flex: 1 }}
                 >
                   <View style={[s.chatBody, hasChips && { minHeight: 28, paddingTop: 6, paddingBottom: 0 }]}>
-                    <ChatMarkIcon mark={item.mark} />
+                    <ChatMarkIcon mark={item.mark} background={item.background} />
                     <View style={{ flex: 1, gap: 3 }}>
                       <Text
                         numberOfLines={hasChips ? 1 : 2}
@@ -925,9 +963,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
                             </Text>
                           )}
                           {facts}
-                          {!!labels[item.mark] && (
-                            <Text style={[s.detail, { color: tone === "accent" ? colors.accentInk : colors[tone] }]}>{labels[item.mark]}</Text>
-                          )}
+                          {!!markLabel && <Text style={[s.detail, { color: tone === "accent" ? colors.accentInk : colors[tone] }]}>{markLabel}</Text>}
                         </View>
                       )}
                     </View>
@@ -938,9 +974,9 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
                     {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
                     {linkedIcon}
                     {facts}
-                    {!!labels[item.mark] && (
+                    {!!markLabel && (
                       <Text numberOfLines={1} style={[s.detail, { flexShrink: 1, color: tone === "accent" ? colors.accentInk : colors[tone] }]}>
-                        {labels[item.mark]}
+                        {markLabel}
                       </Text>
                     )}
                   </ChatPullRequestChips>

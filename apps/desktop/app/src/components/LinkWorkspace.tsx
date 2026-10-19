@@ -1,4 +1,5 @@
 import { CommandPalette } from "./CommandPalette";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import { useChanges } from "./changes/useChanges";
 import { LinkChangesPanel } from "./changes/LinkChangesPanel";
 import { useLinkDiffLists } from "./changes/useLinkDiffLists";
@@ -17,6 +18,7 @@ import { chatKeyForScope, scopeKey } from "@milagre/shared/chat-scopes";
 import { showNotice } from "../lib/notice";
 import { chatTitle } from "@milagre/shared/chats";
 import { attentionLabel, chatsNeedingAttention, waitingFor } from "@milagre/shared/attention";
+import { useHiddenProjects } from "../lib/hidden-projects";
 import { useSettings } from "../lib/settings";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { ipcErrorMessage } from "@milagre/shared/result";
@@ -45,6 +47,7 @@ import { lazyView } from "../lib/lazy-view";
 import type { LinkedWork } from "@milagre/shared/model";
 import { TerminalPanel } from "./terminal/TerminalPanel";
 import { CORNER_PITCH, PanelToggles } from "./agents/PanelToggles";
+import { queueControls } from "./QueuedMessages";
 import { BridgeContext, ScopeContext, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { busyTerminals, newTerminal, useTerminalSync, type TerminalPlace } from "../lib/terminal-actions";
 const CanvasView = lazyView(() => import("./CanvasView").then((module) => module.CanvasView));
@@ -122,8 +125,9 @@ export function LinkWorkspace({
     label: member.alias ?? member.projectPath.split(/[\\/]/).filter(Boolean).at(-1) ?? member.worktreePath,
   }));
   const run = chatId ? agents.runs[chatId] : undefined;
-  // Every project's chats that wait on the user; the Link's own are marked in its sidebar.
-  const attentionKey = chatsNeedingAttention(agents.runs).join("\n");
+  // Every project's chats that wait on the user, except in Projects hidden from the sidebar; the Link's own are marked in its sidebar.
+  const hiddenProjects = useHiddenProjects();
+  const attentionKey = chatsNeedingAttention(agents.runs, "", hiddenProjects).join("\n");
   const sidebarRunKeys = runKeys(agents.runs);
   const attentionChats = useMemo(() => (attentionKey ? attentionKey.split("\n") : []), [attentionKey]);
   const { showAttentionButton, floatingInbox } = useSettings();
@@ -548,7 +552,14 @@ export function LinkWorkspace({
                         subagents={session?.subagents?.filter((agent) => agent.id !== session.native_session_id)}
                         ports={chatId ? ports[chatId] : undefined}
                         agentChatId={chatId ?? undefined}
+                        onOpenDiff={(path, worktree) => {
+                          const member = session?.worktrees.find((item) => item.worktreePath === worktree);
+                          if (member) setMemberId(member.projectId);
+                          if (!changes.open) changes.toggle();
+                          changes.selectFile(path);
+                        }}
                         waitingForSubagents={run?.waitingForSubagents}
+                        activity={session ? chatActivity(session, run) : undefined}
                         asking={Boolean(question)}
                         waitingStepIds={run?.approvals.flatMap((request) => (request.stepId ? [request.stepId] : []))}
                         resume={
@@ -556,6 +567,7 @@ export function LinkWorkspace({
                             ? { onContinue: () => void bridge.resumeChat(owner, session.id).catch((error) => setError(ipcErrorMessage(error))) }
                             : undefined
                         }
+                        queue={chatId ? queueControls(bridge, chatId, session, Boolean(run), setError) : undefined}
                         onStopAdvisor={(id) => {
                           if (chatId) void bridge.stopAdvisor(chatId, id).catch((error) => setError(ipcErrorMessage(error)));
                         }}
@@ -662,7 +674,11 @@ export function LinkWorkspace({
             >
               <div className="p-5" onClick={(event) => event.stopPropagation()}>
                 <h2 className="text-[16px] font-semibold">Choose a Project</h2>
-                <p className="mt-1 mb-4 text-[13px] text-ink-2">Git actions apply to one Worktree.</p>
+                <p className="mt-1 mb-4 text-[13px] text-ink-2">
+                  {state.sessions[gitChoice]?.worktrees.length
+                    ? "Git actions apply to one Worktree."
+                    : "This Chat has no Worktree yet. It creates one when it changes a Project."}
+                </p>
                 <Select
                   label="Project"
                   value={gitMemberId}

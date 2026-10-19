@@ -1,7 +1,18 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, Delete02Icon } from "@hugeicons/core-free-icons";
-import { ARTIFACT_CSP, ARTIFACT_ESCAPE, artifactDocument, designGroups, type Artifact, type DesignArtifact } from "@milagre/shared/artifact";
+import {
+  ARTIFACT_CSP,
+  ARTIFACT_ESCAPE,
+  ARTIFACT_PAGE,
+  artifactDocument,
+  designGroups,
+  readPageMessage,
+  type Artifact,
+  type ArtifactPageMessage,
+  type DesignArtifact,
+  type PagePin,
+} from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import Tooltip from "../primitives/Tooltip";
 import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
@@ -22,7 +33,12 @@ export type DesignPin = {
   y: number;
   text: string;
   nodeId?: string;
+  /** On an Artifact page: the element it was pinned on (ARTIFACT_PAGE_SCRIPT's anchor) and the text near it. */
+  anchor?: string;
+  near?: string;
   resolved?: string;
+  /** A sent comment's id, as the host and the agent know it. */
+  commentId?: string;
 };
 /** The comments pinned on the canvas, the one whose bubble is open, and what changes them. */
 export type PinControls = {
@@ -30,7 +46,8 @@ export type PinControls = {
   /** Comments already sent: shown where they were left, to read, not to change. */
   sent: DesignPin[];
   open: string | null;
-  onPin: (design: ArtifactRef, x: number, y: number, nodeId?: string) => void;
+  /** Pins a new comment, its bubble open; returns its key. */
+  onPin: (design: ArtifactRef, x: number, y: number, nodeId?: string, page?: { anchor?: string; near?: string }) => string | void;
   onOpen: (key: string | null) => void;
   onText: (key: string, text: string) => void;
   onRemove: (key: string) => void;
@@ -121,22 +138,95 @@ export function useArtifact(chatId: string | null, id: string, version: number |
   return chatId && (enabled || state.artifact?.format === "html") ? state : { artifact: null, error: null };
 }
 
+/** What an Artifact page's viewer keeps its helper told (ARTIFACT_PAGE_SCRIPT): sent again each time the page loads. */
+export type PageState = {
+  mode?: { input: "mouse"; comment: boolean; cursor?: string };
+  pins?: PagePin[];
+  /** The pin whose screen position the page reports as it scrolls. */
+  watch?: string | null;
+  /** The zoom the page is shown at, so its pins keep their size on screen. */
+  scale?: number;
+  /** A pin to scroll into view once the page has it; a new nonce asks again. */
+  reveal?: { key: string; nonce: number };
+};
+
+/** Sends a command to an Artifact page's helper. */
+export function tellPage(frame: HTMLIFrameElement | null, command: Record<string, unknown> & { t: string }) {
+  frame?.contentWindow?.postMessage({ ...command, milagre: ARTIFACT_PAGE }, "*");
+}
+
 /**
  * A design runs in a sandbox with no same origin and a policy that blocks its own requests: it can't reach Milagre,
- * the Chat or the network. A preview also takes no input, so the card scrolls with the chat.
+ * the Chat or the network. A preview also takes no input, so the card scrolls with the chat. An HTML artifact carries
+ * the page helper: `page` is what it is told each time it loads, and `onPage` hears it.
  */
 export function ArtifactFrame({
   html,
   title,
   preview = false,
   format = "design",
+  page,
+  onPage,
+  frameRef,
 }: {
   html: string;
   title: string;
   preview?: boolean;
   format?: "design" | "html";
+  page?: PageState;
+  onPage?: (message: ArtifactPageMessage) => void;
+  frameRef?: React.RefObject<HTMLIFrameElement | null>;
 }) {
-  const document = useMemo(() => artifactDocument(html), [html]);
+  const document = useMemo(() => artifactDocument(html, { page: format === "html" }), [html, format]);
+  const frame = useRef<HTMLIFrameElement | null>(null);
+  const ready = useRef(false);
+  const told = useRef<Record<string, string>>({});
+  const pageRef = useRef(page);
+  pageRef.current = page;
+  const onPageRef = useRef(onPage);
+  onPageRef.current = onPage;
+  // Each part of the state goes to the page when it changes, and all of it again when the page says it is (again) ready.
+  const tell = useCallback((all: boolean) => {
+    const state = pageRef.current;
+    if (!ready.current || !state) return;
+    const parts: [string, Record<string, unknown> & { t: string }][] = [];
+    if (state.mode) parts.push(["mode", { t: "mode", ...state.mode }]);
+    if (state.scale !== undefined) parts.push(["scale", { t: "scale", s: state.scale }]);
+    if (state.pins) parts.push(["pins", { t: "pins", pins: state.pins, watch: state.watch ?? null }]);
+    if (state.reveal) parts.push(["reveal", { t: "reveal", k: state.reveal.key, n: state.reveal.nonce }]);
+    for (const [name, command] of parts) {
+      const key = JSON.stringify(command);
+      if (!all && told.current[name] === key) continue;
+      told.current[name] = key;
+      tellPage(frame.current, command);
+    }
+  }, []);
+  useEffect(() => tell(false));
+  useEffect(() => {
+    if (format !== "html") return;
+    const onMessage = (event: MessageEvent) => {
+      if (!frame.current || event.source !== frame.current.contentWindow) return;
+      const data = event.data as { milagre?: unknown } | null;
+      if (!data || typeof data !== "object" || data.milagre !== ARTIFACT_PAGE) return;
+      const message = readPageMessage(data);
+      if (!message) return;
+      if (message.t === "ready") {
+        ready.current = true;
+        tell(true);
+      }
+      onPageRef.current?.(message);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [format, tell]);
+  const setFrame = useCallback(
+    (element: HTMLIFrameElement | null) => {
+      frame.current = element;
+      ready.current = false;
+      if (frameRef) frameRef.current = element;
+    },
+    [frameRef],
+  );
   const [registered, setRegistered] = useState<{ html: string; url: string } | null>(null);
   const [previewError, setPreviewError] = useState("");
   useEffect(() => {
@@ -169,6 +259,7 @@ export function ArtifactFrame({
     );
   return (
     <iframe
+      ref={setFrame}
       title={title}
       srcDoc={isolated ? undefined : document}
       src={isolated ? url : undefined}

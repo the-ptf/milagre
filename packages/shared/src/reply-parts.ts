@@ -28,6 +28,10 @@ export function replyParts(body: string, steps: ChatStep[] = []): ReplyPart[] {
 export type ArtifactStep = ChatStep & { artifact: NonNullable<ChatStep["artifact"]> };
 export const isArtifactCard = (step: ChatStep): step is ArtifactStep => step.kind === "artifact" && step.status === "done" && !!step.artifact;
 
+/** A finished heartbeat_create step that set a Heartbeat (its result named it), which the reply shows as a card. */
+export type HeartbeatStep = ChatStep & { routine: NonNullable<ChatStep["routine"]> };
+export const isHeartbeatCard = (step: ChatStep): step is HeartbeatStep => step.status === "done" && !!step.routine;
+
 export type ActivityEntry = { type: "text"; text: string } | { type: "step"; step: ChatStep };
 
 /**
@@ -36,12 +40,12 @@ export type ActivityEntry = { type: "text"; text: string } | { type: "step"; ste
  * The worktree's setup is neither: it comes back apart, to show as a row of its own before both.
  * Generated images come back apart too, to show between the activity and the answer, and so do the designs the agent
  * showed, once each at the newest version this reply made (an artifact step still running, or one that failed, stays in
- * the activity as a row).
+ * the activity as a row). So do the Heartbeats it set, each as a card.
  */
 export function replyActivity(
   body: string,
   allSteps: ChatStep[] = [],
-): { setup: ChatStep[]; activity: ActivityEntry[]; images: ChatStep[]; artifacts: ArtifactStep[]; answer: string } {
+): { setup: ChatStep[]; activity: ActivityEntry[]; images: ChatStep[]; artifacts: ArtifactStep[]; heartbeats: HeartbeatStep[]; answer: string } {
   const setup = allSteps.filter((step) => step.kind === "setup");
   const images = allSteps.filter((step) => step.kind === "image");
   // One entry per design, at its newest version in this reply, where it was first shown.
@@ -51,9 +55,10 @@ export function replyActivity(
     if (at === -1) artifacts.push(step);
     else if (artifacts[at]!.artifact.version < step.artifact.version) artifacts[at] = step;
   }
+  const heartbeats = allSteps.filter(isHeartbeatCard);
   const parts = replyParts(
     body,
-    allSteps.filter((step) => step.kind !== "setup" && step.kind !== "image" && !isArtifactCard(step)),
+    allSteps.filter((step) => step.kind !== "setup" && step.kind !== "image" && !isArtifactCard(step) && !isHeartbeatCard(step)),
   );
   const answerIndex = parts.map((part) => part.type).lastIndexOf("text");
   const activity = parts.flatMap((part, index): ActivityEntry[] => {
@@ -61,7 +66,7 @@ export function replyActivity(
     return part.type === "text" ? [part] : part.steps.map((step) => ({ type: "step", step }));
   });
   const answer = answerIndex === -1 ? "" : (parts[answerIndex] as { text: string }).text;
-  return { setup, activity, images, artifacts, answer };
+  return { setup, activity, images, artifacts, heartbeats, answer };
 }
 
 /**

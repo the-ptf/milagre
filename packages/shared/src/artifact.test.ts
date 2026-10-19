@@ -3,13 +3,20 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import {
   ARTIFACT_CSP,
-  DESIGN_CANVAS_SCRIPT,
+  ARTIFACT_PAGE,
+  ARTIFACT_PAGE_SCRIPT,
+  ARTIFACT_SHELL_SCRIPT,
+  DESIGNS_CANVAS_SCRIPT,
   RESOLVED_STEP,
   artifactDocument,
   artifactShell,
+  hasDiagrams,
+  nearText,
+  readPageMessage,
+  sentNumbers,
   chosenDesign,
   designActivity,
-  designCanvasShell,
+  designsCanvasShell,
   designGroups,
   designFeedbackMessage,
   designFeedbackText,
@@ -175,25 +182,112 @@ test("the phone's shell frames the design with no say over the page, and loads n
   assert.match(shell, /frame-src 'none'/);
   assert.match(shell, /<iframe sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="/);
   assert.doesNotMatch(shell, /allow-same-origin|allow-top-navigation/);
-  assert.doesNotMatch(shell.replace(/srcdoc="[^"]*"/, ""), /<script/, "the page itself runs nothing");
+  const outside = shell.replace(/srcdoc="[^"]*"/, "");
+  assert.equal(outside.match(/<script>/g)?.length, 1, "the page itself runs only the go-between");
+  assert.ok(outside.includes(`<script>${ARTIFACT_SHELL_SCRIPT}</script>`));
   const srcdoc = /srcdoc="([^"]*)"/.exec(shell)?.[1] ?? "";
   assert.ok(srcdoc.includes("&quot;hi&quot; &amp; bye"), srcdoc);
+  assert.ok(srcdoc.includes("milagre:artifact-page"), "the framed page carries the page helper");
+  assert.doesNotMatch(srcdoc, /var pele=/, "a page without diagrams doesn't carry Pele");
 });
 
-test("the phone's design canvas runs only its own script, and the design runs none", () => {
-  const shell = designCanvasShell('<p>"hi" & bye</p><script>alert(1)</script>', { width: 390, height: 844 }, "#1c1c1e");
-  const hash = createHash("sha256").update(DESIGN_CANVAS_SCRIPT).digest("base64");
-  const page = shell.replace(/srcdoc="[^"]*"/, "");
+test("an Artifact page carries its helper, and Pele only when it has a Mermaid block", () => {
+  const pele = "var pele={mount:function(){}}";
+  const plain = artifactDocument("<p>No diagram</p>", { page: true, diagrams: pele });
+  assert.ok(plain.includes(`<script>${ARTIFACT_PAGE_SCRIPT}</script>`));
+  assert.ok(!plain.includes(pele));
+  const drawn = artifactDocument('<pre class="mermaid">flowchart LR\n A --> B</pre>', { page: true, diagrams: pele });
+  assert.ok(drawn.indexOf(`<script>${pele}</script>`) < drawn.indexOf(ARTIFACT_PAGE_SCRIPT), "Pele loads before the helper that mounts it");
+  assert.equal(artifactDocument("<p>x</p>"), artifactDocument("<p>x</p>", {}), "designs get neither");
+  assert.doesNotMatch(ARTIFACT_PAGE_SCRIPT, /<\/script|<!--/i);
+  assert.doesNotMatch(ARTIFACT_SHELL_SCRIPT, /<\/script|<!--/i);
+  assert.ok(ARTIFACT_PAGE_SCRIPT.includes(`"${ARTIFACT_PAGE}"`));
+  for (const script of [ARTIFACT_PAGE_SCRIPT, ARTIFACT_SHELL_SCRIPT]) assert.equal(typeof new Function(script), "function", "the script parses");
+});
+
+test("Mermaid blocks are found the ways pages write them", () => {
+  for (const html of ['<pre class="mermaid">', "<div class='diagram mermaid'>", '<pre><code class="language-mermaid">', "<pre class=mermaid>"])
+    assert.equal(hasDiagrams(html), true, html);
+  for (const html of ["<p>mermaid</p>", '<div class="mermaids">', '<div data-class="mermaid">']) assert.equal(hasDiagrams(html), false, html);
+});
+
+test("a page comment names the text near it, and reads back with it", () => {
+  const design = { id: "explainer", title: "How it works", version: 3, format: "html" as const };
+  const message = designFeedbackMessage({
+    comments: [{ design, id: "0a1b2c3d", x: 0.42, y: 0.7, near: 'Why "requests"\n  queue', anchor: "main:1/p:2@0.5,0.5", text: "Add the retry timing" }],
+  });
+  assert.match(
+    message,
+    /^A comment on the artifact:\n\n1\. \(comment 0a1b2c3d\) On the artifact "How it works" \(explainer\), 42% across and 70% down, near "Why requests queue": Add the retry timing\n\n/,
+  );
+  assert.doesNotMatch(message, /main:1/, "the anchor is for the page, not the agent");
+  assert.deepEqual(parseDesignFeedback(message)?.comments, [
+    {
+      design: { id: "explainer", title: "How it works", version: 1, format: "html" },
+      id: "0a1b2c3d",
+      x: 0.42,
+      y: 0.7,
+      near: "Why requests queue",
+      text: "Add the retry timing",
+    },
+  ]);
+  // Cut at 80 characters, the word the cut may have split goes too.
+  assert.equal(nearText("x".repeat(70) + " tail of a long heading"), `${"x".repeat(70)} tail of\u2026`);
+});
+
+test("sent comments are numbered within the message that carried them", () => {
+  const numbers = sentNumbers([
+    { id: "a", createdAt: 1 },
+    { id: "b", createdAt: 1 },
+    { id: "c", createdAt: 2 },
+  ]);
+  assert.deepEqual(
+    [...numbers],
+    [
+      ["a", 1],
+      ["b", 2],
+      ["c", 1],
+    ],
+  );
+});
+
+test("only the page helper's own messages, by shape, reach the viewer", () => {
+  assert.deepEqual(readPageMessage({ t: "press", x: 1.4, y: 0.5, a: "p:1@0,0", near: 'a "b"', sx: 10, sy: 20 }), {
+    t: "press",
+    x: 1,
+    y: 0.5,
+    a: "p:1@0,0",
+    near: "a b",
+    sx: 10,
+    sy: 20,
+  });
+  assert.deepEqual(readPageMessage({ t: "anchor", k: "k1", sx: 1, sy: 2 }), { t: "anchor", k: "k1", sx: 1, sy: 2, shown: true });
+  assert.deepEqual(readPageMessage({ t: "zoom", dy: -3, cx: 1, cy: 2 }), { t: "zoom", dy: -3, cx: 1, cy: 2 });
+  for (const bad of [
+    null,
+    "milagre:artifact-escape",
+    { t: "press", x: "1" },
+    { t: "pin", sx: 1, sy: 1 },
+    { t: "eval", code: "x" },
+    { t: "size", sw: Infinity, cw: 1 },
+  ])
+    assert.equal(readPageMessage(bad), null, JSON.stringify(bad));
+});
+
+test("the phone's designs canvas runs only its own script, and the designs run none", () => {
+  const page = designsCanvasShell("#1c1c1e");
+  const hash = createHash("sha256").update(DESIGNS_CANVAS_SCRIPT).digest("base64");
   assert.ok(page.includes(`script-src 'sha256-${hash}'`), "the policy allows the canvas script by its hash");
   assert.doesNotMatch(page, /script-src 'unsafe-inline'/, "and no other script");
-  assert.match(shell, /frame-src 'none'/);
-  assert.match(shell, /<iframe sandbox="" referrerpolicy="no-referrer" width="390" height="844"/);
-  assert.match(shell, /data-width="390" data-height="844"/);
-  assert.match(shell, /background:#1c1c1e/);
+  assert.match(page, /frame-src 'none'/);
+  assert.match(page, /background:#1c1c1e/);
   assert.equal(page.match(/<script>/g)?.length, 1, "the page runs the canvas script only");
-  assert.ok(page.includes(`<script>${DESIGN_CANVAS_SCRIPT}</script>`));
-  assert.doesNotMatch(DESIGN_CANVAS_SCRIPT, /<\/script/i);
-  assert.match(designCanvasShell("", { width: 1, height: 1 }, "red;}body{x:y"), /background:#f2f2f2/, "only a plain color reaches the style");
+  assert.ok(page.includes(`<script>${DESIGNS_CANVAS_SCRIPT}</script>`));
+  assert.doesNotMatch(DESIGNS_CANVAS_SCRIPT, /<\/script/i);
+  // Each design's frame is made by the script, sandboxed with no permissions: the design runs no script of its own.
+  assert.match(DESIGNS_CANVAS_SCRIPT, /setAttribute\("sandbox",""\)/);
+  assert.doesNotMatch(DESIGNS_CANVAS_SCRIPT, /allow-scripts|allow-same-origin/);
+  assert.match(designsCanvasShell("red;}body{x:y"), /background:#f2f2f2/, "only a plain color reaches the style");
 });
 
 test("resolutions are read again only when a comment resolves or feedback is sent", () => {

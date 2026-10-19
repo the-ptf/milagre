@@ -21,9 +21,10 @@ function Fixture() {
     { port: 54321, pid: 4402, command: "postgres", address: "::1" },
   ]);
   window.setPorts = setPorts;
+  // window.lagging: Stop returns before the host's new list arrives.
   const stopPort = (pid) => new Promise((resolve) => setTimeout(() => {
     window.stopped.push(pid);
-    setPorts((current) => current.filter((port) => port.pid !== pid));
+    if (!window.lagging) setPorts((current) => current.filter((port) => port.pid !== pid));
     resolve(true);
   }, 400));
   window.setDark = (dark) => document.documentElement.classList.toggle("dark", dark);
@@ -247,6 +248,27 @@ async function browserChecks() {
     );
     await waitFor('!!document.querySelector("[data-slot=port-track]")');
 
+    // A server Stop ended leaves the list when Stop returns, even before the host's new list arrives; that list has
+    // the last word.
+    await evaluate("window.lagging = true");
+    await evaluate(`document.querySelector("${pill}").click()`);
+    await waitFor('document.querySelector("[data-slot=port-popover]")?.dataset.state === "open"');
+    await evaluate('document.querySelector("[data-port-row]:nth-child(2) [data-port-stop]").click()');
+    await waitFor('document.querySelectorAll("[data-port-row]").length === 2');
+    assert.equal(await evaluate(`document.querySelector("${pill}").textContent`), "Ports 2");
+    assert.deepEqual(await evaluate('[...document.querySelectorAll("[data-port-row] a")].map(a => a.getAttribute("href"))'), [
+      "http://localhost:5173",
+      "http://[::1]:54321",
+    ]);
+    await evaluate(
+      `window.setPorts([{ port: 5173, pid: 4211, command: "node", address: "127.0.0.1" }, { port: 8081, pid: 4380, command: "node", address: "*" }, { port: 54321, pid: 4402, command: "postgres", address: "::1" }])`,
+    );
+    await waitFor('document.querySelectorAll("[data-port-row]").length === 3');
+    await evaluate("window.lagging = false");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+    await waitFor('document.querySelector("[data-slot=port-popover]")?.dataset.state !== "open"');
+
     // The sidebar hover card lists the chat's ports.
     await evaluate("window.setDark(true)");
     await evaluate(`${firstRow}.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }))`);
@@ -268,7 +290,7 @@ async function browserChecks() {
     await waitFor('!!document.querySelector("[data-chat-hover-card]")');
     assert.equal(await evaluate('!!document.querySelector("[data-chat-card-ports]")'), false);
     console.log(
-      "PASS: Ports pill beside the to-do list, rows and links, Stop and Stop all, light and dark, Escape, opens in the browser, hover card ports, hidden when empty",
+      "PASS: Ports pill beside the to-do list, rows and links, Stop and Stop all, Stop before the host's list, light and dark, Escape, opens in the browser, hover card ports, hidden when empty",
     );
     app.exit(0);
   } catch (error) {

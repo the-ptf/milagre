@@ -389,6 +389,33 @@ test("a turn that ends while a background subagent runs is held; the turn its re
   assert.equal(messages.length, 3);
 });
 
+test("a stopped turn announces nothing, even once its background subagent ends; a running advisor holds a completion too", async (t) => {
+  const { push, messages } = await fixture(t);
+  await push.register(registration());
+  const agent = (id, status, extra = { background: true }) => ({
+    type: "subagent-update",
+    agent: { id, title: "Review", status, ...extra, startedAt: 1, updatedAt: 1, transcript: [] },
+  });
+  push.observe(chatId, { type: "turn-started", turnId: "t1" });
+  push.observe(chatId, agent("a", "running"));
+  push.observe(chatId, { type: "turn-cancelled" });
+  push.observe(chatId, agent("a", "cancelled"));
+  await push.settled();
+  assert.equal(messages.length, 0);
+  push.observe(chatId, { type: "turn-started", turnId: "t2" });
+  push.observe(chatId, agent("advisor", "running", { source: "milagre-advisor" }));
+  push.observe(chatId, { type: "text-delta", text: "Asked an advisor." });
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages.length, 0);
+  push.observe(chatId, agent("advisor", "completed", { source: "milagre-advisor" }));
+  await push.settled();
+  assert.deepEqual(
+    messages.map((message) => message.body),
+    ["Asked an advisor."],
+  );
+});
+
 test("phone completion notifications summarize the latest reply without project or branch labels", async (t) => {
   const { push, messages } = await fixture(t);
   await push.register(registration());
@@ -434,4 +461,35 @@ test("phone previews preserve paragraphs and shell patterns in approvals", async
   push.observe(chatId, { type: "turn-completed" });
   await push.settled();
   assert.equal(messages[1].body, "Login fixed. Tests passed.");
+});
+
+// A heartbeat whose reply was a "(pass)" ends quiet: nothing to tell the phone about.
+test("a quiet turn sends no completion push; the same turn without quiet sends one", async (t) => {
+  const { push, messages } = await fixture(t);
+  await push.register(registration());
+  push.observe(chatId, { type: "turn-started", turnId: "beat-1" });
+  push.observe(chatId, { type: "text-delta", text: "(pass) CI green" });
+  push.observe(chatId, { type: "turn-completed", quiet: true });
+  await push.settled();
+  assert.equal(messages.length, 0);
+  push.observe(chatId, { type: "turn-started", turnId: "beat-2" });
+  push.observe(chatId, { type: "text-delta", text: "CI failed, fixing." });
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].body, "CI failed, fixing.");
+});
+
+// A heartbeat that fails again after a failed beat is marked quiet too: one push for a broken heartbeat, not one per beat.
+test("a quiet failed turn sends no push; a failed turn without quiet sends one", async (t) => {
+  const { push, messages } = await fixture(t);
+  await push.register(registration());
+  push.observe(chatId, { type: "turn-started", turnId: "beat-1" });
+  push.observe(chatId, { type: "turn-failed", message: "Claude Code isn't installed.", quiet: true });
+  await push.settled();
+  assert.equal(messages.length, 0);
+  push.observe(chatId, { type: "turn-started", turnId: "beat-2" });
+  push.observe(chatId, { type: "turn-failed", message: "Claude Code isn't installed." });
+  await push.settled();
+  assert.equal(messages.length, 1);
 });

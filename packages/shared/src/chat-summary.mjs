@@ -5,8 +5,8 @@ import { pullRequestRefs } from "./chat-pull-requests.mjs";
 /** A line the commit dialog saved in the chat, as opposed to an agent's reply. */
 export const isGitNote = (message) => typeof message?.context === "object" && message.context?.kind === "git-action";
 
-/** A line Milagre saved in the chat that isn't a reply: a commit dialog note, a Link reaching the Chat, or a reload. */
-export const isNote = (message) => isGitNote(message) || message?.context?.kind === "worktree-linked" || message?.context?.kind === "reload";
+/** A line Milagre saved in the chat that isn't a reply: a commit dialog note, a Link reaching the Chat, a reload or an undo. */
+export const isNote = (message) => isGitNote(message) || ["worktree-linked", "reload", "checkpoint-restore"].includes(message?.context?.kind);
 
 /** The summary of a Chat whose messages, in the Project's order, are `messages`. */
 export function summarizeChat(messages) {
@@ -29,6 +29,12 @@ export function summarizeChat(messages) {
     .slice(-5)
     .map((message) => message.clientMessageId);
   if (sent.length) summary.clientMessageIds = sent;
+  // A Chat started from a Linear issue (by the user, or by a Linear Routine's Run) works on that issue.
+  const card = messages[0]?.context;
+  if (card?.kind === "linear-issue" && typeof card.key === "string") {
+    summary.linearIssue = card.key;
+    if (typeof card.workspace === "string" && card.workspace) summary.linearWorkspace = card.workspace;
+  }
   return summary;
 }
 

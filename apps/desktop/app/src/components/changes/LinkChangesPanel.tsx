@@ -11,6 +11,7 @@ import {
   FolderOpenIcon,
 } from "@hugeicons/core-free-icons";
 import type { WorktreeBinding } from "@milagre/shared/model";
+import { LINK_PENDING_WORKTREE_TEXT } from "@milagre/shared/worktree-link";
 import type { DiffMode } from "../../electron";
 import { ChangeList, ChangesHeader, Counts } from "./ChangesPanel";
 import type { DiffList } from "./useDiffFiles";
@@ -85,6 +86,24 @@ export function LinkChangesPanel({
             onReveal={onReveal && (() => onReveal(member))}
           />
         ))}
+        {projects
+          .filter((project) => !members.some((member) => member.projectId === project.id))
+          .map((project) => (
+            <section
+              key={project.id}
+              data-link-changes-pending={project.id}
+              aria-label={project.name}
+              className="mx-2 mt-1 flex min-w-0 items-start gap-1.5 py-1 pl-4"
+            >
+              <ProjectAvatarStack projects={[{ path: project.path, name: project.name }]} />
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="truncate text-[12px] font-medium" title={project.name}>
+                  {project.name}
+                </span>
+                <span className="text-[10px] text-ink-3">{LINK_PENDING_WORKTREE_TEXT}</span>
+              </span>
+            </section>
+          ))}
       </ScrollArea>
     </aside>
   );

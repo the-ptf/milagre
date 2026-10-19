@@ -67,15 +67,24 @@ export function requiresAiConsent(method, args = []) {
   if (method === "agent:set-permission-mode") return args[0]?.mode !== "ask";
   // A sign-off lets the bot's turn go on; a denial ends it.
   if (method === "bots:answer-gate") return args[2] !== "deny";
-  return ["chat:send", "bots:send", "link:send", "chat:resume", "chat:limit-switch", "advisor:retry", "agent:answer-question", "live-activity:answer"].includes(
-    method,
-  );
+  return [
+    "chat:send",
+    "bots:send",
+    "link:send",
+    "chat:resume",
+    "chat:queue-send",
+    "chat:limit-switch",
+    "advisor:retry",
+    "agent:answer-question",
+    "live-activity:answer",
+  ].includes(method);
 }
 
 const methods = {
   sendMessage: "chat:send",
   sendLinkMessage: "link:send",
   resumeChat: "chat:resume",
+  sendQueuedNow: "chat:queue-send",
   switchAccountAfterLimit: "chat:limit-switch",
   retryAdvisor: "advisor:retry",
   answerQuestion: "agent:answer-question",

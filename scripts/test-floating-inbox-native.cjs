@@ -15,6 +15,17 @@ async function waitFor(read, label) {
   }
   throw new Error("Timed out: " + label);
 }
+/** Resolves once two reads 100 ms apart agree: a native window has stopped moving. */
+async function settled(read, label) {
+  let last = await read();
+  for (let i = 0; i < 100; i++) {
+    await delay(100);
+    const next = await read();
+    if (next === last) return;
+    last = next;
+  }
+  throw new Error("Never settled: " + label);
+}
 async function nativeChecks() {
   const { app, BrowserWindow, screen } = require("electron");
   const profile = process.argv[2],
@@ -212,8 +223,17 @@ async function nativeChecks() {
     await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "native-bottom.png"), (await dock.webContents.capturePage()).toPNG());
   }
   await dock.webContents.executeJavaScript("window.milagre.closeFloatingInbox()");
-  await dock.webContents.executeJavaScript('document.querySelector("[data-inbox-agent]").dispatchEvent(new MouseEvent("mouseover",{bubbles:true}))');
-  await waitFor(() => preview.isVisible(), "bottom hover preview");
+  // Closing collapses the bar over 180 ms. On a slow runner the hover used to land mid-collapse and the preview never
+  // showed (CI timed out here), so wait for the dock to come to rest, then hover again until the preview is up.
+  await settled(() => JSON.stringify(dock.getBounds()), "dock after closing the inbox");
+  const agentMouse = (type) =>
+    dock.webContents.executeJavaScript(`document.querySelector("[data-inbox-agent]").dispatchEvent(new MouseEvent(${JSON.stringify(type)},{bubbles:true}))`);
+  for (let attempt = 0; !preview.isVisible(); attempt++) {
+    if (attempt === 10) throw new Error("Timed out: bottom hover preview");
+    if (attempt) await agentMouse("mouseout");
+    await agentMouse("mouseover");
+    for (let i = 0; i < 40 && !preview.isVisible(); i++) await delay(50);
+  }
   assert.ok(preview.getBounds().y + preview.getBounds().height < bottom.y, "bottom tooltip opens above the bar");
   await dock.webContents.executeJavaScript('document.querySelector("[data-inbox-agent]").dispatchEvent(new MouseEvent("mouseout",{bubbles:true}))');
   await dock.webContents.executeJavaScript("window.milagre.toggleFloatingInbox()");

@@ -138,24 +138,18 @@ test("an accepted disk image is stapled", (t) => {
   assert.match(f.calls(), /xcrun stapler staple/);
 });
 
-test("a candidate is cut by the release job of CI after the required checks pass on main", () => {
-  const job = ciWorkflow.jobs.release;
+test("merges cut no release; CI only rewrites the Next beta draft once main passes the required checks", () => {
+  assert.equal(ciWorkflow.jobs.release, undefined);
+  const job = ciWorkflow.jobs["next-beta"];
   assert.equal(job.if, "github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'the-ptf/milagre'");
   assert.deepEqual(job.needs, ["javascript", "native-gate", "macos-desktop-smoke"]);
   assert.equal(job.permissions.contents, "write");
   const checkout = job.steps.find((step) => step.uses?.startsWith("actions/checkout"));
   assert.equal(checkout.with["fetch-depth"], 0);
   assert.equal(checkout.with["persist-credentials"], false);
-  const runs = job.steps.map((step) => step.run).filter(Boolean);
-  assert.deepEqual(runs, ["npm ci", "npm run release"]);
-  assert.ok(!JSON.stringify(ciWorkflow.jobs.release).includes("package:mac"));
+  assert.deepEqual(job.steps.map((step) => step.run).filter(Boolean), ["git fetch --quiet --tags origin\nnode scripts/plan-release.cjs next-draft\n"]);
+  assert.ok(!fs.existsSync(path.join(__dirname, "../.releaserc.json")), "semantic-release no longer tags merges");
   assert.ok(!fs.existsSync(path.join(__dirname, "../.github/workflows/release.yml")), "no separate workflow_run release workflow");
-});
-
-test("release candidates are created as drafts", () => {
-  const config = JSON.parse(fs.readFileSync(path.join(__dirname, "../.releaserc.json"), "utf8"));
-  const github = config.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === "@semantic-release/github");
-  assert.equal(github?.[1]?.draftRelease, true);
 });
 
 test("signature, ticket, Gatekeeper and disk image failures stop verification", (t) => {
@@ -263,15 +257,23 @@ test("the macOS build stages its installers on the channel Publish asks for and 
   const job = publishWorkflow.jobs.macos;
   assert.equal(job.uses, "./.github/workflows/build-macos.yml");
   assert.equal(job.with.channel, "${{ needs.prepare.outputs.feed_channel }}");
-  assert.equal(job.with.require_draft, "${{ needs.prepare.outputs.channel == 'stable' }}");
-  assert.deepEqual(Object.keys(buildWorkflow.on.workflow_call.inputs), ["tag", "version", "channel", "require_draft"]);
+  assert.deepEqual(Object.keys(buildWorkflow.on.workflow_call.inputs), ["ref", "version", "channel"]);
   const steps = buildWorkflow.jobs["package-macos"].steps;
   assert.doesNotMatch(JSON.stringify(steps), /gh release (upload|edit|create)/, "the macOS build never changes the release");
   assert.equal(steps.at(-1).with.name, "installers-macos");
   const build = steps.find((step) => step.name === "Build macOS installers");
   assert.match(build.run, /--config\.publish\.channel="\$\{CHANNEL\}"/);
   assert.doesNotMatch(build.run, /generateUpdatesFilesForAllChannels/, "the flag does nothing for the github provider");
-  assert.ok(steps.find((step) => step.name === "Require a stable draft release").if.includes("require_draft"));
+});
+
+test("every platform builds the planned commit, and the release tag exists only once Publish creates it", () => {
+  const sha = "${{ needs.prepare.outputs.sha }}";
+  assert.equal(publishWorkflow.jobs.macos.with.ref, sha);
+  assert.equal(buildWorkflow.jobs["package-macos"].steps[0].with.ref, "${{ inputs.ref }}");
+  for (const name of ["linux", "windows"]) assert.equal(publishWorkflow.jobs[name].steps[0].with.ref, sha, name);
+  assert.equal(publishWorkflow.jobs.linux.env.RELEASE_TAG, "${{ needs.prepare.outputs.release_tag }}");
+  assert.equal(publishWorkflow.jobs.publish.env.TARGET, sha);
+  assert.doesNotMatch(JSON.stringify(buildWorkflow), /gh release/);
 });
 
 test("a stable build mirrors its feed to the beta channel before the feeds are refreshed", () => {
@@ -293,14 +295,22 @@ test("reusable workflows take their secrets by name, never inherited", () => {
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, "../.github/workflows/publish.yml"), "utf8"), /secrets: inherit/);
 });
 
-test("one Publish workflow ships beta on a schedule and either channel on dispatch", () => {
+test("one Publish workflow cuts betas on a schedule and either channel on dispatch", () => {
   assert.deepEqual(Object.keys(publishWorkflow.on), ["workflow_dispatch", "schedule"]);
-  const channel = publishWorkflow.on.workflow_dispatch.inputs.channel;
-  assert.deepEqual(channel.options, ["beta", "stable"]);
-  assert.equal(channel.default, "beta");
+  assert.deepEqual(publishWorkflow.on.schedule, [{ cron: "0 9 * * 1-5" }]);
+  const inputs = publishWorkflow.on.workflow_dispatch.inputs;
+  assert.deepEqual(Object.keys(inputs), ["channel", "ref", "beta"]);
+  assert.deepEqual(inputs.channel.options, ["beta", "stable"]);
+  assert.equal(inputs.channel.default, "beta");
   const steps = publishWorkflow.jobs.prepare.steps;
+  assert.equal(steps.find((step) => step.uses?.startsWith("actions/checkout")).with["fetch-depth"], 0);
   assert.equal(steps.find((step) => step.id === "channel").env.CHANNEL, "${{ inputs.channel || 'beta' }}");
-  assert.match(steps.find((step) => step.id === "pick").run, /pick-release-candidate\.cjs/);
+  const plan = steps.find((step) => step.id === "plan");
+  assert.match(plan.run, /node scripts\/plan-release\.cjs plan >> "\$GITHUB_OUTPUT"/);
+  assert.equal(plan.env.SCHEDULED, "${{ github.event_name == 'schedule' }}");
+  assert.deepEqual(publishWorkflow.permissions, { contents: "write", actions: "read" }, "gh run list needs actions: read");
+  assert.equal(steps.at(-1).with.name, "release-notes");
+  assert.ok(!fs.existsSync(path.join(__dirname, "pick-release-candidate.cjs")), "drafts are no longer picked");
   for (const name of ["publish-beta.yml", "publish-installers.yml"])
     assert.ok(!fs.existsSync(path.join(__dirname, "../.github/workflows", name)), `${name} is folded into publish.yml`);
 });
@@ -363,15 +373,19 @@ function publishFixture(t, files) {
   const log = '#!/bin/bash\nprintf \'%s %s\\n\' "$(basename "$0")" "$*" >> "$CALL_LOG"\n';
   // Like the real gh, an asset path that doesn't exist fails the upload.
   const missing = 'for a in "$@"; do case "$a" in release/*) [ -e "$a" ] || { echo "no matches found for \\`$a\\`" >&2; exit 1; };; esac; done\n';
-  fs.writeFileSync(path.join(root, "bin/gh"), `${log}${missing}if [ "$2" = view ]; then echo true; fi\n`, { mode: 0o755 });
+  // The tag lookup finds nothing unless TAG_EXISTS is set.
+  const tag = 'if [ "$1" = api ]; then [ "${TAG_EXISTS:-0}" = 1 ] || exit 1; fi\n';
+  fs.writeFileSync(path.join(root, "bin/gh"), `${log}${missing}${tag}`, { mode: 0o755 });
   fs.writeFileSync(path.join(root, "bin/node"), `${log}exit "\${FEED_EXIT:-0}"\n`, { mode: 0o755 });
   // Run the real generator so platform-specific omissions match the release job.
   const managers = 'if [ "$2" = package:managers ]; then shift 3; exec "$NODE_BINARY" "$PACKAGE_MANAGERS_SCRIPT" "$@"; fi\n';
   fs.writeFileSync(path.join(root, "bin/npm"), `${log}${managers}`, { mode: 0o755 });
+  fs.writeFileSync(path.join(root, "notes.md"), "Changes since v9.9.8.\n");
   const env = {
     PATH: `${path.join(root, "bin")}${path.delimiter}${process.env.PATH}`,
     CALL_LOG: path.join(root, "calls.log"),
-    SOURCE_TAG: "v9.9.9",
+    TARGET: "0123456789abcdef0123456789abcdef01234567",
+    NOTES_FILE: path.join(root, "notes.md"),
     WINDOWS: "false",
     NODE_BINARY: process.execPath,
     PACKAGE_MANAGERS_SCRIPT: path.join(__dirname, "generate-package-managers.cjs"),
@@ -387,8 +401,20 @@ test("a beta without Linux ships macOS as a prerelease that is never latest", (t
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /::warning::The Linux build failed/);
   assert.match(f.calls(), /node scripts\/finalize-update-feeds\.cjs --tag v9\.9\.9-beta\.3 --platform macos --check/);
-  assert.match(f.calls(), /gh release create v9\.9\.9-beta\.3 [\s\S]*--prerelease[\s\S]*release\/beta-mac\.yml/);
-  assert.doesNotMatch(f.calls(), /--latest|package:managers|release upload/);
+  assert.match(f.calls(), /gh api repos\/\{owner\}\/\{repo\}\/git\/ref\/tags\/v9\.9\.9-beta\.3 --silent\n/);
+  assert.match(
+    f.calls(),
+    /gh release create v9\.9\.9-beta\.3 --target 0123456789abcdef0123456789abcdef01234567 --prerelease --title v9\.9\.9-beta\.3 --notes-file \S+notes\.md [\s\S]*release\/beta-mac\.yml/,
+  );
+  assert.doesNotMatch(f.calls(), /--latest|package:managers|release (upload|edit)/);
+});
+
+test("a tag that already exists stops publication before the release is created", (t) => {
+  const f = publishFixture(t, [...macFiles, "beta-mac.yml"]);
+  const result = runStep(publishStep, f.root, { ...f.env, CHANNEL: "beta", RELEASE_TAG: "v9.9.9-beta.3", TAG_EXISTS: "1" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stdout, /::error::Tag v9\.9\.9-beta\.3 already exists/);
+  assert.doesNotMatch(f.calls(), /release create/);
 });
 
 test("a beta with Linux ships both platforms", (t) => {
@@ -422,7 +448,7 @@ test("a feed check failure stops publication before any upload", (t) => {
   assert.doesNotMatch(f.calls(), /gh /);
 });
 
-test("a stable release with Windows disabled uploads macOS and Linux metadata, then publishes the draft as latest", (t) => {
+test("a stable release with Windows disabled ships macOS and Linux metadata as the latest release on the beta's commit", (t) => {
   const f = publishFixture(t, [...macFiles, ...linuxFiles, "latest-mac.yml", "beta-mac.yml", "latest-linux.yml", "beta-linux.yml"]);
   const result = runStep(publishStep, f.root, { ...f.env, CHANNEL: "stable", RELEASE_TAG: "v9.9.9" });
   assert.equal(result.status, 0, result.stderr);
@@ -430,10 +456,10 @@ test("a stable release with Windows disabled uploads macOS and Linux metadata, t
   assert.match(calls, /node scripts\/finalize-update-feeds\.cjs --tag v9\.9\.9 --platform macos,linux --check/);
   assert.match(calls, /npm run package:managers -- --tag v9\.9\.9 --platform macos,linux/);
   for (const asset of [...macFiles, ...linuxFiles, "latest-mac.yml", "beta-mac.yml", "latest-linux.yml", "beta-linux.yml"])
-    assert.match(calls, new RegExp(`gh release upload v9\\.9\\.9 .*release/${asset.replace(/\./g, "\\.")}`), asset);
+    assert.match(calls, new RegExp(`gh release create v9\\.9\\.9 .*release/${asset.replace(/\./g, "\\.")}`), asset);
   assert.match(calls, /release\/package-managers\/SHA256SUMS release\/package-managers\/homebrew\/milagre\.rb/);
-  assert.match(calls, /gh release upload[\s\S]*gh release edit v9\.9\.9 --draft=false --latest/);
-  assert.doesNotMatch(calls, /release create/);
+  assert.match(calls, /gh release create v9\.9\.9 --target 0123456789abcdef0123456789abcdef01234567 --latest --title v9\.9\.9 --notes-file \S+notes\.md /);
+  assert.doesNotMatch(calls, /release (upload|edit)|--prerelease/);
   assert.doesNotMatch(calls, /winget/);
 });
 
@@ -446,8 +472,8 @@ test("a stable release with Windows enabled uploads the WinGet manifest with the
   assert.match(calls, /npm run package:managers -- --tag v9\.9\.9 --platform macos,linux,windows/);
   for (const asset of [...windowsFiles, "package-managers/winget/Milagre.Milagre.yaml"])
     assert.ok(
-      calls.split("\n").find((line) => line.startsWith("gh release upload ") && line.includes(`release/${asset}`)),
+      calls.split("\n").find((line) => line.startsWith("gh release create v9.9.9 ") && line.includes(`release/${asset}`)),
       asset,
     );
-  assert.match(calls, /gh release upload[\s\S]*gh release edit v9\.9\.9 --draft=false --latest/);
+  assert.match(calls, /gh release create v9\.9\.9 --target \S+ --latest /);
 });

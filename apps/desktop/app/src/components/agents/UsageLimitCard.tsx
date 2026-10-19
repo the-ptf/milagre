@@ -4,7 +4,7 @@ import { Clock01Icon } from "@hugeicons/core-free-icons";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { limitChoices, limitHeadline, switchedText } from "@milagre/shared/usage-limit";
 import type { ProjectAccountsSnapshot, UsageLimitContext } from "../../model";
-import { useBridge, useScope } from "../../lib/computer-bridge";
+import { isRemoteKey, useBridge, useScope } from "../../lib/computer-bridge";
 
 /**
  * Under a reply the plan's usage limit stopped: when it resets, and the Project's other accounts for the provider.
@@ -23,7 +23,8 @@ export function UsageLimitCard({
 }) {
   const bridge = useBridge();
   const scope = useScope();
-  const live = interactive && Boolean(scope);
+  // Another computer's Chat keeps the accounts its own Mac chose.
+  const live = interactive && Boolean(scope) && !isRemoteKey(scope);
   const { title, detail } = limitHeadline(limit);
   const [snapshot, setSnapshot] = useState<ProjectAccountsSnapshot | null>(null);
   const [busy, setBusy] = useState<string | null>(null);

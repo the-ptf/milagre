@@ -56,7 +56,7 @@ function HostRow({
 /**
  * The footer's laptop button (spec "Computer status", design sidebar-c-sections v6): a popover of This Mac and each
  * paired computer with its status dot and route, a gear per computer that opens its settings (This Mac's: Settings ›
- * Devices), and Add computer. Shown only while Settings › Experimental › Other computers is on.
+ * Devices), and Add computer. Shown only while Settings › Devices › Other computers is on.
  */
 export function ComputersButton({
   collapsed,

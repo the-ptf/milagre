@@ -32,6 +32,8 @@ export function Select<T extends string>({
   onChange,
   width = 240,
   disabled = false,
+  triggerClassName = "",
+  searchable = false,
 }: {
   label: string;
   value: T;
@@ -39,14 +41,24 @@ export function Select<T extends string>({
   onChange: (value: T) => void;
   width?: number;
   disabled?: boolean;
+  /** Added to the trigger's classes, e.g. `w-full` in a form. */
+  triggerClassName?: string;
+  /** A search field over a long list (e.g. time zones); it filters by label. */
+  searchable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number }>({ left: 0, maxHeight: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  // Inside an open modal <dialog> the panel goes into the dialog: the dialog sits in the top layer, above anything in body.
+  const [host, setHost] = useState<Element | null>(null);
+  const [query, setQuery] = useState("");
+  const words = query.toLowerCase().trim();
+  const shown = searchable && words ? options.filter((option) => option.label.toLowerCase().includes(words)) : options;
   const selected = options.find((option) => option.value === value);
 
   function place() {
+    setHost(triggerRef.current?.closest("dialog[open]") ?? null);
     const trigger = triggerRef.current?.getBoundingClientRect();
     if (!trigger) return;
     const left = Math.max(INSET, Math.min(trigger.right - width, window.innerWidth - width - INSET));
@@ -71,7 +83,8 @@ export function Select<T extends string>({
   }
 
   useLayoutEffect(() => {
-    if (!open) return;
+    // With a search field, it takes focus (autoFocus) so typing filters at once.
+    if (!open || searchable) return;
     const rows = panelRef.current?.querySelectorAll<HTMLElement>("[data-picker-row]");
     const index = options.findIndex((option) => option.value === value && !option.disabled);
     const focusIndex = index >= 0 ? index : options.findIndex((option) => !option.disabled);
@@ -95,6 +108,7 @@ export function Select<T extends string>({
   function onTriggerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     if (open || (event.key !== "ArrowDown" && event.key !== "ArrowUp")) return;
     event.preventDefault();
+    setQuery("");
     place();
     setOpen(true);
   }
@@ -113,14 +127,16 @@ export function Select<T extends string>({
             close(false);
             return;
           }
+          // A new search each time it opens; place() also runs on resize and scroll, which keep the query.
+          setQuery("");
           place();
           setOpen(true);
         }}
         onKeyDown={onTriggerKeyDown}
-        className={`flex h-8 items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"}`}
+        className={`flex h-8 items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"} ${triggerClassName}`}
       >
         {selected?.icon}
-        {selected?.display ?? <span className="truncate">{selected?.label ?? ""}</span>}
+        {selected?.display ?? <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? ""}</span>}
         <span className="text-ink-3">
           <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={1.8} color="currentColor" />
         </span>
@@ -135,10 +151,13 @@ export function Select<T extends string>({
             className="fixed z-50"
             style={{ left: position.left, top: position.top, bottom: position.bottom, width }}
           >
-            <PickerPanel style={{ maxHeight: position.maxHeight, transformOrigin: `${position.top === undefined ? "bottom" : "top"} right` }}>
-              {options.map((option, index) => (
+            <PickerPanel
+              style={{ maxHeight: position.maxHeight, transformOrigin: `${position.top === undefined ? "bottom" : "top"} right` }}
+              {...(searchable ? { query, onQueryChange: setQuery, placeholder: "Search", isEmpty: shown.length === 0, emptyLabel: "No matches" } : {})}
+            >
+              {shown.map((option, index) => (
                 <Fragment key={option.value}>
-                  {option.group && option.group !== options[index - 1]?.group && (
+                  {option.group && option.group !== shown[index - 1]?.group && (
                     <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-3">{option.group}</div>
                   )}
                   <PickerRow
@@ -154,7 +173,7 @@ export function Select<T extends string>({
               ))}
             </PickerPanel>
           </div>,
-          document.body,
+          host ?? document.body,
         )}
     </>
   );

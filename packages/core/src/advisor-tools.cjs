@@ -1,10 +1,15 @@
 const { z } = require("zod");
+const { PROVIDERS } = require("@milagre/shared/providers");
+const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
+
+/** The providers that can host an advisor. */
+const ADVISOR_PROVIDERS = /** @type {[string, ...string[]]} */ (PROVIDERS.filter((provider) => providerCapabilities(provider).advisor));
 const title = z.string().trim().min(1).max(120);
 const prompt = z.string().trim().min(1).max(40_000);
 const createInput = z.strictObject({
   title,
   prompt,
-  provider: z.enum(["claude", "codex"]).optional(),
+  provider: z.enum(ADVISOR_PROVIDERS).optional(),
   model: z.string().min(1).max(200).optional(),
   effort: z.string().min(1).max(40).optional(),
 });
@@ -42,4 +47,4 @@ function advisorToolDefinitions(chatId, manager) {
     tool("advisor_stop", "Stop an advisor owned by this Chat and discard its queued prompts.", id, false, (args) => manager.stop(chatId, args.advisorId)),
   ];
 }
-module.exports = { advisorToolDefinitions, createInput, promptInput: prompt };
+module.exports = { ADVISOR_PROVIDERS, advisorToolDefinitions, createInput, promptInput: prompt };

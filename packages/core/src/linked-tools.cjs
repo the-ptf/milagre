@@ -5,7 +5,14 @@ const { z } = require("zod");
 const { chatTitle } = require("@milagre/shared/chats");
 const { isNote } = require("@milagre/shared/chat-summary");
 const { providerName } = require("@milagre/shared/providers");
-const { projectOfKey, runStatus, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
+const { chatActivity } = require("@milagre/shared/chat-activity");
+
+/** A linked Chat's status, the same activity its sidebar row shows (chat-activity.mjs), with its background work. */
+function linkedStatus(session, run) {
+  const { activity, background } = chatActivity(session, run);
+  return { status: activity, ...(background ? { backgroundWork: background } : {}) };
+}
 const { NEGOTIATION_ROUNDS } = require("@milagre/shared/limits");
 const { createGit } = require("./git/client.cjs");
 const { buildLinkedSummary } = require("./linked-summary.cjs");
@@ -102,7 +109,7 @@ function createLinkedReads(view) {
             ref,
             title: chatTitle(session, messages),
             provider: session.provider ? providerName(session.provider) : undefined,
-            status: runStatus(runs[ref]),
+            ...linkedStatus(session, runs[ref]),
             archived: session.archived,
             activity: runs[ref] ? Number.MAX_SAFE_INTEGER : (messages.at(-1)?.id ?? 0),
             lastReply: lastReply(messages, session.id),
@@ -122,7 +129,7 @@ function createLinkedReads(view) {
                 ref,
                 title: chatTitle(session, messages),
                 provider: session.provider ? providerName(session.provider) : undefined,
-                status: runStatus(runs[ref]),
+                ...linkedStatus(session, runs[ref]),
                 archived: session.archived,
                 activity: runs[ref] ? Number.MAX_SAFE_INTEGER : (messages.at(-1)?.id ?? 0),
                 lastReply: lastReply(messages, session.id),
@@ -293,10 +300,12 @@ function linkedToolDefinitions(chatId, { reads, delegations }) {
     },
     {
       name: "delegate",
-      description: `Ask for changes in a linked Worktree. That side's own agent carries them out in the Chat you pick (a Chat ref from linked_overview, or "new"); its Delegation report comes back to this Chat later, so don't wait for it. Set \`negotiation\` when the two sides must agree on something first: each report then starts the other side's next turn, for up to ${NEGOTIATION_ROUNDS} rounds.`,
+      description: `Hand work to another Chat: in a linked Worktree, or in any Worktree of this Chat's own Project (this one included, no Link needed). That Chat's own agent carries it out in the Chat you pick (a Chat ref, or "new"); its Delegation report comes back to this Chat later and reaches you with your next turn, so don't wait for it. Use it instead of chat_start when you want the result back. The message runs in that Chat's own permission mode (a new Chat takes yours); if that is more than yours, the user approves first: the call can wait minutes for that card, so wait for its result, don't end the turn or move on. Set \`negotiation\` when the two sides must agree on something first: each report then starts the other side's next turn, for up to ${NEGOTIATION_ROUNDS} rounds.`,
       input: {
-        worktree,
-        chat: z.string().describe('A Chat ref from linked_overview (projectPath#id) in that Worktree, or "new".'),
+        worktree: z
+          .string()
+          .describe("The Worktree's absolute path: as linked_overview shows it after \"worktree\", or from worktree_list for this Chat's own Project."),
+        chat: z.string().describe('A Chat ref (projectPath#id) in that Worktree, from linked_overview or chat_list, or "new".'),
         message: z.string().min(1),
         negotiation: z.boolean().optional(),
       },

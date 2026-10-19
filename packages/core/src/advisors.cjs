@@ -1,13 +1,24 @@
 const { providerName } = require("@milagre/shared/providers");
 const { randomUUID } = require("node:crypto");
-const { createInput, promptInput } = require("./advisor-tools.cjs");
-const { ANALYSIS_INSTRUCTIONS } = require("./agents/advisor-policy.cjs");
+const { ADVISOR_PROVIDERS, createInput, promptInput } = require("./advisor-tools.cjs");
 const ACTIVE = new Set(["initializing", "running", "waiting"]);
 
 function advisorRow(record) {
   const { id, title, prompt, status, provider, model, startedAt, updatedAt, endedAt, latestActivity, transcript, retryable } = record;
   return { id, title, prompt, status, provider, model, startedAt, updatedAt, endedAt, latestActivity, transcript, retryable, source: "milagre-advisor" };
 }
+// A retried turn asks the original question again, with the last saved output, and the follow-up that stopped when it
+// wasn't the first turn. Advisors saved before `question` existed retry their last prompt.
+function retryPrompt(record) {
+  const question = record.question ?? record.prompt;
+  const request = record.request ?? question;
+  return [
+    question,
+    ...(record.output ? [`Previous saved output:\n${record.output}`] : []),
+    ...(request !== question ? [`Follow-up that was interrupted:\n${request}`] : []),
+  ].join("\n\n");
+}
+
 function createAdvisors({ store, contextFor, providersFor, launch, publish = async () => {}, completed = async () => {}, now = Date.now }) {
   const sessions = new Map();
   const queues = new Map();
@@ -49,7 +60,8 @@ function createAdvisors({ store, contextFor, providersFor, launch, publish = asy
     await publish(record.chatId, advisorRow(record));
   }
   async function capability(chatId, input, ctx, pinned) {
-    const provider = input.provider ?? (ctx.parentProvider === "codex" ? "claude" : "codex");
+    // By default the advisor runs on a provider the Chat itself isn't on.
+    const provider = input.provider ?? ADVISOR_PROVIDERS.find((candidate) => candidate !== ctx.parentProvider);
     const capabilities = await providersFor(chatId, pinned);
     const selected = capabilities[provider];
     if (!selected?.available || !selected.models?.length)
@@ -143,13 +155,39 @@ function createAdvisors({ store, contextFor, providersFor, launch, publish = asy
             if (!current()) return;
             next = await own(record.chatId, record.id);
             if (!next.queuedPrompts.length) return;
-            const latest = await context(record.chatId, next);
+            let latest;
+            try {
+              latest = await context(record.chatId, next);
+            } catch (error) {
+              if (!current()) return;
+              const note = `Queued follow-ups cancelled. ${error.message}`;
+              next = await save(record.chatId, record.id, (r) =>
+                current()
+                  ? {
+                      ...r,
+                      status: "failed",
+                      retryable: false,
+                      queuedPrompts: [],
+                      latestActivity: note,
+                      updatedAt: now(),
+                      transcript: [...r.transcript, { id: `scope-change:${r.turnNumber}`, kind: "message", text: note }].slice(-100),
+                    }
+                  : r,
+              );
+              if (!current()) return;
+              entry.alive = false;
+              // eslint-disable-next-line promise/no-callback-in-promise -- publishes durable state through the host port
+              await show(next);
+              await entry.session?.close().catch(() => {});
+              return;
+            }
             if (!current()) return;
             const nextPrompt = next.queuedPrompts[0];
             next = await save(record.chatId, record.id, (r) => ({
               ...r,
               status: "initializing",
               prompt: nextPrompt,
+              request: nextPrompt,
               queuedPrompts: r.queuedPrompts.slice(1),
               turnNumber: r.turnNumber + 1,
               updatedAt: now(),
@@ -194,7 +232,7 @@ function createAdvisors({ store, contextFor, providersFor, launch, publish = asy
       await context(chatId);
       const all = await providersFor(chatId);
       return Object.fromEntries(
-        ["claude", "codex"].map((provider) => [
+        ADVISOR_PROVIDERS.map((provider) => [
           provider,
           { available: all[provider]?.available === true, problem: all[provider]?.problem, models: all[provider]?.models ?? [] },
         ]),
@@ -220,7 +258,11 @@ function createAdvisors({ store, contextFor, providersFor, launch, publish = asy
           provider: identity.provider,
           model: identity.model,
           title: input.title,
-          prompt: `${input.prompt}\n\n${ANALYSIS_INSTRUCTIONS}`,
+          // The analysis-only rules are in the advisor's system prompt (events.cjs advisorInstructions).
+          prompt: input.prompt,
+          // What Retry asks again: the question the advisor was started with, and the request of the turn that stopped.
+          question: input.prompt,
+          request: input.prompt,
           status: "initializing",
           source: "milagre-advisor",
           startedAt: timestamp,
@@ -262,6 +304,7 @@ function createAdvisors({ store, contextFor, providersFor, launch, publish = asy
             return {
               ...r,
               prompt,
+              request: prompt,
               status: "initializing",
               turnNumber: r.turnNumber + 1,
               updatedAt: now(),
@@ -311,7 +354,7 @@ function createAdvisors({ store, contextFor, providersFor, launch, publish = asy
             turnNumber: r.turnNumber + 1,
             updatedAt: now(),
             endedAt: undefined,
-            prompt: `${r.prompt}\n\nPrevious saved output:\n${r.output}\n\n${ANALYSIS_INSTRUCTIONS}`,
+            prompt: retryPrompt(r),
           };
         });
         const entry = prepare(record, stamp);

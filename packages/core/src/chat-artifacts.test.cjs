@@ -177,6 +177,36 @@ test("HTML feedback survives edits made while the comment is being composed", as
   await assert.rejects(api.addComments({ chatId: CHAT, comments: [{ design: { ...first, version: 3 }, text: "Future revision" }] }), /not available/);
 });
 
+test("a page comment keeps the text near it and the spot the page finds it by, and drops an anchor that isn't one", async (t) => {
+  const { api } = await fixture(t);
+  const page = await api.show({ chatId: CHAT, title: "Explainer", html: "<main><p>One</p></main>" });
+  const [kept, dropped] = await api.addComments({
+    chatId: CHAT,
+    comments: [
+      { id: "aaaaaaaa", design: page, x: 0.2, y: 0.4, near: 'The "first"\n paragraph', anchor: "main:1/p:1@0.25,0.5", text: "Shorter" },
+      { id: "bbbbbbbb", design: page, x: 0.2, y: 0.4, anchor: 'main:1/p:1@0.25,0.5"><script>', text: "Longer" },
+    ],
+  });
+  assert.equal(kept.near, "The first paragraph");
+  assert.equal(kept.anchor, "main:1/p:1@0.25,0.5");
+  assert.equal(dropped.anchor, undefined);
+  assert.equal(dropped.near, undefined);
+  assert.equal((await api.comments({ chatId: CHAT }))[0].anchor, "main:1/p:1@0.25,0.5");
+});
+
+test("a shared page with Mermaid blocks carries Pele and the page helper, one without them stays as written", async (t) => {
+  const { api } = await fixture(t);
+  await api.show({ chatId: CHAT, title: "Routes", html: '<pre class="mermaid">flowchart LR\n  Phone --> Mac</pre>' });
+  const [shared] = (await api.pageSnapshot({ chatId: CHAT, title: "Routes", kind: "artifacts" })).artifacts;
+  assert.match(shared.html, /var pele=/);
+  assert.match(shared.html, /milagre:artifact-page/);
+  assert.ok(shared.html.length <= 1_000_000, "within the public page's limit");
+  assert.ok(shared.html.endsWith('<pre class="mermaid">flowchart LR\n  Phone --> Mac</pre>'));
+  await api.show({ chatId: CHAT, title: "Huge", html: `<pre class="mermaid">flowchart LR\n A --> B</pre><p>${"x".repeat(400_000)}</p>` });
+  const [huge] = (await api.pageSnapshot({ chatId: CHAT, title: "Huge", kind: "artifacts" })).artifacts;
+  assert.doesNotMatch(huge.html.slice(0, 200), /<script/, "past the limit the blocks show their text");
+});
+
 test("design documents and comment batches retain input and size validation", async (t) => {
   const { api } = await fixture(t);
   await assert.rejects(api.showDesign({ chatId: CHAT, title: "", document: designDocument() }), /title/);
@@ -372,7 +402,10 @@ test("editable design tool schemas expose layer fields and version checks to MCP
   );
   assert.equal(schemas.design_show.properties.document.properties.nodes.type, "array");
   assert.ok(schemas.design_apply.required.includes("expectedVersion"));
-  assert.equal(schemas.design_apply.properties.operations.items.oneOf.length, 4);
+  assert.deepEqual(
+    schemas.design_apply.properties.operations.items.oneOf.map((item) => item.properties.op.const),
+    ["update", "insert", "delete"],
+  );
   assert.deepEqual(schemas.design_export.properties.format.enum, ["json", "svg"]);
   assert.equal(tools.design_show.readOnly, false);
   assert.equal(tools.design_apply.readOnly, false);

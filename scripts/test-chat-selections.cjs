@@ -96,18 +96,22 @@ async function browserChecks() {
     // One row per model family; the thinking levels are efforts, not rows.
     const rows = JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll('[data-picker-row]')].map(el => el.textContent))`));
     const families = rows.filter((text) => text.startsWith("Gemini"));
-    assert.equal(families.length, 4, rows.join(" | "));
+    assert.equal(families.length, 2, rows.join(" | "));
+    assert.ok(
+      families.some((text) => text.startsWith("Gemini 4 Argon")),
+      rows.join(" | "),
+    );
     assert.equal(
       families.some((text) => /\((High|Medium|Low)\)/.test(text)),
       false,
       rows.join(" | "),
     );
     await shot("composer-antigravity-models");
-    await click("Gemini 3.1 Pro");
-    await modelIs("Gemini 3.1 Pro");
-    // Effort sits beside the models: a two-step slider from Low to High, and the picker stays open after a pick.
+    await click("Gemini 4 Argon");
+    await modelIs("Gemini 4 Argon");
+    // Effort sits beside the models: a three-step slider from Low to High, and the picker stays open after a pick.
     await waitFor(`!!document.querySelector('[data-model-settings] [role="slider"]')`);
-    assert.equal(await evaluate(`document.querySelector('[data-model-settings] [role="slider"]').getAttribute('aria-valuemax')`), "1");
+    assert.equal(await evaluate(`document.querySelector('[data-model-settings] [role="slider"]').getAttribute('aria-valuemax')`), "2");
     assert.match(await evaluate(`document.querySelector('[data-model-settings]').textContent`), /Low.*High/);
     await shot("composer-antigravity-effort");
     await click("Claude");

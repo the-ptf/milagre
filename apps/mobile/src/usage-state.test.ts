@@ -17,6 +17,17 @@ const snapshot = (percent = 32): UsageSnapshot => ({
     },
   ],
 });
+function providerOf(value: UsageSnapshot | null | undefined) {
+  assert.ok(value);
+  const [provider] = value.providers;
+  assert.ok(provider);
+  return provider;
+}
+function sessionPercent(value: UsageSnapshot | null | undefined) {
+  const [window] = providerOf(value).windows;
+  assert.ok(window);
+  return window.usedPercent;
+}
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((yes) => {
@@ -39,11 +50,11 @@ test("saved usage appears during a refresh and a late cache never replaces fresh
     refreshing = state.refresh();
   cached.resolve(snapshot());
   await loading;
-  assert.equal(state.get().snapshot?.providers[0].windows[0].usedPercent, 32);
+  assert.equal(sessionPercent(state.get().snapshot), 32);
   assert.equal(state.get().loading, true);
   fresh.resolve(snapshot(40));
   await refreshing;
-  assert.equal(state.get().snapshot?.providers[0].windows[0].usedPercent, 40);
+  assert.equal(sessionPercent(state.get().snapshot), 40);
   const late = deferred<UsageSnapshot>();
   const next = createUsageState(
     client((method) => (method === "usage:cached" ? late.promise : Promise.resolve(snapshot(50)))),
@@ -53,7 +64,7 @@ test("saved usage appears during a refresh and a late cache never replaces fresh
   await next.refresh();
   late.resolve(snapshot());
   await seeding;
-  assert.equal(next.get().snapshot?.providers[0].windows[0].usedPercent, 50);
+  assert.equal(sessionPercent(next.get().snapshot), 50);
 });
 
 test("refresh requests share one read and stale checks respect the last attempt", async () => {
@@ -91,9 +102,9 @@ test("provider failures preserve valid cached windows and their original timesta
   await state.loadCached();
   now += 120000;
   await state.refresh();
-  const provider = state.get().snapshot!.providers[0];
+  const provider = providerOf(state.get().snapshot);
   assert.equal(provider.status, "error");
-  assert.equal(provider.updatedAt, snapshot().providers[0].updatedAt);
+  assert.equal(provider.updatedAt, providerOf(snapshot()).updatedAt);
   assert.deepEqual(
     provider.windows.map((window) => window.id),
     ["weekly"],
@@ -114,16 +125,16 @@ test("connection failures leave cached usage visible and can recover on retry", 
   await state.loadCached();
   await state.refresh();
   assert.equal(state.get().error, "Computer offline.");
-  assert.equal(state.get().snapshot?.providers[0].windows[0].usedPercent, 32);
+  assert.equal(sessionPercent(state.get().snapshot), 32);
   fail = false;
   await state.refresh();
   assert.equal(state.get().error, "");
-  assert.equal(state.get().snapshot?.providers[0].windows[0].usedPercent, 60);
+  assert.equal(sessionPercent(state.get().snapshot), 60);
 });
 
 test("a late cache can restore valid last-known limits after a provider error", async () => {
   const cached = deferred<UsageSnapshot>();
-  const failed: UsageSnapshot = { providers: [{ ...snapshot().providers[0], status: "error", windows: [], message: "Rate limited." }] };
+  const failed: UsageSnapshot = { providers: [{ ...providerOf(snapshot()), status: "error", windows: [], message: "Rate limited." }] };
   const state = createUsageState(
     client((method) => (method === "usage:cached" ? cached.promise : Promise.resolve(failed))),
     () => NOW,
@@ -132,8 +143,8 @@ test("a late cache can restore valid last-known limits after a provider error", 
   await state.refresh();
   cached.resolve(snapshot());
   await loading;
-  assert.equal(state.get().snapshot?.providers[0].status, "error");
-  assert.equal(state.get().snapshot?.providers[0].windows[0].usedPercent, 32);
+  assert.equal(providerOf(state.get().snapshot).status, "error");
+  assert.equal(sessionPercent(state.get().snapshot), 32);
 });
 
 test("transport failure drops expired limits rather than displaying them as current", async () => {
@@ -150,7 +161,7 @@ test("transport failure drops expired limits rather than displaying them as curr
   now += 120000;
   await state.refresh();
   assert.deepEqual(
-    state.get().snapshot?.providers[0].windows.map((window) => window.id),
+    providerOf(state.get().snapshot).windows.map((window) => window.id),
     ["weekly"],
   );
 });
@@ -177,7 +188,7 @@ test("usage state for another computer starts empty and old requests cannot publ
   await refreshing;
   assert.equal(updates, before);
   await next.refresh();
-  assert.equal(next.get().snapshot?.providers[0].windows[0].usedPercent, 70);
+  assert.equal(sessionPercent(next.get().snapshot), 70);
 });
 
 test("usage reads and cached usage stay isolated to the selected scope", async () => {

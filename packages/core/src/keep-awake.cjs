@@ -15,6 +15,7 @@ class KeepAwake {
     // Setups that ended with a turn to follow, until that turn starts or ends before starting.
     this.handingOff = new Set();
     this.blockerId = null;
+    this.routinesActive = false;
   }
 
   get isHolding() {
@@ -67,6 +68,12 @@ class KeepAwake {
     this.sync();
   }
 
+  // Enabled Routines mean a heartbeat may fire at any time, so the daemon counts as busy while any exist.
+  setRoutinesActive(active) {
+    this.routinesActive = Boolean(active);
+    this.sync();
+  }
+
   quit() {
     this.quitting = true;
     this.running.clear();
@@ -76,7 +83,7 @@ class KeepAwake {
   }
 
   sync() {
-    const busy = this.running.size + this.preparing.size + this.handingOff.size > 0;
+    const busy = this.routinesActive || this.running.size + this.preparing.size + this.handingOff.size > 0;
     const want = this.enabled && !this.quitting && busy;
     if (want && this.blockerId === null) {
       this.blockerId = this.blocker.start("prevent-app-suspension");

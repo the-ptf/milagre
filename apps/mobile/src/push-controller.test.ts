@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createPushController, notificationTarget, shouldPresentNotification, SHEETS_OVER_CHAT, viewedChat } from "./push-controller.ts";
+import { createPushController, notificationTarget, shouldPresentNotification, SHEETS_OVER_CHAT, SHEETS_OVER_PAGES, viewedChat } from "./push-controller.ts";
 import { createPushStore } from "./push-store.ts";
 import type { SavedHost } from "./hosts-store.ts";
 const deviceId = "b6e2df4b-972b-4e7b-bc65-6cda0a173798";
@@ -158,7 +158,9 @@ test("the sheets that keep a Chat viewed are the layout's sheets and transparent
   const layout = readFileSync(new URL("./app/_layout.tsx", import.meta.url), "utf8");
   const overlays = [...layout.matchAll(/name="([\w-]+)"\s*options=\{\{\s*(?:\.\.\.sheet|presentation: "transparentModal")/g)].map((match) => match[1]);
   assert.ok(overlays.includes("permission-sheet"));
-  assert.deepEqual([...SHEETS_OVER_CHAT].sort(), overlays.sort());
+  // Every sheet either opens over the Chat, keeping it viewed, or over a full-screen page that already hides it.
+  assert.deepEqual([...SHEETS_OVER_CHAT, ...SHEETS_OVER_PAGES].sort(), overlays.sort());
+  assert.equal(viewedChat("/design-share-sheet", null, { hostId: host.id, chatId: "/p#1" }, host.id), null);
 });
 
 test("Forget persists removal without waiting for a suspended unregister", async () => {
@@ -174,7 +176,9 @@ test("Forget persists removal without waiting for a suspended unregister", async
   await controller.enable();
   try {
     await Promise.race([controller.forget(host), new Promise((_, reject) => setTimeout(() => reject(new Error("Forget waited for network")), 100))]);
-    assert.equal((await store.read()).pending[0].id, host.id);
+    const [pending] = (await store.read()).pending;
+    assert.ok(pending);
+    assert.equal(pending.id, host.id);
   } finally {
     release();
   }

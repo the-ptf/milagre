@@ -31,13 +31,17 @@ The branch a **Project**'s remote names as its default (`origin/HEAD`), else `ma
 _Avoid_: base (the base is whatever branch a **Worktree** started from, which may not be the main branch)
 
 **Linear issue**:
-An issue in the Linear workspace connected on a **Computer**, named by its key (`ENG-123`). A **Worktree** has at most one: the link stored on it when there is one, else the first key in its branch name that matches one of the workspace's team keys. Milagre only reads it; Linear's GitHub integration moves its status.
+An issue in the Linear workspace connected on a **Computer**, named by its key (`ENG-123`). A **Worktree** has at most one: the link stored on it when there is one, else the first key in its branch name that matches one of the workspace's team keys. Explicitly unlinking an issue suppresses branch detection until another issue is linked. Milagre only reads it; Linear's GitHub integration moves its status.
 _Avoid_: ticket, task (Linear's own word is issue)
 
 **Chat**:
 One conversation with one agent. A Project Chat is bound to exactly one **Worktree**; a named Link's shared Chat owns one isolated **Worktree** in each member **Project**. An ordinary **Worktree** can have many **Chats**; a shared Chat's owned Worktree does not receive an independent editable Project Chat.
 An archived **Chat** stays readable from a linked side but is never chosen to receive a **Delegation**.
 _Avoid_: session, thread (the providers' names for the agent process behind a **Chat**)
+
+**Background task**:
+Work that outlives the **Chat**'s turn and reports back to it by itself: a background subagent, a command the agent ran in the background, an MCP task, or an advisor. A **Chat** whose turn ended while one still runs is "in the background", with how many still run, on every surface; a failed last turn shows as failed instead. Anything that would end the agent process (handing the **Chat** to another provider, Reload, a move to another folder) is refused until the background tasks running in that process finish. After a **Usage limit**, switching to another Account or provider stops the limited process's remaining tasks and continues the Chat from its saved progress.
+_Avoid_: job, child (Codex's term for a subagent)
 
 **Browser page**:
 A page in a Chromium browser on the host that a **Chat** may view and control. It belongs to the **Chat** whose agent process started its browser, or to a **Chat** the user attached that browser to. See ADR-0006.
@@ -59,24 +63,42 @@ Where a **Chat**'s work is (Start, Plan, Build, Test, Review, Merge, Release, Do
 A named, selectable set of two or more **Projects** in the desktop sidebar. Its shared **Chats** each create their own set of isolated **Worktrees**, one per member Project, and have one canonical conversation. The agent can edit all Worktrees owned by that Chat. Editing a Link's members changes only Chats started afterwards. Named Links do not create or replace canvas Links. See ADR-0005.
 
 **Link**:
-A symmetric, persistent relationship the user draws on the canvas between two **Link** endpoints, each a **Project** or a **Worktree**. Every **Chat** on either side sees the other side's state and can make a **Delegation** to it. A **Link** reaches one hop only: X–Y and Y–Z do not let X see or delegate to Z. It has no type and lasts until the user removes it or a **Worktree** endpoint stops being active. A **Project** endpoint stands for all of that project's active **Worktrees**, including ones created after the **Link**.
+A symmetric, persistent relationship between two **Link** endpoints, each a **Project** or a **Worktree**. The user draws it on the canvas, or an agent makes one between two **Worktrees** with `worktree_link`. Every **Chat** on either side sees the other side's state and can make a **Delegation** to it. A **Link** reaches one hop only: X–Y and Y–Z do not let X see or delegate to Z. It has no type and lasts until the user removes it or a **Worktree** endpoint stops being active. A **Project** endpoint stands for all of that project's active **Worktrees**, including ones created after the **Link**.
 _Avoid_: Connection (the typed, possibly temporary relationship in spec 001, a separate feature), vínculo
 
 **Delegation**:
-A request from a **Chat** in one side of a **Link** for changes on the other side, delivered as a message to a **Chat** there and carried out by that side's own agent. The requesting agent picks the receiving **Worktree** and **Chat**, opening a new **Chat** when none fits. It appears there as a message from the requesting **Chat**, never as the user's. If the receiving agent is mid-turn, it steers that turn; if it is waiting on the user, the **Delegation** waits too. The requesting agent never edits the other side's files itself. When the receiving agent finishes, a **Delegation report** appears in the requesting **Chat**.
+A request from a **Chat** for work by another **Chat**, delivered as a message to it and carried out by that **Chat**'s own agent. The receiving **Chat** is on the other side of a **Link**, or in any **Worktree** of the requesting **Chat**'s own **Project**, which needs no **Link**. The requesting agent picks the receiving **Worktree** and **Chat**, opening a new **Chat** when none fits. It appears there as a message from the requesting **Chat**, never as the user's. If the receiving agent is mid-turn, it steers that turn; if it is waiting on the user, the **Delegation** waits too. Across a **Link**, the requesting agent never edits the other side's files itself. When the receiving agent finishes, a **Delegation report** appears in the requesting **Chat**.
 _Avoid_: remote edit, cross-worktree edit
 
 **Delegation report**:
-A summary of what the receiving agent did for a **Delegation**, posted to the requesting **Chat**. Outside a **Negotiation** it never starts a turn there on its own.
+A summary of what the receiving agent did for a **Delegation**, posted to the requesting **Chat**. Its agent gets it with the start of its next turn. Outside a **Negotiation** it never starts a turn there on its own.
 
 **Negotiation**:
-A back-and-forth of **Delegations** between two **Chats** across a **Link**, where each **Delegation report** starts a turn on the other side, until one agent concludes it with a summary of the agreement. The requesting agent decides on its own that a request needs a **Negotiation**, and only it can; the user never has to ask for one, and the receiving side can't turn a **Delegation** into one. It stops after at most 10 rounds, when the user stops it, and pauses while either side waits on the user.
+A back-and-forth of **Delegations** between two **Chats**, across a **Link** or inside one **Project**, where each **Delegation report** starts a turn on the other side, until one agent concludes it with a summary of the agreement. The requesting agent decides on its own that a request needs a **Negotiation**, and only it can; the user never has to ask for one, and the receiving side can't turn a **Delegation** into one. It stops after at most 10 rounds, when the user stops it, and pauses while either side waits on the user.
 _Avoid_: consensus mode, auto-chat
+
+### Routines
+
+**Routine**:
+A saved prompt plus a **Trigger** plus a target, kept by the **Computer**'s daemon so it fires while no window is open. Off until the Routines switch in Settings › Experimental is on.
+
+**Heartbeat**:
+A **Routine** whose target is an existing **Chat**: on a schedule, Milagre sends its prompt back into that **Chat** as a new turn. The **Chat**'s agent sets it on its own **Chat** with Milagre's `heartbeat_create`. Every **Heartbeat** ends: after 7 days by default, at most 30, after its maximum **Runs**, when its **Chat** is archived or gone, or after three failed **Runs** in a row.
+_Avoid_: reminder, cron job
+
+**Trigger**:
+What fires a **Routine**: a schedule, a Linear event or a webhook. Used loosely for a **Routine** whose target is a new **Chat**.
+
+**Run**:
+One firing of a **Routine**. It acts, is quiet, fails, or is skipped because its **Chat** was busy or the **Computer** missed its time.
+
+**Quiet run**:
+A **Run** whose reply, after its last tool step, starts with `(pass)`. Its divider collapses, its reply is hidden, and it sends no notification.
 
 ### Bots
 
 **Bot**:
-A persistent named teammate on one **Computer**: name, role, brief, mascot, model, memory, routines and one **Bot thread**. Its home is a hidden **Project** in the daemon's data folder (ADR-0010). Behind Settings › Experimental › Bots.
+A persistent named teammate on one **Computer**: name, role, brief, mascot, model, memory, **Routines** and one **Bot thread**. A **Bot**'s **Run** lands in its **Bot thread**. Its home is a hidden **Project** in the daemon's data folder (ADR-0010). Behind Settings › Experimental › Bots.
 _Avoid_: agent (the provider process behind any **Chat**), assistant
 
 **Bot thread**:
@@ -87,12 +109,6 @@ A thread with the user and two to six **Bots**. A **Group** has no agent of its 
 
 **Starter bot**:
 A template (Ops, Release, Chief) that ships with Milagre, filled in once from a short setup card.
-
-**Routine**:
-A saved prompt plus one or more triggers (schedule, interval, once, Linear event, webhook). Owned by a **Chat** (Milagre face) or a **Bot** (Angelo face).
-
-**Run**:
-One firing of a **Routine**. A **Bot**'s run is its own session; its result lands in the **Bot thread**.
 
 **Gate**:
 An action class that always needs the user's **Sign-off**: merge, publish, post as the user, delete, spend. A **Chat** a **Bot** opened runs under that **Bot**'s **Gates**.
@@ -127,8 +143,8 @@ _Avoid_: client (any connection to the daemon, this Mac's own window included)
 - A **Project** has one or more **Worktrees**; an ordinary **Worktree** has one or more **Chats**. A named Link's shared **Chat** owns one **Worktree** per member **Project**.
 - A **Chat** has zero or more **Terminals**; each **Terminal** belongs to exactly one **Chat**.
 - A **Link** joins exactly two endpoints; each endpoint is a **Project** or a **Worktree**.
-- A **Delegation** travels along exactly one **Link**, from one **Chat** to one **Chat**.
-- A **Negotiation** involves exactly two **Chats** and is made of **Delegations** along one **Link**.
+- A **Delegation** goes from one **Chat** to one other **Chat**, along exactly one **Link**, or along none inside one **Project**.
+- A **Negotiation** involves exactly two **Chats** and is made of **Delegations** along one **Link**, or inside one **Project**.
 - A **Project** lives on exactly one **Computer**, whose daemon is its only writer (ADR-0003).
 
 ## Example dialogue

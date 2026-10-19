@@ -15,6 +15,15 @@ async function until(check) {
   assert.ok(check(), "Expected runtime event did not arrive");
 }
 
+// A shared Link Chat's agent about to change both Projects: each gets the Chat's Worktree first (link_worktree_create).
+async function createWorktrees(context) {
+  const tool = context.linked.tools.find((item) => item.name === "link_worktree_create");
+  for (const project of ["api", "web"]) {
+    const reply = await require("./linked-tools.cjs").runTool(tool, { project });
+    assert.equal(reply.isError, false, reply.text);
+  }
+}
+
 async function fixture(t) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-account-routing-")));
   const dataDir = path.join(dir, "profile");
@@ -74,7 +83,7 @@ async function fixture(t) {
       titleModels: {},
       agentCliStatus: async () => ({ claude: { state: "ready" }, codex: { state: "missing" } }),
       agentModels: async () => ({ claude: [{ id: "test", efforts: [] }], codex: [] }),
-      agentCli: async (provider) => (provider === "claude" ? { command: cli } : { problem: "Codex is not installed in this fixture" }),
+      agentCli: extra.agentCli ?? (async (provider) => (provider === "claude" ? { command: cli } : { problem: "Codex is not installed in this fixture" })),
       emit: (channel, payload) => events.push({ channel, payload }),
       createSession(provider, context) {
         const session = {
@@ -122,7 +131,7 @@ async function fixture(t) {
   const profile = (id) => path.join(dataDir, "accounts", id);
   const send = (runtime, projectPath, sessionId, body = "Use this account") =>
     runtime.invoke("chat:send", [{ projectPath, sessionId, body, provider: "claude", model: "test", permissionMode: "auto" }]);
-  return { make, projects, saved, save, ids, profile, created, events, send, dataDir };
+  return { make, projects, saved, save, ids, profile, created, events, send, dataDir, cli };
 }
 
 test("concurrent Projects route by their own scope and reuse accounts after switching the viewed Project", async (t) => {
@@ -165,7 +174,9 @@ test("a named Link has its own account, independent of members and viewed Projec
   const sent = await runtime.invoke("link:send", [request]);
   await until(() => created.length === 1);
   assert.equal(created[0].context.env.CLAUDE_CONFIG_DIR, profile(ids.shared));
-  assert.equal(created[0].context.workspaceRoots.length, 2);
+  assert.equal(created[0].context.workspaceRoots.length, 0);
+  // Its agent makes a Worktree in each Project before changing it; the session continues with both.
+  await createWorktrees(created[0].context);
   created[0].finish();
   await runtime.flush();
   await runtime.openProject(projects[1]);
@@ -283,13 +294,15 @@ test("advisors inherit a named Link's Account and both owned Worktrees", async (
     { linkId: link.id, operationId: randomUUID(), sessionId: null, body: "Review both", provider: "claude", model: "test", permissionMode: "full" },
   ]);
   await until(() => created.length === 1);
+  await createWorktrees(created[0].context);
   const tool = created[0].context.linked.tools.find((tool) => tool.name === "create_advisor");
   const reply = await require("./linked-tools.cjs").runTool(tool, { title: "Link advisor", prompt: "Assess both", provider: "claude" });
   assert.equal(reply.isError, false);
   await until(() => created.length === 2 && created[1].turns.length === 1);
   assert.equal(created[1].context.analysisOnly, true);
   assert.equal(created[1].context.env.CLAUDE_CONFIG_DIR, profile(ids.shared));
-  assert.deepEqual(created[1].context.workspaceRoots, created[0].context.workspaceRoots);
+  const session = Object.values((await runtime.invoke("link:snapshot", [link.id])).state.sessions)[0];
+  assert.deepEqual(created[1].context.workspaceRoots, session.worktrees.map((member) => member.worktreePath).sort());
   assert.equal(created[1].context.workspaceRoots.length, 2);
 });
 
@@ -342,6 +355,11 @@ test("a usage limit marks the account, the limit card switches the Project and c
   await runtime.invoke("accounts:scope", [project.path, true]);
   await send(runtime, project.path, chatId, "Wire up the export");
   await until(() => created.length === 1);
+  created[0].context.emit({ type: "background-tasks", tasks: [{ id: "shell", kind: "local_bash", title: "Watch exports", startedAt: 1 }] });
+  created[0].context.emit({
+    type: "subagent-update",
+    agent: { id: "review", title: "Review", status: "running", background: true, startedAt: 1, updatedAt: 1, transcript: [] },
+  });
   const resetsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   created[0].limit(resetsAt);
   await runtime.flush();
@@ -357,6 +375,11 @@ test("a usage limit marks the account, the limit card switches the Project and c
   await until(() => created.length === 2);
   assert.equal(created[1].context.env.CLAUDE_CONFIG_DIR, profile(ids.personal));
   assert.equal(created[1].context.resumeId, created[0].nativeId);
+  assert.equal(created[0].closed, true);
+  const resumed = (await runtime.invoke("project:snapshot", [project.path])).state.sessions[chatId];
+  assert.equal(resumed.backgroundTasks, undefined);
+  assert.equal(resumed.subagents.find((agent) => agent.id === "review").status, "cancelled");
+  assert.match(created[1].turns[0].prompt, /background.*stopped/i);
   assert.match(created[1].turns[0].prompt, /usage limit/);
   assert.equal(claude(await runtime.invoke("accounts:scope", [project.path])).effectiveId, ids.personal);
 
@@ -365,9 +388,32 @@ test("a usage limit marks the account, the limit card switches the Project and c
   const next = claude(await runtime.invoke("accounts:scope", [project.path])).accounts.find(
     (account) => account.state === "ready" && ![ids.work, ids.personal].includes(account.id),
   );
+  created[1].context.emit({ type: "background-tasks", tasks: [{ id: "mcp", kind: "mcp_task", title: "Export", startedAt: 2 }] });
   created[1].limit();
   await until(() => created.length === 3);
   assert.equal(created[2].context.env?.CLAUDE_CONFIG_DIR, next.id === "default" ? undefined : profile(next.id));
+  assert.equal(created[1].closed, true);
   assert.equal(claude(await runtime.invoke("accounts:scope", [project.path])).effectiveId, next.id);
   assert.deepEqual(await runtime.invoke("limits:auto-switch:read", []), { autoSwitch: true });
+});
+
+test("a usage-limited Chat with background work can hand off to another provider", async (t) => {
+  const { make, projects, created, send, cli } = await fixture(t);
+  const runtime = make({ agentCli: async () => ({ command: cli }) });
+  const project = await runtime.openProject(projects[0]);
+  const sessionId = Object.values(project.state.sessions)[0].id;
+  await send(runtime, project.path, sessionId, "Finish the export");
+  await until(() => created.length === 1);
+  created[0].context.emit({ type: "background-tasks", tasks: [{ id: "shell", kind: "local_bash", title: "Watch exports", startedAt: 1 }] });
+  created[0].limit();
+  await runtime.flush();
+
+  await runtime.invoke("chat:send", [{ projectPath: project.path, sessionId, body: "Continue", provider: "codex", model: "test" }]);
+  await until(() => created.length === 2);
+  assert.equal(created[0].closed, true);
+  assert.equal(created[1].provider, "codex");
+  assert.match(created[1].turns[0].prompt, /background tasks were stopped/);
+  const state = (await runtime.invoke("project:snapshot", [project.path])).state;
+  assert.equal(state.sessions[sessionId].backgroundTasks, undefined);
+  assert.equal(state.messages.find((message) => message.context?.kind === "handoff").context.status, "done");
 });

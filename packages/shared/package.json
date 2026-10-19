@@ -6,6 +6,8 @@
     "src/*.mjs",
     "src/design-catalog-fonts/*",
     "src/*.d.mts",
+    "src/checkpoints.ts",
+    "src/use-checkpoints.ts",
     "src/model.ts",
     "src/git-diff.ts",
     "src/model-options.ts",
@@ -33,6 +35,7 @@
     "src/artifact.ts",
     "src/artifact-document.mjs",
     "src/artifact-document.d.mts",
+    "src/diagram.ts",
     "src/genui.ts",
     "src/file-link.ts",
     "src/message-search.mjs",
@@ -69,10 +72,16 @@
       "types": "./src/tokens.d.mts",
       "default": "./src/tokens.mjs"
     },
+    "./untrusted-text": {
+      "types": "./src/untrusted-text.d.mts",
+      "default": "./src/untrusted-text.mjs"
+    },
     "./prompt-skills": {
       "types": "./src/prompt-skills.d.mts",
       "default": "./src/prompt-skills.mjs"
     },
+    "./checkpoints": "./src/checkpoints.ts",
+    "./use-checkpoints": "./src/use-checkpoints.ts",
     "./model": "./src/model.ts",
     "./subagent-glance": {
       "types": "./src/subagent-glance.d.mts",
@@ -123,9 +132,29 @@
       "types": "./src/chat-reload.d.mts",
       "default": "./src/chat-reload.mjs"
     },
+    "./routines": {
+      "types": "./src/routines.d.mts",
+      "default": "./src/routines.mjs"
+    },
+    "./routine-prompt": {
+      "types": "./src/routine-prompt.d.mts",
+      "default": "./src/routine-prompt.mjs"
+    },
+    "./routine-form": {
+      "types": "./src/routine-form.d.mts",
+      "default": "./src/routine-form.mjs"
+    },
+    "./checkpoint-restore": {
+      "types": "./src/checkpoint-restore.d.mts",
+      "default": "./src/checkpoint-restore.mjs"
+    },
     "./worktree-link": {
       "types": "./src/worktree-link.d.mts",
       "default": "./src/worktree-link.mjs"
+    },
+    "./linked-message": {
+      "types": "./src/linked-message.d.mts",
+      "default": "./src/linked-message.mjs"
     },
     "./handoff": {
       "types": "./src/handoff.d.mts",
@@ -150,6 +179,18 @@
     "./providers": {
       "types": "./src/providers.d.mts",
       "default": "./src/providers.mjs"
+    },
+    "./chat-activity": {
+      "types": "./src/chat-activity.d.mts",
+      "default": "./src/chat-activity.mjs"
+    },
+    "./queued-messages": {
+      "types": "./src/queued-messages.d.mts",
+      "default": "./src/queued-messages.mjs"
+    },
+    "./provider-capabilities": {
+      "types": "./src/provider-capabilities.d.mts",
+      "default": "./src/provider-capabilities.mjs"
     },
     "./stable-order": {
       "types": "./src/stable-order.d.mts",
@@ -213,6 +254,11 @@
       "types": "./src/artifact-document.d.mts",
       "default": "./src/artifact-document.mjs"
     },
+    "./diagram-script": {
+      "types": "./src/diagram-script.d.mts",
+      "default": "./src/diagram-script.mjs"
+    },
+    "./diagram": "./src/diagram.ts",
     "./design-page": {
       "types": "./src/design-page.d.mts",
       "default": "./src/design-page.mjs"
@@ -272,6 +318,7 @@
   },
   "dependencies": {
     "@openuidev/lang-core": "^0.3.2",
+    "pele": "1.6.0",
     "refractor": "^5.0.0",
     "tweetnacl": "1.0.3",
     "zod": "^4.6.5"

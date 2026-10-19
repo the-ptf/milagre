@@ -75,9 +75,18 @@ test("the dialog shows the desktop choice for each plan, with Cancel, the danger
     assert.deepEqual(archiveDialog(plan(patch), false).choices, [{ mode: "hide", text: "Confirm archive", style: "destructive" }]);
   }
   // A running Chat is stopped first, and the choices say so.
-  assert.equal(archiveDialog(plan({}), true).choices[0].text, "Stop, archive and remove worktree");
-  assert.equal(archiveDialog(plan({ status: dirty }), true).choices[0].text, "Stop, archive and delete worktree");
-  assert.equal(archiveDialog(plan({ shared: true, status: null }), true).choices[0].text, "Stop and archive");
+  assert.deepEqual(
+    archiveDialog(plan({}), true).choices.map((choice) => choice.text),
+    ["Stop, archive and remove worktree"],
+  );
+  assert.deepEqual(
+    archiveDialog(plan({ status: dirty }), true).choices.map((choice) => choice.text),
+    ["Stop, archive and delete worktree"],
+  );
+  assert.deepEqual(
+    archiveDialog(plan({ shared: true, status: null }), true).choices.map((choice) => choice.text),
+    ["Stop and archive"],
+  );
   // An older Mac: today's plain archive.
   assert.deepEqual(archiveDialog(null, false), { title: "Archive this Chat?", choices: [{ mode: "hide", text: "Archive", style: "destructive" }] });
 });
@@ -86,6 +95,7 @@ test("confirmArchive puts Cancel first and resolves to the pressed choice, or nu
   const dialog = archiveDialog({ milagreOwned: true, shared: false, status: dirty }, false);
   const pressed = fakeAlert("Archive and delete worktree");
   assert.equal(await confirmArchive(pressed.alert, dialog), "delete");
+  assert.ok(pressed.shown[0] !== undefined);
   assert.deepEqual(
     pressed.shown[0].buttons.map((button) => [button.text, button.style]),
     [
@@ -137,6 +147,7 @@ test("an older daemon that refuses the check falls back to the plain hide-only a
     refresh: async () => {},
   });
   assert.equal(result, "hidden");
+  assert.ok(shown[0] !== undefined);
   assert.deepEqual(
     shown[0].buttons.map((button) => button.text),
     ["Cancel", "Archive"],
@@ -146,6 +157,7 @@ test("an older daemon that refuses the check falls back to the plain hide-only a
     calls.map((call) => call.method),
     ["worktree:roots", "snapshot", "chat:patch"],
   );
+  assert.ok(calls[2] !== undefined);
   assert.deepEqual(calls[2].args, ["/work/shop", 2, { archived: true, unread: false }]);
   assert.deepEqual(notices, []);
 });

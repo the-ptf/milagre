@@ -3,6 +3,7 @@ import { Pressable, Text, TextInput, View } from "react-native";
 import { ArrowLeft01Icon, ArrowRight01Icon, ArrowUp01Icon, PencilEdit02Icon, ShieldAlertIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import type { AgentQuestion, PermissionDecision, PermissionRequest, QuestionAnswers, QuestionRequest } from "@milagre/shared/model";
 import { NEGOTIATION_ROUNDS } from "@milagre/shared/limits";
+import { SETUP_APPROVAL_COPY } from "@milagre/shared/model-copy";
 import { takeActivityDraft } from "./activity-drafts";
 import { Icon } from "./icons";
 import { InboxPage, InboxPager } from "./inbox-motion";
@@ -64,24 +65,34 @@ export function Questions({
   };
   const inline = variant === "inline";
   const questions = request.questions;
-  const question = questions[Math.min(page, questions.length - 1)];
-  const answerOf = (q: AgentQuestion) => [...(picked[q.id] || []), ...(typed[q.id]?.trim() ? [typed[q.id].trim()] : [])];
+  const question = questions[Math.max(0, Math.min(page, questions.length - 1))];
+  if (!question) return null;
+  const answerOf = (q: AgentQuestion) => {
+    const answer = typed[q.id]?.trim();
+    return [...(picked[q.id] || []), ...(answer ? [answer] : [])];
+  };
   function finish(next: QuestionAnswers, nextTyped = typed) {
-    const answers = Object.fromEntries(questions.map((q) => [q.id, [...(next[q.id] || []), ...(nextTyped[q.id]?.trim() ? [nextTyped[q.id].trim()] : [])]]));
-    const open = questions.findIndex((q) => !answers[q.id].length);
+    const answers = Object.fromEntries(
+      questions.map((q) => {
+        const answer = nextTyped[q.id]?.trim();
+        return [q.id, [...(next[q.id] || []), ...(answer ? [answer] : [])]];
+      }),
+    );
+    const open = questions.findIndex((q) => !answers[q.id]?.length);
     if (open >= 0) {
       setPage(open);
       return;
     }
-    submit(answers, questions.map((q) => `${q.header || q.question}: ${q.secret ? "[hidden answer]" : answers[q.id].join(", ")}`).join("\n"));
+    submit(answers, questions.map((q) => `${q.header || q.question}: ${q.secret ? "[hidden answer]" : (answers[q.id]?.join(", ") ?? "")}`).join("\n"));
   }
   function choose(label: string) {
+    if (!question) return;
     if (question.multiSelect) {
       change({
         picked: {
           ...picked,
           [question.id]: picked[question.id]?.includes(label)
-            ? picked[question.id].filter((value) => value !== label)
+            ? (picked[question.id] ?? []).filter((value) => value !== label)
             : [...(picked[question.id] || []), label],
         },
       });
@@ -98,7 +109,7 @@ export function Questions({
     if (page === questions.length - 1 && !confirmSingle) finish(next, nextTyped);
   }
   function sendTyped() {
-    if (!typed[question.id]?.trim()) return;
+    if (!question || !typed[question.id]?.trim()) return;
     setDirection(1);
     const next = question.multiSelect ? picked : { ...picked, [question.id]: [] };
     change({
@@ -349,6 +360,9 @@ export function Approval({
   const parameters = [
     ["To", approval.delegation?.target],
     ["Message", approval.delegation?.message],
+    ["Project", approval.setup?.projectPath],
+    ["Source", approval.setup?.source],
+    ["Computer", approval.setup?.computer],
     ["Command", approval.command],
     ["Folder", approval.cwd],
     [approval.files?.length === 1 ? "File" : "Files", approval.files?.join("\n")],
@@ -404,8 +418,19 @@ export function Approval({
         </View>
       ))}
       <View style={{ flexDirection: "row", gap: 8 }}>
-        <PillButton title="Deny" secondary disabled={busy} onPress={() => respond("deny")} style={{ flex: 1, height: 44 }} />
-        <PillButton title="Allow once" disabled={busy} onPress={() => respond("allow")} style={{ flex: 1, height: 44 }} />
+        <PillButton
+          title={approval.kind === "setup" ? SETUP_APPROVAL_COPY.deny : "Deny"}
+          secondary
+          disabled={busy}
+          onPress={() => respond("deny")}
+          style={{ flex: 1, height: 44 }}
+        />
+        <PillButton
+          title={approval.kind === "setup" ? SETUP_APPROVAL_COPY.allow : "Allow once"}
+          disabled={busy}
+          onPress={() => respond("allow")}
+          style={{ flex: 1, height: 44 }}
+        />
       </View>
       {approval.allowForChat && (
         <Pressable
@@ -419,7 +444,11 @@ export function Approval({
           }}
         >
           <Text style={{ color: colors.ink2, fontSize: 13, fontWeight: "500" }}>
-            {approval.kind === "delegation" ? "Always allow for this Link in this Chat" : "Always allow in this Chat"}
+            {approval.kind === "setup"
+              ? SETUP_APPROVAL_COPY.always
+              : approval.kind === "delegation"
+                ? "Always allow for this Link in this Chat"
+                : "Always allow in this Chat"}
           </Text>
         </Pressable>
       )}

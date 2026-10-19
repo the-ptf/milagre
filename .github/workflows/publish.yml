@@ -1,6 +1,9 @@
-# The one desktop release pipeline. It ships a draft candidate (cut by CI's release job) on either channel:
-#   beta    the candidate as a vX.Y.Z-beta.N prerelease, never marked latest. Weekdays at 09:00 UTC and on dispatch.
-#   stable  the untouched draft itself, marked latest, then packages.milagre.cloud is redeployed from it.
+# The one desktop release pipeline. Merges to main cut no tags; this workflow plans each release
+# (scripts/plan-release.cjs) and creates its tag only once every required platform has built:
+#   beta    the newest CI-green main commit as a vX.Y.Z-beta.N prerelease, never marked latest, with the changes since
+#           the previous beta. Weekdays at 09:00 UTC (skipped when nothing user-facing landed) and on dispatch.
+#   stable  the newest beta's commit rebuilt as vX.Y.Z, marked latest, with the changes since the previous stable;
+#           then packages.milagre.cloud is redeployed from it. Dispatch only.
 # macOS and Linux always build. Windows builds only once the RELEASE_WINDOWS repository variable is "true", which
 # needs the WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD secrets first. A stable release needs every platform it builds;
 # a beta needs only macOS and ships without a platform whose build failed.
@@ -9,15 +12,19 @@ on:
   workflow_dispatch:
     inputs:
       channel:
-        description: beta ships a vX.Y.Z-beta.N prerelease; stable publishes the draft as the latest release
+        description: beta cuts a vX.Y.Z-beta.N prerelease from main; stable promotes the newest beta to the latest release
         type: choice
         options:
           - beta
           - stable
         default: beta
         required: true
-      tag:
-        description: Draft candidate to ship (vX.Y.Z); empty means the newest draft
+      ref:
+        description: "beta only: the main commit to ship; empty means the newest one CI passed"
+        type: string
+        required: false
+      beta:
+        description: "stable only: the beta to promote (vX.Y.Z-beta.N); empty means the newest, the only one allowed"
         type: string
         required: false
   schedule:
@@ -26,25 +33,31 @@ env:
   DO_NOT_TRACK: "1"
 permissions:
   contents: write
+  # The beta plan reads which main commits passed CI.
+  actions: read
 concurrency:
   group: publish
   cancel-in-progress: false
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       channel: ${{ steps.channel.outputs.channel }}
       feed_channel: ${{ steps.channel.outputs.feed_channel }}
       windows: ${{ steps.channel.outputs.windows }}
-      tag: ${{ steps.pick.outputs.tag }}
-      version: ${{ steps.pick.outputs.version }}
-      release_tag: ${{ steps.pick.outputs.release_tag }}
-      changed: ${{ steps.pick.outputs.changed }}
+      changed: ${{ steps.plan.outputs.changed }}
+      sha: ${{ steps.plan.outputs.sha }}
+      base: ${{ steps.plan.outputs.base }}
+      version: ${{ steps.plan.outputs.version }}
+      release_tag: ${{ steps.plan.outputs.release_tag }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      # The plan reads the commits between releases and every existing tag.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
@@ -59,20 +72,37 @@ jobs:
             if [ "$CHANNEL" = stable ]; then echo "feed_channel=latest"; else echo "feed_channel=beta"; fi
             echo "windows=$WINDOWS"
           } >> "$GITHUB_OUTPUT"
-      - id: pick
+      - id: plan
         env:
           CHANNEL: ${{ steps.channel.outputs.channel }}
-          REQUESTED: ${{ inputs.tag }}
-        run: node scripts/pick-release-candidate.cjs >> "$GITHUB_OUTPUT"
+          REF: ${{ inputs.ref }}
+          BETA: ${{ inputs.beta }}
+          SCHEDULED: ${{ github.event_name == 'schedule' }}
+          NOTES_FILE: ${{ runner.temp }}/release-notes.md
+        run: |
+          if [ "$CHANNEL" = stable ]; then
+            test -z "$REF" || { echo "::error::ref is for beta cuts; a promotion ships the newest beta (the beta input)"; exit 1; }
+            export REQUESTED="$BETA"
+          else
+            test -z "$BETA" || { echo "::error::beta is for promotions; a beta cut takes ref"; exit 1; }
+            export REQUESTED="$REF"
+          fi
+          node scripts/plan-release.cjs plan >> "$GITHUB_OUTPUT"
+      - name: Stage release notes
+        if: steps.plan.outputs.changed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
   macos:
     needs: prepare
     if: needs.prepare.outputs.changed == 'true'
     uses: ./.github/workflows/build-macos.yml
     with:
-      tag: ${{ needs.prepare.outputs.tag }}
+      ref: ${{ needs.prepare.outputs.sha }}
       version: ${{ needs.prepare.outputs.version }}
       channel: ${{ needs.prepare.outputs.feed_channel }}
-      require_draft: ${{ needs.prepare.outputs.channel == 'stable' }}
     secrets:
       CSC_LINK: ${{ secrets.CSC_LINK }}
       CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -82,20 +112,20 @@ jobs:
   linux:
     needs: prepare
     if: needs.prepare.outputs.changed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       CHANNEL: ${{ needs.prepare.outputs.channel }}
       FEED_CHANNEL: ${{ needs.prepare.outputs.feed_channel }}
       VERSION: ${{ needs.prepare.outputs.version }}
-      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
       MILAGRE_LINUX_SIGNING_KEY: ${{ secrets.LINUX_REPOSITORY_KEY_FINGERPRINT }}
     steps:
-      - &checkout-candidate
-        name: Check out the candidate
+      - &checkout-release
+        name: Check out the release commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ needs.prepare.outputs.tag }}
+          ref: ${{ needs.prepare.outputs.sha }}
       - &setup-node
         name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -160,7 +190,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/milagre-source"
           git archive HEAD | tar -x -C "$RUNNER_TEMP/milagre-source"
           docker run --rm --platform linux/amd64 --cap-add=SYS_ADMIN --security-opt seccomp=unconfined -v "$RUNNER_TEMP/milagre-source:/source:ro" -v "$PWD/release:/installers:ro" -v "$PWD/release/linux-repository/archive-keyring.asc:/public-key.asc:ro" milagre-fedora-check bash /source/scripts/test-linux-rpm.sh /source /installers /public-key.asc
-      # The checkout is the candidate's commit, whose finalizer can predate Linux betas; the check uses this workflow's.
+      # The checkout is the release's commit, whose finalizer can predate Linux betas; the check uses this workflow's.
       - name: Check the beta feed
         if: env.CHANNEL == 'beta'
         env:
@@ -194,7 +224,7 @@ jobs:
       FEED_CHANNEL: ${{ needs.prepare.outputs.feed_channel }}
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      - *checkout-candidate
+      - *checkout-release
       - *setup-node
       - name: Require Windows signing credentials
         shell: pwsh
@@ -256,17 +286,21 @@ jobs:
     if: >-
       always() && needs.prepare.outputs.changed == 'true' && needs.macos.result == 'success' &&
       (needs.prepare.outputs.channel == 'beta' || (needs.linux.result == 'success' && (needs.windows.result == 'success' || needs.windows.result == 'skipped')))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
       CHANNEL: ${{ needs.prepare.outputs.channel }}
-      SOURCE_TAG: ${{ needs.prepare.outputs.tag }}
+      TARGET: ${{ needs.prepare.outputs.sha }}
+      BASE: ${{ needs.prepare.outputs.base }}
       RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
       WINDOWS: ${{ needs.prepare.outputs.windows }}
     steps:
-      # This workflow's own scripts check the feeds, since the candidate's copy can predate a platform or channel.
+      # This workflow's own scripts check the feeds, since the release commit's copy can predate a platform or channel.
+      # The full history lets the last step plan the Next beta draft.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
@@ -279,7 +313,14 @@ jobs:
           pattern: installers-*
           merge-multiple: true
           path: release
+      - name: Collect release notes
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes
       - name: Publish the release
+        env:
+          NOTES_FILE: ${{ runner.temp }}/notes/release-notes.md
         run: |
           # Missing files drop out of the globs below: only a stable release builds the Linux repository bundle.
           shopt -s nullglob
@@ -295,21 +336,20 @@ jobs:
           echo "Publishing $RELEASE_TAG ($CHANNEL) for $platforms"
           node scripts/finalize-update-feeds.cjs --tag "$RELEASE_TAG" --platform "$platforms" --check
           assets=(release/*.dmg release/*.zip release/*.AppImage release/*.deb release/*.rpm release/*.exe release/*.blockmap release/*.yml release/milagre-linux-repository*.tar.gz)
+          # The release creates its tag on the planned commit. GitHub reuses a tag that already exists and ignores
+          # --target, which would label these installers with another commit.
+          if gh api "repos/{owner}/{repo}/git/ref/tags/$RELEASE_TAG" --silent 2> /dev/null; then echo "::error::Tag $RELEASE_TAG already exists."; exit 1; fi
           if [ "$CHANNEL" = stable ]; then
             npm run package:managers -- --tag "$RELEASE_TAG" --platform "$platforms"
             assets+=(release/package-managers/SHA256SUMS release/package-managers/homebrew/milagre.rb)
             if [ ${#windows[@]} -gt 0 ]; then
               assets+=(release/package-managers/winget/Milagre.Milagre.yaml)
             fi
-            test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
-            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
-            gh release edit "$RELEASE_TAG" --draft=false --latest
+            gh release create "$RELEASE_TAG" --target "$TARGET" --latest --title "$RELEASE_TAG" --notes-file "$NOTES_FILE" "${assets[@]}"
           else
-            target=$(gh api "repos/{owner}/{repo}/commits/$SOURCE_TAG" --jq .sha)
-            notes=$(gh release view "$SOURCE_TAG" --json body --jq .body)
-            gh release create "$RELEASE_TAG" --target "$target" --prerelease --title "$RELEASE_TAG" --notes "Beta build of $SOURCE_TAG."$'\n\n'"$notes" "${assets[@]}"
+            gh release create "$RELEASE_TAG" --target "$TARGET" --prerelease --title "$RELEASE_TAG" --notes-file "$NOTES_FILE" "${assets[@]}"
           fi
-      # A failed post never fails the release. Betas show the candidate's version without the -beta.N suffix.
+      # A failed post never fails the release. Betas show their line's version without the -beta.N suffix.
       - name: Announce on Discord
         continue-on-error: true
         env:
@@ -317,11 +357,17 @@ jobs:
         run: |
           if [ -z "$DISCORD_WEBHOOK_URL" ]; then echo "::warning::DISCORD_WEBHOOK_URL is not set; skipping the announcement."; exit 0; fi
           url=$(gh release view "$RELEASE_TAG" --json url --jq .url)
-          version=${SOURCE_TAG#v}
+          version=$BASE
           if [ "$CHANNEL" = stable ]; then label="Nova versão"; else label="Nova versão beta"; fi
           # flags 4 suppresses the link preview, so the post is the one line.
           jq -n --arg content "🤖  Milagre: $label, [$version]($url)" '{content: $content, flags: 4, allowed_mentions: {parse: []}}' |
             curl -fsS -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK_URL"
+      # The release just shipped is now the previous one; the draft lists only what is newer. Its tag is fetched first.
+      - name: Refresh the Next beta draft
+        continue-on-error: true
+        run: |
+          git fetch --quiet --tags origin
+          node scripts/plan-release.cjs next-draft
   deploy-linux-repository:
     needs: [prepare, publish]
     if: needs.prepare.outputs.channel == 'stable'

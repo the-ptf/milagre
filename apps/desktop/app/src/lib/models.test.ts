@@ -135,15 +135,17 @@ test("a stale id gives way to its provider's recommended model", () => {
   assert.equal(providerForId("gpt-6.1-sol"), "codex");
   assert.equal(providerForId("gemini-3.8-flash-high"), "antigravity");
   assert.equal(providerForId("gemini-pro-agent"), "antigravity");
+  assert.equal(providerForId("antigravity:claude-sonnet-5.5"), "antigravity");
+  assert.equal(providerForId("antigravity:gpt-oss-120b"), "antigravity");
 });
 
 test("Antigravity's picker shows one row per model family, with the family's thinking levels as efforts", () => {
   const antigravity = mergeModels(null, MODEL_CATALOG).filter((model) => model.provider === "antigravity");
   assert.deepEqual(
     antigravity.map((model) => model.name),
-    ["Gemini 3.8 Flash", "Gemini 3.1 Pro", "Gemini 3.7 Flash", "Gemini 3.6 Flash"],
+    ["Gemini 4 Argon", "Gemini 3.8 Flash"],
   );
-  assert.deepEqual(capabilityFor(antigravity[1], null).efforts, ["low", "high"]);
+  assert.deepEqual(capabilityFor(antigravity[0], null).efforts, ["low", "medium", "high"]);
   const reportedList: AgentModels = {
     codex: null,
     claude: null,

@@ -3,7 +3,7 @@ import { SIMULATOR_RECEIVER_SCRIPT } from "@milagre/shared/simulator-receiver";
 import { BROWSER_RECEIVER_SCRIPT } from "@milagre/shared/browser-receiver";
 import { DESIGN_CONTROLLER_SCRIPT } from "@milagre/shared/design";
 import { DESIGN_LIVE_RECEIVER_SCRIPT } from "@milagre/shared/design-draft";
-import { ARTIFACT_ESCAPE_SCRIPT } from "@milagre/shared/artifact";
+import { ARTIFACT_ESCAPE_SCRIPT, ARTIFACT_PAGE_SCRIPT } from "@milagre/shared/artifact";
 
 /**
  * The inline scripts the renderer's srcdoc iframes run. Opaque srcdoc iframes inherit the renderer's policy, so a script
@@ -15,6 +15,7 @@ export const RENDERER_INLINE_SCRIPTS = [
   DESIGN_CONTROLLER_SCRIPT,
   DESIGN_LIVE_RECEIVER_SCRIPT,
   ARTIFACT_ESCAPE_SCRIPT,
+  ARTIFACT_PAGE_SCRIPT,
 ];
 
 const hash = (script) => `'sha256-${createHash("sha256").update(script).digest("base64")}'`;

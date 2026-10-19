@@ -15,7 +15,7 @@ void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 export function StartupSplash({ ready, onDone }: { ready: boolean; onDone: () => void }) {
   const { colors } = useTheme();
   const page = colors.page;
-  const [[fade, shrink]] = useState(() => [new Animated.Value(0), new Animated.Value(0)]);
+  const [[fade, shrink]] = useState<[Animated.Value, Animated.Value]>(() => [new Animated.Value(0), new Animated.Value(0)]);
   const done = useRef(onDone);
   useEffect(() => {
     done.current = onDone;

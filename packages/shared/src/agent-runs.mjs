@@ -72,6 +72,7 @@ function endStep({ detail: _streamed, ...step }, end) {
     ...(end.durationMs === undefined ? {} : { durationMs: end.durationMs }),
     ...(end.file === undefined ? {} : { file: end.file }),
     ...(end.artifact === undefined ? {} : { artifact: end.artifact }),
+    ...(end.routine === undefined ? {} : { routine: end.routine }),
   };
 }
 
@@ -222,11 +223,6 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
       const children = (session.subagents ?? []).filter((agent) => agent.id !== session.native_session_id);
       const previous = children.find((agent) => agent.id === event.agent.id);
       if (previous && previous.updatedAt > event.agent.updatedAt) return { state, runs, changed: false };
-      const communications = new Map((previous?.communications ?? []).map((entry) => [entry.id, entry]));
-      for (const entry of event.agent.communications ?? []) {
-        // Resuming a provider may replay an item with a new observation time.
-        if (!communications.has(entry.id)) communications.set(entry.id, entry);
-      }
       // A resumed provider can rediscover a child before it has replayed the earlier output.
       // A client that holds transcript tails (subagent-transcript.mjs) gets the host's merged transcript, or its tail,
       // and keeps it as it comes.
@@ -235,12 +231,13 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
         ? {
             ...previous,
             ...event.agent,
-            archived: previous.archived,
+            // One that ended and runs again (a resumed session picks up its background agents, as after an account
+            // switch) is back on the track; one archived while it runs stays archived.
+            archived: previous.archived && !(!subagentActive(previous) && subagentActive(event.agent)),
             title: event.agent.title === "Subagent" ? previous.title : event.agent.title,
             prompt: event.agent.prompt ?? previous.prompt,
             parentId: event.agent.parentId ?? previous.parentId,
             startedAt: Math.min(previous.startedAt, event.agent.startedAt),
-            communications: [...communications.values()].sort((a, b) => a.at - b.at).slice(-20),
             transcript:
               event.agent.source === "milagre-advisor" || tail
                 ? event.agent.transcript
@@ -257,6 +254,14 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
       if (agent.detailsOnDemand === undefined) delete agent.detailsOnDemand;
       const subagents = previous ? children.map((child) => (child.id === agent.id ? agent : child)) : [...children, agent];
       return { state: { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, subagents } } }, runs, changed: true };
+    }
+    // The agent process's background work besides subagents (chat-activity.mjs) outlasts the turn too; each set replaces the last.
+    case "background-tasks": {
+      const tasks = Array.isArray(event.tasks) ? event.tasks : [];
+      if (JSON.stringify(tasks) === JSON.stringify(session.backgroundTasks ?? [])) return { state, runs, changed: false };
+      const { backgroundTasks: _previous, ...rest } = session;
+      const next = tasks.length ? { ...rest, backgroundTasks: tasks } : rest;
+      return { state: { ...state, sessions: { ...state.sessions, [sessionId]: next } }, runs, changed: true };
     }
     // A Chat's plan lives on its session (chat-plan.mjs), so it outlasts the turn. Milagre's task tools replace it whole.
     case "plan-updated": {

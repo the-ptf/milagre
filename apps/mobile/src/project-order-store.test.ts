@@ -70,6 +70,7 @@ test("a saved value stays under the size SecureStore is safe with, however many 
   const values = [...disk.values.values()];
   assert.equal(values.length, 1);
   assert.ok(new TextEncoder().encode(values[0]).length <= 1900);
+  assert.ok(values[0] !== undefined);
   const kept = JSON.parse(values[0]).o as string[];
   assert.ok(kept.length > 10 && kept.length < many.length);
   assert.deepEqual(kept, many.slice(0, kept.length), "the first Projects are the ones kept");

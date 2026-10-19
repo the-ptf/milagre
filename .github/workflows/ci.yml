@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The merge queue runs CI on each PR squashed onto current main; a required check that never reports there blocks the queue.
+  merge_group:
+    types: [checks_requested]
 
 env:
   DO_NOT_TRACK: "1"
@@ -17,7 +20,7 @@ concurrency:
 
 jobs:
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -27,7 +30,7 @@ jobs:
     steps:
       - name: Detect which parts of the repository changed
         id: filter
-        # Pushes to main always run every job; the filter needs a PR base to compare against.
+        # Pushes to main and merge groups always run every job; the filter needs a PR base to compare against.
         if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
         with:
@@ -41,48 +44,67 @@ jobs:
               - 'package-lock.json'
               - '.github/workflows/ci.yml'
               - '.github/actions/**'
-  # The JavaScript checks run as three parallel jobs; the `javascript` job below is the required check that gathers them.
-  static:
-    runs-on: ubuntu-latest
+  # The quick JavaScript checks (static, supply chain, Linux repository signing) as parallel steps of one job, a log
+  # each. The unit suite has a job per shard: beside these steps it shared the runner's four cores and took 100 s
+  # instead of 60. The `javascript` gate below is the required check that gathers them.
+  quick-checks:
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Install dependencies
-        uses: ./.github/actions/install-dependencies
-      - name: Typecheck
-        run: npm run typecheck
-      - name: Lint
-        run: npm run lint
-      - name: Format check
-        run: npm run format:check
-      - name: Dead code
-        run: npm run knip
-      - name: Typecheck mobile
-        run: npm run typecheck:mobile
-      - name: Typecheck relay
-        run: npm run typecheck:relay
-      - name: Typecheck site
-        run: npm run typecheck:site
-      - name: Build site
-        run: npm run build:site
-      - name: Build renderer
-        run: npm run build:renderer --workspace milagre
-  supply-chain:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # No install script runs before the lockfile's hosts and integrity hashes are checked.
       - name: Check lockfile sources and integrity
         run: npx --yes lockfile-lint@5.0.1 --path package-lock.json --type npm --allowed-hosts npm --validate-https --validate-integrity
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
-      - name: Verify package signatures
-        run: npm audit signatures
+      # `npm audit signatures` asks the registry about 1800 packages, a minute a run, and its answer only changes with
+      # the lockfile: a marker cached under the lockfile's hash stands in for it until the lockfile changes.
+      - name: Remember which lockfile had its signatures verified
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/signatures-verified
+          key: signatures-verified-${{ hashFiles('package-lock.json') }}
+      - parallel:
+          - name: Typecheck
+            run: npm run typecheck
+          - name: Lint
+            run: npm run lint
+          - name: Format check
+            run: npm run format:check
+          - name: Dead code
+            run: npm run knip
+          - name: Typecheck mobile
+            run: npm run typecheck:mobile
+          - name: Typecheck relay
+            run: npm run typecheck:relay
+          # Both commands run Astro's checker and share its .vite cache. Concurrent checks can race its deps rename.
+          - name: Check and build site
+            run: |
+              npm run typecheck:site
+              npm run build:site
+          - name: Build renderer
+            run: npm run build:renderer --workspace milagre
+          - name: Verify package signatures
+            run: |
+              if [ -f "$RUNNER_TEMP/signatures-verified" ]; then echo "this lockfile's signatures were verified on an earlier run"; exit 0; fi
+              npm audit signatures && touch "$RUNNER_TEMP/signatures-verified"
+          # Node built-ins plus the rpm and repository tools; this was the Linux leg of native-tests.
+          - name: Test real Linux repository signing
+            run: |-
+              sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm createrepo-c gnupg
+              export GNUPGHOME="$RUNNER_TEMP/milagre-test-key"
+              mkdir -m 700 "$GNUPGHOME"
+              gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'Milagre CI fixture' rsa3072 sign 1d
+              MILAGRE_LINUX_SIGNING_KEY=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')
+              export MILAGRE_LINUX_SIGNING_KEY
+              MILAGRE_LINUX_REPOSITORY_INTEGRATION=1 node --test scripts/linux-repository.test.cjs
+              gpgconf --kill gpg-agent || true
+              rm -rf "$GNUPGHOME"
   unit:
+    # node --test uses every core, so each shard gets a runner of its own: 60 s each, against 100 s beside the quick checks.
     name: unit (${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -96,39 +118,33 @@ jobs:
       - name: Test
         run: npm test -- --unit --shard ${{ matrix.shard }}/${{ strategy.job-total }}
   javascript:
-    # The required check: green only when every JavaScript job passed.
+    # The required check: green only when the quick checks and every unit shard passed.
     if: always()
-    needs: [static, supply-chain, unit]
-    runs-on: ubuntu-latest
+    needs: [quick-checks, unit]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require every JavaScript job to have passed
         env:
-          RESULTS: ${{ needs.static.result }} ${{ needs.supply-chain.result }} ${{ needs.unit.result }}
+          RESULTS: ${{ needs.quick-checks.result }} ${{ needs.unit.result }}
         run: |
-          echo "static, supply-chain, unit: $RESULTS"
+          echo "quick-checks, unit: $RESULTS"
           for result in $RESULTS; do [ "$result" = success ] || exit 1; done
   native-tests:
-    name: native-tests (${{ matrix.os }})
-    needs: changes
-    if: needs.changes.outputs.desktop == 'true'
+    # The Windows tests, on merge groups and pushes to main: windows-latest runners took 70 to 161 s for the same
+    # suites, so on a PR run they set the pace. The merge queue runs them before a PR lands; the gate below stays
+    # green on a PR run, where they are skipped. The Linux repository signing test is a quick-checks step.
+    name: native-tests (windows-latest)
+    if: github.event_name != 'pull_request'
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-          - os: ubuntu-latest
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-      # The Windows tests load only core and the daemon, so they install just those (150 MB, not 1.7 GB) and cache it.
-      # The Linux leg runs Node built-ins only and installs nothing.
+      # The tests load only core and the daemon, so they install just those (150 MB, not 1.7 GB) and cache it.
       - name: Restore core and daemon dependencies
-        if: matrix.os == 'windows-latest'
         id: windows-cache
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
@@ -139,38 +155,28 @@ jobs:
           # Windows workspace junctions contain absolute paths. A repository rename changes the checkout path.
           key: node-modules-core-daemon-${{ github.repository }}-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('package-lock.json') }}
       - name: Install core and daemon dependencies
-        if: matrix.os == 'windows-latest' && steps.windows-cache.outputs.cache-hit != 'true'
+        if: steps.windows-cache.outputs.cache-hit != 'true'
         run: npm ci --workspace @milagre/core --workspace @milagre/daemon --ignore-scripts --omit=optional --no-audit --no-fund
-      - name: Test Windows agent protocol
-        if: matrix.os == 'windows-latest'
-        timeout-minutes: 5
-        run: node --test --test-reporter=tap --test-timeout=60000 packages/core/src/agents/codex-provider.test.cjs
-      - name: Test Windows runtime and pipe security
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        timeout-minutes: 15
-        run: node --test --test-reporter=tap --test-timeout=180000 packages/core/src/windows-runtime.test.cjs apps/daemon/src/windows-transport.test.cjs packages/core/src/agents/process-tree.test.cjs packages/core/src/ownership.test.cjs
-      - name: Install Linux repository tools
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y rpm createrepo-c gnupg
-      - name: Test real Linux repository signing
-        if: matrix.os == 'ubuntu-latest'
-        run: |-
-          export GNUPGHOME="$RUNNER_TEMP/milagre-test-key"
-          mkdir -m 700 "$GNUPGHOME"
-          gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'Milagre CI fixture' rsa3072 sign 1d
-          MILAGRE_LINUX_SIGNING_KEY=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')
-          export MILAGRE_LINUX_SIGNING_KEY
-          MILAGRE_LINUX_REPOSITORY_INTEGRATION=1 node --test scripts/linux-repository.test.cjs
-          gpgconf --kill gpg-agent || true
-          rm -rf "$GNUPGHOME"
+      # Three independent suites side by side: in one step after another they took 44 s and 89 s on a slow runner.
+      - parallel:
+          - name: Test Windows agent protocol
+            timeout-minutes: 5
+            run: node --test --test-reporter=tap --test-timeout=60000 packages/core/src/agents/codex-provider.test.cjs
+          - name: Test Windows runtime and pipe transport
+            shell: pwsh
+            timeout-minutes: 15
+            run: node --test --test-reporter=tap --test-timeout=180000 packages/core/src/windows-runtime.test.cjs apps/daemon/src/windows-transport.test.cjs
+          - name: Test Windows process tree and ownership
+            shell: pwsh
+            timeout-minutes: 15
+            run: node --test --test-reporter=tap --test-timeout=180000 packages/core/src/agents/process-tree.test.cjs packages/core/src/ownership.test.cjs
 
   native-gate:
     # The required check for native tests. A skipped matrix never reports per-leg names, so this
     # job always runs: green when native-tests passed or was skipped, red when it failed or was cancelled.
     if: always()
     needs: [native-tests]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require native tests to have passed or been skipped
@@ -180,26 +186,27 @@ jobs:
           echo "native-tests: $RESULT"
           case "$RESULT" in success|skipped) exit 0 ;; *) exit 1 ;; esac
   desktop-checks:
-    # The Electron checks run one at a time (each boots Vite and Electron), so they are split across runners.
+    # The Electron checks run one at a time (each boots Vite and Electron), so they are split across runners by the
+    # weights in scripts/test-runner.cjs: about 1000 s of checks, 83 s a shard plus 27 s of setup and warm-up. Two streams per
+    # runner were measured: 30 s slower and three to eight retries a run where one shard has none.
     name: desktop-checks (${{ matrix.shard }}/${{ strategy.job-total }})
     needs: changes
     if: needs.changes.outputs.desktop == 'true'
     timeout-minutes: 10
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
-      # The runner image ships most of these; apt only runs for what is missing, since a slow mirror once took 12 minutes.
-      # ffmpeg, the one the image lacks, is only for chat-titles' GIF, so only the shard that runs it installs it.
+      # The runner image ships all of these; apt only runs for what is missing, since a slow mirror once took 12 minutes.
+      # (ffmpeg is not among them: chat-titles skips its GIF without it, since installing it took that shard 35 s.)
       - name: Install display and Electron libraries
         run: |
           packages="xvfb libgbm1 libgtk-3-0t64 libnss3 libasound2t64 lsof"
-          if node scripts/test.cjs --electron --list --shard ${{ matrix.shard }}/${{ strategy.job-total }} | grep -q test-chat-titles; then packages="$packages ffmpeg"; fi
           missing=$(for package in $packages; do
             dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'install ok installed' || echo "$package"
           done)
@@ -223,17 +230,15 @@ jobs:
           retention-days: 7
 
   macos-desktop-smoke:
-    needs: changes
-    if: needs.changes.outputs.desktop == 'true'
+    # Guards release signing, so it runs where releases come from: pushes to main. On PRs it sat on the critical path
+    # (133 s) in a pool of five macOS jobs for the whole account; AGENTS.md asks for the local run before a desktop PR.
+    if: github.event_name == 'push'
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
+      - name: Install dependencies
+        uses: ./.github/actions/install-dependencies
       - name: Exercise the macOS desktop before signing a release
         run: npm test -- --only test-desktop
       - name: Upload dock failure diagnostics
@@ -245,20 +250,34 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  release:
-    # Every CI-green push to main becomes a release candidate: a tag and a DRAFT GitHub release.
-    # Stable installs never see drafts (they ask for GitHub's latest release). The tag does show in the releases
-    # atom feed, so beta installs resolve their feed through the REST API instead (electron/release-channel.cjs).
-    # The "Publish" workflow ships a candidate to beta or stable.
+  desktop-gate:
+    # The required check for the Electron checks and the macOS smoke. A skipped matrix never reports per-shard names,
+    # so this job always runs: green when both passed or were skipped (a PR without desktop changes), red otherwise.
+    if: always()
+    needs: [desktop-checks, macos-desktop-smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require the desktop checks to have passed or been skipped
+        env:
+          RESULTS: ${{ needs.desktop-checks.result }} ${{ needs.macos-desktop-smoke.result }}
+        run: |
+          echo "desktop-checks, macos-desktop-smoke: $RESULTS"
+          for result in $RESULTS; do case "$result" in success|skipped) ;; *) exit 1 ;; esac; done
+
+  next-beta:
+    # Merges to main cut no release. Once a push passes the required checks, this rewrites the one untagged "Next beta"
+    # draft with what the next beta would ship. The Publish workflow cuts betas from green main commits and promotes
+    # them to stable (scripts/plan-release.cjs).
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'the-ptf/milagre'
     needs: [javascript, native-gate, macos-desktop-smoke]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions:
       contents: write
     concurrency:
-      group: release
-      cancel-in-progress: false
+      group: next-beta
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -267,9 +286,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
-      - name: Create release candidate (tag and draft release)
-        run: npm run release
+      # A beta published after the checkout is the draft's starting point, so its tag is fetched first.
+      - name: Rewrite the Next beta draft
+        run: |
+          git fetch --quiet --tags origin
+          node scripts/plan-release.cjs next-draft
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}

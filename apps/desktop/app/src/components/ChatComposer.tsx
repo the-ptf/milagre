@@ -8,13 +8,12 @@ import { GenerativeUIProvider } from "./genui/GenerativeUI";
 import { AnswerCard } from "./agents/AnswerCard";
 import { PullRequestActionCard } from "./agents/PullRequestActionCard";
 import { LinearIssueCard } from "./agents/LinearIssueCard";
+import { AdvisorResultCard } from "./agents/AdvisorResultCard";
 import { UsageLimitCard } from "./agents/UsageLimitCard";
 import { isAccountSwitch, usageLimitOf } from "@milagre/shared/usage-limit";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
-import { SubagentCanvas } from "./agents/SubagentCanvas";
-import { useSubagentDesigns } from "./agents/subagent-designs";
 import { useEvent } from "../lib/stable";
 import type { AgentPort, ChatPlan, ContextUsage, Subagent } from "../model";
 import { PortTrack } from "./agents/PortTrack";
@@ -22,9 +21,10 @@ import { TaskTrack } from "./agents/TaskTrack";
 import { createContext, Fragment, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, DragEvent, ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, GitBranchIcon, GitForkIcon, GitPullRequestIcon, LaptopIcon } from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, GitBranchIcon, GitForkIcon, GitPullRequestIcon, LaptopIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { LinearLogo } from "./ProviderLogo";
 import type { LinearIssue } from "@milagre/shared/linear";
+import type { RoutineRunContext } from "@milagre/shared/model";
 import type {
   AgentCliStatus,
   EffortLevel,
@@ -41,19 +41,34 @@ import { Notice } from "./Notice";
 import { Attachments } from "./Attachments";
 import type { ImageDraft } from "./usePastedImages";
 import { PromptComposer } from "./PromptComposer";
+import { QueuedMessages } from "./QueuedMessages";
+import { HeartbeatCard } from "./routines/HeartbeatCard";
+import { NextCheck } from "./routines/NextCheck";
+import type { QueueControls } from "./QueuedMessages";
 import { PickerPanel, PickerRow } from "./primitives/Picker";
 import { LinearIssuePicker } from "./LinearIssuePicker";
 import Tooltip from "./primitives/Tooltip";
 import { PillSlot, StatusPill } from "./primitives/StatusPill";
 import { AnimatePresence, LayoutGroup } from "motion/react";
-import { ThinkingIndicator } from "./ThinkingIndicator";
+import { BackgroundIndicator, ThinkingIndicator } from "./ThinkingIndicator";
+import { ChatMarkDotInline } from "./sidebar/ChatRow";
+import type { ChatActivity } from "@milagre/shared/chat-activity";
 import { HandoffDivider } from "./Handover";
 import { WorktreeLinkDivider } from "./WorktreeLinkDivider";
 import { AccountSwitchDivider } from "./AccountSwitchDivider";
 import { ChatReloadDivider } from "./ChatReloadDivider";
 import { isChatReload } from "@milagre/shared/chat-reload";
+import { groupQuietRuns, isRoutineRun, routineRunOf } from "@milagre/shared/routines";
+import { RoutineRunDivider } from "./RoutineRunDivider";
 import { CompactionDivider } from "./CompactionDivider";
-import { advisorResultLabel, messageSender } from "@milagre/shared/advisor-result";
+import { CheckpointRestoreDivider } from "./CheckpointRestoreDivider";
+import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
+import { useCheckpoints } from "@milagre/shared/use-checkpoints";
+import { undoableTasks, type CheckpointApi } from "@milagre/shared/checkpoints";
+import { UndoPanel, type UndoIntent } from "./checkpoints/UndoPanel";
+import { bridgeForKey } from "../lib/computer-bridge";
+import { isModalOpen } from "../lib/modal";
+import { messageSender } from "@milagre/shared/advisor-result";
 import { LinkedMessageHeader, linkedContext } from "./LinkedMessage";
 import { isHandoff } from "@milagre/shared/handoff";
 import { isCompaction } from "@milagre/shared/compaction";
@@ -113,7 +128,7 @@ function ReplyContent({
   asking?: boolean;
   waitingStepIds: string[];
 }) {
-  const { setup, activity, images, artifacts, answer } = replyActivity(body, steps);
+  const { setup, activity, images, artifacts, heartbeats, answer } = replyActivity(body, steps);
   const thought = !streaming || asking ? unspokenThought(body, steps) : "";
   return (
     <>
@@ -125,6 +140,9 @@ function ReplyContent({
         <GeneratedImage key={step.id} step={step} />
       ))}
       <ArtifactCards steps={artifacts} />
+      {heartbeats.map((step) => (
+        <HeartbeatCard key={step.id} step={step} />
+      ))}
       {answer.trim() && <div data-slot="message-content">{streaming ? <StreamingMarkdown text={answer} /> : <Markdown text={answer} />}</div>}
       {thought && (
         <div data-slot="message-thought" className="text-ink-2">
@@ -156,10 +174,30 @@ const MessageSection = memo(function MessageSection({
   limitInteractive = false,
   onOpenAccounts,
   models,
+  merged,
+  undoId,
+  undoLatest = false,
+  undoDisabled = false,
+  onUndo,
+  highlighted = false,
+  onCheckpointPreview,
 }: {
   message: AppChatMessage;
+  /** Quiet heartbeats folded into this one: how many, and the last. */
+  merged?: { count: number; last: RoutineRunContext };
   isUser: boolean;
   models: ModelOption[];
+  /** The checkpoint of the task this message started, when it changed files: the hover button opens its preview. */
+  undoId?: string;
+  /** It is the newest such task, the one Esc Esc lists first. */
+  undoLatest?: boolean;
+  /** A turn is running: undo waits for it. */
+  undoDisabled?: boolean;
+  onUndo?: (checkpointId: string) => void;
+  /** The task in the undo panel's view: its message is outlined. */
+  highlighted?: boolean;
+  /** Opens the preview behind an undo line's Redo. */
+  onCheckpointPreview?: (recoveryId: string, action: UndoIntent) => void;
   onRecommendationSelect: (option: string) => void;
   onUpdateCli?: (provider: ModelProvider) => void;
   updatingCli?: ModelProvider | null;
@@ -190,6 +228,8 @@ const MessageSection = memo(function MessageSection({
   if (isCompaction(message)) return <CompactionDivider context={message.context} />;
   if (isAccountSwitch(message)) return <AccountSwitchDivider context={message.context} />;
   if (isChatReload(message)) return <ChatReloadDivider />;
+  if (isRoutineRun(message)) return <RoutineRunDivider context={message.context} merged={merged} />;
+  if (isCheckpointRestore(message)) return <CheckpointRestoreDivider context={message.context} onPreview={onCheckpointPreview} />;
   const linked = linkedContext(message);
   const advisor = typeof message.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
   // A PR-blocker pill's message shows as a card, not as the skill prompt the agent read.
@@ -215,20 +255,38 @@ const MessageSection = memo(function MessageSection({
       data-from={messageSender(message)}
       data-linked={linked?.kind}
       data-streaming={streaming || undefined}
-      className={`flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-300 ${bubble || feedback || answered || prAction || issue ? "items-end pl-12" : ""}`}
+      className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-300 ${bubble || feedback || answered || prAction || issue ? "items-end pl-12" : ""}`}
       style={animate ? { animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" } : undefined}
     >
-      {advisor && (
-        <p data-advisor-result className="text-[11px] text-ink-3">
-          {advisorResultLabel(advisor)}
-        </p>
-      )}
       {linked && <LinkedMessageHeader context={linked} onOpenChat={onOpenChat} />}
       <div
-        className={`min-w-0 max-w-full text-[13px] leading-[1.55] text-ink ${bubble ? "rounded-xl bg-field px-3 py-1.5" : feedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "rounded-xl border border-line px-3 py-2" : ""}`}
+        className={`min-w-0 max-w-full text-[13px] leading-[1.55] text-ink ${advisor ? "w-full rounded-[14px]" : bubble ? "relative rounded-xl bg-field px-3 py-1.5" : feedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "rounded-xl border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
       >
+        {/* Beside the bubble, not under it: showing it on hover never moves the transcript. */}
+        {bubble && undoId && onUndo && (
+          <div className="absolute top-[3px] right-full mr-1.5 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+            <Tooltip
+              label={undoDisabled ? "Wait for the task to finish" : "Undo changes"}
+              keyHint={undoLatest && !undoDisabled ? "Esc Esc" : undefined}
+              align="end"
+            >
+              <button
+                type="button"
+                data-undo-message={message.id}
+                aria-label="Undo this task's changes"
+                disabled={undoDisabled}
+                onClick={() => onUndo(undoId)}
+                className="flex size-7 items-center justify-center rounded-[7px] text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-50"
+              >
+                <Icon icon={Undo02Icon} size={15} />
+              </button>
+            </Tooltip>
+          </div>
+        )}
         <Attachments images={isUser ? message.images : message.images?.filter((image) => !image.sourcePath)} files={message.files} />
-        {prAction ? (
+        {advisor ? (
+          <AdvisorResultCard context={advisor} body={message.body} />
+        ) : prAction ? (
           <PullRequestActionCard action={prAction} />
         ) : issue ? (
           <LinearIssueCard issue={issue} />
@@ -302,7 +360,19 @@ const MessageTranscript = memo(function MessageTranscript({
   findOpen,
   models,
   earlier,
-}: Pick<
+  undoable,
+  undoBlocked = false,
+  onUndo,
+  highlightId = null,
+  onCheckpointPreview,
+}: {
+  /** Message id → the checkpoint of the task it started, for tasks that changed files; `latest` is the newest. */
+  undoable?: Map<number, { id: string; latest: boolean }>;
+  undoBlocked?: boolean;
+  onUndo?: (checkpointId: string) => void;
+  highlightId?: number | null;
+  onCheckpointPreview?: (recoveryId: string, action: UndoIntent) => void;
+} & Pick<
   ChatComposerProps,
   | "earlier"
   | "messages"
@@ -416,10 +486,12 @@ const MessageTranscript = memo(function MessageTranscript({
     isSending && (streamingText || streamingSteps?.length)
       ? { id: -1, session_id: messages.at(-1)?.session_id ?? -1, body: streamingText ?? "", context: null, role: "assistant", steps: streamingSteps }
       : undefined;
-  const transcript = messages.slice(start);
+  // Quiet heartbeats fold away; grouped over the whole Chat so a page boundary doesn't strand a hidden reply.
+  const grouped = useMemo(() => groupQuietRuns(messages), [messages]);
+  const transcript = grouped.slice(start).filter((entry) => !entry.hidden);
   if (streamingMessage) {
-    const pendingIndex = transcript.findIndex((message) => message.id === pendingMessageId);
-    transcript.splice(pendingIndex < 0 ? transcript.length : pendingIndex, 0, streamingMessage);
+    const pendingIndex = transcript.findIndex((entry) => entry.message.id === pendingMessageId);
+    transcript.splice(pendingIndex < 0 ? transcript.length : pendingIndex, 0, { message: streamingMessage });
   }
 
   const openingIds = openingMessages.current.ids;
@@ -443,25 +515,39 @@ const MessageTranscript = memo(function MessageTranscript({
           {historyLoading ? "Loading earlier messages..." : `Show earlier messages (${start + remote})`}
         </button>
       )}
-      {transcript.map((message) => (
-        <MessageSection
-          key={message.clientMessageId ?? message.id}
-          message={message}
-          isUser={message.role === "user"}
-          onRecommendationSelect={onRecommendationSelect}
-          onUpdateCli={onUpdateCli}
-          updatingCli={updatingCli}
-          cliStatus={cliStatus}
-          streaming={message === streamingMessage}
-          asking={message === streamingMessage && asking}
-          waitingStepIds={message === streamingMessage ? waitingStepIds : undefined}
-          animate={!message.clientMessageId && !openingIds.has(message.id)}
-          onOpenChat={onOpenLinkedChat}
-          limitInteractive={message.id === limitMessageId}
-          onOpenAccounts={onOpenAccounts}
-          models={models}
-        />
-      ))}
+      {transcript.map(({ message, merged }) => {
+        // A Linear Run's first message is its issue card carrying the Run: the divider comes first, then the card.
+        const issueRun = isRoutineRun(message) ? null : routineRunOf(message);
+        return (
+          <Fragment key={message.clientMessageId ?? message.id}>
+            {issueRun ? <RoutineRunDivider context={issueRun} merged={merged} /> : null}
+            <MessageSection
+              message={message}
+              merged={merged}
+              isUser={message.role === "user"}
+              onRecommendationSelect={onRecommendationSelect}
+              onUpdateCli={onUpdateCli}
+              updatingCli={updatingCli}
+              cliStatus={cliStatus}
+              streaming={message === streamingMessage}
+              asking={message === streamingMessage && asking}
+              waitingStepIds={message === streamingMessage ? waitingStepIds : undefined}
+              animate={!message.clientMessageId && !openingIds.has(message.id)}
+              onOpenChat={onOpenLinkedChat}
+              limitInteractive={message.id === limitMessageId}
+              onOpenAccounts={onOpenAccounts}
+              models={models}
+              // Only the messages that show undo get its props: a send or turn end leaves the rest memoized.
+              undoId={message.role === "user" ? undoable?.get(message.id)?.id : undefined}
+              undoLatest={message.role === "user" && undoable?.get(message.id)?.latest}
+              undoDisabled={message.role === "user" && undoable?.has(message.id) && undoBlocked}
+              onUndo={message.role === "user" && undoable?.has(message.id) ? onUndo : undefined}
+              highlighted={message.id === highlightId}
+              onCheckpointPreview={isCheckpointRestore(message) && !undoBlocked ? onCheckpointPreview : undefined}
+            />
+          </Fragment>
+        );
+      })}
     </>
   );
 });
@@ -471,6 +557,8 @@ interface ChatComposerProps {
   offlineName?: string | null;
   /** Sends a comment on a design, or the design the user chose, to the agent; resolves whether it went. */
   onSendDesignMessage?: (text: string) => Promise<boolean>;
+  /** Opens a file's diff in the Changes panel, from the undo preview. */
+  onOpenDiff?: (path: string, worktree: string) => void;
   /** A Link's or a bot's Chat starts without the new-chat header. */
   scopeKind?: "project" | "link" | "bot";
   /** The find bar over the message list; the parent owns it so ⌘F and the command palette can open it. */
@@ -510,6 +598,8 @@ interface ChatComposerProps {
   onStopAdvisor?: (id: string) => void;
   onRetryAdvisor?: (id: string) => void;
   waitingForSubagents?: boolean;
+  /** The Chat's activity (chat-activity.mjs): a background one shows how many background agents still work. */
+  activity?: ChatActivity;
   /** The Chat's plan (tasks and phases), shown as a pill beside the subagents. */
   plan?: ChatPlan;
   /** How full the agent's context window is, shown as a ring beside Send. */
@@ -536,6 +626,8 @@ interface ChatComposerProps {
   onOpenAccounts?: () => void;
   /** A chat a quit stopped longer ago than Milagre resumes by itself: Continue starts its turn again. */
   resume?: { onContinue: () => void };
+  /** Messages waiting for the running turn of an agent that can't be steered, shown above the composer. */
+  queue?: QueueControls;
   /** The models the picker offers (see mergeModels). */
   models: ModelOption[];
   /** How each agent's CLI stands, flagged in the model picker; null until it's known. */
@@ -806,6 +898,7 @@ export function ChatComposer({
   onStopAdvisor,
   onRetryAdvisor,
   waitingForSubagents = false,
+  activity,
   plan,
   contextUsage,
   ports,
@@ -819,6 +912,7 @@ export function ChatComposer({
   onOpenLinkedChat,
   onOpenAccounts,
   resume,
+  queue,
   models,
   cliStatus,
   onModelPickerOpen,
@@ -856,17 +950,10 @@ export function ChatComposer({
   notice,
   onDismissNotice,
   onSendDesignMessage,
+  onOpenDiff,
 }: ChatComposerProps) {
   const root = useRef<HTMLDivElement>(null);
   const chatId = messages[0]?.session_id ?? "new";
-  const [canvasChat, setCanvasChat] = useState<number | string | null>(null);
-  const canvasOpened = canvasChat === chatId;
-  const stopAdvisor = useEvent((id: string) => onStopAdvisor?.(id));
-  const retryAdvisor = useEvent((id: string) => onRetryAdvisor?.(id));
-  const closeCanvas = useCallback(() => {
-    setCanvasChat(null);
-    requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>("[data-slot=subagent-track] [data-face=pill] button")?.focus());
-  }, []);
   // A first message, including its preview while setup runs, opens the conversation layout.
   const isNewChat = messages.length === 0;
   const workingModelName = runModelName ?? selectedModel.name;
@@ -877,10 +964,92 @@ export function ChatComposer({
 
   // The runtime knows a Chat by its Project's path, not the Worktree's `projectPath` it runs in.
   const runtimeChat = typeof chatId === "number" && chatId > 0 && projectPath ? (agentChatId ?? `${messageScope ?? projectPath}#${chatId}`) : null;
+  // Undo changes: the Chat's task checkpoints, the panel that takes the composer's place, and the message it outlines.
+  const checkpointApi = useMemo<CheckpointApi>(() => (runtimeChat ? (bridgeForKey(runtimeChat).checkpoints ?? NO_CHECKPOINTS) : NO_CHECKPOINTS), [runtimeChat]);
+  const review = useCheckpoints(checkpointApi, runtimeChat ?? "");
+  const [undoIntent, setUndoIntent] = useState<UndoIntent>("Undo");
+  const [highlightId, setHighlightId] = useState<number | null>(null);
+  const reloadCheckpoints = review.reload;
+  // A task's checkpoint gets its file count when the turn ends.
+  useEffect(() => {
+    if (runtimeChat && !isSending) void reloadCheckpoints();
+  }, [runtimeChat, isSending, reloadCheckpoints]);
+  const undoable = useMemo(
+    () =>
+      new Map(
+        undoableTasks(review.items)
+          .filter((task) => task.messageId !== undefined)
+          .map((task, index) => [task.messageId!, { id: task.id, latest: index === 0 }]),
+      ),
+    [review.items],
+  );
+  const openUndo = useEvent(() => {
+    setUndoIntent("Undo");
+    void review.open();
+  });
+  const undoTask = useEvent((id: string) => {
+    setUndoIntent("Undo");
+    void review.inspect(id);
+  });
+  const previewRecovery = useEvent((id: string, action: UndoIntent) => {
+    setUndoIntent(action);
+    void review.inspect(id);
+  });
+  const focusPrompt = useCallback(() => {
+    requestAnimationFrame(() => root.current?.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')?.focus());
+  }, []);
+  useEffect(() => {
+    if (highlightId !== null) root.current?.querySelector(`#message-${highlightId}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [highlightId]);
+  // Esc Esc in an idle Chat with an empty prompt lists its tasks to undo, as in Claude Code. It never writes anything.
+  const lastEscape = useRef(0);
+  const onEscape = useEvent((event: globalThis.KeyboardEvent) => {
+    if (event.key !== "Escape" || event.defaultPrevented || event.isComposing || event.repeat) return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    // Escape in the prompt closes an open list, as it closes the slash menu.
+    if (review.view !== "closed" && target?.closest("[data-promptbar]")) {
+      event.preventDefault();
+      review.close();
+      return;
+    }
+    const typing =
+      !!target?.closest("input, select, [contenteditable='true'], .xterm") || (target?.tagName === "TEXTAREA" && !target.closest("[data-promptbar]"));
+    const hidden = !root.current?.offsetParent;
+    if (
+      isSending ||
+      review.view !== "closed" ||
+      draft.trim() ||
+      typing ||
+      hidden ||
+      isModalOpen() ||
+      document.documentElement.hasAttribute("data-popover-open")
+    ) {
+      lastEscape.current = 0;
+      return;
+    }
+    if (lastEscape.current && event.timeStamp - lastEscape.current < 450) {
+      lastEscape.current = 0;
+      event.preventDefault();
+      openUndo();
+    } else lastEscape.current = event.timeStamp;
+  });
+  useEffect(() => {
+    if (!runtimeChat || offlineName) return;
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [runtimeChat, offlineName, onEscape]);
+  // `/undo` opens the same list instead of going to the agent.
+  const send = useEvent(() => {
+    if (runtimeChat && draft.trim() === "/undo") {
+      onDraftChange("");
+      openUndo();
+      return;
+    }
+    onSend();
+  });
   // Designs are read through the Chat's key; a shared Link Chat uses its Link-scoped key too.
   const artifactChat = runtimeChat;
   const artifactSteps = useMemo(() => [...messages.flatMap((message) => message.steps ?? []), ...(streamingSteps ?? [])], [messages, streamingSteps]);
-  const subagentDesignWork = useSubagentDesigns(artifactSteps);
   const userMessages = useMemo(() => messages.filter((message) => message.role === "user").map(({ id, body }) => ({ id, body })), [messages]);
   // What the user typed in this chat, oldest first, for Up/Down in the prompt. Host-sent context (delegations, reports) is left out.
   const promptHistory = useMemo(
@@ -921,199 +1090,203 @@ export function ChatComposer({
         }}
         onDrop={handleFileDrop}
       >
-        <SubagentCanvas
-          key={`canvas-${chatId}`}
-          chatKey={runtimeChat}
-          opened={canvasOpened}
-          agents={subagents}
-          working={isSending}
-          waiting={waitingForSubagents}
-          activity={streamingSteps?.filter((step) => step.status === "running").at(-1)?.title}
-          onClose={closeCanvas}
-          onStop={onStopAdvisor ? stopAdvisor : undefined}
-          onRetry={onRetryAdvisor ? retryAdvisor : undefined}
-          designs={subagentDesignWork}
-        />
-        <div className={canvasOpened ? "hidden" : "contents"} aria-hidden={canvasOpened || undefined}>
-          {/* Messages scrolled past the top soften into a progressive blur under the window-drag strip. The layers fade,
-          not the wrapper: a wrapper below full opacity would cut the layers' blur off from the messages behind it. */}
-          {!isNewChat && (
+        {/* Messages scrolled past the top soften into a progressive blur under the window-drag strip. The layers fade,
+        not the wrapper: a wrapper below full opacity would cut the layers' blur off from the messages behind it. */}
+        {!isNewChat && (
+          <div
+            aria-hidden
+            data-busy={isSending || undefined}
+            className={`chat-top-blur progressive-blur pointer-events-none absolute inset-x-0 top-0 z-10 h-16 [&>*]:transition-opacity [&>*]:duration-200 ${scrolled ? "" : "[&>*]:opacity-0"}`}
+          >
+            <ProgressiveBlurLayers />
+          </div>
+        )}
+        {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
+        {!isNewChat && (
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <MessageScroller
+              key={scrollKey ?? messages[0]?.session_id ?? "new"}
+              navigation="rail"
+              followOutput
+              smooth
+              busy={isSending}
+              className="min-h-0 flex-1"
+              // The find bar floats over the top of the chat, so the first message moves below it while it is open.
+              // The chip row floats over the bottom blur, so the last message can scroll clear of it.
+              viewportClassName={`${findOpen ? "pt-12" : "pt-4"} pb-10`}
+              contentClassName="min-h-full"
+              // Streamed text isn't in the key: the scroller follows the content's growth itself, once per layout.
+              autoScrollKey={`${messages.length}-${isSending}-${streamingSteps?.length ?? 0}`}
+              viewportProps={{ onScroll: (event) => setScrolled(event.currentTarget.scrollTop > 4) }}
+            >
+              <div className="chat-column mx-auto flex min-h-full w-full max-w-3xl flex-col gap-3 px-3 pt-12 pb-4">
+                <StepDetailsScope scope={messageScope}>
+                  <MessageTranscript
+                    findOpen={findOpen}
+                    earlier={earlier}
+                    messages={messages}
+                    pendingMessageId={pendingMessageId}
+                    isSending={isSending}
+                    streamingText={streamingText}
+                    streamingSteps={streamingSteps}
+                    asking={asking}
+                    undoable={undoable}
+                    undoBlocked={isSending || Boolean(offlineName)}
+                    onUndo={runtimeChat ? undoTask : undefined}
+                    highlightId={highlightId}
+                    onCheckpointPreview={runtimeChat ? previewRecovery : undefined}
+                    waitingStepIds={waitingStepIds}
+                    onRecommendationSelect={onRecommendationSelect}
+                    onUpdateCli={onUpdateCli}
+                    updatingCli={updatingCli}
+                    cliStatus={cliStatus}
+                    onOpenLinkedChat={onOpenLinkedChat}
+                    onOpenAccounts={onOpenAccounts}
+                    offlineName={offlineName}
+                    models={models}
+                  />
+                </StepDetailsScope>
+
+                {isSending && (
+                  <div className="w-full" style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
+                    <ThinkingIndicator startedAt={runStartedAt} label={waitingForSubagents ? "Waiting on subagents" : `Working with ${workingModelName}`} />
+                  </div>
+                )}
+                {!isSending && activity?.activity === "background" && (
+                  <div className="w-full" style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
+                    <BackgroundIndicator
+                      count={activity.background}
+                      startedAt={activity.since}
+                      mark={<ChatMarkDotInline mark="background" failed={false} background={activity.background} />}
+                    />
+                  </div>
+                )}
+                {runtimeChat && !isSending && <NextCheck chatKey={runtimeChat} />}
+                {resume && !isSending && (
+                  <div data-resume-bar className="flex w-full items-center gap-3 rounded-control border border-line px-3 py-2 text-[12px] text-ink-2">
+                    <span className="min-w-0 flex-1">Milagre closed while this chat was working.</span>
+                    <button
+                      type="button"
+                      onClick={resume.onContinue}
+                      disabled={sendBlocked}
+                      className="shrink-0 rounded-control bg-ink px-2.5 py-1 font-medium text-surface transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40"
+                    >
+                      Continue
+                    </button>
+                  </div>
+                )}
+              </div>
+            </MessageScroller>
+            {/* Messages passing under the chip row soften into a progressive blur that reaches the composer. */}
             <div
               aria-hidden
               data-busy={isSending || undefined}
-              className={`chat-top-blur progressive-blur pointer-events-none absolute inset-x-0 top-0 z-10 h-16 [&>*]:transition-opacity [&>*]:duration-200 ${scrolled ? "" : "[&>*]:opacity-0"}`}
+              className="chat-bottom-blur progressive-blur pointer-events-none absolute inset-x-0 bottom-0 z-10 h-20"
             >
               <ProgressiveBlurLayers />
             </div>
-          )}
-          {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
-          {!isNewChat && (
-            <div className="relative flex min-h-0 flex-1 flex-col">
-              <MessageScroller
-                key={scrollKey ?? messages[0]?.session_id ?? "new"}
-                navigation="rail"
-                followOutput
-                smooth
-                busy={isSending}
-                className="min-h-0 flex-1"
-                // The find bar floats over the top of the chat, so the first message moves below it while it is open.
-                // The chip row floats over the bottom blur, so the last message can scroll clear of it.
-                viewportClassName={`${findOpen ? "pt-12" : "pt-4"} pb-10`}
-                contentClassName="min-h-full"
-                // Streamed text isn't in the key: the scroller follows the content's growth itself, once per layout.
-                autoScrollKey={`${messages.length}-${isSending}-${streamingSteps?.length ?? 0}`}
-                viewportProps={{ onScroll: (event) => setScrolled(event.currentTarget.scrollTop > 4) }}
-              >
-                <div className="chat-column mx-auto flex min-h-full w-full max-w-3xl flex-col gap-3 px-3 pt-12 pb-4">
-                  <StepDetailsScope scope={messageScope}>
-                    <MessageTranscript
-                      findOpen={findOpen}
-                      earlier={earlier}
-                      messages={messages}
-                      pendingMessageId={pendingMessageId}
-                      isSending={isSending}
-                      streamingText={streamingText}
-                      streamingSteps={streamingSteps}
-                      asking={asking}
-                      waitingStepIds={waitingStepIds}
-                      onRecommendationSelect={onRecommendationSelect}
-                      onUpdateCli={onUpdateCli}
-                      updatingCli={updatingCli}
-                      cliStatus={cliStatus}
-                      onOpenLinkedChat={onOpenLinkedChat}
-                      onOpenAccounts={onOpenAccounts}
-                      offlineName={offlineName}
-                      models={models}
-                    />
-                  </StepDetailsScope>
-
-                  {isSending && (
-                    <div className="w-full" style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
-                      <ThinkingIndicator startedAt={runStartedAt} label={waitingForSubagents ? "Waiting on subagents" : `Working with ${workingModelName}`} />
-                    </div>
-                  )}
-                  {resume && !isSending && (
-                    <div data-resume-bar className="flex w-full items-center gap-3 rounded-control border border-line px-3 py-2 text-[12px] text-ink-2">
-                      <span className="min-w-0 flex-1">Milagre closed while this chat was working.</span>
-                      <button
-                        type="button"
-                        onClick={resume.onContinue}
-                        disabled={sendBlocked}
-                        className="shrink-0 rounded-control bg-ink px-2.5 py-1 font-medium text-surface transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40"
-                      >
-                        Continue
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </MessageScroller>
-              {/* Messages passing under the chip row soften into a progressive blur that reaches the composer. */}
-              <div
-                aria-hidden
-                data-busy={isSending || undefined}
-                className="chat-bottom-blur progressive-blur pointer-events-none absolute inset-x-0 bottom-0 z-10 h-20"
-              >
-                <ProgressiveBlurLayers />
-              </div>
-            </div>
-          )}
-          <div
-            className={`mx-auto flex w-full max-w-3xl shrink-0 items-center justify-end gap-2 px-3 empty:hidden ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3.5 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
-          >
-            {/* The PR fix sits at the left of the composer's chip row; the chat's ports, to-dos and subagents at the right.
-            Each pill is frosted glass; the LayoutGroup slides the others over when one comes or goes. */}
-            <LayoutGroup>
-              <AnimatePresence initial={false}>
-                {!isNewChat && pullRequestAction && (
-                  <PillSlot key="pr-action" slot="pr-action" className="mr-auto flex">
-                    <StatusPill
-                      onClick={pullRequestAction.onRun}
-                      disabled={sendBlocked || isSending || imageDraft.loading}
-                      icon={GitPullRequestIcon}
-                      label={pullRequestAction.label}
-                      tone={pullRequestAction.tone === "orange" ? "orange" : "red"}
-                      className="font-medium"
-                    />
-                  </PillSlot>
-                )}
-              </AnimatePresence>
-              <PortTrack key={`ports-${messages[0]?.session_id ?? "new"}`} ports={ports} onStop={onStopPort} />
-              <TaskTrack key={`tasks-${messages[0]?.session_id ?? "new"}`} plan={plan} />
-              <BrowserTrack key={`browser-${agentChatId ?? chatId}`} chatId={agentChatId} />
-              {!isNewChat && runtimeChat && <SimulatorTrack key={`simulator-${runtimeChat}`} chatId={runtimeChat} />}
-              <SubagentTrack
-                key={chatId}
-                chatKey={runtimeChat}
-                agents={subagents}
-                provider={sessionProvider ?? selectedModel.provider}
-                onOpenCanvas={() => setCanvasChat(chatId)}
-                onArchiveFinished={onArchiveFinishedSubagents}
-                onArchive={onArchiveSubagent}
-                onStop={onStopAdvisor}
-                onRetry={onRetryAdvisor}
-              />
-            </LayoutGroup>
           </div>
+        )}
+        <div
+          className={`mx-auto flex w-full max-w-3xl shrink-0 items-center justify-end gap-2 px-3 empty:hidden ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3.5 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
+        >
+          {/* The PR fix sits at the left of the composer's chip row; the chat's ports, to-dos and subagents at the right.
+          Each pill is frosted glass; the LayoutGroup slides the others over when one comes or goes. */}
+          <LayoutGroup>
+            <AnimatePresence initial={false}>
+              {!isNewChat && pullRequestAction && (
+                <PillSlot key="pr-action" slot="pr-action" className="mr-auto flex">
+                  <StatusPill
+                    onClick={pullRequestAction.onRun}
+                    disabled={sendBlocked || isSending || imageDraft.loading}
+                    icon={GitPullRequestIcon}
+                    label={pullRequestAction.label}
+                    tone={pullRequestAction.tone === "orange" ? "orange" : "red"}
+                    className="font-medium"
+                  />
+                </PillSlot>
+              )}
+            </AnimatePresence>
+            <PortTrack key={`ports-${messages[0]?.session_id ?? "new"}`} ports={ports} onStop={onStopPort} />
+            <TaskTrack key={`tasks-${messages[0]?.session_id ?? "new"}`} plan={plan} />
+            <BrowserTrack key={`browser-${agentChatId ?? chatId}`} chatId={agentChatId} />
+            {!isNewChat && runtimeChat && <SimulatorTrack key={`simulator-${runtimeChat}`} chatId={runtimeChat} />}
+            <SubagentTrack
+              key={chatId}
+              chatKey={runtimeChat}
+              agents={subagents}
+              provider={sessionProvider ?? selectedModel.provider}
+              onArchiveFinished={onArchiveFinishedSubagents}
+              onArchive={onArchiveSubagent}
+              onStop={onStopAdvisor}
+              onRetry={onRetryAdvisor}
+            />
+          </LayoutGroup>
+        </div>
 
-          <div className={`relative mx-auto w-full max-w-3xl shrink-0 p-1.5 ${isNewChat ? "" : "z-20 -mt-1.5"}`}>
-            {/* The update pill floats centred on the chip row's line, outside its flow. */}
-            {!canvasOpened && <UpdatePillSlot className="bottom-full mb-2" />}
-            {isNewChat && (scopeKind ?? "project") === "project" && !offlineName && (
-              <NewChatHeader
-                worktrees={worktrees}
-                selectedWorktreeId={selectedWorktreeId}
-                onWorktreeChange={onWorktreeChange}
-                isolation={isolation}
-                onIsolationChange={onIsolationChange}
-                branches={branches}
-                baseBranch={baseBranch}
-                onBaseBranchChange={onBaseBranchChange}
-                linearActive={linearActive}
-                onStartFromIssue={onStartFromIssue}
-              />
-            )}
-            {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
-            {approval && <div className="mb-2 w-full">{approval}</div>}
-            <div className={offlineName ? "pointer-events-none opacity-60" : undefined}>
-              <PromptComposer
-                offlineName={offlineName}
-                imageDraft={imageDraft}
-                projectPath={projectPath}
-                draft={draft}
-                onDraftChange={onDraftChange}
-                history={promptHistory}
-                onSend={onSend}
-                onStop={onStop}
-                onCompact={onCompact}
-                sendBlocked={sendBlocked}
-                running={isSending}
-                models={models}
-                cliStatus={cliStatus}
-                onModelPickerOpen={onModelPickerOpen}
-                onUpdateCli={onUpdateCli}
-                updatingCli={updatingCli}
-                selectedModel={selectedModel}
-                onModelChange={onModelChange}
-                capability={capability}
-                effort={effort}
-                onEffortChange={onEffortChange}
-                ultracode={ultracode}
-                onUltracodeChange={onUltracodeChange}
-                fastMode={fastMode}
-                onFastModeChange={onFastModeChange}
-                permissionMode={permissionMode}
-                onPermissionModeChange={onPermissionModeChange}
-                permissionLocked={permissionLocked}
-                alwaysExpanded={isNewChat}
-                contextUsage={contextUsage}
-              />
-            </div>
-            {newChatError && (
-              <p role="alert" className="mt-2 px-1 text-[12px] text-red">
-                {newChatError}
-              </p>
-            )}
+        <div className={`relative mx-auto w-full max-w-3xl shrink-0 p-1.5 ${isNewChat ? "" : "z-20 -mt-1.5"}`}>
+          {/* The update pill floats centred on the chip row's line, outside its flow. */}
+          <UpdatePillSlot className="bottom-full mb-2" />
+          {isNewChat && (scopeKind ?? "project") === "project" && !offlineName && (
+            <NewChatHeader
+              worktrees={worktrees}
+              selectedWorktreeId={selectedWorktreeId}
+              onWorktreeChange={onWorktreeChange}
+              isolation={isolation}
+              onIsolationChange={onIsolationChange}
+              branches={branches}
+              baseBranch={baseBranch}
+              onBaseBranchChange={onBaseBranchChange}
+              linearActive={linearActive}
+              onStartFromIssue={onStartFromIssue}
+            />
+          )}
+          {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
+          {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
+          {approval && <div className="mb-2 w-full">{approval}</div>}
+          {review.view !== "closed" && !isNewChat && (
+            <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
+          )}
+          <div className={`${offlineName ? "pointer-events-none opacity-60" : ""} ${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
+            <PromptComposer
+              offlineName={offlineName}
+              imageDraft={imageDraft}
+              projectPath={projectPath}
+              draft={draft}
+              onDraftChange={onDraftChange}
+              history={promptHistory}
+              onSend={send}
+              canUndo={Boolean(runtimeChat)}
+              onStop={onStop}
+              onCompact={onCompact}
+              sendBlocked={sendBlocked}
+              running={isSending}
+              models={models}
+              cliStatus={cliStatus}
+              onModelPickerOpen={onModelPickerOpen}
+              onUpdateCli={onUpdateCli}
+              updatingCli={updatingCli}
+              selectedModel={selectedModel}
+              onModelChange={onModelChange}
+              capability={capability}
+              effort={effort}
+              onEffortChange={onEffortChange}
+              ultracode={ultracode}
+              onUltracodeChange={onUltracodeChange}
+              fastMode={fastMode}
+              onFastModeChange={onFastModeChange}
+              permissionMode={permissionMode}
+              onPermissionModeChange={onPermissionModeChange}
+              permissionLocked={permissionLocked}
+              alwaysExpanded={isNewChat}
+              contextUsage={contextUsage}
+            />
           </div>
+          {newChatError && (
+            <p role="alert" className="mt-2 px-1 text-[12px] text-red">
+              {newChatError}
+            </p>
+          )}
         </div>
       </div>
     </ReplyProviders>
@@ -1121,6 +1294,11 @@ export function ChatComposer({
 }
 
 const NO_OP = () => {};
+const NO_CHECKPOINTS: CheckpointApi = {
+  list: async () => [],
+  preview: () => Promise.reject(new Error("Open a saved Chat to undo its changes")),
+  restore: () => Promise.reject(new Error("Open a saved Chat to undo its changes")),
+};
 
 /** A Chat's transcript alone, following its stream: an unfocused tile of the Chat grid. Replying means focusing the tile. */
 export function ChatTranscript({

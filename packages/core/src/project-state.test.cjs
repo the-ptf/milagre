@@ -119,6 +119,15 @@ test("restored children without a live session retain output but do not claim to
   assert.equal(restored.sessions[2].subagents[0].status, "running");
 });
 
+test("a restored Chat with no live agent process has no background task left", () => {
+  const { markDisconnectedSubagents } = require("./project-state.cjs");
+  const task = { id: "b1", kind: "local_bash", title: "sleep 75", startedAt: 1 };
+  const state = { sessions: { 1: { id: 1, backgroundTasks: [task] }, 2: { id: 2, backgroundTasks: [task] } } };
+  const restored = markDisconnectedSubagents(state, new Set([2]));
+  assert.deepEqual(restored.sessions[1], { id: 1 });
+  assert.deepEqual(restored.sessions[2].backgroundTasks, [task]);
+});
+
 test("a state with no running subagent to mark is returned as is", () => {
   const { markDisconnectedSubagents } = require("./project-state.cjs");
   const state = { sessions: { 1: { id: 1, subagents: [{ id: "d", status: "completed" }] }, 2: { id: 2 } } };

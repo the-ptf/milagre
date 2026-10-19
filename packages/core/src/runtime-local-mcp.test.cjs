@@ -88,6 +88,41 @@ async function call(connection, name, args = {}) {
   return JSON.parse(payload.result.content[0].text.split("\n", 1)[0]);
 }
 
+test("a local MCP send stays queued through Stop and a retry after restart", async (t) => {
+  const f = await fixture(t);
+  const grants = { chats: { projectPaths: [f.project], capabilities: ["read", "create", "start"] } };
+  const connection = await f.runtime.invoke("local-mcp:create", [{ label: "Local editor", grants }]);
+  const id = Object.values(f.opened.state.sessions)[0].id;
+  const chatId = `${f.project}#${id}`;
+  await f.runtime.invoke("chat:send", [{ projectPath: f.project, sessionId: id, body: "Working", provider: "antigravity", model: "fixture" }]);
+  await waitUntil(() => f.sessions[0]?.turns.length === 1);
+  const args = { projectPath: f.project, chatId, prompt: "Next task", requestId: "queued-task" };
+  await call(connection, "chat_start", args);
+  const queued = f.runtime.snapshot().projects[0].state.sessions[id].queued;
+  assert.equal(queued?.length, 1, "MCP messages must enter the durable Chat queue");
+  assert.equal(f.sessions[0].turns.length, 1);
+  await f.runtime.invoke("agent:interrupt", [chatId]);
+  await f.runtime.close();
+  const journalFile = path.join(f.directory, "data/local-mcp/operations.json");
+  const journal = JSON.parse(await fs.readFile(journalFile, "utf8"));
+  for (const record of Object.values(journal)) {
+    record.status = "pending";
+    delete record.result;
+  }
+  await fs.writeFile(journalFile, JSON.stringify(journal), { mode: 0o600 });
+  const restarted = f.make();
+  await restarted.openProject(f.project);
+  await restarted.invoke("local-mcp:status");
+  assert.deepEqual(await call(connection, "chat_start", args), { chatId, accepted: true });
+  assert.equal(restarted.snapshot().projects[0].state.sessions[id].queued.length, 1);
+  assert.equal(f.sessions.length, 1, "reconciling the queued operation must not start another turn");
+  await restarted.invoke("chat:queue-send", [chatId, queued[0].id]);
+  await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1);
+  // The queued message keeps who sent it through the restart, and the Chat's queue line and bubble show only what was typed.
+  assert.equal(queued[0].body, "Next task");
+  assert.equal(f.sessions[1].turns[0].prompt, "Message sent by Local editor through Milagre's MCP (not the user):\n\nNext task");
+});
+
 test("host MCP registers Worktrees, prepares setup, starts Chats in Ask mode and preserves retry results after restart", async (t) => {
   const f = await fixture(t);
   const grants = Object.fromEntries(
@@ -120,6 +155,7 @@ test("host MCP registers Worktrees, prepares setup, starts Chats in Ask mode and
     requestId: "turn-1",
   });
   await waitUntil(() => f.sessions.length === 1 && f.sessions[0].turns.length === 1);
+  assert.equal(f.sessions[0].turns[0].prompt, "Message sent by Local editor through Milagre's MCP (not the user):\n\nInspect the project");
   assert.equal(await fs.readFile(path.join(tree.path, "setup-proof"), "utf8"), "ready");
   assert.equal(f.sessions[0].turns[0].permissionMode, "ask");
   const agentUrl = await f.sessions[0].options.linked.url();
@@ -139,7 +175,7 @@ test("host MCP registers Worktrees, prepares setup, starts Chats in Ask mode and
   assert.equal(f.sessions[0].turns.length, 1);
   await assert.rejects(
     call(connection, "chat_start", { projectPath: f.project, chatId: chat.chatId, prompt: "Escalate", permissionMode: "full", requestId: "turn-2" }),
-    /Unrecognized|Invalid/,
+    /outside client can't ask for/,
   );
   assert.ok(
     (await call(connection, "chat_read", { projectPath: f.project, chatId: chat.chatId })).messages.some((message) => message.body === "Inspect the project"),
@@ -190,6 +226,10 @@ test("a Chat an agent starts through its own MCP takes the calling Chat's permis
   await call(agent, "chat_start", { projectPath: f.project, chatId: chat.chatId, prompt: "Review the PR", model: "fixture", requestId: "turn-1" });
   await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1);
   assert.equal(f.sessions[1].turns[0].permissionMode, "full");
+  // The agent is told another agent sent it; the Chat's bubble shows the message as sent.
+  assert.match(f.sessions[1].turns[0].prompt, /^Message from the agent of Chat .*, sent with Milagre's chat_start \(not the user\):\n\nReview the PR$/);
+  const [bubble] = (await f.runtime.invoke("project:snapshot", [f.project])).state.messages.filter((m) => m.role === "user" && m.body === "Review the PR");
+  assert.ok(bubble, "the message shows as typed");
 });
 
 test("design-only configuration never exposes management or public publishing", async (t) => {
@@ -209,10 +249,10 @@ test("design-only configuration never exposes management or public publishing", 
   const edited = await call(connection, "design_apply", {
     id: "page",
     expectedVersion: 1,
-    operations: [{ op: "replace", document: { ...document, width: 400 } }],
+    operations: [{ op: "insert", node: { id: "box", type: "rectangle", width: 10, height: 10 } }],
   });
   assert.equal(edited.version, 2);
-  assert.equal((await call(connection, "design_read", { id: "page" })).document.width, 400);
+  assert.equal((await call(connection, "design_read", { id: "page" })).document.nodes[0].id, "box");
   await f.runtime.invoke("designs:enabled:save", [false]);
   await assert.rejects(call(connection, "design_list"), /unavailable/);
   await f.runtime.invoke("designs:enabled:save", [true]);
@@ -241,4 +281,30 @@ test("client setup uses the owning runtime and status never returns installed cr
   await f.runtime.invoke("local-mcp:disableClient", ["claude-code"]);
   assert.equal((await fetch(connection.url, { method: "POST", headers: { authorization: `Bearer ${token}` } })).status, 401);
   assert.ok(!(await fs.readFile(result.configPath, "utf8")).includes(token));
+});
+
+test("host MCP removes a clean Worktree it made, and keeps one with uncommitted files", async (t) => {
+  const f = await fixture(t);
+  const grants = Object.fromEntries(
+    [
+      ["worktrees", ["read", "create"]],
+      ["chats", ["read", "create", "start"]],
+    ].map(([group, capabilities]) => [group, { projectPaths: [f.project], capabilities }]),
+  );
+  const connection = await f.runtime.invoke("local-mcp:create", [{ label: "Cleaner", grants }]);
+  const created = await call(connection, "worktree_create", { projectPath: f.project, baseBranch: "main", prompt: "", requestId: "worktree-1" });
+  const tree = (await call(connection, "worktree_list", { projectPath: f.project })).find((item) => item.id === created.worktreeId);
+  await fs.writeFile(path.join(tree.path, "draft.txt"), "work in progress");
+  await assert.rejects(call(connection, "worktree_remove", { projectPath: f.project, worktreeId: created.worktreeId }), /1 uncommitted file, so it is kept/);
+  assert.ok((await fs.stat(tree.path)).isDirectory(), "kept");
+  await fs.rm(path.join(tree.path, "draft.txt"));
+  const removed = await call(connection, "worktree_remove", { projectPath: f.project, worktreeId: created.worktreeId });
+  assert.equal(removed.removed, true);
+  assert.equal(removed.branchDeleted, true);
+  await assert.rejects(fs.stat(tree.path), { code: "ENOENT" });
+  assert.equal(
+    (await call(connection, "worktree_list", { projectPath: f.project })).some((item) => item.id === created.worktreeId),
+    false,
+  );
+  await assert.rejects(call(connection, "worktree_remove", { projectPath: f.project, worktreeId: 1 }), /Milagre didn't create this Worktree/);
 });

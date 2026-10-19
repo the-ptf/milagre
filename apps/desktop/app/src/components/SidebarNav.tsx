@@ -31,12 +31,11 @@ import {
   Link04Icon,
   MoreVerticalIcon,
   PencilEdit02Icon,
+  RepeatIcon,
   Search01Icon,
   Settings01Icon,
   SidebarLeft01Icon,
   SidebarRight01Icon,
-  SparklesIcon,
-  Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import GlideMenu from "@/components/primitives/GlideMenu";
 import Tooltip from "@/components/primitives/Tooltip";
@@ -46,7 +45,7 @@ import { FiltersButton, type PickerProject } from "./sidebar/FiltersMenu";
 import { shortcutModifier, useShortcutHints } from "../lib/shortcut-hints";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { projectMenuActions, type ProjectMenuKey } from "@/lib/reveal";
-import { projectRows, stableOrder, type ProjectRow, type RecentProject } from "@/lib/project-list";
+import { projectRows, stableOrder, type RecentProject } from "@/lib/project-list";
 import { ComputersButton } from "./sidebar/ComputersButton";
 import { ChatRow, type ChatRowActions, type RowComputer, type SidebarRecent } from "./sidebar/ChatRow";
 import { useComputers, isDimmed } from "../lib/computers";
@@ -57,16 +56,27 @@ import { dropIntent, pinOrderAt, type DropIntent, type DropZone } from "@/lib/ch
 import { linkBetween } from "@milagre/shared/chat-links";
 import { SidebarLinksProvider, useSidebarLinks, type LinkListHandle, type LinkScopeChats } from "./sidebar/SidebarLinks";
 import { updateSettings, useSettings } from "../lib/settings";
+import { UpdateSettingsBadge } from "./UpdateNotice";
 import { RECENT_PROJECTS_CHANGED } from "../lib/project-list";
-import { cachedProjectCopy, railLive, rememberScopeRows, scopeChats, useScopeStates } from "../lib/sidebar-scopes";
-import { ScopeRail, type RailScope } from "./sidebar/ScopeRail";
-import { bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { MODEL_CATALOG, type ModelOption } from "../model";
 import { useBots } from "../lib/bots-store";
 import { BotMarksContext, botMarks as botMarksOf, useBotMarks } from "../lib/bot-marks";
 import { SidebarModeSwitch, type SidebarMode } from "./bots/SidebarModeSwitch";
 import { BotList, NewBotButton } from "./bots/BotList";
 import { NewBotSheet } from "./bots/NewBotSheet";
+import { useRoutines } from "../lib/routines";
+import {
+  cachedProjectCopy,
+  heartbeatKeys,
+  heartbeatLines,
+  railLive,
+  rememberScopeRows,
+  scopeChats,
+  useScopeStates,
+  withHeartbeats,
+} from "../lib/sidebar-scopes";
+import { ScopeRail, type RailScope } from "./sidebar/ScopeRail";
+import { bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 
 type HugeIconProps = { size?: number; className?: string };
 type HugeIconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
@@ -84,22 +94,18 @@ const PROJECT_MENU_ICONS: Record<ProjectMenuKey, HugeIconData> = {
   settings: Settings01Icon,
 };
 
-const IconCheckmark1Small = (props: HugeIconProps) => <HugeIcon icon={Tick02Icon} {...props} />;
 const IconChevronDownSmall = (props: HugeIconProps) => <HugeIcon icon={ArrowDown01Icon} {...props} />;
-const IconCrossSmall = (props: HugeIconProps) => <HugeIcon icon={Cancel01Icon} {...props} />;
 const IconFolderAdd = (props: HugeIconProps) => <HugeIcon icon={FolderAddIcon} {...props} />;
 const IconMagnifyingGlass = (props: HugeIconProps) => <HugeIcon icon={Search01Icon} {...props} />;
 const IconPlusMedium = (props: HugeIconProps) => <HugeIcon icon={Add01Icon} {...props} />;
-const IconPopsicle2 = (props: HugeIconProps) => <HugeIcon icon={SparklesIcon} {...props} />;
 const IconSettingsGear1 = (props: HugeIconProps) => <HugeIcon icon={Settings01Icon} {...props} />;
 
 /* ─────────────────────────────────────────────────────────
  * SIDEBAR NAV
  * Shared by the design-system preview and the harness shell.
- * Default: a project menu at the top, then primary navigation,
- * searchable chat history, and a collapse that preserves icon
- * alignment. By default (Settings › Experimental › Use legacy sidebar off): every
- * Project and Link listed with its chats instead of the menu.
+ * Every Project and Link listed with its chats, then primary
+ * navigation, searchable chat history, and a collapse that
+ * preserves icon alignment.
  * ───────────────────────────────────────────────────────── */
 
 const WORKSPACE = { key: "creamery", name: "Creamery Ops", monogram: "C" };
@@ -139,6 +145,17 @@ type SidebarNavProps = {
   onOpenSettings?: () => void;
   onOpenCanvas?: () => void;
   canvasActive?: boolean;
+  /** Opens the Routines page; its button sits between Search and Filters. */
+  onOpenRoutines?: () => void;
+  routinesActive?: boolean;
+  /** Projects or Bots; the switch shows only while Bots is on (Settings › Experimental) and this is given. */
+  sidebarMode?: SidebarMode;
+  onSidebarMode?: (mode: SidebarMode) => void;
+  selectedBotId?: string | null;
+  onPickBot?: (id: string) => void;
+  /** The models New bot offers, and the one it starts on. */
+  models?: ModelOption[];
+  defaultModel?: ModelOption;
   onOpenCommands?: () => void;
   hintsEnabled?: boolean;
   /** The project folder, for the project menu's reveal and copy path. */
@@ -166,14 +183,6 @@ type SidebarNavProps = {
   onOpenScopeChat?: (scopeKey: string, id: string) => void;
   /** "Link and ask A…": sends the message to that chat (its Project path and id) through the normal send path. */
   onAskChat?: (scopeKey: string, id: string, message: { body: string; prompt: string }) => Promise<unknown>;
-  /** Projects or Bots; the switch shows only while Bots is on (Settings › Experimental) and this is given. */
-  sidebarMode?: SidebarMode;
-  onSidebarMode?: (mode: SidebarMode) => void;
-  selectedBotId?: string | null;
-  onPickBot?: (id: string) => void;
-  /** The models New bot offers, and the one it starts on. */
-  models?: ModelOption[];
-  defaultModel?: ModelOption;
 };
 
 const NO_CHAT_ACTIONS: ChatRowActions = {};
@@ -492,253 +501,6 @@ export function RailButton({
   );
 }
 
-function WorkspaceMenu({
-  position,
-  onClose,
-  workspace,
-  projectPath,
-  onOpenProjectSettings,
-  projects,
-  onSwitchProject,
-  onOpenProject,
-  onForgetProject,
-  selectedLink,
-  links,
-  registeredProjects,
-  onSwitchLink,
-  onLinkProject,
-  onEditLink,
-  attentionPaths,
-}: {
-  position: { top: number; left: number };
-  onClose: () => void;
-  workspace: { name: string; monogram: string; image?: string | null };
-  projectPath?: string;
-  onOpenProjectSettings?: (path: string) => void;
-  projects: ProjectRow[];
-  onSwitchProject?: (path: string) => void;
-  onOpenProject?: () => void;
-  onForgetProject?: (path: string) => void;
-  selectedLink?: SidebarNavProps["selectedLink"];
-  links: NamedProjectLink[];
-  registeredProjects: Array<{ id: string; path: string; name: string }>;
-  onSwitchLink?: (id: string) => void;
-  onLinkProject?: () => void;
-  onEditLink?: (id: string) => void;
-  attentionPaths: string[];
-}) {
-  const menuRef = useRef<HTMLDivElement>(null);
-  const imageOf = useProjectImages(projects.filter((row) => !row.current).map((row) => row.path));
-  useLayoutEffect(() => {
-    menuRef.current?.querySelector<HTMLElement>("[data-menu-row]:not(:disabled)")?.focus();
-  }, []);
-
-  // Switching projects stops nothing: the other project's turns keep running in the background.
-  const go = (open: () => void) => {
-    onClose();
-    open();
-  };
-  // Focus inside the row (its own button, or the × just clicked) moves to a neighbour before the row goes,
-  // so the arrow keys keep working.
-  const forget = (path: string, item: HTMLElement | null) => {
-    if (item?.contains(document.activeElement)) {
-      const rows = [...(menuRef.current?.querySelectorAll<HTMLElement>("[data-menu-row]:not(:disabled)") ?? [])];
-      const index = rows.findIndex((row) => item.contains(row));
-      (rows[index + 1] ?? rows[index - 1])?.focus();
-    }
-    onForgetProject?.(path);
-  };
-
-  const moveFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const rows = [...(menuRef.current?.querySelectorAll<HTMLElement>("[data-menu-row]:not(:disabled)") ?? [])];
-    const index = rows.indexOf(document.activeElement as HTMLElement);
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const step = event.key === "ArrowDown" ? 1 : -1;
-      rows[(index + step + rows.length) % rows.length]?.focus();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      onClose();
-    } else if (event.key === "Tab") {
-      event.preventDefault();
-    }
-  };
-
-  const copy = (text: string) => void navigator.clipboard.writeText(text).catch(() => {});
-  const projectActions: Record<ProjectMenuKey, { run: () => void; disabled: boolean }> = {
-    reveal: { run: () => void window.milagre?.revealInFolder(projectPath ?? "").catch(() => {}), disabled: !projectPath },
-    "copy-path": { run: () => copy(unqualifyKey(projectPath ?? "")), disabled: !projectPath },
-    "copy-name": { run: () => copy(workspace.name), disabled: false },
-    settings: { run: () => onOpenProjectSettings?.(projectPath ?? ""), disabled: !onOpenProjectSettings || !projectPath },
-  };
-
-  return createPortal(
-    <div
-      ref={menuRef}
-      role="menu"
-      aria-label={`${workspace.name} actions`}
-      onKeyDown={moveFocus}
-      data-workspace-menu
-      className="fixed z-50 flex max-h-[calc(100vh-16px)] w-64 flex-col overflow-hidden rounded-[14px] bg-surface shadow-overlay"
-      style={{
-        top: position.top,
-        left: position.left,
-        animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both",
-        transformOrigin: "top left",
-      }}
-    >
-      <ScrollArea className="p-1.5">
-        <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-[8px] bg-hover-2">
-          {!selectedLink &&
-            projectMenuActions(IS_MAC)
-              .filter((item) => item.key !== "reveal" || !isRemoteKey(projectPath))
-              .map((item) => (
-                <button
-                  key={item.key}
-                  data-menu-row
-                  data-project-action={item.key}
-                  role="menuitem"
-                  type="button"
-                  disabled={projectActions[item.key].disabled}
-                  onClick={() => {
-                    onClose();
-                    projectActions[item.key].run();
-                  }}
-                  className="relative z-10 flex h-9 w-full items-center gap-1.5 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40"
-                >
-                  <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
-                    <HugeIcon icon={PROJECT_MENU_ICONS[item.key]} size={16} />
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-[13.5px] text-ink">{item.label}</span>
-                </button>
-              ))}
-          {!selectedLink && <div className="my-1 h-px bg-line" />}
-          <p className="px-2 py-1 text-[11px] font-medium text-ink-3">Projects</p>
-          {projects.map((row) => {
-            return (
-              <div key={row.path} data-project-item className="group/project relative">
-                <button
-                  data-menu-row
-                  data-project-row={row.path}
-                  role="menuitemradio"
-                  aria-checked={row.current}
-                  type="button"
-                  title={row.current ? row.path : `${row.path}\nPress Delete to remove from the list`}
-                  {...(row.current ? {} : { "aria-keyshortcuts": "Delete" })}
-                  onClick={() => (row.current ? onClose() : go(() => onSwitchProject?.(row.path)))}
-                  onKeyDown={(event) => {
-                    if (row.current || (event.key !== "Delete" && event.key !== "Backspace")) return;
-                    event.preventDefault();
-                    forget(row.path, event.currentTarget.closest("[data-project-item]"));
-                  }}
-                  className="relative z-10 flex h-10 w-full items-center gap-1.5 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2"
-                >
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-[7px] bg-ink text-[11px] font-semibold text-surface">
-                    <WorkspaceIcon src={row.current ? workspace.image : imageOf(row.path)} fallback={row.initial} />
-                  </span>
-                  <span className={`min-w-0 flex-1 truncate text-[13.5px] text-ink ${row.current ? "font-medium" : "group-hover/project:pr-6"}`}>
-                    {row.name}
-                  </span>
-                  {row.current && (
-                    <span className="shrink-0 text-ink">
-                      <IconCheckmark1Small size={18} />
-                    </span>
-                  )}
-                  {!row.current && attentionPaths.includes(row.path) && <AttentionDot className="mr-1 group-hover/project:opacity-0" />}
-                </button>
-                {!row.current && (
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    data-forget-project={row.path}
-                    aria-label={`Remove ${row.name} from the list`}
-                    title="Remove from the list"
-                    onClick={(event) => forget(row.path, event.currentTarget.closest("[data-project-item]"))}
-                    className="absolute right-1.5 top-2 z-20 flex size-6 items-center justify-center rounded-[6px] text-ink-3 opacity-0 transition-[opacity,background-color,color] duration-100 hover:bg-hover hover:text-ink group-hover/project:opacity-100"
-                  >
-                    <IconCrossSmall size={14} />
-                  </button>
-                )}
-              </div>
-            );
-          })}
-          {links.length > 0 && (
-            <>
-              <div className="my-1 h-px bg-line" />
-              <p className="px-2 py-1 text-[11px] font-medium text-ink-3">Links</p>
-              {links.map((link) => (
-                <button
-                  key={link.id}
-                  data-menu-row
-                  data-link-row={link.id}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={selectedLink?.id === link.id}
-                  onClick={() => go(() => onSwitchLink?.(link.id))}
-                  className="relative z-10 flex min-h-10 items-center gap-2 rounded-[8px] px-2 py-1 text-left outline-none focus-visible:bg-hover-2"
-                >
-                  <ProjectAvatarStack
-                    projects={link.projectIds.map((id) => registeredProjects.find((project) => project.id === id) ?? { path: "", name: "Project" })}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13.5px] text-ink">{link.name}</span>
-                    <span className="block text-[11px] text-ink-3">{link.projectIds.length} Projects</span>
-                  </span>
-                  {selectedLink?.id === link.id && <IconCheckmark1Small size={18} />}
-                </button>
-              ))}
-            </>
-          )}
-          <div className="my-1 h-px bg-line" />
-          <button
-            data-menu-row
-            data-open-project
-            role="menuitem"
-            type="button"
-            onClick={() => go(() => onOpenProject?.())}
-            className="relative z-10 flex h-9 w-full items-center gap-1.5 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2"
-          >
-            <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
-              <IconPlusMedium size={16} />
-            </span>
-            <span className="min-w-0 flex-1 truncate text-[13.5px] text-ink">Open project…</span>
-          </button>
-          {onLinkProject && (
-            <button
-              data-menu-row
-              type="button"
-              role="menuitem"
-              onClick={() => go(onLinkProject)}
-              className="relative z-10 flex h-9 items-center gap-1.5 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2"
-            >
-              <span className="flex size-5 items-center justify-center text-ink-2">
-                <HugeIcon icon={Link04Icon} size={16} />
-              </span>
-              <span className="text-[13.5px]">Link projects…</span>
-            </button>
-          )}
-          {selectedLink && onEditLink && (
-            <button
-              data-menu-row
-              data-edit-link
-              type="button"
-              role="menuitem"
-              onClick={() => go(() => onEditLink(selectedLink.id))}
-              className="relative z-10 flex h-9 items-center gap-1.5 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2"
-            >
-              <span className="flex size-5 items-center justify-center text-ink-2">
-                <HugeIcon icon={PencilEdit02Icon} size={16} />
-              </span>
-              <span className="text-[13.5px]">Edit Link…</span>
-            </button>
-          )}
-        </GlideMenu>
-      </ScrollArea>
-    </div>,
-    document.body,
-  );
-}
-
 // memo: App rebuilds on every streamed batch and keystroke elsewhere; the sidebar only follows its own props.
 export default memo(function SidebarNav({
   workspaceName = WORKSPACE.name,
@@ -760,6 +522,14 @@ export default memo(function SidebarNav({
   onOpenSettings,
   onOpenCanvas,
   canvasActive = false,
+  onOpenRoutines,
+  routinesActive = false,
+  sidebarMode = "projects",
+  onSidebarMode,
+  selectedBotId = null,
+  onPickBot,
+  models = MODEL_CATALOG,
+  defaultModel,
   onOpenCommands,
   hintsEnabled = true,
   projectPath,
@@ -774,20 +544,13 @@ export default memo(function SidebarNav({
   onOpenScopeChat,
   onNewChatInScope,
   onAskChat,
-  sidebarMode = "projects",
-  onSidebarMode,
-  selectedBotId = null,
-  onPickBot,
-  models = MODEL_CATALOG,
-  defaultModel,
 }: SidebarNavProps) {
-  const { legacySidebar, chatOrder, chatRowShow } = useSettings();
-  // Other computers (Settings › Experimental): their Projects join the list, and every row says its computer.
+  const { chatOrder, chatRowShow } = useSettings();
+  // Other computers (Settings › Devices): their Projects join the list, and every row says its computer.
   const { thisMac, computers } = useComputers();
   const remote = useComputerScopes(computers);
   const remoteScopes = remote.scopes;
   const multi = computers.length > 0;
-  const everyProject = !legacySidebar || multi;
   // One object per computer and state, so memo'd rows keep their props.
   const rowComputers = useRef(new Map<string, RowComputer>());
   const rowComputer = (key: string): RowComputer | undefined => {
@@ -808,21 +571,18 @@ export default memo(function SidebarNav({
   const [expandedWidth, setExpandedWidth] = useState(readSidebarWidth);
   const [resizing, setResizing] = useState(false);
   const [demoActiveTitle, setDemoActiveTitle] = useState<string | null>(null);
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [workspacePosition, setWorkspacePosition] = useState({ top: 0, left: 0 });
   const [namedLinks, setNamedLinks] = useState(() => lastLists.links);
   const [registeredProjects, setRegisteredProjects] = useState(() => lastLists.registered);
   const [recentProjects, setRecentProjects] = useState(() => lastLists.recent);
   const [recentLoaded, setRecentLoaded] = useState(() => lastLists.recentLoaded);
   // The Projects' group order, saved across restarts and windows; see stableOrder.
   const scopeOrder = useRef<string[]>(lastLists.order ?? readScopeOrder());
-  const showHints = useShortcutHints() && hintsEnabled && !workspaceOpen;
+  const showHints = useShortcutHints() && hintsEnabled;
   const bots = useBots();
   const botsOn = bots.enabled && onSidebarMode !== undefined;
   const botsMode = botsOn && sidebarMode === "bots";
   const botMarks = useMemo(() => botMarksOf(bots.snapshot), [bots.snapshot]);
   const [newBotOpen, setNewBotOpen] = useState(false);
-  const workspaceButtonRef = useRef<HTMLButtonElement>(null);
 
   const selectedTitle = activeTitle === undefined ? demoActiveTitle : activeTitle;
   // One identity for every row, so memo(ChatRow) skips when the sidebar re-renders.
@@ -865,7 +625,7 @@ export default memo(function SidebarNav({
     return () => {
       live = false;
     };
-  }, [projectPath, workspaceOpen, selectedLink?.id, everyProject, listsChanged]);
+  }, [projectPath, selectedLink?.id, listsChanged]);
   useEffect(() => {
     const changed = () => setListsChanged((count) => count + 1);
     window.addEventListener(RECENT_PROJECTS_CHANGED, changed);
@@ -915,17 +675,15 @@ export default memo(function SidebarNav({
       )
     : localScopes;
   // Every Project, hidden ones too, since the project chooser lists them all.
-  const scopeImage = useProjectImages(
-    everyProject ? [...projects.map((row) => row.path), ...remoteScopes.filter((scope) => !scope.link).map((scope) => scope.key)] : NO_PATHS,
-  );
-  const showAll = everyProject && !collapsed;
+  const scopeImage = useProjectImages([...projects.map((row) => row.path), ...remoteScopes.filter((scope) => !scope.link).map((scope) => scope.key)]);
+  const showAll = !collapsed;
   const {
     states: scopeStates,
     failed: failedScopes,
     retry: retryScope,
   } = useScopeStates(
     // Collapsed too: the rail's icons show each scope's chats' state and list the live ones.
-    everyProject,
+    true,
     scopes.filter((scope) => scope.key !== currentKey).map((scope) => scope.key),
   );
   // The open scope's rows carry facts read for it alone (PRs, Linear issues, ports); its rows keep them once another
@@ -939,6 +697,20 @@ export default memo(function SidebarNav({
     }),
     [runningKeys, waitingKeys, askingKeys],
   );
+  // Chats an enabled heartbeat checks back on carry a pulse. The sidebar listens to Routines itself, so a Routine change
+  // re-renders it alone, not the App and its open Chat.
+  const { routines } = useRoutines();
+  const beatKeys = useMemo(() => heartbeatKeys(routines), [routines]);
+  const beats = useMemo(() => heartbeatLines(beatKeys), [beatKeys]);
+  // Per scope, the marked rows last built: the same rows and heartbeats give the same list, so ChatRow's memo holds.
+  const markedRows = useRef(new Map<string, { rows: SidebarRecent[]; keys: string; marked: SidebarRecent[] }>());
+  const withBeats = (scopeKey: string, rows: SidebarRecent[]) => {
+    const hit = markedRows.current.get(scopeKey);
+    if (hit && hit.rows === rows && hit.keys === beatKeys) return hit.marked;
+    const marked = withHeartbeats(scopeKey, rows, beats);
+    markedRows.current.set(scopeKey, { rows, keys: beatKeys, marked });
+    return marked;
+  };
   // Another Project's or Link's chats can be pinned from here; the row menu's other actions stay with the open one.
   // One object per scope, so its rows keep their memo.
   const scopeActions = useRef(new Map<string, ChatRowActions>());
@@ -975,7 +747,7 @@ export default memo(function SidebarNav({
         const current = scope.key === currentKey;
         // The Project just left has no read of its own yet; the copy it was shown from fills in until one arrives.
         const state = scopeStates[scope.key] ?? (scope.link ? undefined : cachedProjectCopy(scope.key)?.state);
-        const rows = current ? recents : state ? scopeChats(scope.key, state, chatOrder, marks) : [];
+        const rows = withBeats(scope.key, current ? recents : state ? scopeChats(scope.key, state, chatOrder, marks) : []);
         const list = current
           ? {
               isActive: (item: SidebarRecent) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle),
@@ -1020,7 +792,7 @@ export default memo(function SidebarNav({
       </span>
     );
   const railScopes: RailScope[] | null =
-    everyProject && collapsed && scopes.length > 1
+    collapsed && scopes.length > 1
       ? scopes.map((scope) => {
           const current = scope.key === currentKey;
           const state = scopeStates[scope.key] ?? (scope.link ? undefined : cachedProjectCopy(scope.key)?.state);
@@ -1171,27 +943,8 @@ export default memo(function SidebarNav({
     ];
   };
 
-  const placeWorkspaceMenu = () => {
-    const rect = workspaceButtonRef.current?.getBoundingClientRect();
-    if (!rect) return false;
-    // Collapsed, the menu opens beside the rail instead of covering it.
-    setWorkspacePosition(collapsed ? { top: rect.top, left: rect.right + 8 } : { top: rect.bottom + 6, left: rect.left });
-    return true;
-  };
-  const openWorkspaceMenu = () => {
-    if (placeWorkspaceMenu()) setWorkspaceOpen(true);
-  };
-
-  useDismiss(
-    workspaceOpen,
-    () => setWorkspaceOpen(false),
-    (target) => !!target.closest("[data-workspace-trigger], [data-workspace-menu]"),
-    placeWorkspaceMenu,
-  );
-
   const collapse = () => {
     setCollapsed(true);
-    setWorkspaceOpen(false);
   };
 
   // A manual toggle is the user's choice: the window width stops overriding it until the next crossing.
@@ -1209,7 +962,6 @@ export default memo(function SidebarNav({
           if (!current) autoCollapsed.current = true;
           return true;
         });
-        setWorkspaceOpen(false);
       } else if (autoCollapsed.current) {
         autoCollapsed.current = false;
         setCollapsed(false);
@@ -1283,67 +1035,12 @@ export default memo(function SidebarNav({
               <SidebarModeSwitch mode={botsMode ? "bots" : "projects"} onMode={(mode) => onSidebarMode?.(mode)} collapsed={collapsed} />
             </div>
           )}
-          {!everyProject && !botsMode && (
-            <div className="relative h-10 shrink-0">
-              <button
-                ref={workspaceButtonRef}
-                data-workspace-trigger
-                type="button"
-                aria-expanded={workspaceOpen}
-                aria-label={workspace.name}
-                onClick={() => (workspaceOpen ? setWorkspaceOpen(false) : openWorkspaceMenu())}
-                className="sidebar-workspace-control absolute left-2 top-1 flex h-8 w-[calc(100%-16px)] items-center rounded-[8px] px-2 text-left transition-[background-color,transform] duration-100 hover:bg-hover-2 active:scale-[0.99]"
-              >
-                <span className={`sidebar-logo relative flex ${selectedLink ? "h-5 w-9" : "size-5"} shrink-0 items-center justify-center text-ink`}>
-                  {selectedLink ? (
-                    <ProjectAvatarStack projects={selectedLink.projects} />
-                  ) : (
-                    <WorkspaceIcon src={workspace.image} fallback={<IconPopsicle2 size={18} />} />
-                  )}
-                  {/* Collapsed, the copy beside the logo hides, so the dot moves onto its corner. */}
-                  {attentionPaths.length > 0 && (
-                    <span
-                      aria-hidden
-                      className="absolute -top-0.5 -right-0.5 hidden size-2 rounded-full bg-orange ring-2 ring-surface in-data-[sidebar-collapsed=true]:block"
-                    />
-                  )}
-                </span>
-                <span className="sidebar-copy ml-1.5 min-w-0 flex-1 truncate text-[14px] font-medium text-ink-2">{workspace.name}</span>
-                {selectedLink && <span className="sidebar-copy mr-1 text-[11px] text-ink-3">Link</span>}
-                {attentionPaths.length > 0 && <AttentionDot className="sidebar-copy mr-1" />}
-                <span className="sidebar-copy ml-1 flex shrink-0 text-ink-3">
-                  <IconChevronDownSmall size={16} />
-                </span>
-              </button>
-
-              {workspaceOpen && (
-                <WorkspaceMenu
-                  selectedLink={selectedLink}
-                  links={namedLinks}
-                  registeredProjects={registeredProjects}
-                  onSwitchLink={onSwitchLink}
-                  onLinkProject={onLinkProject}
-                  onEditLink={onEditLink}
-                  position={workspacePosition}
-                  workspace={workspace}
-                  projectPath={projectPath}
-                  onOpenProjectSettings={onOpenProjectSettings}
-                  projects={projects}
-                  onSwitchProject={onSwitchProject}
-                  onOpenProject={onOpenProject}
-                  onForgetProject={forgetProject}
-                  attentionPaths={attentionPaths}
-                  onClose={() => setWorkspaceOpen(false)}
-                />
-              )}
-            </div>
-          )}
-          <ScrollArea className={`sidebar-scroll flex-1 overflow-x-hidden ${everyProject && !botsOn ? "pt-2" : ""}`}>
+          <ScrollArea className={`sidebar-scroll flex-1 overflow-x-hidden ${botsOn ? "" : "pt-2"}`}>
             {botsMode ? (
               <BotList snapshot={bots.snapshot} selectedBotId={selectedBotId} onPickBot={(id) => onPickBot?.(id)} collapsed={collapsed} />
             ) : (
               <BotMarksContext.Provider value={botMarks}>
-                {/* Canvas, Search and Filters in one row; collapsed, a column on the rail. */}
+                {/* Canvas, Search, Routines and Filters in one row; collapsed, a column on the rail. */}
                 <div
                   data-sidebar-tools
                   className={`mb-3 flex gap-1 ${collapsed ? "mx-auto w-8 flex-col items-center" : "mx-2 w-[calc(100%-16px)] items-center"}`}
@@ -1381,8 +1078,22 @@ export default memo(function SidebarNav({
                       </button>
                     </Tooltip>
                   )}
+                  {onOpenRoutines && (
+                    <Tooltip label="Routines" side="bottom">
+                      <button
+                        type="button"
+                        aria-label="Routines"
+                        aria-pressed={routinesActive}
+                        data-sidebar-routines
+                        onClick={onOpenRoutines}
+                        className={`${TOOL_BUTTON} size-8 shrink-0 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
+                      >
+                        <HugeIcon icon={RepeatIcon} size={16} />
+                      </button>
+                    </Tooltip>
+                  )}
                   <FiltersButton
-                    projects={everyProject ? pickerProjects : null}
+                    projects={pickerProjects}
                     imageOf={scopeImage}
                     currentImage={selectedLink ? undefined : workspace.image}
                     onShowProject={showProject}
@@ -1397,7 +1108,7 @@ export default memo(function SidebarNav({
                   {showAll ? (
                     <>
                       {/* Pinned chats of every Project and Link sit on top, like the single-project sidebar. Each group's list
-                    renders its pinned rows into its slot here, so a drag moves a chat between Pinned and its group. */}
+                        renders its pinned rows into its slot here, so a drag moves a chat between Pinned and its group. */}
                       <div data-all-pinned={anyPinned || undefined} className={anyPinned ? "mb-2" : ""}>
                         {anyPinned && <p className="sidebar-copy mx-2 mb-1 h-8 pl-2 text-[12.5px] font-medium leading-8 text-ink-3">Pinned</p>}
                         {groups.map((group) => (
@@ -1555,7 +1266,7 @@ export default memo(function SidebarNav({
                   <IconFolderAdd size={17} />
                 </button>
               </Tooltip>
-              {everyProject && onLinkProject && (
+              {onLinkProject && (
                 <Tooltip label="Link projects">
                   <button
                     type="button"
@@ -1578,8 +1289,15 @@ export default memo(function SidebarNav({
               )}
             </div>
             <Tooltip label="Settings" shortcut="⌘," align={collapsed ? "start" : "end"}>
-              <button type="button" aria-label="Settings" onClick={onOpenSettings} className={`${BOTTOM_BAR_BUTTON} ${collapsed ? "size-8" : "size-9"}`}>
+              <button
+                type="button"
+                data-update-settings=""
+                aria-label="Settings"
+                onClick={onOpenSettings}
+                className={`relative ${BOTTOM_BAR_BUTTON} ${collapsed ? "size-8" : "size-9"}`}
+              >
                 <IconSettingsGear1 size={17} />
+                <UpdateSettingsBadge />
               </button>
             </Tooltip>
           </div>

@@ -20,8 +20,8 @@ async function browserChecks() {
     }
   });
   const evaluate = (source) => window.webContents.executeJavaScript(source);
-  async function waitFor(source) {
-    for (let i = 0; i < 200; i++) {
+  async function waitFor(source, tries = 200) {
+    for (let i = 0; i < tries; i++) {
       if (await evaluate(source)) return;
       await delay(25);
     }
@@ -80,6 +80,28 @@ async function browserChecks() {
   }
   const occurrences = (body) => evaluate(`(${transcript}?.textContent.match(new RegExp(${JSON.stringify(body)}, 'g')) ?? []).length`);
   try {
+    // A chat on an agent that can't steer: its held queue sits above the composer, each message with Send now and Remove.
+    await window.loadURL(process.argv[2] + "?queue=1");
+    // The first page of the run waits on Vite's cold transforms.
+    await waitFor(`[...document.querySelectorAll('aside [data-row]')].some(row => row.textContent.includes('Previous chat'))`, 1200);
+    await evaluate(`[...document.querySelectorAll('aside [data-row]')].find(row => row.textContent.includes('Previous chat')).click()`);
+    await waitFor(`!!document.querySelector('[data-queued-messages]')`);
+    assert.equal(
+      await evaluate(`document.querySelector('[data-queued-messages]').textContent.includes('Queued · on hold since the last turn stopped')`),
+      true,
+      "the queue says Stop held it",
+    );
+    assert.equal(await evaluate(`document.querySelectorAll('[data-queued-message]').length`), 2);
+    assert.equal(await evaluate(`document.querySelector('[data-queued-message="q2"]').textContent.includes('1 file')`), true);
+    await waitFor(`${transcript}?.textContent.includes('Previous chat')`);
+    assert.equal(await occurrences("Then add tests for the checkout page"), 0, "a queued message is not in the transcript");
+    await screenshot("queued-held");
+    await evaluate(`document.querySelector('[data-queued-send="q1"]').click()`);
+    await waitFor("window.calls.queueSent?.length === 1");
+    assert.deepEqual(await evaluate("window.calls.queueSent"), [["/fixture#2", "q1"]]);
+    await evaluate(`document.querySelector('[data-queued-remove="q2"]').click()`);
+    await waitFor(`document.querySelectorAll('[data-queued-message]').length === 1`);
+    assert.deepEqual(await evaluate("window.calls.queueRemoved"), [["/fixture#2", "q2"]]);
     await window.loadURL(process.argv[2]);
     await waitFor(`!!document.querySelector('[aria-label="New chat"]')`);
     await newChat("New worktree");
@@ -352,6 +374,16 @@ async function browserChecks() {
     await waitFor(`${transcript}?.textContent.includes('Previous chat')`);
     assert.equal(await occurrences("Keep the first message visible"), 0, "another Chat must not inherit the retained transcript");
 
+    const leanChatIds = `[...document.querySelectorAll('aside [data-chat-id]')].map(row => row.dataset.chatId)`;
+    assert.deepEqual(await evaluate(leanChatIds), ["4", "2"]);
+    await send("Follow up without moving the Chat");
+    await immediate("Follow up without moving the Chat");
+    assert.deepEqual(await evaluate(leanChatIds), ["4", "2"], "a pending follow-up keeps the original creation order");
+    await screenshot("stable-follow-up-order");
+    await evaluate(`window.saveSend(); window.ackSend()`);
+    await delay(100);
+    assert.deepEqual(await evaluate(leanChatIds), ["4", "2"], "saving the follow-up keeps the same order");
+
     // A host that keeps messages by Chat: the newest turns come as a page, and Show earlier reads the next one.
     await window.loadURL(process.argv[2] + "?long=1&lean=1");
     await waitFor(`document.querySelectorAll('[data-slot="message"]').length === 40`);
@@ -413,10 +445,11 @@ async function browserChecks() {
       await send("Follow-up in a long chat");
       await immediate("Follow-up in a long chat");
       assert.equal(await evaluate("window.calls.sent.length"), 1, "long-chat preview appears with persistence still pending");
-      assert.equal(
-        await evaluate("window.renderedMessageIds.filter(id => id > 0).length"),
-        0,
-        `sending in a long ${busy ? "working" : "idle"} chat leaves saved cards memoized`,
+      // Starting a turn disables account switching on the last reply; only that card needs new props.
+      assert.deepEqual(
+        await evaluate("window.renderedMessageIds.filter(id => id > 0)"),
+        busy ? [] : [302],
+        `sending in a long ${busy ? "working" : "idle"} chat only updates the last reply's account-switch eligibility`,
       );
       await screenshot(busy ? "long-chat-working-follow-up" : "long-chat-idle-follow-up");
       await evaluate("window.saveSend(); window.ackSend()");
@@ -433,6 +466,7 @@ async function browserChecks() {
       await waitFor(`document.body.textContent.includes('1 of 1')`);
       await screenshot("long-chat-search-history");
     }
+
     assert.deepEqual(consoleErrors, []);
     console.log(
       "PASS: immediate first messages and follow-ups, steering, acknowledgement without remounting, next drafts, attachment recovery, retries, background navigation and memoized long-chat history during sends and streaming",

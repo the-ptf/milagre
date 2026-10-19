@@ -795,6 +795,12 @@ a {
   outline: none;
 }
 
+/* The undo panel takes the focus for its keys; its highlighted row already shows where they go. */
+[data-undo-panel]:focus-visible {
+  outline: none;
+  border-radius: revert-layer;
+}
+
 [data-inbox-scroller] {
   overflow-x: hidden;
   scrollbar-width: none;

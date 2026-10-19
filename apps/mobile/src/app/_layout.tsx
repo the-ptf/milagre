@@ -62,9 +62,12 @@ export default function Layout() {
                       <Stack.Screen name="project-accounts" options={{ title: "Project Accounts" }} />
                       <Stack.Screen name="accounts" options={{ title: "Accounts" }} />
                       <Stack.Screen name="settings" options={{ title: "Settings" }} />
+                      <Stack.Screen name="general" options={{ title: "General" }} />
+                      <Stack.Screen name="connections" options={{ title: "Connections" }} />
                       <Stack.Screen name="appearance" options={{ title: "Appearance" }} />
                       <Stack.Screen name="chat-display" options={{ title: "Chat" }} />
                       <Stack.Screen name="update-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
+                      <Stack.Screen name="update-notes" options={{ ...sheet, sheetAllowedDetents: [0.75, 1] }} />
                       <Stack.Screen name="confirm-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                       {/* Native search needs the header visible at presentation: enabling it later remounts the sheet. */}
                       <Stack.Screen
@@ -85,6 +88,8 @@ export default function Layout() {
                       <Stack.Screen name="pair" options={{ title: "Pairing" }} />
                       <Stack.Screen name="projects" options={{ title: "Projects" }} />
                       <Stack.Screen name="canvas" options={{ title: "Canvas" }} />
+                      <Stack.Screen name="routines" options={{ title: "Routines" }} />
+                      <Stack.Screen name="routine-form" options={{ ...sheet, sheetAllowedDetents: [1] }} />
                       <Stack.Screen name="project-settings" options={{ title: "Project" }} />
                       <Stack.Screen name="link-projects" options={{ ...sheet, sheetAllowedDetents: [1] }} />
                       <Stack.Screen name="link-chat" options={{ ...sheet, sheetAllowedDetents: [1] }} />
@@ -115,6 +120,12 @@ export default function Layout() {
                       <Stack.Screen
                         name="artifact-sheet"
                         options={{ presentation: "fullScreenModal", headerShown: false, contentStyle: { backgroundColor: palette.page } }}
+                      />
+                      <Stack.Screen name="design-share-sheet" options={{ ...sheet, sheetAllowedDetents: [0.6, 1] }} />
+                      {/* Full screen too: the diagram pinches and pans. */}
+                      <Stack.Screen
+                        name="diagram-sheet"
+                        options={{ presentation: "fullScreenModal", headerShown: false, contentStyle: { backgroundColor: palette.surface } }}
                       />
                       <Stack.Screen name="activity" options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }} />
                       <Stack.Screen name="handoff-brief" options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }} />

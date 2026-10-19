@@ -39,7 +39,7 @@ window.milagre = {
 };
 localStorage.removeItem("milagre.sidebarClosedScopes");
 localStorage.removeItem("milagre.sidebarScopeOrder");
-updateSettings({ legacySidebar: false, chatRowShow: DESKTOP_CHAT_ROW_SHOW });
+updateSettings({ chatRowShow: DESKTOP_CHAT_ROW_SHOW });
 const root = createRoot(document.getElementById("root"));
 const arketaRows = [{ id: "1", label: "Fix the login flow", mark: "running", details: { path: "/work/arketa", branch: "main", pullRequests: [pr] } }];
 const shopRows = [{ id: "7", label: "Shop chat", details: { path: "/work/shop", branch: "main" } }];

@@ -1,10 +1,12 @@
-const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
+const { isLinkScopeKey, scopeFromKey } = require("@milagre/shared/chat-scopes");
 const path = require("node:path");
 const { chatKey, lastUserModel, projectOfKey, runStatus, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { activeWorktrees } = require("./project-identity.cjs");
 const { linkedWorktrees } = require("./project-links.cjs");
 const { Delegations, jsonFileStore } = require("./delegations.cjs");
+const { MODE_RANK } = require("./agents/permissions.cjs");
 const { chatLabel, createLinkedReads, delegationReply, linkedToolDefinitions } = require("./linked-tools.cjs");
+const { chatTitle } = require("@milagre/shared/chats");
 const { createLinkedMcpServer } = require("./linked-mcp-server.cjs");
 const { worktreeLinkText } = require("@milagre/shared/worktree-link");
 
@@ -14,7 +16,8 @@ const ACTIVE_TTL_MS = 3000;
 /**
  * What a Chat gets from its Links (spec 003): the summary at the start of each turn, the linked tools for
  * either provider, and the Delegations they make. The runtime supplies its parts:
- *   registry() -> the Project registry; project(path) -> the Project's state, loading the Project if needed (it can
+ *   registry() -> the Project registry; linkProjects(linkId) -> a named Link's member Projects, { id, name, path }
+ *   project(path) -> the Project's state, loading the Project if needed (it can
  *   leave out unloaded Chats' messages: see message-store.cjs); messages(path, chatIds) -> those Chats' messages, whole,
  *   or every message without chatIds; bodies(path, chatIds) -> their ids, roles and bodies
  *   chats -> the ChatHost; agents -> the SessionManager; emit(channel, payload) -> the windows
@@ -22,6 +25,7 @@ const ACTIVE_TTL_MS = 3000;
 function createLinkedWorktrees({
   dataDir,
   registry,
+  linkProjects = async () => [],
   project,
   messages = async (projectPath, chatIds) => {
     const all = (await project(projectPath)).messages;
@@ -31,6 +35,7 @@ function createLinkedWorktrees({
   chats,
   agents,
   emit,
+  pendingAdvisorResults = async () => false,
   extraTools = () => [],
   createMcpServer = createLinkedMcpServer,
   store = jsonFileStore(path.join(dataDir, "delegations.json")),
@@ -86,6 +91,31 @@ function createLinkedWorktrees({
     return [...found.values()];
   }
 
+  /**
+   * An active Worktree of the Chat's own Project as a Delegation target, with no Link, or null. A shared Link Chat's own
+   * Projects are its Link's members; its own Worktrees there belong to it alone (ADR-0005), so they are refused.
+   */
+  async function ownWorktree(chatId, worktreePath) {
+    const scope = projectOfKey(chatId);
+    const candidates = isLinkScopeKey(scope)
+      ? await linkProjects(scopeFromKey(scope).linkId)
+      : [(await registry().snapshot()).projects.find((item) => item.path === scope) ?? { path: scope, name: path.basename(scope) }];
+    for (const candidate of candidates) {
+      const state = await project(candidate.path);
+      const worktree = Object.values(state.worktrees).find((item) => item.path === worktreePath);
+      if (!worktree || !(await active(candidate.path)).includes(worktreePath)) continue;
+      if (worktree.sharedChat) throw new Error("Delegation into a shared Link Chat is not supported. Read its canonical transcript instead.");
+      return {
+        link_id: null,
+        link_ids: [],
+        projectPath: candidate.path,
+        projectName: candidate.name ?? path.basename(candidate.path),
+        branch: worktree.name ?? path.basename(worktreePath),
+      };
+    }
+    return null;
+  }
+
   const reads = createLinkedReads({
     sides,
     state: project,
@@ -101,6 +131,13 @@ function createLinkedWorktrees({
     const state = await project(projectPath).catch(() => null);
     const session = state?.sessions[sessionIdFromKey(key)];
     if (!session) return null;
+    // A shared Link Chat is named by its Link and works from its workspace folder, not from one Project's Worktree.
+    if (isLinkScopeKey(projectPath)) {
+      const linkId = scopeFromKey(projectPath).linkId;
+      const link = (await registry().listProjectGroups()).find((item) => item.id === linkId);
+      const messages = state.messages.filter((message) => message.session_id === session.id);
+      return { label: `${link?.name ?? "Link"} / ${chatTitle(session, messages)}`, worktreePath: session.workspacePath, archived: Boolean(session.archived) };
+    }
     return {
       label: chatLabel(path.basename(projectPath), state, session.id),
       worktreePath: state.worktrees[session.worktree_id]?.path,
@@ -126,7 +163,15 @@ function createLinkedWorktrees({
     };
   }
 
-  // Resolves once the message is saved, with `started`: what took it (see Delegations' deliver port).
+  // The mode a delivered message runs in: the latest turn's (turnOptions), or the live agent's when a steer reaches it
+  // after a switch, whichever allows more; a Chat with neither takes the requesting Chat's.
+  function deliveryMode(key, requester) {
+    const modes = [agents.permissionMode(key, null), chats.turnSettings(key)?.permissionMode].filter((mode) => mode in MODE_RANK);
+    return modes.length ? modes.reduce((most, mode) => (MODE_RANK[mode] > MODE_RANK[most] ? mode : most)) : agents.permissionMode(requester);
+  }
+
+  // Resolves once the message is saved, with `started`: what took it (see Delegations' deliver port), and `queued` when
+  // it waits in the Chat's queue for a turn its provider can't steer.
   async function deliver(key, { body, prompt, context }) {
     const projectPath = projectOfKey(key);
     let state = await project(projectPath);
@@ -134,7 +179,7 @@ function createLinkedWorktrees({
     if (!session) throw new Error("that Chat is no longer in its Project");
     // The Project's last used model is read across every Chat, unloaded ones too, when the Chat has no turn this run.
     if (!chats.turnSettings(key)) state = { ...state, messages: await messages(projectPath) };
-    const { started } = await chats.send({
+    const { started, queued } = await chats.send({
       body,
       prompt,
       context,
@@ -145,7 +190,7 @@ function createLinkedWorktrees({
       sessionId: session.id,
       worktreeId: session.worktree_id,
     });
-    return { started };
+    return { started, queued: Boolean(queued) };
   }
 
   function setToolsAvailable(chatId, available) {
@@ -161,6 +206,9 @@ function createLinkedWorktrees({
     store,
     ports: {
       async target(fromChat, worktreePath) {
+        // A Worktree of the Chat's own Project needs no Link: its agent can already start Chats there.
+        const own = await ownWorktree(fromChat, worktreePath);
+        if (own) return own;
         const side = (await sides(fromChat)).find((item) => item.worktree_path === worktreePath);
         if (!side) return null;
         const state = await project(side.projectPath);
@@ -182,10 +230,20 @@ function createLinkedWorktrees({
         return chatKey(projectPath, await chats.emptyChat(projectPath, worktree.id));
       },
       status: (key) => runStatus(chats.runs[key]),
+      pendingResults: async (key) => {
+        const session = (await project(projectOfKey(key))).sessions[sessionIdFromKey(key)];
+        return Boolean(
+          chats.runs[key] ||
+          chats.startingTurns?.has(key) ||
+          session?.queued?.some((entry) => entry.context?.kind === "advisor-result") ||
+          (await pendingAdvisorResults(key)),
+        );
+      },
       deliver,
       note: (key, note) => chats.addNote(key, note),
       reply: async (key, delegationId) => delegationReply(await messages(projectOfKey(key), [sessionIdFromKey(key)]), sessionIdFromKey(key), delegationId),
       permissionMode: (key) => agents.permissionMode(key),
+      deliveryMode: (key, requester) => deliveryMode(key, requester),
       approve: (key, request) => agents.askApproval(key, request),
       changed: () => emit("linked:changed", snapshot()),
     },
@@ -242,10 +300,13 @@ function createLinkedWorktrees({
         chatId,
         linkedToolDefinitions(chatId, {
           reads,
+          // A shared Link Chat delegates like any Chat (to its Link's Projects, or along a canvas Link), but hosts no
+          // Negotiation: its other side would be a shared transcript several Projects write to.
           delegations: isLinkScopeKey(projectOfKey(chatId))
             ? {
-                delegate: async () => {
-                  throw new Error("Delegation from a shared Link Chat is not supported. Use its canvas read tools.");
+                delegate: async (fromChat, args) => {
+                  if (args.negotiation) throw new Error("Shared Link Chats do not host Negotiations. Send a Delegation instead.");
+                  return delegations.delegate(fromChat, args);
                 },
                 conclude: async () => {
                   throw new Error("Shared Link Chats do not host Negotiations.");
@@ -264,9 +325,17 @@ function createLinkedWorktrees({
       url: () => mcp.url(chatId),
       toolsAvailable: (available) => setToolsAvailable(chatId, available),
     }),
-    /** The summary for the start of a turn, or "" when nothing is linked. A failed read leaves it out. */
+    /** The linked summary can be read while CLI and setup checks run; it consumes nothing. */
     context: (chatId) => reads.summary(chatId).catch(() => ""),
+    reportsForTurn: (chatId) =>
+      delegations.reportsForTurn(chatId).catch((error) => {
+        console.warn("Milagre couldn't read the Delegation reports:", error.message);
+        return null;
+      }),
     observe: (chatId, event) => delegations.observe(chatId, event),
+    /** A Delegation (or Negotiation report) that waited in the Chat's queue across a restart started, or was removed. */
+    queuedStarted: (chatId, context, started) => delegations.adopt(chatId, context, started),
+    queuedRemoved: (chatId, context) => delegations.unqueued(chatId, context),
     linkAdded,
     linkRemoved: (id) => delegations.linkRemoved(id),
     /** "Always allow Delegations" from the sidebar's Link popover: the grant the approval card saves, set ahead. */
@@ -278,7 +347,11 @@ function createLinkedWorktrees({
     },
     stop: (target) => delegations.stop(target),
     snapshot,
-    close: () => mcp.close(),
+    suspend: () => delegations.suspend(),
+    close: async () => {
+      await mcp.close();
+      await delegations.idle();
+    },
   };
 }
 

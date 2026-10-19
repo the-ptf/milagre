@@ -51,9 +51,10 @@ async function fixture(t, { runtimeOptions = {}, bridgeOptions = {} } = {}) {
     runtimeOptions: {
       environmentReady: Promise.resolve(),
       titleModels: {},
-      worktreeRoot: path.join(root, "worktrees"),
       agentCli: Object.assign(async () => ({ command: null, problem: "Test has no provider" }), { invalidate() {} }),
       ...runtimeOptions,
+      // Fixture-owned paths must win over demo options, including an undefined worktreeRoot.
+      worktreeRoot: path.join(root, "worktrees"),
     },
   });
   const token = randomBytes(32).toString("hex");
@@ -149,7 +150,20 @@ test("mobile bridge forwards commands to the existing owner and reads cached sna
 });
 
 test("a phone opens a named Link and sends one shared Chat with two owned Worktrees", async (t) => {
-  const { dataDir, project, rpc, request, bridge, token } = await fixture(t, { runtimeOptions: demoRuntimeOptions() });
+  const demo = demoRuntimeOptions();
+  // The Projects the agent changes: each gets the shared Chat's Worktree first, as a real agent's would.
+  const edits = [];
+  const createSession = (provider, context) => {
+    const session = demo.createSession(provider, context);
+    const startTurn = session.startTurn.bind(session);
+    session.startTurn = async (turn) => {
+      const tool = context.linked?.tools.find((item) => item.name === "link_worktree_create");
+      if (tool) for (const project of edits) await tool.run({ project });
+      return startTurn(turn);
+    };
+    return session;
+  };
+  const { dataDir, project, rpc, request, bridge, token } = await fixture(t, { runtimeOptions: { ...demo, createSession } });
   const second = path.join(path.dirname(project), "second");
   await fs.mkdir(second);
   execFileSync("git", ["init", "-b", "main", second], { stdio: "ignore" });
@@ -162,11 +176,17 @@ test("a phone opens a named Link and sends one shared Chat with two owned Worktr
   const registryResponse = await rpc("project:registry");
   assert.equal(registryResponse.status, 200);
   const registered = (await registryResponse.json()).result;
+  edits.push(...registered.map((item) => item.name));
   const made = await rpc("link:create", [{ name: "Together", projectIds: registered.map((item) => item.id) }]);
   assert.equal(made.status, 200);
   const link = (await made.json()).result;
   const desktopReader = await connect({ dataDir });
   try {
+    assert.deepEqual(
+      await desktopReader.call("worktree:roots"),
+      [path.join(path.dirname(project), "worktrees")],
+      "Undefined demo options must not replace the fixture's temporary Worktree root",
+    );
     const hidden = await rpc("link:update", [{ ...link, hidden: true }]);
     assert.equal(hidden.status, 200);
     assert.equal((await desktopReader.call("link:list"))[0].hidden, true, "A phone visibility change reaches the desktop registry");
@@ -217,6 +237,10 @@ test("a phone opens a named Link and sends one shared Chat with two owned Worktr
   const png = Buffer.from("89504e470d0a1a0a00000000", "hex");
   const media = (file) => request(`/media?projectPath=${encodeURIComponent(owner)}&path=${encodeURIComponent(file)}`);
   for (const member of saved.link.state.sessions[id].worktrees) {
+    assert.ok(
+      (await fs.realpath(member.worktreePath)).startsWith(path.join(path.dirname(project), "worktrees") + path.sep),
+      "Every owned Worktree stays inside the fixture so teardown removes it",
+    );
     const image = path.join(member.worktreePath, "screenshot.png");
     await fs.writeFile(image, png);
     assert.equal((await media(image)).status, 200, "Images in either owned Worktree are available to the shared Chat");
@@ -1289,6 +1313,16 @@ test("Designs setting changes reach every phone, including Settings without a se
   await until(() => settingsPhone.messages.filter((type) => type === "designs").length === 2);
 });
 
+test("Routines changes reach every phone as a routines signal, Settings included", async (t) => {
+  const { project, bridge, rpc, token } = await fixture(t);
+  const auth = { authorization: `Bearer ${token}` };
+  const projectPhone = await openLive(bridge, project, auth);
+  const settingsPhone = await openLive(bridge, "", auth);
+  assert.equal((await rpc("routines:enabled:save", [true])).status, 200);
+  await until(() => projectPhone.messages.includes("routines") && settingsPhone.messages.includes("routines"));
+  assert.equal(settingsPhone.messages.filter((type) => type === "routines").length, 1);
+});
+
 test("confined phones receive Designs changes on their permitted Project socket", async (t) => {
   const { project, dataDir, rpc, token } = await fixture(t);
   await rpc("project:open", [project]);
@@ -1610,4 +1644,41 @@ test("a phone snapshot's Chats and messages come from one state, even when a Cha
 test("a phone may edit URL servers and switch them, but not add command servers or start a sign-in", () => {
   for (const method of ["mcp:definition", "mcp:saveUrl", "mcp:remove", "mcp:toggle"]) assert.ok(METHODS.has(method), method);
   for (const method of ["mcp:save", "mcp:signIn", "mcp:cancelSignIn"]) assert.ok(!METHODS.has(method), method);
+});
+
+test("phone checkpoint RPCs preview and restore a task with explicit confirmation", async (t) => {
+  const { project, rpc, request, dataDir } = await fixture(t, { runtimeOptions: demoRuntimeOptions() });
+  await fs.writeFile(path.join(project, "draft.txt"), "before task");
+  await rpc("project:open", [project]);
+  const state = (await (await request("/snapshot?projectPath=" + encodeURIComponent(project))).json()).result.project.state;
+  const sessionId = Object.values(state.sessions)[0].id,
+    chatId = `${project}#${sessionId}`;
+  await rpc("chat:send", [{ projectPath: project, sessionId, body: "hello", provider: "codex", model: "demo", permissionMode: "ask" }]);
+  await fs.writeFile(path.join(project, "draft.txt"), "agent");
+  let items;
+  for (let i = 0; i < 150; i++) {
+    items = (await (await rpc("checkpoint:list", [{ chatId }])).json()).result;
+    if (items?.[0]?.completedAt) break;
+    await delay(20);
+  }
+  assert.ok(items[0].completedAt);
+  await fs.writeFile(path.join(project, "draft.txt"), "manual later");
+  const preview = (await (await rpc("checkpoint:preview", [{ chatId, id: items[0].id }])).json()).result;
+  assert.equal(preview.files[0].conflict, true);
+  const payload = { chatId, token: preview.token, decisions: { [preview.files[0].key]: "restore" } };
+  assert.equal((await rpc("checkpoint:restore", [payload])).status, 409);
+  assert.equal(await fs.readFile(path.join(project, "draft.txt"), "utf8"), "manual later");
+  const restored = await rpc("checkpoint:restore", [{ ...payload, approved: true }]);
+  assert.equal(restored.status, 200);
+  assert.equal(await fs.readFile(path.join(project, "draft.txt"), "utf8"), "before task");
+  const desktop = await connect({ dataDir });
+  try {
+    assert.equal((await desktop.call("checkpoint:list", [{ chatId }])).length, 2);
+  } finally {
+    desktop.close();
+  }
+});
+
+test("a phone may read a webhook Routine's URL and rotate it", () => {
+  for (const method of ["routines:hook", "routines:rotate-hook"]) assert.ok(METHODS.has(method), method);
 });

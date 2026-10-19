@@ -17,6 +17,7 @@ import {
   subagentActive,
 } from "./agent-runs.mjs";
 import type { AgentRuns } from "./agent-runs.mjs";
+import { archiveFinishedSubagents } from "./project-edits.mjs";
 
 const PROJECT = "/work/app";
 const key = (sessionId: number) => chatKey(PROJECT, sessionId);
@@ -347,6 +348,15 @@ test("a step that ends with a file keeps it", () => {
   assert.equal(runs[key(1)].steps[0].file, "/tmp/ig.png");
 });
 
+test("a step that ends with a routine keeps it", () => {
+  const set = { id: "h1", kind: "other" as const, title: 'Set Heartbeat "watch CI"' };
+  const { runs } = fold([
+    { type: "step-started", step: set },
+    { type: "step-completed", id: "h1", status: "done", routine: { id: "r1", name: "watch CI" } },
+  ]);
+  assert.deepEqual(runs[key(1)].steps[0].routine, { id: "r1", name: "watch CI" });
+});
+
 test("a step that ends without a detail keeps none, and a new title replaces the first", () => {
   const read = { id: "r1", kind: "read" as const, title: "Read `app.js`", detail: "$ cat app.js\n" };
   const { runs } = fold([
@@ -549,6 +559,21 @@ test("a subagent that runs again loses its old end, so its clock runs; its plan 
   assert.equal(Object.hasOwn(child ?? {}, "endedAt"), false);
   assert.deepEqual(child?.tasks, tasks);
   assert.deepEqual(child?.progress, progress);
+});
+test("an archived subagent that runs again, as a resumed session's background agent does, returns to the track", () => {
+  let state = base();
+  let runs = startRun({}, key(1), "claude");
+  const agent = { id: "child", title: "Review", status: "failed" as const, startedAt: 1, updatedAt: 2, endedAt: 2, transcript: [] };
+  ({ state, runs } = applyAgentEvent(state, runs, PROJECT, key(1), { type: "subagent-update", agent }));
+  state = archiveFinishedSubagents(state, 1);
+  assert.equal(state.sessions[1].subagents?.[0].archived, true);
+  const { endedAt: _ended, ...running } = { ...agent, status: "running" as const, updatedAt: 3 };
+  ({ state, runs } = applyAgentEvent(state, runs, PROJECT, key(1), { type: "subagent-update", agent: running }));
+  assert.equal(state.sessions[1].subagents?.[0].archived, false);
+  // One the user archived while it runs stays archived as it keeps running.
+  state = { ...state, sessions: { ...state.sessions, 1: { ...state.sessions[1], subagents: [{ ...state.sessions[1].subagents![0], archived: true }] } } };
+  ({ state, runs } = applyAgentEvent(state, runs, PROJECT, key(1), { type: "subagent-update", agent: { ...running, updatedAt: 4 } }));
+  assert.equal(state.sessions[1].subagents?.[0].archived, true);
 });
 test("explicit subagent waiting clears when the parent resumes output", () => {
   let state = base(),
@@ -791,6 +816,18 @@ test("plan-updated stores the plan and native lists stop once Milagre owns it", 
   assert.equal(ignored.changed, false);
   const cleared = applyAgentEvent(owned.state, owned.runs, PROJECT, key(1), { type: "plan-updated", plan: null });
   assert.equal(cleared.state.sessions["1"].plan, undefined);
+});
+
+test("background-tasks replaces the Chat's set of background tasks, outside any turn, and an empty set clears it", () => {
+  const tasks = [{ id: "b1", kind: "local_bash", title: "sleep 75", startedAt: 1 }];
+  const saved = applyAgentEvent(base(), {}, PROJECT, key(2), { type: "background-tasks", tasks });
+  assert.equal(saved.changed, true);
+  assert.deepEqual(saved.state.sessions["2"].backgroundTasks, tasks);
+  assert.equal(applyAgentEvent(saved.state, {}, PROJECT, key(2), { type: "background-tasks", tasks: [...tasks] }).changed, false);
+  const cleared = applyAgentEvent(saved.state, {}, PROJECT, key(2), { type: "background-tasks", tasks: [] });
+  assert.equal(cleared.changed, true);
+  assert.equal("backgroundTasks" in cleared.state.sessions["2"], false);
+  assert.equal(applyAgentEvent(base(), {}, PROJECT, key(2), { type: "background-tasks", tasks: [] }).changed, false);
 });
 
 test("an identical native list changes nothing, a different one does", () => {

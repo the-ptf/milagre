@@ -82,8 +82,8 @@ export interface Worktree {
   name: string;
   /** The ref a worktree Milagre created started from; its changes are measured against it. */
   base?: string;
-  /** The Linear issue this Worktree was started from (its key); the branch may also name one. */
-  linearIssue?: string;
+  /** A stored Linear issue key. Null means explicitly unlinked; absent allows detection from the branch name. */
+  linearIssue?: string | null;
   /** The Linear workspace (its URL key) `linearIssue` belongs to; links saved before workspaces have none. */
   linearWorkspace?: string;
   /** Lines changed against the base, refreshed in the background so the hover card shows it at once. */
@@ -111,6 +111,9 @@ export interface ChatSummary {
   openHandoff?: number;
   /** The clientMessageId of the Chat's last few sends, so a window without messages finds the Chat its preview became. */
   clientMessageIds?: string[];
+  /** The Linear issue the Chat's first message is the card of (key and workspace), so a comment on it finds the Chat. */
+  linearIssue?: string;
+  linearWorkspace?: string;
 }
 
 export interface AgentSession {
@@ -127,6 +130,11 @@ export interface AgentSession {
   /** Session ids of the providers this chat is not on right now, so switching back resumes them. */
   native_sessions?: Partial<Record<ModelProvider, string>>;
   subagents?: Subagent[];
+  /**
+   * The background work the Chat's agent process reports besides its subagents (a command run in the background, an MCP
+   * task, a workflow), live while that process runs; absent when there is none (chat-activity.mjs).
+   */
+  backgroundTasks?: BackgroundTask[];
   /** The Chat's task list and phase history (chat-plan.mjs); absent until an agent writes one. */
   plan?: ChatPlan;
   /** Automatic title from the first message; a manual title takes precedence. */
@@ -155,6 +163,46 @@ export interface AgentSession {
   resumeTurn?: { stoppedAt?: number };
   /** How full the agent's context window was when its last turn ended. */
   contextUsage?: ContextUsage;
+  /** The Routine and Run that started this Chat; set only on a Chat a Run created. */
+  routine?: { routineId: string; runId: string };
+  /** The permission mode the Chat's composer last set (a pick, or a person's message); a heartbeat's beat runs in it. */
+  permissionMode?: PermissionMode;
+  /**
+   * Messages sent while a turn ran on a provider that can't steer (provider-capabilities `steer`), oldest first. Each
+   * starts a turn of its own when the one before it completes; Send now and Remove act on one (chat-host.cjs).
+   */
+  queued?: QueuedMessage[];
+  /** Stop, or a turn that failed, ended the turn the queue waited on: the queue waits for Send now instead of starting. */
+  queueHeld?: boolean;
+}
+
+/**
+ * A message waiting for the running turn to end (AgentSession.queued). It becomes a ChatMessage when its turn starts.
+ * The host also keeps the send's prompt and turn options on it, which clients don't read.
+ */
+export interface QueuedMessage {
+  id: string;
+  body: string;
+  images?: ImageAttachment[];
+  files?: string[];
+  context?: ChatContext;
+  /** The model and provider picked when it was sent; its turn hands off like any send if the chat is on another. */
+  model: string;
+  provider: ModelProvider;
+  queuedAt: number;
+  clientMessageId?: string;
+}
+
+/**
+ * A piece of background work the agent's process runs that isn't a subagent: Claude Code's background tasks (a Bash
+ * command run in the background, an MCP task, a workflow). `kind` is the provider's own name for it (local_bash…).
+ */
+export interface BackgroundTask {
+  id: string;
+  kind: string;
+  title: string;
+  /** When Milagre first saw it run (ms since epoch). */
+  startedAt: number;
 }
 
 /** Tokens in the agent's context window, out of the model's window size. */
@@ -183,13 +231,16 @@ export interface WorktreeBinding {
 }
 export interface LinkChatSession extends Omit<AgentSession, "worktree_id"> {
   workspacePath: string;
+  /** Only the Projects the Chat has changed: each gets its Worktree when the agent is about to edit it. */
   worktrees: WorktreeBinding[];
 }
 export interface LinkPreparation {
   operationId: string;
   chatId: number;
+  /** "ready" once the workspace folder exists. The others come from preparations saved before Worktrees were made on demand. */
   status: "reserved" | "creating" | "setup" | "ready" | "failed";
-  members: Array<WorktreeBinding & { created?: boolean; setupDone?: boolean }>;
+  /** The Worktrees made or being made for the Chat. A failed one that kept changes is `retained`, with its `error`. */
+  members: Array<WorktreeBinding & { created?: boolean; setupDone?: boolean; setupDeferred?: boolean; retained?: boolean; error?: string }>;
   workspacePath: string;
   error?: string;
   retainedPaths?: string[];
@@ -278,7 +329,11 @@ export type PullRequestBlocker = "conflicts" | "changes-requested" | "checks-fai
 /** A PR-blocker pill the user clicked. Milagre wrote the message and the skill prompt the agent got. */
 export type PullRequestActionContext = { kind: "pr-action"; action: PullRequestBlocker; pr: number; url: string };
 
-/** A Chat started from a Linear issue. Milagre read the issue and wrote the message and prompt; `note` is what the user typed. */
+/**
+ * A Chat started from a Linear issue. Milagre read the issue and wrote the message and prompt; `note` is what the user typed.
+ * A Linear Routine's Run starts the same way, and its first message also carries `routine`: the divider (see
+ * RoutineRunContext, which `routineRunOf` in routines.mjs makes of it) shown with the issue card.
+ */
 export type LinearIssueContext = {
   kind: "linear-issue";
   key: string;
@@ -287,6 +342,7 @@ export type LinearIssueContext = {
   state: { name: string; type: "triage" | "backlog" | "unstarted" | "started" | "completed" | "canceled"; color: string };
   workspace?: string;
   note?: string;
+  routine?: { routineId: string; runId: string; name: string; at: number; quiet?: boolean; summary?: string; label?: string };
 };
 
 /**
@@ -317,6 +373,128 @@ export type BotContext =
   | { kind: "bot-chat-taken-over"; chatKey: string }
   | { kind: "bot-message"; botId: string; botName: string };
 
+/**
+ * What starts a Routine: the clock, a change in a Linear workspace, or a POST to its webhook URL. A webhook's `hookId` is
+ * the hex sha256 of the secret in the URL, so the Routine never holds the secret itself; `signed` says an HMAC is checked.
+ */
+export type RoutineTrigger =
+  | { kind: "schedule"; cron: string; timezone: string }
+  | { kind: "linear"; workspace: string; event: "assigned" | "label-added" | "state" | "comment"; team?: string; label?: string; state?: string }
+  | { kind: "webhook"; hookId: string; signed: boolean };
+
+/** Where a Routine's Run lands: an existing Chat (a heartbeat), or a new Chat for each Run. */
+export type RoutineTarget = { kind: "chat"; chatId: string } | { kind: "new-chat"; projectPath: string; workspace: "worktree" | "project" };
+
+/** The Linear issue a Run was started for, as it was when the change was seen. */
+export interface LinearIssueSnapshot {
+  id: string;
+  key: string;
+  title: string;
+  description: string;
+  url: string;
+  labels: string[];
+  state: string;
+  /** The state's type and color, for the issue card; absent on a snapshot taken before they were kept. */
+  stateType?: string;
+  stateColor?: string;
+  team: string;
+  assignee?: string;
+  workspace: string;
+}
+
+/** The Linear comment a Run was started for. `createdAt` is epoch milliseconds. */
+export interface LinearCommentSnapshot {
+  id: string;
+  body: string;
+  author: string;
+  createdAt: number;
+}
+
+/** What made a Routine run, kept on its Run. `key` identifies the event so one change never starts two Runs. */
+export type RoutineEvent =
+  | { kind: "schedule" }
+  | { kind: "linear"; key: string; change: "assigned" | "label-added" | "state" | "comment"; issue: LinearIssueSnapshot; comment?: LinearCommentSnapshot }
+  | { kind: "webhook"; key: string; deliveryId: string };
+
+export type RoutineRunStatus = "running" | "acted" | "quiet" | "failed" | "skipped-busy" | "missed";
+
+export interface Routine {
+  id: string;
+  name: string;
+  prompt: string;
+  trigger: RoutineTrigger;
+  target: RoutineTarget;
+  provider?: ModelProvider;
+  model?: string;
+  permissionMode?: string;
+  enabled: boolean;
+  createdBy: { kind: "agent"; chatId: string } | { kind: "user" };
+  maxRuns?: number;
+  expiresAt?: number;
+  nextRunAt?: number | null;
+  lastRunAt?: number;
+  runCount: number;
+  /** Counted Runs in a row that failed; three end a heartbeat and pause a trigger. Re-enabling a paused trigger clears it. */
+  failedStreak?: number;
+  /** Why a trigger was switched off by itself, e.g. "3 failed runs in a row: <last error>". Cleared when it is switched on again. */
+  pausedReason?: string;
+  /** The latest system error about the Routine itself, apart from its Runs (e.g. "Linear sign-in needed"); cleared when it is fixed. */
+  lastError?: string;
+  /** A signed webhook's signature header, lowercased; "sentry-hook-signature" when absent. The signing secret never leaves the Mac. */
+  signingHeader?: string;
+  completedAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface RoutineRun {
+  id: string;
+  routineId: string;
+  scheduledFor?: number;
+  startedAt: number;
+  endedAt?: number;
+  status: RoutineRunStatus;
+  chatId?: string;
+  /** The Worktree this Run's Chat was started in. */
+  worktreeId?: string;
+  /** What started this Run. */
+  event?: RoutineEvent;
+  summary?: string;
+  error?: string;
+  /** An event refused before it ran (a webhook whose signature didn't match); only the newest are kept. */
+  rejected?: boolean;
+}
+
+/**
+ * The divider a Routine's run leaves in its Chat. `quiet` and `summary` are set once the reply is known to be a "(pass)".
+ * `label` is what an acted divider says before the time, "Heartbeat" when it is left out: "Routine · <name>" on a new Chat's
+ * first message, "Linear comment · <author>" on a comment sent into a linked Chat.
+ */
+export type RoutineRunContext = {
+  kind: "routine-run";
+  routineId: string;
+  runId: string;
+  name: string;
+  at: number;
+  label?: string;
+  quiet?: boolean;
+  summary?: string;
+};
+
+/**
+ * Undo changes wrote files: `restored` of them went back to how they were before the task (`checkpointId`), `kept` stayed
+ * as they were. `recoveryId` is the checkpoint saved just before, which the line's Redo previews. `redo` marks restoring
+ * such a recovery checkpoint, which puts the files back again.
+ */
+export type CheckpointRestoreContext = {
+  kind: "checkpoint-restore";
+  checkpointId: string;
+  recoveryId: string;
+  restored: number;
+  kept: number;
+  redo: boolean;
+};
+
 export type ChatContext =
   | AdvisorResultContext
   | WorktreeLinkedContext
@@ -330,6 +508,8 @@ export type ChatContext =
   | AccountSwitchContext
   | ChatReloadContext
   | BotContext
+  | RoutineRunContext
+  | CheckpointRestoreContext
   | "handover"
   | null;
 
@@ -353,7 +533,8 @@ export type LinkedContext =
 /** A Delegation still queued or running (see delegations.cjs in @milagre/core). */
 export interface OpenDelegation {
   id: string;
-  link_id: string;
+  /** The Link it travels along; null for a Delegation inside its Chat's own Project. */
+  link_id: string | null;
   from_chat: string;
   to_chat: string | null;
   from_label: string;
@@ -366,7 +547,7 @@ export interface OpenDelegation {
 
 export interface RunningNegotiation {
   id: string;
-  link_id: string;
+  link_id: string | null;
   chats: [string, string | null];
   labels: [string, string];
   round: number;
@@ -423,6 +604,8 @@ export interface ChatStep {
   tool?: "design_show" | "design_apply" | "artifact_show";
   /** For an artifact step a subagent made, the subagent: the id of the Agent call that started it (Subagent.id). */
   agent?: string;
+  /** For a heartbeat_create step, the Routine it set (the tool result's first line names it), so the card can stop it. */
+  routine?: { id: string; name: string };
 }
 
 export interface ImageAttachment {
@@ -438,7 +621,9 @@ export interface ImageAttachment {
 /** What an agent asks to do, as shown on the approval card. */
 export interface PermissionRequest {
   requestId: string;
-  kind: "command" | "edit" | "other" | "delegation";
+  kind: "command" | "edit" | "other" | "delegation" | "setup";
+  /** Setup command review context. */
+  setup?: { projectPath: string; source: string; computer: string };
   /** Short name of the tool, e.g. "Bash", "Shell" or "Edit files". */
   tool: string;
   /** The agent's own name for the tool, when `tool` shows another (Claude's MCP tools: "Send Message"). */
@@ -498,15 +683,6 @@ export type QuestionAnswers = Record<string, string[]>;
 
 export type QuestionOutcome = "answered" | "dismissed" | "cancelled";
 
-/** An observed message between agents. A null endpoint is the main agent. */
-export interface SubagentCommunication {
-  id: string;
-  fromId: string | null;
-  toId: string | null;
-  text: string;
-  at: number;
-}
-
 export interface Subagent {
   id: string;
   source?: "milagre-advisor";
@@ -524,7 +700,6 @@ export interface Subagent {
   updatedAt: number;
   endedAt?: number;
   latestActivity?: string;
-  communications?: SubagentCommunication[];
   /** The subagent's own to-do list (its TodoWrite, task tools or Codex plan), when it keeps one. */
   tasks?: AgentTask[];
   /** Running totals over its whole transcript, kept by the host (subagent-glance.mjs). */
@@ -536,7 +711,7 @@ export interface Subagent {
    */
   transcriptLength?: number;
   /**
-   * Set on an archived subagent sent as a summary, without its prompt, latest activity, communications or transcript (a
+   * Set on an archived subagent sent as a summary, without its prompt, latest activity or transcript (a
    * client that reads archived subagents on demand, see subagent-transcript.mjs); chat:subagent reads the rest.
    */
   detailsOnDemand?: true;
@@ -610,6 +785,8 @@ export type AgentEvent =
   /** Milagre's own event: the user's answers to a question were saved as their message, after the reply so far. */
   | { type: "answers-sent" }
   | { type: "subagent-update"; agent: Subagent }
+  /** Every piece of background work the agent's process runs besides its subagents, now: it replaces the last set. */
+  | { type: "background-tasks"; tasks: BackgroundTask[] }
   | { type: "subagents-waiting"; waiting: boolean }
   | { type: "tasks-updated"; tasks: AgentTask[] }
   /** Milagre's own event: a task tool changed the Chat's plan; null clears it. */
@@ -632,12 +809,23 @@ export type AgentEvent =
    * the subagent writing it, if one is. Not saved.
    */
   | { type: "step-draft"; id: string; tool: "design_show" | "design_apply"; offset: number; text: string; done?: boolean; agent?: string }
-  | { type: "step-completed"; id: string; status: "done" | "failed"; title?: string; note?: string; detail?: string; durationMs?: number; file?: string }
+  | {
+      type: "step-completed";
+      id: string;
+      status: "done" | "failed";
+      title?: string;
+      note?: string;
+      detail?: string;
+      durationMs?: number;
+      file?: string;
+      artifact?: ArtifactRef;
+      routine?: { id: string; name: string };
+    }
   | ({ type: "permission-request" } & PermissionRequest)
   | { type: "permission-resolved"; requestId: string; decision: PermissionDecision | "cancelled" }
   | ({ type: "question-request" } & QuestionRequest)
   | { type: "question-resolved"; requestId: string; outcome: QuestionOutcome }
-  | { type: "turn-completed" }
+  | { type: "turn-completed"; quiet?: boolean }
   | { type: "turn-cancelled"; quit?: boolean }
   /** `notice`: a message Milagre wrote (it names the CLI and the fix), shown as it is; otherwise it is the agent's own error. */
   | { type: "turn-failed"; message: string; notice?: boolean; login?: boolean; limit?: UsageLimit };

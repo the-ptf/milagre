@@ -125,7 +125,7 @@ function Preview({ theme, scheme }: { theme: CustomTheme; scheme: Scheme }) {
   );
 }
 
-/** The Custom theme editor, shown under its switch in Settings › Experimental. Edits select the Custom theme. */
+/** The Custom theme editor, shown under its switch in Settings › Appearance. Edits select the Custom theme. */
 export function CustomThemeSection() {
   const { colors, scheme: onScreen, settings, set } = useTheme();
   const styles = useStyles();

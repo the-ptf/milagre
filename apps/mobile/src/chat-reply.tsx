@@ -1,10 +1,11 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { Image, Pressable, Text, View, type ImageSourcePropType } from "react-native";
+import { Image, Pressable, Text, View, type ImageSourcePropType, type ViewInstance } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { router } from "expo-router";
-import { Alert02Icon, ArrowRight01Icon, Maximize01Icon } from "@hugeicons/core-free-icons";
+import { Alert02Icon, ArrowRight01Icon, Link04Icon, Maximize01Icon } from "@hugeicons/core-free-icons";
 import type { AgentRun } from "@milagre/shared/agent-runs";
-import type { ChatMessage, ChatStep } from "@milagre/shared/model";
+import type { ChatMessage, ChatStep, LinkedContext } from "@milagre/shared/model";
+import { linkedContext, linkedHeading } from "@milagre/shared/linked-message";
 import { activitySummary, replyActivity, unspokenThought } from "@milagre/shared/reply-parts";
 import { FileChip } from "./file-chip";
 import { Markdown } from "./markdown";
@@ -12,7 +13,7 @@ import { Icon } from "./icons";
 import { ActivityTitle } from "./activity-item";
 import { ToolRow } from "./tool-row";
 import { ArtifactCards, DesignFeedbackCard } from "./artifact";
-import { advisorResultLabel } from "@milagre/shared/advisor-result";
+import { AdvisorResultCard } from "./advisor-result-card";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import { AnswerCard } from "./answer-card";
 import { useToolCallDisplay } from "./chat-display-setting";
@@ -20,6 +21,7 @@ import { PullRequestActionCard } from "./pr-action-card";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { LinearIssueCard } from "./linear-issue-card";
+import { HeartbeatCard } from "./heartbeat-card";
 import { usageLimitOf } from "@milagre/shared/usage-limit";
 import { UsageLimitCard } from "./usage-limit-card";
 import { useTheme } from "./theme";
@@ -52,7 +54,7 @@ export function useMedia(source: MediaValue | null): ImageSourcePropType | null 
   return loaded?.from === pending ? loaded.value : null;
 }
 /** Measures every thumbnail first, so the viewer morphs out of the tapped one and back into whichever is showing. */
-function open(images: ViewerImage[], index: number, thumbs: (View | null)[]) {
+function open(images: ViewerImage[], index: number, thumbs: (ViewInstance | null)[]) {
   void Promise.all(
     images.map(
       (image, i) =>
@@ -77,7 +79,7 @@ function Photos({ message, media }: { message: ChatMessage; media: MediaSource }
     name: photo.name,
     source: photo.dataUrl ? { uri: photo.dataUrl } : photo.path ? media(photo.path) : { uri: "" },
   }));
-  const thumbs = useRef<(View | null)[]>([]);
+  const thumbs = useRef<(ViewInstance | null)[]>([]);
   if (!photos.length) return null;
   const single = photos.length === 1;
   return (
@@ -109,7 +111,7 @@ function Thumbnail({ source, size }: { source: MediaValue; size: number }) {
 function GeneratedImage({ step, media }: { step: ChatStep; media: MediaSource }) {
   const { colors } = useTheme();
   const [ratio, setRatio] = useState(4 / 5);
-  const thumb = useRef<View>(null);
+  const thumb = useRef<ViewInstance>(null);
   const shown = !!step.file && step.status === "done";
   const source = shown ? media(step.file!) : null;
   const ready = useMedia(source);
@@ -191,6 +193,27 @@ function ActivityRow({ steps, live, waiting, onPress }: { steps: ChatStep[]; liv
     </Pressable>
   );
 }
+/** The sender line over a message another Chat sent, as on desktop: who it's from, and a tap to open that Chat. */
+function LinkedHeader({ context, onOpenChat }: { context: LinkedContext; onOpenChat?: (chatKey: string) => void }) {
+  const { colors } = useTheme();
+  const { text, chat } = linkedHeading(context);
+  const open = chat && onOpenChat ? () => onOpenChat(chat) : undefined;
+  return (
+    <Pressable
+      accessibilityRole={open ? "link" : undefined}
+      accessibilityHint={open ? "Opens that Chat" : undefined}
+      disabled={!open}
+      onPress={open}
+      style={{ flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", maxWidth: "100%" }}
+    >
+      <Icon icon={Link04Icon} color={open ? colors.accentInk : colors.ink3} size={13} />
+      <Text numberOfLines={1} style={{ flexShrink: 1, color: open ? colors.accentInk : colors.ink3, fontSize: 12, fontWeight: "500" }}>
+        {text}
+      </Text>
+    </Pressable>
+  );
+}
+
 export const ChatReply = memo(function ChatReply({
   message,
   run,
@@ -201,8 +224,14 @@ export const ChatReply = memo(function ChatReply({
   designChoice,
   designsMoved,
   limitProjectPath,
+  highlighted = false,
+  onOpenChat,
 }: {
   message?: ChatMessage;
+  /** Opens another Chat by its key, from the sender line of a message that Chat sent. */
+  onOpenChat?: (chatKey: string) => void;
+  /** The task in Undo changes' view: its message is outlined, as on desktop. */
+  highlighted?: boolean;
   run?: AgentRun;
   onActivity: (message: string) => void;
   media: MediaSource;
@@ -222,8 +251,10 @@ export const ChatReply = memo(function ChatReply({
   const savedMedia = useCallback((path: string) => media(message?.images?.find((image) => image.sourcePath === path)?.path || path), [media, message?.images]);
   const openActivity = () => onActivity(message ? String(message.id) : "run");
   const text = run?.text ?? message?.body ?? "";
-  const steps = run?.steps ?? message?.steps ?? [];
-  const reply = replyActivity(text, steps);
+  const allSteps = run?.steps ?? message?.steps ?? [];
+  // A heartbeat_create step that set a Heartbeat shows as its card, not as one more activity row.
+  const reply = replyActivity(text, allSteps);
+  const heartbeats = reply.heartbeats;
   const waiting = !!(run?.approvals.length || run?.questions.length);
   // Feedback sent from the design sheet or canvas shows as a card, not as the text the agent reads.
   const feedback = message?.role === "user" ? parseDesignFeedback(text) : null;
@@ -232,14 +263,37 @@ export const ChatReply = memo(function ChatReply({
   // And a Chat's first message when it was started from a Linear issue.
   const issue = message?.role === "user" && isLinearIssueContext(message.context) ? message.context : null;
   // What the agent concluded only in thinking, once the turn ends or stops on a question.
-  const thought = !run || run.questions.length ? unspokenThought(text, steps) : "";
+  const thought = !run || run.questions.length ? unspokenThought(text, allSteps) : "";
   const limit = !run && message?.role === "assistant" ? usageLimitOf(message) : null;
   const advisor = typeof message?.context === "object" && message.context?.kind === "advisor-result" ? message.context : null;
+  // A message another Chat sent (a Delegation, its report, a Negotiation's agreement) carries its sender, never reads as
+  // the user's own.
+  const linked = linkedContext(message);
   if (advisor)
     return (
-      <View style={{ gap: 6, paddingVertical: 8 }}>
-        <Text style={styles.caption}>{advisorResultLabel(advisor)}</Text>
-        <Markdown text={text} />
+      <View style={{ paddingVertical: 8 }}>
+        <AdvisorResultCard context={advisor} body={text} highlighted={highlighted} media={savedMedia} basePath={basePath} />
+      </View>
+    );
+  if (message?.role === "user" && linked)
+    return (
+      <View style={{ gap: 6, paddingVertical: 4 }}>
+        <LinkedHeader context={linked} onOpenChat={onOpenChat} />
+        <View
+          style={{
+            borderWidth: 1,
+            borderColor: colors.line,
+            borderRadius: 14,
+            borderCurve: "continuous",
+            paddingVertical: 10,
+            paddingHorizontal: 14,
+            ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
+          }}
+        >
+          <Text selectable style={{ color: colors.ink, fontSize: 15, lineHeight: 22 }}>
+            {text}
+          </Text>
+        </View>
       </View>
     );
   if (message?.role === "user")
@@ -261,7 +315,16 @@ export const ChatReply = memo(function ChatReply({
           <AnswerCard answered={message.answered} />
         ) : (
           !!text && (
-            <View style={{ backgroundColor: colors.canvas, borderRadius: 18, borderCurve: "continuous", paddingVertical: 10, paddingHorizontal: 14 }}>
+            <View
+              style={{
+                backgroundColor: colors.canvas,
+                borderRadius: 18,
+                borderCurve: "continuous",
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
+              }}
+            >
               <Text selectable style={{ color: colors.ink, fontSize: 15, lineHeight: 22 }}>
                 {text}
               </Text>
@@ -272,6 +335,7 @@ export const ChatReply = memo(function ChatReply({
     );
   return (
     <View style={{ gap: 14, paddingVertical: 8 }}>
+      {linked && <LinkedHeader context={linked} onOpenChat={onOpenChat} />}
       {reply.setup.map((step) => (
         <ToolRow key={step.id} step={step} live={!!run} waiting={waiting} onPress={openActivity} />
       ))}
@@ -284,7 +348,7 @@ export const ChatReply = memo(function ChatReply({
             <Markdown key={`text-${index}`} text={entry.text} media={savedMedia} basePath={basePath} />
           ),
         )
-      ) : reply.activity.length === 1 && reply.activity[0].type === "step" ? (
+      ) : reply.activity.length === 1 && reply.activity[0]?.type === "step" ? (
         <ToolRow step={reply.activity[0].step} live={!!run} waiting={waiting} onPress={openActivity} />
       ) : (
         reply.activity.length > 0 && (
@@ -304,6 +368,10 @@ export const ChatReply = memo(function ChatReply({
       ))}
       <ArtifactCards steps={reply.artifacts} chatId={chatId} chosen={designChoice} />
       {!!reply.answer.trim() && <Markdown text={reply.answer} streaming={!!run} media={savedMedia} basePath={basePath} />}
+      {/* The reply says what the Heartbeat is for; its card follows. */}
+      {heartbeats.map((step) => (
+        <HeartbeatCard key={step.id} step={step} />
+      ))}
       {!!thought && (
         <View style={{ opacity: 0.75 }}>
           <Markdown text={thought} media={savedMedia} basePath={basePath} />
@@ -316,7 +384,7 @@ export const ChatReply = memo(function ChatReply({
           The turn failed. Review the response before trying again.
         </Text>
       )}
-      {!run && !text && !steps.length && !message?.outcome && <Text style={styles.muted}>No text response</Text>}
+      {!run && !text && !allSteps.length && !message?.outcome && <Text style={styles.muted}>No text response</Text>}
     </View>
   );
 });

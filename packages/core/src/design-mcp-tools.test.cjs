@@ -63,7 +63,14 @@ test("comment scope follows the comment's design, not the comment ID", async (t)
 test("revocation, capabilities and Designs OFF govern already cached tool calls", async (t) => {
   const { tools, revoke } = await fixture(t);
   revoke();
-  await assert.rejects(tools.design_apply.run({ id: "allowed", expectedVersion: 1, operations: [{ op: "replace", document }] }), /revoked/);
+  await assert.rejects(
+    tools.design_apply.run({
+      id: "allowed",
+      expectedVersion: 1,
+      operations: [{ op: "insert", node: { id: "box", type: "rectangle", width: 10, height: 10 } }],
+    }),
+    /revoked/,
+  );
   const readOnly = await fixture(t, "*", ["read"]);
   assert.equal(readOnly.tools.design_apply, undefined);
   assert.equal(readOnly.tools.artifact_resolve_comment, undefined);
@@ -102,7 +109,11 @@ test("composed registry rejects queued design and comment mutations after revoca
   for (const change of ["revoke", "edit"]) {
     for (const [method, name, args] of [
       ["showDesign", "design_show", { id: "allowed", title: "Changed", document, expectedVersion: 1 }],
-      ["apply", "design_apply", { id: "allowed", expectedVersion: 1, operations: [{ op: "replace", document: { ...document, width: 400 } }] }],
+      [
+        "apply",
+        "design_apply",
+        { id: "allowed", expectedVersion: 1, operations: [{ op: "insert", node: { id: "box", type: "rectangle", width: 10, height: 10 } }] },
+      ],
       ["resolveComment", "artifact_resolve_comment", { note: "Resolved" }],
     ]) {
       const directory = await fs.mkdtemp(path.join(os.tmpdir(), "design-mcp-queued-"));
@@ -167,6 +178,32 @@ test("external Designs adapter never exposes HTML artifacts or their comments", 
   assert.ok(JSON.parse(await tools.design_list.run({})).every((item) => item.format === "design"));
   assert.ok(JSON.parse(await tools.artifact_comments.run({ all: true })).every((item) => item.id !== comment.id));
   await assert.rejects(tools.design_read.run({ id: html.id }), /separate formats/);
-  await assert.rejects(tools.design_apply.run({ id: html.id, expectedVersion: html.version, operations: [{ op: "replace", document }] }), /separate formats/);
+  await assert.rejects(
+    tools.design_apply.run({
+      id: html.id,
+      expectedVersion: html.version,
+      operations: [{ op: "insert", node: { id: "box", type: "rectangle", width: 10, height: 10 } }],
+    }),
+    /separate formats/,
+  );
   await assert.rejects(tools.artifact_resolve_comment.run({ id: comment.id, note: "Do not resolve" }), /outside/);
+});
+
+// design_show and design_apply advertise open layer objects and plain color strings (chat-artifacts.cjs); the server
+// still checks every field.
+test("the slim design tool schemas still reject bad colors, unknown fields and replace", async (t) => {
+  const { tools } = await fixture(t);
+  const box = { id: "box", type: "rectangle", width: 10, height: 10 };
+  const apply = (expectedVersion, operations) => tools.design_apply.run({ id: "allowed", expectedVersion, operations });
+  assert.equal(firstLine(await apply(1, [{ op: "insert", node: box }])).version, 2);
+  await assert.rejects(apply(2, [{ op: "update", id: "box", patch: { fill: "url(evil)" } }]), /CSS color/);
+  await assert.rejects(apply(2, [{ op: "update", id: "box", patch: { fill: "$missing" } }]), /token "\$missing" does not exist/);
+  await assert.rejects(apply(2, [{ op: "update", id: "box", patch: { shadow: 4 } }]), /Unrecognized key/);
+  await assert.rejects(apply(2, [{ op: "insert", node: { ...box, id: "other", blur: 2 } }]), /Unrecognized key/);
+  await assert.rejects(apply(2, [{ op: "insert", node: { id: "other", type: "rectangle" } }]));
+  await assert.rejects(apply(2, [{ op: "replace", document }]));
+  const show = (node) => tools.design_show.run({ id: "allowed", title: "Changed", expectedVersion: 2, document: { ...document, nodes: [node] } });
+  await assert.rejects(show({ ...box, stroke: "not a color" }), /CSS color/);
+  await assert.rejects(show({ ...box, shadow: 4 }), /Unrecognized key/);
+  assert.equal(JSON.parse(await tools.design_read.run({ id: "allowed" })).version, 2, "nothing rejected was saved");
 });

@@ -29,6 +29,7 @@ test("saved computers list newest first and re-pairing replaces the same address
     hosts.map((host) => host.name),
     ["MacBook Pro (new token)", "Studio"],
   );
+  assert.ok(hosts[0] !== undefined);
   assert.equal(hosts[0].token, "b".repeat(64));
 });
 
@@ -42,7 +43,9 @@ test("the single connection saved before multiple computers is migrated", async 
   );
   await store.rename("http://127.0.0.1:8787", "Simulator host");
   assert.equal(driver.values.has("milagre.connection.v1"), false);
-  assert.equal((await store.list())[0].name, "Simulator host");
+  const [renamed] = await store.list();
+  assert.ok(renamed);
+  assert.equal(renamed.name, "Simulator host");
 });
 
 test("forget removes only that computer and waits for a pending save", async () => {
@@ -85,6 +88,7 @@ test("a damaged saved entry is dropped instead of blocking the others and new pa
   const store = createHostsStore(driver, () => 1);
   await store.save({ name: "Studio", address: "https://studio.example.com", token });
   const key = [...driver.values.keys()][0];
+  assert.ok(key !== undefined);
   driver.values.set(key, JSON.stringify([...JSON.parse(driver.values.get(key)!), { address: "ftp://bad", token: "short" }]));
   assert.deepEqual(
     (await store.list()).map((host) => host.name),
@@ -102,7 +106,9 @@ test("a Cloudflare pairing link keeps its Access token through save and list", a
   assert.deepEqual(pairing.access, access);
   const store = createHostsStore(storage(), () => 1);
   await store.save({ name: pairing.name, address: pairing.address, token: pairing.token, access: pairing.access });
-  assert.deepEqual((await store.list())[0].access, access);
+  const [saved] = await store.list();
+  assert.ok(saved);
+  assert.deepEqual(saved.access, access);
   assert.throws(
     () => parsePairing(`milagre://pair?address=${encodeURIComponent("http://127.0.0.1:8797")}&token=${token}&cfId=${access.id}&cfSecret=${access.secret}`),
     /HTTPS/,
@@ -163,7 +169,9 @@ test("address and relay computers coexist, and rename and forget work on either"
     ],
   );
   await store.rename(relay.id, "Office");
-  assert.equal((await store.list())[0].name, "Office");
+  const [renamed] = await store.list();
+  assert.ok(renamed);
+  assert.equal(renamed.name, "Office");
   await store.forget(relay.id);
   assert.deepEqual(
     (await store.list()).map((host) => host.id),
@@ -171,6 +179,7 @@ test("address and relay computers coexist, and rename and forget work on either"
   );
   // A damaged relay entry is dropped like any other.
   const stored = [...driver.values.keys()][0];
+  assert.ok(stored !== undefined);
   driver.values.set(
     stored,
     JSON.stringify([
@@ -190,17 +199,24 @@ test("learn saves a LAN route on that computer, and a re-pairing keeps it until 
   const store = createHostsStore(storage());
   const saved = await store.save({ name: "Mac", address: "https://mac.example.com", token });
   await store.learn(saved.id, lan);
-  assert.deepEqual((await store.list())[0].routes, { lan });
+  const [learned] = await store.list();
+  assert.ok(learned);
+  assert.deepEqual(learned.routes, { lan });
   await store.save({ name: "Mac", address: "https://mac.example.com", token: "b".repeat(64) });
-  assert.deepEqual((await store.list())[0].routes, { lan });
+  const [repaired] = await store.list();
+  assert.ok(repaired);
+  assert.deepEqual(repaired.routes, { lan });
   await store.learn(saved.id, undefined);
-  assert.equal((await store.list())[0].routes, undefined);
+  const [forgottenRoute] = await store.list();
+  assert.ok(forgottenRoute);
+  assert.equal(forgottenRoute.routes, undefined);
 });
 
 test("a damaged LAN route is dropped, the computer is kept", async () => {
   const driver = storage();
   driver.values.set("milagre.hosts.v1", JSON.stringify([{ name: "Mac", address: "https://mac.example.com", token, routes: { lan: { hostId: "bad" } } }]));
   const [host] = await createHostsStore(driver).list();
+  assert.ok(host !== undefined);
   assert.equal(host.address, "https://mac.example.com");
   assert.equal(host.routes, undefined);
 });

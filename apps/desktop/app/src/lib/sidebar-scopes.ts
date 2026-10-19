@@ -1,11 +1,13 @@
 import { bridgeForKey } from "./computer-bridge.ts";
 import { useCallback, useEffect, useState } from "react";
-import type { CoordinatorState, LinkState, OpenProject } from "@milagre/shared/model";
+import type { CoordinatorState, LinkState, OpenProject, Routine } from "@milagre/shared/model";
+import { clock, triggerText } from "@milagre/shared/routines";
 import type { AgentRuns } from "@milagre/shared/agent-runs";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { isListedChat } from "@milagre/shared/chats";
 import { stateEvents } from "./state-events.ts";
 import { chatSummary } from "@milagre/shared/chat-summary";
+import { chatActivity } from "@milagre/shared/chat-activity";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
 import { chatMark, chatTitle, orderChats, type ChatOrder } from "./chat-list.ts";
 
@@ -65,7 +67,9 @@ export type RailStatus = "attention" | "running" | "idle";
 
 /** The chats with a turn under way or waiting on the user, and what the scope's icon shows for them. */
 export function railLive(rows: readonly SidebarRecent[]): { status: RailStatus; chats: SidebarRecent[] } {
-  const chats = rows.filter((row) => row.mark === "question" || row.mark === "waiting" || row.mark === "delegated" || row.mark === "running");
+  const chats = rows.filter(
+    (row) => row.mark === "question" || row.mark === "waiting" || row.mark === "delegated" || row.mark === "running" || row.mark === "background",
+  );
   const attention = chats.some((row) => row.mark === "question" || row.mark === "waiting");
   return { status: attention ? "attention" : chats.length ? "running" : "idle", chats };
 }
@@ -95,13 +99,23 @@ export function scopeChats(
   return orderChats(listed, order).map(({ session, sessionMessages }) => {
     const worktree = "worktree_id" in session && "worktrees" in state ? state.worktrees[session.worktree_id] : undefined;
     const chatKey = `${key}#${session.id}`;
+    // A Chat with no run here can still have background agents at work (chat-activity.mjs); its last outcome decides first.
+    const { activity, background } = chatActivity(session, undefined, chatSummary(session, sessionMessages).lastOutcome);
+    const inBackground = !running.has(chatKey) && activity === "background";
     return {
       id: String(session.id),
       label: chatTitle(session, sessionMessages),
       pinned: Boolean(session.pinned),
       pinOrder: session.pin_order,
       unread: Boolean(session.unread),
-      mark: chatMark({ asking: asking.has(chatKey), waiting: waiting.has(chatKey), running: running.has(chatKey), unread: Boolean(session.unread) }),
+      mark: chatMark({
+        asking: asking.has(chatKey),
+        waiting: waiting.has(chatKey),
+        running: running.has(chatKey),
+        background: inBackground,
+        unread: Boolean(session.unread),
+      }),
+      ...(inBackground ? { background } : {}),
       ...("worktrees" in session ? { worktreeCount: session.worktrees.length } : {}),
       details: {
         ...rememberedFor(key, String(session.id), worktree?.path),
@@ -173,14 +187,18 @@ export function useScopeStates(enabled: boolean, keys: string[]) {
     for (const key of joined.split("\n")) {
       if (requestedKeys.has(key)) continue;
       requestedKeys.add(key);
+      const beforeRead = scopeStateCache[key];
       const bridge = bridgeForKey(key);
       const read = isLinkScopeKey(key) ? bridge.readLink(key.slice("milagre-link:".length)) : bridge.readProject(key);
       read.then(
         (opened) => {
           if (!opened.state?.sessions) return;
-          if (!isLinkScopeKey(key)) projectCopies.set(key, opened as OpenProject);
-          scopeStateCache[key] = opened.state;
-          for (const listener of readListeners) listener(key, opened.state);
+          // A live update can arrive before a slow read answers, especially from another computer. Keep that
+          // newer state, so the old snapshot doesn't undo pin settings or move the rows back.
+          const state = scopeStateCache[key] !== beforeRead ? scopeStateCache[key] : opened.state;
+          if (!isLinkScopeKey(key)) projectCopies.set(key, { ...opened, state } as OpenProject);
+          scopeStateCache[key] = state;
+          for (const listener of readListeners) listener(key, state);
         },
         () => {
           requestedKeys.delete(key);
@@ -200,4 +218,44 @@ export function useScopeStates(enabled: boolean, keys: string[]) {
   }, []);
 
   return { states, failed, retry };
+}
+
+/**
+ * The Chats enabled heartbeats check back on, one line each: the chat key, a tab, then the row's hover-card line
+ * ("Heartbeat · every 15 min · next 10:45"). A string, like runKeys, so the sidebar's memo sees a change only when it changes.
+ */
+export function heartbeatKeys(routines: readonly Routine[]): string {
+  return routines
+    .flatMap((routine) => {
+      if (!routine.enabled || routine.target.kind !== "chat") return [];
+      const next = typeof routine.nextRunAt === "number" ? ` · next ${clock(routine.nextRunAt)}` : "";
+      return [`${routine.target.chatId}\tHeartbeat · ${triggerText(routine.trigger)}${next}`];
+    })
+    .join("\n");
+}
+
+/** heartbeatKeys read back: chat key to its hover-card line. */
+export function heartbeatLines(keys: string): Map<string, string> {
+  return new Map(
+    keys
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const tab = line.indexOf("\t");
+        return tab === -1 ? [line, "Heartbeat"] : [line.slice(0, tab), line.slice(tab + 1)];
+      }),
+  );
+}
+
+/** A scope's rows with the heartbeat line on each Chat that has one; the rest (and the list, when none has) stay as they are. */
+export function withHeartbeats<T extends SidebarRecent>(scopeKey: string, rows: T[], lines: Map<string, string>): T[] {
+  if (lines.size === 0) return rows;
+  let changed = false;
+  const marked = rows.map((row) => {
+    const heartbeat = lines.get(`${scopeKey}#${row.id}`);
+    if (heartbeat === row.heartbeat) return row;
+    changed = true;
+    return { ...row, heartbeat };
+  });
+  return changed ? marked : rows;
 }

@@ -10,6 +10,8 @@ This preview connects an Expo mobile app to the Node daemon on your Mac. It grou
 
 Your Mac runs the agents and must stay awake and online. Desktop and phone share the same daemon, Chats and Worktrees. By default, the daemon uses the public encrypted relay at `relay.milagre.cloud`; no Cloudflare account or tunnel is needed. A configured named Cloudflare tunnel remains supported.
 
+Repository-provided Worktree setup commands pause for review on desktop or phone, even with Full permissions. **Run once**, **Trust this version** and **Skip setup** have the same [scope and behavior on both clients](desktop-guide.md#permission-modes). Reconnecting the phone restores a pending review.
+
 For the Ultracode announcer, enable **Settings > Experimental > Ultracode Fatality**, then turn on **Ultracode** in a Chat's model sheet. The phone plays the same clip as desktop at the same volume. It respects the phone's silent switch and stops when the overlay closes.
 
 The pairing code grants access to your agents. Keep it private. New phones can pair for 10 minutes after the code is shown; existing paired phones continue to work. **Reset access** forgets paired phones and creates a new token.
@@ -128,6 +130,8 @@ Then start the host with `npm run mobile:host -- --cloudflare --desktop` and sca
 
 For a named Cloudflare tunnel, TLS ends at Cloudflare's edge and Cloudflare can see the traffic. The default public relay forwards encrypted frames and cannot read Chat traffic.
 
+Webhook Routines are the exception: their payloads are not end-to-end encrypted. A webhook Routine's URL (`https://relay.milagre.cloud/hook/<secret>`) is public so services such as Sentry can POST to it. The relay stores each delivery (body, headers and query, up to 256 KiB) before it answers 202, forwards it over the Mac's relay connection, and deletes it once the Mac acknowledges it. A Mac that is offline gets the delivery when it reconnects; the relay holds it for up to 24 hours, then deletes it unread. The relay never sees the optional signing secret: the Mac checks signatures. On the Mac, a payload waits in `routine-hooks.json` (readable only by you) until its Run's first message is sent, and goes at once when its Routine is gone, its signature doesn't match, or it is a repeat of one already handled. One whose Run fails goes too; anything left over is deleted after 48 hours. While any webhook Routine is on, the daemon keeps its relay connection open even with phone access off. Rotating the URL in the Routines form stops the old one at once. After Reset access, the Mac keeps the old relay identity only to collect the webhook deliveries the relay still holds for it, whether phone access is on or off, and drops it once that room is empty or after 25 hours.
+
 ## Connect through your own HTTPS endpoint
 
 Use an HTTPS endpoint from your own reverse proxy, VPN or configured tunnel. It must forward to the loopback bridge and rewrite the Host header to that bridge's address. For an already configured ngrok account:
@@ -160,7 +164,7 @@ CI=1 npx expo prebuild --platform ios --clean
 CI=1 npx expo run:ios --configuration Release --device generic --output /tmp/milagre-mobile-release --no-bundler
 ```
 
-The clean prebuild regenerates only the ignored iOS project. App config enables the [Expo 57 scene lifecycle](https://github.com/expo/fyi/blob/main/ios-scene-lifecycle.md#staying-on-sdk-57-with-xcode-27) needed to launch Xcode 27 builds on iOS 27. Keep native configuration in app config so it survives regeneration.
+The clean prebuild regenerates only the ignored iOS project. Expo 58 generates the `SceneDelegate` that Xcode 27 builds need to launch on iOS 27, so app config no longer opts into it. Keep native configuration in app config so it survives regeneration.
 
 This generates the ignored native project and produces `/tmp/milagre-mobile-release/MilagreLocal.app`. Install that app on the chosen iOS simulator and launch **Milagre Local**. Metro and Expo Go are not needed. Run `mobile:host`, enter its connection, and keep that host running. A physical-device build needs signing and a reachable HTTPS host; this simulator artifact cannot be installed on a phone.
 

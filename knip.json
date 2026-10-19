@@ -22,8 +22,7 @@
     },
     "apps/mobile": {
       "entry": ["src/app/**/*.tsx", "src/*.test.ts", "fingerprint.config.cjs"],
-      "project": ["src/**"],
-      "ignoreDependencies": ["expo-system-ui"]
+      "project": ["src/**"]
     },
     "apps/site": {
       "entry": ["worker/worker.ts", "worker/*.test.mjs"],
@@ -45,7 +44,7 @@
       "project": ["src/**"]
     }
   },
-  "ignoreDependencies": ["@semantic-release/*"],
+  "ignoreDependencies": [],
   "ignoreBinaries": [],
   "ignoreIssues": {
     "apps/mobile/src/update-sheet.tsx": ["exports"],

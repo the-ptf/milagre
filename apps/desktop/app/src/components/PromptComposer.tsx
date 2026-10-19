@@ -1,4 +1,5 @@
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
+import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ComponentProps, KeyboardEvent } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -11,6 +12,7 @@ import { PickerPanel, PickerRow } from "./primitives/Picker";
 import { ModelPicker } from "./ModelPicker";
 import { UltracodeFatality } from "./UltracodeFatality";
 import { useDismiss } from "../lib/use-dismiss";
+import { composerLayout, type CompactOverflow } from "../lib/composer-layout";
 import { useSettings } from "../lib/settings";
 import { ProviderLogo } from "./ProviderLogo";
 import { Attachments } from "./Attachments";
@@ -37,6 +39,8 @@ const SOURCES: Source[] = [
   { key: "attach", name: "Add files", desc: "Choose files from your computer", icon: Attachment01Icon },
   { key: "paste", name: "Paste image", desc: "Attach an image from the clipboard", icon: ClipboardPasteIcon },
 ];
+
+const UNDO_COMMAND = { key: "undo", name: "/undo", desc: "Undo a task's file changes" };
 
 const COMMANDS = [
   { key: "summarize", name: "/summarize", desc: "Digest the thread so far" },
@@ -86,6 +90,8 @@ interface PromptComposerProps {
   alwaysExpanded?: boolean;
   /** How full the agent's context window is, shown as a ring beside Send. */
   contextUsage?: ContextUsage;
+  /** The Chat is saved: `/undo` is offered, and sending it opens Undo changes instead of reaching the agent. */
+  canUndo?: boolean;
 }
 
 const NO_HISTORY: string[] = [];
@@ -145,6 +151,7 @@ export function PromptComposer({
   permissionLocked = false,
   alwaysExpanded = false,
   contextUsage,
+  canUndo = false,
 }: PromptComposerProps) {
   const [dismissed, setDismissed] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
@@ -181,6 +188,7 @@ export function PromptComposer({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const compactWidthRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const overflowRef = useRef<CompactOverflow>(null);
   const popoverRootRef = useRef<HTMLDivElement>(null);
   const [anchor, setAnchor] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number; below: boolean; alignRight: boolean }>({
     left: 0,
@@ -216,10 +224,12 @@ export function PromptComposer({
       })),
   );
   const commands: MenuRow[] = [
-    ...COMMANDS.filter((command) => !skills.some((skill) => skill.name.toLowerCase() === command.key)).map((command) => ({
-      ...command,
-      group: "Milagre skills",
-    })),
+    ...[...(canUndo ? [UNDO_COMMAND] : []), ...COMMANDS]
+      .filter((command) => !skills.some((skill) => skill.name.toLowerCase() === command.key))
+      .map((command) => ({
+        ...command,
+        group: "Milagre skills",
+      })),
     ...skillRows,
   ];
   const skillParts = promptSkillParts(
@@ -261,25 +271,22 @@ export function PromptComposer({
     input.style.height = `${Math.min(Math.max(contentHeight, 28), 100)}px`;
     input.style.overflowY = contentHeight > 100 ? "auto" : "hidden";
     if (!expanded) compactWidthRef.current = input.clientWidth;
-    let needsFullWidth = alwaysExpanded || draft.includes("\n");
-    if (!needsFullWidth && expanded && draft.length > 0) {
-      // Measure only short drafts when deciding whether the compact layout fits again.
-      // The compact textarea's own scrollHeight detects wrapping as the user types.
-      if (draft.length > 200 || !compactWidthRef.current) needsFullWidth = true;
-      else {
-        const canvas = (canvasRef.current ??= document.createElement("canvas"));
-        const context = canvas.getContext("2d");
-        if (context) {
-          context.font = `13px ${getComputedStyle(input).fontFamily}`;
-          needsFullWidth = context.measureText(draft).width + 8 > compactWidthRef.current;
-        }
-      }
-    } else if (!needsFullWidth && !expanded) {
-      // An empty draft never expands: the expanded branch collapses it again, so a placeholder that wraps
-      // in a narrow composer would flip the layout forever.
-      needsFullWidth = draft.length > 0 && contentHeight > 28;
-    }
-    if (needsFullWidth !== expanded) setExpanded(needsFullWidth);
+    const next = composerLayout({
+      draft,
+      expanded,
+      alwaysExpanded,
+      contentHeight,
+      compactWidth: compactWidthRef.current,
+      overflow: overflowRef.current,
+      measure: (text) => {
+        const context = (canvasRef.current ??= document.createElement("canvas")).getContext("2d");
+        if (!context) return null;
+        context.font = `13px ${getComputedStyle(input).fontFamily}`;
+        return context.measureText(text).width;
+      },
+    });
+    overflowRef.current = next.overflow;
+    if (next.expanded !== expanded) setExpanded(next.expanded);
   }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded]);
 
   // Any press outside the open picker closes it, including the prompt field and the rest of the composer.
@@ -523,7 +530,7 @@ export function PromptComposer({
                   </p>
                   {onUpdateCli &&
                     (cliStatus?.[provider]?.state === "outdated" ||
-                      (provider === "antigravity" && ["missing", "broken"].includes(cliStatus?.[provider]?.state ?? ""))) && (
+                      (providerCapabilities(provider).managedInstall && ["missing", "broken"].includes(cliStatus?.[provider]?.state ?? ""))) && (
                       <div className="flex items-center justify-end pt-0.5">
                         <button
                           type="button"
@@ -623,19 +630,6 @@ export function PromptComposer({
           <div
             className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"}`}
           >
-            <button
-              type="button"
-              aria-label="Add attachments and sources"
-              aria-expanded={plusOpen}
-              onClick={() => {
-                setModelOpen(false);
-                setPlusOpen((current) => !current);
-                inputRef.current?.focus();
-              }}
-              className={`flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
-            >
-              <Icon icon={Add01Icon} size={16} />
-            </button>
             <div className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"}`}>
               {hasSkill && (
                 <PromptHighlights
@@ -661,16 +655,29 @@ export function PromptComposer({
                 disabled={Boolean(offlineName)}
                 placeholder={
                   (running
-                    ? // Antigravity can't be steered mid-turn (ACP has no steering); a message waits for the next turn.
-                      provider === "antigravity"
-                      ? "Queue a message for the next turn…"
-                      : "Steer the agent…"
+                    ? // A provider that can't steer mid-turn takes the message at the start of the next turn.
+                      providerCapabilities(provider).steer
+                      ? "Steer the agent…"
+                      : "Queue a message for the next turn…"
                     : "Prompt or mention a file with @") + (offlineName ? offlinePlaceholder(offlineName) : "")
                 }
                 aria-label="Prompt"
                 className={`${inputTextClass} ${expanded ? "" : "placeholder-shown:whitespace-nowrap placeholder:truncate"} ${hasSkill ? "prompt-input-highlighted" : "text-ink"} relative block min-w-0 w-full resize-none overflow-hidden bg-transparent caret-ink outline-none [overflow-wrap:anywhere] placeholder:text-ink-3`}
               />
             </div>
+            <button
+              type="button"
+              aria-label="Add attachments and sources"
+              aria-expanded={plusOpen}
+              onClick={() => {
+                setModelOpen(false);
+                setPlusOpen((current) => !current);
+                inputRef.current?.focus();
+              }}
+              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"} flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
+            >
+              <Icon icon={Add01Icon} size={16} />
+            </button>
             <div className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"}`}>
               <button
                 type="button"

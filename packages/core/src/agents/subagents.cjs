@@ -1,6 +1,5 @@
 // Provider-owned children have their own lifecycle; a launch tool finishing is not a child finishing.
 const { capOutput, claudeStep, codexStep } = require("./steps.cjs");
-const { createHash } = require("node:crypto");
 const { subagentActive: active } = require("@milagre/shared/agent-runs");
 const { addProgress } = require("@milagre/shared/subagent-glance");
 const { applyToolResult, applyToolUse, codexPlanTasks } = require("./tasks.cjs");
@@ -30,17 +29,6 @@ const textContent = (content) =>
         .map((b) => b.text ?? b.content ?? "")
         .filter((v) => typeof v === "string")
         .join("\n");
-// Keep a small, deduplicated history. Polling the same provider item must not replay a message.
-function communicate(state, ownerId, id, fromId, toId, text) {
-  const agent = state.subagents?.get(ownerId);
-  if (!agent || !text) return [];
-  // Retain seen IDs beyond the visible history cap so polling older items cannot replay them.
-  state.subagentCommunicationIds ??= new Set();
-  if (state.subagentCommunicationIds.has(id) || agent.communications?.some((entry) => entry.id === id)) return [];
-  state.subagentCommunicationIds.add(id);
-  const communication = { id, fromId, toId, text: capOutput(text), at: Date.now() };
-  return [update(state, ownerId, { communications: [...(agent.communications ?? []), communication].slice(-20) })];
-}
 // A subagent's own to-do list, as the chat's (tasks.cjs), kept per subagent. TaskCreate and TaskList wait for their
 // result, which holds the ids, so those calls are held until it comes.
 const TASK_TOOLS = new Set(["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"]);
@@ -65,10 +53,6 @@ function subagentTasksResult(state, block, structured) {
   const tasks = applyToolResult(state.subagentTasks.get(held.agentId), held.call, block, structured);
   return tasks ? [update(state, held.agentId, { tasks })] : [];
 }
-function claudeRecipient(state, recipient) {
-  const id = state.subagents?.has(recipient) ? recipient : (state.taskAgents?.get(recipient) ?? state.subagentNames?.get(recipient));
-  return state.subagents?.has(id) ? id : undefined;
-}
 function claudeSubagents(message, state) {
   const events = [];
   const parent = message.parent_tool_use_id;
@@ -91,20 +75,6 @@ function claudeSubagents(message, state) {
             ...(background ? { background: true } : {}),
           }),
         );
-        if (block.input?.name) {
-          state.subagentNames ??= new Map();
-          state.subagentNames.set(block.input.name, block.id);
-        }
-        events.push(...communicate(state, block.id, `task:${block.id}`, parent ?? null, block.id, block.input?.prompt));
-      }
-      if (block.type === "tool_use" && block.name === "SendMessage" && (!parent || state.subagents?.has(parent))) {
-        const input = block.input ?? {};
-        const text = input.message ?? input.content;
-        const toId = claudeRecipient(state, input.to ?? input.recipient);
-        if ((!input.type || input.type === "message") && toId && typeof text === "string" && text) {
-          state.subagentMessages ??= new Map();
-          state.subagentMessages.set(block.id, { fromId: parent ?? null, toId, text });
-        }
       }
       // A subagent's to-do list calls change its list, not its transcript: the panel shows the list itself.
       if (parent && state.subagents?.has(parent) && block.type === "tool_use" && TASK_TOOLS.has(block.name)) {
@@ -133,12 +103,6 @@ function claudeSubagents(message, state) {
   if (message.type === "user" && Array.isArray(content)) {
     for (const block of content) {
       if (block.type !== "tool_result") continue;
-      const sent = state.subagentMessages?.get(block.tool_use_id);
-      if (sent) {
-        state.subagentMessages.delete(block.tool_use_id);
-        if (!block.is_error && message.tool_use_result?.success !== false)
-          events.push(...communicate(state, sent.toId, `send:${block.tool_use_id}`, sent.fromId, sent.toId, sent.text));
-      }
       if (state.subagents?.has(block.tool_use_id)) {
         if (!parent) {
           state.foregroundChildren?.delete(block.tool_use_id);
@@ -153,16 +117,6 @@ function claudeSubagents(message, state) {
               { id: "result", kind: "message", text: textContent(block.content) },
             ),
           );
-          events.push(
-            ...communicate(
-              state,
-              block.tool_use_id,
-              `result:${block.tool_use_id}`,
-              block.tool_use_id,
-              state.subagents.get(block.tool_use_id).parentId ?? null,
-              textContent(block.content),
-            ),
-          );
         }
       }
       if (parent && state.subagents?.has(parent)) {
@@ -175,6 +129,8 @@ function claudeSubagents(message, state) {
       }
     }
   }
+  if (message.type === "system" && message.subtype === "background_tasks_changed" && Array.isArray(message.tasks))
+    events.push(...backgroundTasks(state, message.tasks));
   if (message.type === "system" && message.subtype?.startsWith("task_")) {
     state.taskAgents ??= new Map();
     let id = state.taskAgents.get(message.task_id) ?? message.tool_use_id;
@@ -190,6 +146,8 @@ function claudeSubagents(message, state) {
       patch.latestActivity = message.summary;
     }
     if (message.subtype === "task_updated") {
+      // The chat's own agent moved to the background: its result wakes the chat later, as a background Agent's does.
+      if (message.patch.is_backgrounded && !state.subagents?.get(id)?.parentId) patch.background = true;
       if (message.patch.status)
         patch.status =
           { pending: "initializing", running: "running", completed: "completed", failed: "failed", killed: "cancelled", paused: "waiting" }[
@@ -198,10 +156,6 @@ function claudeSubagents(message, state) {
       if (message.patch.description) patch.title = message.patch.description;
     }
     events.push(update(state, id, patch, message.summary ? { id: "summary", kind: "message", text: message.summary } : undefined));
-    if (message.subtype === "task_notification")
-      events.push(
-        ...communicate(state, id, `notification:${message.task_id}:${message.status}`, id, state.subagents.get(id).parentId ?? null, message.summary),
-      );
   }
   return events;
 }
@@ -237,7 +191,6 @@ function codexSubagents(method, params, state) {
         state.subagentRecheckUntil ??= new Map();
         state.subagentRecheckUntil.set(toId, Date.now() + 10_000);
       }
-      events.push(...communicate(state, owner, id, sender, toId, "Message sent"));
     } else if (target && target !== state.threadId) {
       state.subagentActivityIds.add(id);
       const status = { started: "running", interrupted: "cancelled", completed: "completed" }[item.kind];
@@ -263,12 +216,7 @@ function codexSubagents(method, params, state) {
   }
   if (item?.type === "collabAgentToolCall" && ["item/started", "item/completed"].includes(method)) {
     for (const id of item.receiverThreadIds ?? []) {
-      const sender = foreign ? params.threadId : null;
-      if (id === state.threadId) {
-        if (foreign && method === "item/completed" && item.status !== "failed" && item.tool === "sendInput")
-          events.push(...communicate(state, sender, `${item.id}:${id}`, sender, null, item.prompt));
-        continue;
-      }
+      if (id === state.threadId) continue;
       const status = item.agentsStates?.[id];
       if (!state.subagents?.has(id) && !status && item.tool !== "spawnAgent") continue;
       const patch = {
@@ -277,16 +225,6 @@ function codexSubagents(method, params, state) {
         ...(status ? { status: codexStatus(status.status) } : {}),
       };
       events.push(update(state, id, patch, status?.message ? { id: "result", kind: "message", text: status.message } : undefined));
-      if (method === "item/completed" && item.status !== "failed") {
-        if (["spawnAgent", "sendInput"].includes(item.tool)) events.push(...communicate(state, id, `${item.id}:${id}`, sender, id, item.prompt));
-        if (status?.message) {
-          // agentsStates is a snapshot: another wait call can report the same reply again.
-          const resultId = createHash("sha256")
-            .update(JSON.stringify([id, sender, status.status, status.message]))
-            .digest("hex");
-          events.push(...communicate(state, id, `reply:${resultId}`, id, sender, status.message));
-        }
-      }
     }
     if (!foreign && item.tool === "wait") events.push({ type: "subagents-waiting", waiting: method === "item/started" });
   }
@@ -327,7 +265,35 @@ function codexSubagents(method, params, state) {
     );
   return events;
 }
-function settleSubagents(state, status) {
-  return [...(state.subagents?.values() ?? [])].filter(active).map((agent) => update(state, agent.id, { status }));
+/**
+ * Claude Code's set of live background tasks, sent whole on every change (background_tasks_changed), so a missed start
+ * or end can't leave one stuck. Agents are followed as subagents; this keeps the rest: commands run in the background,
+ * MCP tasks, workflows. Ambient watchers aren't work. An event only when the set changed.
+ */
+function backgroundTasks(state, tasks) {
+  const seen = state.backgroundTaskStarts ?? new Map();
+  const time = Date.now();
+  const next = tasks
+    .filter((task) => task && typeof task.task_id === "string" && !task.ambient && task.task_type !== "local_agent")
+    .slice(0, 50)
+    .map((task) => ({
+      id: task.task_id,
+      kind: typeof task.task_type === "string" ? task.task_type : "task",
+      title: (typeof task.description === "string" && task.description.trim().slice(0, 200)) || "Background task",
+      startedAt: seen.get(task.task_id) ?? time,
+    }))
+    // In a steady order, so the same set in another order is no change.
+    .sort((a, b) => a.startedAt - b.startedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  state.backgroundTaskStarts = new Map(next.map((task) => [task.id, task.startedAt]));
+  const key = JSON.stringify(next);
+  if (key === (state.backgroundTasksKey ?? "[]")) return [];
+  state.backgroundTasksKey = key;
+  return [{ type: "background-tasks", tasks: next }];
 }
-module.exports = { claudeSubagents, codexSubagents, settleSubagents, active, update, communicate };
+
+/** A session that ends leaves no subagent running and no background task: its process took them with it. */
+function settleSubagents(state, status) {
+  const events = [...(state.subagents?.values() ?? [])].filter(active).map((agent) => update(state, agent.id, { status }));
+  return [...events, ...backgroundTasks(state, [])];
+}
+module.exports = { claudeSubagents, codexSubagents, settleSubagents, active, update };

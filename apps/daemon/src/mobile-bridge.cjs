@@ -47,11 +47,25 @@ const METHODS = new Set([
   "linear:move-to-started:save",
   "limits:auto-switch:read",
   "limits:auto-switch:save",
+  "routines:enabled:read",
+  "routines:enabled:save",
+  "routines:list",
+  "routines:update",
+  "routines:delete",
+  "routines:run-now",
+  "routines:create",
+  "routines:targets",
+  "routines:linear-options",
+  "routines:hook",
+  "routines:rotate-hook",
   "linear:issues",
   "linear:worktree-issues",
   "chat:runs",
   "chat:inbox",
   "chat:ports",
+  "checkpoint:list",
+  "checkpoint:preview",
+  "checkpoint:restore",
   "agent:stop-port",
   "simulator:list",
   "simulator:attach",
@@ -106,6 +120,8 @@ const METHODS = new Set([
   "chat:resume",
   "chat:limit-switch",
   "chat:reload",
+  "chat:queue-send",
+  "chat:queue-remove",
   "agent:interrupt",
   "advisor:stop",
   "advisor:retry",
@@ -520,6 +536,7 @@ async function startMobileBridge({
       if (entry.kinds.has("mcp")) types.push("mcp");
       if (entry.kinds.has("designs")) types.push("designs");
       if (entry.kinds.has("links")) types.push("links");
+      if (entry.kinds.has("routines")) types.push("routines");
       if (entry.kinds.has("project")) types.push("project");
       else if (entry.kinds.has("runs")) types.push("runs");
       entry.kinds.clear();
@@ -568,6 +585,9 @@ async function startMobileBridge({
       if (channel === "accounts:changed" && !confine) signal(entry, "accounts", 0);
       if (channel === "mcp:changed" && !confine) signal(entry, "mcp", 0);
       if (channel === "designs:enabled-changed") signal(entry, "designs", 0);
+      // Every socket is told, a confined phone's Project socket included: it is the only one such a phone may open (a
+      // Project-less socket is refused), so the phone's Routines screen reads on focus instead of on this signal.
+      if (channel === "routines:changed") signal(entry, "routines", 0);
       // A Link made or removed anywhere (canvas, sidebar, another phone): the phone reads canvas:links again. A confined
       // phone is refused canvas:links, so it isn't told.
       if (channel === "canvas:links-changed" && !confine) signal(entry, "links", 0);

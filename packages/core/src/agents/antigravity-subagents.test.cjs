@@ -111,13 +111,6 @@ test("two parallel children: titles, prompts, their own commands, results and th
   assert.equal(b.transcript.find((row) => row.id === "result").text, "File b: hello from b.");
   // The child's commands are its rows, not the parent's steps.
   assert.match(a.transcript.find((row) => row.id === `${A}:2`).text, /^Ran `sleep 6; cat a.txt`\n\$ sleep 6; cat a.txt\nFile a: hello from a\./);
-  assert.deepEqual(
-    a.communications.map((entry) => [entry.id, entry.fromId, entry.toId]),
-    [
-      [`task:${A}`, null, A],
-      [`result:${A}`, A, null],
-    ],
-  );
   const stepIds = run.steps().map((step) => step.id);
   assert.deepEqual(stepIds, [`${run.session.state.sessionId}:1`]);
   const retitle = run.events.find((event) => event.type === "step-completed" && event.title);
@@ -301,10 +294,6 @@ test("recovery finishes the child whose report the parent holds and leaves the o
   assert.equal(agent.latestActivity, "Finished");
   assert.equal(agent.transcript.find((row) => row.id === "result").text, "File a: hello from a.");
   assert.ok(agent.updatedAt >= 100 && agent.endedAt >= agent.updatedAt - 1);
-  assert.deepEqual(
-    agent.communications.map((entry) => [entry.id, entry.fromId, entry.toId, entry.text]),
-    [[`result:${A}`, A, null, "File a: hello from a."]],
-  );
 });
 
 test("recovery falls back to the child's own send_message, and skips archived, known and the parent's own entries", (t) => {

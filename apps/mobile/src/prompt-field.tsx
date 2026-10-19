@@ -22,17 +22,23 @@ export function PromptField({
   draft,
   onChangeText,
   onImagePaste,
+  commands,
+  placeholder = "Message the agent",
 }: {
   client: Client;
   projectPath: string;
   draft: string;
   onChangeText: (value: string) => void;
   onImagePaste?: (image: PastedImage) => void;
+  /** Milagre's own slash commands, offered with the skills: `/undo` in a saved Chat. */
+  commands?: { name: string; description: string }[];
+  placeholder?: string;
 }) {
   const { colors } = useTheme();
   const paste = useImagePaste(onImagePaste);
   const { data, loading, error, refresh } = useRpc<SkillCatalog>(projectPath ? client : null, "skills:list", [projectPath]);
-  const skills = data?.skills;
+  const skillList = data?.skills;
+  const skills = useMemo(() => (commands?.length ? [...commands, ...(skillList ?? [])] : skillList), [commands, skillList]);
   const parts = useMemo(
     () =>
       promptSkillParts(
@@ -67,7 +73,7 @@ export function PromptField({
     if (!query) return;
     const command = `/${name}`;
     const suffix = draft.slice(query.end);
-    const [, punctuation, whitespace] = /^([.,!?;:()[\]{}]*)(\s?)/.exec(suffix)!;
+    const [, punctuation = "", whitespace = ""] = /^([.,!?;:()[\]{}]*)(\s?)/.exec(suffix) ?? [];
     const gap = whitespace || " ";
     const next = `${draft.slice(0, query.start)}${command}${punctuation}${gap}${suffix.slice(punctuation.length + whitespace.length)}`;
     const caret = query.start + command.length + punctuation.length + gap.length;
@@ -105,7 +111,7 @@ export function PromptField({
         {...paste}
         label="Message"
         hideLabel
-        placeholder="Message the agent"
+        placeholder={placeholder}
         multiline
         autoCorrect
         spellCheck

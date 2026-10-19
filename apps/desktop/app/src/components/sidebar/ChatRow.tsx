@@ -1,3 +1,4 @@
+import { linkChatWorktreesLabel } from "@milagre/shared/worktree-link";
 import { ChatTitle } from "./ChatTitle";
 import { issueChipLabel, LINK_PR_HINT, type LinearIssue } from "@milagre/shared/linear";
 import { LinearLogo } from "../ProviderLogo";
@@ -37,6 +38,7 @@ import {
   PencilEdit02Icon,
   PinIcon,
   PinOffIcon,
+  Pulse01Icon,
   Refresh01Icon,
   ShieldAlertIcon,
   SourceCodeIcon,
@@ -57,6 +59,7 @@ import { BLOCKERS, pullRequestBlockers, pullRequestPresentation } from "@/lib/pr
 import { ScrollArea } from "../primitives/ScrollArea";
 import { useDismiss } from "../../lib/use-dismiss";
 import { chatMarkTone } from "@milagre/shared/chats";
+import { backgroundLabel } from "@milagre/shared/chat-activity";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { activityAgo, DESKTOP_CHAT_ROW_SHOW, type ChatRowShow } from "@milagre/shared/chat-row";
 import type { BotMark } from "@/lib/bot-marks";
@@ -135,11 +138,15 @@ export type SidebarRecent = {
   prompt?: string;
   /** The mark at the left of the row; idle when absent. */
   mark?: ChatMark;
+  /** With a background mark: how many background agents still work (chat-activity.mjs). */
+  background?: number;
   /** Whether the chat is unread, whatever its mark shows. */
   unread?: boolean;
   /** In the Pinned section, at `pinOrder` among the pinned chats. */
   pinned?: boolean;
   pinOrder?: number;
+  /** An enabled heartbeat checks back on this Chat: its hover-card line, "Heartbeat · every 15 min · next 10:45". */
+  heartbeat?: string;
   details?: ChatDetails;
 };
 
@@ -179,8 +186,22 @@ const MARK_LABEL: Record<Exclude<ChatMark, "idle">, string> = {
   waiting: "Waiting for you",
   delegated: "Working on a Delegation",
   running: "Running",
+  background: "Working in the background",
   unread: "Unread",
 };
+
+/** The mark's words, a background mark with its count: "2 background tasks running". */
+const markLabel = (mark: Exclude<ChatMark, "idle">, background = 0) =>
+  mark === "background" && background ? `${backgroundLabel(background)} running` : MARK_LABEL[mark];
+
+/** Work going on with no turn: a still ring around how many background tasks run, so it reads apart from running. */
+function BackgroundMark({ count = 0 }: { count?: number }) {
+  return (
+    <span className="flex size-3 items-center justify-center rounded-full border-[1.5px] border-accent text-[7px] font-bold leading-none tabular-nums text-accent">
+      {count > 9 ? "9+" : count || ""}
+    </span>
+  );
+}
 
 const HOVER_CARD_DELAY = 500;
 /** Time to cross from the row to the card before it closes, so its PR links can be clicked. */
@@ -227,17 +248,30 @@ function MarkIcon({ mark }: { mark: keyof typeof MARK_ICON }) {
   );
 }
 
-export function ChatMarkDot({ mark, topAligned = false }: { mark: ChatMark; topAligned?: boolean }) {
-  const dot = mark === "unread" ? "size-2 bg-accent" : "size-1.5 bg-ink-3 opacity-40";
+export function ChatMarkDot({
+  mark,
+  failed = false,
+  background,
+  topAligned = false,
+}: {
+  mark: ChatMark;
+  failed?: boolean;
+  background?: number;
+  topAligned?: boolean;
+}) {
+  const failure = mark === "idle" && failed;
+  const label = failure ? "Last turn failed" : mark === "idle" ? "" : markLabel(mark, background);
+  const dot = failure ? "size-2 bg-red" : mark === "unread" ? "size-2 bg-accent" : "size-1.5 bg-ink-3 opacity-40";
   return (
     <span className={`sidebar-copy mr-2 flex size-3 shrink-0 items-center justify-center ${topAligned ? "mt-1" : ""}`}>
       <span
         data-slot="chat-mark"
-        data-mark={mark}
-        {...(mark === "idle" ? { "aria-hidden": true } : { role: "img", "aria-label": MARK_LABEL[mark], title: MARK_LABEL[mark] })}
-        className={mark === "running" ? "flex" : mark in MARK_ICON ? "flex" : `rounded-full ${dot}`}
+        data-mark={failure ? "failed" : mark}
+        {...(label ? { role: "img", "aria-label": label, title: label } : { "aria-hidden": true })}
+        className={mark === "running" || mark === "background" ? "flex" : mark in MARK_ICON ? "flex" : `rounded-full ${dot}`}
       >
         {mark === "running" && <SpinnerRing size={12} color="var(--accent)" />}
+        {mark === "background" && <BackgroundMark count={background} />}
         {mark in MARK_ICON && <MarkIcon mark={mark as keyof typeof MARK_ICON} />}
       </span>
     </span>
@@ -319,7 +353,7 @@ export const ChatRow = memo(function ChatRow({
   if (item.worktreeCount !== undefined && factLine)
     facts.push(
       <span key="worktrees" className="shrink-0">
-        {item.worktreeCount} Worktrees
+        {linkChatWorktreesLabel(item.worktreeCount)}
       </span>,
     );
   if (branch)
@@ -406,7 +440,7 @@ export const ChatRow = memo(function ChatRow({
       >
         {renaming ? (
           <div data-row className="sidebar-row relative z-10 mx-2 flex h-8 items-center rounded-[8px] bg-hover-2 px-2">
-            <ChatMarkDot mark={mark} />
+            <ChatMarkDot mark={mark} failed={item.details?.failed} background={item.background} />
             <RenameField
               initial={item.label}
               onDone={(title) => {
@@ -435,36 +469,48 @@ export const ChatRow = memo(function ChatRow({
                   <SpinnerRing size={10} stroke={1.75} color="var(--accent)" />
                 </span>
               ) : (
-                mark !== "idle" && <span aria-hidden className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-accent ring-2 ring-surface" />
+                (mark !== "idle" || item.details?.failed) && (
+                  <span
+                    aria-hidden
+                    className={`absolute -right-0.5 -top-0.5 size-2 rounded-full ${mark === "idle" && item.details?.failed ? "bg-red" : "bg-accent"} ring-2 ring-surface`}
+                  />
+                )
               )}
             </span>
-            <ChatMarkDot mark={mark} topAligned={twoLines} />
+            <ChatMarkDot mark={mark} failed={item.details?.failed} background={item.background} topAligned={twoLines} />
             <span
               className={`sidebar-copy min-w-0 flex-1 truncate text-[14px] ${prLines ? "leading-5" : ""} transition-[padding] duration-150 ${shortcutHint ? "pr-12" : "group-hover/row:pr-6"} ${menu ? "pr-6" : ""} ${
                 item.unread ? "font-semibold text-ink" : active ? "font-medium text-ink" : "font-medium text-ink-2"
               }`}
             >
-              {linked.length > 0 ? (
-                // The icon follows the title, like the presence glyphs Orca puts after a worktree's name.
+              {linked.length > 0 || item.heartbeat ? (
+                // The icons follow the title, like the presence glyphs Orca puts after a worktree's name.
                 <span className="flex min-w-0 items-center gap-1">
                   <span className="min-w-0">
                     <ChatTitle label={item.label} />
                   </span>
-                  <span
-                    data-chat-linked
-                    role="img"
-                    aria-label={`Linked to ${linked.map((end) => end.label).join(", ")}`}
-                    title={`Linked to ${linked.map((end) => end.label).join(", ")}`}
-                    className="flex shrink-0 font-normal text-ink-3"
-                  >
-                    <HugeiconsIcon icon={Link04Icon} size={12} strokeWidth={2} color="currentColor" />
-                  </span>
+                  {linked.length > 0 && (
+                    <span
+                      data-chat-linked
+                      role="img"
+                      aria-label={`Linked to ${linked.map((end) => end.label).join(", ")}`}
+                      title={`Linked to ${linked.map((end) => end.label).join(", ")}`}
+                      className="flex shrink-0 font-normal text-ink-3"
+                    >
+                      <HugeiconsIcon icon={Link04Icon} size={12} strokeWidth={2} color="currentColor" />
+                    </span>
+                  )}
+                  {item.heartbeat && (
+                    <span data-chat-heartbeat role="img" aria-label={item.heartbeat} title="Heartbeat" className="flex shrink-0 font-normal text-ink-3">
+                      <HugeiconsIcon icon={Pulse01Icon} size={12} strokeWidth={2} color="currentColor" />
+                    </span>
+                  )}
                 </span>
               ) : (
                 <ChatTitle label={item.label} />
               )}
               {item.worktreeCount !== undefined && !factLine && (
-                <span className="block text-[11px] font-normal text-ink-3">{item.worktreeCount} Worktrees</span>
+                <span className="block text-[11px] font-normal text-ink-3">{linkChatWorktreesLabel(item.worktreeCount)}</span>
               )}
             </span>
           </button>
@@ -730,7 +776,7 @@ function ChatHoverCard({
   const mark = item.mark ?? "idle";
   const status =
     mark !== "idle"
-      ? { label: MARK_LABEL[mark], tone: markToneClass[chatMarkTone(mark)] }
+      ? { label: markLabel(mark, item.background), tone: markToneClass[chatMarkTone(mark)] }
       : details.failed
         ? { label: "Last turn failed", tone: "text-red" }
         : null;
@@ -755,11 +801,18 @@ function ChatHoverCard({
           <CardLine
             icon={
               <span className="flex size-4 items-center justify-center">
-                <ChatMarkDotInline mark={mark} failed={Boolean(details.failed)} />
+                <ChatMarkDotInline mark={mark} failed={Boolean(details.failed)} background={item.background} />
               </span>
             }
           >
             <span className={status.tone}>{status.label}</span>
+          </CardLine>
+        )}
+        {item.heartbeat && (
+          <CardLine icon={<HugeiconsIcon icon={Pulse01Icon} size={14} strokeWidth={1.8} color="currentColor" />}>
+            <span data-chat-card-heartbeat className="min-w-0 truncate">
+              {item.heartbeat}
+            </span>
           </CardLine>
         )}
         {details.pullRequests?.length ? (
@@ -887,8 +940,9 @@ function ChatHoverCard({
 }
 
 /** A mark without its row: the hover card's status line, and the collapsed rail's list of live chats. */
-export function ChatMarkDotInline({ mark, failed }: { mark: ChatMark; failed: boolean }) {
+export function ChatMarkDotInline({ mark, failed, background }: { mark: ChatMark; failed: boolean; background?: number }) {
   if (mark === "running") return <SpinnerRing size={12} color="var(--accent)" />;
+  if (mark === "background") return <BackgroundMark count={background} />;
   if (mark in MARK_ICON) return <MarkIcon mark={mark as keyof typeof MARK_ICON} />;
   return <span aria-hidden className={`size-2 rounded-full ${mark === "idle" && failed ? "bg-red" : "bg-accent"}`} />;
 }
