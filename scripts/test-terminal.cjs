@@ -183,7 +183,7 @@ async function electronChecks() {
     // The panel rises as it opens; once it has, the Chat has made room: its prompt sits above the panel, not under it.
     await waitFor('!!document.querySelector("[data-terminal-slot]:not([data-sliding])")', "the panel to finish opening");
     const layout = await evaluate(
-      '(() => { const prompt = document.querySelector("textarea[aria-label=Prompt]").getBoundingClientRect(); const panel = document.querySelector("[data-terminal-panel]").getBoundingClientRect(); return { promptBottom: prompt.bottom, panelTop: panel.top, panelBottom: panel.bottom, height: innerHeight }; })()',
+      '(() => { const prompt = document.querySelector("[data-prompt-editor]").getBoundingClientRect(); const panel = document.querySelector("[data-terminal-panel]").getBoundingClientRect(); return { promptBottom: prompt.bottom, panelTop: panel.top, panelBottom: panel.bottom, height: innerHeight }; })()',
     );
     assert.ok(layout.promptBottom <= layout.panelTop && layout.panelBottom <= layout.height, `The prompt is under the Terminals: ${JSON.stringify(layout)}`);
     // WebGL where the GPU offers WebGL2; where it doesn't (CI's Linux blocklists it), the DOM renderer draws instead.

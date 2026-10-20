@@ -70,6 +70,15 @@
     "productName": "Milagre",
     "asar": true,
     "afterPack": "scripts/package-cloudflared.cjs",
+    "extraResources": [
+      {
+        "from": "licenses",
+        "to": "licenses",
+        "filter": [
+          "*-OFL.txt"
+        ]
+      }
+    ],
     "asarUnpack": [
       "node_modules/@milagre/core/src/bundled-skills/**/*",
       "node_modules/expo-device-hub/**/*",

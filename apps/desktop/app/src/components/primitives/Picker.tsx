@@ -106,6 +106,7 @@ export function PickerRow({
   option = false,
   disabled = false,
   wrapLabel = false,
+  labelStyle,
 }: {
   icon?: ReactNode;
   label: string;
@@ -117,6 +118,8 @@ export function PickerRow({
   option?: boolean;
   disabled?: boolean;
   wrapLabel?: boolean;
+  /** Draws the label in its own font, e.g. a font menu row. */
+  labelStyle?: CSSProperties;
 }) {
   return (
     <button
@@ -131,7 +134,9 @@ export function PickerRow({
     >
       {icon && <span className="shrink-0">{icon}</span>}
       <span className={`flex min-w-0 flex-1 ${wrapLabel ? "flex-col gap-0.5" : "items-baseline gap-1.5"}`}>
-        <strong className={`${wrapLabel ? "w-full whitespace-normal break-words leading-4" : "shrink-0"} text-xs font-medium text-ink`}>{label}</strong>
+        <strong style={labelStyle} className={`${wrapLabel ? "w-full whitespace-normal break-words leading-4" : "shrink-0"} text-xs font-medium text-ink`}>
+          {label}
+        </strong>
         {meta && (
           <span
             data-picker-meta

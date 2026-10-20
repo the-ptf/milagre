@@ -152,7 +152,7 @@ async function browserChecks() {
     // Open chat 1 (has messages).
     await evaluate('window.openChatWith("Chat one needle")');
     await waitFor('document.querySelector("[aria-label=Conversation]").textContent.includes("Chat one needle")');
-    await evaluate('document.querySelector("textarea[aria-label=Prompt]").focus()');
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     key("F", ["meta"]);
     await waitFor(bar);
     await waitFor('document.activeElement === document.querySelector("[data-find-bar] input")');
@@ -185,12 +185,12 @@ async function browserChecks() {
     await waitFor('document.activeElement === document.querySelector("[data-find-bar] input")');
     key("Escape");
     await waitFor(`!(${bar})`);
-    assert.equal(await evaluate('document.activeElement === document.querySelector("textarea[aria-label=Prompt]")'), true);
+    assert.equal(await evaluate('document.activeElement === document.querySelector("[data-prompt-editor]")'), true);
 
     // Escape closes the bar first; the stop-agent handler only gets the next one.
     await evaluate("window.interrupts.length = 0");
     await evaluate(
-      '(() => { const i = document.querySelector("textarea[aria-label=Prompt]"); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(i, "go"); i.dispatchEvent(new Event("input", { bubbles: true })); })()',
+      '(() => { const i = document.querySelector("[data-prompt-editor]"); i.value = "go"; i.dispatchEvent(new Event("input", { bubbles: true })); })()',
     );
     await waitFor('!document.querySelector("[aria-label=Send]").disabled');
     await evaluate('document.querySelector("[aria-label=Send]").click()');
@@ -198,7 +198,7 @@ async function browserChecks() {
     await waitFor("!!document.querySelector('[role=status][aria-label^=\"Working with\"]')");
     key("F", ["meta"]);
     await waitFor(bar);
-    await evaluate('document.querySelector("textarea[aria-label=Prompt]").focus()');
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     key("Escape");
     await waitFor(`!(${bar})`);
     await delay(200);
@@ -212,8 +212,8 @@ async function browserChecks() {
 
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor('!!document.querySelector("textarea[aria-label=Prompt]")');
-    await evaluate('document.querySelector("textarea[aria-label=Prompt]").focus()');
+    await waitFor('!!document.querySelector("[data-prompt-editor]")');
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     assert.equal(await evaluate('!!document.querySelector("[data-find-bar]")'), false);
 
     key("F", ["meta"]);
@@ -270,7 +270,7 @@ async function browserChecks() {
     await waitFor('document.querySelector("[data-find-count]").textContent === "5 of 5"');
 
     // Reopening with the bar open selects the field text.
-    await evaluate('document.querySelector("textarea[aria-label=Prompt]").focus()');
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     key("F", ["meta"]);
     await waitFor('document.activeElement === document.querySelector("[data-find-bar] input")');
     assert.equal(
@@ -294,7 +294,7 @@ async function browserChecks() {
     key("Escape");
     await waitFor('!document.querySelector("[data-find-bar]")');
     assert.equal(await evaluate("CSS.highlights.size"), 0);
-    assert.equal(await evaluate('document.activeElement === document.querySelector("textarea[aria-label=Prompt]")'), true);
+    assert.equal(await evaluate('document.activeElement === document.querySelector("[data-prompt-editor]")'), true);
     console.log("PASS: opens with the shortcut, live count, Enter and Shift+Enter step and scroll, wrap, reopen selects, Esc clears and restores focus");
     await appPhase();
     app.exit(0);

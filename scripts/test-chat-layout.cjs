@@ -112,7 +112,7 @@ async function browserChecks() {
     assert.deepEqual(backward, expectedFocus.toReversed(), "Shift+Tab reverses the New Chat focus order");
     assert.ok(
       await evaluate(`(() => {
-        const prompt = document.querySelector('textarea[aria-label="Prompt"]').getBoundingClientRect();
+        const prompt = document.querySelector('[data-prompt-editor]').getBoundingClientRect();
         const add = document.querySelector('[aria-label="Add attachments and sources"]').getBoundingClientRect();
         const model = document.querySelector('[data-model-name]').getBoundingClientRect();
         return prompt.bottom <= add.top && add.right <= model.left;
@@ -449,12 +449,12 @@ async function browserChecks() {
     await evaluate(`document.querySelector('${trigger}').click()`);
     await waitFor(`!document.querySelector('[data-model-picker]')`);
     await evaluate('window.setDraft("short")');
-    await waitFor('document.querySelector("textarea[aria-label=\\"Prompt\\"]").value === "short"');
-    const compactTop = await evaluate('document.querySelector("textarea[aria-label=\\"Prompt\\"]").getBoundingClientRect().top');
+    await waitFor('document.querySelector("[data-prompt-editor]").value === "short"');
+    const compactTop = await evaluate('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top');
     await evaluate(`window.setDraft(${JSON.stringify("A longer prompt ".repeat(50))})`);
-    await waitFor('document.querySelector("textarea[aria-label=\\"Prompt\\"]").getBoundingClientRect().top < ' + compactTop);
+    await waitFor('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top < ' + compactTop);
     await evaluate('window.setDraft("")');
-    await waitFor('document.querySelector("textarea[aria-label=\\"Prompt\\"]").getBoundingClientRect().top === ' + compactTop);
+    await waitFor('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top === ' + compactTop);
     await evaluate('window.setModel("claude-sonnet-5-5")');
     await waitFor(`!document.querySelector('${trigger} [data-fast-mode]')`);
     await evaluate(`document.querySelector('${trigger}').click()`);
@@ -480,11 +480,7 @@ async function browserChecks() {
     window.webContents.setZoomFactor(1);
     await delay(250);
     assert.ok(!consoleErrors.some((message) => message.includes("Maximum update depth")), "A narrow composer with an empty draft settles");
-    assert.equal(
-      await evaluate('document.querySelector("textarea[aria-label=\\"Prompt\\"]").getBoundingClientRect().top'),
-      compactTop,
-      "The empty prompt is compact again",
-    );
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top'), compactTop, "The empty prompt is compact again");
     console.log("PASS: long chats open at the bottom before paint and stay there while messages measure, including after reading older messages");
     console.log("PASS: Go to bottom appears while reading earlier messages, hides at the bottom, and resumes following new messages");
     console.log("PASS: PR action pill placement, click action, disabled state, tones, and removal");

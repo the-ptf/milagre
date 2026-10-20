@@ -74,7 +74,7 @@ function Content({ line, decoration }: { line: DiffLine; decoration?: Decorated 
 
 const TINT = { add: "bg-[var(--diff-add)]", remove: "bg-[var(--diff-remove)]", context: "" } as const;
 const MARKER = { add: "+", remove: "−", context: "" } as const;
-const MARKER_COLOR = { add: "text-green", remove: "text-red", context: "" } as const;
+const MARKER_COLOR = { add: "text-diff-add", remove: "text-diff-remove", context: "" } as const;
 
 function Gutter({ value }: { value?: number }) {
   return <span className="w-11 shrink-0 select-none pr-2 text-right text-ink-3 tabular-nums">{value}</span>;
@@ -478,7 +478,7 @@ export const DiffFile = memo(function DiffFile({
         </header>
       </div>
       {!collapsed && (
-        <div className="overflow-x-auto rounded-b-card font-mono text-[12px] leading-5 [container-type:inline-size]" data-diff-body>
+        <div className="overflow-x-auto rounded-b-card font-mono text-[length:var(--code-size)] leading-5 [container-type:inline-size]" data-diff-body>
           {body}
         </div>
       )}

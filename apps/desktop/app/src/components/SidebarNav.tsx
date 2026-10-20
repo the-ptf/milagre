@@ -267,7 +267,10 @@ function ScopeHeader({
             <IconChevronDownSmall size={14} />
           </span>
         </span>
-        <span data-scope-name className={`min-w-0 flex-1 truncate text-[13px] ${current ? "font-medium text-ink" : "text-ink-2"}`}>
+        <span
+          data-scope-name
+          className={`min-w-0 flex-1 truncate text-[length:calc(13px+var(--sidebar-delta))] ${current ? "font-medium text-ink" : "text-ink-2"}`}
+        >
           {name}
         </span>
       </button>
@@ -483,8 +486,12 @@ export function RailButton({
         ${active ? "bg-hover-2 group-hover/glide:bg-transparent" : ""}`}
     >
       <span className={`flex size-5 shrink-0 items-center justify-center ${active ? "text-ink" : "text-ink-2"}`}>{icon}</span>
-      <span className={`sidebar-copy ml-1.5 min-w-0 flex-1 truncate text-[15px] font-medium ${active ? "text-ink" : "text-ink-2"}`}>{label}</span>
-      {count && <span className="sidebar-copy mr-2 shrink-0 text-[12px] font-medium tabular-nums text-ink-3">{count}</span>}
+      <span
+        className={`sidebar-copy ml-1.5 min-w-0 flex-1 truncate text-[length:calc(15px+var(--sidebar-delta))] font-medium ${active ? "text-ink" : "text-ink-2"}`}
+      >
+        {label}
+      </span>
+      {count && <span className="sidebar-copy mr-2 shrink-0 text-[length:calc(12px+var(--sidebar-delta))] font-medium tabular-nums text-ink-3">{count}</span>}
     </button>
   );
 }
@@ -988,9 +995,9 @@ export default memo(function SidebarNav({
             width: collapsed ? SIDEBAR_MOTION.collapsedWidth : expandedWidth,
             flex: "1 1 0%",
             // Following the pointer while dragging; the eased width transition would make the edge lag behind it.
-            transitionDuration: resizing ? "0ms" : `${SIDEBAR_MOTION.duration}ms`,
+            transitionDuration: resizing ? "0ms" : `calc(${SIDEBAR_MOTION.duration}ms * var(--motion-scale))`,
             transitionTimingFunction: SIDEBAR_MOTION.easing,
-            "--sidebar-copy-duration": `${SIDEBAR_MOTION.copyDuration}ms`,
+            "--sidebar-copy-duration": `calc(${SIDEBAR_MOTION.copyDuration}ms * var(--motion-scale))`,
             "--sidebar-copy-offset": `${SIDEBAR_MOTION.copyOffset}px`,
             "--sidebar-easing": SIDEBAR_MOTION.easing,
           } as CSSProperties
@@ -1069,7 +1076,9 @@ export default memo(function SidebarNav({
                   {/* Pinned chats of every Project and Link sit on top, like the single-project sidebar. Each group's list
                     renders its pinned rows into its slot here, so a drag moves a chat between Pinned and its group. */}
                   <div data-all-pinned={anyPinned || undefined} className={anyPinned ? "mb-2" : ""}>
-                    {anyPinned && <p className="sidebar-copy mx-2 mb-1 h-8 pl-2 text-[12.5px] font-medium leading-8 text-ink-3">Pinned</p>}
+                    {anyPinned && (
+                      <p className="sidebar-copy mx-2 mb-1 h-8 pl-2 text-[length:calc(12.5px+var(--sidebar-delta))] font-medium leading-8 text-ink-3">Pinned</p>
+                    )}
                     {groups.map((group) => (
                       <div key={group.scope.key} ref={pinSlotRef(group.scope.key)} data-pinned-scope={group.scope.key} />
                     ))}
@@ -1086,7 +1095,7 @@ export default memo(function SidebarNav({
                         className={`mb-2 ${dimmed ? "opacity-50" : ""}`}
                       >
                         {scope.link && !scopes[index - 1]?.link && (
-                          <p className="mx-2 mt-1 mb-1 h-6 pl-2 text-[12.5px] font-medium leading-6 text-ink-3">Links</p>
+                          <p className="mx-2 mt-1 mb-1 h-6 pl-2 text-[length:calc(12.5px+var(--sidebar-delta))] font-medium leading-6 text-ink-3">Links</p>
                         )}
                         <ScopeHeader
                           name={scope.name}
@@ -1135,7 +1144,7 @@ export default memo(function SidebarNav({
                                 anyPinned={anyPinned}
                               />
                             ) : !state && !current && failedScopes.has(scope.key) ? (
-                              <p className="mx-2 flex h-8 items-center gap-1 pl-9 text-[13px] text-ink-3">
+                              <p className="mx-2 flex h-8 items-center gap-1 pl-9 text-[length:calc(13px+var(--sidebar-delta))] text-ink-3">
                                 Couldn't load chats.
                                 <button
                                   type="button"
@@ -1146,7 +1155,9 @@ export default memo(function SidebarNav({
                                 </button>
                               </p>
                             ) : (
-                              <p className="mx-2 h-8 pl-9 text-[13px] leading-8 text-ink-3">{state || current ? "No chats yet" : "Loading chats…"}</p>
+                              <p className="mx-2 h-8 pl-9 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">
+                                {state || current ? "No chats yet" : "Loading chats…"}
+                              </p>
                             )}
                           </div>
                         </div>
@@ -1169,7 +1180,7 @@ export default memo(function SidebarNav({
                   linkProjectId={selectedLink ? null : linkProjectIdOf(projectPath)}
                   header={
                     <div className={`sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2 ${collapsed ? "hidden" : ""}`}>
-                      <span className="text-[12.5px] font-medium text-ink-3">Chats</span>
+                      <span className="text-[length:calc(12.5px+var(--sidebar-delta))] font-medium text-ink-3">Chats</span>
                       <Tooltip label="New chat" shortcut="⌘N" align="end">
                         <button
                           type="button"

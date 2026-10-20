@@ -226,7 +226,7 @@ async function browserChecks() {
     await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state !== "open"');
     await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
     await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state === "open"');
-    await evaluate('document.querySelector("textarea[aria-label=Prompt]").dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}))');
+    await evaluate('document.querySelector("[data-prompt-editor]").dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}))');
     await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state !== "open"');
     await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
     await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state === "open"');

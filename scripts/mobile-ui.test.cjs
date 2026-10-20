@@ -107,6 +107,8 @@ const designsOn = {
   save: async () => {},
   connectionChanged() {},
 };
+/** A Chat with no listening ports (useChatPorts in ports.tsx). */
+const noPorts = { ports: [], error: "", refresh: () => {}, drop: () => {} };
 function load(file, modules, extra = "", cache = new Map()) {
   if (cache.has(file)) return cache.get(file);
   // These helpers stay private in production; the source harness exposes them only to tests.
@@ -130,6 +132,22 @@ function load(file, modules, extra = "", cache = new Map()) {
         assert.ok(target, `Missing primitive: ${relative}`);
         return load(target, modules, "", cache);
       }
+      // A pure helper (the draft clear after a send): tests get the real one.
+      // Motion helpers at Normal speed with the system's reduced motion off; a test's own fake wins.
+      if (/^\.\.?\/motion$/.test(id) && !(id in modules))
+        return { useReducedMotion: () => false, useMotionScale: () => 1, scaledTiming: (config) => config, springTo: (target) => target };
+      if (/^\.\/use-skill-names$/.test(id) && !(id in modules)) return { useSkillNames: () => [] };
+      // The chips draw as named elements, like the other components these tests do not render.
+      if (/^\.\/prompt-chip$/.test(id) && !(id in modules)) return { SkillChip: "SkillChip", FileMentionChip: "FileMentionChip" };
+      if (/^\.\.?\/(draft-clear|file-mentions|prompt-label)$/.test(id) && !(id in modules)) return load(`${id.replace(/^\.\.?\//, "")}.ts`, modules, "", cache);
+      if (
+        (id === "@milagre/shared/prompt-parts" ||
+          id === "@milagre/shared/appearance" ||
+          id === "@milagre/shared/prompt-mentions" ||
+          id === "@milagre/shared/themes") &&
+        !(id in modules)
+      )
+        return require(id);
       if (relative && `./${relative}` in modules) id = `./${relative}`;
       // Image assets are opaque sources; any value stands in.
       if (id.endsWith(".png") && !(id in modules)) return { uri: id };
@@ -192,6 +210,8 @@ test("background tasks on the phone open command output and subagent details", (
     "../subagent-glance": { WholeSubagentDetail: "WholeSubagentDetail" },
     "../task-output": { TaskOutput: "TaskOutput" },
     "../ui": { CircleButton: "CircleButton", ListRow: "ListRow", PageScroll: "PageScroll" },
+    // No ports listening, so no background command moves to Ports.
+    "../ports": { useChatPorts: () => noPorts },
   });
   const render = () => {
     react.begin();
@@ -682,7 +702,7 @@ test("inbox single-choice questions require Send and typed answers replace the c
   const react = hookHost();
   const sent = [];
   const { Questions } = load("questions.tsx", {
-    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager" },
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager", useInboxLayout: () => undefined },
     "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
     "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
     react,
@@ -740,7 +760,7 @@ test("inbox single-choice questions require Send and typed answers replace the c
 test("inbox approval shows the entire action inline, including folders, files and delegation", () => {
   const react = hookHost();
   const { Approval } = load("questions.tsx", {
-    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager" },
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager", useInboxLayout: () => undefined },
     "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
     "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
     react,
@@ -791,7 +811,7 @@ test("inbox approval shows the entire action inline, including folders, files an
 test("setup approval shows full setup context and emits each setup decision", () => {
   const react = hookHost();
   const { Approval } = load("questions.tsx", {
-    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager" },
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager", useInboxLayout: () => undefined },
     "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
     "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
     react,
@@ -865,7 +885,7 @@ test("phone inbox pages keep one Chat visible and retain a draft when paging bac
       useReducedMotion: () => false,
     },
     "react-native-worklets": { scheduleOnRN: (fn, ...args) => fn(...args) },
-    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager" },
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager", useInboxLayout: () => undefined },
     "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
     "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
     "expo-router": {
@@ -956,7 +976,7 @@ test("phone inbox refresh coalesces requests and drops results from an earlier h
     },
     "react-native-reanimated": { default: { View: "AnimatedView" } },
     "react-native-worklets": { scheduleOnRN: (fn) => fn() },
-    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager" },
+    "./inbox-motion": { InboxPage: "InboxPage", InboxPager: "InboxPager", useInboxLayout: () => undefined },
     "./floating-inbox-button": { FloatingInboxButton: "FloatingInboxButton", floatingInboxStatus: () => undefined },
     "./floating-inbox-setting": { useFloatingInboxActivity: () => [true, () => {}] },
     "expo-router": {
@@ -1039,6 +1059,8 @@ test("mobile inbox position track jumps across long lists and keeps count and ac
       },
       "./ui": { IconButton: "IconButton" },
       "./theme": { useTheme: () => ({ colors: fakePalette, scheme }) },
+      // Reduced motion (the system's or Animations Off) is what this test flips.
+      "./motion": { useReducedMotion: () => reduced, useMotionScale: () => 1 },
     });
     let index = 0,
       count = 20;
@@ -1881,7 +1903,7 @@ function chatHost({
     "../theme": { hex: () => ({ surface: "#ffffff" }) },
     "../simulator": { SimulatorChip: "SimulatorChip" },
     "../browser": { BrowserChip: "BrowserChip" },
-    "../ports": { PortsChip: "PortsChip" },
+    "../ports": { PortsChip: "PortsChip", useChatPorts: () => noPorts },
     "../terminal": { TerminalChip: "TerminalChip", terminalPlaces: () => undefined },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
@@ -5611,7 +5633,12 @@ function simulatorHost(client, file = "simulator.tsx") {
         styles: {},
       },
     },
-    file === "simulator.tsx" ? "\nexports.TestSimulatorWebView = SimulatorWebView;" : "",
+    file === "simulator.tsx"
+      ? "\nexports.TestSimulatorWebView = SimulatorWebView;"
+      : file === "ports.tsx"
+        ? // The Chat screen reads the ports once and hands them to the pill (app/chat.tsx).
+          "\nexports.TestChatPorts = ({ chatId }) => PortsChip({ chatId, ports: useChatPorts(useSession().client, chatId).ports });"
+        : "",
   );
   return {
     source,
@@ -7476,7 +7503,7 @@ test("mobile Ports pill requests only its Chat and hides empty or mismatched res
       "ports.tsx",
     );
     t.after(() => h.cleanup());
-    const render = () => h.render("PortsChip", { chatId: "/p#7" });
+    const render = () => h.render("TestChatPorts", { chatId: "/p#7" });
     assert.equal(render(), null);
     await settle();
     assert.deepEqual(JSON.parse(JSON.stringify(calls)), [["chat:ports", ["/p#7"]]]);
@@ -8006,7 +8033,7 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
     "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
     "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
-    react,
+    react: { ...react, useMemo: (compute) => compute() },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
     "react-native-svg": { default: "Svg", Path: "Path" },
@@ -8115,7 +8142,7 @@ test("mobile Full detail shows each tool call and the notes between them in the 
       "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
       "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
       "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
-      react,
+      react: { ...react, useMemo: (compute) => compute() },
       "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
       "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
       "react-native-svg": { default: "Svg", Path: "Path" },
@@ -8793,7 +8820,7 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
     "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
     "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
-    react,
+    react: { ...react, useMemo: (compute) => compute() },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
     "react-native-svg": { default: "Svg", Path: "Path" },
@@ -8848,7 +8875,7 @@ test("mobile ChatReply marks a Delegation and its report with their sender, neve
     "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
     "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
-    react,
+    react: { ...react, useMemo: (compute) => compute() },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
     "react-native-svg": { default: "Svg", Path: "Path" },
@@ -9047,7 +9074,7 @@ test("mobile Appearance Custom theme switch selects Custom on, Milagre Blue off,
         },
       }),
     },
-    "./ui": { Segmented: "Segmented", Toggle: "Toggle", styles: {} },
+    "./ui": { PullDown: "PullDown", Segmented: "Segmented", Toggle: "Toggle", styles: {} },
   });
   const render = () => {
     react.begin();
@@ -9075,6 +9102,20 @@ test("mobile Appearance Custom theme switch selects Custom on, Milagre Blue off,
   assert.equal(
     find(render(), (n) => n.type === "CustomThemeSection"),
     undefined,
+  );
+  // Text and motion rows are pull-down choices, not segmented controls; picking one saves it.
+  const textSize = find(render(), (n) => n.props?.label === "Text size");
+  assert.ok(textSize && typeof textSize.type === "function", "Text size is a Choice row");
+  assert.deepEqual(
+    textSize.props.options.map((option) => option.value),
+    ["small", "default", "large", "larger"],
+  );
+  textSize.props.onChange("large");
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.at(-1))), { textSize: "large" });
+  assert.equal(
+    find(render(), (n) => n.type === "Segmented" && n.props?.label !== "Mode"),
+    undefined,
+    "only Mode stays segmented",
   );
 });
 
@@ -12088,7 +12129,7 @@ test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card
   const { ChatReply } = load("chat-reply.tsx", {
     "@milagre/shared/advisor-result": require("@milagre/shared/advisor-result"),
     "@milagre/shared/linked-message": require("@milagre/shared/linked-message"),
-    react,
+    react: { ...react, useMemo: (compute) => compute() },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { Image: "Image", Pressable: "Pressable", Text: "Text", View: "View", useColorScheme: () => "dark" },
     "react-native-svg": { default: "Svg", Path: "Path" },

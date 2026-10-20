@@ -52,3 +52,15 @@ test("custom with an empty customTheme loads Milagre Blue", () => {
   assert.equal(settings.colorTheme, "milagre-blue");
   assert.equal(settings.customTheme, null);
 });
+
+test("old saved settings parse to the appearance defaults and bad values fall back", () => {
+  const old = parsePhoneThemeSettings(JSON.stringify({ colorTheme: "nord", mode: "dark" }));
+  assert.equal(old.textSize, "default");
+  assert.equal(old.codeSize, "default");
+  assert.equal(old.diffColors, "red-green");
+  assert.equal(old.motion, "normal");
+  assert.equal(parsePhoneThemeSettings(JSON.stringify({ textSize: "huge" })).textSize, "default");
+  assert.equal(parsePhoneThemeSettings(JSON.stringify({ codeSize: "larger" })).codeSize, "default");
+  const set = parsePhoneThemeSettings(JSON.stringify({ textSize: "larger", codeSize: "small", diffColors: "blue-orange", motion: "off" }));
+  assert.deepEqual([set.textSize, set.codeSize, set.diffColors, set.motion], ["larger", "small", "blue-orange", "off"]);
+});

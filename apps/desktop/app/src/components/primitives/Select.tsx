@@ -1,5 +1,5 @@
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
@@ -16,11 +16,28 @@ export type SelectOption<T extends string> = {
   // Consecutive options with the same group sit under one heading.
   group?: string;
   disabled?: boolean;
+  // Applied to the row label and the trigger text, so a font row draws in its font.
+  style?: CSSProperties;
 };
 
 const GAP = 6;
 const INSET = 12;
-const MIN_ROOM = 160;
+// The list scrolls inside max-h-64; chrome is the panel padding, border and, with search, the field.
+const LIST_MAX = 256;
+const CHROME = 14;
+const SEARCH = 52;
+const ROW = 32;
+const ROW_WITH_DESCRIPTION = 48;
+const GROUP_HEADING = 28;
+
+function naturalHeight<T extends string>(options: SelectOption<T>[], searchable: boolean) {
+  let list = 0;
+  options.forEach((option, index) => {
+    list += option.description ? ROW_WITH_DESCRIPTION : ROW;
+    if (option.group && option.group !== options[index - 1]?.group) list += GROUP_HEADING;
+  });
+  return Math.min(LIST_MAX, list) + CHROME + (searchable ? SEARCH : 0);
+}
 
 /* The app's select: a trigger button that opens the shared picker panel.
  * A native select element opens macOS's own menu, so every choice goes through this.
@@ -55,7 +72,7 @@ export function Select<T extends string>({
   variant?: "field" | "chip" | "text";
   /** Shown before the label when the selected option has no icon of its own. */
   leading?: ReactNode;
-  /** Tells a hover surface the trigger sits in (the usage card) to stay open while the panel, outside it, is in use. */
+  /** Told each time the menu opens or closes: a hover surface the trigger sits in (the usage card) stays open while the panel is in use, and the Appearance preview highlights the row's area. */
   onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -77,8 +94,10 @@ export function Select<T extends string>({
     const left = Math.max(INSET, Math.min(variant === "text" ? trigger.left : trigger.right - width, window.innerWidth - width - INSET));
     const roomBelow = window.innerHeight - trigger.bottom - GAP - INSET;
     const roomAbove = trigger.top - GAP - INSET;
+    // Open upward when the panel would not fit below and there is more room above, so a trigger near the bottom shows its rows.
+    const fitsBelow = roomBelow >= naturalHeight(options, searchable);
     setPosition(
-      roomBelow >= MIN_ROOM || roomBelow >= roomAbove
+      fitsBelow || roomBelow >= roomAbove
         ? { left, top: trigger.bottom + GAP, maxHeight: roomBelow }
         : { left, bottom: window.innerHeight - trigger.top + GAP, maxHeight: roomAbove },
     );
@@ -160,7 +179,11 @@ export function Select<T extends string>({
         }
       >
         {variant !== "text" && (selected?.icon ?? leading)}
-        {selected?.display ?? <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? ""}</span>}
+        {selected?.display ?? (
+          <span style={selected?.style} className="min-w-0 flex-1 truncate text-left">
+            {selected?.label ?? ""}
+          </span>
+        )}
         <span className="text-ink-3">
           <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={1.8} color="currentColor" />
         </span>
@@ -191,6 +214,7 @@ export function Select<T extends string>({
                     disabled={option.disabled}
                     icon={option.icon}
                     label={option.label}
+                    labelStyle={option.style}
                     description={option.description}
                     selected={option.value === value}
                     onClick={() => choose(option.value)}

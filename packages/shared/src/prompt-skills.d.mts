@@ -1,3 +1,4 @@
+export function prosePrompt(prompt: string): string;
 export type PromptSkillPart = { text: string; skill: boolean };
 export type PromptSkillToken = { name: string; start: number; end: number };
 export function promptSkillTokens(prompt: string): PromptSkillToken[];
