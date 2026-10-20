@@ -4,7 +4,7 @@ const { chatKey, lastUserModel, projectOfKey, runStatus, sessionIdFromKey } = re
 const { activeWorktrees } = require("./project-identity.cjs");
 const { linkedWorktrees } = require("./project-links.cjs");
 const { Delegations, jsonFileStore } = require("./delegations.cjs");
-const { MODE_RANK } = require("./agents/permissions.cjs");
+const { callerMode, modeRank } = require("./agents/permissions.cjs");
 const { chatLabel, createLinkedReads, delegationReply, linkedToolDefinitions } = require("./linked-tools.cjs");
 const { chatTitle } = require("@milagre/shared/chats");
 const { createLinkedMcpServer } = require("./linked-mcp-server.cjs");
@@ -21,6 +21,8 @@ const ACTIVE_TTL_MS = 3000;
  *   leave out unloaded Chats' messages: see message-store.cjs); messages(path, chatIds) -> those Chats' messages, whole,
  *   or every message without chatIds; bodies(path, chatIds) -> their ids, roles and bodies
  *   chats -> the ChatHost; agents -> the SessionManager; emit(channel, payload) -> the windows
+ *   chatTools(chatId, tools) -> the tools a Chat keeps of all it would get (Bot rules withhold most of Milagre's)
+ *   botOf(chatId) -> the name of the bot that runs a Chat (its thread, or a Chat it opened the user hasn't taken over)
  */
 function createLinkedWorktrees({
   dataDir,
@@ -37,6 +39,8 @@ function createLinkedWorktrees({
   emit,
   pendingAdvisorResults = async () => false,
   extraTools = () => [],
+  chatTools = (_chatId, tools) => tools,
+  botOf = () => null,
   createMcpServer = createLinkedMcpServer,
   store = jsonFileStore(path.join(dataDir, "delegations.json")),
 }) {
@@ -157,17 +161,17 @@ function createLinkedWorktrees({
     return {
       provider: session?.provider ?? (lastUsed ? state.sessions[lastUsed.session_id].provider : (fallback.provider ?? "claude")),
       model: lastUserModel(state, session.id) || lastUsed?.model || fallback.model,
-      permissionMode: agents.permissionMode(requester),
+      permissionMode: callerMode(agents.permissionMode(requester)),
       tldrEnabled: fallback.tldrEnabled,
       replies: fallback.replies,
     };
   }
 
   // The mode a delivered message runs in: the latest turn's (turnOptions), or the live agent's when a steer reaches it
-  // after a switch, whichever allows more; a Chat with neither takes the requesting Chat's.
+  // after a switch, whichever allows more (Bot rules most: see modeRank); a Chat with neither takes the requesting Chat's.
   function deliveryMode(key, requester) {
-    const modes = [agents.permissionMode(key, null), chats.turnSettings(key)?.permissionMode].filter((mode) => mode in MODE_RANK);
-    return modes.length ? modes.reduce((most, mode) => (MODE_RANK[mode] > MODE_RANK[most] ? mode : most)) : agents.permissionMode(requester);
+    const modes = [agents.permissionMode(key, null), chats.turnSettings(key)?.permissionMode].filter(Boolean);
+    return modes.length ? modes.reduce((most, mode) => (modeRank(mode) > modeRank(most) ? mode : most)) : callerMode(agents.permissionMode(requester));
   }
 
   // Resolves once the message is saved, with `started`: what took it (see Delegations' deliver port), and `queued` when
@@ -177,6 +181,8 @@ function createLinkedWorktrees({
     let state = await project(projectPath);
     const session = state.sessions[sessionIdFromKey(key)];
     if (!session) throw new Error("that Chat is no longer in its Project");
+    const bot = botOf(key);
+    if (bot) throw new Error(`${bot} runs that Chat, and only ${bot} steers it`);
     // The Project's last used model is read across every Chat, unloaded ones too, when the Chat has no turn this run.
     if (!chats.turnSettings(key)) state = { ...state, messages: await messages(projectPath) };
     const { started, queued } = await chats.send({
@@ -243,6 +249,7 @@ function createLinkedWorktrees({
       note: (key, note) => chats.addNote(key, note),
       reply: async (key, delegationId) => delegationReply(await messages(projectOfKey(key), [sessionIdFromKey(key)]), sessionIdFromKey(key), delegationId),
       permissionMode: (key) => agents.permissionMode(key),
+      botOf: (key) => botOf(key),
       deliveryMode: (key, requester) => deliveryMode(key, requester),
       approve: (key, request) => agents.askApproval(key, request),
       changed: () => emit("linked:changed", snapshot()),
@@ -315,7 +322,7 @@ function createLinkedWorktrees({
             : delegations,
         }),
       );
-    return [...tools.get(chatId), ...extraTools(chatId)];
+    return chatTools(chatId, [...tools.get(chatId), ...extraTools(chatId)]);
   }
 
   return {

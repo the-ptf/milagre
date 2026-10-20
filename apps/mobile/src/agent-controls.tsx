@@ -1,4 +1,4 @@
-import { effortCopy, PERMISSION_MODES } from "@milagre/shared/model-copy";
+import { effortCopy, PERMISSION_MODE_LABEL, PERMISSION_MODES } from "@milagre/shared/model-copy";
 import { effortFor } from "@milagre/shared/model-options";
 import { Pressable, Text } from "react-native";
 import { ArrowDown01Icon, FlashIcon, Shield01Icon, ShieldAlertIcon, SecurityCheckIcon } from "@hugeicons/core-free-icons";
@@ -67,14 +67,13 @@ export function AgentControls({
   );
 }
 
-const SHORT: Record<PermissionMode, string> = { ask: "Ask", auto: "Auto", full: "Full" };
 /** The composer's permission chip; it opens the permission sheet. A plain button, so nothing React sits in a native menu. */
 export function PermissionChip({ mode, disabled, onPress }: { mode: PermissionMode; disabled?: boolean; onPress: () => void }) {
   const { colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Permissions, ${PERMISSION_MODES.find((item) => item.id === mode)?.name}`}
+      accessibilityLabel={`Permissions, ${PERMISSION_MODES.find((item) => item.id === mode)?.name ?? PERMISSION_MODE_LABEL[mode]}`}
       accessibilityHint="Opens permission modes"
       disabled={disabled}
       onPress={onPress}
@@ -88,7 +87,7 @@ export function PermissionChip({ mode, disabled, onPress }: { mode: PermissionMo
       })}
     >
       <PermissionIcon mode={mode} size={15} />
-      <Text style={{ color: mode === "full" ? colors.orange : colors.ink2, fontSize: 13 }}>{SHORT[mode]}</Text>
+      <Text style={{ color: mode === "full" ? colors.orange : colors.ink2, fontSize: 13 }}>{PERMISSION_MODE_LABEL[mode]}</Text>
     </Pressable>
   );
 }

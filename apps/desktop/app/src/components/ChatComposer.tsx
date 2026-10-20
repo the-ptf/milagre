@@ -18,7 +18,7 @@ import { useEvent } from "../lib/stable";
 import type { AgentPort, BackgroundTask, ChatPlan, ContextUsage, Subagent } from "../model";
 import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
-import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createContext, Fragment, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, DragEvent, ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, Folder01Icon, GitBranchIcon, GitForkIcon, GitPullRequestIcon, LaptopIcon, Undo02Icon } from "@hugeicons/core-free-icons";
@@ -194,6 +194,12 @@ function ReplyContent({
   );
 }
 
+/**
+ * A card that stands for a message Milagre wrote into the transcript (a bot's thread shows its Chats and sign-offs this
+ * way); null keeps the message as it is.
+ */
+export const MessageCardContext = createContext<((message: AppChatMessage) => ReactNode) | null>(null);
+
 const MessageSection = memo(function MessageSection({
   message,
   isUser,
@@ -251,7 +257,14 @@ const MessageSection = memo(function MessageSection({
   /** Opens Settings > Accounts, from the limit card. */
   onOpenAccounts?: () => void;
 }) {
+  const card = useContext(MessageCardContext)?.(message);
   const mentions = usePromptMentions(message, isUser);
+  if (card)
+    return (
+      <article id={`message-${message.id}`} data-slot="message" data-from="milagre" className="flex min-w-0 w-full flex-col">
+        {card}
+      </article>
+    );
   if (isHandoff(message)) return <HandoffDivider context={message.context} models={models} />;
   if (isWorktreeLinked(message)) return <WorktreeLinkDivider context={message.context} />;
   if (isCompaction(message)) return <CompactionDivider context={message.context} />;
@@ -592,7 +605,8 @@ interface ChatComposerProps {
   onSendDesignMessage?: (text: string) => Promise<boolean>;
   /** Opens a file's diff in the Changes panel, from the undo preview. */
   onOpenDiff?: (path: string, worktree: string) => void;
-  scopeKind?: "project" | "link";
+  /** A Link's or a bot's Chat starts without the new-chat header. */
+  scopeKind?: "project" | "link" | "bot";
   /** The find bar over the message list; the parent owns it so ⌘F and the command palette can open it. */
   findOpen?: boolean;
   findSignal?: number;
@@ -680,6 +694,8 @@ interface ChatComposerProps {
   onFastModeChange: (on: boolean) => void;
   permissionMode: PermissionMode;
   onPermissionModeChange: (mode: PermissionMode) => void;
+  /** The mode is fixed (a bot's thread runs in Bot rules): the chip shows it and opens no picker. */
+  permissionLocked?: boolean;
   onRecommendationSelect: (option: string) => void;
   approval?: ReactNode;
   worktrees: Array<{ id: number; name: string; path: string }>;
@@ -976,6 +992,7 @@ export function ChatComposer({
   onFastModeChange,
   permissionMode,
   onPermissionModeChange,
+  permissionLocked,
   onRecommendationSelect,
   approval,
   worktrees,
@@ -1282,7 +1299,7 @@ export function ChatComposer({
         >
           {/* The update pill floats centred on the chip row's line, outside its flow. */}
           <UpdatePillSlot className="bottom-full mb-2" />
-          {isNewChat && scopeKind !== "link" && !offlineName && (
+          {isNewChat && (scopeKind ?? "project") === "project" && !offlineName && (
             <NewChatHeader
               worktrees={worktrees}
               selectedWorktreeId={selectedWorktreeId}
@@ -1335,6 +1352,7 @@ export function ChatComposer({
               onFastModeChange={onFastModeChange}
               permissionMode={permissionMode}
               onPermissionModeChange={onPermissionModeChange}
+              permissionLocked={permissionLocked}
               alwaysExpanded={isNewChat}
               contextUsage={contextUsage}
             />

@@ -366,6 +366,7 @@ function steeringHost(t, overrides = {}) {
       calls.push(["approve", chatId, request.title]);
       return overrides.approve ? overrides.approve(request) : (overrides.decision ?? "allow");
     },
+    ...(overrides.botOf ? { botOf: overrides.botOf } : {}),
   });
   return { host, projectPath, otherPath, calls, chatId: `${projectPath}#1`, caller: `${projectPath}#2`, links: () => links };
 }
@@ -666,4 +667,56 @@ test("chat_start into a busy Chat whose agent can't steer says the message waits
   assert.match(waiting.note, /starts this one after its running turn ends/);
   const steering = steeringHost(t, { run: {} });
   assert.equal("note" in (await steering.host.startChat({ projectPath: steering.projectPath, chatId: steering.chatId, prompt: "Go" }, "a", () => {})), false);
+});
+
+test("a bot's Chat can't be started, stopped, switched, answered for or renamed through Milagre's MCP", async (t) => {
+  const run = { approvals: [{ requestId: "r1", kind: "command", tool: "Bash", title: "Run?", command: "ls" }], questions: [] };
+  const { host, projectPath, chatId, caller, calls } = steeringHost(t, { run, botOf: (id) => (id.endsWith("#1") ? "Ops" : null) });
+  const refused = { message: "Ops runs this Chat; open it in Milagre to take it over." };
+  await assert.rejects(
+    host.startChat({ projectPath, chatId, prompt: "Go" }, "a", () => {}, caller),
+    refused,
+  );
+  await assert.rejects(
+    host.startChat({ projectPath, chatId, prompt: "Go" }, "b", () => {}),
+    refused,
+  );
+  await assert.rejects(host.stopChat({ projectPath, chatId }), refused);
+  await assert.rejects(host.setMode({ projectPath, chatId, permissionMode: "ask" }, caller), refused);
+  await assert.rejects(host.respond({ projectPath, chatId, requestId: "r1", decision: "allow" }, caller), refused);
+  await assert.rejects(host.updateChat({ projectPath, chatId, title: "Mine now" }), refused);
+  assert.deepEqual(calls, []);
+  // Its other Chats are steered as ever.
+  await host.updateChat({ projectPath, chatId: caller, title: "Fine" });
+  assert.equal(calls.at(-1)[0], "patch");
+});
+
+test("a caller in Bot rules counts as Ask: it raises nothing and links nothing without the user", async (t) => {
+  const { host, projectPath, otherPath, chatId, caller, calls } = steeringHost(t, { modes: (root) => ({ [`${root}#2`]: "bot" }) });
+  // A Chat with no live agent takes Ask from it, never Bot rules.
+  await host.startChat({ projectPath, chatId, prompt: "Go" }, "a", () => {}, caller);
+  assert.equal(calls.findLast(([kind]) => kind === "send")[1].permissionMode, "ask");
+  assert.equal(calls.filter(([kind]) => kind === "approve").length, 0);
+  await host.startChat({ projectPath, chatId, prompt: "Go", permissionMode: "auto" }, "b", () => {}, caller);
+  assert.deepEqual(
+    calls.findLast(([kind]) => kind === "approve"),
+    ["approve", caller, 'Run "Target" in Auto mode?'],
+  );
+  await host.linkWorktrees({ projectPath, worktreeId: 1, targetProjectPath: otherPath, targetWorktreeId: 1 }, caller, () => true);
+  assert.deepEqual(
+    calls.findLast(([kind]) => kind === "approve"),
+    ["approve", caller, "Link this Worktree to another?"],
+  );
+});
+
+test("a Chat running in Bot rules counts as more than Full: a prompt sent there always asks first", async (t) => {
+  const { host, projectPath, chatId, caller, calls } = steeringHost(t, {
+    modes: (root) => ({ [`${root}#1`]: "bot", [`${root}#2`]: "full" }),
+    run: { approvals: [], questions: [] },
+  });
+  await host.startChat({ projectPath, chatId, prompt: "Go" }, "a", () => {}, caller);
+  assert.deepEqual(
+    calls.find(([kind]) => kind === "approve"),
+    ["approve", caller, 'Run a prompt in "Target" in Bot rules?'],
+  );
 });

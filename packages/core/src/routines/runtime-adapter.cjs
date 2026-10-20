@@ -404,9 +404,16 @@ function routineChats({
  * Where a Routine may run, checked the same way for the Routines form and the agent tools, on create and on change.
  * `projects()` lists the Projects Milagre has. A new Chat's folder must be one of them once its symlinks and `..` are
  * resolved, and is stored as Milagre lists it; a Heartbeat's Chat must be in one of them (not a Link's) and still there.
- * Resolves with the target to store.
+ * Neither is ever a bot's (`botOf(chatId)`, the bot that runs a Chat; `botHome(path)`, a bot's hidden home): a Run there
+ * would go out in Bot rules, or steer a Chat only its bot steers. Resolves with the target to store.
  */
-function routineTargets({ projects, openState }) {
+function routineTargets({ projects, openState, botOf = () => null, botHome = () => false }) {
+  function notBots(target) {
+    const folder = target.kind === "new-chat" ? target.projectPath : projectOfKey(String(target.chatId));
+    if (botHome(folder)) throw new Error(UNLISTED);
+    const bot = target.kind === "chat" ? botOf(target.chatId) : null;
+    if (bot) throw new Error(`${bot} runs that Chat, so no Routine runs there.`);
+  }
   async function listedProject(input) {
     if (typeof input !== "string" || !path.isAbsolute(input) || input.includes("\0")) throw new Error(UNLISTED);
     const resolved = path.resolve(input);
@@ -427,6 +434,7 @@ function routineTargets({ projects, openState }) {
     if (typeof folder !== "string" || !path.isAbsolute(folder)) throw new Error(UNLISTED);
     if ((await fs.realpath(folder).catch(() => null)) !== folder) throw new Error(`The Project folder ${folder} moved or is no longer a folder.`);
     if (!(await projects()).some((project) => project.path === folder)) throw new Error(UNLISTED);
+    notBots(target);
     if (target.kind === "chat") {
       const sessionId = sessionIdFromKey(target.chatId);
       const session = (await openState(folder, sessionId))?.sessions?.[sessionId];
@@ -434,7 +442,11 @@ function routineTargets({ projects, openState }) {
     }
   }
   async function checkTarget(target) {
-    if (target?.kind === "new-chat") return { ...target, projectPath: await listedProject(target.projectPath) };
+    if (target?.kind === "new-chat") {
+      const checked = { ...target, projectPath: await listedProject(target.projectPath) };
+      notBots(checked);
+      return checked;
+    }
     if (target?.kind !== "chat") return target;
     if (typeof target.chatId !== "string" || !target.chatId.includes("#")) throw new Error("Choose a Chat.");
     const scope = projectOfKey(target.chatId);
@@ -444,7 +456,9 @@ function routineTargets({ projects, openState }) {
     const sessionId = sessionIdFromKey(target.chatId);
     const session = (await openState(projectPath, sessionId))?.sessions?.[sessionId];
     if (!session || session.archived) throw new Error(NO_CHAT);
-    return { kind: "chat", chatId: chatKey(projectPath, sessionId) };
+    const checked = { kind: "chat", chatId: chatKey(projectPath, sessionId) };
+    notBots(checked);
+    return checked;
   }
   return Object.assign(checkTarget, { atStart });
 }
@@ -469,6 +483,9 @@ function createRoutines({
   // The Projects Milagre lists ([{ path }]): a Routine runs only in one of them. `projectState(path)` reads one.
   projects = async () => [],
   projectState = async () => null,
+  // The bot that runs a Chat, and whether a folder is a bot's home: no Routine targets either (routineTargets).
+  botOf = () => null,
+  botHome = () => false,
   // Names a Run from its final reply ({ reply, provider, projectPath }): a title, or null. Read lazily, like `linear`.
   generateRunTitle = async () => null,
   // Run Chats (see sweepRunChats). `keepChat(chatId)` shows a hidden Run Chat in the lists from now on, as the user's own
@@ -519,7 +536,7 @@ function createRoutines({
       return null;
     }
   };
-  const checkTarget = routineTargets({ projects, openState });
+  const checkTarget = routineTargets({ projects, openState, botOf, botHome });
   const routineChatsView = routineChats({
     chats,
     projects,

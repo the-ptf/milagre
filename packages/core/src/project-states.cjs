@@ -311,6 +311,17 @@ class ProjectStates {
     return writing;
   }
 
+  /** Saves a Project, then drops it from memory as if it was never read: for a folder about to move (a deleted bot's home). */
+  async forget(projectPath) {
+    await this.flush(projectPath);
+    await this.enqueue(projectPath, () => {
+      clearTimeout(this.timers.get(projectPath));
+      for (const map of [this.states, this.dirty, this.timers, this.due, this.touches, this.readAt, this.failures]) map.delete(projectPath);
+      this.transient.delete(projectPath);
+      if (this.messages) messageStore.resetStore(this.messages.directory(projectPath));
+    });
+  }
+
   /** An explicit retry includes the latest transient updates too, without changing ordinary flush semantics. */
   async retry(projectPath) {
     await this.enqueue(projectPath, () => {

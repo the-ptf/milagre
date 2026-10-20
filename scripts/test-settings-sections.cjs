@@ -1,4 +1,4 @@
-// Settings sections in Electron: Experimental lists only Designs, Floating inbox, Ultracode Fatality and Routines; Notifications holds the
+// Settings sections in Electron: Experimental lists only Designs, Floating inbox, Ultracode Fatality, Routines and Bots; Notifications holds the
 // chime picker (picking one saves and plays it; the replay button plays it again); Devices holds Drive other computers, which
 // tells main each time it flips. The legacy sidebar switch is gone everywhere.
 const assert = require("node:assert/strict");
@@ -19,6 +19,7 @@ window.played = [];
 HTMLMediaElement.prototype.play = function () { window.played.push(this.src.split('/').pop().split('?')[0]); return Promise.resolve(); };
 window.savedShare = { id: "orphan", url: "https://share.milagre.cloud/s/orphan", title: "Deleted Chat page", createdAt: 1780000000000, designCount: 2 };
 window.shareCalls = [];
+window.botsSaves = [];
 window.milagre = {
   listEditors: async () => [], setWindowBackground: async () => {},
   getPhoneStatus: async () => ({ enabled: false, state: "off", remote: "none" }),
@@ -32,6 +33,11 @@ window.milagre = {
   onDesignsEnabledChanged: () => () => {},
   readRoutinesEnabled: async () => ({ enabled: false }),
   saveRoutinesEnabled: async (enabled) => ({ enabled }),
+  readBotsEnabled: async () => ({ enabled: false }),
+  saveBotsEnabled: async (enabled) => { window.botsSaves.push(enabled); return { enabled }; },
+  onBotsEnabledChanged: () => () => {},
+  listBots: async () => ({ enabled: false, bots: [], gates: [], grants: [], chats: [] }),
+  onBotsChanged: () => () => {},
   artifacts: {
     allPageShares: async () => { window.shareCalls.push(["all"]); return [window.savedShare]; },
     revokeSavedPageShare: async ({ id }) => { window.shareCalls.push(["revoke", id]); window.savedShare = { ...window.savedShare, revoked: true }; },
@@ -219,8 +225,8 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('main [role="switch"][aria-label="Routines"]')`);
     assert.deepEqual(
       await switches(),
-      ["Designs", "Floating inbox", "Ultracode Fatality", "Routines"],
-      "Experimental lists only Designs, Floating inbox, Ultracode Fatality and Routines",
+      ["Designs", "Floating inbox", "Ultracode Fatality", "Routines", "Bots"],
+      "Experimental lists only Designs, Floating inbox, Ultracode Fatality, Routines and Bots",
     );
     assert.equal(
       await evaluate(`/legacy sidebar|Other computers|Notification chime|Custom theme|usage limits|Linear/i.test(document.querySelector("main").textContent)`),
@@ -253,6 +259,19 @@ async function browserChecks() {
     await waitFor(`!${shareDialog}`);
     await evaluate(`${designsSetting}.querySelector('[role="switch"][aria-label="Designs"]').click()`);
     await waitFor(`${designsSetting}.textContent.includes("Published pages")`);
+    const botsSwitch = 'document.querySelector("[data-slot=bots-setting] [role=switch][aria-label=Bots]")';
+    await waitFor(`${botsSwitch} && !${botsSwitch}.disabled`);
+    assert.equal(await evaluate(`${botsSwitch}.getAttribute("aria-checked")`), "false", "Bots is off by default");
+    assert.equal(
+      await evaluate(
+        'document.querySelector("[data-slot=bots-setting]").textContent.includes("Named bots that work for you and ask before anything irreversible.")',
+      ),
+      true,
+    );
+    await evaluate(`${botsSwitch}.click()`);
+    await waitFor(`${botsSwitch}.getAttribute("aria-checked") === "true"`);
+    assert.deepEqual(await evaluate("window.botsSaves"), [true]);
+    await screenshot("bots-on");
     assert.equal(await evaluate(`!!document.querySelector('[aria-label="Murilo mode"]')`), false, "Murilo mode moved to Settings › Chat");
     for (const label of ["Appearance", "Notifications", "Devices"]) {
       await openSection(label);
@@ -305,7 +324,7 @@ async function browserChecks() {
     assert.deepEqual(errors, []);
     await screenshot("notifications");
     console.log(
-      "PASS: Experimental lists only Designs, Floating inbox, Ultracode Fatality and Routines, with no legacy sidebar switch or Murilo mode; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips",
+      "PASS: Experimental lists only Designs, Floating inbox, Ultracode Fatality, Routines and Bots, with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips",
     );
     app.exit(0);
   } catch (error) {

@@ -7,6 +7,7 @@ import { useCallback, useState, useSyncExternalStore } from "react";
  */
 const PANEL_WIDTHS = {
   changes: { min: 280, default: 320, max: 640 },
+  bots: { min: 280, default: 320, max: 480 },
   simulator: { min: 320, default: 400, max: 800 },
   designs: { min: 440, default: 560, max: 1400 },
   artifacts: { min: 440, default: 560, max: 1400 },

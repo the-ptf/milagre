@@ -1,13 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, ArrowLeft02Icon, ArrowRight02Icon, GitBranchIcon, GridViewIcon } from "@hugeicons/core-free-icons";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Tooltip from "../primitives/Tooltip";
 import GlideMenu from "../primitives/GlideMenu";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { useDismiss } from "../../lib/use-dismiss";
 import { EASE_OUT } from "../../lib/ease";
-import { useWindowChrome } from "../../lib/window-chrome";
+import { useControlsClearance, useWindowChrome } from "../../lib/window-chrome";
 
 /**
  * Over the open diff: Back to the chat on the left, the diff's toolbar on the right. It comes and goes with the diff.
@@ -15,27 +15,6 @@ import { useWindowChrome } from "../../lib/window-chrome";
  * drag region from every element with an app-region in tree order (drag adds, no-drag subtracts), so only the button
  * groups opt out: the empty stretch between them keeps dragging the window.
  */
-/** Left inset that keeps the bar clear of the window controls, from where <main> (the bar's offset parent) starts. */
-function useControlsClearance(open: boolean) {
-  const { controlsEnd, rightInset } = useWindowChrome();
-  const bar = useRef<HTMLDivElement>(null);
-  const [inset, setInset] = useState({ paddingLeft: 0, paddingRight: 0 });
-  useLayoutEffect(() => {
-    const host = bar.current?.offsetParent;
-    if (!open || !(host instanceof HTMLElement)) return;
-    const update = () => {
-      const rect = host.getBoundingClientRect();
-      setInset({ paddingLeft: Math.max(0, controlsEnd - rect.left - 12), paddingRight: Math.max(0, rect.right - window.innerWidth + rightInset) });
-    };
-    update();
-    // Collapsing the sidebar resizes <main>, which is what moves its left edge.
-    const observer = new ResizeObserver(update);
-    observer.observe(host);
-    return () => observer.disconnect();
-  }, [open, controlsEnd, rightInset]);
-  return { bar, inset };
-}
-
 /** `send` is the diff comments waiting to go to the chat; the button is there while any can. */
 export function DiffBar({
   open,
@@ -49,7 +28,7 @@ export function DiffBar({
   trailing?: React.ReactNode;
 }) {
   const reduced = useReducedMotion();
-  const { bar, inset } = useControlsClearance(open);
+  const { bar, inset } = useControlsClearance<HTMLDivElement>(open);
   return (
     <AnimatePresence initial={false}>
       {open && (

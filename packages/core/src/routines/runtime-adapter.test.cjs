@@ -1547,6 +1547,31 @@ test("stopping Routines waits for a Run that never finishes starting only as lon
   assert.equal(routines.list().routines[0].runs[0].status, "running");
 });
 
+test("no Routine targets a bot's home or a Chat a bot runs, on save or as its Run starts", async () => {
+  const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "routine-bots-")));
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "routine-home-")));
+  try {
+    const state = { sessions: { 2: { id: 2 }, 3: { id: 3 } } };
+    const check = routineTargets({
+      projects: async () => [{ path: project }, { path: home }],
+      openState: async () => state,
+      botOf: (chatId) => (chatId === `${project}#2` ? "Ops" : null),
+      botHome: (folder) => folder === home,
+    });
+    await assert.rejects(check({ kind: "chat", chatId: `${project}#2` }), { message: "Ops runs that Chat, so no Routine runs there." });
+    await assert.rejects(check({ kind: "new-chat", projectPath: home, workspace: "project" }), { message: "Choose a Project Milagre lists." });
+    await assert.rejects(check({ kind: "chat", chatId: `${home}#3` }), { message: "Choose a Project Milagre lists." });
+    await assert.rejects(check.atStart({ kind: "chat", chatId: `${project}#2` }), /Ops runs that Chat/);
+    await assert.rejects(check.atStart({ kind: "new-chat", projectPath: home }), /Choose a Project Milagre lists/);
+    // Every other Chat and Project is a target as before.
+    assert.deepEqual(await check({ kind: "chat", chatId: `${project}#3` }), { kind: "chat", chatId: `${project}#3` });
+    assert.equal((await check({ kind: "new-chat", projectPath: project, workspace: "project" })).projectPath, project);
+    await check.atStart({ kind: "chat", chatId: `${project}#3` });
+  } finally {
+    fs.rmSync(project, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
 // Run Chats swept against the store. `prepare(store, at)` adds Routines and Runs to the store file first; createRoutines
 // then reads it with the Project's sessions and messages faked, and the sweep's requests to the runtime are recorded (and
 // applied to the fake state, as the runtime would).

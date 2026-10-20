@@ -6,7 +6,7 @@ import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, ArrowDown01Icon, ArrowUp01Icon, Attachment01Icon, ClipboardPasteIcon, FlashIcon, SecurityCheckIcon } from "@hugeicons/core-free-icons";
 import type { AgentCliStatus, ContextUsage, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
-import { effortCopy, PERMISSION_MODES } from "../model";
+import { effortCopy, PERMISSION_MODE_LABEL, PERMISSION_MODES } from "../model";
 import { cliNotice, messageParts } from "../lib/cli-status";
 import type { ImageDraft } from "./usePastedImages";
 import { PickerPanel, PickerRow } from "./primitives/Picker";
@@ -87,6 +87,8 @@ interface PromptComposerProps {
   onFastModeChange: (on: boolean) => void;
   permissionMode: PermissionMode;
   onPermissionModeChange: (mode: PermissionMode) => void;
+  /** The mode is fixed: the chip shows it, disabled. */
+  permissionLocked?: boolean;
   /** Keep the tall layout (input above the controls) even while the draft is empty. */
   alwaysExpanded?: boolean;
   /** How full the agent's context window is, shown as a ring beside Send. */
@@ -149,6 +151,7 @@ export function PromptComposer({
   onFastModeChange,
   permissionMode,
   onPermissionModeChange,
+  permissionLocked = false,
   alwaysExpanded = false,
   contextUsage,
   canUndo = false,
@@ -637,7 +640,7 @@ export function PromptComposer({
         )}
         {fatality > 0 && <UltracodeFatality key={fatality} onDone={() => setFatality(0)} />}
 
-        {permissionOpen && (
+        {permissionOpen && !permissionLocked && (
           <PickerPanel title="Agent permissions" className="absolute w-[340px]" style={anchorStyle}>
             {PERMISSION_MODES.map((mode) => (
               <PickerRow
@@ -777,16 +780,18 @@ export function PromptComposer({
               type="button"
               aria-label="Agent permissions"
               aria-expanded={permissionOpen}
+              disabled={permissionLocked}
+              title={permissionLocked ? PERMISSION_MODE_LABEL[permissionMode] : undefined}
               onClick={(event) => {
                 anchorTo(event.currentTarget, 340);
                 setPlusOpen(false);
                 setModelOpen(false);
                 setPermissionOpen((current) => !current);
               }}
-              className={`flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium transition-colors hover:bg-hover ${permissionMode === "full" ? "text-ink" : permissionMode === "auto" ? "text-green" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"}`}
+              className={`flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-ink" : permissionMode === "auto" ? "text-green" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"}`}
             >
               <Icon icon={SecurityCheckIcon} size={14} />
-              <span className="hidden min-[900px]:inline">{permissionMode === "ask" ? "Ask" : permissionMode === "auto" ? "Auto" : "Full"}</span>
+              <span className="hidden min-[900px]:inline">{PERMISSION_MODE_LABEL[permissionMode]}</span>
             </button>
             <div className={`flex shrink-0 items-center gap-1.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"}`}>
               {contextUsage && contextUsage.size > 0 && (

@@ -67,8 +67,11 @@ export function requiresAiConsent(method, args = []) {
   if (method === "routines:update") return args[1]?.enabled !== false;
   if (method === "agent:respond-permission") return args[0]?.decision !== "deny";
   if (method === "agent:set-permission-mode") return args[0]?.mode !== "ask";
+  // A sign-off lets the bot's turn go on; a denial ends it.
+  if (method === "bots:answer-gate") return args[2] !== "deny";
   return [
     "chat:send",
+    "bots:send",
     "link:send",
     "chat:resume",
     "chat:queue-send",
@@ -95,6 +98,8 @@ const methods = {
   runRoutineNow: "routines:run-now",
   createRoutine: "routines:create",
   updateRoutine: "routines:update",
+  sendToBot: "bots:send",
+  answerBotGate: "bots:answer-gate",
 };
 
 /** Wrap both local and paired-computer bridges at their shared call boundary. */

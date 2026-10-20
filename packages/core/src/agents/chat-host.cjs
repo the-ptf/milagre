@@ -261,6 +261,35 @@ class ChatHost {
     if (failure) throw failure;
   }
 
+  /**
+   * A Chat a bot no longer runs: it leaves Bot rules for Ask, saved with it like the composer's pick, so the turns it
+   * starts again (a resume, a continue after a limit, a heartbeat's beat, the messages queued behind its turn) ask the
+   * user. A chat in another mode keeps it.
+   */
+  async leaveBotRules(chatId) {
+    const asked = (settings) => (settings?.permissionMode === "bot" ? { ...settings, permissionMode: "ask" } : settings);
+    const turn = this.turns.get(chatId);
+    if (turn?.permissionMode === "bot") this.turns.set(chatId, asked(turn));
+    const projectPath = projectOfKey(chatId);
+    const sessionId = sessionIdFromKey(chatId);
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        const session = latest.sessions[sessionId];
+        const queued = session?.queued?.some((entry) => entry.turn?.permissionMode === "bot");
+        if (!session || (session.permissionMode !== "bot" && session.resumeTurn?.permissionMode !== "bot" && !queued)) return latest;
+        const left = {
+          ...asked(session),
+          ...(session.resumeTurn ? { resumeTurn: asked(session.resumeTurn) } : {}),
+          ...(queued ? { queued: session.queued.map((entry) => (entry.turn ? { ...entry, turn: asked(entry.turn) } : entry)) } : {}),
+        };
+        return { ...latest, sessions: { ...latest.sessions, [sessionId]: left } };
+      },
+      { chats: [] },
+    );
+    if (changed) this.broadcast(projectPath, state);
+  }
+
   /** Forgets what this run knows of a chat that was deleted. */
   forget(chatId) {
     this.routineTurns.delete(chatId);
@@ -1227,15 +1256,25 @@ class ChatHost {
   async resumeInterrupted(projectPath, state) {
     for (const session of Object.values(state.sessions)) {
       // A queue whose turn had ended moves on; one behind a stopped turn waits for that turn to resume and finish.
-      if (!session.resumeTurn && session.queued?.length && !session.queueHeld && !session.archived) {
+      if (this.startsQueue(session)) {
         await this.startQueued(chatKey(projectPath, session.id), session.queued[0].id).catch((error) =>
           console.warn(`Milagre couldn't start the queue of a chat in ${projectPath}:`, error.message),
         );
         continue;
       }
-      if (!session.resumeTurn || this.now() - (session.resumeTurn.stoppedAt ?? 0) > RESUME_WINDOW_MS) continue;
+      if (!this.willResume(session)) continue;
       await this.resumeChat(projectPath, session.id).catch((error) => console.warn(`Milagre couldn't resume a chat in ${projectPath}:`, error.message));
     }
+  }
+
+  /** Whether the saved chat `session` has a turn a quit stopped that continues when its project opens. */
+  willResume(session) {
+    return Boolean(session?.resumeTurn) && this.now() - (session.resumeTurn.stoppedAt ?? 0) <= RESUME_WINDOW_MS;
+  }
+
+  /** Whether the saved chat `session` has queued messages that start when its project opens: its turn had ended. */
+  startsQueue(session) {
+    return Boolean(session && !session.resumeTurn && session.queued?.length && !session.queueHeld && !session.archived);
   }
 
   /** Continues one chat a quit stopped, on the turn's saved options. Resolves false when it has nothing to continue. */

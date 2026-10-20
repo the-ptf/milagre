@@ -98,6 +98,39 @@ A **Chat** a **Run** opened. It lives in its **Routine**'s Runs list, out of the
 **Quiet run**:
 A **Run** whose reply, after its last tool step, starts with `(pass)`. Its divider collapses, its reply is hidden, and it sends no notification.
 
+### Bots
+
+**Bot**:
+A persistent named teammate on one **Computer**: name, role, brief, mascot, model, memory, **Routines** and one **Bot thread**. A **Bot**'s **Run** lands in its **Bot thread**. Its home is a hidden **Project** in the daemon's data folder (ADR-0010). Behind Settings › Experimental › Bots.
+_Avoid_: agent (the provider process behind any **Chat**), assistant
+
+**Bot thread**:
+The **Bot**'s one ongoing conversation with the user, an ordinary **Chat** in its home. It never ends; old context is compacted.
+
+**Group**:
+A thread with the user and two to six **Bots**. A **Group** has no agent of its own.
+
+**Starter bot**:
+A template (Ops, Release, Chief) that ships with Milagre, filled in once from a short setup card.
+
+**Gate**:
+An action class that always needs the user's **Sign-off**: merge, publish, post as the user, delete, spend. A **Chat** a **Bot** opened runs under that **Bot**'s **Gates**.
+
+**Sign-off**:
+The user's answer to a **Gate**: Allow once, Always for the **Bot**, or Deny. One left unanswered for an hour expires and counts as denied.
+
+**Grant**:
+A standing "Always for this bot" answer for one **Gate** and target, revocable.
+
+**Assignment**:
+One **Bot** asking another to do something, tracked by the daemon until it is answered or expires.
+
+**Digest**:
+The Chief's daily summary, the only scheduled push.
+
+**Mascot**:
+A **Bot**'s avatar: a body shape, a color and a face whose expression follows the **Bot**'s state.
+
 ### Computers and devices
 
 **Computer**:

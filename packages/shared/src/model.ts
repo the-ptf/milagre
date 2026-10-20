@@ -1,6 +1,8 @@
+import type { GateMeta } from "./bots.mjs";
+
 export type SessionStatus = "Created" | "Running" | "Stopped";
 export type ModelProvider = "codex" | "claude" | "antigravity";
-export type PermissionMode = "ask" | "auto" | "full";
+export type PermissionMode = "ask" | "auto" | "full" | "bot";
 /** Where a new chat runs: the selected checkout, or a fresh git worktree. */
 export type Isolation = "local" | "worktree";
 
@@ -382,6 +384,16 @@ export type WorktreeLinkedContext = {
 export type ChatReloadContext = { kind: "reload" };
 
 /**
+ * What Milagre writes into a bot's thread (packages/core/src/bots): a sign-off that expired, a Chat the bot opened that
+ * finished a turn or that the user took over. `bot-message` marks a prompt a bot sent into a Chat it opened.
+ */
+export type BotContext =
+  | { kind: "bot-gate-expired"; requestId: string; chatKey: string }
+  | { kind: "bot-chat-finished"; chatKey: string; status: "done" | "failed" }
+  | { kind: "bot-chat-taken-over"; chatKey: string }
+  | { kind: "bot-message"; botId: string; botName: string };
+
+/**
  * What starts a Routine: the clock, a change in a Linear workspace, or a POST to its webhook URL. A webhook's `hookId` is
  * the hex sha256 of the secret in the URL, so the Routine never holds the secret itself; `signed` says an HMAC is checked.
  */
@@ -517,6 +529,7 @@ export type ChatContext =
   | UsageLimitContext
   | AccountSwitchContext
   | ChatReloadContext
+  | BotContext
   | RoutineRunContext
   | CheckpointRestoreContext
   | "handover"
@@ -635,6 +648,8 @@ export interface PermissionRequest {
   setup?: { projectPath: string; source: string; computer: string };
   /** Short name of the tool, e.g. "Bash", "Shell" or "Edit files". */
   tool: string;
+  /** The agent's own name for the tool, when `tool` shows another (Claude's MCP tools: "Send Message"). */
+  toolName?: string;
   title: string;
   description?: string;
   command?: string;
@@ -651,6 +666,8 @@ export interface PermissionRequest {
   stepId?: string;
   /** On a Delegation's card: where it goes ("Project / branch / Chat"), what it says, and whether it opens a Negotiation. */
   delegation?: { target: string; message: string; negotiation: boolean };
+  /** On a bot's sign-off card: the gated action and the bot that wants it. */
+  gate?: GateMeta;
 }
 
 export type PermissionDecision = "allow" | "allow-for-chat" | "deny";

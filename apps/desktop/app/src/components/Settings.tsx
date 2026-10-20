@@ -1,5 +1,6 @@
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
 import { useDesignsEnabled } from "../lib/designs-enabled";
+import { useBots } from "../lib/bots-store";
 import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/ai-consent";
 import { PrivacySettings } from "./AiConsent";
 import { showUpdateNotice } from "./UpdateNotice";
@@ -557,6 +558,22 @@ export function DesignsSettings() {
   );
 }
 
+function BotsSettings() {
+  const bots = useBots();
+  return (
+    <div data-slot="bots-setting">
+      <Row label="Bots" description="Named bots that work for you and ask before anything irreversible.">
+        <Switch label="Bots" checked={bots.enabled} disabled={!bots.ready || bots.saving} onChange={(enabled) => void bots.setEnabled(enabled)} />
+      </Row>
+      {bots.error && (
+        <p role="alert" className="px-4 pb-3 text-[12px] text-red">
+          {bots.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ChatSettings() {
   const settings = useSettings();
   return (
@@ -631,6 +648,7 @@ function ExperimentalSettings() {
           <Switch label="Ultracode Fatality" checked={settings.ultracodeFatality} onChange={(ultracodeFatality) => updateSettings({ ultracodeFatality })} />
         </Row>
         <RoutinesSetting />
+        <BotsSettings />
       </Group>
     </>
   );
