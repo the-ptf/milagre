@@ -1,6 +1,33 @@
 const { createGit } = require("./git/client.cjs");
+const fs = require("node:fs/promises");
 const path = require("node:path");
+const { outsideGit } = require("./project-identity.cjs");
 const git = createGit().read;
+
+// A Project folder outside Git has no ls-files: its files are walked instead, skipping dependency and hidden folders,
+// up to a limit so a huge folder can't stall the @ menu.
+const SKIPPED = new Set(["node_modules", "dist", "build", "target", "vendor", "Pods", "DerivedData"]);
+async function walkFiles(root, limit = 20000) {
+  const files = [];
+  const pending = [""];
+  while (pending.length && files.length < limit) {
+    const relative = pending.shift();
+    let entries;
+    try {
+      entries = await fs.readdir(path.join(root, relative), { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") && entry.isDirectory()) continue;
+      const file = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (!SKIPPED.has(entry.name)) pending.push(file);
+      } else if (entry.isFile()) files.push(file);
+    }
+  }
+  return files.slice(0, limit);
+}
 
 function createFileSearch({ now = Date.now, ttl = 5000 } = {}) {
   const cache = new Map();
@@ -8,9 +35,13 @@ function createFileSearch({ now = Date.now, ttl = 5000 } = {}) {
     if (typeof root !== "string" || !path.isAbsolute(root) || typeof query !== "string") throw new Error("Choose a worktree to search.");
     let entry = cache.get(root);
     if (!entry || now() - entry.at > ttl) {
-      const promise = git
-        .checked(root, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
-        .then(({ stdout }) => [...new Set(stdout.split("\0").filter(Boolean))]);
+      const promise = outsideGit(root).then((plain) =>
+        plain
+          ? walkFiles(root)
+          : git
+              .checked(root, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
+              .then(({ stdout }) => [...new Set(stdout.split("\0").filter(Boolean))]),
+      );
       entry = { at: now(), promise };
       cache.set(root, entry);
       if (cache.size > 8) cache.delete(cache.keys().next().value);

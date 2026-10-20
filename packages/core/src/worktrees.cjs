@@ -3,6 +3,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { copyFilesToWorktree } = require("./worktree-files.cjs");
+const { outsideGit } = require("./project-identity.cjs");
 
 const client = createGit();
 const git = client.read.checked;
@@ -111,6 +112,8 @@ async function createWorktree({
   fetched = false,
   beforeCreate,
 }) {
+  if (await outsideGit(projectPath))
+    throw new Error(`${path.basename(projectPath)} has no Git, so its Chats work in the folder itself. Set up Git to give a Chat its own Worktree.`);
   await checkBase(projectPath, baseBranch);
   // A named branch (from issueBranch) keeps its name; its folder takes the last segment of that name.
   if (named !== undefined && !validBranchName(named)) throw new Error(`${JSON.stringify(String(named))} is not a valid branch name.`);
