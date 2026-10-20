@@ -766,6 +766,8 @@ export interface AgentPort {
   address: string;
   /** Set by a desktop window on a port that listens on another computer, which `localhost` doesn't reach. */
   computerId?: string;
+  /** The agent's background command that serves it, which the port then stands for instead of the background line. */
+  taskId?: string;
 }
 
 /** Every chat's listening ports, by chat key; a chat with none is absent. */

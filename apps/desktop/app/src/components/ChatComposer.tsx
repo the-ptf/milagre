@@ -1141,7 +1141,7 @@ export function ChatComposer({
                 )}
                 <BackgroundWork
                   key={runtimeChat}
-                  items={backgroundItems({ provider: sessionProvider ?? selectedModel.provider, subagents, backgroundTasks })}
+                  items={backgroundItems({ provider: sessionProvider ?? selectedModel.provider, subagents, backgroundTasks }, ports)}
                   chatKey={runtimeChat}
                   showIndicator={!isSending && activity?.activity === "background"}
                   mark={<ChatMarkDotInline mark="background" failed={false} background={activity?.background ?? 0} />}

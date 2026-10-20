@@ -1,5 +1,5 @@
 import type { AgentRun } from "./agent-runs.mjs";
-import type { AgentEvent, BackgroundTask, ChatSummary, ModelProvider, Subagent } from "./model.ts";
+import type { AgentEvent, AgentPort, BackgroundTask, ChatSummary, ModelProvider, Subagent } from "./model.ts";
 
 /** What a Chat is doing: see CHAT_ACTIVITIES in chat-activity.mjs for which wins. */
 export type ChatActivityState = "waiting" | "working" | "failed" | "background" | "idle";
@@ -41,7 +41,7 @@ export interface BackgroundItem {
   /** The subagent or advisor itself; absent for a task. */
   agent?: Subagent;
 }
-export function backgroundItems(session: ActivitySession | undefined): BackgroundItem[];
+export function backgroundItems(session: ActivitySession | undefined, ports?: readonly Pick<AgentPort, "taskId">[]): BackgroundItem[];
 export function chatActivity(
   session: ActivitySession | undefined,
   run: Pick<AgentRun, "approvals" | "questions"> | undefined,

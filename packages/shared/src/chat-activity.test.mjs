@@ -119,6 +119,23 @@ test("backgroundItems lists the background line's work oldest first, with what e
   assert.equal(items.length, chatActivity(chat, undefined).background);
 });
 
+test("backgroundItems leaves out a command that serves one of the Chat's ports", () => {
+  const chat = session({
+    backgroundTasks: [
+      { id: "metro", kind: "local_bash", title: "Run Metro", startedAt: 10 },
+      { id: "tests", kind: "local_bash", title: "Run tests", startedAt: 20 },
+    ],
+  });
+  const ports = [
+    { port: 8086, pid: 5, command: "node", address: "*", taskId: "metro" },
+    { port: 3000, pid: 6, command: "node", address: "*" },
+  ];
+  assert.deepEqual(
+    backgroundItems(chat, ports).map((item) => item.id),
+    ["tests"],
+  );
+});
+
 test("plainTaskOutput drops escape sequences and keeps a redrawn line's last state", () => {
   assert.equal(plainTaskOutput("\u001b[32m✓\u001b[0m build\r\n"), "✓ build\n");
   assert.equal(plainTaskOutput("\u001b]0;title\u0007 10%\r 50%\r100% done\nnext"), "100% done\nnext");
