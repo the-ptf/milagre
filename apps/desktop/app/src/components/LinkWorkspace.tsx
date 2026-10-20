@@ -1,3 +1,4 @@
+import { PersistenceNotices, type UnsavedScope } from "./PersistenceNotice";
 import { CommandPalette } from "./CommandPalette";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { useChanges } from "./changes/useChanges";
@@ -78,6 +79,8 @@ export function LinkWorkspace({
   usage,
   initialSessionId,
   hostConnection,
+  saveNotice,
+  saveScopes,
   ports,
   onNewChatInScope,
 }: {
@@ -88,6 +91,8 @@ export function LinkWorkspace({
   drafts: ReturnType<typeof createScopeDrafts>;
   initialSessionId?: number;
   hostConnection: { connected: boolean };
+  saveNotice?: ReactNode;
+  saveScopes: UnsavedScope[];
   ports: AgentPorts;
   onSwitchProject: (path: string) => void;
   onSwitchLink: (id: string) => void;
@@ -402,16 +407,18 @@ export function LinkWorkspace({
     <BridgeContext.Provider value={bridge}>
       <ScopeContext.Provider value={owner}>
         <DotBackground>
-          {!hostConnection.connected && (
-            <div
-              role="status"
-              data-host-disconnected
-              className="fixed inset-x-4 top-12 z-50 mx-auto max-w-2xl rounded-card border border-line bg-surface px-4 py-3 text-sm text-ink shadow-overlay [-webkit-app-region:no-drag]"
-            >
-              <p>Reconnecting to your computer</p>
-              <p className="mt-1 text-ink-2">Your draft is kept here. Messages will be available when the host reconnects.</p>
-            </div>
-          )}
+          <PersistenceNotices scopes={saveScopes.filter((entry) => entry.scope !== owner || canvasOpen || changes.diffOpen)}>
+            {!hostConnection.connected && (
+              <div
+                role="status"
+                data-host-disconnected
+                className="w-full rounded-card border border-line bg-surface px-4 py-3 text-sm text-ink shadow-overlay [-webkit-app-region:no-drag]"
+              >
+                <p>Reconnecting to your computer</p>
+                <p className="mt-1 text-ink-2">Your draft is kept here. Messages will be available when the host reconnects.</p>
+              </div>
+            )}
+          </PersistenceNotices>
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
           <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden text-ink">
             <div className="flex min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
@@ -524,6 +531,7 @@ export function LinkWorkspace({
                   <div className={`min-h-0 flex-1 flex-col overflow-hidden ${changes.diffOpen ? "hidden" : "flex"}`}>
                     <EditorLinks root={root}>
                       <DraftChatComposer
+                        saveNotice={saveNotice}
                         {...preferences}
                         effort={preferences.capability ? effortFor(preferences.capability, composerPrefs.effort) : composerPrefs.effort}
                         onEffortChange={composerPrefs.setEffort}

@@ -406,6 +406,7 @@ export type MilagreBridge = {
   /** Keeps a recent project out of the all-Projects sidebar and the phone's list, or shows it again; resolves to the list. */
   setProjectHidden: (projectPath: string, hidden: boolean) => Promise<RecentProject[]>;
   /** Loads a recent project's chats without opening it; later changes arrive through onProjectState. */
+  retrySave: (scope: string) => Promise<void>;
   readProject: (projectPath: string) => Promise<OpenProject>;
   /** Every opened Project, seeded once from existing coordination files. */
   listNamedLinks: () => Promise<NamedProjectLink[]>;

@@ -1424,3 +1424,35 @@ test("unlinking hides a branch-named issue after refresh, and relinking restores
   await link();
   assert.equal((await readIssues())[worktree.path].key, "ENG-12");
 });
+
+test("Project save failure and recovery publish status without another edit", async (t) => {
+  const { project, make, events } = await fixture(t);
+  const runtime = make();
+  const opened = await runtime.invoke("project:current");
+  const session = Object.values(opened.state.sessions)[0];
+  await runtime.invoke("chat:patch", [project, session.id, { title: "Before failure" }]);
+  await runtime.flush();
+  const file = path.join(project, ".milagre", "coordination.json");
+  const backup = `${file}.save-check`;
+  await fs.rename(file, backup);
+  await fs.mkdir(file);
+  try {
+    const before = events.length;
+    await assert.rejects(runtime.invoke("chat:patch", [project, session.id, { title: "Newest title" }]));
+    const failed = events.slice(before).findLast((event) => event.channel === "project:state");
+    assert.ok(failed.payload.state.persistence?.error, "the failed write itself announces unsaved status");
+    assert.ok(runtime.snapshot().projects.find((entry) => entry.path === project).state.persistence);
+  } finally {
+    await fs.rmdir(file);
+    await fs.rename(backup, file);
+  }
+  const before = events.length;
+  await runtime.invoke("scope:retry-save", [project]);
+  const recovered = events.slice(before).filter((event) => event.channel === "project:state");
+  assert.equal(recovered[0].payload.state.persistence.saving, true);
+  assert.equal(recovered.at(-1).payload.state.persistence, undefined);
+  const saved = await readSavedState(project);
+  assert.equal(saved.sessions[session.id].title, "Newest title");
+  assert.equal(saved.persistence, undefined);
+  await assert.rejects(runtime.invoke("scope:retry-save", [path.join(project, "unopened")]), /Open the Project/);
+});

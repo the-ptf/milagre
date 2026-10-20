@@ -8,13 +8,18 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
+import { PersistenceNotices } from "/src/components/PersistenceNotice";
 import { ChatComposer } from "/src/components/ChatComposer";
 import { MessageScroller } from "/src/components/agents/message-scroller";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
-window.milagre = Object.freeze({ listEditors: async () => [] });
+window.milagre = Object.freeze({ listEditors: async () => [], retrySave: () => new Promise(resolve => { window.finishSave = resolve; }) });
 const noop = () => {};
 function Fixture() {
+  const [saveScopes, setSaveScopes] = useState([]);
+  window.setSaveScopes = setSaveScopes;
+  const [disconnected, setDisconnected] = useState(false);
+  window.setDisconnected = setDisconnected;
   const [imageChat, setImageChat] = useState(false);
   const [imageHeight, setImageHeight] = useState(320);
   window.showImageChat = setImageChat;
@@ -48,6 +53,7 @@ function Fixture() {
     </article>)}
   </MessageScroller>;
   return <div style={{ height: "100%", padding: 12 }}>
+    <PersistenceNotices scopes={saveScopes}>{disconnected && <div data-save-connection>Reconnecting to your computer</div>}</PersistenceNotices>
     {/* Exercise the fully expanded history, as when Find is open; paging has its own regression. */}
     <ChatComposer findOpen messages={[...messages, ...extra]}
       imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
@@ -487,6 +493,29 @@ async function browserChecks() {
     console.log("PASS: fast mode appears for Codex models and the Opus models that have it, the prompt expands on wrapping, and a narrow empty prompt settles");
     console.log("PASS: message previews stay inside the conversation and above the prompt");
     console.log("PASS: navigation stays capped at 15 lines across the full Chat");
+    // Project and Link fallback warnings share one stack, even while a connection banner is present.
+    await evaluate(`window.setSaveScopes([
+      { scope: "/project", name: "Project", failure: { error: "disk full", code: "ENOSPC", saving: false }, offline: false },
+      { scope: "milagre-link:11111111-1111-4111-8111-111111111111", name: "Shared Chats", failure: { error: "denied", code: "EACCES", saving: false }, offline: true }
+    ]); window.setDisconnected(true);`);
+    await waitFor(`document.querySelectorAll('[data-save-failure]').length === 2`);
+    assert.ok(
+      await evaluate(
+        `(() => { const rows = [...document.querySelectorAll('[data-save-connection], [data-save-failure]')].map(e => e.getBoundingClientRect()); return rows[0].bottom <= rows[1].top && rows[1].bottom <= rows[2].top; })()`,
+      ),
+      "Connection, Project and Link warnings never overlap",
+    );
+    assert.equal(await evaluate(`document.querySelectorAll('[data-save-failure] [data-notice-dismiss]').length`), 0);
+    assert.equal(await evaluate(`document.querySelectorAll('[data-save-failure] button')[1].disabled`), true, "Offline saving is disabled");
+    await evaluate(`document.querySelector('[data-save-failure] button').click()`);
+    await waitFor(
+      `document.querySelector('[data-save-failure] button').disabled && document.querySelector('[data-save-failure]').textContent.includes('Saving...')`,
+    );
+    await evaluate(`window.finishSave(); window.setSaveScopes([]); window.setDisconnected(false);`);
+    await waitFor(`!document.querySelector('[data-save-failure]')`);
+    console.log(
+      "PASS: simultaneous Project/Link save warnings and disconnection stack without overlap; retry stays pending, offline retry is disabled, and confirmed recovery removes notices",
+    );
     app.exit(0);
   } catch (error) {
     console.error(error);

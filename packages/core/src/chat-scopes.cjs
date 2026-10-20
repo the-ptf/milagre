@@ -31,6 +31,10 @@ function createChatScopes({ projects, links, validateLink }) {
         .flatMap((id) => Object.values(links.cached(id)?.sessions ?? {}).flatMap((session) => session.worktrees.map((member) => member.worktreePath))),
     ],
     workspacePaths: () => links.ids().flatMap((id) => Object.values(links.cached(id)?.sessions ?? {}).map((session) => session.workspacePath)),
+    withPersistence(key, state) {
+      const [store, id] = target(key);
+      return store.withPersistence(id, state);
+    },
     get(key) {
       const [store, id] = target(key);
       return store.get(id);
@@ -71,6 +75,10 @@ function createChatScopes({ projects, links, validateLink }) {
     findMessage(key, field, value) {
       const [store, id] = target(key);
       return store.findMessage(id, field, value);
+    },
+    retry(key) {
+      const [store, id] = target(key);
+      return store.retry(id);
     },
     flush(key) {
       if (key === undefined) return Promise.all([projects.flush(), links.flush()]);

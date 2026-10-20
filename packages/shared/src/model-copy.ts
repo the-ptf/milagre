@@ -1,4 +1,4 @@
-import type { PermissionMode, EffortLevel } from "./model.ts";
+import type { PermissionMode, EffortLevel, PersistenceFailure } from "./model.ts";
 
 export const PERMISSION_MODES: Array<{ id: PermissionMode; name: string; description: string }> = [
   { id: "ask", name: "Ask approval", description: "Approve edits and commands as the agent asks" },
@@ -20,4 +20,12 @@ export const EFFORT_COPY: Record<string, { name: string; description: string }> 
 
 export function effortCopy(level: EffortLevel) {
   return EFFORT_COPY[level] ?? { name: level, description: "" };
+}
+
+/** The recovery action is the same on desktop and phone; raw errors stay available for other save failures. */
+export function persistenceFailureDetail(failure: PersistenceFailure) {
+  if (failure.code === "ENOSPC") return "Disk is full. Free space on your computer, then retry.";
+  if (failure.code === "EACCES" || failure.code === "EPERM" || /readonly|read-only/i.test(failure.error))
+    return "Permission denied. Check that your computer can write to this Project.";
+  return failure.error;
 }

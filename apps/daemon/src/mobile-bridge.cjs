@@ -153,6 +153,7 @@ const METHODS = new Set([
   "agent:set-permission-mode",
   "agent:models",
   "agent:cli-status",
+  "scope:retry-save",
   "chat:patch",
   "chat:archive-subagent",
   "chat:archive-finished-subagents",

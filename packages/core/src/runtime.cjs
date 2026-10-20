@@ -394,6 +394,7 @@ function createRuntime(options) {
   // A sweep's new state goes out like any other, so the daemon lets go of the state it last sent, unloaded messages too.
   const linkStore = createLinkStore({
     dataDir,
+    persistenceChanged: (linkId, state) => broadcastProjectState(scopeKey({ kind: "link", linkId }), state),
     active: (linkId, chat) => busyChat(chatKey(scopeKey({ kind: "link", linkId }), chat)),
     lazyMessages: lazy
       ? { ...lazyMessages, unloaded: (linkId, state) => broadcastProjectState(scopeKey({ kind: "link", linkId }), state) }
@@ -406,6 +407,7 @@ function createRuntime(options) {
       return reconcileState(await withWorktreeChats(projectPath, stored, discovered), projectName(projectPath), discovered, await linkStore.ownedWorktrees());
     },
     save: saveProjectState,
+    persistenceChanged: broadcastProjectState,
     compact: compactProjectState,
     messages: lazy
       ? {
@@ -435,6 +437,7 @@ function createRuntime(options) {
     },
   });
   function broadcastProjectState(projectPath, state) {
+    state = scopeStates.withPersistence(projectPath, state);
     if (isLinkScopeKey(projectPath)) {
       emit("link:state", { linkId: scopeFromKey(projectPath).linkId, state });
       return;
@@ -931,7 +934,7 @@ function createRuntime(options) {
     }
     if (["turn-completed", "turn-failed", "turn-cancelled", "permission-resolved", "question-resolved"].includes(event.type))
       void advisorDelivery?.drain(chatId).catch((error) => console.warn("Advisor delivery failed:", error.message));
-    emit("agent:event", { chatId, event, ...(state ? { state } : {}), ...(seq ? { seq } : {}) });
+    emit("agent:event", { chatId, event, ...(state ? { state: scopeStates.withPersistence(projectOfKey(chatId), state) } : {}), ...(seq ? { seq } : {}) });
   }
 
   const agents = new SessionManager({
@@ -2076,6 +2079,11 @@ function createRuntime(options) {
   commands.handle("project:read", async (_event, projectPath) => {
     if (!(await recentProjects().list()).some((item) => item.path === projectPath)) throw new Error("Open this project in Milagre first.");
     return readProject(projectPath);
+  });
+  // A retry only flushes the newest pending state. It never replays a Chat command or sends a message.
+  commands.handle("scope:retry-save", async (_event, scope) => {
+    if (typeof scope !== "string" || !scopeStates.has(scope)) throw new Error("Open the Project or Link before retrying its save.");
+    await scopeStates.retry(scope);
   });
   commands.handle("project:snapshot", async (_event, projectPath) => {
     if (!states.has(projectPath)) throw new Error("Open the project before reading its snapshot.");
