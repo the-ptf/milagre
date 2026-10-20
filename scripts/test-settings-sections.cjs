@@ -88,6 +88,18 @@ async function browserChecks() {
     // Appearance: every control is a menu; picking a size saves it and the preview follows; fonts draw in their own face.
     // The mini window preview shows where each row applies: hovering a row highlights its region.
     await waitFor(`!!document.querySelector('[data-preview-area="sidebar"]')`);
+    // Only leading window controls need room above Settings. The Back button must
+    // remain above the app's drag strip when Windows places it in that top row.
+    await evaluate(`Object.defineProperty(navigator, 'windowControlsOverlay', { configurable: true, value: undefined })`);
+    for (const [controls, expectedTop] of [
+      ["leading", 64],
+      ["overlay", 24],
+      ["external", 24],
+    ]) {
+      await evaluate(`window.milagreWindowChrome = { controls: ${JSON.stringify(controls)} }; window.dispatchEvent(new Event('resize'))`);
+      await waitFor(`document.querySelector('button[aria-label="Back"]').getBoundingClientRect().top === ${expectedTop}`);
+    }
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector('button[aria-label="Back"]')).webkitAppRegion`), "no-drag");
     const region = (area) => `document.querySelector('[data-preview-area=${JSON.stringify(area)}]')`;
     const rowOf = (label) => `document.querySelector('button[aria-label=${JSON.stringify(label)}]').closest('[data-preview-row]')`;
     assert.equal(await evaluate(`${region("sidebar")}.hasAttribute("data-highlighted")`), false, "nothing is highlighted at rest");

@@ -57,6 +57,7 @@ import { PERMISSION_MODES } from "../model";
 import type { ModelOption, PermissionMode } from "../model";
 import { providerForId, resolveModel } from "../lib/models";
 import { getSettings, updateSettings, useSettings } from "../lib/settings";
+import { useWindowChrome } from "../lib/window-chrome";
 import type { ClaudeReplies, UsageDisplay } from "../lib/settings";
 import type { ChatOrder } from "../lib/chat-list";
 import { useEditors } from "../lib/editors";
@@ -168,6 +169,7 @@ export function SettingsNav({
   onBack: () => void;
 }) {
   const [recent, setRecent] = useState<RecentProject[]>([]);
+  const chrome = useWindowChrome();
   const { thisMac, computers } = useComputers();
   useEffect(() => {
     window.milagre.listRecentProjects().then(
@@ -179,13 +181,13 @@ export function SettingsNav({
   const imageOf = useProjectImages(rows.map((row) => row.path));
   return (
     <aside aria-label="Settings navigation" className="flex h-full w-[224px] shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card">
-      <div aria-hidden className="h-[calc(var(--window-chrome-height)-12px)] shrink-0" />
-      <div className="mx-2 mb-1.5 flex h-9 shrink-0 items-center gap-1 px-1">
+      <div aria-hidden className={`${chrome.sidebarLeft > 12 ? "h-[calc(var(--window-chrome-height)-12px)]" : "h-2"} shrink-0`} />
+      <div className="title-drag relative z-[60] mx-2 mb-1.5 flex h-9 shrink-0 items-center gap-1 px-1">
         <button
           type="button"
           aria-label="Back"
           onClick={onBack}
-          className="flex size-7 items-center justify-center rounded-[7px] text-ink-2 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96]"
+          className="flex size-7 items-center justify-center rounded-[7px] text-ink-2 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96] [-webkit-app-region:no-drag]"
         >
           <Icon icon={ArrowLeft02Icon} size={16} />
         </button>

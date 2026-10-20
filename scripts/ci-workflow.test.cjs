@@ -27,7 +27,7 @@ test("every CI job has a timeout", () => {
 });
 
 test("a PR run is at most 20 jobs, the account's concurrency: every slot for under two minutes", () => {
-  // Jobs that only run on a push to main or in the merge queue (Next beta draft, macOS smoke, Windows tests) never take a PR run's slots.
+  // Jobs that only run on a push to main (Next beta draft, macOS smoke) never take a PR run's slots.
   const jobs = Object.values(ci.jobs).filter((job) => !/github\.event_name (== 'push'|!= 'pull_request')/.test(job.if ?? ""));
   const total = jobs.reduce((sum, job) => sum + (job.strategy?.matrix?.shard?.length ?? 1), 0);
   assert.ok(total <= 20, `${total} jobs per PR run`);
@@ -145,7 +145,7 @@ test("the macOS smoke runs on pushes to main only and still gates the Next beta 
   assert.match(fs.readFileSync(path.join(__dirname, "../AGENTS.md"), "utf8"), /npm test -- --only test-desktop` on your Mac/);
 });
 
-test("Windows native tests run on merge groups and main without building an installer; Linux repository signing is a quick-checks step", () => {
+test("Windows native tests run without building an installer; Linux repository signing is a quick-checks step", () => {
   const job = ci.jobs["native-tests"];
   assert.equal(job["runs-on"], "windows-latest");
   assert.equal(job.strategy, undefined, "one leg, no matrix");
@@ -163,7 +163,7 @@ test("Windows native tests run on merge groups and main without building an inst
   assert.match(signing.run, /rm -rf "\$GNUPGHOME"/);
 });
 
-test("Electron checks run only when a PR touches desktop code; Windows tests wait for the merge queue; the JavaScript jobs always run", () => {
+test("Electron and Windows checks run when a PR touches desktop code; the JavaScript jobs always run", () => {
   const changes = ci.jobs.changes;
   assert.ok(changes, "a changes job decides what a PR touched");
   const filter = changes.steps.find((step) => step.id === "filter");
@@ -176,9 +176,8 @@ test("Electron checks run only when a PR touches desktop code; Windows tests wai
   assert.equal(changes.outputs.desktop, "${{ github.event_name != 'pull_request' || steps.filter.outputs.desktop == 'true' }}");
   assert.equal(ci.jobs["desktop-checks"].needs, "changes", "desktop-checks waits for the change detection");
   assert.equal(ci.jobs["desktop-checks"].if, "needs.changes.outputs.desktop == 'true'", "desktop-checks is skipped on PRs without desktop changes");
-  // Windows runners took 70 to 161 s for the same suites; the merge queue runs them before a PR lands, PR runs don't.
-  assert.equal(ci.jobs["native-tests"].if, "github.event_name != 'pull_request'");
-  assert.equal(ci.jobs["native-tests"].needs, undefined);
+  assert.equal(ci.jobs["native-tests"].if, "needs.changes.outputs.desktop == 'true'");
+  assert.equal(ci.jobs["native-tests"].needs, "changes");
   for (const name of ["quick-checks", "unit"]) assert.equal(ci.jobs[name].if, undefined, `${name} always runs`);
 });
 
