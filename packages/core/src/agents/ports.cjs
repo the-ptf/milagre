@@ -55,6 +55,23 @@ function parseLsof(output) {
   return rows;
 }
 
+// Claude Code points a background command's stdout at its task's output file, <session>/tasks/<task id>.output.
+const TASK_OUTPUT = /[\\/]tasks[\\/]([A-Za-z0-9_-]{1,100})\.output$/;
+
+/** `lsof -d 1 -F pn` as a Map of pid to the background task its stdout writes to, for the pids that write to one. */
+function parseTaskOutputs(output) {
+  const tasks = new Map();
+  let pid = 0;
+  for (const line of output.split(/\r?\n/)) {
+    if (line[0] === "p") pid = Number(line.slice(1));
+    else if (line[0] === "n" && pid) {
+      const match = TASK_OUTPUT.exec(line.slice(1));
+      if (match) tasks.set(pid, match[1]);
+    }
+  }
+  return tasks;
+}
+
 /**
  * The pids that belong to each chat's commands. `roots` maps a chat id to its agent's { pid, cwd } and its Terminals' `shells`
  * (absent once its session closed); `groups` maps a chat id to the process groups it has seen, and is
@@ -100,14 +117,18 @@ function chatProcesses(processes, roots, groups) {
   return result;
 }
 
-/** Each chat's ports, sorted, from the listeners and each chat's pids. Chats with no ports are left out. */
-function chatPorts(listeners, processesByChat) {
+/**
+ * Each chat's ports, sorted, from the listeners and each chat's pids. Chats with no ports are left out. `taskOf(pid)` is
+ * the agent's background task that started a listener, if any, so its port stands in for that task.
+ */
+function chatPorts(listeners, processesByChat, taskOf = () => undefined) {
   const result = {};
   for (const [chatId, pids] of processesByChat) {
     const ports = new Map();
     for (const row of listeners) {
       if (!pids.has(row.pid) || ports.has(row.port)) continue;
-      ports.set(row.port, { port: row.port, pid: row.pid, command: row.command, address: row.address });
+      const taskId = taskOf(row.pid);
+      ports.set(row.port, { port: row.port, pid: row.pid, command: row.command, address: row.address, ...(taskId ? { taskId } : {}) });
     }
     if (ports.size) result[chatId] = [...ports.values()].sort((a, b) => a.port - b.port);
   }
@@ -129,7 +150,11 @@ function samePorts(a, b) {
       left.length === right.length &&
       left.every(
         (port, index) =>
-          port.port === right[index].port && port.pid === right[index].pid && port.command === right[index].command && port.address === right[index].address,
+          port.port === right[index].port &&
+          port.pid === right[index].pid &&
+          port.command === right[index].command &&
+          port.address === right[index].address &&
+          port.taskId === right[index].taskId,
       )
     );
   });
@@ -179,7 +204,7 @@ class PortWatcher {
     lsofMaxAgeMs = LSOF_MAX_AGE_MS,
   }) {
     Object.assign(this, { platform, stopWindowsTree, roots, publish, pollMs, idlePollMs, isRunning, exec, kill, graceMs, now, lsofMaxAgeMs });
-    this.listeners = { key: null, at: -Infinity, rows: [] };
+    this.listeners = { key: null, at: -Infinity, rows: [], tasks: new Map() };
     this.groups = new Map();
     this.processes = new Map();
     this.windowsIdentities = new Map();
@@ -293,7 +318,10 @@ class PortWatcher {
       this.processes = new Map(processes.map((row) => [row.pid, row]));
       const byChat = chatProcesses(processes, roots, this.groups);
       const pids = [...new Set([...byChat.values()].flatMap((set) => [...set]))];
-      this.set(chatPorts(await this.listenersOf(pids, fresh), byChat));
+      const listeners = await this.listenersOf(pids, fresh);
+      const tasks = this.listeners.tasks;
+      // A server writes to its task's output itself, or its command's shell (its group leader) does.
+      this.set(chatPorts(listeners, byChat, (pid) => tasks.get(pid) ?? tasks.get(this.processes.get(pid)?.pgid)));
     } else this.set({});
     if (!this.closed && (this.roots().size || this.groups.size)) {
       this.timer = setTimeout(() => void this.poll(), this.isRunning() ? this.pollMs : this.idlePollMs);
@@ -303,14 +331,23 @@ class PortWatcher {
 
   async listenersOf(pids, fresh) {
     if (!pids.length) {
-      this.listeners = { key: null, at: -Infinity, rows: [] };
+      this.listeners = { key: null, at: -Infinity, rows: [], tasks: new Map() };
       return [];
     }
     const key = pids.sort((a, b) => a - b).join(",");
     if (!fresh && key === this.listeners.key && this.now() - this.listeners.at < this.lsofMaxAgeMs) return this.listeners.rows;
     const rows = parseLsof(await this.exec("lsof", ["-nP", "-a", "-p", key, "-iTCP", "-sTCP:LISTEN", "-F", "pcn"]));
-    this.listeners = { key, at: this.now(), rows };
+    const asked = new Set(pids);
+    this.listeners = { key, at: this.now(), rows, tasks: await this.taskOutputsOf(rows.filter((row) => asked.has(row.pid))) };
     return rows;
+  }
+
+  /** Which background task each listener's command belongs to, read from where it and its group leader write stdout. */
+  async taskOutputsOf(rows) {
+    if (!rows.length || this.platform === "win32") return new Map();
+    const pids = new Set(rows.flatMap((row) => [row.pid, this.processes.get(row.pid)?.pgid].filter((pid) => pid > 0)));
+    const key = [...pids].sort((a, b) => a - b).join(",");
+    return parseTaskOutputs(await this.exec("lsof", ["-nP", "-a", "-p", key, "-d", "1", "-F", "pn"]));
   }
 
   set(ports) {
@@ -321,4 +358,4 @@ class PortWatcher {
   }
 }
 
-module.exports = { PortWatcher, chatPorts, chatProcesses, parseLsof, parsePs };
+module.exports = { PortWatcher, chatPorts, chatProcesses, parseLsof, parsePs, parseTaskOutputs };

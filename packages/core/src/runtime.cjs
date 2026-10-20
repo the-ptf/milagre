@@ -15,7 +15,7 @@ const { compactionMessage } = require("@milagre/shared/compaction");
 const { RELOAD_TEXT } = require("@milagre/shared/chat-reload");
 const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
 const { issueFirstMessage, linearIssueContext, linearIssuePrompt, linearIssueRequest } = require("@milagre/shared/linear-issue");
-const { ChatTitles, createChatTitleModels, generateChatTitle } = require("./chat-title.cjs");
+const { ChatTitles, createChatTitleModels, generateChatTitle, generateRunTitle } = require("./chat-title.cjs");
 const { createGit } = require("./git/client.cjs");
 const { syncMainBranch } = require("./main-sync.cjs");
 const fs = require("node:fs/promises");
@@ -81,11 +81,11 @@ const { createProjectRegistry } = require("./project-registry.cjs");
 const { createLinkedWorktrees } = require("./linked-worktrees.cjs");
 const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsage, readAntigravityUsage } = require("./usage.cjs");
 const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
-const { createRoutines } = require("./routines/runtime-adapter.cjs");
+const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
 const { createHookStore } = require("./routines/hook-store.cjs");
 // Where webhook URLs point unless the daemon says otherwise (its phone's relay).
 const HOOK_RELAY_URL = "wss://relay.milagre.cloud";
-const { chatTitle } = require("@milagre/shared/chats");
+const { chatTitle, isHiddenRunChat } = require("@milagre/shared/chats");
 // The Chats routines:targets lists per Project, newest first.
 const ROUTINE_TARGET_CHATS = 50;
 
@@ -478,6 +478,8 @@ function createRuntime(options) {
     await chats.resumeInterrupted(projectPath, state).catch((error) => console.warn("Milagre couldn't resume a chat:", error.message));
     state = await states.get(projectPath);
     chatTitles.resume(projectPath, state);
+    // Run Chats saved before they could be hidden are decided, and hidden ones whose Run left the store are archived.
+    void track(() => routines.sweepRunChats(projectPath, state), background);
     void chats.recoverHandoffs(projectPath, state).catch((error) => console.warn("Milagre couldn't recover a handoff:", error.message));
     void diffs.refresh(projectPath).catch(() => {});
     return { path: projectPath, name: projectName(projectPath), state };
@@ -1112,13 +1114,18 @@ function createRuntime(options) {
   // A Project's state for a lookup that must change nothing: an open one from memory, another from its saved file. It is
   // never opened, so nothing a quit stopped resumes and no recovery or diff refresh runs (Routines' targets and comment lookups).
   const projectStateReadOnly = (projectPath) => (states.has(projectPath) ? states.get(projectPath) : readRawState(projectPath));
+  // The models that name Chats and Runs: the Project's own accounts' CLIs (agentCli is declared further down; read lazily).
+  const titleModels = (projectPath) =>
+    options.titleModels ?? createChatTitleModels({ cli: (provider) => agentCli(provider, projectPath), clientVersion: version });
+  // A scope's state as memory holds it now, without waiting in its queue: a free first look before a queued read or write.
+  const heldState = (scope) =>
+    isLinkScopeKey(scope) ? (linkStore.has(scopeFromKey(scope).linkId) ? linkStore.cached(scopeFromKey(scope).linkId) : undefined) : states.states.get(scope);
   routines = createRoutines({
     file: path.join(dataDir, "routines.json"),
     chats,
     keepAwake,
     emit,
-    cachedState: (scope) =>
-      isLinkScopeKey(scope) ? (linkStore.has(scopeFromKey(scope).linkId) ? linkStore.cached(scopeFromKey(scope).linkId) : undefined) : states.states.get(scope),
+    cachedState: heldState,
     // A Project not open yet opens here, as a Delegation's does.
     openState: async (scope, sessionId) => {
       await linkedState(scope);
@@ -1146,6 +1153,15 @@ function createRuntime(options) {
       projectWorktree: async (projectPath) => Object.values((await linkedState(projectPath)).worktrees).find((worktree) => worktree.path === projectPath)?.id,
     },
     archiveChat: (chatId) => track(() => archiveChat(projectOfKey(chatId), sessionIdFromKey(chatId)), background),
+    // Run Chats: a Heartbeat set on one keeps it, and the sweep (on Project open, and when the store drops Runs) decides
+    // the ones saved before `hidden` and archives hidden ones whose Run is gone.
+    keepChat: (chatId) => keepRunChat(projectOfKey(chatId), sessionIdFromKey(chatId)),
+    chatMessages: (projectPath, sessionIds) => scopeStates.chatMessages(projectPath, sessionIds),
+    markRunChats: async (projectPath, decided) => {
+      if (!scopeStates.has(projectPath)) return;
+      await updateProject(projectPath, (state) => withRunChatsHidden(state, decided, (routine) => routine.hidden === undefined), { chats: [] });
+    },
+    archiveRunChat: (chatId, runId) => track(() => archiveRunChat(projectOfKey(chatId), sessionIdFromKey(chatId), runId), background),
     // Made further down; read when a Routine first needs them.
     linear: () => linear,
     // Webhook secrets and waiting deliveries, beside routines.json; URLs are on the relay the phone uses.
@@ -1154,6 +1170,8 @@ function createRuntime(options) {
     projects: () => projectRegistry().list(),
     // Read only: an open Project's state from memory, another's saved file, never opening it (no resume, no recovery).
     projectState: (projectPath) => projectStateReadOnly(projectPath),
+    // A Run that ends is named from its final reply, with the models that name Chats.
+    generateRunTitle: (request) => generateRunTitle(request, { models: titleModels(request.projectPath), isClosing: () => closing }),
     timers: options.routines,
   });
   routines.start();
@@ -1183,7 +1201,7 @@ function createRuntime(options) {
         projects.map(async (project) => {
           const state = await Promise.resolve(projectStateReadOnly(project.path)).catch(() => null);
           const chats = Object.values(state?.sessions ?? {})
-            .filter((session) => !session.archived && (session.summary?.count ?? 0) > 0)
+            .filter((session) => !session.archived && !isHiddenRunChat(session) && (session.summary?.count ?? 0) > 0)
             .toSorted((a, b) => (b.summary?.lastAt ?? 0) - (a.summary?.lastAt ?? 0) || b.id - a.id)
             .slice(0, ROUTINE_TARGET_CHATS)
             .map((session) => ({ chatId: chatKey(project.path, session.id), title: chatTitle(session), lastAt: session.summary?.lastAt ?? 0 }));
@@ -1303,10 +1321,7 @@ function createRuntime(options) {
   const chatTitles = new ChatTitles({
     states: scopeStates,
     update: updateProject,
-    generate: (request) =>
-      generateChatTitle(request, {
-        models: options.titleModels ?? createChatTitleModels({ cli: (provider) => agentCli(provider, request.projectPath), clientVersion: version }),
-      }),
+    generate: (request) => generateChatTitle(request, { models: titleModels(request.projectPath) }),
   });
 
   commands.handle("usage:read", async (_event, scope) => {
@@ -1355,7 +1370,13 @@ function createRuntime(options) {
         : linearIssue !== undefined
           ? await linearIssueMessage(rest, linearIssue)
           : { ...rest, context: undefined };
-    return chats.send(message).then(({ sessionId }) => ({ sessionId }));
+    const { sessionId } = await chats.send(message);
+    // A message from a composer, desktop or phone (its bridge calls this command), a PR-action pill or a compact is the
+    // user taking a Run Chat over. Milagre's own sends (a Routine's beat, an MCP chat_start, a Delegation) call chats.send
+    // directly and never keep one.
+    if (rest.sessionId != null)
+      await keepRunChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't keep a Run Chat:", error.message));
+    return { sessionId };
   });
   // The issue is read again here, so the card and prompt are Linear's copy. If Linear can't answer now, the Chat still
   // starts, with the text the renderer sent as a plain message.
@@ -1383,19 +1404,58 @@ function createRuntime(options) {
   // and a quiet Routine Run's both come here.
   async function archiveChat(projectPath, sessionId, patch = { archived: true }) {
     if (!scopeStates.has(projectPath)) return;
-    const chatId = `${projectPath}#${sessionId}`;
+    await stopChatWork(`${projectPath}#${sessionId}`);
+    await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
+  }
+  async function stopChatWork(chatId) {
     terminals.closeChat(chatId);
     await advisorDelivery.stop(chatId);
     await advisors.stopChat(chatId);
     routines.chatArchived(chatId);
-    await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
+  }
+  // A hidden Run Chat whose Run left the store (routines' sweepRunChats), archived only while it is still hidden,
+  // unarchived and that Run's: checked against the current state first, and again in the change that archives it. What
+  // runs for it stops only once that change archived it, so a Chat the user took over in the meantime keeps its
+  // Terminals, advisors and Heartbeats.
+  async function archiveRunChat(projectPath, sessionId, runId) {
+    const left = (session) => isHiddenRunChat(session) && !session.archived && session.routine.runId === runId;
+    if (!scopeStates.has(projectPath) || !left((await scopeStates.get(projectPath)).sessions[sessionId])) return;
+    let archived = false;
+    await editProject(
+      projectPath,
+      (state) => {
+        if (!left(state.sessions[sessionId])) return state;
+        archived = true;
+        return patchSession(state, sessionId, { archived: true });
+      },
+      { chats: [] },
+    );
+    if (archived) await stopChatWork(`${projectPath}#${sessionId}`);
+  }
+  // The user took a Run Chat over (sent it a message, pinned or renamed it, set a Heartbeat on it): it is a normal Chat
+  // from then on, in every list. One saved before Run Chats could be hidden is decided kept too. Any other Chat is left
+  // as it is, without a write. Every composer send comes here, so the state in memory is looked at first: only a Run Chat
+  // not kept yet waits for the queued read (a kept one never goes back to hidden).
+  async function keepRunChat(projectPath, sessionId) {
+    if (!scopeStates.has(projectPath)) return;
+    const keepable = (session) => isRunChat(session) && session.routine.hidden !== false;
+    if (!keepable(heldState(projectPath)?.sessions[sessionId])) return;
+    if (!keepable((await scopeStates.get(projectPath)).sessions[sessionId])) return;
+    await editProject(projectPath, (state) => withRunChatsHidden(state, { [sessionId]: false }, (routine) => routine.hidden !== false), { chats: [] });
   }
   async function patchChat(projectPath, sessionId, patch) {
     if (!scopeStates.has(projectPath)) return;
     if (patch?.archived) return archiveChat(projectPath, sessionId, patch);
     await editProject(projectPath, (state) => patchSession(state, sessionId, patch ?? {}), { chats: [] });
   }
-  commands.handle("chat:patch", (_event, projectPath, sessionId, patch) => patchChat(projectPath, sessionId, patch));
+  // Pinning, naming or restoring a Chat from the archive is the user taking a Run Chat over (a restored one would be
+  // hidden, out of every list, and archived again by the next sweep). An agent's chat_update calls patchChat itself and
+  // never keeps one, and nor does a read mark, an unpin or a blank name.
+  commands.handle("chat:patch", async (_event, projectPath, sessionId, patch) => {
+    await patchChat(projectPath, sessionId, patch);
+    if (patch?.pinned === true || patch?.archived === false || (typeof patch?.title === "string" && patch.title.trim() !== ""))
+      await keepRunChat(projectPath, sessionId);
+  });
   // Opening a chat reads it. Only on opening: "Mark as unread" on the open chat sticks until it's opened again.
   commands.handle("chat:archive-subagent", (_event, projectPath, sessionId, id, archived) =>
     scopeStates.has(projectPath)
@@ -2171,6 +2231,8 @@ function createRuntime(options) {
       // One tick now, and what it set going off the tick: a positive signal for checks that nothing started.
       tick: () => routines.tick(),
       idle: () => routines.idle(),
+      // A Run Chat sweep over a Project's state as given (for checks: one read before a change since).
+      sweepRunChats: (projectPath, state) => routines.sweepRunChats(projectPath, state),
     },
     // Synchronous capture: the socket serializes this before another event can
     // mutate state, so its event watermark and run sequence describe one instant.

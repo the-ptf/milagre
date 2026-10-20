@@ -142,6 +142,8 @@ type SidebarNavProps = {
   /** Opens the Routines page; its button sits between Search and Filters. */
   onOpenRoutines?: () => void;
   routinesActive?: boolean;
+  /** A hidden Run Chat is unread: the Routines button shows a dot. */
+  routinesUnread?: boolean;
   onOpenCommands?: () => void;
   hintsEnabled?: boolean;
   /** The project folder, for the project menu's reveal and copy path. */
@@ -517,6 +519,7 @@ export default memo(function SidebarNav({
   canvasActive = false,
   onOpenRoutines,
   routinesActive = false,
+  routinesUnread = false,
   onOpenCommands,
   hintsEnabled = true,
   projectPath,
@@ -836,48 +839,37 @@ export default memo(function SidebarNav({
       );
   };
 
-  // Checked in the project chooser; the flag lives with the Project, so the phone's list follows.
+  // Checked in the project chooser; the choice belongs to this Mac alone.
   const showProject = (path: string, show: boolean) => {
+    if (isRemoteKey(path)) {
+      remote.setHidden(path, !show);
+      return;
+    }
     if (path.startsWith("milagre-link:")) {
       const id = path.slice("milagre-link:".length);
-      if (isRemoteKey(path)) {
-        remote.setHidden(path, !show);
-        const linkId = unqualifyKey(id);
-        const bridge = bridgeForKey(path);
-        void bridge.listNamedLinks().then((links) => {
-          const link = links.find((l) => l.id === linkId);
-          if (link) {
-            bridge.updateNamedLink({ id: link.id, name: link.name, projectIds: link.projectIds, hidden: !show }).catch(() => {});
-          }
+      const link = namedLinks.find((l) => l.id === id);
+      if (link) {
+        setNamedLinks((links) => links.map((l) => (l.id === id ? { ...l, hidden: !show } : l)));
+        window.milagre?.updateNamedLink?.({ id, name: link.name, projectIds: link.projectIds, hidden: !show }).catch(() => {
+          setListsChanged((count) => count + 1);
         });
-      } else {
-        const link = namedLinks.find((l) => l.id === id);
-        if (link) {
-          setNamedLinks((links) => links.map((l) => (l.id === id ? { ...l, hidden: !show } : l)));
-          window.milagre?.updateNamedLink?.({ id, name: link.name, projectIds: link.projectIds, hidden: !show }).catch(() => {
-            setListsChanged((count) => count + 1);
-          });
-        }
       }
       return;
     }
-    if (isRemoteKey(path)) remote.setHidden(path, !show);
     setRecentProjects((list) => list.map((project) => (project.path === path ? { ...project, hidden: !show } : project)));
-    bridgeForKey(path)
-      .setProjectHidden(path, !show)
-      .then(
-        (list) => {
-          if (!isRemoteKey(path) && Array.isArray(list)) setRecentProjects(list);
-          window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
-        },
-        () => setListsChanged((count) => count + 1),
-      );
+    window.milagre?.setProjectHidden?.(path, !show).then(
+      (list) => {
+        if (Array.isArray(list)) setRecentProjects(list);
+        window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
+      },
+      () => setListsChanged((count) => count + 1),
+    );
   };
   // By name, like the phone's: the recent list reorders as Projects open, and a row must not move under the pointer.
   // Other computers' Projects follow, each saying its computer; the open one of another computer is already a local row.
   const pickerProjects: PickerProject[] = [
     ...projects.map((row) => {
-      const recent = recentProjects.find((project) => project.path === row.path);
+      const recent = recentProjects.find((project) => project.path === row.path) ?? remote.projects.find((project) => project.path === row.path);
       return { ...row, shown: !recent?.hidden, listed: !!recent, computer: multi && isRemoteKey(row.path) ? rowComputer(row.path)?.name : undefined };
     }),
     ...namedLinks.map((link) => ({
@@ -1052,13 +1044,17 @@ export default memo(function SidebarNav({
                 <Tooltip label="Routines" side="bottom">
                   <button
                     type="button"
-                    aria-label="Routines"
+                    // The dot is drawn only; the label says it, as the phone's dock button does.
+                    aria-label={routinesUnread ? "Routines, unread Runs" : "Routines"}
                     aria-pressed={routinesActive}
                     data-sidebar-routines
                     onClick={onOpenRoutines}
-                    className={`${TOOL_BUTTON} size-8 shrink-0 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
+                    className={`${TOOL_BUTTON} relative size-8 shrink-0 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
                   >
                     <HugeIcon icon={RepeatIcon} size={16} />
+                    {routinesUnread && (
+                      <span aria-hidden data-routines-unread className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-accent ring-2 ring-surface" />
+                    )}
                   </button>
                 </Tooltip>
               )}

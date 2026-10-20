@@ -2,7 +2,7 @@ import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Reanimated from "react-native-reanimated";
-import { Alert, Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { UltracodeGlow } from "../ultracode-glow";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
@@ -18,6 +18,7 @@ import {
   GitForkIcon,
   LaptopIcon,
   Pulse01Icon,
+  RepeatIcon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
@@ -47,11 +48,11 @@ import {
   settleLimitError,
 } from "../attachments";
 import { BackgroundRing, PullRequestAction, SubagentChip } from "../status-indicators";
-import { chatActivity } from "@milagre/shared/chat-activity";
+import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
 import { SimulatorChip } from "../simulator";
 import { BrowserChip } from "../browser";
-import { PortsChip } from "../ports";
+import { PortsChip, useChatPorts } from "../ports";
 import { TerminalChip, terminalPlaces } from "../terminal";
 import { KeyboardChatScrollView, KeyboardStickyView } from "react-native-keyboard-controller";
 import { ChatReply } from "../chat-reply";
@@ -70,7 +71,7 @@ import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import { UndoPanel, type UndoIntent } from "../undo-panel";
 import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
 import { RoutineRunDivider } from "../routine-run-divider";
-import { clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, routineRunOf, routineRunText } from "@milagre/shared/routines";
+import { chatRoutine, clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, routineRunOf, routineRunText } from "@milagre/shared/routines";
 import { CompactionDivider } from "../compaction-divider";
 import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
@@ -136,6 +137,21 @@ const NO_CHECKPOINTS: CheckpointApi = {
   restore: () => Promise.reject(new Error("Connect to the computer to undo changes")),
 };
 
+// The native header lays its title out between the sidebar button and the toolbar group, and lets a title wider than that run
+// under the group. These are the pieces of that room, in points: the header's inset from the screen edge, one round button,
+// the Routine and ⋯ buttons sharing a pill, and the clear space kept beside the title. The title is never wider than 230.
+const HEADER_EDGE = 16;
+const HEADER_BUTTON = 44;
+const HEADER_PILL = 104;
+const HEADER_GAP = 12;
+const HEADER_TITLE_MAX = 230;
+/** The widest the header title may be on a screen `screenWidth` wide: what is left between the sidebar button and the toolbar group. */
+function headerTitleWidth(screenWidth: number, routineButton: boolean) {
+  const left = HEADER_EDGE + HEADER_BUTTON + HEADER_GAP;
+  const right = HEADER_EDGE + (routineButton ? HEADER_PILL : HEADER_BUTTON) + HEADER_GAP;
+  return Math.max(0, Math.min(HEADER_TITLE_MAX, screenWidth - left - right));
+}
+
 export default function ChatScreen() {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -148,6 +164,7 @@ export default function ChatScreen() {
   const composer = useComposer();
   const pendingStore = usePendingChats();
   const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
   const [actionBusy, setBusy] = useState(false);
   // Answers just sent: the card leaves and the answers show at once, until the host's copy arrives.
   const [sentAnswers, setSentAnswers] = useState<{ requestId: string; message: ChatMessage | null; count: number } | null>(null);
@@ -564,6 +581,9 @@ export default function ChatScreen() {
     params.id ? session.snapshot?.project?.state.sessions[Number(params.id)]?.plan : undefined,
     `${session.snapshot?.project?.path}#${params.id}`,
   );
+  // Polled here, not in the chip: a command serving one of these ports leaves the background line.
+  const portsChat = params.id && Number(params.id) > 0 && session.snapshot ? `${session.snapshot.project.path}#${params.id}` : undefined;
+  const { ports } = useChatPorts(portsChat ? session.client : null, portsChat);
   if (!session.client || (!session.snapshot && !wanted)) return <Redirect href="/" />;
   if (!session.snapshot || !targetMatches || needsWorktree) {
     return (
@@ -595,10 +615,15 @@ export default function ChatScreen() {
     chat && beating
       ? routines.find((routine) => routine.enabled && !routine.completedAt && routine.target.kind === "chat" && routine.target.chatId === chatId)
       : undefined;
-  const openHeartbeat = () => heartbeat && router.push({ pathname: "/routine-form", params: { id: heartbeat.id } });
+  // The Routine this Chat belongs to: the one whose Run opened it (a Run Chat, hidden or kept), else its Heartbeat. Its
+  // header button opens the Routine's page; with the Mac's switch off, nothing shows, as for the Next check.
+  const ownRoutine = chat && routinesOn === true ? chatRoutine(routines, chatId, chat.routine) : undefined;
+  const ownHeartbeat = ownRoutine?.target.kind === "chat";
+  const openRoutine = () => ownRoutine && router.push({ pathname: "/routine", params: { id: ownRoutine.id } });
   const undoHighlight = (undo.view === "list" ? undo.tasks[0] : undo.view === "preview" ? undo.preview : null)?.messageId;
   // What the Chat is doing (chat-activity.mjs), the same as its sidebar row and desktop's composer show.
   const activity = chat ? chatActivity(chat, run) : undefined;
+  const background = chat ? backgroundItems(chat, ports) : [];
   // Feedback cards read the agent's resolutions again only when a comment may have changed.
   const designsMoved = designActivity(
     [...messages.flatMap((message) => message.steps ?? []), ...(run?.steps ?? [])],
@@ -1100,16 +1125,16 @@ export default function ChatScreen() {
   }
   const header = (
     <>
-      <View style={{ alignItems: "center", maxWidth: 230 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-          <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 16, fontWeight: "600", flexShrink: 1 }}>
+      <View style={{ alignItems: "center", maxWidth: headerTitleWidth(window.width, !!ownRoutine) }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
+          <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink, fontSize: 16, fontWeight: "600", flexShrink: 1 }}>
             {title}
           </Text>
         </View>
         {!project.link && (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 5, opacity: worktree ? 1 : 0 }}>
             <Icon icon={GitBranchIcon} tone="ink3" size={11} />
-            <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
+            <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
               {worktree?.name ?? ""}
             </Text>
             <Text style={{ fontSize: 12 }}>
@@ -1124,13 +1149,17 @@ export default function ChatScreen() {
   );
   const more = (
     <Stack.Toolbar placement="right">
-      {/* Shown while this Chat has a Heartbeat on; it opens the Heartbeat's settings. */}
-      {heartbeat ? (
+      {/* Shown for a Run Chat and while this Chat has a Heartbeat on; it opens that Routine's page. */}
+      {ownRoutine ? (
         Platform.OS === "ios" ? (
-          <Stack.Toolbar.Button icon="waveform.path.ecg" accessibilityLabel="Heartbeat" onPress={openHeartbeat} />
+          <Stack.Toolbar.Button
+            icon={ownHeartbeat ? "waveform.path.ecg" : "repeat"}
+            accessibilityLabel={ownHeartbeat ? "Heartbeat" : "Routine"}
+            onPress={openRoutine}
+          />
         ) : (
           <Stack.Toolbar.View>
-            <HeaderButton label="Heartbeat" icon={Pulse01Icon} onPress={openHeartbeat} />
+            <HeaderButton label={ownHeartbeat ? "Heartbeat" : "Routine"} icon={ownHeartbeat ? Pulse01Icon : RepeatIcon} onPress={openRoutine} />
           </Stack.Toolbar.View>
         )
       ) : null}
@@ -1385,11 +1414,11 @@ export default function ChatScreen() {
                 label={run?.waitingForSubagents ? "Waiting on subagents" : `Working with ${model.name}`}
               />
             )}
-            {!run && !pending && activity?.activity === "background" && (
+            {!run && !pending && activity?.activity === "background" && background.length > 0 && (
               <BackgroundIndicator
-                count={activity.background}
-                startedAt={activity.since}
-                mark={<BackgroundRing count={activity.background} />}
+                count={background.length}
+                startedAt={background[0]?.startedAt}
+                mark={<BackgroundRing count={background.length} />}
                 onPress={() => chat && router.push({ pathname: "/background", params: { id: String(chat.id) } })}
               />
             )}
@@ -1452,7 +1481,7 @@ export default function ChatScreen() {
                   {params.id && Number(params.id) > 0 && chat && !chat.archived && (
                     <TerminalChip key={`terminal-${chatId}`} chatId={chatId} places={terminalPlaces(chat)} />
                   )}
-                  {params.id && Number(params.id) > 0 && <PortsChip key={`ports-${chatId}`} chatId={chatId} />}
+                  {params.id && Number(params.id) > 0 && <PortsChip key={`ports-${chatId}`} chatId={chatId} ports={ports} />}
                   {params.id && Number(params.id) > 0 && <SimulatorChip key={chatId} chatId={chatId} />}
                   {agents.length > 0 && <SubagentChip agents={agents} onPress={() => headerAction("agents")} />}
                 </ScrollView>

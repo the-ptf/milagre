@@ -161,8 +161,11 @@ export interface AgentSession {
   resumeTurn?: { stoppedAt?: number };
   /** How full the agent's context window was when its last turn ended. */
   contextUsage?: ContextUsage;
-  /** The Routine and Run that started this Chat; set only on a Chat a Run created. */
-  routine?: { routineId: string; runId: string };
+  /**
+   * The Routine and Run that started this Chat; set only on a Chat a Run created. `hidden` keeps it out of every Chat list
+   * until it waits on an approval or question; it is absent on a Chat made before Run Chats were hidden.
+   */
+  routine?: { routineId: string; runId: string; hidden?: boolean };
   /** The permission mode the Chat's composer last set (a pick, or a person's message); a heartbeat's beat runs in it. */
   permissionMode?: PermissionMode;
   /**
@@ -457,6 +460,8 @@ export interface RoutineRun {
   /** What started this Run. */
   event?: RoutineEvent;
   summary?: string;
+  /** What the Run did, set when it ends; the Runs list shows it as the row's name. */
+  title?: string;
   error?: string;
   /** An event refused before it ran (a webhook whose signature didn't match); only the newest are kept. */
   rejected?: boolean;
@@ -766,6 +771,8 @@ export interface AgentPort {
   address: string;
   /** Set by a desktop window on a port that listens on another computer, which `localhost` doesn't reach. */
   computerId?: string;
+  /** The agent's background command that serves it, which the port then stands for instead of the background line. */
+  taskId?: string;
 }
 
 /** Every chat's listening ports, by chat key; a chat with none is absent. */

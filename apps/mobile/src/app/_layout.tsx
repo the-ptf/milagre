@@ -89,6 +89,7 @@ export default function Layout() {
                       <Stack.Screen name="projects" options={{ title: "Projects" }} />
                       <Stack.Screen name="canvas" options={{ title: "Canvas" }} />
                       <Stack.Screen name="routines" options={{ title: "Routines" }} />
+                      <Stack.Screen name="routine" options={{ title: "Routine" }} />
                       <Stack.Screen name="routine-form" options={{ ...sheet, sheetAllowedDetents: [1] }} />
                       <Stack.Screen name="project-settings" options={{ title: "Project" }} />
                       <Stack.Screen name="link-projects" options={{ ...sheet, sheetAllowedDetents: [1] }} />

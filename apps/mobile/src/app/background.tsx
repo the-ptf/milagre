@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { ArrowLeft01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { BACKGROUND_ITEM_LABELS, backgroundItems, type BackgroundItem } from "@milagre/shared/chat-activity";
 import type { Subagent } from "@milagre/shared/model";
+import { useChatPorts } from "../ports";
 import { useSession } from "../session";
 import { WholeSubagentDetail } from "../subagent-glance";
 import { TaskOutput } from "../task-output";
@@ -18,8 +19,10 @@ export default function BackgroundSheet() {
   const session = useSession();
   const project = session.snapshot?.project;
   const chat = project?.state.sessions[Number(id)];
-  const items = backgroundItems(chat);
   const chatKey = `${project?.path}#${id}`;
+  // A command serving one of the Chat's ports is in Ports instead.
+  const { ports } = useChatPorts(project ? session.client : null, chatKey);
+  const items = backgroundItems(chat, ports);
   const [selection, setSelected] = useState<(BackgroundItem & { chatKey: string }) | null>(null);
   const selected = selection?.chatKey === chatKey ? selection : null;
   const current = items.find((item) => item.type === selected?.type && item.id === selected.id);

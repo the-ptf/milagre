@@ -2,6 +2,10 @@ import type { ModelProvider, Routine, RoutineTarget, RoutineTrigger } from "./mo
 
 export const EVERY_MINUTES: number[];
 export const EVERY_HOURS: number[];
+/** The hint under the prompt for a trigger; Linear and webhook say their event is passed as data, not instructions. */
+export function promptHint(trigger: RoutineFormState["trigger"]): string;
+/** When a new Every or At a time schedule's first Run starts after `now`, in the schedule's own time zone; null otherwise. */
+export function firstRunAt(state: RoutineFormState, now?: number): number | null;
 
 /** A schedule as the form edits it: every N minutes or hours, at a time on chosen weekdays (0 is Sunday), or a raw cron. */
 export type RoutineFormSchedule = {
@@ -111,3 +115,8 @@ export function formToUpdate(
   routine: Routine,
   now?: number,
 ): { patch: RoutineFormPatch; field?: undefined } | (RoutineFormProblem & { patch?: undefined });
+/** The New Routine and Edit forms' prompt placeholder and the hint under it. */
+export const PROMPT_PLACEHOLDER: string;
+export const PROMPT_HINT: string;
+/** What deleting a Routine does: "Its Chats stay." for a Heartbeat, else that its Runs stop and unkept Run Chats are archived. */
+export function deleteWarning(routine: Pick<Routine, "target">): string;

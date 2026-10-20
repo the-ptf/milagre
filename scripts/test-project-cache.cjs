@@ -102,7 +102,7 @@ const stubs = {
   "./routes-native":
     'export const lanRoutes = { set() {}, forget() {}, checkAll() {}, subscribe: () => () => {}, kind: () => "remote", view: () => ({ current: () => null, subscribe: () => () => {} }) }; export const learnRoutes = async () => {};',
   "./hosts-native":
-    "export const savedHosts = { list: async () => [] }; export const savedNavigation = { read: async () => null }; export const readPermission = async () => null; export const savePermission = async () => {}; export const savedChatDefaults = { readModel: () => null, saveModel: async () => {} }; export const savedProjectOrder = { apply: async (_host, projects) => projects, save: async () => {} }; const noFolds = new Set(); export const savedFoldedProjects = { subscribe: () => () => {}, folded: () => noFolds, loaded: () => true, load: async () => {}, toggle: async () => {} };",
+    "export const savedHosts = { list: async () => [] }; export const savedNavigation = { read: async () => null }; export const readPermission = async () => null; export const savePermission = async () => {}; export const savedChatDefaults = { readModel: () => null, saveModel: async () => {} }; export const savedProjectOrder = { apply: async (_host, projects) => projects, save: async () => {} }; const noFolds = new Set(); export const savedHiddenProjects = { hidden: () => noFolds, apply: async (_host, projects) => projects, setHidden: async () => {} }; export const savedFoldedProjects = { subscribe: () => () => {}, folded: () => noFolds, loaded: () => true, load: async () => {}, toggle: async () => {} };",
   "./live": "export const syncProject = () => () => {};",
   "./ui": ui,
   "./theme":

@@ -8,7 +8,7 @@ import { learnRoutes, lanRoutes } from "./routes-native";
 import { syncProject } from "./live";
 import { refreshLinks } from "./use-links";
 import { useDesigns } from "./use-designs";
-import { readPermission, savedChatDefaults, savedHosts, savedNavigation, savedProjectOrder, savePermission } from "./hosts-native";
+import { readPermission, savedChatDefaults, savedHiddenProjects, savedHosts, savedNavigation, savedProjectOrder, savePermission } from "./hosts-native";
 import type { ChatLocation } from "./navigation-store";
 import type { SavedHost } from "./hosts-store";
 import type { AgentCliStatus, AgentModels, PermissionMode } from "@milagre/shared/model";
@@ -152,7 +152,7 @@ function useSessionState() {
     const previous = selection.current;
     try {
       await next.call("daemon:status");
-      const projects = await savedProjectOrder.apply(next.url, await next.recentScopes());
+      const projects = await savedProjectOrder.apply(next.url, await savedHiddenProjects.apply(next.url, await next.recentScopes()));
       if (current !== generation.current) return false;
       if (process.env.EXPO_PUBLIC_DEMO !== "1") {
         if (remember) {
@@ -197,7 +197,7 @@ function useSessionState() {
       await next.call("daemon:status");
       if (current !== generation.current) return false;
       if (process.env.EXPO_PUBLIC_DEMO !== "1") void learnRoutes(next, { token: host.token, relay: host.relay }).catch(() => {});
-      const projects = await savedProjectOrder.apply(next.url, await next.recentScopes());
+      const projects = await savedProjectOrder.apply(next.url, await savedHiddenProjects.apply(next.url, await next.recentScopes()));
       const state = await next.open(projectPath);
       const project = state.project;
       if (current !== generation.current) return false;
@@ -247,7 +247,15 @@ function useSessionState() {
         setRecent((previous) =>
           previous.some((item) => item.path === project.path)
             ? previous
-            : [...previous, { path: project.path, name: project.name, ...(project.link ? { link: project.link.link, projects: project.link.projects } : {}) }],
+            : [
+                ...previous,
+                {
+                  path: project.path,
+                  name: project.name,
+                  ...(savedHiddenProjects.hidden(client.url).has(project.path) ? { hidden: true } : {}),
+                  ...(project.link ? { link: project.link.link, projects: project.link.projects } : {}),
+                },
+              ],
         );
         return state;
       }
@@ -297,13 +305,26 @@ function useSessionState() {
   const reloadProjects = useCallback(async () => {
     if (!client) return;
     const current = generation.current;
-    const projects = await client.recentScopes();
+    const projects = await savedHiddenProjects.apply(client.url, await client.recentScopes());
     // Opening a Chat opens its Project, which moves it to the top of the host's recent list; rows keep their place.
     if (current === generation.current) {
       listedFor.current = client.url;
       setRecent((previous) => keepOrder(previous, projects, (item) => item.path));
     }
   }, [client]);
+  const setProjectHidden = useCallback(
+    async (path: string, hidden: boolean) => {
+      setRecent((previous) =>
+        previous.map((item) => {
+          if (item.path !== path) return item;
+          const { hidden: _hidden, ...rest } = item;
+          return hidden ? { ...rest, hidden: true } : rest;
+        }),
+      );
+      if (client && process.env.EXPO_PUBLIC_DEMO !== "1") await savedHiddenProjects.setHidden(client.url, path, hidden);
+    },
+    [client],
+  );
   // The order shown is this computer's saved order, so the next launch starts from it. An empty list is saved too once
   // the computer has answered, so Projects removed and added back don't return to their old places.
   useEffect(() => {
@@ -396,6 +417,7 @@ function useSessionState() {
     cachedProject,
     previewProject,
     reloadProjects,
+    setProjectHidden,
     claimAutoOpen,
     opening,
     hosts,

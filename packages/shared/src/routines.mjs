@@ -1,6 +1,9 @@
 // Routines in a Chat: the divider a run leaves, the "(pass)" reply that makes it quiet, how quiet runs fold away, and the
 // words for a Routine's trigger. Types: routines.d.mts.
 
+import { projectOfKey, sessionIdFromKey } from "./agent-runs.mjs";
+import { LOCAL_COMPUTER, computerOfKey, isLinkScopeKey } from "./chat-scopes.mjs";
+
 const SUMMARY_LIMIT = 80;
 
 /**
@@ -167,4 +170,354 @@ export function triggerText(trigger) {
  * webhook trigger has no event to run with, so the Mac refuses it. */
 export function canRunNow(routine) {
   return routine?.target?.kind === "chat" || routine?.trigger?.kind === "schedule";
+}
+
+/** Whether a Run folds into a stretch on the Runs list: it did nothing (quiet, skipped, missed) or was refused before it ran. */
+const isFoldedRun = (run) => run.rejected === true || run.status === "quiet" || run.status === "skipped-busy" || run.status === "missed";
+
+/**
+ * The Runs list's entries from the Runs, newest first: a row for each Run that did something (acted, failed, running), and
+ * one fold for every stretch of consecutive Runs that did not (quiet, skipped, missed, refused). A fold counts its Runs by
+ * kind (a refused Run only as refused) and carries `last`, the newest start in it.
+ */
+export function foldRuns(runs) {
+  const entries = [];
+  let fold = null;
+  for (const run of runs) {
+    if (!isFoldedRun(run)) {
+      fold = null;
+      entries.push({ kind: "run", run });
+      continue;
+    }
+    if (!fold) {
+      fold = { kind: "fold", runs: [], counts: { quiet: 0, skipped: 0, missed: 0, refused: 0 }, last: run.startedAt };
+      entries.push(fold);
+    }
+    fold.runs.push(run);
+    fold.last = Math.max(fold.last, run.startedAt);
+    if (run.rejected === true) fold.counts.refused += 1;
+    else if (run.status === "quiet") fold.counts.quiet += 1;
+    else if (run.status === "skipped-busy") fold.counts.skipped += 1;
+    else fold.counts.missed += 1;
+  }
+  return entries;
+}
+
+const DAY = 24 * 60 * 60 * 1000;
+
+/** The computer's midnight that starts the day `at` falls on. */
+const midnight = (at) => {
+  const date = new Date(at);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+};
+
+/**
+ * When a Run started, for the Runs list, on the computer's clock: "Today 10:15", "Yesterday 09:00", "Oct 16 09:00", and
+ * "Dec 30, 2025 08:00" for a day in another year than `now`'s.
+ */
+export function runWhen(at, now) {
+  const time = clock(at);
+  // Rounded: a day that DST shortens or lengthens is still one day. A clock read a little before midnight (the lists tick
+  // every 30 s or so) puts a Run just after it on "tomorrow", which is still today.
+  const days = Math.round((midnight(now) - midnight(at)) / DAY);
+  if (days <= 0) return `Today ${time}`;
+  if (days === 1) return `Yesterday ${time}`;
+  const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
+  const date = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) }).format(at);
+  return `${date} ${time}`;
+}
+
+const count = (n, word) => `${n} ${word}`;
+
+/**
+ * A fold of the Runs list as one line: how many were quiet, then the latest quiet summary ("4 quiet · no TODOs in
+ * NOTES.md"), or the other kinds it holds, the skipped ones with why ("4 quiet · 1 skipped, its Chat was busy").
+ */
+export function foldText(fold) {
+  const { quiet, skipped, missed, refused } = fold.counts;
+  const others = [
+    skipped > 0 ? `${count(skipped, "skipped")}, its Chat was busy` : null,
+    missed > 0 ? count(missed, "missed") : null,
+    refused > 0 ? count(refused, "refused") : null,
+  ].filter(Boolean);
+  if (quiet === 0) return others.join(" · ");
+  const parts = [count(quiet, "quiet")];
+  if (others.length) parts.push(...others);
+  else {
+    // The Runs are newest first, so the first quiet one with a summary is the latest.
+    const summary = fold.runs.find((run) => run.status === "quiet" && !run.rejected && run.summary?.trim())?.summary?.trim();
+    if (summary) parts.push(summary);
+  }
+  return parts.join(" · ");
+}
+
+/** A fold's times on the Runs list: "06:00–09:00" from its oldest Run to its newest, or one time for one Run. */
+export function foldTimes(fold) {
+  const starts = fold.runs.map((run) => run.startedAt);
+  const first = clock(Math.min(...starts));
+  const last = clock(Math.max(...starts));
+  return first === last ? last : `${first}–${last}`;
+}
+
+const dayKey = (at) => {
+  const date = new Date(at);
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+};
+
+/** A day's heading on the Runs list, on the computer's calendar: "Today", "Yesterday", "Thu, Oct 16", "Tue, Dec 30, 2025". */
+export function dayLabel(at, now) {
+  const days = Math.round((midnight(now) - midnight(at)) / DAY);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
+  return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) }).format(at);
+}
+
+/**
+ * The Runs (newest first) by the computer's day, newest day first. Each day has its heading, its Runs, its Runs list
+ * entries (foldRuns over that day alone, so a fold never spans midnight), and `recent` for today and yesterday, which show
+ * their Runs; an older day shows as one summary line (daySummary) until opened.
+ */
+export function runDays(runs, now) {
+  const days = [];
+  for (const run of runs) {
+    const key = dayKey(run.startedAt);
+    let day = days[days.length - 1];
+    if (!day || day.key !== key) {
+      day = { key, label: dayLabel(run.startedAt, now), at: midnight(run.startedAt), runs: [] };
+      days.push(day);
+    }
+    day.runs.push(run);
+  }
+  return days.map((day) => ({
+    ...day,
+    entries: foldRuns(day.runs),
+    recent: Math.round((midnight(now) - day.at) / DAY) <= 1,
+  }));
+}
+
+/** A day's Runs as one line, by kind, the empty kinds left out: "2 acted · 12 quiet · 1 missed". */
+export function daySummary(runs) {
+  const tally = { acted: 0, failed: 0, running: 0, quiet: 0, skipped: 0, missed: 0, refused: 0 };
+  for (const run of runs) {
+    if (run.rejected === true) tally.refused += 1;
+    else if (run.status === "skipped-busy") tally.skipped += 1;
+    else if (run.status in tally) tally[run.status] += 1;
+  }
+  return Object.entries(tally)
+    .filter(([, n]) => n > 0)
+    .map(([word, n]) => count(n, word))
+    .join(" · ");
+}
+
+/** What the Runs filter shows: every Run, the ones that acted, the ones that failed, or the ones whose Chat is unread. */
+const RUN_FILTERS = {
+  all: () => true,
+  acted: (run) => run.status === "acted" && run.rejected !== true,
+  failed: (run) => run.status === "failed" && run.rejected !== true,
+};
+
+/** The Runs a filter keeps; `unread` says whether a Run's Chat has a result nobody opened. */
+export function filterRuns(runs, filter, unread) {
+  const keep = filter === "unread" ? unread : (RUN_FILTERS[filter] ?? RUN_FILTERS.all);
+  return runs.filter((run) => keep(run));
+}
+
+/** How many Runs each filter keeps: "All 18 · Acted 3 · Failed 1 · Unread 2". */
+export function runFilterCounts(runs, unread) {
+  return {
+    all: runs.length,
+    acted: filterRuns(runs, "acted", unread).length,
+    failed: filterRuns(runs, "failed", unread).length,
+    unread: filterRuns(runs, "unread", unread).length,
+  };
+}
+
+/** How long a Run took, in its largest units: "38 s", "4 min", "1 h 5 min". */
+export function runDuration(ms) {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} h ${rest} min` : `${hours} h`;
+}
+
+const OUTCOME = { acted: "acted", quiet: "quiet", failed: "failed", running: "running" };
+
+/** The Run Chat pane's line under its title: "Run at 11:47 · acted in 38 s · main" (outcome, duration and branch when known). */
+export function runChatMeta(run, branch) {
+  const parts = [`Run at ${clock(run.startedAt)}`];
+  const outcome = OUTCOME[run.status];
+  if (outcome === "running") parts.push("running");
+  else if (outcome) parts.push(typeof run.endedAt === "number" ? `${outcome} in ${runDuration(run.endedAt - run.startedAt)}` : outcome);
+  if (branch) parts.push(branch);
+  return parts.join(" · ");
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+
+/** How long until `at`, rounded in the largest unit: "2 days", "5 h", "12 min" (a 2-day end read a moment later is still 2 days). */
+function until(at, now) {
+  const left = Math.max(0, at - now);
+  if (left >= DAY) return plural(Math.round(left / DAY), "day");
+  if (left >= HOUR) return `${Math.round(left / HOUR)} h`;
+  return `${Math.max(1, Math.ceil(left / MINUTE))} min`;
+}
+
+/** When a Routine ends: "3 of 20 Runs left" or "ends in 2 days"; null when it runs until switched off. */
+export function routineEnd(routine, now) {
+  if (routine.maxRuns !== undefined) return `${Math.max(0, routine.maxRuns - (routine.runCount ?? 0))} of ${plural(routine.maxRuns, "Run")} left`;
+  if (routine.expiresAt !== undefined) return `ends in ${until(routine.expiresAt, now)}`;
+  return null;
+}
+
+/**
+ * The Routine page's line under its chips: "Next Run 12:00 · last Run 11:47 · 3 of 20 Runs left", leaving out what doesn't
+ * apply.
+ */
+export function routineTimes(routine, now) {
+  const parts = [];
+  if (routine.enabled && typeof routine.nextRunAt === "number") parts.push(`Next Run ${clock(routine.nextRunAt)}`);
+  const last = routine.runs?.length ? Math.max(...routine.runs.map((run) => run.startedAt)) : routine.lastRunAt;
+  if (typeof last === "number") {
+    const when = runWhen(last, now);
+    parts.push(`last Run ${when.startsWith("Today ") ? when.slice(6) : when.charAt(0).toLowerCase() + when.slice(1)}`);
+  }
+  const end = routineEnd(routine, now);
+  if (end) parts.push(end);
+  const text = parts.join(" · ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * A schedule as its chip says it: "Every 15 min", "Every hour", "Every 2 hours", "Daily at 08:30", "Weekdays at 08:30",
+ * "Mon, Wed at 08:30", else "Cron <expression>".
+ */
+export function scheduleWords(cron) {
+  const expression = String(cron ?? "")
+    .trim()
+    .split(/\s+/)
+    .join(" ");
+  const [minute, hour, dayOfMonth, month, dayOfWeek, ...rest] = expression.split(" ");
+  if (rest.length === 0 && dayOfWeek !== undefined && dayOfMonth === "*" && month === "*") {
+    const minutes = hour === "*" && dayOfWeek === "*" ? STEP.exec(minute)?.[1] : undefined;
+    if (minutes && Number(minutes) <= 59) return `Every ${minutes} min`;
+    const hours = minute === "0" && dayOfWeek === "*" ? STEP.exec(hour)?.[1] : undefined;
+    if (hours && Number(hours) <= 23) return Number(hours) === 1 ? "Every hour" : `Every ${hours} hours`;
+    if (minute === "0" && hour === "*" && dayOfWeek === "*") return "Every hour";
+    const time = cronTime(minute, hour);
+    if (time && dayOfWeek === "*") return `Daily at ${time}`;
+    if (time && dayOfWeek === "1-5") return `Weekdays at ${time}`;
+    if (time && /^[0-6](,[0-6])*$/.test(dayOfWeek)) {
+      const days = [...new Set(dayOfWeek.split(",").map(Number))].sort((a, b) => a - b);
+      if (days.length === 7) return `Daily at ${time}`;
+      return `${days.map((day) => DAY_NAMES[day]).join(", ")} at ${time}`;
+    }
+  }
+  return expression ? `Cron ${expression}` : "No schedule";
+}
+
+/** A time zone as a place: "America/Sao_Paulo" is "Sao Paulo", "UTC" stays "UTC". */
+export const zonePlace = (zone) => String(zone).split("/").at(-1).replaceAll("_", " ");
+
+/**
+ * What starts a Routine, as its chip says it: the schedule in words, else the trigger ("Linear · assigned to me", "Webhook").
+ * A schedule at a time of day in another zone than `localZone` (this computer's) names it, "Weekdays at 08:30 (Sao Paulo)",
+ * since the Next Run line reads in this computer's time.
+ */
+export function triggerChipText(trigger, localZone) {
+  if (trigger?.kind === "schedule") {
+    const words = scheduleWords(trigger.cron);
+    const zone = trigger.timezone;
+    return localZone && zone && zone !== localZone && !words.startsWith("Every ") ? `${words} (${zonePlace(zone)})` : words;
+  }
+  const text = triggerText(trigger);
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+const lastSegment = (path) => String(path).split(/[\\/]/).filter(Boolean).at(-1) ?? String(path);
+
+/** Where a Routine's Runs land, as its chip says it: "New Worktree in payments-api", "New Chat in payments-api", "In <Chat>". */
+export function routineWhereText(target, chatTitle) {
+  if (target.kind === "chat") return `In ${chatTitle?.(target.chatId) || "a Chat"}`;
+  return `New ${target.workspace === "worktree" ? "Worktree" : "Chat"} in ${lastSegment(target.projectPath)}`;
+}
+
+/** A Run's name on the Runs list: what it did when it ended, else its Linear issue ("MIL-12 Fix the flicker"), else the Routine's name. */
+export function runTitle(run, routineName) {
+  if (run.title?.trim()) return run.title;
+  const issue = run.event?.kind === "linear" ? run.event.issue : undefined;
+  if (issue?.key) return issue.title ? `${issue.key} ${issue.title}` : issue.key;
+  return routineName;
+}
+
+/**
+ * The Chats Routines' Runs created and keep out of the lists, across Projects: not archived, with `routine.hidden`. `chatKey`
+ * is `<path>#<id>`, as in the inbox; `unread` is whether the Chat has a result nobody has opened.
+ */
+export function hiddenRunChats(scopes) {
+  const chats = [];
+  for (const { path, state } of scopes)
+    for (const session of Object.values(state.sessions)) {
+      if (session.archived || session.routine?.hidden !== true) continue;
+      chats.push({ chatKey: `${path}#${session.id}`, routineId: session.routine.routineId, runId: session.routine.runId, unread: Boolean(session.unread) });
+    }
+  return chats;
+}
+
+/**
+ * The hidden Run Chats nobody has opened yet, read from the Project states a desktop window or the phone holds, one entry
+ * per Project path (so the open Project, merged in with the others, counts once). Only this Mac's Projects count: a Link's
+ * Chats and another computer's Projects belong to Routines the Routines page doesn't list, so a dot for them could never be
+ * cleared there.
+ */
+function unreadHiddenRunChats(states) {
+  const scopes = Object.entries(states)
+    .filter(([key]) => !isLinkScopeKey(key) && computerOfKey(key) === LOCAL_COMPUTER)
+    .map(([path, state]) => ({ path, state }));
+  return hiddenRunChats(scopes).filter((chat) => chat.unread);
+}
+
+/** The Routines with a hidden Run Chat nobody has opened yet: the Routines button and their rows show a dot. */
+export function unreadRunRoutines(states) {
+  return new Set(unreadHiddenRunChats(states).map((chat) => chat.routineId));
+}
+
+/** The keys ("<path>#<id>") of the hidden Run Chats nobody has opened yet: their Runs show a dot on the Routine page. */
+export function unreadRunChats(states) {
+  return new Set(unreadHiddenRunChats(states).map((chat) => chat.chatKey));
+}
+
+/**
+ * Whether a Run's Chat is there to open: its Project's state, as the client holds it, has the session, archived or not. A
+ * quiet Run archives its Chat, which stays when it ran in the Project folder or its Worktree wasn't clean; a Worktree removed
+ * with its Chat leaves no session. A Project the client holds no state for can't tell, so it counts as not there.
+ */
+export function chatLeft(states, chatKey) {
+  return states[projectOfKey(chatKey)]?.sessions[sessionIdFromKey(chatKey)] !== undefined;
+}
+
+/**
+ * Whether a Run's row opens its Chat. While the client holds its Project's state, only a Chat still there does (chatLeft,
+ * archived or not): a Worktree removed with its Chat leaves nothing to open. A Project the client holds no state for can't
+ * tell, so the row opens, and opening the Chat loads that Project (the desktop window by path, as the canvas does; the
+ * phone's Chat screen, which says so if the Chat is gone).
+ */
+export function canOpenRunChat(states, chatKey) {
+  return !states[projectOfKey(chatKey)] || chatLeft(states, chatKey);
+}
+
+/**
+ * The Routine a Chat's header names: the one whose Run opened the Chat (`session.routine`, hidden or kept), else an enabled
+ * Heartbeat that checks back on it. Undefined when neither is on this Mac.
+ */
+export function chatRoutine(routines, chatKey, run) {
+  const own = run ? routines.find((routine) => routine.id === run.routineId) : undefined;
+  return own ?? routines.find((routine) => routine.enabled && routine.target.kind === "chat" && routine.target.chatId === chatKey);
 }

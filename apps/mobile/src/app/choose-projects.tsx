@@ -7,7 +7,7 @@ import type { RecentProject } from "../client";
 import { ErrorNotice, PageScroll, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
-/** Project and Link visibility is shared with the desktop sidebar. */
+/** Project and Link visibility in the Projects list on this phone, per paired computer. */
 export default function ChooseProjects() {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -16,23 +16,19 @@ export default function ChooseProjects() {
   const projects = session.recent
     .map((item) => ({ ...item, name: item.name || item.path.split("/").at(-1) || "Project" }))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path));
-  // The choice shows at once; the Mac's answer replaces it, or a failure puts it back.
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [error, setError] = useState("");
   const shown = (path: string, hidden?: boolean) => !(pending[path] ?? hidden);
   async function toggle(project: RecentProject, show: boolean) {
-    const client = session.client;
-    const { path, link } = project;
-    if (!client || path in pending) return;
+    const { path } = project;
+    if (path in pending) return;
     setError("");
     setPending((previous) => ({ ...previous, [path]: !show }));
     try {
-      if (link) await client.call("link:update", [{ id: link.id, name: link.name, projectIds: link.projectIds, hidden: !show }]);
-      else await client.call("project:set-hidden", [path, !show]);
-      await session.reloadProjects();
+      await session.setProjectHidden(path, !show);
     } catch (failure) {
       const message = failure instanceof Error ? failure.message : "Could not change this setting.";
-      setError(/not available from mobile|unknown command/i.test(message) ? "Update Milagre on your Mac to hide Projects and Links from your phone." : message);
+      setError(message);
     } finally {
       setPending((previous) => {
         const next = { ...previous };
@@ -57,7 +53,7 @@ export default function ChooseProjects() {
           <Text style={[styles.text, { fontWeight: "600" }]}>Done</Text>
         </Pressable>
       </View>
-      <Text style={styles.muted}>Checked Projects and Links show in your Projects list, and in the sidebar on your Mac.</Text>
+      <Text style={styles.muted}>Checked Projects and Links show in your Projects list on this phone.</Text>
       <View style={{ borderRadius: 12, backgroundColor: colors.surface, padding: 4 }}>
         {projects.map((project) => {
           const checked = shown(project.path, project.hidden);

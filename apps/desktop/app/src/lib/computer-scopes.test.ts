@@ -2,19 +2,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 (globalThis as any).window = { milagre: {}, addEventListener() {}, removeEventListener() {} };
-const { computerScopes, mergeScopes, withoutLocal } = await import("./computer-scopes.ts");
+const { computerScopes, mergeScopes, withLocalVisibility, withoutLocal } = await import("./computer-scopes.ts");
 
 const A = "c-arketa";
 const S = "c-studio";
-test("a computer's Projects (hidden left out) then its Links, keyed as the window keeps them", () => {
-  const scopes = computerScopes(
-    A,
+test("a computer's Projects and Links use this Mac's visibility, ignoring the remote computer's own hidden flags", () => {
+  const local = withLocalVisibility(
     [
-      { path: `${A}|/a/web`, name: "arketa-web", openedAt: "" },
-      { path: `${A}|/a/old`, name: "old", openedAt: "", hidden: true },
+      { path: `${A}|/a/web`, name: "arketa-web", openedAt: "", hidden: true },
+      { path: `${A}|/a/old`, name: "old", openedAt: "" },
     ],
-    [{ id: `${A}|f1713d69-569d-405b-a0b2-19bfdf565a76`, name: "Checkout", projectIds: [], createdAt: "" } as any],
+    [{ id: `${A}|f1713d69-569d-405b-a0b2-19bfdf565a76`, name: "Checkout", projectIds: [], createdAt: "", hidden: true } as any],
+    new Set([`${A}|/a/old`]),
   );
+  assert.equal(local.recent[0]?.hidden, undefined, "hidden on the other computer does not hide it on this Mac");
+  assert.equal(local.recent[1]?.hidden, true, "hidden on this Mac marks the remote Project hidden here");
+  assert.equal(local.links[0]?.hidden, undefined, "Link hidden on the other computer stays shown on this Mac");
+  const scopes = computerScopes(A, local.recent, local.links);
   assert.deepEqual(
     scopes.map((scope) => [scope.key, scope.name, scope.computerId, Boolean(scope.link)]),
     [

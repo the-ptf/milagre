@@ -52,6 +52,7 @@ export function Select<T extends string>({
   triggerClassName = "",
   searchable = false,
   variant = "field",
+  leading,
   onOpenChange,
 }: {
   label: string;
@@ -64,8 +65,13 @@ export function Select<T extends string>({
   triggerClassName?: string;
   /** A search field over a long list (e.g. time zones); it filters by label. */
   searchable?: boolean;
-  /** `text`: the trigger reads as plain text with a chevron (a heading that is also a choice), and the panel opens from its left edge. */
-  variant?: "field" | "text";
+  /**
+   * `chip`: a rounded pill on the field fill (the Routine form's chips) instead of a bordered field. `text`: the trigger
+   * reads as plain text with a chevron (a heading that is also a choice), and the panel opens from its left edge.
+   */
+  variant?: "field" | "chip" | "text";
+  /** Shown before the label when the selected option has no icon of its own. */
+  leading?: ReactNode;
   /** Told each time the menu opens or closes: a hover surface the trigger sits in (the usage card) stays open while the panel is in use, and the Appearance preview highlights the row's area. */
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -74,6 +80,7 @@ export function Select<T extends string>({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   // Inside an open modal <dialog> the panel goes into the dialog: the dialog sits in the top layer, above anything in body.
+  // Inside a popover marked data-popover-host it goes into the popover, so a press on it counts as inside that popover.
   const [host, setHost] = useState<Element | null>(null);
   const [query, setQuery] = useState("");
   const words = query.toLowerCase().trim();
@@ -81,7 +88,7 @@ export function Select<T extends string>({
   const selected = options.find((option) => option.value === value);
 
   function place() {
-    setHost(triggerRef.current?.closest("dialog[open]") ?? null);
+    setHost(triggerRef.current?.closest("dialog[open], [data-popover-host]") ?? null);
     const trigger = triggerRef.current?.getBoundingClientRect();
     if (!trigger) return;
     const left = Math.max(INSET, Math.min(variant === "text" ? trigger.left : trigger.right - width, window.innerWidth - width - INSET));
@@ -164,12 +171,14 @@ export function Select<T extends string>({
         }}
         onKeyDown={onTriggerKeyDown}
         className={
-          variant === "text"
-            ? `-mx-1.5 flex min-w-0 max-w-full items-center gap-1 rounded-[6px] px-1.5 text-left text-ink transition-colors hover:bg-hover-2 ${open ? "bg-hover-2" : ""} ${triggerClassName}`
-            : `flex h-8 items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"} ${triggerClassName}`
+          variant === "chip"
+            ? `flex h-7 items-center gap-1.5 rounded-full pr-2 pl-2.5 text-[12.5px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "bg-field"} ${triggerClassName}`
+            : variant === "text"
+              ? `-mx-1.5 flex min-w-0 max-w-full items-center gap-1 rounded-[6px] px-1.5 text-left text-ink transition-colors hover:bg-hover-2 ${open ? "bg-hover-2" : ""} ${triggerClassName}`
+              : `flex h-8 items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"} ${triggerClassName}`
         }
       >
-        {variant === "field" && selected?.icon}
+        {variant !== "text" && (selected?.icon ?? leading)}
         {selected?.display ?? (
           <span style={selected?.style} className="min-w-0 flex-1 truncate text-left">
             {selected?.label ?? ""}

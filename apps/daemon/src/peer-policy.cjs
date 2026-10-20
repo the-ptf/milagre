@@ -3,7 +3,16 @@
 // remotely by default. The Unix socket, this Mac's own window, has no policy. Routines are this Mac's only: phones paired
 // to it reach them through the mobile bridge, a paired Mac never.
 const DENIED_PREFIXES = Object.freeze(["phone:", "devices:", "push:", "routines:"]);
-const DENIED = new Set(["daemon:stop", "linear:connect", "linear:cancel", "linear:disconnect", "mcp:save", "mcp:signIn", "mcp:cancelSignIn"]);
+const DENIED = new Set([
+  "daemon:stop",
+  "project:set-hidden",
+  "linear:connect",
+  "linear:cancel",
+  "linear:disconnect",
+  "mcp:save",
+  "mcp:signIn",
+  "mcp:cancelSignIn",
+]);
 
 const peerPolicy = Object.freeze({
   denies: (method) => DENIED.has(method) || DENIED_PREFIXES.some((prefix) => method.startsWith(prefix)),

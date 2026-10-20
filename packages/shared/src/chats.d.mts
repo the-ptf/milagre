@@ -5,9 +5,14 @@ export function chatMarkTone(
   mark: "question" | "waiting" | "delegated" | "interrupted" | "running" | "background" | "failed" | "unread" | "idle",
 ): "accent" | "orange" | "red" | "ink3";
 
+/** A one-line title of at most 60 characters: a longer line keeps its first 57 and an ellipsis. */
+export function shortTitle(line: string): string;
 export function chatTitle(session: AgentSession | LinkChatSession, messages?: readonly ChatMessage[]): string;
 export function isHandoverChat(session: AgentSession | LinkChatSession | undefined): boolean;
-export function isListedChat(session: AgentSession | LinkChatSession | undefined, messageCount: number): boolean;
+/** Whether a Routine's Run created the Chat and keeps it out of the lists (`routine.hidden`) unless `waiting` says it waits on someone. */
+export function isHiddenRunChat(session: AgentSession | LinkChatSession | undefined, waiting?: boolean): boolean;
+/** Whether the chat lists show the Chat: it has a message or a handover; a hidden Run Chat only while `waiting` says it waits on someone. */
+export function isListedChat(session: AgentSession | LinkChatSession | undefined, messageCount: number, waiting?: boolean): boolean;
 
 export function comparePins(a: Pick<AgentSession, "pinned" | "pin_order">, b: Pick<AgentSession, "pinned" | "pin_order">): number;
 export function pinOrderAt(orders: number[], index: number): number;

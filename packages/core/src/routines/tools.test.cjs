@@ -13,7 +13,7 @@ const CHAT = "/code/app#s1";
 const OTHER_CHAT = "/code/other#s9";
 const SETTINGS = { provider: "claude", model: "opus", permissionMode: "default" };
 
-function setup({ settings = SETTINGS, timezone = "UTC", workspaces = ["acme"] } = {}) {
+function setup({ settings = SETTINGS, timezone = "UTC", workspaces = ["acme"], keepChat } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-tools-"));
   const clock = { t: START };
   let n = 0;
@@ -32,6 +32,7 @@ function setup({ settings = SETTINGS, timezone = "UTC", workspaces = ["acme"] } 
     defaultTimezone: () => timezone,
     linearWorkspaces: () => workspaces,
     now: () => clock.t,
+    ...(keepChat ? { keepChat } : {}),
   });
   const call = (name, args, chatId = CHAT) =>
     runTool(
@@ -405,4 +406,26 @@ test("routine_update clears a Linear trigger's team filter with null or an empty
     assert.equal(cleared.isError, false, cleared.text);
     assert.deepEqual(store.get(routine.id).trigger, { kind: "linear", workspace: "acme", event: "assigned" }, JSON.stringify(team));
   }
+});
+
+test("heartbeat_create keeps its Chat once the Heartbeat is saved; a refused one keeps nothing", async () => {
+  const kept = [];
+  const { store, call } = setup({ keepChat: async (chatId) => void kept.push([chatId, store.list().length]) });
+  assert.equal((await call("heartbeat_create", { ...create, every: "7m" })).isError, true);
+  assert.deepEqual(kept, []);
+  assert.equal((await call("heartbeat_create", create)).isError, false);
+  // The Heartbeat was in the store when its Chat was kept.
+  assert.deepEqual(kept, [[CHAT, 1]]);
+});
+
+test("routine_update keeps a Heartbeat's Chat; routine_create, whose Runs start Chats of their own, keeps none", async () => {
+  const kept = [];
+  const { call } = setup({ keepChat: async (chatId) => void kept.push(chatId) });
+  const made = await call("routine_create", { name: "triage", prompt: "look", trigger: "schedule", every: "1h" });
+  assert.equal(made.isError, false, made.text);
+  assert.deepEqual(kept, []);
+  const heartbeat = JSON.parse((await call("heartbeat_create", create)).text.split("\n")[0]).routine;
+  kept.length = 0;
+  assert.equal((await call("routine_update", { id: heartbeat.id, prompt: "check the PR again" })).isError, false);
+  assert.deepEqual(kept, [CHAT]);
 });

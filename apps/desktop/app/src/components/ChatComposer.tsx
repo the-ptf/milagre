@@ -694,6 +694,8 @@ interface ChatComposerProps {
   newChatError: string | null;
   notice?: string | null;
   onDismissNotice?: () => void;
+  /** A muted line under the composer, e.g. what replying to a hidden Run Chat does. */
+  composerNote?: string;
 }
 
 const ISOLATIONS: Array<{ id: Isolation; name: string; description: string; icon: IconData }> = [
@@ -972,6 +974,7 @@ export function ChatComposer({
   linearActive,
   onStartFromIssue,
   newChatError,
+  composerNote,
   findOpen = false,
   findSignal = 0,
   findSeed,
@@ -1185,7 +1188,7 @@ export function ChatComposer({
                 )}
                 <BackgroundWork
                   key={runtimeChat}
-                  items={backgroundItems({ provider: sessionProvider ?? selectedModel.provider, subagents, backgroundTasks })}
+                  items={backgroundItems({ provider: sessionProvider ?? selectedModel.provider, subagents, backgroundTasks }, ports)}
                   chatKey={runtimeChat}
                   showIndicator={!isSending && activity?.activity === "background"}
                   mark={<ChatMarkDotInline mark="background" failed={false} background={activity?.background ?? 0} />}
@@ -1318,6 +1321,11 @@ export function ChatComposer({
           {newChatError && (
             <p role="alert" className="mt-2 px-1 text-[12px] text-red">
               {newChatError}
+            </p>
+          )}
+          {composerNote && (
+            <p data-composer-note className="mt-1.5 px-2 text-[12px] text-ink-3">
+              {composerNote}
             </p>
           )}
         </div>

@@ -25,6 +25,26 @@ test("another Project's chats: pinned first, newest next, archived left out, mar
   );
 });
 
+const hiddenRunState = {
+  worktrees: { 1: { id: 1, name: "main", path: "/code/shop" } },
+  sessions: {
+    1: session(1),
+    2: session(2, { routine: { routineId: "r1", runId: "u1", hidden: true } }),
+    3: session(3, { routine: { routineId: "r1", runId: "u2", hidden: false } }),
+  },
+  messages: [message(1, 1, "Fix checkout"), message(2, 2, "Run result"), message(3, 3, "Kept run")],
+} as unknown as CoordinatorState;
+
+test("another Project's hidden Run Chats stay out of its rows, until one waits on an approval or a question", () => {
+  const ids = (running: Set<string>, waiting: Set<string>, asking: Set<string>) =>
+    scopeChats("/code/shop", hiddenRunState, "created", { running, waiting, asking }).map((row) => row.id);
+  assert.deepEqual(ids(new Set(["/code/shop#2"]), new Set(), new Set()), ["3", "1"]);
+  assert.deepEqual(ids(new Set(), new Set(["/code/shop#2"]), new Set()), ["3", "2", "1"]);
+  assert.deepEqual(ids(new Set(), new Set(), new Set(["/code/shop#2"])), ["3", "2", "1"]);
+  // Waiting on another Chat doesn't list this one.
+  assert.deepEqual(ids(new Set(), new Set(["/code/shop#1"]), new Set(["/code/shop#3"])), ["3", "1"]);
+});
+
 const run = (approvals: number, questions: number) => ({
   approvals: Array.from({ length: approvals }, () => ({})),
   questions: Array.from({ length: questions }, () => ({})),
