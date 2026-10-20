@@ -121,6 +121,42 @@ test("shared Chat keeps one canonical transcript and exact Worktrees across retr
     );
   }
 });
+test("desktop and phone can open a linked Chat Terminal before its first Worktree exists", async (t) => {
+  const { runtime, projects, edits, settle } = await fixture(t);
+  edits.length = 0;
+  const link = await runtime.invoke("link:create", [{ name: "Food", projectIds: projects.map((project) => project.id) }]);
+  await runtime.invoke("link:open", [link.id]);
+  const request = { linkId: link.id, operationId: randomUUID(), body: "Read the projects", provider: "codex", model: "test", permissionMode: "auto" };
+  const sent = await runtime.invoke("link:send", [request]);
+  await settle(1);
+  const session = (await runtime.invoke("link:snapshot", [link.id])).state.sessions[sent.sessionId];
+  const scope = { kind: "link", linkId: link.id };
+  const chatId = chatKeyForScope(scope, sent.sessionId);
+  assert.deepEqual(session.worktrees, []);
+  for (const clientId of ["desktop", "phone"]) {
+    const context = { clientId };
+    const terminal = await runtime.invoke("terminal:open", [{ chatId }], context);
+    assert.equal(terminal.cwd, session.workspacePath);
+    assert.equal(terminal.label, "Workspace");
+    await runtime.invoke("terminal:close", [{ terminalId: terminal.id }], context);
+    await assert.rejects(runtime.invoke("terminal:open", [{ chatId, cwd: projects[0].path }], context), /Choose one of this Chat's Worktrees/);
+  }
+  assert.deepEqual((await runtime.invoke("link:snapshot", [link.id])).state.sessions[sent.sessionId].worktrees, []);
+  for (const project of projects) assert.equal(execFileSync("git", ["-C", project.path, "worktree", "list"]).toString().trim().split("\n").length, 1);
+
+  // Once a member Worktree exists, new Terminals use it as before.
+  edits.push("web");
+  await runtime.invoke("link:send", [{ ...request, sessionId: sent.sessionId, operationId: randomUUID(), body: "Edit web" }]);
+  await settle(2);
+  const updated = (await runtime.invoke("link:snapshot", [link.id])).state.sessions[sent.sessionId];
+  const context = { clientId: "desktop" };
+  const terminal = await runtime.invoke("terminal:open", [{ chatId }], context);
+  assert.equal(terminal.cwd, updated.worktrees[0].worktreePath);
+  await runtime.invoke("terminal:close", [{ terminalId: terminal.id }], context);
+  await runtime.invoke("chat:patch", [scopeKey(scope), sent.sessionId, { archived: true }]);
+  await assert.rejects(runtime.invoke("terminal:open", [{ chatId }], context), /archived/);
+});
+
 test("missing Project leaves shared history readable but blocks sends", async (t) => {
   const { runtime, projects } = await fixture(t);
   assert.ok(runtime.methods.includes("link:create"));
