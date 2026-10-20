@@ -387,6 +387,26 @@ async function browserChecks() {
       "the full result remains reachable",
     );
     await screenshot("advisor-result-scrolled");
+    await clickLabel("Expand advisor result");
+    await waitFor('document.querySelector("[data-advisor-result]").dataset.expanded === "true"');
+    assert.ok(
+      (await evaluate('document.querySelector("[data-advisor-result]").getBoundingClientRect().height')) > shortAdvisorHeight * 2,
+      "expanded, the card grows to the whole result",
+    );
+    assert.ok(
+      await evaluate(
+        '(() => { const body = document.querySelector("[data-advisor-result] [role=region]"); return body.scrollHeight <= body.clientHeight + 1; })()',
+      ),
+      "expanded, nothing scrolls inside the card",
+    );
+    await screenshot("advisor-result-expanded");
+    await clickLabel("Collapse advisor result");
+    await waitFor('document.querySelector("[data-advisor-result]").dataset.expanded === "false"');
+    assert.equal(
+      await evaluate('document.querySelector("[data-advisor-result]").getBoundingClientRect().height'),
+      shortAdvisorHeight,
+      "collapsing restores the height",
+    );
     for (const [outcome, label] of [
       ["failed", "Failed"],
       ["cancelled", "Stopped"],

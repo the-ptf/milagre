@@ -1,8 +1,10 @@
-import { Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, Text, View } from "react-native";
+import { ArrowExpand01Icon, ArrowShrink01Icon } from "@hugeicons/core-free-icons";
 import { advisorResultLabel } from "@milagre/shared/advisor-result";
 import type { AdvisorResultContext } from "@milagre/shared/model";
 import { providerName } from "@milagre/shared/providers";
-import { ProviderLogo } from "./icons";
+import { Icon, ProviderLogo } from "./icons";
 import { Markdown } from "./markdown";
 import type { MediaSource } from "./chat-reply";
 import { useTheme } from "./theme";
@@ -22,11 +24,14 @@ export function AdvisorResultCard({
   basePath?: string;
 }) {
   const { colors } = useTheme();
+  // Collapsed, the card keeps a fixed height and scrolls; expanded, it grows to show the whole result.
+  const [expanded, setExpanded] = useState(false);
+  const markdown = <Markdown text={body} media={media} basePath={basePath} />;
   return (
     <View
       testID="advisor-result"
       style={{
-        height: 286,
+        height: expanded ? undefined : 286,
         backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.line,
@@ -44,21 +49,37 @@ export function AdvisorResultCard({
               {context.outcome === "failed" ? "Failed" : "Stopped"}
             </Text>
           )}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={expanded ? "Collapse advisor result" : "Expand advisor result"}
+            accessibilityState={{ expanded }}
+            hitSlop={10}
+            onPress={() => setExpanded((open) => !open)}
+            style={({ pressed }) => ({ marginVertical: -4, marginRight: -4, padding: 4, opacity: pressed ? 0.5 : 1 })}
+          >
+            <Icon icon={expanded ? ArrowShrink01Icon : ArrowExpand01Icon} size={15} tone="ink3" />
+          </Pressable>
         </View>
         <Text selectable accessibilityRole="header" numberOfLines={2} style={{ color: colors.ink, fontSize: 16, lineHeight: 22, fontWeight: "600" }}>
           {context.title}
         </Text>
       </View>
-      <PageScroll
-        fadeEdges
-        accessibilityLabel={advisorResultLabel(context)}
-        nestedScrollEnabled
-        contentInsetAdjustmentBehavior="never"
-        style={{ flex: 1, marginBottom: 8, borderRadius: 8 }}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12, gap: 0 }}
-      >
-        <Markdown text={body} media={media} basePath={basePath} />
-      </PageScroll>
+      {expanded ? (
+        <View accessibilityLabel={advisorResultLabel(context)} style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 20 }}>
+          {markdown}
+        </View>
+      ) : (
+        <PageScroll
+          fadeEdges
+          accessibilityLabel={advisorResultLabel(context)}
+          nestedScrollEnabled
+          contentInsetAdjustmentBehavior="never"
+          style={{ flex: 1, marginBottom: 8, borderRadius: 8 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12, gap: 0 }}
+        >
+          {markdown}
+        </PageScroll>
+      )}
     </View>
   );
 }
