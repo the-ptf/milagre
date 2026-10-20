@@ -460,14 +460,16 @@ test("the user's message in a bot Chat never runs in Bot rules", async (t) => {
   // The composer sends the run's mode, Bot rules.
   await runtime.invoke("chat:send", [{ projectPath: project, sessionId, body: "I'll take it", provider: "claude", model: "m", permissionMode: "bot" }]);
   assert.equal(session.permissions.mode, "ask");
-  await waitUntil(() => turns.filter((turn) => turn.cwd.startsWith(path.join(dir, "worktrees"))).length === 2);
-  assert.equal(turns.at(-1).permissionMode, "ask");
+  // The bot's thread hears of the take-over in a turn of its own, in Bot rules: read the Chat's turn, not the last one.
+  const inWorktree = (turn) => turn.cwd.startsWith(path.join(dir, "worktrees"));
+  await waitUntil(() => turns.filter(inWorktree).length === 2);
+  assert.equal(turns.findLast(inWorktree).permissionMode, "ask");
   // Nor does any Chat that isn't a bot's.
   const { state } = await runtime.invoke("project:snapshot", [project]);
   const worktreeId = Object.values(state.worktrees).find((worktree) => worktree.path === project).id;
   await runtime.invoke("chat:send", [{ projectPath: project, sessionId: null, worktreeId, body: "hi", provider: "claude", model: "m", permissionMode: "bot" }]);
-  await waitUntil(() => turns.at(-1).cwd === project);
-  assert.equal(turns.at(-1).permissionMode, "ask");
+  await waitUntil(() => turns.some((turn) => turn.cwd === project));
+  assert.equal(turns.findLast((turn) => turn.cwd === project).permissionMode, "ask");
 });
 
 test("no client sets Bot rules, nor changes a bot thread's mode", async (t) => {
