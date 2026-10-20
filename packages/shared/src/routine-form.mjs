@@ -16,15 +16,38 @@ const HOURS_RULE = `Every N hours must divide 24 (${EVERY_HOURS.join(", ")})`;
 const CHAT_ONLY_SCHEDULE = "Only schedule triggers can target an existing Chat";
 const SIGNED_NEEDS_SECRET = "A signed webhook needs a signing secret";
 
+/** The New Routine and Edit forms' prompt copy, the same on desktop and the phone. */
+export const PROMPT_PLACEHOLDER = "What should the agent do on each Run? End with (pass) when there's nothing to do.";
+export const PROMPT_HINT = "Type {{ for the Run's fields";
+const DATA_NOTES = {
+  linear: "Issue text is passed as data, not instructions.",
+  webhook: "The request is passed as data, not instructions.",
+};
+
+/** The hint under the prompt for a trigger: an event's fields are data the agent reads, never instructions it follows. */
+export function promptHint(trigger) {
+  const note = DATA_NOTES[trigger];
+  return note ? `${PROMPT_HINT}. ${note}` : PROMPT_HINT;
+}
+
+/**
+ * What deleting a Routine does, as its delete confirmation and the Edit form's Delete Routine row say it. A Heartbeat checks
+ * back on a Chat that is someone's own, and the delete leaves that Chat alone; any other Routine opens Run Chats, and the
+ * delete archives the ones nobody has kept.
+ */
+export function deleteWarning(routine) {
+  return routine?.target?.kind === "chat" ? "Its Chats stay." : "Its Runs stop, and its Run Chats you haven't kept are archived.";
+}
+
 const text = (value) => (typeof value === "string" ? value.trim() : "");
 const fail = (field, error) => ({ field, error });
 
-/** A new Routine's form: a schedule every 15 minutes in a new worktree, running until switched off. */
+/** A new Routine's form: a schedule every hour in a new worktree, running until switched off. */
 export function emptyRoutineForm(timezone, now = Date.now()) {
   return {
     name: "",
     trigger: "schedule",
-    schedule: { mode: "every", every: 15, unit: "min", time: "09:00", days: [1, 2, 3, 4, 5], cron: "", timezone },
+    schedule: { mode: "every", every: 1, unit: "h", time: "09:00", days: [1, 2, 3, 4, 5], cron: "", timezone },
     linear: { workspace: "", event: "label-added", team: "", label: "", state: "" },
     webhook: { signingHeader: "", signingSecret: "" },
     projectPath: "",
@@ -69,6 +92,66 @@ export function scheduleCron(schedule) {
   if (unit === "min") return EVERY_MINUTES.includes(amount) ? { cron: `*/${amount} * * * *` } : { error: MINUTES_RULE };
   if (!EVERY_HOURS.includes(amount)) return { error: HOURS_RULE };
   return { cron: amount === 24 ? "0 0 * * *" : `0 */${amount} * * *` };
+}
+
+/** `at` on the wall clock of `timeZone`: its date, minutes into the day and weekday (0 is Sunday). */
+function wallClock(at, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+  }).formatToParts(at);
+  const part = (type) => Number(parts.find((entry) => entry.type === type)?.value ?? 0);
+  return { year: part("year"), month: part("month"), day: part("day"), minutes: (part("hour") % 24) * 60 + part("minute") };
+}
+
+/** The moment the wall clock of `timeZone` reads `minutes` into the day `offset` days after `wall`'s (minutes may run past midnight). */
+function wallMoment(wall, offset, minutes, timeZone) {
+  const target = Date.UTC(wall.year, wall.month - 1, wall.day + offset, 0, minutes);
+  let at = target;
+  // The zone's offset at the guess, twice, so a day that changes its clock lands right.
+  for (let pass = 0; pass < 2; pass += 1) {
+    const seen = wallClock(at, timeZone);
+    at += target - Date.UTC(seen.year, seen.month - 1, seen.day, 0, seen.minutes);
+  }
+  return at;
+}
+
+/**
+ * When a new schedule's first Run would start after `now`, on the wall clock of the schedule's own time zone (an Every or
+ * At a time schedule; a raw cron, another trigger or an unknown zone gives null).
+ */
+export function firstRunAt(state, now = Date.now()) {
+  if (state.trigger !== "schedule") return null;
+  const { schedule } = state;
+  let wall;
+  try {
+    wall = wallClock(now, schedule.timezone || undefined);
+  } catch {
+    return null;
+  }
+  const zone = schedule.timezone || undefined;
+  if (schedule.mode === "every") {
+    const made = scheduleCron(schedule);
+    if (made.error) return null;
+    const step = (schedule.unit === "h" ? 60 : 1) * Number(schedule.every);
+    const next = (Math.floor(wall.minutes / step) + 1) * step;
+    return wallMoment(wall, 0, next >= 1440 ? 1440 : next, zone);
+  }
+  const match = schedule.mode === "at" ? /^(\d{1,2}):(\d{2})$/.exec(schedule.time) : null;
+  if (!match) return null;
+  const minutes = Number(match[1]) * 60 + Number(match[2]);
+  for (let offset = 0; offset <= 7; offset += 1) {
+    const weekday = new Date(Date.UTC(wall.year, wall.month - 1, wall.day + offset)).getUTCDay();
+    if (!schedule.days.includes(weekday)) continue;
+    const at = wallMoment(wall, offset, minutes, zone);
+    if (at > now) return at;
+  }
+  return null;
 }
 
 /** The form's schedule for a stored cron: Every or At when the form could have made it, Advanced (raw cron) otherwise. */

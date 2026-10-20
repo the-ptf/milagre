@@ -51,11 +51,13 @@ export function canvasWorktrees(state: CoordinatorState | undefined, markOf: (se
     if (session.archived) continue;
     const messages = bySession.get(session.id) ?? [];
     const summary = chatSummary(session, messages);
-    if (!isListedChat(session, summary.count)) continue;
+    const mark = markOf(session.id, Boolean(session.unread));
+    // A hidden Run Chat shows only while it waits on someone.
+    if (!isListedChat(session, summary.count, mark === "waiting" || mark === "question")) continue;
     const chat: CanvasChat = {
       id: session.id,
       title: chatTitle(session, messages),
-      mark: markOf(session.id, Boolean(session.unread)),
+      mark,
       provider: session.provider,
       lastAt: summary.lastAt,
       failed: summary.lastOutcome === "failed",

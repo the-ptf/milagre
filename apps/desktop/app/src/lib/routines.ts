@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from "react";
 import type { Routine, RoutineRun } from "@milagre/shared/model";
 import { PERMISSION_MODES } from "@milagre/shared/model-copy";
-import { clock, triggerText } from "@milagre/shared/routines";
+import { clock, routineEnd as sharedRoutineEnd, triggerText } from "@milagre/shared/routines";
+import { deleteWarning } from "@milagre/shared/routine-form";
 import { ipcErrorMessage } from "@milagre/shared/result";
 
 /** A Routine as `listRoutines` gives it: with its latest Runs, newest first. */
@@ -14,6 +15,17 @@ const DAY = 24 * HOUR;
 /** A heartbeat checks back on one Chat; every other Routine starts a new Chat per Run. */
 export const isHeartbeat = (routine: Routine) => routine.target.kind === "chat";
 
+/**
+ * What the delete confirmation says. A Heartbeat only checks back on a Chat that is someone's own, and the delete leaves
+ * that Chat alone; every other Routine opens Run Chats, and the delete archives the ones nobody has kept.
+ */
+export function routineDeleteQuestion(routine: Routine): string {
+  return `Delete ${routine.name}? ${routineDeleteWarning(routine)}`;
+}
+
+/** What deleting does, as the Edit form's Delete Routine row says it (shared with the phone). */
+export const routineDeleteWarning = (routine: Routine): string => deleteWarning(routine);
+
 /** The page's groups. Paused Routines (switched off) stay in their group too, so the chips' counts overlap. */
 export function groupRoutines<T extends Routine>(routines: readonly T[]): { heartbeats: T[]; triggers: T[]; paused: T[] } {
   return {
@@ -24,16 +36,7 @@ export function groupRoutines<T extends Routine>(routines: readonly T[]): { hear
 }
 
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const projectName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
-
-/** How long until `at`, rounded in the largest unit: "2 days", "5 h", "12 min" (a 2-day end read a moment later is still 2 days). */
-function until(at: number, now: number): string {
-  const left = Math.max(0, at - now);
-  if (left >= DAY) return plural(Math.round(left / DAY), "day");
-  if (left >= HOUR) return `${Math.round(left / HOUR)} h`;
-  return `${Math.max(1, Math.ceil(left / MINUTE))} min`;
-}
 
 /** Local calendar days from `at` to `now`: 0 the same day, 1 yesterday. */
 function daysBetween(at: number, now: number): number {
@@ -54,12 +57,8 @@ function ago(at: number, now: number): string {
   return days === 1 ? "yesterday" : `${days} days ago`;
 }
 
-/** When the Routine ends: "3 of 20 runs left" or "ends in 2 days"; null when it runs until switched off. */
-export function routineEnd(routine: Routine, now: number): string | null {
-  if (routine.maxRuns !== undefined) return `${Math.max(0, routine.maxRuns - routine.runCount)} of ${plural(routine.maxRuns, "Run")} left`;
-  if (routine.expiresAt !== undefined) return `ends in ${until(routine.expiresAt, now)}`;
-  return null;
-}
+/** When the Routine ends: "3 of 20 Runs left" or "ends in 2 days"; null when it runs until switched off (shared with the phone). */
+export const routineEnd = (routine: Routine, now: number): string | null => sharedRoutineEnd(routine, now);
 
 /** The model and mode a Routine's Runs use, "Opus 5.5 · Full permission", or null when it uses the Mac's defaults. */
 function routineModel(routine: Routine, modelName?: (provider: Routine["provider"], model: string) => string): string | null {
@@ -96,6 +95,21 @@ export function routineStatus(routine: RoutineWithRuns, now: number): string {
   const when = ago(run.startedAt, now);
   if (key) return `${key} · ${when}`;
   return when === "yesterday" ? `Yesterday ${clock(run.startedAt)}` : capitalized(when);
+}
+
+/** The chip's narrowest box over the Chat before it gives up being centered (its name truncates below that). */
+const CHIP_ROOM = 200;
+const STRIP_EDGE = 12;
+
+/**
+ * The Routine chip's strip over the open Chat: left and right padding inside <main> (`width` wide, `rightGap` short of the
+ * window's right edge) that keep the chip clear of the window corner's buttons (`reserve` px from that edge). The chip
+ * stays centered while it has CHIP_ROOM; on a narrower <main> the left side gives way first, never the right.
+ */
+export function chipStripInsets(width: number, rightGap: number, reserve: number): { left: number; right: number } {
+  const right = Math.max(STRIP_EDGE, reserve - rightGap);
+  const left = Math.max(STRIP_EDGE, Math.min(right, width - right - CHIP_ROOM));
+  return { left, right };
 }
 
 type RoutinesSnapshot = { enabled: boolean | null; routines: RoutineWithRuns[]; error: string | null };

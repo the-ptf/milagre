@@ -977,6 +977,57 @@ test("a quit saves no resume for a Routine's turn, which the scheduler owns; a u
   assert.equal(saved.get(BETA).sessions[user.sessionId].resumeTurn.prompt, "fix the api");
 });
 
+test("a Run's new Chat starts hidden, with the Routine's name as a generated title that a user's name beats", async (t) => {
+  const { host, manager, states, saved, broadcasts } = harness();
+  t.after(() => manager.closeAll());
+  const origin = { routineId: "r1", runId: "run-1" };
+  const sessionId = await host.emptyChat(ALPHA, 1, { origin, generatedTitle: "Morning triage", fresh: true });
+  await host.states.flush();
+  const session = saved.get(ALPHA).sessions[sessionId];
+  assert.deepEqual(session.routine, { routineId: "r1", runId: "run-1", hidden: true });
+  assert.equal(session.generatedTitle, "Morning triage");
+  assert.equal(session.title, undefined);
+  assert.equal(broadcasts.at(-1).state.sessions[sessionId].routine.hidden, true);
+  // A Linear Run names the Chat itself, and it is hidden all the same.
+  const linear = await host.emptyChat(ALPHA, 1, { origin: { routineId: "r1", runId: "run-2" }, title: "MIL-1 Paste images", fresh: true });
+  assert.deepEqual((await states.get(ALPHA)).sessions[linear].routine, { routineId: "r1", runId: "run-2", hidden: true });
+  assert.equal((await states.get(ALPHA)).sessions[linear].title, "MIL-1 Paste images");
+  // A Chat made for no Run carries no routine at all.
+  const plain = await host.emptyChat(ALPHA, 1, { fresh: true });
+  assert.equal((await states.get(ALPHA)).sessions[plain].routine, undefined);
+});
+
+test("nameRunChat saves a Run's title on its own Chat only, and never over a name the user gave it", async (t) => {
+  const { host, manager, states, broadcasts } = harness();
+  t.after(() => manager.closeAll());
+  const sessionId = await host.emptyChat(ALPHA, 1, { origin: { routineId: "r1", runId: "run-1" }, generatedTitle: "Morning triage", fresh: true });
+  const before = broadcasts.length;
+  // Another Run's title, or a Chat that isn't there, changes nothing.
+  assert.equal(await host.nameRunChat(ALPHA, sessionId, "run-9", "Wrong Run"), false);
+  assert.equal(await host.nameRunChat(ALPHA, 999, "run-1", "No such Chat"), false);
+  assert.equal((await states.get(ALPHA)).sessions[sessionId].generatedTitle, "Morning triage");
+  assert.equal(broadcasts.length, before);
+
+  const update = t.mock.method(states, "update");
+  assert.equal(await host.nameRunChat(ALPHA, sessionId, "run-1", "Fixed flaky sidebar test"), true);
+  // The name is on the session: none of the Chat's messages are loaded for it.
+  assert.deepEqual(
+    update.mock.calls.map((call) => call.arguments[2]),
+    [{ chats: [] }],
+  );
+  update.mock.restore();
+  const named = (await states.get(ALPHA)).sessions[sessionId];
+  assert.equal(named.generatedTitle, "Fixed flaky sidebar test");
+  assert.deepEqual(named.routine, { routineId: "r1", runId: "run-1", hidden: true });
+  assert.equal(broadcasts.at(-1).state.sessions[sessionId].generatedTitle, "Fixed flaky sidebar test");
+
+  await states.update(ALPHA, (state) => ({ ...state, sessions: { ...state.sessions, [sessionId]: { ...state.sessions[sessionId], title: "My name" } } }));
+  assert.equal(await host.nameRunChat(ALPHA, sessionId, "run-1", "Too late"), false);
+  const kept = (await states.get(ALPHA)).sessions[sessionId];
+  assert.equal(kept.title, "My name");
+  assert.equal(kept.generatedTitle, "Fixed flaky sidebar test");
+});
+
 test("a Linear Run's first message, the issue card carrying its Routine, is a Routine's turn too: no resume, no saved mode", async (t) => {
   const { host, manager, saved, session } = harness();
   t.after(() => manager.closeAll());

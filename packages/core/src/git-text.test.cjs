@@ -409,6 +409,9 @@ test("codexModel gives the one-shot thread no shell, no web search and none of t
   const { config, approvalPolicy, environments } = rpc.requests.find((item) => item.method === "thread/start").params;
   assert.equal(approvalPolicy, "never");
   assert.deepEqual(environments, []);
+  // `environments` is experimental: Codex refuses it on thread/start unless initialize asked for the experimental API
+  // ("thread/start.environments requires experimentalApi capability"), which failed every Codex title and Run name.
+  assert.deepEqual(rpc.requests.find((item) => item.method === "initialize").params.capabilities, { experimentalApi: true });
   assert.deepEqual(config.mcp_servers, { linear: { enabled: false }, github: { enabled: false } });
   assert.equal(config.features.shell_tool, false);
   assert.equal(config.features.unified_exec, false);

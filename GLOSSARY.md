@@ -92,6 +92,9 @@ What fires a **Routine**: a schedule, a Linear event or a webhook. Used loosely 
 **Run**:
 One firing of a **Routine**. It acts, is quiet, fails, or is skipped because its **Chat** was busy or the **Computer** missed its time.
 
+**Run Chat**:
+A **Chat** a **Run** opened. It lives in its **Routine**'s Runs list, out of the sidebar, until you send it a message, pin it or rename it.
+
 **Quiet run**:
 A **Run** whose reply, after its last tool step, starts with `(pass)`. Its divider collapses, its reply is hidden, and it sends no notification.
 

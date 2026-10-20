@@ -133,7 +133,9 @@ const ALLOWED: Record<string, string[]> = {
   // Routines are this Mac's only (peers are refused routines:*), so they always ask this Mac's own bridge.
   "lib/routines.ts": ["readRoutinesEnabled", "listRoutines", "onRoutinesChanged"],
   "components/routines/RoutinesPage.tsx": ["routineTargets", "updateRoutine", "runRoutineNow", "deleteRoutine"],
-  "components/routines/RoutineForm.tsx": ["routineTargets", "routineLinearOptions", "createRoutine", "updateRoutine", "routineHook", "rotateRoutineHook"],
+  "components/routines/RoutinePage.tsx": ["updateRoutine", "runRoutineNow"],
+  "components/routines/RoutineEditor.tsx": ["deleteRoutine"],
+  "components/routines/use-routine-form.tsx": ["routineTargets", "routineLinearOptions", "createRoutine", "updateRoutine", "routineHook", "rotateRoutineHook"],
   "components/routines/HeartbeatCard.tsx": ["deleteRoutine"],
 };
 
