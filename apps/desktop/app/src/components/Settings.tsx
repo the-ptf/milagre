@@ -61,6 +61,7 @@ import type { ClaudeReplies, UsageDisplay } from "../lib/settings";
 import type { ChatOrder } from "../lib/chat-list";
 import { useEditors } from "../lib/editors";
 import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
+import { isRemoteScopeHidden, setRemoteScopeHidden } from "../lib/hidden-projects";
 import { cloudflarePhonesNote, pairingWindow, phoneLanLine, phoneQrSrc, phoneStatusLine } from "../lib/phone";
 import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQuestion } from "../lib/devices";
 import { GlideGroup, RailButton } from "./SidebarNav";
@@ -1548,23 +1549,30 @@ function ProjectIconSetting({ project }: { project: SettingsProject }) {
   );
 }
 
-// Shared with the phone: a hidden project also leaves its Projects list.
+// This Mac's sidebar visibility for the Project.
 function ShowInSidebarSetting({ project }: { project: SettingsProject }) {
-  const [hidden, setHidden] = useState<boolean | null>(null);
+  const remote = isRemoteKey(project.path);
+  const [hidden, setHidden] = useState<boolean | null>(() => (remote ? isRemoteScopeHidden(project.path) : null));
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    bridgeForKey(project.path)
-      .listRecentProjects()
-      .then(
-        (list) => setHidden(Boolean(list.find((item) => item.path === project.path)?.hidden)),
-        () => setHidden(false),
-      );
-  }, [project.path]);
+    if (remote) {
+      setHidden(isRemoteScopeHidden(project.path));
+      return;
+    }
+    window.milagre.listRecentProjects().then(
+      (list) => setHidden(Boolean(list.find((item) => item.path === project.path)?.hidden)),
+      () => setHidden(false),
+    );
+  }, [project.path, remote]);
   async function change(show: boolean) {
     setError(null);
     setHidden(!show);
+    if (remote) {
+      setRemoteScopeHidden(project.path, !show);
+      return;
+    }
     try {
-      const list = await bridgeForKey(project.path).setProjectHidden(project.path, !show);
+      const list = await window.milagre.setProjectHidden(project.path, !show);
       setHidden(Boolean(list.find((item) => item.path === project.path)?.hidden));
       window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
     } catch (failure) {
@@ -1574,7 +1582,7 @@ function ShowInSidebarSetting({ project }: { project: SettingsProject }) {
   }
   return (
     <div data-show-in-sidebar>
-      <Row label="Show in sidebar" description="In the sidebar, and in your phone's Projects list. Filters › Projects chooses them all at once.">
+      <Row label="Show in sidebar" description="In the sidebar on this Mac. Filters › Projects chooses them all at once.">
         <Switch label="Show in sidebar" checked={hidden === false} onChange={(show) => void change(show)} />
       </Row>
       {error && <p className="px-4 pb-3 break-words text-[12px] text-red">{error}</p>}

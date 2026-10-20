@@ -50,8 +50,8 @@ const PANEL = "fixed z-50 flex flex-col overflow-hidden rounded-[14px] bg-surfac
 const rowsOf = (panel: HTMLElement | null) => [...(panel?.querySelectorAll<HTMLElement>("[data-menu-row]:not(:disabled)") ?? [])];
 
 /**
- * The sidebar's Filters: which Projects the all-Projects sidebar lists (each Project's own hidden flag, shared with the
- * phone) and what a chat row's second line shows (this Mac's setting). Projects › and Show › open beside the menu.
+ * The sidebar's Filters: which Projects and Links this Mac's sidebar lists and what a chat row's second line shows
+ * (both kept per Mac). Projects › and Show › open beside the menu.
  */
 export function FiltersButton({
   projects,

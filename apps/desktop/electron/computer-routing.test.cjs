@@ -72,9 +72,9 @@ test("a computer's events and results come back naming it", () => {
   assert.deepEqual(qualifyEvent(ID, "agent:cli-progress", { provider: "codex" }), { provider: "codex" });
 
   assert.deepEqual(qualifyResult(ID, "project:switch", { path: "/p", name: "p", state: {} }), { path: `${ID}|/p`, name: "p", state: {} });
-  assert.deepEqual(qualifyResult(ID, "project:recent", [{ path: "/p", name: "p" }]), [{ path: `${ID}|/p`, name: "p" }]);
+  assert.deepEqual(qualifyResult(ID, "project:recent", [{ path: "/p", name: "p", hidden: true }]), [{ path: `${ID}|/p`, name: "p" }]);
   assert.deepEqual(qualifyResult(ID, "project:registry", [{ id: "/p/.git", path: "/p", name: "p" }]), [{ id: "/p/.git", path: `${ID}|/p`, name: "p" }]);
-  assert.deepEqual(qualifyResult(ID, "link:list", [{ id: LINK, name: "L", projectIds: ["/p/.git"] }]), [
+  assert.deepEqual(qualifyResult(ID, "link:list", [{ id: LINK, name: "L", projectIds: ["/p/.git"], hidden: true }]), [
     { id: `${ID}|${LINK}`, name: "L", projectIds: ["/p/.git"] },
   ]);
   assert.deepEqual(qualifyResult(ID, "link:open", { link: { id: LINK }, state: {}, projects: [{ id: "/p/.git", path: "/p", name: "p" }] }), {
@@ -103,6 +103,7 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "skills:open",
     "skills:reveal",
     "project:open",
+    "project:set-hidden",
     "image:menu",
     "update:install",
     "notification:state",

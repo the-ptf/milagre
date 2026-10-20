@@ -9,6 +9,7 @@ const NOT_REMOTE = "Not available on a remote computer";
 const LOCAL_ONLY = [
   "project:open",
   "project:reveal",
+  "project:set-hidden",
   "skills:open",
   "skills:reveal",
   "runtime:connection",

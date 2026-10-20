@@ -829,48 +829,37 @@ export default memo(function SidebarNav({
       );
   };
 
-  // Checked in the project chooser; the flag lives with the Project, so the phone's list follows.
+  // Checked in the project chooser; the choice belongs to this Mac alone.
   const showProject = (path: string, show: boolean) => {
+    if (isRemoteKey(path)) {
+      remote.setHidden(path, !show);
+      return;
+    }
     if (path.startsWith("milagre-link:")) {
       const id = path.slice("milagre-link:".length);
-      if (isRemoteKey(path)) {
-        remote.setHidden(path, !show);
-        const linkId = unqualifyKey(id);
-        const bridge = bridgeForKey(path);
-        void bridge.listNamedLinks().then((links) => {
-          const link = links.find((l) => l.id === linkId);
-          if (link) {
-            bridge.updateNamedLink({ id: link.id, name: link.name, projectIds: link.projectIds, hidden: !show }).catch(() => {});
-          }
+      const link = namedLinks.find((l) => l.id === id);
+      if (link) {
+        setNamedLinks((links) => links.map((l) => (l.id === id ? { ...l, hidden: !show } : l)));
+        window.milagre?.updateNamedLink?.({ id, name: link.name, projectIds: link.projectIds, hidden: !show }).catch(() => {
+          setListsChanged((count) => count + 1);
         });
-      } else {
-        const link = namedLinks.find((l) => l.id === id);
-        if (link) {
-          setNamedLinks((links) => links.map((l) => (l.id === id ? { ...l, hidden: !show } : l)));
-          window.milagre?.updateNamedLink?.({ id, name: link.name, projectIds: link.projectIds, hidden: !show }).catch(() => {
-            setListsChanged((count) => count + 1);
-          });
-        }
       }
       return;
     }
-    if (isRemoteKey(path)) remote.setHidden(path, !show);
     setRecentProjects((list) => list.map((project) => (project.path === path ? { ...project, hidden: !show } : project)));
-    bridgeForKey(path)
-      .setProjectHidden(path, !show)
-      .then(
-        (list) => {
-          if (!isRemoteKey(path) && Array.isArray(list)) setRecentProjects(list);
-          window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
-        },
-        () => setListsChanged((count) => count + 1),
-      );
+    window.milagre?.setProjectHidden?.(path, !show).then(
+      (list) => {
+        if (Array.isArray(list)) setRecentProjects(list);
+        window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
+      },
+      () => setListsChanged((count) => count + 1),
+    );
   };
   // By name, like the phone's: the recent list reorders as Projects open, and a row must not move under the pointer.
   // Other computers' Projects follow, each saying its computer; the open one of another computer is already a local row.
   const pickerProjects: PickerProject[] = [
     ...projects.map((row) => {
-      const recent = recentProjects.find((project) => project.path === row.path);
+      const recent = recentProjects.find((project) => project.path === row.path) ?? remote.projects.find((project) => project.path === row.path);
       return { ...row, shown: !recent?.hidden, listed: !!recent, computer: multi && isRemoteKey(row.path) ? rowComputer(row.path)?.name : undefined };
     }),
     ...namedLinks.map((link) => ({
