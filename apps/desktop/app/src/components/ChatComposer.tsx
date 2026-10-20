@@ -694,6 +694,7 @@ interface ChatComposerProps {
   linearActive?: boolean;
   onStartFromIssue?: (issue: LinearIssue) => void;
   newChatError: string | null;
+  saveNotice?: ReactNode;
   notice?: string | null;
   onDismissNotice?: () => void;
   /** A muted line under the composer, e.g. what replying to a hidden Run Chat does. */
@@ -995,6 +996,7 @@ export function ChatComposer({
   findSignal = 0,
   findSeed,
   onFindClose,
+  saveNotice,
   notice,
   onDismissNotice,
   onSendDesignMessage,
@@ -1296,6 +1298,7 @@ export function ChatComposer({
             />
           )}
           {isNewChat && starters && starters.length > 0 && <FirstChatStarters starters={starters} />}
+          {saveNotice}
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
           {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
           {approval && <div className="mb-2 w-full">{approval}</div>}

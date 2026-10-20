@@ -255,7 +255,15 @@ export interface LinkPreparation {
   error?: string;
   retainedPaths?: string[];
 }
+/** A failed save retained by the Computer, until every pending edit has reached disk. Never persisted itself. */
+export interface PersistenceFailure {
+  error: string;
+  code?: string;
+  saving: boolean;
+}
+
 export interface LinkState {
+  persistence?: PersistenceFailure;
   /** From a host that keeps messages by Chat (chat-pages-v1): `messages` is empty, and the Chats on screen read their own. */
   messagesInChats?: boolean;
   next_id: number;
@@ -895,6 +903,7 @@ export interface WorktreeRequest {
 }
 
 export interface CoordinatorState {
+  persistence?: PersistenceFailure;
   /** From a host that keeps messages by Chat (chat-pages-v1): `messages` is empty, and the Chats on screen read their own. */
   messagesInChats?: boolean;
   next_id: number;

@@ -222,6 +222,7 @@ function makeBridge(invoke, listen, send) {
     cloneProject: (url) => invoke("onboarding:clone", url),
     setUpGit: (folder) => invoke("onboarding:init-git", folder),
     setProjectHidden: (projectPath, hidden) => invoke("project:set-hidden", projectPath, hidden),
+    retrySave: (scope) => invoke("scope:retry-save", scope),
     readProject: (projectPath) => invoke("project:read", projectPath),
     listNamedLinks: () => invoke("link:list"),
     createNamedLink: (request) => invoke("link:create", request),

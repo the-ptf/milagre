@@ -125,7 +125,7 @@ function load(file, modules, extra = "", cache = new Map()) {
     require: (id) => {
       // Follow the real primitive graph, including the compatibility barrel; keep native modules at the boundary.
       const relative = id.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(file), id)) : null;
-      if (relative?.startsWith("primitives/")) {
+      if (relative?.startsWith("primitives/") || relative === "persistence-notice") {
         const target = [relative, `${relative}.tsx`, `${relative}.ts`].find((candidate) =>
           fs.existsSync(path.join(__dirname, "../apps/mobile/src", candidate)),
         );

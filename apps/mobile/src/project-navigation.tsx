@@ -836,6 +836,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
             return <Text style={[s.detail, { paddingHorizontal: 12, paddingTop: 16, paddingBottom: 6, fontWeight: "500" }]}>{item.name}</Text>;
           if (item.kind === "project") {
             const linked = isLinkScopeKey(item.path);
+            const unsaved = (item.path === currentPath ? session.snapshot : cachedProject(item.path))?.project.state.persistence;
             const menu = [
               {
                 items: [
@@ -863,6 +864,11 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
                     <Text numberOfLines={1} style={[s.secondary, { flex: 1, fontWeight: "500", color: colors.ink }]}>
                       {item.name}
                     </Text>
+                    {unsaved && (
+                      <Text accessibilityLabel="Changes not saved" style={[s.detail, { color: colors.red }]}>
+                        Unsaved
+                      </Text>
+                    )}
                     {attention.some((key) => projectOfKey(key) === item.path) && <AttentionDot />}
                     <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={13} />
                   </View>

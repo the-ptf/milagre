@@ -1,3 +1,4 @@
+import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components/PersistenceNotice";
 import { AiConsentDialog } from "./components/AiConsent";
 import { UpdateShell, useAppUpdates } from "./components/UpdateNotice";
 import { ComputerAllowPrompt } from "./components/ComputerAllowPrompt";
@@ -2094,6 +2095,37 @@ function App() {
       setNotice(ipcErrorMessage(error));
     }
   }
+  const unsavedScopes: UnsavedScope[] = Object.entries({
+    ...gridStates,
+    ...Object.fromEntries(
+      Object.entries({ ...(selectedLink ? { [selectedLink.link.id]: selectedLink.state } : {}), ...linkStates }).map(([id, state]) => [
+        `milagre-link:${id}`,
+        state,
+      ]),
+    ),
+  }).flatMap(([scope, saved]) =>
+    saved.persistence
+      ? [
+          {
+            scope,
+            name: isLinkScopeKey(scope)
+              ? selectedLink && `milagre-link:${selectedLink.link.id}` === scope
+                ? selectedLink.link.name
+                : "Shared Chats"
+              : projectName(scope),
+            failure: saved.persistence,
+            offline: isRemoteKey(scope) ? isReadOnly(pairedComputers.find((computer) => computer.id === computerOfKey(scope))) : !hostConnection.connected,
+          },
+        ]
+      : [],
+  );
+  const openSaveScope = selectedLink ? `milagre-link:${selectedLink.link.id}` : project?.path;
+  const openFailure = unsavedScopes.find((entry) => entry.scope === openSaveScope);
+  const dockSaveNotice = openFailure ? <SaveFailure key={openFailure.scope} {...openFailure} /> : undefined;
+  const globalUnsavedScopes = unsavedScopes.filter(
+    (entry) => view !== "chat" || (!selectedLink && diffPresence.occupied && !runPaneOpen) || entry.scope !== openSaveScope,
+  );
+  const saveNotices = <PersistenceNotices scopes={globalUnsavedScopes} />;
   const linkDialog = linkDialogOpen ? (
     <LinkProjectDialog
       link={typeof linkDialogOpen === "object" ? linkDialogOpen : undefined}
@@ -2118,6 +2150,7 @@ function App() {
   if (selectedLink && view === "settings")
     return (
       <DotBackground>
+        {saveNotices}
         <div className="flex h-screen gap-3 p-3 pt-10">
           <SettingsNav
             showProjectSettings={false}
@@ -2149,6 +2182,8 @@ function App() {
           opened={selectedLink}
           state={linkStates[selectedLink.link.id] ?? selectedLink.state}
           hostConnection={hostConnection}
+          saveNotice={dockSaveNotice}
+          saveScopes={unsavedScopes}
           ports={agentPorts}
           agents={agentRuns}
           drafts={scopeDrafts}
@@ -2405,48 +2440,50 @@ function App() {
     <BridgeContext.Provider value={bridgeForKey(project.path)}>
       <ScopeContext.Provider value={project.path}>
         <DotBackground key="app">
-          {hostConnection.connected && hostConnection.hostOutdated && (
-            <div
-              role="status"
-              data-host-outdated
-              className="fixed inset-x-4 top-12 z-50 mx-auto flex max-w-2xl items-center justify-between gap-3 rounded-card border border-line bg-surface px-4 py-2.5 text-[13px] leading-snug text-ink shadow-overlay [-webkit-app-region:no-drag]"
-            >
-              <span>{hostConnection.message ?? "Restart Milagre's background host to load large projects."}</span>
-              <button
-                type="button"
-                disabled={restartingHost}
-                onClick={() => {
-                  setRestartingHost(true);
-                  void window.milagre
-                    .restartHost()
-                    .catch((error) => setNotice(`Couldn't restart the host: ${ipcErrorMessage(error)}`))
-                    .finally(() => setRestartingHost(false));
-                }}
-                className="shrink-0 rounded-control bg-ink px-2.5 py-1 font-medium text-surface transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40"
+          <PersistenceNotices scopes={globalUnsavedScopes}>
+            {hostConnection.connected && hostConnection.hostOutdated && (
+              <div
+                role="status"
+                data-host-outdated
+                className="flex w-full items-center justify-between gap-3 rounded-card border border-line bg-surface px-4 py-2.5 text-[13px] leading-snug text-ink shadow-overlay [-webkit-app-region:no-drag]"
               >
-                {restartingHost ? "Restarting…" : "Restart host"}
-              </button>
-            </div>
-          )}
-          {!hostConnection.connected && (
-            <div
-              role="status"
-              data-host-disconnected
-              className="fixed inset-x-4 top-12 z-50 mx-auto max-w-2xl rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink shadow-overlay [-webkit-app-region:no-drag]"
-            >
-              {hostConnection.failed ? (
-                <>
-                  <p className="font-medium">Couldn't restart Milagre's background host</p>
-                  <p className="mt-1 text-ink-2">{hostConnection.message} Your draft is kept here. Quit and reopen Milagre to try again.</p>
-                </>
-              ) : (
-                <>
-                  <p className="font-medium">Reconnecting to your computer</p>
-                  <p className="mt-1 text-ink-2">Your draft is kept here. Messages will be available when the host reconnects.</p>
-                </>
-              )}
-            </div>
-          )}
+                <span>{hostConnection.message ?? "Restart Milagre's background host to load large projects."}</span>
+                <button
+                  type="button"
+                  disabled={restartingHost}
+                  onClick={() => {
+                    setRestartingHost(true);
+                    void window.milagre
+                      .restartHost()
+                      .catch((error) => setNotice(`Couldn't restart the host: ${ipcErrorMessage(error)}`))
+                      .finally(() => setRestartingHost(false));
+                  }}
+                  className="shrink-0 rounded-control bg-ink px-2.5 py-1 font-medium text-surface transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40"
+                >
+                  {restartingHost ? "Restarting…" : "Restart host"}
+                </button>
+              </div>
+            )}
+            {!hostConnection.connected && (
+              <div
+                role="status"
+                data-host-disconnected
+                className="w-full rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink shadow-overlay [-webkit-app-region:no-drag]"
+              >
+                {hostConnection.failed ? (
+                  <>
+                    <p className="font-medium">Couldn't restart Milagre's background host</p>
+                    <p className="mt-1 text-ink-2">{hostConnection.message} Your draft is kept here. Quit and reopen Milagre to try again.</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-medium">Reconnecting to your computer</p>
+                    <p className="mt-1 text-ink-2">Your draft is kept here. Messages will be available when the host reconnects.</p>
+                  </>
+                )}
+              </div>
+            )}
+          </PersistenceNotices>
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
           {changesAvailable && <ChangesToggle open={changes.open} onToggle={changes.toggle} />}
           <PanelToggles right={changesAvailable ? 12 + CORNER_PITCH : 12} />
@@ -2784,6 +2821,7 @@ function App() {
                         findSignal={findSignal}
                         findSeed={findSeed}
                         onFindClose={() => setFindOpen(false)}
+                        saveNotice={dockSaveNotice}
                         notice={notice}
                         onDismissNotice={() => setNotice(null)}
                         approval={

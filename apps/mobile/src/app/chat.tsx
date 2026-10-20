@@ -91,6 +91,7 @@ import { PanelSwipe, useSidePanels } from "../side-panels";
 import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
+import { PersistenceNotice } from "../persistence-notice";
 import { ErrorNotice, GlassIconButton, HeaderButton, IconButton, PageScroll, PillButton, PullDown, useStyles } from "../ui";
 import { clearSentDraft } from "../draft-clear";
 import { PromptField } from "../prompt-field";
@@ -1460,6 +1461,14 @@ export default function ChatScreen() {
               onLayout={({ nativeEvent }) => setDockHeight(Math.round(nativeEvent.layout.height))}
               style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }}
             >
+              <PersistenceNotice
+                key={`${client.url}|${project.path}`}
+                client={client}
+                scope={project.path}
+                name={project.name}
+                failure={project.state.persistence}
+                offline={!!session.error}
+              />
               {(!question || answering) && (
                 // More pills than fit scroll sideways; the spacer still right-aligns them when they fit.
                 <ScrollView
