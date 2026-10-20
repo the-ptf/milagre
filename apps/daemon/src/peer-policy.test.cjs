@@ -7,15 +7,23 @@ test("paired Macs can't add command servers or start MCP sign-in", () => {
   for (const method of ["mcp:saveUrl", "mcp:toggle", "mcp:remove", "mcp:definition"]) assert.equal(peerPolicy.denies(method), false, method);
 });
 
-test("routines and sidebar visibility are this Mac's only: a paired Mac can't read or change them", () => {
+test("sidebar visibility is this Mac's only: a paired Mac can't change it", () => {
+  assert.equal(peerPolicy.denies("project:set-hidden"), true);
+});
+
+test("a paired Mac reads and manages this Mac's Routines", () => {
   for (const method of [
-    "project:set-hidden",
     "routines:enabled:read",
     "routines:enabled:save",
     "routines:list",
     "routines:update",
     "routines:delete",
     "routines:run-now",
+    "routines:create",
+    "routines:targets",
+    "routines:linear-options",
+    "routines:hook",
+    "routines:rotate-hook",
   ])
-    assert.equal(peerPolicy.denies(method), true, method);
+    assert.equal(peerPolicy.denies(method), false, method);
 });

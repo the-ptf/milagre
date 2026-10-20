@@ -39,7 +39,6 @@ const LOCAL_ONLY_PREFIXES = Object.freeze([
   "linked:",
   "notification:",
   "phone:",
-  "routines:",
   "settings:",
   "update:",
   "usage:",
@@ -88,6 +87,19 @@ const withPath = (id, item) => field(id, item, "path", key);
 const withRemotePath = (id, item) => withoutHidden(withPath(id, item));
 const withChat = (id, item) => field(id, item, "chatId", key);
 const withLink = (id, item) => withoutHidden(field(id, item, "id", linkId));
+// A Routine's and a Run's ids are 8 hex characters per Mac, so they name their computer like a chat key does.
+const withRun = (id, run) => field(id, field(id, run, "routineId", key), "chatId", key);
+/** @param {string} id @param {any} routine */
+const withRoutine = (id, routine) =>
+  isObject(routine)
+    ? {
+        ...routine,
+        id: key(id, routine.id),
+        target: field(id, field(id, routine.target, "chatId", key), "projectPath", key),
+        ...(routine.createdBy ? { createdBy: field(id, routine.createdBy, "chatId", key) } : {}),
+        ...(Array.isArray(routine.runs) ? { runs: each(id, routine.runs, withRun) } : {}),
+      }
+    : routine;
 
 /** @type {Record<string, (id: string, payload: any) => any>} */
 const EVENTS = {
@@ -141,6 +153,14 @@ const RESULTS = {
   "worktree:unlink-issue": (id, result) => field(id, result, "project", withPath),
   "terminal:list": (id, result) => field(id, result, "terminals", (id, list) => each(id, list, withChat)),
   "terminal:open": withChat,
+  "routines:list": (id, result) => field(id, result, "routines", (id, list) => each(id, list, withRoutine)),
+  "routines:create": (id, result) => field(id, result, "routine", withRoutine),
+  "routines:update": withRoutine,
+  "routines:run-now": withRun,
+  "routines:targets": (id, result) =>
+    field(id, result, "projects", (id, list) =>
+      each(id, list, (id, project) => field(id, withPath(id, project), "chats", (id, chats) => each(id, chats, withChat))),
+    ),
   "accounts:scopes": (id, result) =>
     each(id, result, (id, scope) => field(id, field(id, scope, "key", key), "projects", (id, list) => each(id, list, withPath))),
 };
