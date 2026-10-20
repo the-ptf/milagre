@@ -75,7 +75,9 @@ const { attentionContext, attentionNotice } = require("@milagre/shared/attention
 const { resolveProjectImage } = require("./project-image.cjs");
 const { createProjectFinder } = require("./project-finder.cjs");
 const { saveProjectState, readProjectState, compactProjectState, stateFile } = require("./project-store.cjs");
-const { createRecentProjects, launchProject, rememberProject, switchTarget } = require("./recent-projects.cjs");
+const { createRecentProjects, launchProject, plainFolder, rememberProject, switchTarget } = require("./recent-projects.cjs");
+const { agentFolders } = require("./agent-folders.cjs");
+const { createOnboardingProjects } = require("./onboarding-projects.cjs");
 const { activeWorktrees, resolveProject } = require("./project-identity.cjs");
 const { createProjectRegistry } = require("./project-registry.cjs");
 const { createLinkedWorktrees } = require("./linked-worktrees.cjs");
@@ -458,6 +460,8 @@ function createRuntime(options) {
   // Reading a project matches its worktrees with the ones git lists now. A project read before keeps the
   // state this run has built, so a chat's turn that's still running isn't lost.
   // A subagent saved as running without a live agent session behind it (after a restart) is marked disconnected.
+  // Whether each Project read this run is a Git repository, for snapshots that don't read it again.
+  const projectsWithGit = new Map();
   async function readProject(projectPath) {
     await ownProject(projectPath);
     const discovered = await discoverWorktrees(projectPath);
@@ -466,9 +470,15 @@ function createRuntime(options) {
       return Boolean(entry && !entry.session.closed);
     };
     // Reads no Chat's messages: a Chat that leaves with its Worktree takes its saved rows with it (see project-store.cjs).
+    // A folder outside Git has one Worktree, itself. A Project that had other Worktrees and lost its .git keeps them
+    // on disk instead of reconciling them away.
+    const git = !discovered.some((worktree) => worktree.plain);
+    projectsWithGit.set(projectPath, git);
     let state = await updateProject(
       projectPath,
       async (current) => {
+        if (!git && Object.values(current?.worktrees ?? {}).some((worktree) => worktree.path !== projectPath))
+          throw new Error(`${projectName(projectPath)} is no longer a Git repository, so its Worktree Chats can't open. Restore its .git folder.`);
         const next = reconcileState(current, projectName(projectPath), discovered, await linkStore.ownedWorktrees());
         return migrateImages(projectPath, markDisconnectedSubagents(next, new Set(Object.keys(next.sessions).map(Number).filter(live))));
       },
@@ -482,7 +492,7 @@ function createRuntime(options) {
     void track(() => routines.sweepRunChats(projectPath, state), background);
     void chats.recoverHandoffs(projectPath, state).catch((error) => console.warn("Milagre couldn't recover a handoff:", error.message));
     void diffs.refresh(projectPath).catch(() => {});
-    return { path: projectPath, name: projectName(projectPath), state };
+    return { path: projectPath, name: projectName(projectPath), git, state };
   }
 
   commands.handle("attachment:preview", async (_event, file) => {
@@ -1889,7 +1899,20 @@ function createRuntime(options) {
     return restored ? { ...project, restoredChats: restored } : project;
   }
 
-  commands.handle("project:current", async () => openProject(await launchProject(recentProjects(), cwd)));
+  // editor:open and project:reveal accept a Project folder outside Git only when it is a registered or recent Project,
+  // so the renderer still can't point them at "/" or any other folder.
+  commands.handle("project:plain-root", async (_event, root) => {
+    const known =
+      (await projectRegistry().snapshot()).projects.some((entry) => entry.path === root) ||
+      (await recentProjects().list()).some((entry) => entry.path === root);
+    if (!known || !(await plainFolder(root))) throw new Error("That folder isn't a project");
+    return [root];
+  });
+
+  commands.handle("project:current", async () => {
+    const target = await launchProject(recentProjects(), cwd);
+    return target ? openProject(target) : null;
+  });
 
   // Chats a quit stopped continue on launch in every recent project, not only the one on screen.
   async function resumeRecentProjects() {
@@ -2032,6 +2055,13 @@ function createRuntime(options) {
     return list.map((project) => (hidden.has(project.path) ? { ...project, hidden: true } : project));
   }
   commands.handle("project:recent", async () => withHidden(await recentProjects().list()));
+  // Onboarding offers the folders Claude Code and Codex worked in on this Mac.
+  commands.handle("onboarding:agent-folders", () => (options.agentFolders ?? agentFolders)());
+  // A first Project made from onboarding opens at once: a new folder, a clone, or Git set up in a folder without it.
+  const onboardingProjects = options.onboardingProjects ?? createOnboardingProjects();
+  commands.handle("onboarding:create", async (_event, name) => openProject((await onboardingProjects.create(name)).path));
+  commands.handle("onboarding:clone", async (_event, url) => openProject((await onboardingProjects.clone(url)).path));
+  commands.handle("onboarding:init-git", async (_event, folder) => openProject((await onboardingProjects.initGit(folder)).path));
   commands.handle("project:set-hidden", async (_event, projectPath, hidden) => {
     await knownFolder(projectPath);
     await projectSettings().setHidden(projectPath, hidden === true);
@@ -2044,7 +2074,7 @@ function createRuntime(options) {
   });
   commands.handle("project:snapshot", async (_event, projectPath) => {
     if (!states.has(projectPath)) throw new Error("Open the project before reading its snapshot.");
-    return { path: projectPath, name: projectName(projectPath), state: await states.get(projectPath) };
+    return { path: projectPath, name: projectName(projectPath), git: projectsWithGit.get(projectPath) ?? true, state: await states.get(projectPath) };
   });
   // One saved message with the tool output its steps keep in a sidecar (see compactDetails), for a step opened on the
   // desktop or the phone. A Project, open already, or a Link (read like link:snapshot does), by scope key.

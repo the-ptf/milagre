@@ -387,7 +387,7 @@ export type MilagreBridge = {
   listEditors: () => Promise<EditorInfo[]>;
   /** Opens a file (or, with no path, the folder) in an editor. `path` is relative to `root`. Returns a Result with a failure code and message. */
   openInEditor: (request: { root: string; path?: string; line?: number; editor?: string }) => Promise<Result<null>>;
-  getCurrentProject: () => Promise<OpenProject>;
+  getCurrentProject: () => Promise<OpenProject | null>;
   openProject: () => Promise<OpenProject | null>;
   /** Opens a folder of this computer as a Project, without the dialog. */
   openProjectAt: (folder: string) => Promise<OpenProject>;
@@ -395,6 +395,14 @@ export type MilagreBridge = {
   readMedia: (request: { scope: string; path: string }) => Promise<MediaBytes>;
   /** Projects opened lately, most recent first; folders that are gone are left out. */
   listRecentProjects: () => Promise<RecentProject[]>;
+  /** Onboarding: folders Claude Code and Codex sessions on this Mac worked in, newest first. */
+  listAgentFolders: () => Promise<import("@milagre/shared/model").AgentFolder[]>;
+  /** Onboarding: a new folder in ~/Code with Git, opened as a Project. */
+  createProject: (name: string) => Promise<OpenProject>;
+  /** Onboarding: clones a repository into ~/Code and opens it. */
+  cloneProject: (url: string) => Promise<OpenProject>;
+  /** Sets up Git in a Project folder that has none (git init, first commit when Git knows who you are), then opens it. */
+  setUpGit: (folder: string) => Promise<OpenProject>;
   /** Keeps a recent project out of the all-Projects sidebar and the phone's list, or shows it again; resolves to the list. */
   setProjectHidden: (projectPath: string, hidden: boolean) => Promise<RecentProject[]>;
   /** Loads a recent project's chats without opening it; later changes arrive through onProjectState. */

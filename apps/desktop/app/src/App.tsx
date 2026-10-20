@@ -133,6 +133,7 @@ import { delegatedChats, useLinkedWork } from "./lib/linked-work";
 import { DraftChatComposer } from "./components/DraftChatComposer";
 import { queueControls } from "./components/QueuedMessages";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
+import { Onboarding, firstChatStarters } from "./components/Onboarding";
 import { busyTerminals, newTerminal, useTerminalSync } from "./lib/terminal-actions";
 import { playNotificationChime } from "./lib/notification-chime";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
@@ -362,7 +363,10 @@ function App() {
       cancelled = true;
     };
   }, [commandPaletteOpen]);
-  const [isolation, setIsolation] = useState<Isolation>(() => loadChatPreferences(localStorage, "").isolation);
+  const [pickedIsolation, setIsolation] = useState<Isolation>(() => loadChatPreferences(localStorage, "").isolation);
+  // A Project outside Git has one Worktree, the folder itself: its Chats always work there.
+  const noGit = project?.git === false;
+  const isolation: Isolation = noGit ? "local" : pickedIsolation;
   const [branches, setBranches] = useState<string[]>([]);
   const [baseBranch, setBaseBranch] = useState<string | null>(null);
   const [newChatError, setNewChatError] = useState<string | null>(null);
@@ -430,6 +434,9 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [hostConnection, setHostConnection] = useState<RuntimeConnection>({ connected: true });
   const [restartingHost, setRestartingHost] = useState(false);
+  const [onboarding, setOnboarding] = useState(false);
+  // The Project onboarding opened: its first, empty Chat offers starter tasks.
+  const [firstChat, setFirstChat] = useState<string | null>(null);
   const [startupError, setStartupError] = useState<string | null>(null);
   const update = useAppUpdates();
   const [gitDialog, setGitDialog] = useState<{
@@ -457,7 +464,9 @@ function App() {
     setStartupError(null);
     try {
       // oxlint-disable-next-line react/immutability -- React Compiler heuristic: the ref or handler is assigned or called after render, not during it
-      adoptProject(await window.milagre.getCurrentProject());
+      const initial = await window.milagre.getCurrentProject();
+      if (initial) adoptProject(initial);
+      else setOnboarding(true);
     } catch (error) {
       setStartupError(ipcErrorMessage(error));
     } finally {
@@ -1297,6 +1306,7 @@ function App() {
         { kind: "project", projectPath: projectRef.current.path },
         { text: draftStore.get(), sessionId: forgetChat ? null : selectedSessionRef.current },
       );
+    setOnboarding(false);
     setSelectedLink(null);
     projectsSeen.current.set(nextProject.path, { path: nextProject.path, name: nextProject.name });
     advanceChatView();
@@ -2022,6 +2032,17 @@ function App() {
       />
     );
 
+  if (!loading && !project && onboarding)
+    return (
+      <Onboarding
+        splash={splashOverlay(splash === "done")}
+        onOpened={(opened) => {
+          setFirstChat(opened.path);
+          adoptProject(opened);
+        }}
+      />
+    );
+
   if (startupError) {
     return (
       <main data-startup-error className="flex min-h-screen items-center justify-center p-8 text-ink">
@@ -2645,7 +2666,7 @@ function App() {
                         }
                         onSendDesignMessage={(text) => executeSend(text, permissionMode, [], [], true)}
                         linearActive={linear.active}
-                        onStartFromIssue={startFromIssue}
+                        onStartFromIssue={noGit ? undefined : startFromIssue}
                         onStop={run && selectedSession ? () => void agentRuns.interrupt(chatKey(project.path, selectedSession.id)) : undefined}
                         pullRequestAction={
                           selectedSession && pullRequestBlockerAction && pullRequestActionRequest
@@ -2732,6 +2753,18 @@ function App() {
                           saveChatPreferences(localStorage, project.path, { worktreePath: state.worktrees[id]?.path });
                         }}
                         isolation={isolation}
+                        noGit={noGit}
+                        starters={
+                          firstChat === project.path && displayedMessages.length === 0 && !isSending
+                            ? firstChatStarters(project.name).map((starter) => ({
+                                ...starter,
+                                onPick: () => {
+                                  setFirstChat(null);
+                                  void executeSend(starter.prompt, permissionMode, [], []);
+                                },
+                              }))
+                            : undefined
+                        }
                         onIsolationChange={(next) => {
                           preparedTarget.current = null;
                           setIsolation(next);

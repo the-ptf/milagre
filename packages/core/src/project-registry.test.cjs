@@ -119,14 +119,14 @@ test("Links and Worktree positions survive restart and removed Worktrees lose th
   assert.equal((await reopened.snapshot()).worktreePositions[a.id][first.linked], undefined);
 });
 
-test("resolveProject names a folder that is not a Git repository instead of showing Git's error", async () => {
+test("resolveProject opens a folder outside Git as its own Project, but never a disk's root", async () => {
   const folder = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-not-git-"));
   try {
     const real = await fs.realpath(folder);
-    await assert.rejects(
-      resolveProject(real),
-      new Error(`${path.basename(real)} isn't a Git repository. Choose a folder that contains a Git project, or run git init there first.`),
-    );
+    assert.deepEqual(await resolveProject(real), { id: real, path: real, name: path.basename(real), git: false });
+    await assert.rejects(resolveProject(path.parse(real).root), /not the whole disk/);
+    await fs.writeFile(path.join(real, "file.txt"), "");
+    await assert.rejects(resolveProject(path.join(real, "file.txt")), /isn't a folder/);
   } finally {
     await fs.rm(folder, { recursive: true, force: true });
   }

@@ -915,9 +915,21 @@ export interface RestoredChats {
 export interface OpenProject {
   path: string;
   name: string;
+  /** False for a folder outside Git: its one Worktree is the folder itself, and its Chats work there. */
+  git?: boolean;
   state: CoordinatorState;
   /** Only on the first open after chats came back from linked worktrees' old files. */
   restoredChats?: RestoredChats[];
+}
+
+/** A folder an agent session on this computer worked in, for onboarding. */
+export interface AgentFolder {
+  path: string;
+  name: string;
+  provider: ModelProvider;
+  /** ISO time of the newest session there. */
+  lastUsed: string;
+  git: boolean;
 }
 
 /** worktree:link-issue's answer: `renamed` when the branch took the issue's name, `stored` when only the key was kept. */
