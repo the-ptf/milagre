@@ -42,7 +42,6 @@ const LOCAL_ONLY_PREFIXES = [
   "linked:",
   "notification:",
   "phone:",
-  "routines:",
   "settings:",
   "update:",
   "usage:",

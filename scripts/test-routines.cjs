@@ -85,8 +85,26 @@ window.milagre = {
     return { url: 'https://relay.milagre.cloud/hook/NEWsecret' };
   },
   deleteRoutine: async (id) => { window.deleted = id; const index = routines.findIndex((r) => r.id === id); if (index >= 0) routines.splice(index, 1); return { removed: true }; },
-  runRoutineNow: async () => undefined,
+  runRoutineNow: async (id) => { window.localRan = id; },
 };
+// A paired computer, listed only once the check says so: its Routines come back already naming it, as main hands them over.
+const STUDIO = '6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7';
+window.studio = { id: STUDIO, name: 'studio', hostId: 'h', relayHost: 'relay.milagre.cloud', state: 'online', route: 'lan', lastSeen: now, addedAt: now, message: null, lan: true, lanRoutes: [] };
+window.milagre.computers = { list: async () => ({ thisMac: 'Here', computers: [] }) };
+const computerListeners = new Set();
+window.computersChanged = (snapshot) => { for (const listener of computerListeners) listener(snapshot); };
+window.milagre.onComputersChanged = (listener) => { computerListeners.add(listener); return () => computerListeners.delete(listener); };
+const studioRoutines = [{ ...base, id: STUDIO + '|ab12cd34', name: 'Nightly API smoke', prompt: 'Smoke', trigger: { kind: 'schedule', cron: '0 2 * * *', timezone: 'UTC' },
+  target: { kind: 'new-chat', projectPath: STUDIO + '|/code/api', workspace: 'worktree' } }];
+window.milagre.on = (id) => ({
+  readRoutinesEnabled: async () => ({ enabled: true }),
+  listRoutines: async () => ({ routines: [...studioRoutines] }),
+  onRoutinesChanged: () => () => {},
+  routineTargets: async () => ({ projects: [{ path: STUDIO + '|/code/api', name: 'api', chats: [] }] }),
+  runRoutineNow: async (routineId) => { window.remoteRan = [id, routineId]; },
+  updateRoutine: async (routineId, patch) => ({ ...studioRoutines[0], ...patch }),
+  deleteRoutine: async () => ({ removed: true }),
+});
 const models = [{ id: 'claude-opus-5-5', name: 'Opus 5.5', provider: 'claude', description: '' }];
 const beat = (id, name) => ({ id: 'step-' + id, kind: 'other', title: 'Set Heartbeat', status: 'done', routine: { id, name } });
 createRoot(document.getElementById('root')).render(<>
@@ -516,8 +534,38 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-routine-page="t2"]')`);
     assert.equal(await evaluate("window.updated[0]"), "t2");
     assert.deepEqual(JSON.parse(await evaluate("JSON.stringify(window.updated[1].trigger)")), { kind: "webhook", signed: true });
+
+    // A paired computer comes online: its Routines join the list, every row names its Mac, and Run now goes to the studio.
+    await click("[data-routine-back]");
+    await waitFor(`!!document.querySelector('[data-routines-page]')`);
+    await evaluate(`window.computersChanged({ thisMac: 'Here', computers: [window.studio] })`);
+    const remote = "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7|ab12cd34";
+    const row = (id) => `[data-routine-row=${JSON.stringify(id)}]`;
+    await waitFor(`!!document.querySelector(${JSON.stringify(row(remote))})`);
+    await waitFor(`document.querySelector(${JSON.stringify(row(remote) + " [data-routine-meta]")}).textContent.startsWith('studio · ')`);
+    const metas = JSON.parse(
+      await evaluate(
+        `JSON.stringify([...document.querySelectorAll('[data-routine-row]')].map((node) => [node.dataset.routineRow, node.querySelector('[data-routine-meta]')?.textContent ?? '']))`,
+      ),
+    );
+    for (const [id, meta] of metas) assert.ok(meta.startsWith(id === remote ? "studio · " : "Here · "), `${id}: ${meta}`);
+    await shot("routines-two-computers");
+    await click(`${row(remote)} [data-routine-more]`);
+    await waitFor(`!!document.querySelector('[data-routine-action="run"]')`);
+    await click('[data-routine-action="run"]');
+    await waitFor("!!window.remoteRan");
+    assert.deepEqual(JSON.parse(await evaluate("JSON.stringify(window.remoteRan)")), ["6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7", remote]);
+    assert.equal(await evaluate("window.localRan === undefined"), true, "this Mac ran nothing");
+    // The studio goes offline: its last copy stays listed, and the page says that's what it is.
+    await evaluate(`window.computersChanged({ thisMac: 'Here', computers: [{ ...window.studio, state: 'offline' }] })`);
+    const problem = `[data-routines-computer-problem="6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"]`;
+    await waitFor(`document.querySelector(${JSON.stringify(problem)})?.textContent.startsWith('studio is offline.')`);
+    assert.equal(await evaluate(`!!document.querySelector(${JSON.stringify(row(remote))})`), true, "the last copy stays listed");
+    // Other computers switched off: the studio's Routines leave the list.
+    await evaluate(`window.computersChanged({ thisMac: 'Here', computers: [{ ...window.studio, state: 'off' }] })`);
+    await waitFor(`!document.querySelector(${JSON.stringify(row(remote))})`);
     console.log(
-      "PASS: Routines page groups and counts Routines; Heartbeat cards and Next check show; a Routine's page shows its chips and Runs by day; Edit and New Routine work in place, {{ suggests placeholders, and Create lands on the new Routine.",
+      "PASS: Routines page groups and counts Routines; Heartbeat cards and Next check show; a Routine's page shows its chips and Runs by day; Edit and New Routine work in place, {{ suggests placeholders, and Create lands on the new Routine; a paired computer's Routines join the list, named by it, and its Run now goes to it; an offline one keeps its last copy with a notice.",
     );
     app.exit(0);
   } catch (error) {
@@ -542,7 +590,10 @@ async function main() {
             if (req.url !== "/__routines__") return next();
             res.setHeader("Content-Type", "text/html");
             res.end(
-              await server.transformIndexHtml(req.url, '<html><body><div id="root"></div><script type="module" src="/__routines.tsx"></script></body></html>'),
+              await server.transformIndexHtml(
+                req.url,
+                '<html><body><div id="root"></div><script>localStorage.setItem("milagre-settings", JSON.stringify({ otherComputers: true }))</script><script type="module" src="/__routines.tsx"></script></body></html>',
+              ),
             );
           });
         },

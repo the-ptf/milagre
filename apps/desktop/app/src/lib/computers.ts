@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import type { ComputersSnapshot, ComputerView } from "../electron.d.ts";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 import { useSettings } from "./settings.ts";
+import { computersSnapshot, subscribeComputers } from "./computers-store.ts";
 
 /**
  * Tells main whether to connect the saved computers: at launch, and each time Settings › Devices › Other computers
@@ -75,55 +76,28 @@ export function offlineBanner(view: ComputerView, now: number): string {
 /** Appended to the composer's placeholder while its computer is offline. */
 export const offlinePlaceholder = (name: string) => ` (${name} is offline)`;
 
-// The window's list of computers, kept current from main (computers:changed).
-let snapshot: ComputersSnapshot = { thisMac: "This Mac", computers: [] };
-let off: ComputersSnapshot = snapshot;
-const listeners = new Set<() => void>();
-let started = false;
-function store(next: ComputersSnapshot | null | undefined) {
-  if (!next || !Array.isArray(next.computers)) return;
-  snapshot = next;
-  off = { thisMac: next.thisMac, computers: [] };
-  for (const listener of listeners) listener();
-}
-function start() {
-  if (started || typeof window === "undefined" || !window.milagre?.computers?.list) return;
-  started = true;
-  let heard = false;
-  window.milagre.onComputersChanged?.((next) => {
-    heard = true;
-    store(next);
-  });
-  void loadFirst(window.milagre.computers.list(), () => heard);
-}
-async function loadFirst(request: Promise<ComputersSnapshot>, heard: () => boolean) {
-  try {
-    const next = await request;
-    if (!heard()) store(next);
-  } catch {
-    // main keeps pushing computers:changed; the list stays as it was
-  }
-}
-function subscribe(listener: () => void) {
-  start();
-  listeners.add(listener);
-  return () => void listeners.delete(listener);
+// What useComputers shows while Other computers is off: this Mac's name only, one object per snapshot.
+const offViews = new WeakMap<ComputersSnapshot, ComputersSnapshot>();
+function offView(current: ComputersSnapshot): ComputersSnapshot {
+  let view = offViews.get(current);
+  if (!view) offViews.set(current, (view = { thisMac: current.thisMac, computers: [] }));
+  return view;
 }
 
 /** This Mac's name and its computers; none while Settings › Devices › Other computers is off. */
 export function useComputers(): ComputersSnapshot {
   const { otherComputers } = useSettings();
-  const current = useSyncExternalStore(subscribe, () => snapshot);
-  return otherComputers ? current : current === snapshot ? off : { thisMac: current.thisMac, computers: [] };
+  const current = useSyncExternalStore(subscribeComputers, computersSnapshot);
+  return otherComputers ? current : offView(current);
 }
 
 /** A completion notice's subtitle: a remote chat's computer first, as main labels its waiting notices. */
 export function withComputer(key: string, subtitle: string): string {
   const id = computerOfKey(key);
   if (id === LOCAL_COMPUTER) return subtitle;
-  const name = snapshot.computers.find((computer) => computer.id === id)?.name ?? "Computer";
+  const name = computersSnapshot().computers.find((computer) => computer.id === id)?.name ?? "Computer";
   return subtitle ? `${name} · ${subtitle}` : name;
 }
 
 /** The name a computer is shown by, "Computer" when it is gone from the list. */
-export const computerNameOf = (computerId: string): string => snapshot.computers.find((computer) => computer.id === computerId)?.name ?? "Computer";
+export const computerNameOf = (computerId: string): string => computersSnapshot().computers.find((computer) => computer.id === computerId)?.name ?? "Computer";

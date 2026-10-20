@@ -25,6 +25,7 @@ import { Chip, PopoverChip, Segmented } from "./RoutineChips";
 import { timezones, useRoutineForm, type RoutineFormApi } from "./use-routine-form";
 import { routineIcon } from "./routine-icon";
 import { routineDeleteWarning, type RoutineWithRuns } from "../../lib/routines";
+import { bridgeForKey } from "../../lib/computer-bridge";
 
 const field = "w-full rounded-lg border bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-ink focus:ring-1 focus:ring-ink";
 const labelClass = "block text-[12.5px] font-medium text-ink-2";
@@ -460,10 +461,12 @@ export function RoutineEditor({
   const remove = () => {
     if (!initial) return;
     setDeleteError("");
-    window.milagre.deleteRoutine(initial.id).then(onDeleted, (failure) => {
-      setConfirming(false);
-      setDeleteError(ipcErrorMessage(failure));
-    });
+    bridgeForKey(initial.id)
+      .deleteRoutine(initial.id)
+      .then(onDeleted, (failure) => {
+        setConfirming(false);
+        setDeleteError(ipcErrorMessage(failure));
+      });
   };
   const modelIcon = <HugeiconsIcon icon={SparklesIcon} size={14} strokeWidth={1.8} color="currentColor" className="shrink-0" />;
   const modeIcon = <HugeiconsIcon icon={SecurityCheckIcon} size={14} strokeWidth={1.8} color="currentColor" className="shrink-0" />;

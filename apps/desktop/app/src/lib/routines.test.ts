@@ -3,6 +3,7 @@ import test from "node:test";
 import { clock } from "@milagre/shared/routines";
 import {
   chipStripInsets,
+  computerOfRoutine,
   groupRoutines,
   refreshRoutines,
   routineDeleteQuestion,
@@ -139,6 +140,105 @@ test("a refresh that reads the same Routines publishes nothing, and a change pub
       routinesSnapshot().routines.map((routine) => routine.id),
       ["h1"],
     );
+  } finally {
+    stop();
+    delete globals.window;
+  }
+});
+
+test("every paired computer's Routines join this Mac's, each refreshed by its own changes, and a computer switched off drops out", async () => {
+  const STUDIO = "5b1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
+  // An older Milagre refuses routines:* from a paired Mac: its error stays its own, and the others still show.
+  const OLD = "7c1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
+  const remoteId = `${STUDIO}|abcd1234`;
+  let remoteList: RoutineWithRuns[] = [{ ...heartbeat, id: remoteId, target: { kind: "chat", chatId: `${STUDIO}|/code/api#3` } }];
+  const reads: Record<string, number> = { local: 0, studio: 0 };
+  let remoteChanged: () => void = () => {};
+  let computersChanged: (snapshot: { thisMac: string; computers: Array<{ id: string; state: string }> }) => void = () => {};
+  const globals = globalThis as unknown as { window?: unknown };
+  globals.window = {
+    milagre: {
+      readRoutinesEnabled: async () => ({ enabled: true }),
+      listRoutines: async () => {
+        reads.local += 1;
+        return { routines: [heartbeat] };
+      },
+      onRoutinesChanged: () => () => {},
+      computers: {
+        list: async () => ({
+          thisMac: "here",
+          computers: [
+            { id: STUDIO, state: "online" },
+            { id: OLD, state: "online" },
+          ],
+        }),
+      },
+      onComputersChanged: (callback: typeof computersChanged) => {
+        computersChanged = callback;
+        return () => {};
+      },
+      on: (id: string) => {
+        if (id === OLD)
+          return {
+            readRoutinesEnabled: async () => {
+              throw new Error("Not available on a remote computer");
+            },
+            onRoutinesChanged: () => () => {},
+          };
+        assert.equal(id, STUDIO);
+        return {
+          readRoutinesEnabled: async () => ({ enabled: true }),
+          listRoutines: async () => {
+            reads.studio += 1;
+            return { routines: structuredClone(remoteList) };
+          },
+          onRoutinesChanged: (callback: () => void) => {
+            remoteChanged = callback;
+            return () => {};
+          },
+        };
+      },
+    },
+  };
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+  const stop = subscribeRoutines(() => {});
+  try {
+    await settle();
+    assert.deepEqual(
+      routinesSnapshot().routines.map((routine) => routine.id),
+      ["h1", remoteId],
+    );
+    assert.deepEqual(Object.keys(routinesSnapshot().byComputer), ["local", STUDIO, OLD]);
+    assert.equal(routinesSnapshot().error, null);
+    assert.match(routinesSnapshot().byComputer[OLD]?.error ?? "", /Not available on a remote computer/);
+    assert.equal(computerOfRoutine(routinesSnapshot().routines[1]), STUDIO);
+    // The studio's own change reads the studio again, not this Mac.
+    remoteList = [];
+    const before = { ...reads };
+    remoteChanged();
+    await settle();
+    assert.deepEqual(reads, { local: before.local, studio: before.studio + 1 });
+    assert.deepEqual(
+      routinesSnapshot().routines.map((routine) => routine.id),
+      ["h1"],
+    );
+    // Other computers switched off: the studio's Routines go with it.
+    remoteList = [{ ...heartbeat, id: remoteId }];
+    remoteChanged();
+    await settle();
+    assert.equal(routinesSnapshot().routines.length, 2);
+    computersChanged({
+      thisMac: "here",
+      computers: [
+        { id: STUDIO, state: "off" },
+        { id: OLD, state: "off" },
+      ],
+    });
+    assert.deepEqual(
+      routinesSnapshot().routines.map((routine) => routine.id),
+      ["h1"],
+    );
+    assert.deepEqual(Object.keys(routinesSnapshot().byComputer), ["local"]);
   } finally {
     stop();
     delete globals.window;

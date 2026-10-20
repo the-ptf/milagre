@@ -231,3 +231,22 @@ test("a new computer waits for Allow, which only this Mac's window hears; Deny s
   await assert.rejects(mac.client.call("devices:allow", [lateKey]), /no longer waiting/);
   assert.equal((await mac.client.call("devices:list")).length, 1);
 });
+
+test("a paired desktop reads and manages this Mac's Routines, and hears them change", async (t) => {
+  const mac = await startTestMac(t);
+  const desktop = mac.dial(connectDesktop);
+  assert.ok((await desktop.hello()).channel);
+  const status = (await desktop.call("daemon:status")).result;
+  for (const method of ["routines:list", "routines:create", "routines:update", "routines:delete", "routines:hook"])
+    assert.ok(status.methods.includes(method), method);
+  assert.equal((await desktop.call("routines:list")).error, undefined);
+  // A switch flipped in this Mac's window reaches the desktop as routines:changed, and the desktop can flip it back.
+  await mac.client.call("routines:enabled:save", [true]);
+  await within(
+    desktop.event("routines:changed", (payload) => payload?.enabled === true),
+    "routines:changed",
+  );
+  assert.equal((await desktop.call("routines:enabled:save", [false])).error, undefined);
+  assert.deepEqual(await mac.client.call("routines:enabled:read"), { enabled: false });
+  assert.equal(desktop.error, null);
+});

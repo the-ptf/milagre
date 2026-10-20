@@ -7,16 +7,32 @@ import { ScrollArea } from "../primitives/ScrollArea";
 import { RoutineRow } from "./RoutineRow";
 import { RoutineEditor } from "./RoutineEditor";
 import { RoutinePage } from "./RoutinePage";
-import { groupRoutines, routineMeta, routineStatus, useRoutines, type RoutineWithRuns } from "../../lib/routines";
+import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
+import { computerOfRoutine, groupRoutines, routineMeta, routineStatus, useRoutines, type RoutineWithRuns } from "../../lib/routines";
+import { bridgeFor, bridgeForKey } from "../../lib/computer-bridge";
+import { isDimmed, useComputers } from "../../lib/computers";
+import type { ComputerView } from "../../electron.d.ts";
 
 type Filter = "all" | "heartbeats" | "triggers" | "paused";
-const HELP = "Routines run while this Mac is awake. Closing the lid on battery pauses them.";
+const HELP = "Routines run while the Mac they are on is awake. Closing the lid on battery pauses them.";
+const NOT_REMOTE = "Not available on a remote computer";
+
+/**
+ * Why another computer's Routines aren't listed or current, or null when they are. An older Milagre there refuses them
+ * outright; an offline one is shown from the last copy it sent, which can't be changed until it is back.
+ */
+function computerRoutinesProblem(view: ComputerView, error: string | null): string | null {
+  if (error?.includes(NOT_REMOTE)) return `Update Milagre on ${view.name} to see its Routines.`;
+  if (isDimmed(view)) return `${view.name} is offline. Its Routines are the last copy it sent; you can change them once it's back.`;
+  if (error) return `Couldn't read ${view.name}'s Routines: ${error}`;
+  return null;
+}
 const card = "divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface";
 
 const NO_CHATS: ReadonlySet<string> = new Set();
 
 /**
- * The Routines page: this Mac's heartbeats and triggers, each with its switch and actions, and New Routine. With
+ * The Routines page: the heartbeats and triggers of this Mac and every paired computer, each with its switch and actions, and New Routine. With
  * `routineId` it shows that Routine's own page, with its Runs, instead.
  */
 export function RoutinesPage({
@@ -55,7 +71,16 @@ export function RoutinesPage({
   onCloseRunChat?: () => void;
   onOpenExperimental: () => void;
 }) {
-  const { enabled, routines, error: loadError, refresh } = useRoutines();
+  const { enabled, routines, error: loadError, byComputer, refresh } = useRoutines();
+  const { thisMac, computers } = useComputers();
+  // With other computers, each row says which Mac it runs on, as Chat rows do.
+  const computerName = (id: string) => (id === LOCAL_COMPUTER ? thisMac : (computers.find((computer) => computer.id === id)?.name ?? "Computer"));
+  const remoteProblems = computers.flatMap((computer) => {
+    const problem = computerRoutinesProblem(computer, byComputer[computer.id]?.error ?? null);
+    return problem ? [{ id: computer.id, problem }] : [];
+  });
+  const onComputers = Object.keys(byComputer).filter((id) => byComputer[id]?.enabled === true);
+  const onKey = onComputers.join(",");
   const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState<string | null>(null);
   // The Routine whose page shows its form in place (its id), "new" for New Routine in place of the list, or null.
@@ -74,23 +99,23 @@ export function RoutinesPage({
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
-  // A heartbeat's row names its Chat; the Mac's Routine targets carry each Project's Chat titles.
+  // A heartbeat's row names its Chat; each computer's Routine targets carry its Projects' Chat titles.
   useEffect(() => {
     if (!enabled) return;
     let live = true;
-    Promise.resolve()
-      .then(() => window.milagre.routineTargets())
+    Promise.all(onComputers.map((id) => Promise.resolve().then(() => bridgeFor(id).routineTargets())))
+      .then((read) => read.flatMap((targets) => targets.projects))
       .then(
-        (targets) => {
+        (projects) => {
           if (!live) return;
-          setChatTitles(new Map(targets.projects.flatMap((project) => project.chats.map((chat) => [chat.chatId, chat.title] as const))));
+          setChatTitles(new Map(projects.flatMap((project) => project.chats.map((chat) => [chat.chatId, chat.title] as const))));
         },
         (failure) => live && setError(`Couldn't read Chat names: ${ipcErrorMessage(failure)}`),
       );
     return () => {
       live = false;
     };
-  }, [enabled, routines.length]);
+  }, [enabled, routines.length, onKey]);
 
   const selected = routineId ? routines.find((routine) => routine.id === routineId) : undefined;
   // A Routine deleted (here, from its page, or anywhere else) takes its page with it: back to the list.
@@ -134,29 +159,35 @@ export function RoutinesPage({
   const empty = enabled && routines.length === 0 && !error && !loadError;
   const modelName = (_provider: unknown, id: string) => models.find((model) => model.id === id)?.name ?? id;
 
-  const act = (work: () => Promise<unknown>) => {
+  const act = (routine: RoutineWithRuns, work: () => Promise<unknown>) => {
     setError(null);
-    work().then(refresh, (failure) => {
+    const again = () => refresh(computerOfRoutine(routine));
+    work().then(again, (failure) => {
       setError(ipcErrorMessage(failure));
-      refresh();
+      again();
     });
   };
   const row = (routine: RoutineWithRuns) => (
     <RoutineRow
       key={routine.id}
       routine={routine}
-      meta={routineMeta(routine, { chatTitle: (id) => chatTitles.get(id), modelName, now })}
+      meta={[
+        computers.length > 0 ? computerName(computerOfRoutine(routine)) : null,
+        routineMeta(routine, { chatTitle: (id) => chatTitles.get(id), modelName, now }),
+      ]
+        .filter(Boolean)
+        .join(" · ")}
       status={routineStatus(routine, now)}
       unread={unreadRoutines?.has(routine.id) ?? false}
       onOpen={() => onOpenRoutine?.(routine.id)}
-      onToggle={(on) => act(() => window.milagre.updateRoutine(routine.id, { enabled: on }))}
+      onToggle={(on) => act(routine, () => bridgeForKey(routine.id).updateRoutine(routine.id, { enabled: on }))}
       onEdit={() => {
         setEditing(routine.id);
         onOpenRoutine?.(routine.id);
       }}
-      onRunNow={() => act(() => window.milagre.runRoutineNow(routine.id))}
+      onRunNow={() => act(routine, () => bridgeForKey(routine.id).runRoutineNow(routine.id))}
       onOpenChat={onOpenChat}
-      onDelete={() => act(() => window.milagre.deleteRoutine(routine.id))}
+      onDelete={() => act(routine, () => bridgeForKey(routine.id).deleteRoutine(routine.id))}
     />
   );
   const chips: Array<{ id: Filter; label: string; count: number }> = [
@@ -254,6 +285,11 @@ export function RoutinesPage({
             {error ?? loadError}
           </p>
         )}
+        {remoteProblems.map(({ id, problem }) => (
+          <p key={id} data-routines-computer-problem={id} className="mt-2 text-[13px] break-words text-ink-2">
+            {problem}
+          </p>
+        ))}
         {enabled === false ? (
           <div data-routines-off className="mt-8 flex flex-col items-center rounded-xl border border-line bg-surface px-6 py-10 text-center">
             <span className="flex size-10 items-center justify-center rounded-xl bg-field text-ink-2">

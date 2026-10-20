@@ -4,7 +4,8 @@ import { Pulse01Icon } from "@hugeicons/core-free-icons";
 import { triggerText } from "@milagre/shared/routines";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import type { HeartbeatStep } from "../../lib/reply-parts";
-import { isRemoteKey } from "../../lib/computer-bridge";
+import { qualifyKey, computerOfKey } from "@milagre/shared/chat-scopes";
+import { bridgeFor } from "../../lib/computer-bridge";
 import { refreshRoutines, routineEnd, useRoutines } from "../../lib/routines";
 import { useReplyChatId } from "../agents/ArtifactCard";
 
@@ -12,12 +13,14 @@ const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(
 
 /**
  * "Heartbeat set: <name>", its cadence and end, and Stop (which deletes the Routine), for a heartbeat_create step in a
- * reply. A Routine that no longer exists says Stopped. Routines are this Mac's own: on another computer's Chat the card
- * only names the Heartbeat.
+ * reply. A Routine that no longer exists says Stopped. The step names the Routine as its own Mac knows it, so on another
+ * computer's Chat its id is read as that computer's.
  */
 export function HeartbeatCard({ step }: { step: HeartbeatStep }) {
-  const { enabled, routines, error: loadError } = useRoutines();
-  const remote = isRemoteKey(useReplyChatId());
+  const { byComputer, routines } = useRoutines();
+  const computer = computerOfKey(useReplyChatId() ?? "");
+  const { enabled, error: loadError } = byComputer[computer] ?? { enabled: null, error: null };
+  const routineId = qualifyKey(computer, step.routine.id);
   const [stopping, setStopping] = useState(false);
   // "ends in 3 days" moves with the clock: read again every minute (and on every Routine update, which re-renders).
   const [now, setNow] = useState(() => Date.now());
@@ -26,16 +29,19 @@ export function HeartbeatCard({ step }: { step: HeartbeatStep }) {
     return () => clearInterval(timer);
   }, []);
   const [error, setError] = useState<string | null>(null);
-  const routine = routines.find((entry) => entry.id === step.routine.id);
+  const routine = routines.find((entry) => entry.id === routineId);
   const name = routine?.name ?? step.routine.name;
   const failedRead = enabled === null && loadError ? "Couldn't load Routines" : null;
   const meta = routine ? [capitalized(triggerText(routine.trigger)), routineEnd(routine, now)].filter(Boolean).join(" · ") : null;
   const stop = () => {
     setStopping(true);
     setError(null);
-    window.milagre
-      .deleteRoutine(step.routine.id)
-      .then(refreshRoutines, (failure: unknown) => setError(ipcErrorMessage(failure)))
+    bridgeFor(computer)
+      .deleteRoutine(routineId)
+      .then(
+        () => refreshRoutines(computer),
+        (failure: unknown) => setError(ipcErrorMessage(failure)),
+      )
       .finally(() => setStopping(false));
   };
   return (
@@ -47,7 +53,7 @@ export function HeartbeatCard({ step }: { step: HeartbeatStep }) {
           <span className={`truncate text-[12px] ${error || failedRead ? "text-red" : "text-ink-2"}`}>{error ?? failedRead ?? meta}</span>
         )}
       </span>
-      {remote || enabled === null ? null : routine ? (
+      {enabled === null ? null : routine ? (
         <button
           type="button"
           data-heartbeat-stop

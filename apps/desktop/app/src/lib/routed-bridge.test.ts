@@ -137,20 +137,14 @@ const ALLOWED: Record<string, string[]> = {
   "components/motion/MediaLightbox.tsx": ["showImageMenu"],
   "lib/state-events.ts": ["onProjectState", "onLinkState", "onAgentEvent", "onComputerEvent"],
   "lib/computer-bridge.ts": ["on", "onAgentEvent", "onComputerEvent"],
-  "lib/computers.ts": ["computers", "onComputersChanged"],
+  "lib/computers.ts": ["computers"],
+  "lib/computers-store.ts": ["computers", "onComputersChanged"],
   "lib/ports.ts": ["onAgentPorts", "onRuntimeSnapshot", "getAgentPorts", "onComputerEvent"],
   "lib/settings.ts": ["setWindowBackground"],
   "lib/editors.ts": ["listEditors", "openInEditor"],
   "lib/linked-work.ts": ["getLinkedWork", "onLinkedWork"],
   "lib/terminal-sessions.ts": ["setTerminalFocused"],
   "lib/terminal-actions.ts": ["onTerminalsChanged", "onComputerEvent"],
-  // Routines are this Mac's only (peers are refused routines:*), so they always ask this Mac's own bridge.
-  "lib/routines.ts": ["readRoutinesEnabled", "listRoutines", "onRoutinesChanged"],
-  "components/routines/RoutinesPage.tsx": ["routineTargets", "updateRoutine", "runRoutineNow", "deleteRoutine"],
-  "components/routines/RoutinePage.tsx": ["updateRoutine", "runRoutineNow"],
-  "components/routines/RoutineEditor.tsx": ["deleteRoutine"],
-  "components/routines/use-routine-form.tsx": ["routineTargets", "routineLinearOptions", "createRoutine", "updateRoutine", "routineHook", "rotateRoutineHook"],
-  "components/routines/HeartbeatCard.tsx": ["deleteRoutine"],
 };
 
 function sources(folder: string): string[] {

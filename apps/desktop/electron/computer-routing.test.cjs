@@ -128,6 +128,10 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "fs:list-dirs",
     "media:read",
     "accounts:scope",
+    "routines:list",
+    "routines:enabled:save",
+    "routines:create",
+    "routines:hook",
   ])
     assert.equal(isLocalOnly(channel), false, channel);
   assert.equal(ALIASES["project:open-at"], "project:open");
@@ -144,4 +148,46 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
 test("command servers and MCP sign-in stay on this Mac", () => {
   for (const name of ["mcp:save", "mcp:signIn", "mcp:cancelSignIn"]) assert.equal(isLocalOnly(name), true, name);
   for (const name of ["mcp:saveUrl", "mcp:toggle", "mcp:remove", "mcp:definition"]) assert.equal(isLocalOnly(name), false, name);
+});
+
+test("another computer's Routines, Runs and targets come back naming it, and its ids go back bare", () => {
+  const routine = {
+    id: "abcd1234",
+    name: "Check CI",
+    target: { kind: "chat", chatId: "/p#3" },
+    createdBy: { kind: "agent", chatId: "/p#2" },
+    runs: [{ id: "run00001", routineId: "abcd1234", chatId: "/p#7", worktreeId: "5", status: "acted" }],
+  };
+  const named = qualifyResult(ID, "routines:list", {
+    routines: [
+      routine,
+      { ...routine, id: "ffff0000", target: { kind: "new-chat", projectPath: "/p", workspace: "worktree" }, createdBy: { kind: "user" }, runs: [] },
+    ],
+  });
+  assert.deepEqual(named.routines[0], {
+    id: `${ID}|abcd1234`,
+    name: "Check CI",
+    target: { kind: "chat", chatId: `${ID}|/p#3` },
+    createdBy: { kind: "agent", chatId: `${ID}|/p#2` },
+    runs: [{ id: "run00001", routineId: `${ID}|abcd1234`, chatId: `${ID}|/p#7`, worktreeId: "5", status: "acted" }],
+  });
+  assert.deepEqual(named.routines[1].target, { kind: "new-chat", projectPath: `${ID}|/p`, workspace: "worktree" });
+  assert.deepEqual(named.routines[1].createdBy, { kind: "user" });
+  assert.equal(qualifyResult(ID, "routines:create", { routine, hookUrl: "https://h" }).routine.id, `${ID}|abcd1234`);
+  assert.equal(qualifyResult(ID, "routines:create", { routine, hookUrl: "https://h" }).hookUrl, "https://h");
+  assert.equal(qualifyResult(ID, "routines:update", routine).target.chatId, `${ID}|/p#3`);
+  assert.deepEqual(qualifyResult(ID, "routines:run-now", { id: "r", routineId: "abcd1234", chatId: "/p#9" }), {
+    id: "r",
+    routineId: `${ID}|abcd1234`,
+    chatId: `${ID}|/p#9`,
+  });
+  assert.equal(qualifyResult(ID, "routines:run-now", undefined), undefined);
+  assert.deepEqual(qualifyResult(ID, "routines:targets", { projects: [{ path: "/p", name: "p", chats: [{ chatId: "/p#3", title: "t", lastAt: 1 }] }] }), {
+    projects: [{ path: `${ID}|/p`, name: "p", chats: [{ chatId: `${ID}|/p#3`, title: "t", lastAt: 1 }] }],
+  });
+  // The window's calls carry those ids back; the computer gets its own.
+  assert.deepEqual(stripComputer(ID, [`${ID}|abcd1234`, { target: { kind: "chat", chatId: `${ID}|/p#3` } }]), [
+    "abcd1234",
+    { target: { kind: "chat", chatId: "/p#3" } },
+  ]);
 });

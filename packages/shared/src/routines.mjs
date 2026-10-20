@@ -2,7 +2,7 @@
 // words for a Routine's trigger. Types: routines.d.mts.
 
 import { projectOfKey, sessionIdFromKey } from "./agent-runs.mjs";
-import { LOCAL_COMPUTER, computerOfKey, isLinkScopeKey } from "./chat-scopes.mjs";
+import { computerOfKey, isLinkScopeKey, qualifyKey } from "./chat-scopes.mjs";
 
 const SUMMARY_LIMIT = 80;
 
@@ -473,15 +473,17 @@ export function hiddenRunChats(scopes) {
 
 /**
  * The hidden Run Chats nobody has opened yet, read from the Project states a desktop window or the phone holds, one entry
- * per Project path (so the open Project, merged in with the others, counts once). Only this Mac's Projects count: a Link's
- * Chats and another computer's Projects belong to Routines the Routines page doesn't list, so a dot for them could never be
- * cleared there.
+ * per Project path (so the open Project, merged in with the others, counts once). A Link's Chats are left out: they belong
+ * to Routines on the Macs of its Projects, listed under those Projects already. Another computer's Chats name the Routine
+ * by its id on that computer (`qualifyKey`), as the window lists it.
  */
 function unreadHiddenRunChats(states) {
   const scopes = Object.entries(states)
-    .filter(([key]) => !isLinkScopeKey(key) && computerOfKey(key) === LOCAL_COMPUTER)
+    .filter(([key]) => !isLinkScopeKey(key))
     .map(([path, state]) => ({ path, state }));
-  return hiddenRunChats(scopes).filter((chat) => chat.unread);
+  return hiddenRunChats(scopes)
+    .filter((chat) => chat.unread)
+    .map((chat) => ({ ...chat, routineId: qualifyKey(computerOfKey(chat.chatKey), chat.routineId) }));
 }
 
 /** The Routines with a hidden Run Chat nobody has opened yet: the Routines button and their rows show a dot. */
@@ -515,9 +517,11 @@ export function canOpenRunChat(states, chatKey) {
 
 /**
  * The Routine a Chat's header names: the one whose Run opened the Chat (`session.routine`, hidden or kept), else an enabled
- * Heartbeat that checks back on it. Undefined when neither is on this Mac.
+ * Heartbeat that checks back on it. Undefined when neither is listed. `run` names the Routine as the Chat's own Mac knows
+ * it, so another computer's Chat reads it as that computer's.
  */
 export function chatRoutine(routines, chatKey, run) {
-  const own = run ? routines.find((routine) => routine.id === run.routineId) : undefined;
+  const routineId = run ? qualifyKey(computerOfKey(chatKey), run.routineId) : undefined;
+  const own = routineId ? routines.find((routine) => routine.id === routineId) : undefined;
   return own ?? routines.find((routine) => routine.enabled && routine.target.kind === "chat" && routine.target.chatId === chatKey);
 }

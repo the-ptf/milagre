@@ -23,7 +23,8 @@ import { Chip, Segmented } from "./RoutineChips";
 import { HookUrl } from "./RoutineEditor";
 import { RunList } from "./RunList";
 import { routineIcon } from "./routine-icon";
-import { refreshRoutines, type RoutineWithRuns } from "../../lib/routines";
+import { computerOfRoutine, refreshRoutines, type RoutineWithRuns } from "../../lib/routines";
+import { bridgeForKey } from "../../lib/computer-bridge";
 import { localZone } from "./use-routine-form";
 
 const toolButton =
@@ -98,9 +99,10 @@ export function RoutinePage({
 
   const act = (work: () => Promise<unknown>) => {
     setError(null);
-    work().then(refreshRoutines, (failure) => {
+    const refresh = () => refreshRoutines(computerOfRoutine(routine));
+    work().then(refresh, (failure) => {
       setError(ipcErrorMessage(failure));
-      refreshRoutines();
+      refresh();
     });
   };
   const problem = routineProblem(routine);
@@ -150,7 +152,7 @@ export function RoutinePage({
             <Switch
               label={`${routine.name} on`}
               checked={routine.enabled}
-              onChange={(on) => act(() => window.milagre.updateRoutine(routine.id, { enabled: on }))}
+              onChange={(on) => act(() => bridgeForKey(routine.id).updateRoutine(routine.id, { enabled: on }))}
             />
             <span aria-hidden="true" className="mx-1 h-4 w-px bg-line" />
             {canRunNow(routine) && (
@@ -161,7 +163,7 @@ export function RoutinePage({
                   data-routine-run-now
                   disabled={!routine.enabled}
                   className={toolButton}
-                  onClick={() => act(() => window.milagre.runRoutineNow(routine.id))}
+                  onClick={() => act(() => bridgeForKey(routine.id).runRoutineNow(routine.id))}
                 >
                   <HugeiconsIcon icon={PlayIcon} size={15} strokeWidth={1.8} color="currentColor" />
                 </button>
