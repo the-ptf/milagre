@@ -8991,7 +8991,7 @@ test("mobile Appearance Custom theme switch selects Custom on, Milagre Blue off,
         },
       }),
     },
-    "./ui": { Segmented: "Segmented", Toggle: "Toggle", styles: {} },
+    "./ui": { PullDown: "PullDown", Segmented: "Segmented", Toggle: "Toggle", styles: {} },
   });
   const render = () => {
     react.begin();
@@ -9019,6 +9019,20 @@ test("mobile Appearance Custom theme switch selects Custom on, Milagre Blue off,
   assert.equal(
     find(render(), (n) => n.type === "CustomThemeSection"),
     undefined,
+  );
+  // Text and motion rows are pull-down choices, not segmented controls; picking one saves it.
+  const textSize = find(render(), (n) => n.props?.label === "Text size");
+  assert.ok(textSize && typeof textSize.type === "function", "Text size is a Choice row");
+  assert.deepEqual(
+    textSize.props.options.map((option) => option.value),
+    ["small", "default", "large", "larger"],
+  );
+  textSize.props.onChange("large");
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.at(-1))), { textSize: "large" });
+  assert.equal(
+    find(render(), (n) => n.type === "Segmented" && n.props?.label !== "Mode"),
+    undefined,
+    "only Mode stays segmented",
   );
 });
 

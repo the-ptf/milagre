@@ -4,7 +4,7 @@ import { DIFF_PAIRS, MOTION_SPEEDS, PHONE_CODE_SIZES, PHONE_TEXT_SIZES } from "@
 import { DEFAULT_THEME_ID, seedsFrom, themes, themeSwatch, type ThemeChoice, type ThemeGroup } from "@milagre/shared/themes";
 import { CustomThemeSection } from "./custom-theme-section";
 import { useTheme } from "./theme";
-import { Segmented, Toggle, useStyles } from "./ui";
+import { PullDown, Segmented, Toggle, useStyles } from "./ui";
 
 const GROUPS: ThemeGroup[] = ["Milagre", "Catppuccin", "Popular"];
 const MODES = [
@@ -19,7 +19,7 @@ const CODE_SIZES = asOptions(PHONE_CODE_SIZES);
 const DIFF_COLORS = asOptions(DIFF_PAIRS);
 const MOTIONS = asOptions(MOTION_SPEEDS);
 
-/** One choice row: a label, a segmented control and a line of what it changes. */
+/** One choice row: the label and what it changes on the left, a pull-down with the current choice on the right. */
 function Choice({
   label,
   detail,
@@ -33,12 +33,26 @@ function Choice({
   options: { value: string; title: string }[];
   onChange: (value: string) => void;
 }) {
+  const { colors } = useTheme();
   const styles = useStyles();
+  const current = options.find((option) => option.value === value)?.title ?? "";
   return (
-    <View style={{ gap: 8 }}>
-      <Text style={styles.label}>{label}</Text>
-      <Segmented label={label} value={value} options={options} onChange={onChange} />
-      <Text style={styles.caption}>{detail}</Text>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={{ color: colors.ink, fontSize: 17 }}>{label}</Text>
+        <Text style={styles.caption}>{detail}</Text>
+      </View>
+      <PullDown
+        label={label}
+        title={label}
+        sections={[{ items: options.map((option) => ({ id: option.value, title: option.title, checked: option.value === value })) }]}
+        nativeTrigger={{ title: current, systemImage: "chevron.up.chevron.down", showIcon: false, maxWidth: 160 }}
+        onSelect={(id) => {
+          if (id !== value && options.some((option) => option.value === id)) onChange(id);
+        }}
+      >
+        <Text style={styles.text}>{current}</Text>
+      </PullDown>
     </View>
   );
 }
