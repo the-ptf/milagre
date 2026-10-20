@@ -191,6 +191,7 @@ test("background tasks on the phone open command output and subagent details", (
     "../session": { useSession: () => session },
     "../subagent-glance": { WholeSubagentDetail: "WholeSubagentDetail" },
     "../task-output": { TaskOutput: "TaskOutput" },
+    "../ports": { useChatPorts: () => ({ ports: [] }) },
     "../ui": { CircleButton: "CircleButton", ListRow: "ListRow", PageScroll: "PageScroll" },
   });
   const render = () => {
@@ -1881,7 +1882,7 @@ function chatHost({
     "../theme": { hex: () => ({ surface: "#ffffff" }) },
     "../simulator": { SimulatorChip: "SimulatorChip" },
     "../browser": { BrowserChip: "BrowserChip" },
-    "../ports": { PortsChip: "PortsChip" },
+    "../ports": { PortsChip: "PortsChip", useChatPorts: () => ({ ports: [] }) },
     "../terminal": { TerminalChip: "TerminalChip", terminalPlaces: () => undefined },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
@@ -7465,18 +7466,21 @@ test("mobile Ports pill requests only its Chat and hides empty or mismatched res
     { chatId: "/p#7", ports: [{ port: 3000, pid: 22 }] },
   ]) {
     const calls = [];
-    const h = simulatorHost(
-      {
-        url: "mac",
-        call: async (...args) => {
-          calls.push(args);
-          return reply;
-        },
+    const client = {
+      url: "mac",
+      call: async (...args) => {
+        calls.push(args);
+        return reply;
       },
-      "ports.tsx",
-    );
+    };
+    const h = simulatorHost(client, "ports.tsx");
     t.after(() => h.cleanup());
-    const render = () => h.render("PortsChip", { chatId: "/p#7" });
+    // The Chat now owns polling and passes its ports into the presentation-only chip.
+    h.source.TestPortsChip = ({ chatId }) => {
+      const { ports } = h.source.useChatPorts(client, chatId);
+      return h.source.PortsChip({ chatId, ports });
+    };
+    const render = () => h.render("TestPortsChip", { chatId: "/p#7" });
     assert.equal(render(), null);
     await settle();
     assert.deepEqual(JSON.parse(JSON.stringify(calls)), [["chat:ports", ["/p#7"]]]);

@@ -305,6 +305,7 @@ const MessageSection = memo(function MessageSection({
             <ReplyContent body={message.body} steps={steps} streaming={streaming} asking={asking} waitingStepIds={waitingStepIds} />
           </StepDetailsMessage>
         )}
+        {!isUser && !streaming && message.outcome === "cancelled" && <p className="mt-2 text-xs text-ink-3">Turn stopped</p>}
         {limit && <UsageLimitCard limit={limit} sessionId={message.session_id} interactive={limitInteractive} onOpenAccounts={onOpenAccounts} />}
         {showUpdateButton && outdatedProvider && onUpdateCli && (
           <div className="mt-2.5 flex items-center gap-2">

@@ -924,7 +924,7 @@ test("a legacy handover draft is still sent with the chat's first message", asyn
   assert.equal(saved.get(ALPHA).sessions[7].handoverDraft, undefined);
 });
 
-test("a quit saves each running chat to resume, and its cancelled turn says so", async (t) => {
+test("a quit saves each running chat to resume and preserves its partial reply", async (t) => {
   const { host, manager, saved, session } = harness();
   t.after(() => manager.closeAll());
   const running = await host.send(message(ALPHA, "fix the api", { effort: "high" }));
@@ -957,7 +957,7 @@ test("a quit saves each running chat to resume, and its cancelled turn says so",
   });
   assert.deepEqual(chatMessages(alpha, running.sessionId).at(-1), {
     role: "assistant",
-    body: "Halfway.\n\nStopped when Milagre closed.",
+    body: "Halfway.",
     outcome: "cancelled",
   });
   assert.equal(saved.get(BETA).sessions[idle.sessionId].resumeTurn, undefined);
