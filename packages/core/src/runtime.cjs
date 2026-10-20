@@ -241,7 +241,12 @@ function createRuntime(options) {
     const session = state.sessions[id];
     if (!session) throw new Error("Open an existing Chat before opening a Terminal.");
     if (session.archived) throw new Error("This Chat is archived.");
-    if (isLinkScopeKey(scope)) return (session.worktrees ?? []).map((member) => ({ path: member.worktreePath, label: member.alias }));
+    if (isLinkScopeKey(scope)) {
+      const worktrees = (session.worktrees ?? []).map((member) => ({ path: member.worktreePath, label: member.alias }));
+      // Shared Chats create Worktrees on demand. Before the first one exists, the user can still open a shell
+      // in the Chat's own workspace, just as its agent does, without creating branches in every linked Project.
+      return worktrees.length ? worktrees : session.workspacePath ? [{ path: session.workspacePath, label: "Workspace" }] : [];
+    }
     const worktree = state.worktrees?.[session.worktree_id];
     return worktree?.path ? [{ path: worktree.path, label: path.basename(worktree.path) }] : [];
   }
