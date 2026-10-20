@@ -556,11 +556,16 @@ async function browserChecks() {
     await waitFor("!!window.remoteRan");
     assert.deepEqual(JSON.parse(await evaluate("JSON.stringify(window.remoteRan)")), ["6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7", remote]);
     assert.equal(await evaluate("window.localRan === undefined"), true, "this Mac ran nothing");
+    // The studio goes offline: its last copy stays listed, and the page says that's what it is.
+    await evaluate(`window.computersChanged({ thisMac: 'Here', computers: [{ ...window.studio, state: 'offline' }] })`);
+    const problem = `[data-routines-computer-problem="6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"]`;
+    await waitFor(`document.querySelector(${JSON.stringify(problem)})?.textContent.startsWith('studio is offline.')`);
+    assert.equal(await evaluate(`!!document.querySelector(${JSON.stringify(row(remote))})`), true, "the last copy stays listed");
     // Other computers switched off: the studio's Routines leave the list.
     await evaluate(`window.computersChanged({ thisMac: 'Here', computers: [{ ...window.studio, state: 'off' }] })`);
     await waitFor(`!document.querySelector(${JSON.stringify(row(remote))})`);
     console.log(
-      "PASS: Routines page groups and counts Routines; Heartbeat cards and Next check show; a Routine's page shows its chips and Runs by day; Edit and New Routine work in place, {{ suggests placeholders, and Create lands on the new Routine; a paired computer's Routines join the list, named by it, and its Run now goes to it.",
+      "PASS: Routines page groups and counts Routines; Heartbeat cards and Next check show; a Routine's page shows its chips and Runs by day; Edit and New Routine work in place, {{ suggests placeholders, and Create lands on the new Routine; a paired computer's Routines join the list, named by it, and its Run now goes to it; an offline one keeps its last copy with a notice.",
     );
     app.exit(0);
   } catch (error) {

@@ -10,17 +10,22 @@ import { RoutinePage } from "./RoutinePage";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import { computerOfRoutine, groupRoutines, routineMeta, routineStatus, useRoutines, type RoutineWithRuns } from "../../lib/routines";
 import { bridgeFor, bridgeForKey } from "../../lib/computer-bridge";
-import { useComputers } from "../../lib/computers";
+import { isDimmed, useComputers } from "../../lib/computers";
+import type { ComputerView } from "../../electron.d.ts";
 
 type Filter = "all" | "heartbeats" | "triggers" | "paused";
 const HELP = "Routines run while the Mac they are on is awake. Closing the lid on battery pauses them.";
 const NOT_REMOTE = "Not available on a remote computer";
 
-/** Why another computer's Routines aren't listed, or null when they are. An older Milagre there refuses them outright. */
-function computerRoutinesProblem(name: string, error: string | null): string | null {
-  if (!error) return null;
-  if (error.includes(NOT_REMOTE)) return `Update Milagre on ${name} to see its Routines.`;
-  return `Couldn't read ${name}'s Routines: ${error}`;
+/**
+ * Why another computer's Routines aren't listed or current, or null when they are. An older Milagre there refuses them
+ * outright; an offline one is shown from the last copy it sent, which can't be changed until it is back.
+ */
+function computerRoutinesProblem(view: ComputerView, error: string | null): string | null {
+  if (error?.includes(NOT_REMOTE)) return `Update Milagre on ${view.name} to see its Routines.`;
+  if (isDimmed(view)) return `${view.name} is offline. Its Routines are the last copy it sent; you can change them once it's back.`;
+  if (error) return `Couldn't read ${view.name}'s Routines: ${error}`;
+  return null;
 }
 const card = "divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface";
 
@@ -71,7 +76,7 @@ export function RoutinesPage({
   // With other computers, each row says which Mac it runs on, as Chat rows do.
   const computerName = (id: string) => (id === LOCAL_COMPUTER ? thisMac : (computers.find((computer) => computer.id === id)?.name ?? "Computer"));
   const remoteProblems = computers.flatMap((computer) => {
-    const problem = computerRoutinesProblem(computer.name, byComputer[computer.id]?.error ?? null);
+    const problem = computerRoutinesProblem(computer, byComputer[computer.id]?.error ?? null);
     return problem ? [{ id: computer.id, problem }] : [];
   });
   const onComputers = Object.keys(byComputer).filter((id) => byComputer[id]?.enabled === true);
