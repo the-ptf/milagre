@@ -31,7 +31,7 @@ Release, OTA, dependency and hygiene chores are out: they belong in CI workflows
 | Busy Chat | A heartbeat that fires while its Chat has a turn running is skipped and logged. The next one runs on schedule. |
 | Quiet runs | An agent ends a run that found nothing to do with `(pass)`. A quiet heartbeat leaves a one-line divider in the Chat ("10:30 · quiet: CI green, waiting on jefo3") and no push. Back-to-back quiet dividers merge into one line. A quiet trigger run archives its Chat. |
 | No recursion | Runs started by a routine don't get the create tools. |
-| Computers | Each Mac runs and lists only its own Routines. Remote peers can't manage them: deny the Routine RPCs in `peer-policy.cjs`. The desktop Routines page and the phone list show the Mac they are connected to. |
+| Computers | Each Mac runs only its own Routines. A paired desktop lists and manages every paired computer's Routines as its own (all `routines:*` calls, `routines:changed` included); each row names its Mac once there are other computers, and a new Routine runs on the computer of the Project or Chat it targets. A paired Mac is already trusted with full-permission Chats, so reading or rotating a webhook URL from it is no new exposure; the URL is never kept in the offline cache. The phone lists the Mac it is paired to. Changed 2026-10-20: the first version refused Routine RPCs from paired Macs. |
 | Several events at once | Each Linear or webhook event gets its own Run, up to 3 at once per Routine. The rest queue in order, persisted. Schedule triggers never overlap. *My call.* |
 | Existing-Chat target | Only schedule triggers can target an existing Chat (a heartbeat). Linear and webhook triggers always start new Chats. *My call.* |
 | Heartbeat end | Every heartbeat ends. The form doesn't offer "never" for heartbeats, and agent-created ones default to 7 days unless the agent sets a run limit or a date. Trigger routines may run forever. *My call.* |
@@ -309,8 +309,9 @@ grouped cards of `ListRow`s with leading icons, the Prompt box with the same `{{
   2. Ship the desktop beta.
   3. Publish the phone OTA after merge, if main's fingerprint still matches the TestFlight build. Otherwise it waits
      for a build, as other OTAs have.
-- **Remote peers:** add the Routine RPCs to `DENIED` in `peer-policy.cjs`. The phone, paired to this Mac, still
-  reaches them.
+- **Remote peers:** paired desktops reach every Routine RPC and hear `routines:changed` (`peer-policy.cjs` denies none).
+  The window routes them to the Routine's computer, with Routine, Run and target ids qualified by it
+  (`computer-routing.cjs`). The phone, paired to one Mac, reaches that Mac's.
 
 ## Prior art read for this design
 
