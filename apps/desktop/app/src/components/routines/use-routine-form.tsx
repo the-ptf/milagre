@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModelOption, Routine, RoutineTrigger } from "@milagre/shared/model";
 import { PERMISSION_MODES } from "@milagre/shared/model-copy";
 import { PROVIDERS, providerName } from "@milagre/shared/providers";
@@ -22,7 +22,10 @@ import { triggerChipText } from "@milagre/shared/routines";
 import type { RoutineCreate, RoutineLinearOptions, RoutineTargets, RoutineUpdate } from "../../electron";
 import type { SelectOption } from "../primitives/Select";
 import { ProviderLogo } from "../ProviderLogo";
-import type { RoutineWithRuns } from "../../lib/routines";
+import { computerOfRoutine, useRoutines, type RoutineWithRuns } from "../../lib/routines";
+import { bridgeFor, bridgeForKey } from "../../lib/computer-bridge";
+import { useComputers } from "../../lib/computers";
+import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 
 export type HookInfo = { url: string; signed: boolean; signingHeader?: string };
 
@@ -75,8 +78,8 @@ const LINEAR_WHEN: SelectOption<RoutineFormState["linear"]["event"]>[] = [
 ];
 
 /**
- * The Routine form's state and everything it reads and saves, shared by the New Routine and Edit surfaces: the Mac's
- * targets and Linear choices, a webhook's URL with Copy and Rotate, field errors, and the submit that sends
+ * The Routine form's state and everything it reads and saves, shared by the New Routine and Edit surfaces: the targets
+ * of every computer with Routines on (only the edited Routine's own computer when editing) and Linear choices, a webhook's URL with Copy and Rotate, field errors, and the submit that sends
  * `routines:create` or `routines:update` (packages/shared/routine-form validates both).
  */
 export function useRoutineForm({ initial, models, defaultProjectPath }: { initial?: RoutineWithRuns; models: ModelOption[]; defaultProjectPath?: string }) {
@@ -103,12 +106,26 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
   const comment = isCommentRoutine(state);
   const heartbeat = state.runIn === "chat" && !comment;
 
+  // Where a new Routine can run: this Mac and every computer with Routines on. An edit stays on its Routine's computer.
+  const { byComputer } = useRoutines();
+  const { thisMac, computers } = useComputers();
+  const remotesOn = computers.filter((computer) => byComputer[computer.id]?.enabled === true).map((computer) => computer.id);
+  const sources = initial
+    ? [computerOfRoutine(initial)]
+    : [...(byComputer[LOCAL_COMPUTER]?.enabled === false && remotesOn.length > 0 ? [] : [LOCAL_COMPUTER]), ...remotesOn];
+  const sourceKey = sources.join(",");
   useEffect(() => {
     let live = true;
-    Promise.resolve()
-      .then(() => window.milagre.routineTargets())
+    Promise.all(
+      sources.map((id) =>
+        Promise.resolve()
+          .then(() => bridgeFor(id).routineTargets())
+          .then((found) => ({ id, found })),
+      ),
+    )
+      .then((read) => ({ projects: read.flatMap(({ found }) => found.projects) }))
       .then(
-        (found) => {
+        (found: RoutineTargets) => {
           if (!live) return;
           setTargets(found);
           const first = found.projects[0]?.path;
@@ -119,14 +136,23 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
     return () => {
       live = false;
     };
-  }, []);
+  }, [sourceKey]);
   // Linear's choices: labels and states belong to the picked team, so they are read again when it changes.
+  // Linear is signed in per Mac: the choices come from the computer the Routine runs on.
   const { workspace, team } = state.linear;
+  const linearComputer = initial ? computerOfRoutine(initial) : computerOfKey(state.projectPath);
+  // Another Mac's Linear has its own workspaces and teams: picking a Project there starts the choice over.
+  const linearFrom = useRef(linearComputer);
+  useEffect(() => {
+    if (linearFrom.current === linearComputer) return;
+    linearFrom.current = linearComputer;
+    setState((current) => ({ ...current, linear: { ...current.linear, workspace: "", team: "", label: "", state: "" } }));
+  }, [linearComputer]);
   useEffect(() => {
     if (state.trigger !== "linear") return;
     let live = true;
     Promise.resolve()
-      .then(() => window.milagre.routineLinearOptions({ ...(workspace ? { workspace } : {}), ...(team ? { team } : {}) }))
+      .then(() => bridgeFor(linearComputer).routineLinearOptions({ ...(workspace ? { workspace } : {}), ...(team ? { team } : {}) }))
       .then(
         (options) => {
           if (!live) return;
@@ -139,17 +165,19 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
     return () => {
       live = false;
     };
-  }, [state.trigger, workspace, team]);
+  }, [state.trigger, workspace, team, linearComputer]);
   useEffect(() => {
     if (!initial || initial.trigger.kind !== "webhook") return;
     let live = true;
-    window.milagre.routineHook(initial.id).then(
-      (info) => {
-        if (!live) return;
-        setHook(info);
-      },
-      (failure) => live && setTopError(ipcErrorMessage(failure)),
-    );
+    bridgeForKey(initial.id)
+      .routineHook(initial.id)
+      .then(
+        (info) => {
+          if (!live) return;
+          setHook(info);
+        },
+        (failure) => live && setTopError(ipcErrorMessage(failure)),
+      );
     return () => {
       live = false;
     };
@@ -184,12 +212,13 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
     setTopError("");
     try {
       if (initial && "patch" in result) {
-        await window.milagre.updateRoutine(initial.id, result.patch as RoutineUpdate);
+        await bridgeForKey(initial.id).updateRoutine(initial.id, result.patch as RoutineUpdate);
         return { kind: "saved" };
       }
       if ("input" in result) {
-        // A webhook trigger goes without a hook id: the Mac mints the URL and answers with it.
-        const made = await window.milagre.createRoutine(result.input as RoutineCreate);
+        // A webhook trigger goes without a hook id: the Mac mints the URL and answers with it. The target's computer runs it.
+        const input = result.input as RoutineCreate;
+        const made = await bridgeForKey(input.target.kind === "chat" ? input.target.chatId : input.target.projectPath).createRoutine(input);
         return { kind: "created", routine: made.routine, ...(made.hookUrl ? { hookUrl: made.hookUrl } : {}) };
       }
       return null;
@@ -215,7 +244,7 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
     if (!initial) return;
     setRotating(false);
     try {
-      const { url } = await window.milagre.rotateRoutineHook(initial.id);
+      const { url } = await bridgeForKey(initial.id).rotateRoutineHook(initial.id);
       setHook((current) => ({ signed: current?.signed ?? false, ...current, url }));
     } catch (failure) {
       setTopError(ipcErrorMessage(failure));
@@ -234,7 +263,13 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
     { value: "", label: "Default mode" },
     ...PERMISSION_MODES.map((mode) => ({ value: mode.id, label: mode.name, description: mode.description })),
   ];
-  const projectOptions: SelectOption<string>[] = (targets?.projects ?? []).map((entry) => ({ value: entry.path, label: entry.name }));
+  // With other computers, each Project is listed under the computer it is on.
+  const computerName = (id: string) => (id === LOCAL_COMPUTER ? thisMac : (computers.find((computer) => computer.id === id)?.name ?? "Computer"));
+  const projectOptions: SelectOption<string>[] = (targets?.projects ?? []).map((entry) => ({
+    value: entry.path,
+    label: entry.name,
+    ...(computers.length > 0 ? { group: computerName(computerOfKey(entry.path)) } : {}),
+  }));
   if (state.projectPath && !projectOptions.some((option) => option.value === state.projectPath))
     projectOptions.unshift({ value: state.projectPath, label: state.projectPath.split("/").at(-1) ?? state.projectPath });
   const chatOptions: SelectOption<string>[] = (project?.chats ?? []).map((chat) => ({ value: chat.chatId, label: chat.title || "Untitled Chat" }));

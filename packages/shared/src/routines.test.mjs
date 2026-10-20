@@ -605,14 +605,14 @@ const unreadStates = () => ({
   "mac-2|/code/api": { sessions: { 1: runChat(1, "r6", { unread: true }) } },
 });
 
-test("unreadRunRoutines: the Routines with a hidden Run Chat nobody opened, over this Mac's Projects only", () => {
-  assert.deepEqual([...unreadRunRoutines(unreadStates())].toSorted(), ["r1", "r4"]);
+test("unreadRunRoutines: the Routines with a hidden Run Chat nobody opened, another computer's named by it, no Link's", () => {
+  assert.deepEqual([...unreadRunRoutines(unreadStates())].toSorted(), ["mac-2|r6", "r1", "r4"]);
   assert.equal(unreadRunRoutines({}).size, 0);
   assert.equal(unreadRunRoutines({ "/code/shop": { sessions: { 1: runChat(1, "r1") } } }).size, 0);
 });
 
-test("unreadRunChats: the keys of this Mac's hidden Run Chats nobody opened, for the Runs list's dots", () => {
-  assert.deepEqual([...unreadRunChats(unreadStates())].toSorted(), ["/code/shop#1", "/code/web#3"]);
+test("unreadRunChats: the keys of the hidden Run Chats nobody opened, for the Runs list's dots", () => {
+  assert.deepEqual([...unreadRunChats(unreadStates())].toSorted(), ["/code/shop#1", "/code/web#3", "mac-2|/code/api#1"]);
   assert.equal(unreadRunChats({}).size, 0);
 });
 
@@ -653,6 +653,12 @@ test("chatRoutine: a Run Chat's own Routine, else the enabled Heartbeat that che
   // A Run Chat whose Routine is gone, and a Chat no Routine knows.
   assert.equal(chatRoutine(routines, "/code/milagre-ade#6", { routineId: "gone" }), undefined);
   assert.equal(chatRoutine(routines, "/code/milagre#1"), undefined);
+  // Another computer's Chat names its Routine as that computer knows it; the window lists it under the computer's id.
+  const remote = { id: "mac-2|l1", enabled: true, target: { kind: "new-chat", projectPath: "mac-2|/code/api", workspace: "worktree" } };
+  const remoteHeartbeat = { ...heartbeat, id: "mac-2|h1", target: { kind: "chat", chatId: "mac-2|/code/api#3" } };
+  assert.equal(chatRoutine([...routines, remote], "mac-2|/code/api#4", { routineId: "l1" })?.id, "mac-2|l1");
+  assert.equal(chatRoutine([...routines, remoteHeartbeat], "mac-2|/code/api#3")?.id, "mac-2|h1");
+  assert.equal(chatRoutine(routines, "mac-2|/code/api#4", { routineId: "l1" }), undefined, "this Mac's l1 is another Routine");
 });
 
 test("routineEnd says how many Runs are left or when the Routine ends", () => {

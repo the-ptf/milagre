@@ -138,8 +138,7 @@ function ChatTile({
           {scope.split("/").pop()}
           {branch ? ` · ${branch}` : ""}
         </span>
-        {/* This Mac's Routines only: another computer's Run Chat belongs to a Routine this window doesn't list. */}
-        {onOpenRoutine && session && !remote && <RoutineChip chatKey={chatKey} run={session.routine} place="tile" onOpen={onOpenRoutine} />}
+        {onOpenRoutine && session && <RoutineChip chatKey={chatKey} run={session.routine} place="tile" onOpen={onOpenRoutine} />}
         {needsYou && !focused && <span className="shrink-0 font-medium text-orange">Needs you</span>}
         {mark === "unread" && !focused && (
           <Tooltip label="Mark read" side="bottom">

@@ -101,11 +101,11 @@ export function hiddenRunChats(
 /** Project states by scope key ("<path>", a Link's or another computer's key), as a desktop window or the phone holds them. */
 export type ScopeStates = Readonly<Record<string, { sessions: Readonly<Record<string, unknown>> }>>;
 /**
- * The Routines with a hidden Run Chat nobody has opened yet, over this Mac's Projects only (no Links, no other computer's):
- * the Routines button and their rows show a dot.
+ * The Routines with a hidden Run Chat nobody has opened yet, over every computer's Projects (no Links): the Routines button
+ * and their rows show a dot. Another computer's Routine ids name it (`qualifyKey`), as the desktop lists them.
  */
 export function unreadRunRoutines(states: ScopeStates): Set<string>;
-/** The keys ("<path>#<id>") of this Mac's hidden Run Chats nobody has opened yet: their Runs show a dot on the Routine page. */
+/** The keys ("<path>#<id>") of the hidden Run Chats nobody has opened yet, Links' left out: their Runs show a dot on the Routine page. */
 export function unreadRunChats(states: ScopeStates): Set<string>;
 /**
  * Whether a Run's Chat is there to open: its Project's state has the session, archived or not. False for a Chat gone with
@@ -119,7 +119,7 @@ export function chatLeft(states: ScopeStates, chatKey: string): boolean;
 export function canOpenRunChat(states: ScopeStates, chatKey: string): boolean;
 /**
  * The Routine a Chat's header names: the one whose Run opened it (`session.routine`, hidden or kept), else an enabled
- * Heartbeat that checks back on it.
+ * Heartbeat that checks back on it. `run.routineId` is the id on the Chat's own computer; another computer's is read as its.
  */
 export function chatRoutine<T extends Pick<Routine, "id" | "enabled" | "target">>(
   routines: readonly T[],

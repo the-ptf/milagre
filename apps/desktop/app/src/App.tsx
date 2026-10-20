@@ -2526,7 +2526,7 @@ function App() {
                 {diffShowing && <DiffView key="diff" changes={changes} prefs={diffPrefs} comments={diffComments} />}
               </AnimatePresence>
               {/* The open Chat's Routine (a Run Chat's, or a Heartbeat's), over the Chat; a grid's tiles show theirs in their headers. */}
-              {view === "chat" && !diffPresence.occupied && shownTiles.length === 0 && focusedChatKey && !isRemoteKey(project.path) && (
+              {view === "chat" && !diffPresence.occupied && shownTiles.length === 0 && focusedChatKey && (
                 <RoutineChip chatKey={focusedChatKey} run={selectedSession?.routine} place="strip" onOpen={openRoutine} />
               )}
               {view === "settings" && (
