@@ -7,6 +7,17 @@ const { execFileSync } = require("node:child_process");
 const { createRuntime } = require("./runtime.cjs");
 const { runTool } = require("./linked-tools.cjs");
 const { waitUntil } = require("./agents/test-helpers.cjs");
+const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
+
+test("Routines cannot be enabled by a legacy or unconsented client", async (t) => {
+  const ctx = await fixture(t, { enable: false });
+  for (const version of [undefined, "old-version"]) {
+    await assert.rejects(ctx.runtime.invoke("routines:enabled:save", [true, version]), /AI sharing permission/);
+    assert.deepEqual(await ctx.runtime.invoke("routines:enabled:read"), { enabled: false });
+  }
+  assert.deepEqual(await ctx.runtime.invoke("routines:enabled:save", [true, AI_CONSENT_VERSION]), { enabled: true });
+  assert.deepEqual(await ctx.runtime.invoke("routines:enabled:save", [false]), { enabled: false });
+});
 
 // waitUntil for a check that reads through the runtime.
 async function eventually(check, { timeoutMs = 3000 } = {}) {
@@ -104,7 +115,7 @@ async function fixture(t, { enable = true, restart, open = true, titleModels = {
     await runtime.close();
     if (!restart) await fs.rm(dir, { recursive: true, force: true });
   });
-  if (enable && !restart) assert.deepEqual(await runtime.invoke("routines:enabled:save", [true]), { enabled: true });
+  if (enable && !restart) assert.deepEqual(await runtime.invoke("routines:enabled:save", [true, AI_CONSENT_VERSION]), { enabled: true });
   // `open: false` leaves the Project as a restart leaves it: listed, not opened by anyone yet.
   const opened = open ? await runtime.openProject(project) : null;
   const id = opened ? Object.values(opened.state.sessions)[0].id : null;

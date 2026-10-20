@@ -1954,7 +1954,7 @@ function RoutinesSetting() {
     setError(null);
     setEnabled(next);
     try {
-      setEnabled((await window.milagre.saveRoutinesEnabled(next)).enabled);
+      setEnabled((await bridgeFor(null).saveRoutinesEnabled(next)).enabled);
     } catch (failure) {
       setEnabled(!next);
       setError(ipcErrorMessage(failure));

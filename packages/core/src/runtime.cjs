@@ -1191,7 +1191,7 @@ function createRuntime(options) {
   });
   routines.start();
   commands.handle("routines:enabled:read", () => routines.read());
-  commands.handle("routines:enabled:save", (_event, value) => routines.save(value === true));
+  commands.handle("routines:enabled:save", (_event, value, consentVersion) => routines.save(value === true, consentVersion));
   commands.handle("routines:list", () => routines.list());
   // Create and change check a Routine's target the same way (routineTargets): a listed Project, a Chat that is there.
   commands.handle("routines:update", (_event, id, patch) => routines.update(id, patch));

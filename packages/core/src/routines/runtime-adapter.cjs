@@ -9,6 +9,7 @@ const { routineRunOf } = require("@milagre/shared/routines");
 const { PERMISSION_MODES } = require("../agents/permissions.cjs");
 const { createRoutineStore } = require("./store.cjs");
 const { createRoutineScheduler, linearPrompt, schedulePrompt } = require("./scheduler.cjs");
+const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const { createRoutineTools } = require("./tools.cjs");
 const { createLinearPoller } = require("./linear-poller.cjs");
 const { DEFAULT_SIGNING_HEADER, hookIdOf, newHookSecret, hookUrl, verifySignature, webhookPrompt } = require("./webhook.cjs");
@@ -112,6 +113,7 @@ function routineChats({
   linearWorkspaces = () => [],
   // Checks a Run's stored target again as the Run starts (routineTargets().atStart); throws to fail the Run.
   startCheck = async () => {},
+  canRun = () => true,
   now = Date.now,
   timeoutMs = START_TIMEOUT_MS,
   hooks = () => null,
@@ -293,6 +295,7 @@ function routineChats({
     // restart) takes its own provider and last model; what's still missing comes from `settings`, what the Routine said
     // when its Run was claimed (never what it says now, which an edit since may have changed).
     async send(chatId, { body, prompt, context, settings: claimed }) {
+      if (!canRun()) throw new Error("Routines are off. Enable Routines after allowing AI sharing.");
       if (isClosing()) throw new Error("Milagre is closing.");
       const projectPath = projectOfKey(chatId);
       const sessionId = sessionIdFromKey(chatId);
@@ -330,6 +333,7 @@ function routineChats({
           // of steering into it or starting beside it. It asks once more just before the turn starts, when the beat's
           // own run already holds the Chat: from that third ask on, the beat goes ahead.
           canStart: () => {
+            if (!canRun()) throw new Error("Routines are off. Enable Routines after allowing AI sharing.");
             asks += 1;
             if (asks > 2 || !busy(chatId)) return true;
             waited = true;
@@ -520,7 +524,11 @@ function createRoutines({
     chats,
     projects,
     projectState,
-    startCheck: checkTarget.atStart,
+    startCheck: (target) => {
+      if (!store.enabled()) throw new Error("Routines are off. Enable Routines after allowing AI sharing.");
+      return checkTarget.atStart(target);
+    },
+    canRun: () => store.enabled(),
     linearWorkspaces: () => linearWorkspaces(),
     cachedState,
     openState,
@@ -797,7 +805,9 @@ function createRoutines({
       return settleWithin();
     },
     read: () => ({ enabled: store.enabled() }),
-    async save(value) {
+    async save(value, consentVersion) {
+      if (value === true && consentVersion !== AI_CONSENT_VERSION)
+        throw new Error("AI sharing permission is required. Update Milagre and allow sharing before enabling Routines.");
       const enabled = store.setEnabled(value === true);
       if (enabled) {
         scheduler.start();

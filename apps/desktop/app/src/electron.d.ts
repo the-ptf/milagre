@@ -317,7 +317,7 @@ export type MilagreBridge = {
   saveLimitAutoSwitch: (value: boolean) => Promise<{ autoSwitch: boolean }>;
   /** Experimental: agents set heartbeats that send a prompt back into their Chat on a schedule. Off by default. */
   readRoutinesEnabled: () => Promise<{ enabled: boolean }>;
-  saveRoutinesEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
+  saveRoutinesEnabled: (value: boolean, consentVersion?: string) => Promise<{ enabled: boolean }>;
   /** This Mac's routines that haven't ended, newest first, each with its latest Runs first. */
   listRoutines: () => Promise<{ routines: Array<Routine & { runs: RoutineRun[] }> }>;
   updateRoutine: (id: string, patch: RoutineUpdate) => Promise<Routine>;

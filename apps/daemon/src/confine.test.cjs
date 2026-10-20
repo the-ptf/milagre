@@ -1,3 +1,4 @@
+const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -643,7 +644,7 @@ test("a confined phone reads Routines but can't switch, create, change, delete o
   await confine.checkCall("routines:targets", []);
   await assert.rejects(confine.checkCall("routines:linear-options", [{ workspace: "acme", team: "ENG" }]), { status: 403, message: REFUSED });
   await assert.rejects(confine.checkCall("routines:create", [{ name: "Daily", prompt: "Look" }]), { status: 403, message: REFUSED });
-  await assert.rejects(confine.checkCall("routines:enabled:save", [true]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:enabled:save", [true, AI_CONSENT_VERSION]), { status: 403, message: REFUSED });
   await assert.rejects(confine.checkCall("routines:update", ["r1", { enabled: false }]), { status: 403, message: REFUSED });
   await assert.rejects(confine.checkCall("routines:delete", ["r1"]), { status: 403, message: REFUSED });
   await assert.rejects(confine.checkCall("routines:run-now", ["r1"]), { status: 403, message: REFUSED });
@@ -774,7 +775,7 @@ test("the Mac-only MCP commands are not phone methods at all", async () => {
 // Routines name prompts, Run snapshots (Linear descriptions and comments) and Chats of every Project on the Mac.
 test("a confined phone reads only the Routines and targets of its own Project", async (t) => {
   const f = await fixture(t);
-  await f.owner.call("routines:enabled:save", [true]);
+  await f.owner.call("routines:enabled:save", [true, AI_CONSENT_VERSION]);
   const opened = {};
   for (const projectPath of [f.demo, f.outside]) {
     const state = (await f.owner.call("project:open", [projectPath])).state;
