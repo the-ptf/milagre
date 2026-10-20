@@ -21,8 +21,9 @@ import { TaskTrack } from "./agents/TaskTrack";
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, DragEvent, ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, GitBranchIcon, GitForkIcon, GitPullRequestIcon, LaptopIcon, Undo02Icon } from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, Folder01Icon, GitBranchIcon, GitForkIcon, GitPullRequestIcon, LaptopIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { LinearLogo } from "./ProviderLogo";
+import { FirstChatStarters, type Starter } from "./Onboarding";
 import type { LinearIssue } from "@milagre/shared/linear";
 import type { RoutineRunContext } from "@milagre/shared/model";
 import type {
@@ -696,6 +697,10 @@ interface ChatComposerProps {
   onDismissNotice?: () => void;
   /** A muted line under the composer, e.g. what replying to a hidden Run Chat does. */
   composerNote?: string;
+  /** The Project is a folder outside Git: a new Chat works in it, with no isolation or branch to pick. */
+  noGit?: boolean;
+  /** The first Chat of a Project opened from onboarding: tasks to start with, sent as they are. */
+  starters?: Starter[];
 }
 
 const ISOLATIONS: Array<{ id: Isolation; name: string; description: string; icon: IconData }> = [
@@ -745,6 +750,7 @@ type NewChatHeaderProps = Pick<
   | "onBaseBranchChange"
   | "linearActive"
   | "onStartFromIssue"
+  | "noGit"
 >;
 
 function NewChatHeader({
@@ -758,6 +764,7 @@ function NewChatHeader({
   onBaseBranchChange,
   linearActive = false,
   onStartFromIssue,
+  noGit = false,
 }: NewChatHeaderProps) {
   const [menu, setMenu] = useState<"isolation" | "branch" | "issue" | null>(null);
   const [query, setQuery] = useState("");
@@ -815,7 +822,13 @@ function NewChatHeader({
     // The entrance animation makes this a stacking context, so lift it above the composer while a popover is open.
     <div className={`px-1 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
       <h1 className="text-[17px] font-medium text-ink">New chat</h1>
-      {selected && (
+      {noGit && selected && (
+        <p data-no-git-note className="mt-4 mb-2.5 flex items-center gap-1.5 text-[13px] text-ink-2">
+          <Icon icon={Folder01Icon} size={14} />
+          {selected.name} has no Git, so this Chat works in the folder itself.
+        </p>
+      )}
+      {!noGit && selected && (
         <div data-new-chat-pickers className="relative mt-4 mb-2.5 -ml-1.5 flex items-center gap-1">
           <Tooltip label="Choose the isolation level">
             <ChipButton
@@ -975,6 +988,8 @@ export function ChatComposer({
   onStartFromIssue,
   newChatError,
   composerNote,
+  noGit,
+  starters,
   findOpen = false,
   findSignal = 0,
   findSeed,
@@ -1276,8 +1291,10 @@ export function ChatComposer({
               onBaseBranchChange={onBaseBranchChange}
               linearActive={linearActive}
               onStartFromIssue={onStartFromIssue}
+              noGit={noGit}
             />
           )}
+          {isNewChat && starters && starters.length > 0 && <FirstChatStarters starters={starters} />}
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
           {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
           {approval && <div className="mb-2 w-full">{approval}</div>}
