@@ -1,3 +1,4 @@
+const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -187,12 +188,14 @@ test("a phone opens a named Link and sends one shared Chat with two owned Worktr
       [path.join(path.dirname(project), "worktrees")],
       "Undefined demo options must not replace the fixture's temporary Worktree root",
     );
-    const hidden = await rpc("link:update", [{ ...link, hidden: true }]);
-    assert.equal(hidden.status, 200);
-    assert.equal((await desktopReader.call("link:list"))[0].hidden, true, "A phone visibility change reaches the desktop registry");
-    await desktopReader.call("link:update", [{ ...link, hidden: false }]);
+    await desktopReader.call("link:update", [{ ...link, hidden: true }]);
+    const hiddenAttempt = await rpc("link:update", [{ ...link, hidden: false }]);
+    assert.equal(hiddenAttempt.status, 200);
+    assert.equal((await desktopReader.call("link:list"))[0].hidden, true, "A phone Link update never alters the Mac's own Link visibility");
     const listed = await (await rpc("link:list")).json();
-    assert.equal(listed.result[0].hidden, undefined, "A desktop visibility change reaches the phone without deleting the Link");
+    assert.equal(listed.result[0].hidden, undefined, "The Mac's own Link visibility is not sent to the phone");
+    assert.equal((await rpc("project:set-hidden", [project, true])).status, 403, "Project visibility is kept on each device, not mutated over mobile RPC");
+    await desktopReader.call("link:update", [{ ...link, hidden: false }]);
   } finally {
     desktopReader.close();
   }
@@ -1318,7 +1321,7 @@ test("Routines changes reach every phone as a routines signal, Settings included
   const auth = { authorization: `Bearer ${token}` };
   const projectPhone = await openLive(bridge, project, auth);
   const settingsPhone = await openLive(bridge, "", auth);
-  assert.equal((await rpc("routines:enabled:save", [true])).status, 200);
+  assert.equal((await rpc("routines:enabled:save", [true, AI_CONSENT_VERSION])).status, 200);
   await until(() => projectPhone.messages.includes("routines") && settingsPhone.messages.includes("routines"));
   assert.equal(settingsPhone.messages.filter((type) => type === "routines").length, 1);
 });

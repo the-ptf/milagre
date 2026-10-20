@@ -6,7 +6,7 @@ import { advisorAction, subagentActivityLabel } from "@milagre/shared/agent-acti
 import { subagentFinished } from "@milagre/shared/project-edits";
 import type { Subagent } from "@milagre/shared/model";
 import { useSession } from "../session";
-import { SubagentDetail, SubagentRow, elapsed, subagentRunning, useClock, useWholeSubagent } from "../subagent-glance";
+import { WholeSubagentDetail, SubagentRow, elapsed, subagentRunning, useClock } from "../subagent-glance";
 import { Icon } from "../icons";
 import { CircleButton, ErrorNotice, IconButton, ListRow, PageScroll, useStyles } from "../ui";
 import { useTheme } from "../theme";
@@ -156,8 +156,4 @@ export default function AgentsSheet() {
       )}
     </PageScroll>
   );
-}
-
-function WholeSubagentDetail({ agent, read }: { agent: Subagent; read: () => Promise<Subagent> }) {
-  return <SubagentDetail agent={useWholeSubagent(agent, read)} />;
 }

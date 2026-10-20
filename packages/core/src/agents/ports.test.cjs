@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { PortWatcher, chatPorts, chatProcesses, parseLsof, parsePs } = require("./ports.cjs");
+const { PortWatcher, chatPorts, chatProcesses, parseLsof, parsePs, parseTaskOutputs } = require("./ports.cjs");
 
 // The agent (100) leads group 100 with its MCP server (101); its command shells lead their own groups.
 const PS = `
@@ -153,7 +153,7 @@ test("the watcher publishes changes and stops once nothing runs", async () => {
     exec: async (command, args) => {
       calls.push(command);
       if (command === "ps") return ps;
-      assert.equal(args[args.indexOf("-p") + 1], "110,111,112");
+      assert.equal(args[args.indexOf("-p") + 1], args.includes("-d") ? "110,111" : "110,111,112");
       return LSOF;
     },
   });
@@ -316,21 +316,22 @@ test("lsof runs when a chat's pids change or every 10 seconds, ps on every poll"
     },
   });
   await watcher.poll();
-  assert.deepEqual(calls, ["ps", "lsof"]);
+  // The second lsof reads where the listeners write their output, for the background task they belong to.
+  assert.deepEqual(calls, ["ps", "lsof", "lsof"]);
   clock = 3000;
   await watcher.poll();
   clock = 6000;
   await watcher.poll();
-  assert.deepEqual(calls, ["ps", "lsof", "ps", "ps"], "unchanged pids reuse the last listeners");
+  assert.deepEqual(calls, ["ps", "lsof", "lsof", "ps", "ps"], "unchanged pids reuse the last listeners");
   assert.equal(published.length, 1);
   clock = 10_000;
   await watcher.poll();
-  assert.deepEqual(calls.slice(4), ["ps", "lsof"], "the listeners are re-read once they are 10 seconds old");
+  assert.deepEqual(calls.slice(5), ["ps", "lsof", "lsof"], "the listeners are re-read once they are 10 seconds old");
   // A new process in the command's group changes the pid set: read at once.
   ps = PS + "  113   110   110 node\n";
   clock = 11_000;
   await watcher.poll();
-  assert.deepEqual(calls.slice(6), ["ps", "lsof"]);
+  assert.deepEqual(calls.slice(8), ["ps", "lsof", "lsof"]);
   assert.equal(published.length, 1, "same ports, nothing published");
   watcher.close();
 });
@@ -382,7 +383,7 @@ test("ports compare by value without serializing", async () => {
     publish: (ports) => published.push(ports),
     pollMs: 60_000,
     lsofMaxAgeMs: 0,
-    exec: async (command) => (command === "ps" ? PS : ++reads < 3 ? LSOF : LSOF.replace("n*:5173", "n*:5174")),
+    exec: async (command, args) => (command === "ps" || args.includes("-d") ? PS : ++reads < 3 ? LSOF : LSOF.replace("n*:5173", "n*:5174")),
   });
   await watcher.poll();
   await watcher.poll();
@@ -390,4 +391,29 @@ test("ports compare by value without serializing", async () => {
   await watcher.poll();
   assert.equal(published.length, 2, "a port change is published");
   watcher.close();
+});
+
+test("a port served by an agent's background command names its task", async () => {
+  const published = [];
+  const asked = [];
+  const watcher = new PortWatcher({
+    roots: () => new Map([["/a#1", { pid: 100 }]]),
+    publish: (ports) => published.push(ports),
+    pollMs: 60_000,
+    exec: async (command, args) => {
+      if (command === "ps") return PS;
+      if (!args.includes("-d")) return LSOF;
+      asked.push(args[args.indexOf("-p") + 1]);
+      // The command's shell (110, its group leader) writes to the task's output; the server itself to a pipe.
+      return ["p110", "f1", "n/private/tmp/claude-501/-repo/abc/tasks/bk1x2y3z4.output", "p111", "f1", "npipe", ""].join("\n");
+    },
+  });
+  await watcher.poll();
+  watcher.close();
+  assert.deepEqual(asked, ["110,111"], "the listener and its group leader");
+  assert.deepEqual(published[0]["/a#1"], [
+    { port: 5173, pid: 111, command: "node", address: "*", taskId: "bk1x2y3z4" },
+    { port: 24678, pid: 111, command: "node", address: "127.0.0.1", taskId: "bk1x2y3z4" },
+  ]);
+  assert.deepEqual(parseTaskOutputs("p7\nn/Users/me/log.txt\np8\nnC:\\Temp\\tasks\\b9.output\n"), new Map([[8, "b9"]]));
 });

@@ -12,9 +12,29 @@ import "/src/styles.css";
 const weekly = { id: "weekly", label: "Weekly", shortLabel: "wk", usedPercent: 96, resetsAt: null };
 const session = { id: "session", label: "Session", shortLabel: "5h", usedPercent: 32, resetsAt: null };
 window.setDisplay = usageDisplay => updateSettings({ usageDisplay });
+// The Project's saved accounts: two for Claude, so its card offers a picker; one for Codex, which stays plain text.
+const accountListeners = new Set();
+let claudeChoice = null;
+window.assigned = [];
+const ready = (id, email) => ({ id, label: id, email, state: "ready" });
+window.milagre = {
+  getProjectAccounts: async (scopeKey) => ({ scopeKey, providers: [
+    { provider: "claude", accountId: claudeChoice, effectiveId: claudeChoice ?? "work", defaultId: "work", accounts: [ready("work", "work@example.test"), ready("personal", "me@example.test")] },
+    { provider: "codex", accountId: null, effectiveId: "personal", defaultId: "personal", accounts: [ready("personal", "victor@example.test")] },
+  ] }),
+  assignProjectAccount: async (scopeKey, provider, id) => {
+    window.assigned.push([scopeKey, provider, id]);
+    claudeChoice = id;
+    accountListeners.forEach((listener) => listener());
+    return window.milagre.getProjectAccounts(scopeKey);
+  },
+  onAccountsChanged: (listener) => (accountListeners.add(listener), () => accountListeners.delete(listener)),
+};
 function Fixture() {
   const [hasSession, setSession] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [scope, setScope] = useState(undefined);
+  window.setScope = setScope;
   window.setSession = setSession;
   window.setCollapsed = setCollapsed;
   const snapshot = { providers: [
@@ -26,7 +46,7 @@ function Fixture() {
     ] },
   ] };
   return <aside className="bg-surface rounded-[8px]" data-sidebar-collapsed={collapsed} style={{ width: collapsed ? 44 : 224, padding: 8, margin: 24 }}>
-    <SidebarUsage usage={{ snapshot, loading: false, refresh: async () => {}, refreshIfStale: () => {} }} />
+    <SidebarUsage scope={scope} usage={{ snapshot, loading: false, refresh: async () => {}, refreshIfStale: () => {} }} />
   </aside>;
 }
 document.documentElement.classList.add("dark");
@@ -130,13 +150,39 @@ async function browserChecks() {
     assert.match(await evaluate(cardText), /Gemini 5-hour/);
     assert.match(await evaluate(cardText), /Gemini weekly/);
     await screenshot("antigravity-card");
+
+    // With a Project, Claude's two accounts turn the name into a picker; Codex's one stays text.
+    await evaluate('window.setScope("/projects/work")');
+    await evaluate('document.querySelectorAll(".sidebar-usage-row")[0].click()');
+    const picker = 'document.querySelector("[data-usage-card] [aria-haspopup=listbox]")';
+    await waitFor(`Boolean(${picker})`);
+    assert.match(await evaluate(`${picker}.textContent`), /^work@example\.test$/);
+    await evaluate(`${picker}.click()`);
+    await waitFor('Boolean(document.querySelector("[role=listbox]"))');
+    // The panel sits outside the card: leaving the card for it keeps the card open.
+    await evaluate('document.querySelector("[data-usage-card]").dispatchEvent(new PointerEvent("pointerleave"))');
+    await delay(300);
+    assert.equal(await evaluate('Boolean(document.querySelector("[data-usage-card]"))'), true, "Card stays while its picker is open");
+    await screenshot("claude-account-picker");
+    await evaluate('[...document.querySelectorAll("[role=listbox] [data-picker-row]")].find((row) => row.textContent.includes("me@example.test")).click()');
+    await waitFor("window.assigned.length === 1");
+    assert.deepEqual(await evaluate("window.assigned[0]"), ["/projects/work", "claude", "personal"]);
+    await waitFor(`${picker}?.textContent.includes("me@example.test")`);
+    await delay(400);
+    assert.equal(await evaluate('Boolean(document.querySelector("[data-usage-card]"))'), true, "Card stays after a switch");
+    await screenshot("claude-account-switched");
+    await evaluate('document.querySelectorAll(".sidebar-usage-row")[1].click()');
+    await waitFor(`${cardText}.includes("victor@example.test")`);
+    await delay(100);
+    assert.equal(await evaluate(`Boolean(${picker})`), false, "One saved account shows plain text");
+    await evaluate("window.setScope(undefined)");
     await evaluate('document.querySelector("aside").style.marginTop = ""');
     await evaluate("window.setCollapsed(true)");
     await waitFor('document.querySelector("aside").dataset.sidebarCollapsed === "true"');
     assert.equal(await evaluate('getComputedStyle(document.querySelectorAll(".sidebar-usage-row")[1].querySelector(".sidebar-copy")).display'), "none");
     assert.equal(await evaluate('document.querySelectorAll(".sidebar-usage-rail")[1].firstElementChild.getBoundingClientRect().width'), 16);
     console.log(
-      "PASS: weekly-only width, 5h column alignment, actual percentages, remaining mode, banked resets row, Antigravity Gemini windows, collapsed rail, account email and name fallback",
+      "PASS: weekly-only width, 5h column alignment, actual percentages, remaining mode, banked resets row, Antigravity Gemini windows, collapsed rail, account email and name fallback, account picker",
     );
     app.exit(0);
   } catch (error) {

@@ -1,5 +1,5 @@
 import type { AgentRun } from "./agent-runs.mjs";
-import type { AgentEvent, BackgroundTask, ChatSummary, ModelProvider, Subagent } from "./model.ts";
+import type { AgentEvent, AgentPort, BackgroundTask, ChatSummary, ModelProvider, Subagent } from "./model.ts";
 
 /** What a Chat is doing: see CHAT_ACTIVITIES in chat-activity.mjs for which wins. */
 export type ChatActivityState = "waiting" | "working" | "failed" | "background" | "idle";
@@ -29,12 +29,26 @@ export function backgroundTasks(session: ActivitySession | undefined): Backgroun
 export function processWork(session: ActivitySession | undefined): Array<Subagent | BackgroundTask>;
 export function outlivesTurn(agent: Pick<Subagent, "background" | "source"> | undefined): boolean;
 export function backgroundWork(session: ActivitySession | undefined): Array<Subagent | BackgroundTask>;
+
+/** What a piece of background work is: a background subagent, an advisor, a command (with output), a workflow, or another task. */
+export type BackgroundItemType = "subagent" | "advisor" | "command" | "workflow" | "task";
+export const BACKGROUND_ITEM_LABELS: Readonly<Record<BackgroundItemType, string>>;
+export interface BackgroundItem {
+  type: BackgroundItemType;
+  id: string;
+  title: string;
+  startedAt: number;
+  /** The subagent or advisor itself; absent for a task. */
+  agent?: Subagent;
+}
+export function backgroundItems(session: ActivitySession | undefined, ports?: readonly Pick<AgentPort, "taskId">[]): BackgroundItem[];
 export function chatActivity(
   session: ActivitySession | undefined,
   run: Pick<AgentRun, "approvals" | "questions"> | undefined,
   lastOutcome?: ChatSummary["lastOutcome"],
 ): ChatActivity;
 export function backgroundLabel(count: number): string;
+export function plainTaskOutput(text: string | undefined): string;
 export function backgroundBusyMessage(action: "switch" | "reload" | "move", count: number, to?: string): string;
 export function notificationPreview(previous: string | undefined, text: string, startsMessage?: boolean): string;
 export function holdsAnnouncement(task: Pick<BackgroundTask, "kind"> | undefined): boolean;

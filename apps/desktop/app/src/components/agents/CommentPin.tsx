@@ -3,7 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
 import type { DesignPin, PinControls } from "./ArtifactCanvas";
-import { EASE_OUT } from "../../lib/ease";
+import { EASE_OUT, useMotionScale } from "../../lib/ease";
 import { THEME_EVENT } from "../../lib/theme-sheet";
 import { useDismiss } from "../../lib/use-dismiss";
 import { morphFace, useSize, HIDDEN_FACE } from "../motion/morph";
@@ -108,6 +108,7 @@ export function CommentPin({
   sent?: boolean;
 }) {
   const reduce = useReducedMotion();
+  const motionScale = useMotionScale();
   const root = useRef<HTMLDivElement>(null);
   const [bubble, measureBubble] = useSize();
   // Above the frames beside it while the bubble is open or shrinking back, so it stays whole past its design.
@@ -169,7 +170,7 @@ export function CommentPin({
         aria-label={`Comment ${number}${pin.resolved !== undefined ? ", resolved" : ""}${pin.text.trim() ? `: ${pin.text.trim()}` : ""}`}
         aria-expanded={open}
         onClick={() => comments.onOpen(pin.key)}
-        {...morphFace(!open, reduce)}
+        {...morphFace(!open, reduce, motionScale)}
         className={`absolute top-0 left-0 grid cursor-pointer place-items-center text-[11px] font-medium ${ink} ${open ? HIDDEN_FACE : "visible"}`}
         style={{ width: PIN, height: PIN, borderRadius: PIN_RADIUS }}
       >

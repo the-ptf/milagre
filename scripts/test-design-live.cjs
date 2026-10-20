@@ -397,7 +397,7 @@ async function browserChecks() {
 
     // 4. A Chat with no design yet: the first design_show opens the Designs by itself, and the composer keeps the focus.
     await window.loadURL(`${process.argv[2]}?fresh`);
-    const prompt = 'document.querySelector("textarea[aria-label=Prompt]")';
+    const prompt = 'document.querySelector("[data-prompt-editor]")';
     await waitFor(`!!${prompt}`);
     await evaluate(`${prompt}.focus(); true`);
     assert.equal(await evaluate(`!!${dock}`), false, "a Chat with no design has no Designs open");

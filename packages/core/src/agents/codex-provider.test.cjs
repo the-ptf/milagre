@@ -55,7 +55,7 @@ function codex(
       const rpc = new CodexRpc({ ...options, args: [FAKE], env: { ...process.env, FAKE_SCENARIO: scenario } });
       const request = rpc.request.bind(rpc);
       rpc.request = (method, params, options) => {
-        requests.push({ method, params });
+        requests.push({ method, params, options });
         return request(method, params, options);
       };
       return rpc;
@@ -477,6 +477,28 @@ test("gives up on an interrupt Codex never answers", async (t) => {
 test("cancels a startup that hangs", async (t) => {
   const { session, events } = codex(t, { scenario: "hang-init", interruptGraceMs: 50 });
   const pending = session.startTurn(TURN);
+  await session.interrupt();
+  await ended(events);
+  assert.deepEqual(events.at(-1), { type: "turn-cancelled" });
+  assert.equal(session.closed, true);
+  await pending;
+});
+
+test("starts and resumes threads without a time limit", async (t) => {
+  const started = codex(t);
+  await started.session.startTurn(TURN);
+  await ended(started.events);
+  const resumed = codex(t, { resumeId: "thread-9" });
+  await resumed.session.startTurn(TURN);
+  await ended(resumed.events);
+  assert.equal(started.requests.find((r) => r.method === "thread/start").options.timeoutMs, null);
+  assert.equal(resumed.requests.find((r) => r.method === "thread/resume").options.timeoutMs, null);
+});
+
+test("cancels a thread start that never answers", async (t) => {
+  const { session, events, requests } = codex(t, { scenario: "hang-thread", interruptGraceMs: 50 });
+  const pending = session.startTurn(TURN);
+  await waitUntil(() => requests.some((r) => r.method === "thread/start"));
   await session.interrupt();
   await ended(events);
   assert.deepEqual(events.at(-1), { type: "turn-cancelled" });

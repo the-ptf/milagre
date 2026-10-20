@@ -1,3 +1,4 @@
+const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
@@ -31,7 +32,7 @@ async function webhookMac(t, extra = {}) {
     },
   });
   await mac.client.call("project:open", [mac.project]);
-  await mac.client.call("routines:enabled:save", [true]);
+  await mac.client.call("routines:enabled:save", [true, AI_CONSENT_VERSION]);
   const create = (extra = {}) =>
     mac.client.call("routines:create", [
       {

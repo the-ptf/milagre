@@ -4,9 +4,10 @@ import type { ReactNode } from "react";
 export function Notice({
   children,
   onDismiss,
+  action,
   className = "mb-2",
   ...data
-}: { children: ReactNode; onDismiss?: () => void; className?: string } & { [key: `data-${string}`]: string | boolean | undefined }) {
+}: { children: ReactNode; onDismiss?: () => void; action?: ReactNode; className?: string } & { [key: `data-${string}`]: string | boolean | undefined }) {
   return (
     <div
       role="status"
@@ -16,9 +17,12 @@ export function Notice({
       style={{ animation: "fade-up 250ms cubic-bezier(0.23,1,0.32,1) both" }}
     >
       <div className="min-w-0 flex-1 break-words">{children}</div>
-      <button type="button" data-notice-dismiss onClick={onDismiss} className="shrink-0 text-xs font-medium text-ink-3 transition-colors hover:text-ink">
-        Dismiss
-      </button>
+      {action}
+      {onDismiss && (
+        <button type="button" data-notice-dismiss onClick={onDismiss} className="shrink-0 text-xs font-medium text-ink-3 transition-colors hover:text-ink">
+          Dismiss
+        </button>
+      )}
     </div>
   );
 }

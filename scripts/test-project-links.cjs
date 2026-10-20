@@ -134,7 +134,7 @@ async function main() {
     const click = (text) => evaluate(`[...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}).click()`);
     const input = (selector, value) =>
       evaluate(
-        `(() => {const input = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', {bubbles:true})); })()`,
+        `(() => {const input = document.querySelector(${JSON.stringify(selector)}); if (input.matches('[data-prompt-editor]')) input.value = ${JSON.stringify(value)}; else Object.getOwnPropertyDescriptor(input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', {bubbles:true})); })()`,
       );
     const linkProjects = () => evaluate(`document.querySelector('[data-link-projects]').click()`);
     const scopeOf = (name) => `[data-sidebar-scope][aria-label=${JSON.stringify(name)}]`;
@@ -229,7 +229,7 @@ async function main() {
     assert.equal(await evaluate(`['reveal', 'copy-path', 'settings'].some((key) => !!document.querySelector('[data-scope-menu-item="' + key + '"]'))`), false);
     await shot("link-selector");
     await closeScopeMenu();
-    await input('textarea[aria-label="Prompt"]', "Update status.txt across both Projects.");
+    await input("[data-prompt-editor]", "Update status.txt across both Projects.");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
     await waitFor(() => evaluate(`!!document.querySelector('dialog[open] #ai-consent-title')`), "AI sharing decision before Link send");
     assert.equal(providerCalls, 0, "No provider call before consent");
@@ -246,7 +246,7 @@ async function main() {
     assert.equal(await evaluate(`document.querySelector('[data-chat-pane]').textContent.includes('RDFood / Link')`), false);
     assert.ok(await evaluate(`document.body.textContent.includes('2 Worktrees')`));
     await shot("shared-chat");
-    await input('textarea[aria-label="Prompt"]', "Keep my draft while viewing the linked Projects");
+    await input("[data-prompt-editor]", "Keep my draft while viewing the linked Projects");
     await click("Canvas");
     await waitFor(() => evaluate(`!!document.querySelector('[data-canvas]')`), "Link canvas");
     assert.ok(await isCurrent(linkScope), "Canvas keeps the selected Link");
@@ -267,7 +267,7 @@ async function main() {
     );
     await shot("link-canvas");
     await click("Back");
-    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "Keep my draft while viewing the linked Projects");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "Keep my draft while viewing the linked Projects");
     await click("Canvas");
     await waitFor(
       () => evaluate(`!![...document.querySelectorAll('[data-canvas-chat]')].find(button => button.textContent.includes('Shared Link Chat'))`),
@@ -275,11 +275,11 @@ async function main() {
     );
     await evaluate(`[...document.querySelectorAll('[data-canvas-chat]')].find(button => button.textContent.includes('Shared Link Chat')).click()`);
     assert.equal(
-      await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`),
+      await evaluate(`document.querySelector('[data-prompt-editor]').value`),
       "Keep my draft while viewing the linked Projects",
       "Opening the current shared Chat from a member keeps its draft",
     );
-    await input('textarea[aria-label="Prompt"]', "");
+    await input("[data-prompt-editor]", "");
     assert.ok(await evaluate(`!!document.querySelector('[data-changes-toggle]')`), "Shared Chats use the same right Changes toggle as Project Chats");
     await evaluate(`document.querySelector('[data-changes-toggle]').click()`);
     await waitFor(
@@ -455,26 +455,23 @@ async function main() {
     assert.equal(await evaluate(`[...document.querySelectorAll('dialog button')].find(button=>button.textContent==='Continue').disabled`), true);
     await shot("choose-git-project");
     await click("Cancel");
-    await input('textarea[aria-label="Prompt"]', "Keep this Link draft");
+    await input("[data-prompt-editor]", "Keep this Link draft");
     await openScope(scopeOf("food-api"));
     await waitFor(() => isCurrent(scopeOf("food-api")), "ordinary Project restored");
-    await input('textarea[aria-label="Prompt"]', "Keep this Project draft");
+    await input("[data-prompt-editor]", "Keep this Project draft");
     await openScope(linkScope);
-    await waitFor(() => evaluate(`document.querySelector('textarea[aria-label="Prompt"]')?.value === 'Keep this Link draft'`), "independent Link draft");
-    await input('textarea[aria-label="Prompt"]', "Follow up in both Worktrees");
+    await waitFor(() => evaluate(`document.querySelector('[data-prompt-editor]')?.value === 'Keep this Link draft'`), "independent Link draft");
+    await input("[data-prompt-editor]", "Follow up in both Worktrees");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
     await waitFor(() => providerCalls === 2, "second turn");
     assert.deepEqual((await client.call("link:snapshot", [link.id])).state.sessions[session.id].worktrees, session.worktrees);
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
-    await input('textarea[aria-label="Prompt"]', "An independent new Chat draft");
+    await input("[data-prompt-editor]", "An independent new Chat draft");
     await openScope(scopeOf("food-api"));
     await waitFor(() => isCurrent(scopeOf("food-api")), "Project switch");
-    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "Keep this Project draft");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "Keep this Project draft");
     await openScope(linkScope);
-    await waitFor(
-      () => evaluate(`document.querySelector('textarea[aria-label="Prompt"]')?.value === 'An independent new Chat draft'`),
-      "new Chat draft restored",
-    );
+    await waitFor(() => evaluate(`document.querySelector('[data-prompt-editor]')?.value === 'An independent new Chat draft'`), "new Chat draft restored");
     assert.equal(
       await evaluate(`document.querySelector('[data-chat-pane]').textContent.includes('Updated status.txt in both owned Worktrees.')`),
       false,
@@ -491,7 +488,7 @@ async function main() {
       { mode: 0o755 },
     );
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
-    await input('textarea[aria-label="Prompt"]', "Slow new shared Chat");
+    await input("[data-prompt-editor]", "Slow new shared Chat");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
     await waitFor(
       () =>
@@ -503,12 +500,12 @@ async function main() {
     );
     assert.equal(providerCalls, 3, "The send's turn started; its agent's Worktree creation is what waits");
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
-    await input('textarea[aria-label="Prompt"]', "Slow new shared Chat");
+    await input("[data-prompt-editor]", "Slow new shared Chat");
     await fs.writeFile(worktreeGate, "ready");
     await waitFor(() => providerCalls === 3, "earlier send finishes");
     await delay(500);
     assert.equal(
-      await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`),
+      await evaluate(`document.querySelector('[data-prompt-editor]').value`),
       "Slow new shared Chat",
       "A late send must not select its Chat or clear the new draft",
     );
@@ -516,7 +513,7 @@ async function main() {
     await fs.unlink(worktreeGate);
     await fs.unlink(worktreeStarted);
     await evaluate(`document.querySelector('button[aria-label="New chat"]').click()`);
-    await input('textarea[aria-label="Prompt"]', "Send then switch scope");
+    await input("[data-prompt-editor]", "Send then switch scope");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
     await waitFor(
       () =>
@@ -535,7 +532,7 @@ async function main() {
     await openScope(linkScope);
     await waitFor(() => isCurrent(linkScope), "returned Link");
     assert.equal(
-      await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`),
+      await evaluate(`document.querySelector('[data-prompt-editor]').value`),
       "",
       "Acknowledged first send must not return as an unsent new Chat draft",
     );
@@ -544,10 +541,10 @@ async function main() {
     // Missing members preserve history and the unsent draft, with a named error.
     await fs.rename(projects[0], projects[0] + "-moved");
     try {
-      await input('textarea[aria-label="Prompt"]', "Draft survives missing Project");
+      await input("[data-prompt-editor]", "Draft survives missing Project");
       await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
       await waitFor(() => evaluate(`document.body.textContent.includes('unavailable')`), "named unavailable member error");
-      assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "Draft survives missing Project");
+      assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "Draft survives missing Project");
       assert.equal(providerCalls, 4);
       await shot("missing-member");
     } finally {
@@ -562,7 +559,7 @@ async function main() {
     daemon = await startDaemon({ dataDir: profile, version: "0.1.0", runtimeOptions: options });
     client = await connectHost({ dataDir: profile });
     await waitFor(() => evaluate(`!document.querySelector('[data-host-disconnected]')`), "Link reconnect");
-    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "Draft survives missing Project");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "Draft survives missing Project");
     assert.deepEqual((await client.call("link:snapshot", [link.id])).state.sessions[session.id].worktrees, session.worktrees);
     console.log(
       "PASS: real desktop creates a named Link, owns two Worktrees in one Chat, chooses Git scope, preserves scoped drafts and reconnects without new Worktrees.",

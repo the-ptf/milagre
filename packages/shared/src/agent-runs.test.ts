@@ -156,8 +156,25 @@ test("keeps partial text when a turn fails or is cancelled", () => {
     key(1),
     { type: "turn-cancelled" },
   );
-  assert.equal(cancelled.state.messages[0].body, "What should I work on instead?");
+  assert.equal(cancelled.state.messages[0].body, "");
   assert.equal(cancelled.state.messages[0].outcome, "cancelled");
+});
+
+test("stopping keeps the agent's language and records even an empty or quit-cancelled reply", () => {
+  for (const text of ["", "  \n  ", "  Começando a verificação.\n", "検証を開始します。", "What should I work on instead?"]) {
+    for (const quit of [false, true]) {
+      const runs = startRun({}, key(1), "gpt-6-sol");
+      runs[key(1)].text = text;
+      const stopped = applyAgentEvent(base(), runs, PROJECT, key(1), { type: "turn-cancelled", ...(quit ? { quit } : {}) });
+      const message = stopped.state.messages[0];
+      assert.equal(message.body, text.trim());
+      assert.equal(message.outcome, "cancelled");
+      assert.equal(message.id, 10);
+      assert.equal(stopped.state.next_id, 11);
+      assert.equal(stopped.changed, true);
+      assert.equal(stopped.runs[key(1)], undefined);
+    }
+  }
 });
 
 test("ignores events for chats with nothing running", () => {
@@ -295,7 +312,7 @@ test("a turn that completes with no text after a steer split saves no reply", ()
   assert.equal(done.state, split.state);
   assert.equal(done.changed, false);
   const cancelled = applyAgentEvent(split.state, split.runs, PROJECT, key(1), { type: "turn-cancelled" });
-  assert.equal(cancelled.state.messages.at(-1)?.body, "What should I work on instead?");
+  assert.equal(cancelled.state.messages.at(-1)?.body, "");
   const more = applyAgentEvent(split.state, { [key(1)]: { ...split.runs[key(1)], text: "Rest" } }, PROJECT, key(1), { type: "turn-completed" });
   assert.equal(more.state.messages.at(-1)?.body, "Rest");
 });
@@ -443,7 +460,7 @@ test("a step still running when the turn ends is saved as done or failed with th
     { type: "step-output", id: "s1", text: "ok 1\n" },
   ]).runs;
   const cancelled = fold([{ type: "turn-cancelled" }], running).state.messages.at(-1);
-  assert.equal(cancelled?.body, "Testing.\n\nWhat should I work on instead?");
+  assert.equal(cancelled?.body, "Testing.");
   assert.deepEqual(cancelled?.steps, [{ ...npmTest, status: "failed", offset: 8, detail: "$ npm test\nok 1\n" }]);
   assert.equal(fold([{ type: "turn-failed", message: "boom" }], running).state.messages.at(-1)?.steps?.[0].status, "failed");
   assert.equal(fold([{ type: "turn-completed" }], running).state.messages.at(-1)?.steps?.[0].status, "done");

@@ -64,6 +64,8 @@ function mediaName(text: string, path: string): string {
 
 type Answer = { status: number; ok: boolean; etag?: string | null; text: () => Promise<string> };
 const LOST = "Connection lost. Reconnect to your computer. Check the Chat before sending again.";
+/** The connection dropped or a deadline passed: the request may have reached the Mac (see retryKind in send-retry). */
+const lost = () => Object.assign(new Error(LOST), { retry: "unknown" as const });
 const decoder = new TextDecoder();
 const MEDIA_AT_ONCE = 4;
 // Creating a worktree can fetch and copy files; removing one with big ignored folders can take minutes.
@@ -86,10 +88,10 @@ function overRelay(
   signal: AbortSignal,
 ) {
   // The transport cannot cancel a request, so the deadline only stops waiting for it.
-  const deadline = new Promise<never>((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error(LOST)), { once: true }));
+  const deadline = new Promise<never>((_resolve, reject) => signal.addEventListener("abort", () => reject(lost()), { once: true }));
   const answer = through.then((relayed) =>
     relayed.request(method, route, headers, body).catch((error) => {
-      throw (error as Error)?.name === "RelayTransportError" ? error : new Error(LOST);
+      throw (error as Error)?.name === "RelayTransportError" ? error : lost();
     }),
   );
   return Promise.race([deadline, answer]);
@@ -183,7 +185,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
     try {
       response = await fetcher(url + route, { method: body === undefined ? "GET" : "POST", headers: { ...auth, ...headers }, body, signal, redirect: "error" });
     } catch {
-      throw new Error(LOST);
+      throw lost();
     }
     if (response.redirected || (response.url && new URL(response.url).origin !== url))
       throw new Error("The computer address redirected. Enter its direct HTTPS address.");
@@ -223,19 +225,22 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       try {
         value = JSON.parse(await response.text());
       } catch {
-        throw new Error(
-          [401, 403].includes(response.status)
-            ? through
-              ? "Your Mac refused this phone. Scan its code again in Settings → Devices."
-              : "Your computer's Cloudflare access was refused. Scan its pairing code again."
-            : response.status >= 500
-              ? "Your computer isn't answering. Check that Milagre and its mobile host are running on your Mac."
-              : `Unexpected response from your computer (${response.status}).`,
+        throw Object.assign(
+          new Error(
+            [401, 403].includes(response.status)
+              ? through
+                ? "Your Mac refused this phone. Scan its code again in Settings → Devices."
+                : "Your computer's Cloudflare access was refused. Scan its pairing code again."
+              : response.status >= 500
+                ? "Your computer isn't answering. Check that Milagre and its mobile host are running on your Mac."
+                : `Unexpected response from your computer (${response.status}).`,
+          ),
+          { status: response.status },
         );
       }
       if (value?.v !== 1) throw new Error("Incompatible daemon response. Update the app and daemon together.");
       // The Mac's channel holds 16 requests at once (phone-channels.cjs); a busy Mac fills it with slow ones.
-      if (response.status === 429) throw new Error("Your computer is busy right now. Try again in a moment.");
+      if (response.status === 429) throw Object.assign(new Error("Your computer is busy right now. Try again in a moment."), { status: 429 });
       if (!response.ok || value.error)
         throw Object.assign(new Error(value.error?.message || `Request failed (${response.status})`), { status: response.status });
       if (body === undefined && response.etag) cached.set(route, { etag: response.etag, value: value.result });
@@ -280,7 +285,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       // The carrier is chosen when the request starts: a route that switched while this waited its turn is not the one to use.
       const response = await inTurn(async () => {
         const through = carrier();
-        if (!through) throw new Error(LOST);
+        if (!through) throw lost();
         return timed(timeoutMs, (signal) => overRelay(through, "GET", mediaRoute(projectPath, path), {}, undefined, signal));
       });
       if (response.status !== 200) throw new Error("Could not load this image from your Mac.");
@@ -308,11 +313,10 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       ]);
       const [links, registry] = groups;
       return [
-        ...projects,
-        ...links.map((link) => ({
+        ...projects.map(({ hidden: _hidden, ...project }) => project),
+        ...links.map(({ hidden: _hidden, ...link }) => ({
           path: scopeKey({ kind: "link", linkId: link.id }),
           name: link.name,
-          hidden: link.hidden,
           link,
           projects: link.projectIds.map((id) => registry.find((project) => project.id === id) ?? { id, name: "Unavailable Project", path: "" }),
         })),

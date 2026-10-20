@@ -131,7 +131,7 @@ async function browserChecks() {
   const button = (scope, label) =>
     `[...document.querySelectorAll(${JSON.stringify(`${scope} button`)})].find((b) => b.textContent.trim() === ${JSON.stringify(label)})`;
   const pending = '[data-gate-status="pending"]';
-  const prompt = 'textarea[aria-label="Prompt"]';
+  const prompt = "[data-prompt-editor]";
   const type = async (text) => {
     await evaluate(`document.querySelector(${JSON.stringify(prompt)}).focus()`);
     window.webContents.insertText(text);

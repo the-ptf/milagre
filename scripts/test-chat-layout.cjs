@@ -8,13 +8,18 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
+import { PersistenceNotices } from "/src/components/PersistenceNotice";
 import { ChatComposer } from "/src/components/ChatComposer";
 import { MessageScroller } from "/src/components/agents/message-scroller";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
-window.milagre = Object.freeze({ listEditors: async () => [] });
+window.milagre = Object.freeze({ listEditors: async () => [], retrySave: () => new Promise(resolve => { window.finishSave = resolve; }) });
 const noop = () => {};
 function Fixture() {
+  const [saveScopes, setSaveScopes] = useState([]);
+  window.setSaveScopes = setSaveScopes;
+  const [disconnected, setDisconnected] = useState(false);
+  window.setDisconnected = setDisconnected;
   const [imageChat, setImageChat] = useState(false);
   const [imageHeight, setImageHeight] = useState(320);
   window.showImageChat = setImageChat;
@@ -48,6 +53,7 @@ function Fixture() {
     </article>)}
   </MessageScroller>;
   return <div style={{ height: "100%", padding: 12 }}>
+    <PersistenceNotices scopes={saveScopes}>{disconnected && <div data-save-connection>Reconnecting to your computer</div>}</PersistenceNotices>
     {/* Exercise the fully expanded history, as when Find is open; paging has its own regression. */}
     <ChatComposer findOpen messages={[...messages, ...extra]}
       imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
@@ -112,7 +118,7 @@ async function browserChecks() {
     assert.deepEqual(backward, expectedFocus.toReversed(), "Shift+Tab reverses the New Chat focus order");
     assert.ok(
       await evaluate(`(() => {
-        const prompt = document.querySelector('textarea[aria-label="Prompt"]').getBoundingClientRect();
+        const prompt = document.querySelector('[data-prompt-editor]').getBoundingClientRect();
         const add = document.querySelector('[aria-label="Add attachments and sources"]').getBoundingClientRect();
         const model = document.querySelector('[data-model-name]').getBoundingClientRect();
         return prompt.bottom <= add.top && add.right <= model.left;
@@ -449,12 +455,12 @@ async function browserChecks() {
     await evaluate(`document.querySelector('${trigger}').click()`);
     await waitFor(`!document.querySelector('[data-model-picker]')`);
     await evaluate('window.setDraft("short")');
-    await waitFor('document.querySelector("textarea[aria-label=\\"Prompt\\"]").value === "short"');
-    const compactTop = await evaluate('document.querySelector("textarea[aria-label=\\"Prompt\\"]").getBoundingClientRect().top');
+    await waitFor('document.querySelector("[data-prompt-editor]").value === "short"');
+    const compactTop = await evaluate('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top');
     await evaluate(`window.setDraft(${JSON.stringify("A longer prompt ".repeat(50))})`);
-    await waitFor('document.querySelector("textarea[aria-label=\\"Prompt\\"]").getBoundingClientRect().top < ' + compactTop);
+    await waitFor('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top < ' + compactTop);
     await evaluate('window.setDraft("")');
-    await waitFor('document.querySelector("textarea[aria-label=\\"Prompt\\"]").getBoundingClientRect().top === ' + compactTop);
+    await waitFor('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top === ' + compactTop);
     await evaluate('window.setModel("claude-sonnet-5-5")');
     await waitFor(`!document.querySelector('${trigger} [data-fast-mode]')`);
     await evaluate(`document.querySelector('${trigger}').click()`);
@@ -480,17 +486,36 @@ async function browserChecks() {
     window.webContents.setZoomFactor(1);
     await delay(250);
     assert.ok(!consoleErrors.some((message) => message.includes("Maximum update depth")), "A narrow composer with an empty draft settles");
-    assert.equal(
-      await evaluate('document.querySelector("textarea[aria-label=\\"Prompt\\"]").getBoundingClientRect().top'),
-      compactTop,
-      "The empty prompt is compact again",
-    );
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").getBoundingClientRect().top'), compactTop, "The empty prompt is compact again");
     console.log("PASS: long chats open at the bottom before paint and stay there while messages measure, including after reading older messages");
     console.log("PASS: Go to bottom appears while reading earlier messages, hides at the bottom, and resumes following new messages");
     console.log("PASS: PR action pill placement, click action, disabled state, tones, and removal");
     console.log("PASS: fast mode appears for Codex models and the Opus models that have it, the prompt expands on wrapping, and a narrow empty prompt settles");
     console.log("PASS: message previews stay inside the conversation and above the prompt");
     console.log("PASS: navigation stays capped at 15 lines across the full Chat");
+    // Project and Link fallback warnings share one stack, even while a connection banner is present.
+    await evaluate(`window.setSaveScopes([
+      { scope: "/project", name: "Project", failure: { error: "disk full", code: "ENOSPC", saving: false }, offline: false },
+      { scope: "milagre-link:11111111-1111-4111-8111-111111111111", name: "Shared Chats", failure: { error: "denied", code: "EACCES", saving: false }, offline: true }
+    ]); window.setDisconnected(true);`);
+    await waitFor(`document.querySelectorAll('[data-save-failure]').length === 2`);
+    assert.ok(
+      await evaluate(
+        `(() => { const rows = [...document.querySelectorAll('[data-save-connection], [data-save-failure]')].map(e => e.getBoundingClientRect()); return rows[0].bottom <= rows[1].top && rows[1].bottom <= rows[2].top; })()`,
+      ),
+      "Connection, Project and Link warnings never overlap",
+    );
+    assert.equal(await evaluate(`document.querySelectorAll('[data-save-failure] [data-notice-dismiss]').length`), 0);
+    assert.equal(await evaluate(`document.querySelectorAll('[data-save-failure] button')[1].disabled`), true, "Offline saving is disabled");
+    await evaluate(`document.querySelector('[data-save-failure] button').click()`);
+    await waitFor(
+      `document.querySelector('[data-save-failure] button').disabled && document.querySelector('[data-save-failure]').textContent.includes('Saving...')`,
+    );
+    await evaluate(`window.finishSave(); window.setSaveScopes([]); window.setDisconnected(false);`);
+    await waitFor(`!document.querySelector('[data-save-failure]')`);
+    console.log(
+      "PASS: simultaneous Project/Link save warnings and disconnection stack without overlap; retry stays pending, offline retry is disabled, and confirmed recovery removes notices",
+    );
     app.exit(0);
   } catch (error) {
     console.error(error);

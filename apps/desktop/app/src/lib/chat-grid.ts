@@ -1,4 +1,5 @@
 import type { AgentRuns } from "@milagre/shared/agent-runs";
+import { isHiddenRunChat } from "@milagre/shared/chats";
 import type { CoordinatorState, LinkState, LinkedWork } from "../model";
 
 /** How the Chat view shows Chats: the open one alone, or every active one side by side. */
@@ -16,13 +17,20 @@ export function saveChatLayout(storage: Pick<Storage, "setItem">, layout: ChatLa
 
 /**
  * Keys (`<project>#<id>`) of the Chats the grid shows besides the focused one: a turn running, waiting on the user or
- * asking, a Delegation working there, or a finished turn not read yet. Named Links' Chats stay out.
+ * asking, a Delegation working there, or a finished turn not read yet. Named Links' Chats stay out, and so do hidden Run
+ * Chats (an hourly Routine would fill the grid), except while their run waits on an approval or a question.
  */
 export function activeChatKeys(runs: AgentRuns, work: LinkedWork, states: Record<string, CoordinatorState | LinkState>): string[] {
   const keys = new Set([...Object.keys(runs), ...work.delegations.flatMap((item) => (item.to_chat ? [item.to_chat] : []))]);
+  const sessions = new Map<string, CoordinatorState["sessions"][string] | LinkState["sessions"][string]>();
   for (const [path, state] of Object.entries(states))
-    for (const session of Object.values(state.sessions ?? {})) if (session.unread && !session.archived) keys.add(`${path}#${session.id}`);
-  return [...keys].filter((key) => !key.startsWith("milagre-link:"));
+    for (const session of Object.values(state.sessions ?? {})) {
+      const key = `${path}#${session.id}`;
+      sessions.set(key, session);
+      if (session.unread && !session.archived) keys.add(key);
+    }
+  const waiting = (key: string) => Boolean(runs[key]?.approvals.length || runs[key]?.questions.length);
+  return [...keys].filter((key) => !key.startsWith("milagre-link:") && !isHiddenRunChat(sessions.get(key), waiting(key)));
 }
 
 /**

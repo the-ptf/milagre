@@ -2,17 +2,24 @@ import { useEffect, useState, type FocusEvent } from "react";
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { RefreshIcon } from "@hugeicons/core-free-icons";
-import type { ProviderUsage } from "../../model";
+import type { ModelProvider, ProviderUsage } from "../../model";
 import { useSettings } from "../../lib/settings";
 import { PROVIDER_NAMES, formatPercent, formatResetsIn, formatUpdatedAgo, shownPercent, shownSuffix } from "./format";
 import { ProviderLogo } from "../ProviderLogo";
 import { UsageBar } from "./UsageBar";
+import { projectAccountOptions, useProjectAccounts } from "../ProjectAccountsSettings";
+import { Select } from "../primitives/Select";
+import { bridgeForKey } from "../../lib/computer-bridge";
 
 export const USAGE_CARD_WIDTH = 288;
 
 type UsageCardProps = {
   id: string;
   usage: ProviderUsage;
+  /** The Project or Link whose account the card can switch; none shows the account as plain text. */
+  scope?: string;
+  /** The account picker's panel opened or closed; it sits outside the card, so the card must not close under it. */
+  onPickerOpenChange: (open: boolean) => void;
   loading: boolean;
   position: { left: number; bottom: number };
   onRefresh: () => void;
@@ -21,7 +28,62 @@ type UsageCardProps = {
   onBlur: (event: FocusEvent<HTMLDivElement>) => void;
 };
 
-export function UsageCard({ id, usage, loading, position, onRefresh, onPointerEnter, onPointerLeave, onBlur }: UsageCardProps) {
+function AccountText({ account }: { account?: string }) {
+  return (
+    <p className="break-words text-[14px] font-semibold leading-5" data-usage-account>
+      {account || "Account unavailable"}
+    </p>
+  );
+}
+
+// The account line in the card's header: a picker when the Project has more than one saved account for the provider.
+function AccountPicker({
+  scope,
+  provider,
+  account,
+  onOpenChange,
+}: {
+  scope: string;
+  provider: ModelProvider;
+  account?: string;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { shown, busy, error, act } = useProjectAccounts(scope);
+  const group = shown?.providers.find((item) => item.provider === provider);
+  if (!group || group.accounts.filter((item) => !item.missing).length < 2) return <AccountText account={account} />;
+  const defaultAccount = group.accounts.find((item) => item.id === group.defaultId);
+  return (
+    <div className="flex min-w-0 flex-col items-start" data-usage-account>
+      <Select
+        label={`${PROVIDER_NAMES[provider]} account for this Project`}
+        value={group.accountId ?? ""}
+        width={300}
+        variant="text"
+        onOpenChange={onOpenChange}
+        triggerClassName="text-[14px] font-semibold leading-5"
+        // Not `disabled` while saving: a disabled trigger drops focus to <body>, which closes the card.
+        onChange={(next) => {
+          if (!busy) void act(() => bridgeForKey(scope).assignProjectAccount(scope, provider, next || null));
+        }}
+        // Just the account on one line, no plan icon (the list shows the full address); Settings' Default badge doesn't fit the header,
+        // and the panel's first row still says the default is in use.
+        options={projectAccountOptions(group).map(({ icon: _icon, ...option }) => ({
+          ...option,
+          display: (
+            <span className="min-w-0 truncate text-left">{option.value === "" ? defaultAccount?.email || defaultAccount?.label || account : option.label}</span>
+          ),
+        }))}
+      />
+      {error && (
+        <p role="alert" className="text-[12px] text-red">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function UsageCard({ id, usage, scope, loading, position, onRefresh, onPickerOpenChange, onPointerEnter, onPointerLeave, onBlur }: UsageCardProps) {
   const [now, setNow] = useState(() => Date.now());
   const name = PROVIDER_NAMES[usage.provider];
   const account = usage.account?.email || usage.account?.label;
@@ -59,9 +121,11 @@ export function UsageCard({ id, usage, loading, position, onRefresh, onPointerEn
           <ProviderLogo provider={usage.provider} size={16} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="break-words text-[14px] font-semibold leading-5" data-usage-account>
-            {account || "Account unavailable"}
-          </p>
+          {scope ? (
+            <AccountPicker scope={scope} provider={usage.provider} account={account} onOpenChange={onPickerOpenChange} />
+          ) : (
+            <AccountText account={account} />
+          )}
           <p className="text-[12px] text-ink-3">{formatUpdatedAgo(usage.updatedAt, now)}</p>
         </div>
         <button

@@ -48,7 +48,7 @@ A page in a Chromium browser on the host that a **Chat** may view and control. I
 _Avoid_: tab (a browser's own UI term), session (the page's sign-in state is part of it, not a separate thing)
 
 **Terminal**:
-An interactive shell the user opens in a **Chat**. It starts in that **Chat**'s **Worktree** with the user's own environment and the shell chosen for that computer. Automatic selection uses installed zsh on Linux or the user's login shell otherwise; changing the choice applies only to new **Terminals**. It belongs to the **Chat**: other **Chats**, even in the same **Worktree**, do not see it, and the **Chat**'s agent neither reads nor types in it. A **Chat** can have several. A **Terminal** keeps running when the desktop app closes, and ends when its shell exits or its **Chat** is archived. See ADR-0008.
+An interactive shell the user opens in a **Chat**. It starts in that **Chat**'s **Worktree** (or a shared Chat's workspace folder before its first Worktree is created) with the user's own environment and the shell chosen for that computer. Automatic selection uses installed zsh on Linux or the user's login shell otherwise; changing the choice applies only to new **Terminals**. It belongs to the **Chat**: other **Chats**, even in the same **Worktree**, do not see it, and the **Chat**'s agent neither reads nor types in it. A **Chat** can have several. A **Terminal** keeps running when the desktop app closes, and ends when its shell exits or its **Chat** is archived. See ADR-0008.
 _Avoid_: console, shell (the program running inside a **Terminal**)
 
 **Task list**:
@@ -91,6 +91,9 @@ What fires a **Routine**: a schedule, a Linear event or a webhook. Used loosely 
 
 **Run**:
 One firing of a **Routine**. It acts, is quiet, fails, or is skipped because its **Chat** was busy or the **Computer** missed its time.
+
+**Run Chat**:
+A **Chat** a **Run** opened. It lives in its **Routine**'s Runs list, out of the sidebar, until you send it a message, pin it or rename it.
 
 **Quiet run**:
 A **Run** whose reply, after its last tool step, starts with `(pass)`. Its divider collapses, its reply is hidden, and it sends no notification.

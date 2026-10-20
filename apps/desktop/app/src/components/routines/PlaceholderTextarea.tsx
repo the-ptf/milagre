@@ -24,6 +24,7 @@ export function PlaceholderTextarea({
   label,
   invalid = false,
   rows = 4,
+  placeholder,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -31,6 +32,7 @@ export function PlaceholderTextarea({
   label: string;
   invalid?: boolean;
   rows?: number;
+  placeholder?: string;
 }) {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const [open, setOpen] = useState<Open | null>(null);
@@ -118,6 +120,7 @@ export function PlaceholderTextarea({
         aria-controls={open ? "routine-placeholders" : undefined}
         data-routine-prompt
         rows={rows}
+        placeholder={placeholder}
         value={value}
         onChange={(event) => {
           onChange(event.target.value);
@@ -126,7 +129,7 @@ export function PlaceholderTextarea({
         onSelect={(event) => look(event.currentTarget.value, event.currentTarget.selectionStart)}
         onKeyDown={onKeyDown}
         onBlur={() => setOpen(null)}
-        className={`w-full resize-y rounded-lg border bg-surface px-3 py-2 text-[13px] leading-[1.5] text-ink outline-none focus:border-ink focus:ring-1 focus:ring-ink ${invalid ? "border-red" : "border-line-strong"}`}
+        className={`w-full resize-y rounded-lg border bg-surface px-3 py-2 text-[13px] leading-[1.5] text-ink outline-none placeholder:text-ink-3 focus:border-ink focus:ring-1 focus:ring-ink ${invalid ? "border-red" : "border-line-strong"}`}
       />
       {open &&
         anchor &&

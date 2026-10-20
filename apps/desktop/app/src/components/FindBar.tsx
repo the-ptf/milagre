@@ -133,7 +133,7 @@ export function FindBar({
     () => () => {
       clear();
       const target = returnTo.current;
-      const prompt = rootRef.current?.querySelector<HTMLElement>('textarea[aria-label="Prompt"]');
+      const prompt = rootRef.current?.querySelector<HTMLElement>("[data-prompt-editor]");
       (target instanceof HTMLElement && target.isConnected && target !== document.body ? target : prompt)?.focus();
     },
     [],

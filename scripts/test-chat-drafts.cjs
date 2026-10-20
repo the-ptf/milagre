@@ -53,11 +53,11 @@ async function browserChecks() {
     }
     throw Error(`Timed out: ${source}`);
   }
-  const prompt = `document.querySelector('textarea[aria-label="Prompt"]')`;
+  const prompt = `document.querySelector('[data-prompt-editor]')`;
   const type = (text) =>
     evaluate(`(() => {
       const input = ${prompt};
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(text)});
+      input.value = ${JSON.stringify(text)};
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`);
   const promptIs = (text) => waitFor(`${prompt}?.value === ${JSON.stringify(text)}`);

@@ -88,6 +88,8 @@ function createRoutineTools({
   checkTarget = async (target) => target,
   // Deletes a Routine with what lives outside the store (a webhook's secret): runtime-adapter's removeRoutine.
   remove = (routineId) => store.remove(routineId),
+  // Keeps a hidden Run Chat a Heartbeat was set on, once the Heartbeat is saved (runtime-adapter's keepRunChat).
+  keepChat = async () => {},
   now = Date.now,
 }) {
   function definitions(chatId) {
@@ -150,6 +152,7 @@ function createRoutineTools({
             permissionMode: settings.permissionMode,
             createdBy: { kind: "agent", chatId },
           });
+          await keepChat(routine.target.chatId);
           return `${JSON.stringify({ routine: { id: routine.id, name: routine.name } })}\nHeartbeat "${routine.name}" set: ${summary(routine)}. Reply "(pass) <reason>" on beats where nothing needs doing.`;
         },
       },
@@ -245,6 +248,7 @@ function createRoutineTools({
           if ([linearEvent, team, label, state].some((value) => value !== undefined))
             patch.trigger = linearTrigger(current.trigger, { linearEvent, team, label, state });
           const routine = store.update(id, patch);
+          if (routine.target?.kind === "chat") await keepChat(routine.target.chatId);
           return `Updated "${routine.name}": ${summary(routine)}.`;
         },
       },

@@ -14,10 +14,14 @@ function windowChrome(platform, overlay = false) {
       options: { titleBarStyle: "hidden", titleBarOverlay: { height: 60 }, trafficLightPosition: { x: 24, y: 24 } },
     };
   }
-  if (overlay) {
+  if (platform === "win32" || overlay) {
     return {
       controls: "overlay",
-      options: { titleBarStyle: "hidden", titleBarOverlay: { height: 60 } },
+      options: {
+        titleBarStyle: "hidden",
+        titleBarOverlay: { height: 60, ...(platform === "win32" ? { color: "#00000000", symbolColor: "#000000" } : {}) },
+        ...(platform === "win32" ? { autoHideMenuBar: true } : {}),
+      },
     };
   }
   return { controls: "external", options: {} };

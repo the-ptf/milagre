@@ -247,6 +247,10 @@ function fakeSdk(script) {
         (calls.toggles ??= []).push([name, enabled]);
         calls.order.push(`toggle:${name}`);
       },
+      getTaskOutput: async (taskId) => {
+        if (taskId !== "b1") throw new Error("get_task_output: no shell or Monitor task with that task_id in this session");
+        return { output: "building…\n", total_bytes: 9000, truncated: true };
+      },
     });
   };
   return { calls, loadSdk: async () => ({ query }) };
@@ -296,6 +300,17 @@ test("analysis-only Claude denies shell tools and cannot switch to Full", async 
   await session.startTurn({ ...TURN, permissionMode: "full" });
   await ended(events, 2);
   assert.equal(calls.modes.includes("bypassPermissions"), false);
+});
+
+test("reads the end of a background command's output from Claude Code, until the session closes", async (t) => {
+  const { session, events } = claude(t);
+  await assert.rejects(session.taskOutput("b1"), /That background task has ended/);
+  await session.startTurn(TURN);
+  await ended(events);
+  assert.deepEqual(await session.taskOutput("b1"), { output: "building…\n", totalBytes: 9000, truncated: true });
+  await assert.rejects(session.taskOutput("other"), /no shell or Monitor task/);
+  await session.close();
+  await assert.rejects(session.taskOutput("b1"), /That background task has ended/);
 });
 
 test("turns on Claude Code's task tools, which headless runs hide", async (t) => {

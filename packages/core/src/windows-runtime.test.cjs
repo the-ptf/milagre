@@ -102,6 +102,23 @@ test(
   },
 );
 
+test("Windows private directories can be protected repeatedly without elevated privileges", { skip: process.platform !== "win32" }, (t) => {
+  const { preparePrivateDirectory, assertPrivate, windowsAcl } = require("./private-files.cjs");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-private-repeat-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  for (let attempt = 0; attempt < 3; attempt++) {
+    preparePrivateDirectory(directory);
+    assertPrivate(directory);
+  }
+  const file = path.join(directory, "token");
+  fs.writeFileSync(file, "fixture");
+  for (let attempt = 0; attempt < 3; attempt++) {
+    windowsAcl(file, { mode: "protect" });
+    assertPrivate(file);
+  }
+  assert.equal(fs.readFileSync(file, "utf8"), "fixture");
+});
+
 test("Windows executable lookup searches only absolute PATH directories and prefers PATHEXT launchers", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-path-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

@@ -156,6 +156,8 @@ type SidebarNavProps = {
   /** The models New bot offers, and the one it starts on. */
   models?: ModelOption[];
   defaultModel?: ModelOption;
+  /** A hidden Run Chat is unread: the Routines button shows a dot. */
+  routinesUnread?: boolean;
   onOpenCommands?: () => void;
   hintsEnabled?: boolean;
   /** The project folder, for the project menu's reveal and copy path. */
@@ -279,7 +281,10 @@ function ScopeHeader({
             <IconChevronDownSmall size={14} />
           </span>
         </span>
-        <span data-scope-name className={`min-w-0 flex-1 truncate text-[13px] ${current ? "font-medium text-ink" : "text-ink-2"}`}>
+        <span
+          data-scope-name
+          className={`min-w-0 flex-1 truncate text-[length:calc(13px+var(--sidebar-delta))] ${current ? "font-medium text-ink" : "text-ink-2"}`}
+        >
           {name}
         </span>
       </button>
@@ -495,8 +500,12 @@ export function RailButton({
         ${active ? "bg-hover-2 group-hover/glide:bg-transparent" : ""}`}
     >
       <span className={`flex size-5 shrink-0 items-center justify-center ${active ? "text-ink" : "text-ink-2"}`}>{icon}</span>
-      <span className={`sidebar-copy ml-1.5 min-w-0 flex-1 truncate text-[15px] font-medium ${active ? "text-ink" : "text-ink-2"}`}>{label}</span>
-      {count && <span className="sidebar-copy mr-2 shrink-0 text-[12px] font-medium tabular-nums text-ink-3">{count}</span>}
+      <span
+        className={`sidebar-copy ml-1.5 min-w-0 flex-1 truncate text-[length:calc(15px+var(--sidebar-delta))] font-medium ${active ? "text-ink" : "text-ink-2"}`}
+      >
+        {label}
+      </span>
+      {count && <span className="sidebar-copy mr-2 shrink-0 text-[length:calc(12px+var(--sidebar-delta))] font-medium tabular-nums text-ink-3">{count}</span>}
     </button>
   );
 }
@@ -530,6 +539,7 @@ export default memo(function SidebarNav({
   onPickBot,
   models = MODEL_CATALOG,
   defaultModel,
+  routinesUnread = false,
   onOpenCommands,
   hintsEnabled = true,
   projectPath,
@@ -854,48 +864,37 @@ export default memo(function SidebarNav({
       );
   };
 
-  // Checked in the project chooser; the flag lives with the Project, so the phone's list follows.
+  // Checked in the project chooser; the choice belongs to this Mac alone.
   const showProject = (path: string, show: boolean) => {
+    if (isRemoteKey(path)) {
+      remote.setHidden(path, !show);
+      return;
+    }
     if (path.startsWith("milagre-link:")) {
       const id = path.slice("milagre-link:".length);
-      if (isRemoteKey(path)) {
-        remote.setHidden(path, !show);
-        const linkId = unqualifyKey(id);
-        const bridge = bridgeForKey(path);
-        void bridge.listNamedLinks().then((links) => {
-          const link = links.find((l) => l.id === linkId);
-          if (link) {
-            bridge.updateNamedLink({ id: link.id, name: link.name, projectIds: link.projectIds, hidden: !show }).catch(() => {});
-          }
+      const link = namedLinks.find((l) => l.id === id);
+      if (link) {
+        setNamedLinks((links) => links.map((l) => (l.id === id ? { ...l, hidden: !show } : l)));
+        window.milagre?.updateNamedLink?.({ id, name: link.name, projectIds: link.projectIds, hidden: !show }).catch(() => {
+          setListsChanged((count) => count + 1);
         });
-      } else {
-        const link = namedLinks.find((l) => l.id === id);
-        if (link) {
-          setNamedLinks((links) => links.map((l) => (l.id === id ? { ...l, hidden: !show } : l)));
-          window.milagre?.updateNamedLink?.({ id, name: link.name, projectIds: link.projectIds, hidden: !show }).catch(() => {
-            setListsChanged((count) => count + 1);
-          });
-        }
       }
       return;
     }
-    if (isRemoteKey(path)) remote.setHidden(path, !show);
     setRecentProjects((list) => list.map((project) => (project.path === path ? { ...project, hidden: !show } : project)));
-    bridgeForKey(path)
-      .setProjectHidden(path, !show)
-      .then(
-        (list) => {
-          if (!isRemoteKey(path) && Array.isArray(list)) setRecentProjects(list);
-          window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
-        },
-        () => setListsChanged((count) => count + 1),
-      );
+    window.milagre?.setProjectHidden?.(path, !show).then(
+      (list) => {
+        if (Array.isArray(list)) setRecentProjects(list);
+        window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
+      },
+      () => setListsChanged((count) => count + 1),
+    );
   };
   // By name, like the phone's: the recent list reorders as Projects open, and a row must not move under the pointer.
   // Other computers' Projects follow, each saying its computer; the open one of another computer is already a local row.
   const pickerProjects: PickerProject[] = [
     ...projects.map((row) => {
-      const recent = recentProjects.find((project) => project.path === row.path);
+      const recent = recentProjects.find((project) => project.path === row.path) ?? remote.projects.find((project) => project.path === row.path);
       return { ...row, shown: !recent?.hidden, listed: !!recent, computer: multi && isRemoteKey(row.path) ? rowComputer(row.path)?.name : undefined };
     }),
     ...namedLinks.map((link) => ({
@@ -1021,9 +1020,9 @@ export default memo(function SidebarNav({
             width: collapsed ? SIDEBAR_MOTION.collapsedWidth : expandedWidth,
             flex: "1 1 0%",
             // Following the pointer while dragging; the eased width transition would make the edge lag behind it.
-            transitionDuration: resizing ? "0ms" : `${SIDEBAR_MOTION.duration}ms`,
+            transitionDuration: resizing ? "0ms" : `calc(${SIDEBAR_MOTION.duration}ms * var(--motion-scale))`,
             transitionTimingFunction: SIDEBAR_MOTION.easing,
-            "--sidebar-copy-duration": `${SIDEBAR_MOTION.copyDuration}ms`,
+            "--sidebar-copy-duration": `calc(${SIDEBAR_MOTION.copyDuration}ms * var(--motion-scale))`,
             "--sidebar-copy-offset": `${SIDEBAR_MOTION.copyOffset}px`,
             "--sidebar-easing": SIDEBAR_MOTION.easing,
           } as CSSProperties
@@ -1082,13 +1081,17 @@ export default memo(function SidebarNav({
                     <Tooltip label="Routines" side="bottom">
                       <button
                         type="button"
-                        aria-label="Routines"
+                        // The dot is drawn only; the label says it, as the phone's dock button does.
+                        aria-label={routinesUnread ? "Routines, unread Runs" : "Routines"}
                         aria-pressed={routinesActive}
                         data-sidebar-routines
                         onClick={onOpenRoutines}
-                        className={`${TOOL_BUTTON} size-8 shrink-0 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
+                        className={`${TOOL_BUTTON} relative size-8 shrink-0 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
                       >
                         <HugeIcon icon={RepeatIcon} size={16} />
+                        {routinesUnread && (
+                          <span aria-hidden data-routines-unread className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-accent ring-2 ring-surface" />
+                        )}
                       </button>
                     </Tooltip>
                   )}
@@ -1108,9 +1111,13 @@ export default memo(function SidebarNav({
                   {showAll ? (
                     <>
                       {/* Pinned chats of every Project and Link sit on top, like the single-project sidebar. Each group's list
-                        renders its pinned rows into its slot here, so a drag moves a chat between Pinned and its group. */}
+                    renders its pinned rows into its slot here, so a drag moves a chat between Pinned and its group. */}
                       <div data-all-pinned={anyPinned || undefined} className={anyPinned ? "mb-2" : ""}>
-                        {anyPinned && <p className="sidebar-copy mx-2 mb-1 h-8 pl-2 text-[12.5px] font-medium leading-8 text-ink-3">Pinned</p>}
+                        {anyPinned && (
+                          <p className="sidebar-copy mx-2 mb-1 h-8 pl-2 text-[length:calc(12.5px+var(--sidebar-delta))] font-medium leading-8 text-ink-3">
+                            Pinned
+                          </p>
+                        )}
                         {groups.map((group) => (
                           <div key={group.scope.key} ref={pinSlotRef(group.scope.key)} data-pinned-scope={group.scope.key} />
                         ))}
@@ -1127,7 +1134,7 @@ export default memo(function SidebarNav({
                             className={`mb-2 ${dimmed ? "opacity-50" : ""}`}
                           >
                             {scope.link && !scopes[index - 1]?.link && (
-                              <p className="mx-2 mt-1 mb-1 h-6 pl-2 text-[12.5px] font-medium leading-6 text-ink-3">Links</p>
+                              <p className="mx-2 mt-1 mb-1 h-6 pl-2 text-[length:calc(12.5px+var(--sidebar-delta))] font-medium leading-6 text-ink-3">Links</p>
                             )}
                             <ScopeHeader
                               name={scope.name}
@@ -1176,7 +1183,7 @@ export default memo(function SidebarNav({
                                     anyPinned={anyPinned}
                                   />
                                 ) : !state && !current && failedScopes.has(scope.key) ? (
-                                  <p className="mx-2 flex h-8 items-center gap-1 pl-9 text-[13px] text-ink-3">
+                                  <p className="mx-2 flex h-8 items-center gap-1 pl-9 text-[length:calc(13px+var(--sidebar-delta))] text-ink-3">
                                     Couldn't load chats.
                                     <button
                                       type="button"
@@ -1187,7 +1194,9 @@ export default memo(function SidebarNav({
                                     </button>
                                   </p>
                                 ) : (
-                                  <p className="mx-2 h-8 pl-9 text-[13px] leading-8 text-ink-3">{state || current ? "No chats yet" : "Loading chats…"}</p>
+                                  <p className="mx-2 h-8 pl-9 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">
+                                    {state || current ? "No chats yet" : "Loading chats…"}
+                                  </p>
                                 )}
                               </div>
                             </div>
@@ -1210,7 +1219,7 @@ export default memo(function SidebarNav({
                       linkProjectId={selectedLink ? null : linkProjectIdOf(projectPath)}
                       header={
                         <div className={`sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2 ${collapsed ? "hidden" : ""}`}>
-                          <span className="text-[12.5px] font-medium text-ink-3">Chats</span>
+                          <span className="text-[length:calc(12.5px+var(--sidebar-delta))] font-medium text-ink-3">Chats</span>
                           <Tooltip label="New chat" shortcut="⌘N" align="end">
                             <button
                               type="button"

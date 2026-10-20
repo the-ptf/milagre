@@ -43,7 +43,7 @@ export function elapsed(agent: Subagent, now: number) {
  * `agent` with its whole transcript, read with `read` when the host sent only its end, and read again (at most every two
  * seconds) as it grows. An older host that can't read it leaves the end.
  */
-export function useWholeSubagent(agent: Subagent, read: () => Promise<Subagent>): Subagent {
+function useWholeSubagent(agent: Subagent, read: () => Promise<Subagent>): Subagent {
   const [whole, setWhole] = useState<Subagent | null>(null);
   const partial = typeof agent.transcriptLength === "number" && agent.transcriptLength > agent.transcript.length;
   const length = agent.transcriptLength ?? agent.transcript.length;
@@ -310,7 +310,7 @@ function Clamped({ text, lines, style }: { text: string; lines: number; style: o
 }
 
 /** One subagent at a glance; the whole transcript sits behind Full log. */
-export function SubagentDetail({ agent }: { agent: Subagent }) {
+function SubagentDetail({ agent }: { agent: Subagent }) {
   const { colors, label } = useText();
   const [log, setLog] = useState(false);
   const running = subagentRunning(agent);
@@ -407,4 +407,8 @@ export function SubagentDetail({ agent }: { agent: Subagent }) {
       )}
     </View>
   );
+}
+
+export function WholeSubagentDetail({ agent, read }: { agent: Subagent; read: () => Promise<Subagent> }) {
+  return <SubagentDetail agent={useWholeSubagent(agent, read)} />;
 }

@@ -298,9 +298,10 @@ class ChatHost {
   /**
    * A worktree's chat with no messages yet, made when it has none: where a message Milagre sends opens a new chat. Resolves
    * with its id. `fresh` always makes a new one. `origin` ({ routineId, runId }) marks it as a Routine's Run's, saved as
-   * `routine`, and `title` names it, both in the same change.
+   * `routine` and hidden from the Chat lists until the user writes in it (`hidden`). `title` names it, and
+   * `generatedTitle` gives it a name the user's own and the first message's naming leave alone, all in the same change.
    */
-  async emptyChat(projectPath, worktreeId, { operationId, assertActive, origin, title, fresh = false } = {}) {
+  async emptyChat(projectPath, worktreeId, { operationId, assertActive, origin, title, generatedTitle, fresh = false } = {}) {
     let sessionId;
     const { state, changed } = await this.states.update(
       projectPath,
@@ -311,12 +312,13 @@ class ChatHost {
         if (worktree.sharedChat) throw new Error("This Worktree belongs to a shared Link Chat. Open its Link instead.");
         const result = fresh ? newChat(latest, worktree) : starterChat(latest, worktree);
         sessionId = result.session.id;
-        if (!operationId && !origin && title === undefined) return result.state;
+        if (!operationId && !origin && title === undefined && generatedTitle === undefined) return result.state;
         const session = {
           ...result.session,
           ...(operationId ? { localMcpOperations: [...(result.session.localMcpOperations ?? []), operationId] } : {}),
-          ...(origin ? { routine: { routineId: origin.routineId, runId: origin.runId } } : {}),
+          ...(origin ? { routine: { routineId: origin.routineId, runId: origin.runId, hidden: true } } : {}),
           ...(title !== undefined ? { title } : {}),
+          ...(generatedTitle !== undefined ? { generatedTitle } : {}),
         };
         return { ...result.state, sessions: { ...result.state.sessions, [sessionId]: session } };
       },
@@ -324,6 +326,29 @@ class ChatHost {
     );
     if (changed) this.broadcast(projectPath, state);
     return sessionId;
+  }
+
+  /**
+   * Names a Run's Chat from what the Run did: saves `generatedTitle` while the Chat is still `runId`'s (its `routine`) and
+   * has no title of its own, so a name the user gave it, or a Linear Run's issue title, always wins. Resolves true when
+   * it saved.
+   */
+  async nameRunChat(projectPath, sessionId, runId, generatedTitle) {
+    let named = false;
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        const session = latest.sessions[sessionId];
+        if (!session || session.routine?.runId !== runId || session.title?.trim()) return latest;
+        named = true;
+        if (session.generatedTitle === generatedTitle) return latest;
+        return { ...latest, sessions: { ...latest.sessions, [sessionId]: { ...session, generatedTitle } } };
+      },
+      // The name is on the session; the Chat's messages aren't read, so none are loaded.
+      { chats: [] },
+    );
+    if (changed) this.broadcast(projectPath, state);
+    return named;
   }
 
   /** The chat on screen, by chat key, or null. A turn that ends in any other chat leaves it unread. */

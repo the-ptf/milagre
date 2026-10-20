@@ -58,10 +58,32 @@ export function processWork(session) {
  */
 export const outlivesTurn = (agent) => Boolean(agent?.background) || agent?.source === "milagre-advisor";
 
+const activeAdvisors = (session) => (session?.subagents ?? []).filter((agent) => agent.source === "milagre-advisor" && subagentActive(agent));
+
 /** Everything still at work for the Chat with no turn of its own, oldest first: its process's work and its advisors. */
 export function backgroundWork(session) {
-  const advisors = (session?.subagents ?? []).filter((agent) => agent.source === "milagre-advisor" && subagentActive(agent));
-  return oldestFirst([...processWork(session), ...advisors]);
+  return oldestFirst([...processWork(session), ...activeAdvisors(session)]);
+}
+
+// Claude Code's task types: a local_bash task is a command run in the background or a Monitor, the only kind with output.
+const TASK_TYPES = { local_bash: "command", local_workflow: "workflow" };
+export const BACKGROUND_ITEM_LABELS = Object.freeze({ subagent: "Subagent", advisor: "Advisor", command: "Command", workflow: "Workflow", task: "Task" });
+
+/**
+ * The Chat's background work as its background line lists it, oldest first: what each is and since when. A command's
+ * output can be read while it runs (chat:task-output); a subagent or advisor carries its own transcript.
+ */
+export function backgroundItems(session, ports = []) {
+  const agent = (type) => (item) => ({ type, id: item.id, title: item.title, startedAt: item.startedAt, agent: item });
+  // A command serving one of the Chat's ports shows in Ports, where it can be opened and stopped, and not here too.
+  const served = new Set(ports.map((port) => port.taskId).filter(Boolean));
+  return oldestFirst([
+    ...backgroundSubagents(session).map(agent("subagent")),
+    ...activeAdvisors(session).map(agent("advisor")),
+    ...backgroundTasks(session)
+      .filter((task) => !served.has(task.id))
+      .map((task) => ({ type: TASK_TYPES[task.kind] ?? "task", id: task.id, title: task.title, startedAt: task.startedAt })),
+  ]);
 }
 
 /**
@@ -78,6 +100,21 @@ export function chatActivity(session, run, lastOutcome = session?.summary?.lastO
     background: work.length,
   });
   return { activity, background: work.length, ...(work.length ? { since: work[0].startedAt } : {}) };
+}
+
+// oxlint-disable-next-line no-control-regex -- CSI (colours, cursor moves), OSC (titles, links) and two-character escapes
+const ESCAPES = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[ -/]*[@-~]/g;
+
+/**
+ * A background command's output (chat:task-output) as plain text: without escape sequences, and a line the command
+ * redrew with carriage returns (a progress bar) as it stands now.
+ */
+export function plainTaskOutput(text) {
+  return String(text ?? "")
+    .replace(ESCAPES, "")
+    .split("\n")
+    .map((line) => line.replace(/\r+$/, "").split("\r").pop())
+    .join("\n");
 }
 
 /** "1 background task", "3 background tasks": agents, commands and advisors alike. */

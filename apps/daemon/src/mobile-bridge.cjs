@@ -34,7 +34,6 @@ const METHODS = new Set([
   "project:find",
   "project:image",
   "project:set-icon",
-  "project:set-hidden",
   "main-sync:read",
   "main-sync:save",
   "main-sync:default:read",
@@ -154,16 +153,20 @@ const METHODS = new Set([
   "agent:set-permission-mode",
   "agent:models",
   "agent:cli-status",
+  "scope:retry-save",
   "chat:patch",
   "chat:archive-subagent",
   "chat:archive-finished-subagents",
   // One subagent whole: the phone gets only the end of each transcript, and its subagent detail reads the rest.
   "chat:subagent",
+  // The end of a background command's output, for the Chat's background line.
+  "chat:task-output",
   "attachment:preview",
   "worktree:pull-request",
   "worktree:pull-requests",
   "project:branches",
   "skills:list",
+  "project:files",
   "skills:read",
   "worktree:create",
   "worktree:link-issue",
@@ -823,10 +826,35 @@ async function startMobileBridge({
               result = await phoneRoutes(request.args[0]?.phoneKey);
             } else {
               if (!METHODS.has(request.method)) throw failure(403, "Command is not available from mobile");
+              // Visibility is per device: a phone editing a Link's name or members never alters the Mac's hidden flag.
+              const args =
+                (request.method === "link:update" || request.method === "link:create") &&
+                request.args[0] &&
+                typeof request.args[0] === "object" &&
+                !Array.isArray(request.args[0]) &&
+                "hidden" in request.args[0]
+                  ? [
+                      (() => {
+                        const { hidden: _hidden, ...rest } = request.args[0];
+                        return rest;
+                      })(),
+                      ...request.args.slice(1),
+                    ]
+                  : request.args;
               if (confine) {
-                const decided = await confine.checkCall(request.method, request.args);
+                const decided = await confine.checkCall(request.method, args);
                 result = "result" in decided ? decided.result : await confine.filterResult(request.method, await client.call(request.method, decided.args));
-              } else result = await client.call(request.method, request.args);
+              } else result = await client.call(request.method, args);
+            }
+            if ((request.method === "project:recent" || request.method === "project:forget" || request.method === "link:list") && Array.isArray(result))
+              result = result.map((item) => {
+                if (!item || typeof item !== "object" || !("hidden" in item)) return item;
+                const { hidden: _hidden, ...rest } = item;
+                return rest;
+              });
+            if ((request.method === "link:create" || request.method === "link:update") && result && typeof result === "object" && "hidden" in result) {
+              const { hidden: _hidden, ...rest } = result;
+              result = rest;
             }
             // The phone reads a Project through /snapshot right after opening it; the opened state would double the download.
             if (request.method === "project:open" && result && typeof result === "object") result = { path: result.path, name: result.name };

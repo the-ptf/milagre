@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { createPortal } from "react-dom";
 import { motion, useReducedMotion } from "motion/react";
 import type { UpdateState } from "../electron";
+import { useMotionScale } from "../lib/ease";
 import { useDismiss } from "../lib/use-dismiss";
 import { HIDDEN_FACE, MORPH_SURFACE, morphFace, useSize } from "./motion/morph";
 import { UpdateReleaseNotes } from "./UpdateReleaseNotes";
@@ -110,6 +111,7 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
   // Escape collapses back to the pill; full dismissal hands focus to Settings.
   const refocus = useRef(false);
   const reduce = useReducedMotion();
+  const motionScale = useMotionScale();
   // Both faces stay mounted and report their sizes; the surface takes the size of the one on show.
   const [pillSize, measurePill] = useSize();
   const [cardSize, measureCard] = useSize();
@@ -183,7 +185,7 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
   }
   // Both faces hang from the pill's spot: centred above the composer, or the window's bottom left.
   const anchor = slot ? { left: "50%", x: "-50%" } : { left: 0 };
-  const face = (shown: boolean) => ({ ...morphFace(shown, reduce), style: anchor });
+  const face = (shown: boolean) => ({ ...morphFace(shown, reduce, motionScale), style: anchor });
   const size = open ? cardSize : pillSize;
   const notice = (
     <div

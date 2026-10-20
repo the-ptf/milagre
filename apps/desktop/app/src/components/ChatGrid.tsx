@@ -14,6 +14,7 @@ import Tooltip from "./primitives/Tooltip";
 import { ChatMarkDot } from "./sidebar/ChatRow";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { ChatTranscript } from "./ChatComposer";
+import { RoutineChip } from "./routines/RoutineChip";
 
 const NO_MESSAGES: ChatMessage[] = [];
 
@@ -28,12 +29,14 @@ type ChatGridProps = {
   delegated: ReadonlySet<string>;
   models: ModelOption[];
   onFocus: (key: string) => void;
+  /** Opens a Routine's page, from the chip on a Run Chat's or a Heartbeat Chat's tile. */
+  onOpenRoutine?: (routineId: string) => void;
   /** Marks an unread Chat read, which takes its tile away. */
   onDismiss: (key: string) => void;
 };
 
 /** Every active Chat side by side. Only the focused tile has a composer; clicking another focuses it. */
-export function ChatGrid({ keys, focused, children, states, runs, delegated, models, onFocus, onDismiss }: ChatGridProps) {
+export function ChatGrid({ keys, focused, children, states, runs, delegated, models, onFocus, onOpenRoutine, onDismiss }: ChatGridProps) {
   if (!keys.length) return children;
   return (
     <ScrollArea data-chat-grid className="h-full">
@@ -48,6 +51,7 @@ export function ChatGrid({ keys, focused, children, states, runs, delegated, mod
             delegated={delegated.has(key)}
             models={models}
             onFocus={onFocus}
+            onOpenRoutine={onOpenRoutine}
             onDismiss={onDismiss}
           >
             {key === focused ? children : null}
@@ -66,6 +70,7 @@ function ChatTile({
   delegated,
   models,
   onFocus,
+  onOpenRoutine,
   onDismiss,
   children,
 }: {
@@ -76,6 +81,7 @@ function ChatTile({
   delegated: boolean;
   models: ModelOption[];
   onFocus: (key: string) => void;
+  onOpenRoutine?: (routineId: string) => void;
   onDismiss: (key: string) => void;
   children: ReactNode;
 }) {
@@ -132,6 +138,7 @@ function ChatTile({
           {scope.split("/").pop()}
           {branch ? ` · ${branch}` : ""}
         </span>
+        {onOpenRoutine && session && <RoutineChip chatKey={chatKey} run={session.routine} place="tile" onOpen={onOpenRoutine} />}
         {needsYou && !focused && <span className="shrink-0 font-medium text-orange">Needs you</span>}
         {mark === "unread" && !focused && (
           <Tooltip label="Mark read" side="bottom">

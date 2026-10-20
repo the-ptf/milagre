@@ -6,6 +6,7 @@ const { qualifyKey } = require("@milagre/shared/chat-scopes");
 const LOCAL_ONLY = Object.freeze([
   "project:open",
   "project:reveal",
+  "project:set-hidden",
   "skills:open",
   "skills:reveal",
   "runtime:connection",
@@ -39,7 +40,6 @@ const LOCAL_ONLY_PREFIXES = Object.freeze([
   "linked:",
   "notification:",
   "phone:",
-  "routines:",
   "settings:",
   "update:",
   "usage:",
@@ -78,9 +78,29 @@ const field = (id, value, name, how) => (isObject(value) && name in value ? { ..
 const keyed = (id, record) => (isObject(record) ? Object.fromEntries(Object.entries(record).map(([chat, item]) => [key(id, chat), item])) : record);
 /** @param {string} id @param {any} list @param {(id: string, item: any) => any} how */
 const each = (id, list, how) => (Array.isArray(list) ? list.map((item) => how(id, item)) : list);
+/** Another computer's own `hidden` flag belongs to its sidebar, not this Mac's. @param {any} value */
+const withoutHidden = (value) => {
+  if (!isObject(value) || !("hidden" in value)) return value;
+  const { hidden: _hidden, ...rest } = value;
+  return rest;
+};
 const withPath = (id, item) => field(id, item, "path", key);
+const withRemotePath = (id, item) => withoutHidden(withPath(id, item));
 const withChat = (id, item) => field(id, item, "chatId", key);
-const withLink = (id, item) => field(id, item, "id", linkId);
+const withLink = (id, item) => withoutHidden(field(id, item, "id", linkId));
+// A Routine's and a Run's ids are 8 hex characters per Mac, so they name their computer like a chat key does.
+const withRun = (id, run) => field(id, field(id, run, "routineId", key), "chatId", key);
+/** @param {string} id @param {any} routine */
+const withRoutine = (id, routine) =>
+  isObject(routine)
+    ? {
+        ...routine,
+        id: key(id, routine.id),
+        target: field(id, field(id, routine.target, "chatId", key), "projectPath", key),
+        ...(routine.createdBy ? { createdBy: field(id, routine.createdBy, "chatId", key) } : {}),
+        ...(Array.isArray(routine.runs) ? { runs: each(id, routine.runs, withRun) } : {}),
+      }
+    : routine;
 
 /** @type {Record<string, (id: string, payload: any) => any>} */
 const EVENTS = {
@@ -105,7 +125,7 @@ const EVENTS = {
 };
 
 const OPEN_PROJECT = (id, result) => withPath(id, result);
-const PROJECT_LIST = (id, result) => each(id, result, withPath);
+const PROJECT_LIST = (id, result) => each(id, result, withRemotePath);
 /** @type {Record<string, (id: string, result: any) => any>} */
 const RESULTS = {
   "project:open": OPEN_PROJECT,
@@ -113,7 +133,6 @@ const RESULTS = {
   "project:switch": OPEN_PROJECT,
   "project:read": OPEN_PROJECT,
   "project:recent": PROJECT_LIST,
-  "project:set-hidden": PROJECT_LIST,
   "project:forget": PROJECT_LIST,
   "project:registry": PROJECT_LIST,
   "project:position": PROJECT_LIST,
@@ -135,6 +154,14 @@ const RESULTS = {
   "worktree:unlink-issue": (id, result) => field(id, result, "project", withPath),
   "terminal:list": (id, result) => field(id, result, "terminals", (id, list) => each(id, list, withChat)),
   "terminal:open": withChat,
+  "routines:list": (id, result) => field(id, result, "routines", (id, list) => each(id, list, withRoutine)),
+  "routines:create": (id, result) => field(id, result, "routine", withRoutine),
+  "routines:update": withRoutine,
+  "routines:run-now": withRun,
+  "routines:targets": (id, result) =>
+    field(id, result, "projects", (id, list) =>
+      each(id, list, (id, project) => field(id, withPath(id, project), "chats", (id, chats) => each(id, chats, withChat))),
+    ),
   "accounts:scopes": (id, result) =>
     each(id, result, (id, scope) => field(id, field(id, scope, "key", key), "projects", (id, list) => each(id, list, withPath))),
 };

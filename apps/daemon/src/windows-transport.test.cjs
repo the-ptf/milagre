@@ -202,7 +202,7 @@ test("Windows rejects a token whose NTFS ACL permits another local account", { s
   const { execFileSync } = require("node:child_process");
   const { powershell, powershellEnvironment, windowsAcl } = require("@milagre/core/private-files");
   const encodedPath = Buffer.from(tokenPath(dataDir), "utf8").toString("base64");
-  const script = `$ErrorActionPreference='Stop'; $p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedPath}')); $a=Get-Acl -LiteralPath $p; $sid=[Security.Principal.SecurityIdentifier]::new('S-1-1-0'); $rule=[Security.AccessControl.FileSystemAccessRule]::new($sid,[Security.AccessControl.FileSystemRights]::Read,[Security.AccessControl.AccessControlType]::Allow); [void]$a.AddAccessRule($rule); Set-Acl -LiteralPath $p -AclObject $a`;
+  const script = `$ErrorActionPreference='Stop'; $p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedPath}')); $a=Get-Acl -LiteralPath $p; $sid=[Security.Principal.SecurityIdentifier]::new('S-1-1-0'); $rule=[Security.AccessControl.FileSystemAccessRule]::new($sid,[Security.AccessControl.FileSystemRights]::Read,[Security.AccessControl.AccessControlType]::Allow); [void]$a.AddAccessRule($rule); (Get-Item -LiteralPath $p).SetAccessControl($a)`;
   execFileSync(powershell(), ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], {
     env: powershellEnvironment(),
     windowsHide: true,

@@ -1,3 +1,4 @@
+import { PersistenceNotices, type UnsavedScope } from "./PersistenceNotice";
 import { CommandPalette } from "./CommandPalette";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { useChanges } from "./changes/useChanges";
@@ -22,6 +23,7 @@ import { useHiddenProjects } from "../lib/hidden-projects";
 import { useSettings } from "../lib/settings";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { ipcErrorMessage } from "@milagre/shared/result";
+import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import { DotBackground } from "./DotBackground";
 import SidebarNav from "./SidebarNav";
 import { runKeys } from "../lib/sidebar-scopes";
@@ -77,6 +79,8 @@ export function LinkWorkspace({
   usage,
   initialSessionId,
   hostConnection,
+  saveNotice,
+  saveScopes,
   ports,
   onNewChatInScope,
 }: {
@@ -87,6 +91,8 @@ export function LinkWorkspace({
   drafts: ReturnType<typeof createScopeDrafts>;
   initialSessionId?: number;
   hostConnection: { connected: boolean };
+  saveNotice?: ReactNode;
+  saveScopes: UnsavedScope[];
   ports: AgentPorts;
   onSwitchProject: (path: string) => void;
   onSwitchLink: (id: string) => void;
@@ -241,7 +247,7 @@ export function LinkWorkspace({
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") {
         event.preventDefault();
         pick(null);
-        document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')?.focus();
+        document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -316,7 +322,7 @@ export function LinkWorkspace({
     // The picker decides the provider: a chat on another one hands off to it.
     const model = preferences.selectedModel;
     try {
-      const sent = await bridge.sendLinkMessage({
+      const request = {
         linkId: opened.link.id,
         sessionId,
         operationId: operation,
@@ -332,7 +338,8 @@ export function LinkWorkspace({
         fastMode: composerPrefs.fastMode,
         replies: getSettings().claudeReplies,
         tldrEnabled: getSettings().tldrEnabled,
-      });
+      };
+      const sent = await retrySend(() => bridge.sendLinkMessage(request), { retryable: (error) => retryKind(error) !== null });
       drafts.acknowledgeSend(operation, sent.sessionId);
       if (pendingOperation.current === operation) pendingOperation.current = null;
       if (latest.current.active && latest.current.selection === selection) {
@@ -400,16 +407,18 @@ export function LinkWorkspace({
     <BridgeContext.Provider value={bridge}>
       <ScopeContext.Provider value={owner}>
         <DotBackground>
-          {!hostConnection.connected && (
-            <div
-              role="status"
-              data-host-disconnected
-              className="fixed inset-x-4 top-12 z-50 mx-auto max-w-2xl rounded-card border border-line bg-surface px-4 py-3 text-sm text-ink shadow-overlay [-webkit-app-region:no-drag]"
-            >
-              <p>Reconnecting to your computer</p>
-              <p className="mt-1 text-ink-2">Your draft is kept here. Messages will be available when the host reconnects.</p>
-            </div>
-          )}
+          <PersistenceNotices scopes={saveScopes.filter((entry) => entry.scope !== owner || canvasOpen || changes.diffOpen)}>
+            {!hostConnection.connected && (
+              <div
+                role="status"
+                data-host-disconnected
+                className="w-full rounded-card border border-line bg-surface px-4 py-3 text-sm text-ink shadow-overlay [-webkit-app-region:no-drag]"
+              >
+                <p>Reconnecting to your computer</p>
+                <p className="mt-1 text-ink-2">Your draft is kept here. Messages will be available when the host reconnects.</p>
+              </div>
+            )}
+          </PersistenceNotices>
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
           <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden text-ink">
             <div className="flex min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
@@ -522,6 +531,7 @@ export function LinkWorkspace({
                   <div className={`min-h-0 flex-1 flex-col overflow-hidden ${changes.diffOpen ? "hidden" : "flex"}`}>
                     <EditorLinks root={root}>
                       <DraftChatComposer
+                        saveNotice={saveNotice}
                         {...preferences}
                         effort={preferences.capability ? effortFor(preferences.capability, composerPrefs.effort) : composerPrefs.effort}
                         onEffortChange={composerPrefs.setEffort}
@@ -550,6 +560,7 @@ export function LinkWorkspace({
                         plan={session?.plan}
                         contextUsage={run?.contextUsage ?? session?.contextUsage}
                         subagents={session?.subagents?.filter((agent) => agent.id !== session.native_session_id)}
+                        backgroundTasks={session?.backgroundTasks}
                         ports={chatId ? ports[chatId] : undefined}
                         agentChatId={chatId ?? undefined}
                         onOpenDiff={(path, worktree) => {

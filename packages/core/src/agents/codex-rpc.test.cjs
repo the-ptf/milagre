@@ -73,6 +73,24 @@ test("reports Codex's stderr when the process exits and rejects later requests",
   await assert.rejects(rpc.request("initialize", {}), /not running/);
 });
 
+test("a request without a time limit waits until Codex answers or exits", async (t) => {
+  const rpc = client(t, "hang-thread");
+  await rpc.request("initialize", {});
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let settled = false;
+  const started = rpc.request("thread/start", {}, { timeoutMs: null }).finally(() => (settled = true));
+  started.catch(() => {});
+  t.mock.timers.tick(24 * 60 * 60 * 1000);
+  // Real timers again before any assertion, so closing the client can't stall on a mocked one.
+  t.mock.timers.reset();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+
+  const failed = assert.rejects(started, /Codex exited/);
+  await rpc.close();
+  await failed;
+});
+
 test("explains a CLI that can't be started", async (t) => {
   const rpc = client(t, "reply", "milagre-definitely-missing-cli");
   const exits = [];

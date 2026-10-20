@@ -13,7 +13,7 @@ import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
 
 /** The host returns only this Chat's proven processes. A Worktree is never an owner. */
-function useChatPorts(client: Client | null, chatId?: string) {
+export function useChatPorts(client: Client | null, chatId?: string) {
   const [ports, setPorts] = useState<AgentPort[]>([]);
   const [error, setError] = useState("");
   const reload = useRef<(() => Promise<void>) | null>(null);
@@ -62,9 +62,9 @@ function useChatPorts(client: Client | null, chatId?: string) {
   return { ports, error, refresh: () => reload.current?.(), drop };
 }
 
-export function PortsChip({ chatId }: { chatId: string }) {
+/** `ports` come from the Chat screen's useChatPorts, which its background line reads too. */
+export function PortsChip({ chatId, ports }: { chatId: string; ports: AgentPort[] }) {
   const { client } = useSession();
-  const { ports } = useChatPorts(client, chatId);
   if (!client || !chatId || !ports.length) return null;
   return (
     <StatusPill

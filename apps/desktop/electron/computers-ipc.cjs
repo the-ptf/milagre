@@ -2,6 +2,8 @@ const { ALIASES, NOT_REMOTE, isLocalOnly, qualifyEvent, qualifyResult, stripComp
 
 // Kept as they pass (main sees whole lists and the states a Project opens with); the window forwards the rest.
 const KEPT_LISTS = { "project:recent": "recent", "link:list": "links", "project:registry": "registry" };
+// Routines' reads, kept whole: a computer away shows its last list. Writes and webhook URLs (secrets) are never kept.
+const KEPT_OBJECTS = { "routines:enabled:read": "routines-enabled", "routines:list": "routines", "routines:targets": "routine-targets" };
 const OPENED = new Set(["project:read", "project:switch", "project:open", "project:current"]);
 // What a window reads that a computer's last copy can answer while it is away.
 const MAX_REMEMBERED_CHARS = 32 * 1024 * 1024;
@@ -11,6 +13,7 @@ const nameOf = (projectPath, recent) =>
 /** A read answered from the cache, or null when the cache can't answer it. A chat with no copy reads empty, never pending. */
 function readOffline(cache, id, method, args) {
   if (KEPT_LISTS[method]) return cache.get(id, KEPT_LISTS[method], "") ?? [];
+  if (KEPT_OBJECTS[method]) return cache.get(id, KEPT_OBJECTS[method], "") ?? null;
   if (OPENED.has(method)) {
     const scope = args[0];
     const kept = typeof scope === "string" ? cache.get(id, "scope", scope) : null;
@@ -130,6 +133,7 @@ function registerComputers({ ipcMain, computers, thisMac, send, cache = null, on
     try {
       // Removed while the call was out: its folder stays gone.
       if (cache && paired(computerId) && KEPT_LISTS[method] && Array.isArray(result)) cache.put(computerId, KEPT_LISTS[method], "", result);
+      if (cache && paired(computerId) && KEPT_OBJECTS[method] && result && typeof result === "object") cache.put(computerId, KEPT_OBJECTS[method], "", result);
       if (cache && paired(computerId) && OPENED.has(method) && result?.state && typeof result.path === "string")
         cache.put(computerId, "scope", result.path, { name: result.name ?? nameOf(result.path, cache.get(computerId, "recent", "")), state: result.state });
     } catch (error) {

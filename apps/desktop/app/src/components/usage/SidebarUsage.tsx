@@ -21,13 +21,15 @@ function peakPercent(windows: { usedPercent: number }[]) {
 }
 
 /** Plan usage rows for the sidebar footer; the card opens beside the sidebar, expanded or collapsed. */
-export function SidebarUsage({ usage }: { usage: UsageState }) {
+export function SidebarUsage({ usage, scope }: { usage: UsageState; scope?: string }) {
   const [openCard, setOpenCard] = useState<OpenCard | null>(null);
   const { usageDisplay } = useSettings();
   const openTimer = useRef<number | null>(null);
   const closeTimer = useRef<number | null>(null);
   const segments = useRef(new Map<ModelProvider, HTMLButtonElement>());
   const restoringFocus = useRef(false);
+  // The card's account picker opens its panel outside the card; leaving the card for it must not close the card.
+  const pickerOpen = useRef(false);
   const providers = usage.snapshot ? visibleProviders(usage.snapshot) : [];
   const openUsage = openCard ? providers.find((item) => item.provider === openCard.provider) : undefined;
 
@@ -55,6 +57,7 @@ export function SidebarUsage({ usage }: { usage: UsageState }) {
   }
 
   function scheduleHide() {
+    if (pickerOpen.current) return;
     clearTimers();
     closeTimer.current = window.setTimeout(() => setOpenCard(null), CLOSE_DELAY_MS);
   }
@@ -65,6 +68,10 @@ export function SidebarUsage({ usage }: { usage: UsageState }) {
   }
 
   useEffect(() => clearTimers, []);
+
+  useEffect(() => {
+    if (!openCard) pickerOpen.current = false;
+  }, [openCard]);
 
   useEffect(() => {
     if (!openCard) return;
@@ -79,7 +86,8 @@ export function SidebarUsage({ usage }: { usage: UsageState }) {
     // Capture on window runs before App's window-level Escape handler, which cancels
     // the running agent, so Escape closes the card wherever focus is and goes no further.
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      // The open picker takes this Escape and closes itself; the card stays.
+      if (event.key !== "Escape" || pickerOpen.current) return;
       event.preventDefault();
       event.stopPropagation();
       const focusInCard = Boolean((document.activeElement as Element | null)?.closest("[data-usage-card]"));
@@ -156,6 +164,17 @@ export function SidebarUsage({ usage }: { usage: UsageState }) {
         <UsageCard
           id={`usage-card-${openUsage.provider}`}
           usage={openUsage}
+          scope={scope}
+          onPickerOpenChange={(open) => {
+            pickerOpen.current = open;
+            if (open) return;
+            // A choice or Escape hands focus back to the picker, in the card, after this runs; a click elsewhere
+            // leaves it nowhere, and the pointer may have left the card while the panel was open.
+            window.setTimeout(() => {
+              const card = document.getElementById(`usage-card-${openUsage.provider}`);
+              if (card && !card.matches(":hover") && !card.contains(document.activeElement)) scheduleHide();
+            }, 0);
+          }}
           loading={usage.loading}
           position={{ left: openCard.left, bottom: openCard.bottom }}
           onRefresh={() => void usage.refresh()}

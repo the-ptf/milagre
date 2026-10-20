@@ -15,14 +15,15 @@ import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import { useEvent } from "../lib/stable";
-import type { AgentPort, ChatPlan, ContextUsage, Subagent } from "../model";
+import type { AgentPort, BackgroundTask, ChatPlan, ContextUsage, Subagent } from "../model";
 import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
 import { createContext, Fragment, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, DragEvent, ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, GitBranchIcon, GitForkIcon, GitPullRequestIcon, LaptopIcon, Undo02Icon } from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, Folder01Icon, GitBranchIcon, GitForkIcon, GitPullRequestIcon, LaptopIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { LinearLogo } from "./ProviderLogo";
+import { FirstChatStarters, type Starter } from "./Onboarding";
 import type { LinearIssue } from "@milagre/shared/linear";
 import type { RoutineRunContext } from "@milagre/shared/model";
 import type {
@@ -39,6 +40,12 @@ import type {
 import { FindBar } from "./FindBar";
 import { Notice } from "./Notice";
 import { Attachments } from "./Attachments";
+import { lazyView } from "../lib/lazy-view";
+import { PromptText } from "./PromptText";
+import { useFilesRoot } from "./editor-links";
+import { useSentSkills } from "./useSentSkills";
+import { useScope } from "../lib/computer-bridge";
+import { isMentionOfFile, mentionedFile, mentionedFiles } from "../lib/prompt-mentions";
 import type { ImageDraft } from "./usePastedImages";
 import { PromptComposer } from "./PromptComposer";
 import { QueuedMessages } from "./QueuedMessages";
@@ -50,7 +57,9 @@ import { LinearIssuePicker } from "./LinearIssuePicker";
 import Tooltip from "./primitives/Tooltip";
 import { PillSlot, StatusPill } from "./primitives/StatusPill";
 import { AnimatePresence, LayoutGroup } from "motion/react";
-import { BackgroundIndicator, ThinkingIndicator } from "./ThinkingIndicator";
+import { ThinkingIndicator } from "./ThinkingIndicator";
+import { BackgroundWork } from "./agents/BackgroundWork";
+import { backgroundItems } from "@milagre/shared/chat-activity";
 import { ChatMarkDotInline } from "./sidebar/ChatRow";
 import type { ChatActivity } from "@milagre/shared/chat-activity";
 import { HandoffDivider } from "./Handover";
@@ -86,6 +95,9 @@ import { extractOutdatedProvider } from "../lib/cli-status";
 import { splitFences } from "../lib/message-fences";
 import { CodeBlock } from "./markdown/CodeBlock";
 import { useDismiss } from "../lib/use-dismiss";
+import { useSettings } from "../lib/settings";
+
+const AttachmentPreview = lazyView(() => import("./AttachmentPreview").then((module) => module.AttachmentPreview));
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
@@ -97,20 +109,49 @@ function Icon({ icon, size = 16 }: { icon: IconData; size?: number }) {
  * A reply: its activity (thinking, tool steps and the text between them) folded into one block, the images it generated, then its answer.
  * A reply with no answer that ended or stopped to ask shows its last thinking instead, dimmed.
  */
-/** What the user typed, as typed; only closed ``` fences render as code (diff comments send their snippets in them). */
-function UserBody({ body }: { body: string }) {
+const NO_FILES: readonly string[] = [];
+
+/** The skills a sent message names (lowercase name to description) and the attached files it mentions inline as chips. */
+function usePromptMentions(message: AppChatMessage, isUser: boolean) {
+  const root = useFilesRoot() ?? "";
+  const scope = useScope();
+  const files = message.files;
+  const body = message.body;
+  const described = useSentSkills(scope, isUser && /(^|\s)\//.test(body));
+  const isFile = useMemo(() => isMentionOfFile(files ?? [], root), [files, root]);
+  const inline = useMemo(() => (isUser && files?.length ? mentionedFiles(body, files, root) : null), [isUser, body, files, root]);
+  return { root, files, described, isFile, inline };
+}
+
+/** What the user typed, as typed, with skills and mentioned files as chips; only closed ``` fences render as code (diff comments send their snippets in them). */
+function UserBody({
+  body,
+  skills,
+  files,
+  root,
+  attached,
+}: {
+  body: string;
+  skills: ReadonlyMap<string, string>;
+  files: (path: string) => boolean;
+  root: string;
+  attached: readonly string[];
+}) {
   const parts = useMemo(() => splitFences(body), [body]);
+  const [opened, setOpened] = useState<string | null>(null);
+  const open = useCallback((path: string) => setOpened(mentionedFile(path, attached, root) ?? null), [attached, root]);
   return (
     <div className="break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
       {parts.map((part, index) =>
         part.kind === "text" ? (
-          <Fragment key={index}>{part.text}</Fragment>
+          <PromptText key={index} text={part.text} skills={skills} files={files} onOpenFile={open} />
         ) : (
           <div key={index} className="whitespace-normal">
             <CodeBlock code={part.code} fence={part.fence || undefined} diff />
           </div>
         ),
       )}
+      {opened && <AttachmentPreview path={opened} name={opened.split("/").at(-1) || opened} close={() => setOpened(null)} />}
     </div>
   );
 }
@@ -217,6 +258,7 @@ const MessageSection = memo(function MessageSection({
   onOpenAccounts?: () => void;
 }) {
   const card = useContext(MessageCardContext)?.(message);
+  const mentions = usePromptMentions(message, isUser);
   if (card)
     return (
       <article id={`message-${message.id}`} data-slot="message" data-from="milagre" className="flex min-w-0 w-full flex-col">
@@ -260,7 +302,7 @@ const MessageSection = memo(function MessageSection({
     >
       {linked && <LinkedMessageHeader context={linked} onOpenChat={onOpenChat} />}
       <div
-        className={`min-w-0 max-w-full text-[13px] leading-[1.55] text-ink ${advisor ? "w-full rounded-[14px]" : bubble ? "relative rounded-xl bg-field px-3 py-1.5" : feedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "rounded-xl border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
+        className={`min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.55] text-ink ${advisor ? "w-full rounded-[14px]" : bubble ? "relative rounded-xl bg-field px-3 py-1.5" : feedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "rounded-xl border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
       >
         {/* Beside the bubble, not under it: showing it on hover never moves the transcript. */}
         {bubble && undoId && onUndo && (
@@ -283,7 +325,10 @@ const MessageSection = memo(function MessageSection({
             </Tooltip>
           </div>
         )}
-        <Attachments images={isUser ? message.images : message.images?.filter((image) => !image.sourcePath)} files={message.files} />
+        <Attachments
+          images={isUser ? message.images : message.images?.filter((image) => !image.sourcePath)}
+          files={mentions.inline ? message.files?.filter((file) => !mentions.inline!.has(file)) : message.files}
+        />
         {advisor ? (
           <AdvisorResultCard context={advisor} body={message.body} />
         ) : prAction ? (
@@ -296,7 +341,7 @@ const MessageSection = memo(function MessageSection({
           <AnswerCard answered={answered} />
         ) : isUser ? (
           message.body.trim() ? (
-            <UserBody body={message.body} />
+            <UserBody body={message.body} skills={mentions.described} files={mentions.isFile} root={mentions.root} attached={mentions.files ?? NO_FILES} />
           ) : null
         ) : recommendation ? (
           <>
@@ -316,6 +361,7 @@ const MessageSection = memo(function MessageSection({
             <ReplyContent body={message.body} steps={steps} streaming={streaming} asking={asking} waitingStepIds={waitingStepIds} />
           </StepDetailsMessage>
         )}
+        {!isUser && !streaming && message.outcome === "cancelled" && <p className="mt-2 text-xs text-ink-3">Turn stopped</p>}
         {limit && <UsageLimitCard limit={limit} sessionId={message.session_id} interactive={limitInteractive} onOpenAccounts={onOpenAccounts} />}
         {showUpdateButton && outdatedProvider && onUpdateCli && (
           <div className="mt-2.5 flex items-center gap-2">
@@ -593,6 +639,7 @@ interface ChatComposerProps {
   /** The running turn's tool steps, where they happened in `streamingText`. */
   streamingSteps?: ChatStep[];
   subagents?: Subagent[];
+  backgroundTasks?: BackgroundTask[];
   onArchiveFinishedSubagents?: () => void;
   onArchiveSubagent?: (id: string, archived: boolean) => void;
   onStopAdvisor?: (id: string) => void;
@@ -663,8 +710,15 @@ interface ChatComposerProps {
   linearActive?: boolean;
   onStartFromIssue?: (issue: LinearIssue) => void;
   newChatError: string | null;
+  saveNotice?: ReactNode;
   notice?: string | null;
   onDismissNotice?: () => void;
+  /** A muted line under the composer, e.g. what replying to a hidden Run Chat does. */
+  composerNote?: string;
+  /** The Project is a folder outside Git: a new Chat works in it, with no isolation or branch to pick. */
+  noGit?: boolean;
+  /** The first Chat of a Project opened from onboarding: tasks to start with, sent as they are. */
+  starters?: Starter[];
 }
 
 const ISOLATIONS: Array<{ id: Isolation; name: string; description: string; icon: IconData }> = [
@@ -714,6 +768,7 @@ type NewChatHeaderProps = Pick<
   | "onBaseBranchChange"
   | "linearActive"
   | "onStartFromIssue"
+  | "noGit"
 >;
 
 function NewChatHeader({
@@ -727,6 +782,7 @@ function NewChatHeader({
   onBaseBranchChange,
   linearActive = false,
   onStartFromIssue,
+  noGit = false,
 }: NewChatHeaderProps) {
   const [menu, setMenu] = useState<"isolation" | "branch" | "issue" | null>(null);
   const [query, setQuery] = useState("");
@@ -784,7 +840,13 @@ function NewChatHeader({
     // The entrance animation makes this a stacking context, so lift it above the composer while a popover is open.
     <div className={`px-1 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
       <h1 className="text-[17px] font-medium text-ink">New chat</h1>
-      {selected && (
+      {noGit && selected && (
+        <p data-no-git-note className="mt-4 mb-2.5 flex items-center gap-1.5 text-[13px] text-ink-2">
+          <Icon icon={Folder01Icon} size={14} />
+          {selected.name} has no Git, so this Chat works in the folder itself.
+        </p>
+      )}
+      {!noGit && selected && (
         <div data-new-chat-pickers className="relative mt-4 mb-2.5 -ml-1.5 flex items-center gap-1">
           <Tooltip label="Choose the isolation level">
             <ChipButton
@@ -893,6 +955,7 @@ export function ChatComposer({
   streamingText,
   streamingSteps,
   subagents = EMPTY_SUBAGENTS,
+  backgroundTasks,
   onArchiveFinishedSubagents,
   onArchiveSubagent,
   onStopAdvisor,
@@ -943,15 +1006,20 @@ export function ChatComposer({
   linearActive,
   onStartFromIssue,
   newChatError,
+  composerNote,
+  noGit,
+  starters,
   findOpen = false,
   findSignal = 0,
   findSeed,
   onFindClose,
+  saveNotice,
   notice,
   onDismissNotice,
   onSendDesignMessage,
   onOpenDiff,
 }: ChatComposerProps) {
+  const chatWidth = useSettings().appearance.chatWidth;
   const root = useRef<HTMLDivElement>(null);
   const chatId = messages[0]?.session_id ?? "new";
   // A first message, including its preview while setup runs, opens the conversation layout.
@@ -996,7 +1064,7 @@ export function ChatComposer({
     void review.inspect(id);
   });
   const focusPrompt = useCallback(() => {
-    requestAnimationFrame(() => root.current?.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')?.focus());
+    requestAnimationFrame(() => root.current?.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
   }, []);
   useEffect(() => {
     if (highlightId !== null) root.current?.querySelector(`#message-${highlightId}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -1013,7 +1081,8 @@ export function ChatComposer({
       return;
     }
     const typing =
-      !!target?.closest("input, select, [contenteditable='true'], .xterm") || (target?.tagName === "TEXTAREA" && !target.closest("[data-promptbar]"));
+      !!target?.closest("input, select, [contenteditable='true']:not([data-prompt-editor]), .xterm") ||
+      (target?.tagName === "TEXTAREA" && !target.closest("[data-promptbar]"));
     const hidden = !root.current?.offsetParent;
     if (
       isSending ||
@@ -1066,7 +1135,7 @@ export function ChatComposer({
     if (!files.length) return;
     event.preventDefault();
     void imageDraft.attachFiles(files);
-    event.currentTarget.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')?.focus();
+    event.currentTarget.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
   }
 
   return (
@@ -1119,7 +1188,7 @@ export function ChatComposer({
               autoScrollKey={`${messages.length}-${isSending}-${streamingSteps?.length ?? 0}`}
               viewportProps={{ onScroll: (event) => setScrolled(event.currentTarget.scrollTop > 4) }}
             >
-              <div className="chat-column mx-auto flex min-h-full w-full max-w-3xl flex-col gap-3 px-3 pt-12 pb-4">
+              <div data-chat-width={chatWidth} className="chat-column mx-auto flex min-h-full w-full max-w-[var(--chat-width)] flex-col gap-3 px-3 pt-12 pb-4">
                 <StepDetailsScope scope={messageScope}>
                   <MessageTranscript
                     findOpen={findOpen}
@@ -1152,15 +1221,13 @@ export function ChatComposer({
                     <ThinkingIndicator startedAt={runStartedAt} label={waitingForSubagents ? "Waiting on subagents" : `Working with ${workingModelName}`} />
                   </div>
                 )}
-                {!isSending && activity?.activity === "background" && (
-                  <div className="w-full" style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
-                    <BackgroundIndicator
-                      count={activity.background}
-                      startedAt={activity.since}
-                      mark={<ChatMarkDotInline mark="background" failed={false} background={activity.background} />}
-                    />
-                  </div>
-                )}
+                <BackgroundWork
+                  key={runtimeChat}
+                  items={backgroundItems({ provider: sessionProvider ?? selectedModel.provider, subagents, backgroundTasks }, ports)}
+                  chatKey={runtimeChat}
+                  showIndicator={!isSending && activity?.activity === "background"}
+                  mark={<ChatMarkDotInline mark="background" failed={false} background={activity?.background ?? 0} />}
+                />
                 {runtimeChat && !isSending && <NextCheck chatKey={runtimeChat} />}
                 {resume && !isSending && (
                   <div data-resume-bar className="flex w-full items-center gap-3 rounded-control border border-line px-3 py-2 text-[12px] text-ink-2">
@@ -1181,14 +1248,15 @@ export function ChatComposer({
             <div
               aria-hidden
               data-busy={isSending || undefined}
-              className="chat-bottom-blur progressive-blur pointer-events-none absolute inset-x-0 bottom-0 z-10 h-20"
+              className="chat-bottom-blur progressive-blur pointer-events-none absolute inset-x-0 bottom-0 z-10 h-14"
             >
               <ProgressiveBlurLayers />
             </div>
           </div>
         )}
         <div
-          className={`mx-auto flex w-full max-w-3xl shrink-0 items-center justify-end gap-2 px-3 empty:hidden ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3.5 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
+          data-chat-width={chatWidth}
+          className={`chat-gutter mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 items-center justify-end gap-2 px-3 empty:hidden ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3.5 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
         >
           {/* The PR fix sits at the left of the composer's chip row; the chat's ports, to-dos and subagents at the right.
           Each pill is frosted glass; the LayoutGroup slides the others over when one comes or goes. */}
@@ -1224,7 +1292,11 @@ export function ChatComposer({
           </LayoutGroup>
         </div>
 
-        <div className={`relative mx-auto w-full max-w-3xl shrink-0 p-1.5 ${isNewChat ? "" : "z-20 -mt-1.5"}`}>
+        <div
+          data-chat-width={chatWidth}
+          data-composer-wrap
+          className={`chat-gutter relative mx-auto w-full max-w-[var(--chat-width)] shrink-0 p-1.5 ${isNewChat ? "" : "z-20 -mt-1.5"}`}
+        >
           {/* The update pill floats centred on the chip row's line, outside its flow. */}
           <UpdatePillSlot className="bottom-full mb-2" />
           {isNewChat && (scopeKind ?? "project") === "project" && !offlineName && (
@@ -1239,8 +1311,11 @@ export function ChatComposer({
               onBaseBranchChange={onBaseBranchChange}
               linearActive={linearActive}
               onStartFromIssue={onStartFromIssue}
+              noGit={noGit}
             />
           )}
+          {isNewChat && starters && starters.length > 0 && <FirstChatStarters starters={starters} />}
+          {saveNotice}
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
           {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
           {approval && <div className="mb-2 w-full">{approval}</div>}
@@ -1285,6 +1360,11 @@ export function ChatComposer({
           {newChatError && (
             <p role="alert" className="mt-2 px-1 text-[12px] text-red">
               {newChatError}
+            </p>
+          )}
+          {composerNote && (
+            <p data-composer-note className="mt-1.5 px-2 text-[12px] text-ink-3">
+              {composerNote}
             </p>
           )}
         </div>

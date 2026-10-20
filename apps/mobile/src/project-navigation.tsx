@@ -24,17 +24,9 @@ import {
   UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-  chatMarkTone,
-  chatPullRequests,
-  chatTitle,
-  comparePins,
-  isListedChat,
-  pendingChatSessionId,
-  pullRequestRefs,
-  withPendingChat,
-} from "@milagre/shared/chats";
+import { chatMarkTone, chatPullRequests, chatTitle, comparePins, pendingChatSessionId, pullRequestRefs, withPendingChat } from "@milagre/shared/chats";
 import { searchMessages } from "@milagre/shared/message-search";
+import { unreadRunRoutines } from "@milagre/shared/routines";
 import type { AgentSession, PullRequest } from "@milagre/shared/model";
 import type { LinearIssue } from "@milagre/shared/linear";
 import type { ChatSearchMatch, RegisteredProject } from "./client";
@@ -47,6 +39,7 @@ import { endNamer, linkMenuSection, linkWorktree, linkedAccessibilityLabel, link
 import { linkWithChat, removeLinkFromChat } from "./link-actions";
 import { afterSend, selectedModel, sendOptions, turnTarget } from "./turn-options";
 import { chatMark, type ChatMark } from "./indicators";
+import { shownChat } from "./chat-list-filter";
 import { backgroundLabel, chatActivity } from "@milagre/shared/chat-activity";
 import { ChatMarkIcon } from "./status-indicators";
 import { Icon } from "./icons";
@@ -314,7 +307,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
           ({ chat, run }) =>
             // A Chat stays in its place while its archive runs, under the progress, until the archive ends.
             (show === "archived") === (!!chat.archived && !archives.chats.has(`${copy?.project.path}#${chat.id}`)) &&
-            (run || isListedChat(chat, chatSummary(chat, byChat.get(chat.id)).count)),
+            shownChat(chat, run, chatSummary(chat, byChat.get(chat.id)).count, { archived: show === "archived" }),
         )
         .filter(({ mark }) => show !== "needs" || NEEDS.includes(mark))
         .filter(({ mark }) => show !== "running" || mark === "running" || mark === "background");
@@ -414,6 +407,20 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
     hostMatches,
   ]);
 
+  // A hidden Run Chat nobody opened lights the dock's Routines button, read from the Project copies this list holds.
+  const unreadRuns = useMemo(
+    () => {
+      const states: Record<string, { sessions: Record<string, AgentSession> }> = {};
+      for (const project of listed) {
+        const copy = project.path === currentPath && session.snapshot ? session.snapshot : cachedProject(project.path);
+        if (copy) states[project.path] = copy.project.state;
+      }
+      return unreadRunRoutines(states).size > 0;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- revision changes when a cached Project does.
+    [revision, listed, cachedProject, currentPath, session.snapshot],
+  );
+
   const prTargets = useMemo(() => {
     const byPath = new Map<string, Set<string>>();
     for (const row of rows) {
@@ -464,7 +471,12 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
     else if (pending)
       onNavigate({
         pathname: "/chat",
-        params: { ...params, ...(pending.originSessionId !== null ? { id: String(pending.originSessionId) } : { worktreeId: String(pending.worktreeId) }) },
+        params: {
+          ...params,
+          ...(pending.originSessionId !== null
+            ? { id: String(pending.originSessionId) }
+            : { worktreeId: String(pending.worktreeId), ...(pending.draft ? { draft: pending.draft } : {}) }),
+        },
       });
     else onNavigate({ pathname: "/chat", params: { ...params, id: String(chatId) } });
   }
@@ -538,9 +550,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
         byChat.set(message.session_id, list);
       }
       return Object.values(copy.project.state.sessions)
-        .filter(
-          (chat) => !chat.archived && (copy.runs.runs[`${copy.project.path}#${chat.id}`] || isListedChat(chat, chatSummary(chat, byChat.get(chat.id)).count)),
-        )
+        .filter((chat) => !chat.archived && shownChat(chat, copy.runs.runs[`${copy.project.path}#${chat.id}`], chatSummary(chat, byChat.get(chat.id)).count))
         .sort((a, b) => b.id - a.id)
         .flatMap((chat) => linkChatOf(projectPath, chat, byChat.get(chat.id) ?? []) ?? []);
     });
@@ -658,7 +668,18 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <IconButton label="Canvas" icon={GitMergeIcon} size={44} disabled={busy} onPress={() => onNavigate("/canvas", true)} />
         <IconButton label="Link projects" icon={Link04Icon} size={44} disabled={busy} onPress={() => onNavigate("/link-projects", true)} />
-        {routinesAvailable && <IconButton label="Routines" icon={RepeatIcon} size={44} disabled={busy} onPress={() => onNavigate("/routines", true)} />}
+        {routinesAvailable && (
+          <View>
+            <IconButton
+              label={unreadRuns ? "Routines, unread Runs" : "Routines"}
+              icon={RepeatIcon}
+              size={44}
+              disabled={busy}
+              onPress={() => onNavigate("/routines", true)}
+            />
+            {unreadRuns && <View pointerEvents="none" style={s.dockDot} />}
+          </View>
+        )}
         <View>
           <IconButton label="Settings" icon={Settings01Icon} size={44} onPress={() => onNavigate("/settings", true)} />
           <UpdateSettingsBadge />
@@ -815,6 +836,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
             return <Text style={[s.detail, { paddingHorizontal: 12, paddingTop: 16, paddingBottom: 6, fontWeight: "500" }]}>{item.name}</Text>;
           if (item.kind === "project") {
             const linked = isLinkScopeKey(item.path);
+            const unsaved = (item.path === currentPath ? session.snapshot : cachedProject(item.path))?.project.state.persistence;
             const menu = [
               {
                 items: [
@@ -842,6 +864,11 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
                     <Text numberOfLines={1} style={[s.secondary, { flex: 1, fontWeight: "500", color: colors.ink }]}>
                       {item.name}
                     </Text>
+                    {unsaved && (
+                      <Text accessibilityLabel="Changes not saved" style={[s.detail, { color: colors.red }]}>
+                        Unsaved
+                      </Text>
+                    )}
                     {attention.some((key) => projectOfKey(key) === item.path) && <AttentionDot />}
                     <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={13} />
                   </View>
@@ -900,7 +927,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
             <>
               {diff && (
                 <Text style={[s.detail, { fontVariant: ["tabular-nums"] }]}>
-                  <Text style={{ color: colors.green }}>+{diff.added}</Text> <Text style={{ color: colors.red }}>−{diff.removed}</Text>
+                  <Text style={{ color: colors.add }}>+{diff.added}</Text> <Text style={{ color: colors.remove }}>−{diff.removed}</Text>
                 </Text>
               )}
               {lastAt !== undefined && <Text style={[s.detail, { fontVariant: ["tabular-nums"] }]}>{activityAgo(lastAt, now)}</Text>}
@@ -1039,5 +1066,7 @@ const makeS = (colors: Palette) =>
       borderColor: colors.line,
     },
     footerAction: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8 },
+    // A Chat row's unread dot, placed on a dock button as Settings places its update dot.
+    dockDot: { position: "absolute", right: 5, top: 5, width: 8, height: 8, borderRadius: 4, backgroundColor: colors[chatMarkTone("unread")] },
   });
 const useS = createStylesHook(makeS);

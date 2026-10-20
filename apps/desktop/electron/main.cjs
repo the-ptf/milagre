@@ -186,7 +186,7 @@ async function startDesktop() {
     try {
       return /** @type {string[]} */ (await runtime.invoke("link:workspace-roots", [root]));
     } catch {
-      return requireWorktreeRoot(root);
+      return requireWorktreeRoot(root).catch(() => /** @type {Promise<string[]>} */ (runtime.invoke("project:plain-root", [root])));
     }
   }
   const openEditor = createEditorOpener({ editors, open: openInEditor, checkRoot: checkEditorRoot });

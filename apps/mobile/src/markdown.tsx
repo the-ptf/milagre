@@ -16,10 +16,10 @@ import { useTheme, type Palette } from "./theme";
 
 type ImageOptions = { media?: (path: string) => MediaValue; basePath?: string };
 /** What the plain render helpers need from the theme; components pass it in from their hooks. `basePath` resolves relative file links. */
-type MarkdownTheme = { colors: Palette; styles: Styles; basePath?: string };
+type MarkdownTheme = { colors: Palette; styles: Styles; basePath?: string; textPx: number; codeSize: number };
 
-// Chat reading size: desktop uses 13px at 1.55; a phone reads best a little larger.
-const bodyOf = (colors: Palette) => ({ color: colors.ink, fontSize: 15, lineHeight: 22 });
+// Chat reading size: desktop uses 13px at 1.55; a phone reads best a little larger. `textPx` follows Settings > Appearance > Text size.
+const bodyOf = (colors: Palette, textPx = 15) => ({ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) });
 
 function MarkdownImage({ src, alt, media, basePath }: { src: string; alt: string } & ImageOptions) {
   const { colors } = useTheme();
@@ -145,7 +145,7 @@ function inline(tokens: Token[], t: MarkdownTheme) {
   return inlineNodes(tree(tokens), t);
 }
 /** Images need their own native View; split text runs while preserving open emphasis and links. */
-function inlineContent(tokens: Token[], t: MarkdownTheme, style: TextStyle = bodyOf(t.colors), heading = false, images: ImageOptions = {}) {
+function inlineContent(tokens: Token[], t: MarkdownTheme, style: TextStyle = bodyOf(t.colors, t.textPx), heading = false, images: ImageOptions = {}) {
   const parts: React.ReactNode[] = [];
   const open: Token[] = [];
   let text: Token[] = [];
@@ -184,7 +184,7 @@ function inlineNodes(nodes: Node[], t: MarkdownTheme): React.ReactNode {
           : token.type === "s_open"
             ? { textDecorationLine: "line-through" }
             : token.type === "code_inline"
-              ? { fontFamily: t.styles.code.fontFamily, backgroundColor: t.colors.field, fontSize: 13.5 }
+              ? { fontFamily: t.styles.code.fontFamily, backgroundColor: t.colors.field, fontSize: t.codeSize + 1.5 }
               : {};
     const href = token.type === "link_open" ? String(token.attrGet("href") || "") : "";
     const url = href ? safeLink(href) : null;
@@ -209,7 +209,7 @@ function inlineNodes(nodes: Node[], t: MarkdownTheme): React.ReactNode {
 }
 function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.ReactNode {
   const { colors, styles } = t;
-  const body = bodyOf(colors);
+  const body = bodyOf(colors, t.textPx);
   return nodes.map(({ token, children }, index) => {
     const key = `${token.type}-${index}`;
     if (token.type === "inline") return <View key={key}>{inlineContent(token.children || [], t, body, false, images)}</View>;
@@ -218,7 +218,7 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
         <View style={{ backgroundColor: colors.field, borderRadius: 12, borderCurve: "continuous", overflow: "hidden" }}>
           {token.info && <Text style={[styles.label, { paddingHorizontal: 12, paddingTop: 10 }]}>{token.info}</Text>}
           <PageScroll horizontal contentContainerStyle={{ padding: 12, paddingBottom: 12 }}>
-            <Text selectable style={styles.code}>
+            <Text selectable style={[styles.code, { fontSize: t.codeSize + 1, lineHeight: Math.round((t.codeSize + 1) * 1.5) }]}>
               {token.content.replace(/\n$/, "")}
             </Text>
           </PageScroll>
@@ -242,7 +242,12 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
           {inlineContent(
             children.flatMap((n) => n.token.children || []),
             t,
-            { color: colors.ink, fontWeight: "600", lineHeight: 23, fontSize: token.tag === "h1" ? 17 : token.tag === "h2" ? 16 : 15 },
+            {
+              color: colors.ink,
+              fontWeight: "600",
+              lineHeight: Math.round(t.textPx * 1.5),
+              fontSize: t.textPx + (token.tag === "h1" ? 2 : token.tag === "h2" ? 1 : 0),
+            },
             true,
             images,
           )}
@@ -291,10 +296,12 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
 }
 /** One top-level block; unchanged blocks skip parsing and rendering while the reply streams. */
 const Chunk = memo(function Chunk({ text, streaming, media, basePath }: { text: string; streaming: boolean } & ImageOptions) {
-  const { colors } = useTheme();
+  const { colors, textPx, codeSize } = useTheme();
   const styles = useStyles();
   const nodes = useMemo(() => tree(markdownTokens(text, streaming)), [text, streaming]);
-  return <MarkdownStreamingContext value={streaming}>{blocks(nodes, { media, basePath }, { colors, styles, basePath })}</MarkdownStreamingContext>;
+  return (
+    <MarkdownStreamingContext value={streaming}>{blocks(nodes, { media, basePath }, { colors, styles, basePath, textPx, codeSize })}</MarkdownStreamingContext>
+  );
 });
 export const Markdown = memo(function Markdown({ text, streaming = false, media, basePath }: { text: string; streaming?: boolean } & ImageOptions) {
   const chunks = useMemo(() => markdownChunks(text), [text]);

@@ -1,8 +1,8 @@
 import { canCopyImage } from "../../lib/media";
-import { animate, AnimatePresence, motion, type MotionValue, type Transition, useMotionValue, useReducedMotion, useTransform } from "motion/react";
+import { animate, AnimatePresence, motion, type MotionValue, type Transition, useMotionValue, useTransform } from "motion/react";
 import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { EASE_OUT, SPRING_LAYOUT } from "../../lib/ease";
+import { EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 import { containedRect, type Frame, panBy, type Rect, step, type View, zoomAt } from "../../lib/lightbox";
 
 // `file` is what an image's right-click menu copies or saves: its absolute path, or a pasted image's data URL.
@@ -85,7 +85,8 @@ export function MediaLightbox({
   onIndexChange?: (index: number) => void;
   close: () => void;
 }) {
-  const reduce = useReducedMotion();
+  const speed = useMotionScale();
+  const reduce = speed === 0;
   const [index, setIndex] = useState(start);
   const [direction, setDirection] = useState(0);
   const [zoom, setZoom] = useState<Zoom>(FIT);
@@ -100,8 +101,8 @@ export function MediaLightbox({
   const dragged = useRef(false);
   const item = items[index];
   // Listeners attach once, so they read the latest render through this.
-  const latest = useRef({ index, zoom, closing, items, reduce, thumbFor, onIndexChange, close });
-  latest.current = { index, zoom, closing, items, reduce, thumbFor, onIndexChange, close };
+  const latest = useRef({ index, zoom, closing, items, reduce, speed, thumbFor, onIndexChange, close });
+  latest.current = { index, zoom, closing, items, reduce, speed, thumbFor, onIndexChange, close };
   const current = () => latest.current.items[latest.current.index];
 
   const frame = (): Frame | null => {
@@ -126,7 +127,7 @@ export function MediaLightbox({
   };
 
   const requestClose = () => {
-    const { closing, reduce, thumbFor, close } = latest.current;
+    const { closing, reduce, speed, thumbFor, close } = latest.current;
     if (closing) return;
     setClosing(true);
     setZoom(FIT);
@@ -137,8 +138,8 @@ export function MediaLightbox({
       target = thumbRect(thumb);
     const run =
       !reduce && target
-        ? pose(figure, { ...flip(figure, target), corner: thumbCorner(thumb) }, SPRING_LAYOUT)
-        : pose(figure, { opacity: 0, scale: reduce ? 1 : 0.96 }, { duration: 0.18, ease: EASE_OUT });
+        ? pose(figure, { ...flip(figure, target), corner: thumbCorner(thumb) }, scaledSpring(SPRING_LAYOUT, speed))
+        : pose(figure, { opacity: 0, scale: reduce ? 1 : 0.96 }, { duration: scaled(0.18, speed), ease: EASE_OUT });
     run.then(close);
   };
 
@@ -149,7 +150,7 @@ export function MediaLightbox({
   const ready = (figure: Figure) => {
     if (opened.current) return;
     opened.current = true;
-    const { reduce, thumbFor, items } = latest.current;
+    const { reduce, speed, thumbFor, items } = latest.current;
     // A cached image is ready before the dialog's ref and effect run, and a closed dialog has no size to morph from.
     openDialog(figure.el.closest("dialog"));
     // Decoding a large image at its full size takes a few frames; done first, the morph doesn't stall on it.
@@ -159,7 +160,7 @@ export function MediaLightbox({
         source = thumbRect(thumb);
       if (reduce || !source) {
         figure.scale.jump(reduce ? 1 : 0.96);
-        pose(figure, { opacity: 1, scale: 1 }, { duration: 0.2, ease: EASE_OUT });
+        pose(figure, { opacity: 1, scale: 1 }, { duration: scaled(0.2, speed), ease: EASE_OUT });
         return;
       }
       // jump(), not set(): set() reads the leap to the thumbnail as velocity, and the spring would fling the image past it.
@@ -169,7 +170,7 @@ export function MediaLightbox({
       figure.scale.jump(from.scale);
       figure.corner.jump(thumbCorner(thumb));
       figure.opacity.jump(1);
-      pose(figure, { x: 0, y: 0, scale: 1, corner: CORNER }, SPRING_LAYOUT);
+      pose(figure, { x: 0, y: 0, scale: 1, corner: CORNER }, scaledSpring(SPRING_LAYOUT, speed));
     });
   };
 
@@ -270,7 +271,11 @@ export function MediaLightbox({
     setZoom(zoom.scale > 1 ? { ...FIT, smooth: true } : { ...zoomAt(zoom, 2.5, fromCentre(event.clientX, event.clientY), bounds), smooth: true });
   };
 
-  const chrome = { initial: { opacity: 0 }, animate: { opacity: closing ? 0 : 1 }, transition: { duration: closing ? 0.18 : 0.24, ease: EASE_OUT } };
+  const chrome = {
+    initial: { opacity: 0 },
+    animate: { opacity: closing ? 0 : 1 },
+    transition: { duration: scaled(closing ? 0.18 : 0.24, speed), ease: EASE_OUT },
+  };
   return createPortal(
     <dialog
       ref={dialog}
@@ -313,7 +318,7 @@ export function MediaLightbox({
             initial="enter"
             animate="center"
             exit="exit"
-            transition={{ duration: 0.22, ease: EASE_OUT }}
+            transition={{ duration: scaled(0.22, speed), ease: EASE_OUT }}
             className="absolute inset-0 flex items-center justify-center p-4"
           >
             <Slide item={item} intro={!opened.current} zoom={zoom} elements={elements} onReady={ready} />
@@ -354,6 +359,7 @@ function Slide({
   onReady: (figure: Figure) => void;
 }) {
   const figure = useRef<Figure>(null);
+  const speed = useMotionScale();
   const x = useMotionValue(0),
     y = useMotionValue(0),
     scale = useMotionValue(1),
@@ -407,7 +413,7 @@ function Slide({
           }
           data-zoom={zoom.scale.toFixed(2)}
           animate={{ scale: zoom.scale, x: zoom.x, y: zoom.y }}
-          transition={zoom.smooth ? SPRING_LAYOUT : { duration: 0 }}
+          transition={zoom.smooth ? scaledSpring(SPRING_LAYOUT, speed) : { duration: 0 }}
           className={`${fit} select-none ${zoom.scale > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-zoom-in"}`}
         />
       )}

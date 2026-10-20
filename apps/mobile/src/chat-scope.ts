@@ -9,6 +9,7 @@ export function phoneSnapshot(value: Snapshot | { link: OpenLink; runs: Runs }):
   const { link, runs } = value;
   const state: CoordinatorState = {
     next_id: link.state.next_id,
+    ...(link.state.persistence ? { persistence: link.state.persistence } : {}),
     projects: {},
     tasks: {},
     messages: link.state.messages,

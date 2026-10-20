@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Platform, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, { ReduceMotion, useAnimatedStyle, useSharedValue, withSpring, type SharedValue } from "react-native-reanimated";
+import Animated, { ReduceMotion, useAnimatedStyle, useSharedValue, type SharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import * as Haptics from "expo-haptics";
+import { useMotionScale, springTo } from "./motion";
 import { useTheme } from "./theme";
 
 const HEIGHT = 32;
@@ -27,6 +28,7 @@ export function EffortSlider({
   onChange: (index: number) => void;
 }) {
   const { colors } = useTheme();
+  const scale = useMotionScale();
   const [width, setWidth] = useState(0);
   const span = Math.max(1, width - INSET * 2);
   const steps = Math.max(1, count - 1);
@@ -35,14 +37,14 @@ export function EffortSlider({
 
   useEffect(() => {
     last.set(index);
-    x.set(width ? withSpring(INSET + (span * index) / steps, SPRING) : 0);
-  }, [index, width, span, steps, x, last]);
+    x.set(width ? springTo(INSET + (span * index) / steps, SPRING, scale) : 0);
+  }, [index, width, span, steps, x, last, scale]);
 
   const pick = (next: number) => {
     if (Platform.OS === "ios") void Haptics.selectionAsync().catch(() => {});
     onChange(next);
   };
-  const gesture = sliderGesture({ x, last, span, steps, pick });
+  const gesture = sliderGesture({ x, last, span, steps, pick, scale });
   const fill = useAnimatedStyle(() => ({ width: x.get() + HANDLE }));
   const handle = useAnimatedStyle(() => ({ transform: [{ translateX: x.get() - HANDLE / 2 }] }));
 
@@ -90,12 +92,14 @@ function sliderGesture({
   span,
   steps,
   pick,
+  scale,
 }: {
   x: SharedValue<number>;
   last: SharedValue<number>;
   span: number;
   steps: number;
   pick: (index: number) => void;
+  scale: number;
 }) {
   const toIndex = (position: number) => {
     "worklet";
@@ -117,11 +121,11 @@ function sliderGesture({
         land(event.x);
       })
       .onEnd(() => {
-        x.set(withSpring(INSET + (span * last.get()) / steps, SPRING));
+        x.set(springTo(INSET + (span * last.get()) / steps, SPRING, scale));
       }),
     Gesture.Tap().onEnd((event) => {
       land(event.x);
-      x.set(withSpring(INSET + (span * toIndex(event.x)) / steps, SPRING));
+      x.set(springTo(INSET + (span * toIndex(event.x)) / steps, SPRING, scale));
     }),
   );
 }

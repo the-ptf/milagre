@@ -595,6 +595,17 @@ test("a background task keeps the agent process open and counts as background wo
   await waitUntil(() => created[0].closed);
 });
 
+test("a background command's output is read from the chat's live agent process, and not after it closes", async (t) => {
+  const { manager, created } = harness();
+  t.after(() => manager.closeAll());
+  await assert.rejects(manager.taskOutput("1", "b1"), /That background task has ended/);
+  await manager.startTurn(request("1", { provider: "claude" }));
+  created[0].taskOutput = async (taskId) => ({ output: `tail of ${taskId}`, totalBytes: 12, truncated: false });
+  assert.deepEqual(await manager.taskOutput("1", "b1"), { output: "tail of b1", totalBytes: 12, truncated: false });
+  await manager.closeChat("1");
+  await assert.rejects(manager.taskOutput("1", "b1"), /That background task has ended/);
+});
+
 test("background subagents count only for a provider that has them", async (t) => {
   const { manager, created } = harness();
   t.after(() => manager.closeAll());

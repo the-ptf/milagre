@@ -82,7 +82,7 @@ export function usePastedImages(scope: string, remote = false) {
     }
   }
 
-  async function onPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+  async function onPaste(event: ClipboardEvent<HTMLElement>) {
     const files = Array.from(event.clipboardData.items)
       .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
       .map((item) => item.getAsFile())
@@ -176,6 +176,9 @@ export function usePastedImages(scope: string, remote = false) {
   }
 
   return {
+    /** The Chat (or new-chat screen) these attachments belong to; a new scope starts empty. */
+    scope,
+    remote,
     images,
     files,
     localFiles: localFiles.current,

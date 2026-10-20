@@ -14,8 +14,8 @@ const MODES = [
 ];
 
 const STATUS = {
-  added: { letter: "A", label: "Added", className: "bg-green-tint text-green" },
-  deleted: { letter: "D", label: "Deleted", className: "bg-red-tint text-red" },
+  added: { letter: "A", label: "Added", className: "bg-green-tint text-diff-add" },
+  deleted: { letter: "D", label: "Deleted", className: "bg-red-tint text-diff-remove" },
   modified: { letter: "M", label: "Modified", className: "bg-orange-tint text-orange" },
   renamed: { letter: "R", label: "Renamed", className: "bg-accent-tint text-accent-ink" },
 } as const;
@@ -23,8 +23,8 @@ const STATUS = {
 export function Counts({ added, removed, className = "", total = false }: { added: number; removed: number; className?: string; total?: boolean }) {
   return (
     <span data-diff-counts={total ? "total" : ""} className={`flex shrink-0 items-center gap-1.5 font-mono text-[11px] tabular-nums ${className}`}>
-      <span className="text-green">+{added}</span>
-      <span className="text-red">−{removed}</span>
+      <span className="text-diff-add">+{added}</span>
+      <span className="text-diff-remove">−{removed}</span>
     </span>
   );
 }

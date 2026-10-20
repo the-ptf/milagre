@@ -238,7 +238,7 @@ function Clamped({ children, lines, label }: { children: ReactNode; lines: 2 | 6
  * One subagent at a glance: its own plan (or, without one, what it said step by step), what it does now, its task and
  * outcome. The whole transcript sits behind Full log.
  */
-const SubagentDetail = memo(function SubagentDetail({
+export const SubagentDetail = memo(function SubagentDetail({
   chatKey,
   agent: sent,
   onStop,

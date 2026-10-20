@@ -115,6 +115,8 @@ const turnInput = (prompt, files) => [
 
 // account/read answers in well under a second; a Codex that doesn't is not held up for the default RPC timeout.
 const ACCOUNT_TIMEOUT_MS = 8000;
+// thread/start and thread/resume wait for Codex however long it takes (see requestThread).
+const THREAD_TIMEOUT_MS = null;
 
 const sessionClosedError = () => Object.assign(new Error("The agent session closed before this message was sent."), { sessionClosed: true });
 
@@ -381,8 +383,10 @@ class CodexSession {
   // chat unusable. On an RPC error the call is tried again with less: without the Everywhere servers (the
   // switched-off entries and the linked tools stay), then with only the linked tools' MCP server, then without
   // any MCP server (the Chat then only receives Delegations), then without any config (no question tool either).
+  // Neither call has a time limit, as in T3 Code and Paseo: Codex answers only after watching every skill folder,
+  // which a busy fseventsd stretched past a minute. A Codex that exits fails the call, and Stop kills a stuck start.
   async requestThread(method, params) {
-    if (this.analysisOnly) return this.rpc.request(method, params, { timeoutMs: 60_000 });
+    if (this.analysisOnly) return this.rpc.request(method, params, { timeoutMs: THREAD_TIMEOUT_MS });
     const { mcp_servers: servers, ...rest } = params.config ?? {};
     const { config: _config, ...bare } = params;
     const withServers = (map) => ({ ...params, config: map && Object.keys(map).length ? { ...rest, mcp_servers: map } : rest });
@@ -396,7 +400,7 @@ class CodexSession {
     const attempts = stages.filter((attempt, index) => stages.findIndex((other) => isDeepStrictEqual(other, attempt)) === index);
     for (const [index, attempt] of attempts.entries()) {
       try {
-        const result = await this.rpc.request(method, attempt, { timeoutMs: 60_000 });
+        const result = await this.rpc.request(method, attempt, { timeoutMs: THREAD_TIMEOUT_MS });
         if (servers?.milagre) this.linked?.toolsAvailable(Boolean(attempt.config?.mcp_servers?.milagre));
         return result;
       } catch (error) {

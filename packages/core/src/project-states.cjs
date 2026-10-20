@@ -16,8 +16,9 @@ class ProjectStates {
    * every `sweepMs`; a change or read that names it loads it back. `unloaded(key, state)` (optional) hears of each state
    * a sweep made. Without `messages` every message stays in memory.
    */
-  constructor({ read, save, compact, debounceMs = 250, messages = null }) {
-    Object.assign(this, { read, save, compact, debounceMs });
+  constructor({ read, save, compact, debounceMs = 250, messages = null, persistenceChanged }) {
+    Object.assign(this, { read, save, compact, debounceMs, persistenceChanged });
+    this.failures = new Map();
     this.messages = messages && { idleMs: IDLE_MS, sweepMs: SWEEP_MS, active: () => false, now: Date.now, ...messages };
     this.states = new Map();
     this.queues = new Map();
@@ -133,7 +134,7 @@ class ProjectStates {
         if (loaded !== state) this.states.set(projectPath, (state = loaded));
       }
       const changed = await change(state);
-      if (changed === state) return { state, changed: false };
+      if (changed === state) return { state: this.states.get(projectPath), changed: false };
       let next = changed;
       let unloaded;
       if (this.messages) {
@@ -145,6 +146,7 @@ class ProjectStates {
       next = await this.slim(projectPath, next, state);
       // A compaction that copied the messages array keeps the Chats unloaded as they were.
       if (unloaded && Array.isArray(next?.messages)) messageStore.tag(next.messages, this.messages.directory(projectPath), unloaded);
+      next = this.withPersistence(projectPath, next);
       this.states.set(projectPath, next);
       if (persist) {
         this.transient.delete(projectPath);
@@ -240,6 +242,26 @@ class ProjectStates {
     }
   }
 
+  // Save status is runtime metadata. Keep it authoritative across async mutations, but never write it to disk.
+  withPersistence(projectPath, state) {
+    const persistence = this.failures.get(projectPath);
+    if (state.persistence === persistence) return state;
+    const { persistence: _previous, ...content } = state;
+    return persistence ? { ...content, persistence } : content;
+  }
+
+  setPersistence(projectPath, persistence) {
+    if (persistence) this.failures.set(projectPath, persistence);
+    else this.failures.delete(projectPath);
+    const state = this.withPersistence(projectPath, this.states.get(projectPath));
+    this.states.set(projectPath, state);
+    try {
+      this.persistenceChanged?.(projectPath, state);
+    } catch (error) {
+      console.warn("Milagre couldn't announce save status:", error.message);
+    }
+  }
+
   schedule(projectPath) {
     clearTimeout(this.timers.get(projectPath));
     const timer = setTimeout(
@@ -257,18 +279,31 @@ class ProjectStates {
   write(projectPath) {
     if (this.writes.has(projectPath)) return this.writes.get(projectPath);
     if (!this.dirty.has(projectPath)) return Promise.resolve();
-    const state = this.dirty.get(projectPath);
+    const { persistence: _runtime, ...state } = this.dirty.get(projectPath);
     this.dirty.delete(projectPath);
+    const failure = this.failures.get(projectPath);
     let failed = false;
     const writing = Promise.resolve()
-      .then(() => this.save(projectPath, state))
+      .then(() => {
+        if (failure) this.setPersistence(projectPath, { ...failure, saving: true });
+        return this.save(projectPath, state);
+      })
       .catch((error) => {
         failed = true;
         if (!this.dirty.has(projectPath)) this.dirty.set(projectPath, state);
+        this.setPersistence(projectPath, { error: error.message || String(error), ...(error.code ? { code: String(error.code) } : {}), saving: false });
         throw error;
       })
-      .finally(() => {
+      .finally(async () => {
         this.writes.delete(projectPath);
+        // A mutation already requested may still be awaiting compaction. Settle status after it commits, so a newer
+        // transient update cannot lose the warning even though it schedules no ordinary save.
+        if (!failed && this.failures.has(projectPath))
+          await this.enqueue(projectPath, () => {
+            if (!this.failures.has(projectPath)) return;
+            const unsaved = this.dirty.has(projectPath) || this.transient.has(projectPath) || this.writes.has(projectPath);
+            this.setPersistence(projectPath, unsaved ? { ...this.failures.get(projectPath), saving: this.writes.has(projectPath) } : undefined);
+          });
         // A timer may have fired during the save. Do not lose that newer edit.
         if (!failed && this.dirty.has(projectPath) && !this.timers.has(projectPath)) this.schedule(projectPath);
       });
@@ -281,10 +316,21 @@ class ProjectStates {
     await this.flush(projectPath);
     await this.enqueue(projectPath, () => {
       clearTimeout(this.timers.get(projectPath));
-      for (const map of [this.states, this.dirty, this.timers, this.due, this.touches, this.readAt]) map.delete(projectPath);
+      for (const map of [this.states, this.dirty, this.timers, this.due, this.touches, this.readAt, this.failures]) map.delete(projectPath);
       this.transient.delete(projectPath);
       if (this.messages) messageStore.resetStore(this.messages.directory(projectPath));
     });
+  }
+
+  /** An explicit retry includes the latest transient updates too, without changing ordinary flush semantics. */
+  async retry(projectPath) {
+    await this.enqueue(projectPath, () => {
+      if (!this.states.has(projectPath)) throw new Error("Open the Project before retrying its save.");
+      if (!this.failures.has(projectPath)) return;
+      this.dirty.set(projectPath, this.states.get(projectPath));
+      this.transient.delete(projectPath);
+    });
+    await this.flush(projectPath);
   }
 
   async close() {

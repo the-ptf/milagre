@@ -1,7 +1,9 @@
 import { StrictMode, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import "./fonts.css";
 import "./styles.css";
+import { AppMotionConfig } from "./components/motion/AppMotionConfig";
 import { applyThemeNow } from "./lib/settings";
 
 applyThemeNow();
@@ -12,12 +14,14 @@ const FloatingInbox = lazy(() => import("./components/FloatingInbox").then((modu
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    {floating ? (
-      <Suspense fallback={null}>
-        <FloatingInbox view={floatingView} />
-      </Suspense>
-    ) : (
-      <App />
-    )}
+    <AppMotionConfig>
+      {floating ? (
+        <Suspense fallback={null}>
+          <FloatingInbox view={floatingView} />
+        </Suspense>
+      ) : (
+        <App />
+      )}
+    </AppMotionConfig>
   </StrictMode>,
 );

@@ -163,8 +163,11 @@ export interface AgentSession {
   resumeTurn?: { stoppedAt?: number };
   /** How full the agent's context window was when its last turn ended. */
   contextUsage?: ContextUsage;
-  /** The Routine and Run that started this Chat; set only on a Chat a Run created. */
-  routine?: { routineId: string; runId: string };
+  /**
+   * The Routine and Run that started this Chat; set only on a Chat a Run created. `hidden` keeps it out of every Chat list
+   * until it waits on an approval or question; it is absent on a Chat made before Run Chats were hidden.
+   */
+  routine?: { routineId: string; runId: string; hidden?: boolean };
   /** The permission mode the Chat's composer last set (a pick, or a person's message); a heartbeat's beat runs in it. */
   permissionMode?: PermissionMode;
   /**
@@ -203,6 +206,15 @@ export interface BackgroundTask {
   title: string;
   /** When Milagre first saw it run (ms since epoch). */
   startedAt: number;
+}
+
+/** The end of a background command's output (chat:task-output): the last 8 KiB it wrote, escape sequences included. */
+export interface BackgroundTaskOutput {
+  output: string;
+  /** The size of the whole output in bytes. */
+  totalBytes: number;
+  /** Whether `output` holds only the end of a longer output. */
+  truncated: boolean;
 }
 
 /** Tokens in the agent's context window, out of the model's window size. */
@@ -245,7 +257,15 @@ export interface LinkPreparation {
   error?: string;
   retainedPaths?: string[];
 }
+/** A failed save retained by the Computer, until every pending edit has reached disk. Never persisted itself. */
+export interface PersistenceFailure {
+  error: string;
+  code?: string;
+  saving: boolean;
+}
+
 export interface LinkState {
+  persistence?: PersistenceFailure;
   /** From a host that keeps messages by Chat (chat-pages-v1): `messages` is empty, and the Chats on screen read their own. */
   messagesInChats?: boolean;
   next_id: number;
@@ -460,6 +480,8 @@ export interface RoutineRun {
   /** What started this Run. */
   event?: RoutineEvent;
   summary?: string;
+  /** What the Run did, set when it ends; the Runs list shows it as the row's name. */
+  title?: string;
   error?: string;
   /** An event refused before it ran (a webhook whose signature didn't match); only the newest are kept. */
   rejected?: boolean;
@@ -774,6 +796,8 @@ export interface AgentPort {
   address: string;
   /** Set by a desktop window on a port that listens on another computer, which `localhost` doesn't reach. */
   computerId?: string;
+  /** The agent's background command that serves it, which the port then stands for instead of the background line. */
+  taskId?: string;
 }
 
 /** Every chat's listening ports, by chat key; a chat with none is absent. */
@@ -896,6 +920,7 @@ export interface WorktreeRequest {
 }
 
 export interface CoordinatorState {
+  persistence?: PersistenceFailure;
   /** From a host that keeps messages by Chat (chat-pages-v1): `messages` is empty, and the Chats on screen read their own. */
   messagesInChats?: boolean;
   next_id: number;
@@ -916,9 +941,21 @@ export interface RestoredChats {
 export interface OpenProject {
   path: string;
   name: string;
+  /** False for a folder outside Git: its one Worktree is the folder itself, and its Chats work there. */
+  git?: boolean;
   state: CoordinatorState;
   /** Only on the first open after chats came back from linked worktrees' old files. */
   restoredChats?: RestoredChats[];
+}
+
+/** A folder an agent session on this computer worked in, for onboarding. */
+export interface AgentFolder {
+  path: string;
+  name: string;
+  provider: ModelProvider;
+  /** ISO time of the newest session there. */
+  lastUsed: string;
+  git: boolean;
 }
 
 /** worktree:link-issue's answer: `renamed` when the branch took the issue's name, `stored` when only the key was kept. */

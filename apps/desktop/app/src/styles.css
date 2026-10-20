@@ -9,6 +9,13 @@
 :root {
   --window-chrome-height: 60px;
   --window-chrome-top: calc((var(--window-chrome-height) - 32px) / 2);
+
+  /* Settings > Appearance; applyAppearance (lib/appearance.ts) overrides these inline. Defaults are today's values. */
+  --sidebar-delta: 0px;
+  --chat-size: 13px;
+  --code-size: 12px;
+  --chat-width: 768px;
+  --motion-scale: 1;
 }
 
 html[data-floating-inbox],
@@ -439,6 +446,8 @@ html[data-floating-inbox] #root {
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
   --color-accent-tint: var(--accent-tint);
+  --color-diff-add: var(--diff-add-color, var(--green));
+  --color-diff-remove: var(--diff-remove-color, var(--red));
   --color-green: var(--green);
   --color-green-tint: var(--green-tint);
   --color-purple-ink: var(--purple-ink);
@@ -457,8 +466,8 @@ html[data-floating-inbox] #root {
   --shadow-overlay: var(--shadow-overlay);
 
   /* type */
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-mono-face), ui-monospace, "SF Mono", monospace;
+  --font-sans: var(--ui-font, ui-sans-serif, system-ui, sans-serif);
+  --font-mono: var(--mono-font, ui-monospace, "SF Mono", monospace);
 
   /* radii — chips 6, controls 8, cards 10, windows 14, pills 999 */
   --radius-chip: 6px;
@@ -629,9 +638,31 @@ a {
 
 /* The conversation rail sits over the left edge of the transcript. When the
  * window is too narrow for the centred column to clear it, the column's left
- * padding grows so the ticks keep their own lane (36px from the edge). */
-.chat-column {
-  padding-left: clamp(12px, calc(36px - (100% - 768px) / 2), 36px);
+ * padding grows so the ticks keep their own lane (36px from the edge).
+ * The chip row and composer share these insets (.chat-gutter), so the composer card's
+ * edges line up with the transcript's text edges at every width setting. */
+.chat-column,
+.chat-gutter {
+  --column: 768px;
+  padding-left: clamp(12px, calc(36px - (100% - var(--column)) / 2), 36px);
+}
+/* The composer wrap is p-1.5; its sides take the transcript's 12px (the column's px-3). */
+.chat-gutter {
+  padding-right: 12px;
+}
+.chat-column[data-chat-width="wide"],
+.chat-gutter[data-chat-width="wide"] {
+  --column: 1024px;
+}
+.chat-column[data-chat-width="custom"],
+.chat-gutter[data-chat-width="custom"] {
+  --column: var(--chat-width);
+}
+/* Full: the column fills the pane, so the rail lane is plain padding. */
+.chat-column[data-chat-width="full"],
+.chat-gutter[data-chat-width="full"] {
+  padding-left: 36px;
+  padding-right: 24px;
 }
 
 /* Keep the component nav scrollable but hide its scrollbar. */
@@ -728,11 +759,12 @@ a {
   }
 }
 
-.prompt-input-highlighted {
-  color: transparent;
-}
-.prompt-input-highlighted::selection {
-  color: var(--ink);
+/* Chips in the prompt take exactly one line: their content uses the field's line height, and the border sits in
+   negative margins, so a chip never makes its line taller (the compact composer expands when a line grows). */
+[data-prompt-editor] [data-chip] > [data-chip] {
+  line-height: inherit;
+  margin-block: -1px;
+  vertical-align: top;
 }
 
 @media (min-width: 64rem) {
@@ -922,7 +954,7 @@ a:focus-visible .animated-underline::after {
  * Every rail glyph remains centered at x=26 in both states. */
 /* Progressive blur where content scrolls under a window edge. One masked blur leaves a crisp copy showing
  * through wherever its mask is half on, so four blurs that double in strength stack up
- * instead, each switched on a step closer to the edge. The last child is the page-colored tint.
+ * instead, each switched on a step closer to the edge. The last child is the tint toward the transcript's background.
  * --blur-dir points from the content toward the edge; the blur starts at --blur-start and is at full
  * strength from --blur-end on. */
 .progressive-blur > * {
@@ -961,6 +993,12 @@ a:focus-visible .animated-underline::after {
   display: none;
 }
 
+/* The fades tint toward the background the transcript sits on, so an empty area under one shows no band: the page,
+ * or the surface of a focused ChatGrid tile (which sets --chat-bg). */
+[data-chat-tile] {
+  --chat-bg: var(--surface);
+}
+
 /* The top of a scrolled chat, under the window-drag strip. Blur and tint build across the whole overlay, so the
  * text softens gradually and is fully blurred only at the window edge. */
 .chat-top-blur {
@@ -969,10 +1007,10 @@ a:focus-visible .animated-underline::after {
   --blur-end: 100%;
 }
 .chat-top-blur > :last-child {
-  background: linear-gradient(to bottom, color-mix(in oklab, var(--page) 55%, transparent), transparent);
+  background: linear-gradient(to bottom, color-mix(in oklab, var(--chat-bg, var(--page)) 35%, transparent), transparent);
 }
 .chat-top-blur[data-busy] > :last-child {
-  background: linear-gradient(to bottom, color-mix(in oklab, var(--page) 80%, transparent), transparent);
+  background: linear-gradient(to bottom, color-mix(in oklab, var(--chat-bg, var(--page)) 50%, transparent), transparent);
 }
 
 /* The bottom mirrors the top: blur and tint grow gradually toward the composer. */
@@ -982,10 +1020,10 @@ a:focus-visible .animated-underline::after {
   --blur-end: 100%;
 }
 .chat-bottom-blur > :last-child {
-  background: linear-gradient(to top, color-mix(in oklab, var(--page) 55%, transparent), transparent);
+  background: linear-gradient(to top, color-mix(in oklab, var(--chat-bg, var(--page)) 35%, transparent), transparent);
 }
 .chat-bottom-blur[data-busy] > :last-child {
-  background: linear-gradient(to top, color-mix(in oklab, var(--page) 80%, transparent), transparent);
+  background: linear-gradient(to top, color-mix(in oklab, var(--chat-bg, var(--page)) 50%, transparent), transparent);
 }
 
 /* Messages far off screen skip layout and paint; the size of the last render stands in, so scrolling stays steady.

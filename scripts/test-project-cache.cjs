@@ -102,7 +102,7 @@ const stubs = {
   "./routes-native":
     'export const lanRoutes = { set() {}, forget() {}, checkAll() {}, subscribe: () => () => {}, kind: () => "remote", view: () => ({ current: () => null, subscribe: () => () => {} }) }; export const learnRoutes = async () => {};',
   "./hosts-native":
-    "export const savedHosts = { list: async () => [] }; export const savedNavigation = { read: async () => null }; export const readPermission = async () => null; export const savePermission = async () => {}; export const savedChatDefaults = { readModel: () => null, saveModel: async () => {} }; export const savedProjectOrder = { apply: async (_host, projects) => projects, save: async () => {} }; const noFolds = new Set(); export const savedFoldedProjects = { subscribe: () => () => {}, folded: () => noFolds, loaded: () => true, load: async () => {}, toggle: async () => {} };",
+    "export const savedHosts = { list: async () => [] }; export const savedNavigation = { read: async () => null }; export const readPermission = async () => null; export const savePermission = async () => {}; export const savedChatDefaults = { readModel: () => null, saveModel: async () => {} }; export const savedProjectOrder = { apply: async (_host, projects) => projects, save: async () => {} }; const noFolds = new Set(); export const savedHiddenProjects = { hidden: () => noFolds, apply: async (_host, projects) => projects, setHidden: async () => {} }; export const savedFoldedProjects = { subscribe: () => () => {}, folded: () => noFolds, loaded: () => true, load: async () => {}, toggle: async () => {} };",
   "./live": "export const syncProject = () => () => {};",
   "./ui": ui,
   "./theme":
@@ -187,11 +187,11 @@ async function browserChecks() {
 
     await click("New chat");
     await evaluate(
-      `(() => { const input = document.querySelector('textarea[aria-label="Prompt"]'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'Draft during refresh'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+      `(() => { const input = document.querySelector('[data-prompt-editor]'); input.value = 'Draft during refresh'; input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
     );
     await evaluate("window.finish('/alpha', 'Updated alpha')");
     await waitFor(sidebar("Updated alpha Chat"));
-    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').value`), "Draft during refresh");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "Draft during refresh");
     await screenshot("desktop-refreshed");
     await switchTo("alpha", "beta");
     await waitFor(sidebar("beta Chat"));

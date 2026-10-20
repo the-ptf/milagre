@@ -12,6 +12,7 @@ const fixture = `
 // This fixture exercises a device that has already accepted AI sharing.
 import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
 localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
+localStorage.setItem("milagre.hiddenRemoteScopes", JSON.stringify(["c-arketa|/Users/a/old-site"]));
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { updateSettings } from "/src/lib/settings";
@@ -27,10 +28,11 @@ const computerEvents = new Set();
 window.setComputers = (list) => { window.computerList = list; computersChanged({ thisMac: "victor-mbp", computers: list }); };
 const remoteState = (title, body) => ({ next_id: 9, projects: { 1: { id: 1, name: "p" } }, worktrees: { 1: { id: 1, name: "main", path: "/remote", project_id: 1 } }, sessions: { 4: { id: 4, worktree_id: 1, agent_name: "Claude", provider: "claude", status: "Idle", title } }, connections: {}, events: [], messages: [{ id: 4, session_id: 4, role: "user", body }], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] });
 const remoteProjects = {
-  "c-arketa": { path: "c-arketa|/Users/a/arketa-web", name: "arketa-web", state: remoteState("Fix flaky deploy check", "The deploy check fails about one run in five.") },
+  // Hidden on arketa's own sidebar, but shown on this Mac because each computer has its own visibility.
+  "c-arketa": { path: "c-arketa|/Users/a/arketa-web", name: "arketa-web", hidden: true, state: remoteState("Fix flaky deploy check", "The deploy check fails about one run in five.") },
   "c-studio": { path: "c-studio|/Users/s/homelab", name: "homelab", state: remoteState("Backup rotation", "Rotate the nightly backups.") },
-  // Hidden on its computer: not in the sidebar, but in the project chooser, unchecked.
-  "c-arketa-hidden": { path: "c-arketa|/Users/a/old-site", name: "old-site", hidden: true, state: remoteState("Old site", "Retire it.") },
+  // Shown on arketa, but hidden on this Mac (in milagre.hiddenRemoteScopes): not in the sidebar, and unchecked in Filters › Projects.
+  "c-arketa-hidden": { path: "c-arketa|/Users/a/old-site", name: "old-site", state: remoteState("Old site", "Retire it.") },
   // Only on a computer added during the test.
   "c-new": { path: "c-new|/Users/n/garden", name: "garden", state: remoteState("Water plan", "Plan the watering.") },
   "c-studio-lean": {
@@ -41,6 +43,7 @@ const remoteProjects = {
   },
 };
 window.remoteProjects = remoteProjects;
+window.remoteHiddenCalls = 0;
 window.sent = [];
 // Each computer's bridge, as main would answer it: keys already name the computer.
 const projectsOf = (id) => Object.values(remoteProjects).filter((project) => project.path.startsWith(id + "|"));
@@ -59,9 +62,9 @@ window.pushRemote = (state) => {
 window.setChatOrder = (chatOrder) => updateSettings({ chatOrder });
 const remote = (id) => new Proxy({
   listRecentProjects: async () => projectsOf(id).map(({ path, name, hidden }) => ({ path, name, ...(hidden ? { hidden } : {}) })),
-  setProjectHidden: async (key, hidden) => {
-    Object.values(remoteProjects).find((project) => project.path === key).hidden = hidden;
-    return projectsOf(id).map(({ path, name, hidden }) => ({ path, name, ...(hidden ? { hidden } : {}) }));
+  setProjectHidden: async () => {
+    window.remoteHiddenCalls++;
+    throw new Error("Remote computer visibility must not be mutated from this Mac");
   },
   listNamedLinks: async () => [],
   readProject: projectAt,
@@ -235,7 +238,12 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector('[data-project-choice="c-arketa|/Users/a/old-site"]').getAttribute('aria-checked')`), "true");
     await evaluate(`document.querySelector('[data-project-choice="c-arketa|/Users/a/old-site"]').click()`);
     await waitFor(`!document.querySelector('[data-sidebar-scope="c-arketa|/Users/a/old-site"]')`);
-    assert.equal(await evaluate(`window.remoteProjects["c-arketa-hidden"].hidden`), true, "the choice is saved on that computer");
+    assert.deepEqual(
+      await evaluate(`JSON.parse(localStorage.getItem("milagre.hiddenRemoteScopes") || "[]")`),
+      ["c-arketa|/Users/a/old-site"],
+      "the choice is saved on this Mac without mutating the other computer",
+    );
+    assert.equal(await evaluate(`window.remoteHiddenCalls`), 0, "the remote computer's setProjectHidden is never called");
 
     // A computer added while the menu is open brings its Projects in.
     await evaluate(
@@ -323,8 +331,8 @@ async function browserChecks() {
       await evaluate(`document.querySelector('[data-offline-banner]').textContent.trim()`),
       "studio is offline. This is the last copy it sent, 2h ago. You can read it until studio is back.",
     );
-    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').disabled`), true);
-    assert.match(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').placeholder`), / \(studio is offline\)$/);
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').getAttribute('aria-disabled')`), "true");
+    assert.match(await evaluate(`document.querySelector('[data-prompt-editor]').getAttribute('aria-placeholder')`), / \(studio is offline\)$/);
     assert.equal(await evaluate(`!!document.querySelector('[data-offline-empty]')`), false, "a cached chat shows its copy");
     assert.ok(await evaluate(`document.querySelector('[data-chat-pane]').textContent.includes('Rotate the nightly backups.')`));
     await screenshot("offline-chat");
@@ -345,9 +353,9 @@ async function browserChecks() {
     await evaluate(
       `window.setComputers(window.computerList.map((c) => c.id === 'c-studio' ? { ...c, state: 'online', route: 'relay', lastSeen: Date.now() } : c))`,
     );
-    await waitFor(`!document.querySelector('[data-offline-banner]') && !document.querySelector('textarea[aria-label="Prompt"]').disabled`);
+    await waitFor(`!document.querySelector('[data-offline-banner]') && !document.querySelector('[data-prompt-editor]').hasAttribute('aria-disabled')`);
     await evaluate(
-      `(() => { const box = document.querySelector('textarea[aria-label="Prompt"]'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(box, "Keep 8 dailies"); box.dispatchEvent(new Event("input", { bubbles: true })); box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); })()`,
+      `(() => { const box = document.querySelector('[data-prompt-editor]'); box.value = "Keep 8 dailies"; box.dispatchEvent(new Event("input", { bubbles: true })); box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); })()`,
     );
     await waitFor(`window.sent.length === 1`);
     assert.equal(await evaluate(`window.sent[0].projectPath`), "c-studio|/Users/s/homelab", "the send goes to studio's bridge, with the key main strips");

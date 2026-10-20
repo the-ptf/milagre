@@ -4,12 +4,11 @@ import type { CoordinatorState, LinkState, OpenProject, Routine } from "@milagre
 import { clock, triggerText } from "@milagre/shared/routines";
 import type { AgentRuns } from "@milagre/shared/agent-runs";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
-import { isListedChat } from "@milagre/shared/chats";
 import { stateEvents } from "./state-events.ts";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
-import { chatMark, chatTitle, orderChats, type ChatOrder } from "./chat-list.ts";
+import { chatMark, chatTitle, isChatListed, orderChats, type ChatOrder } from "./chat-list.ts";
 
 // The last full copy of each Project the sidebar read, so opening one of its chats shows it before the main process answers.
 const projectCopies = new Map<string, OpenProject>();
@@ -95,7 +94,10 @@ export function scopeChats(
   const listed = Object.values(state.sessions)
     .filter((session) => !session.archived)
     .map((session) => ({ session, sessionMessages: bySession.get(session.id) ?? [] }))
-    .filter(({ session, sessionMessages }) => isListedChat(session, chatSummary(session, sessionMessages).count));
+    // A hidden Run Chat shows only while it waits on an approval or a question.
+    .filter(({ session, sessionMessages }) =>
+      isChatListed(session, sessionMessages, waiting.has(`${key}#${session.id}`) || asking.has(`${key}#${session.id}`)),
+    );
   return orderChats(listed, order).map(({ session, sessionMessages }) => {
     const worktree = "worktree_id" in session && "worktrees" in state ? state.worktrees[session.worktree_id] : undefined;
     const chatKey = `${key}#${session.id}`;

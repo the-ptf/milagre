@@ -325,23 +325,49 @@ test("Chat edits still report a disk failure while streaming writes are deferred
   assert.equal((await readSavedState(project)).sessions[session.id].title, "Keep my title");
 });
 
-test("a failed Worktree discovery preserves existing Chats and disk state", async (t) => {
+test("a Project that loses its .git keeps its Worktree Chats and disk state", async (t) => {
   const { project, make } = await fixture(t);
+  execFileSync("git", ["-C", project, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "start"], { stdio: "ignore" });
+  execFileSync("git", ["-C", project, "worktree", "add", "-b", "side", path.join(path.dirname(project), "side")], { stdio: "ignore" });
   const runtime = make();
   const opened = await runtime.openProject(project);
+  assert.equal(opened.git, true);
   const session = Object.values(opened.state.sessions)[0];
   await runtime.invoke("chat:patch", [project, session.id, { title: "Never erase this" }]);
   const file = path.join(project, ".milagre/coordination.json");
   const before = await fs.readFile(file, "utf8");
   await fs.rename(path.join(project, ".git"), path.join(project, ".git-unavailable"));
   try {
-    await assert.rejects(runtime.openProject(project));
+    await assert.rejects(runtime.openProject(project), /no longer a Git repository/);
   } finally {
     await fs.rename(path.join(project, ".git-unavailable"), path.join(project, ".git"));
   }
+  assert.equal(Object.keys((await runtime.invoke("project:snapshot", [project])).state.worktrees).length, 2);
   assert.equal((await runtime.invoke("project:snapshot", [project])).state.sessions[session.id].title, "Never erase this");
   await runtime.close();
   assert.equal(JSON.parse(await fs.readFile(file, "utf8")).sessions[session.id].title, JSON.parse(before).sessions[session.id].title);
+});
+
+test("a folder outside Git opens as a Project whose one Worktree is the folder itself", async (t) => {
+  const { project, make } = await fixture(t);
+  const plain = path.join(path.dirname(project), "notes");
+  await fs.mkdir(plain);
+  await fs.writeFile(path.join(plain, "todo.md"), "- milk\n");
+  const runtime = make();
+  const opened = await runtime.openProject(plain);
+  assert.equal(opened.git, false);
+  assert.equal(opened.path, plain);
+  assert.deepEqual(
+    Object.values(opened.state.worktrees).map((worktree) => [worktree.path, worktree.name]),
+    [[plain, "notes"]],
+  );
+  assert.equal(Object.keys(opened.state.sessions).length, 1);
+  assert.deepEqual(await runtime.invoke("project:files", [plain, "todo"]), ["todo.md"]);
+  await assert.rejects(runtime.invoke("worktree:create", [{ projectPath: plain, baseBranch: "main", prompt: "" }]), /has no Git/);
+  assert.deepEqual(await runtime.invoke("project:plain-root", [plain]), [plain]);
+  await assert.rejects(runtime.invoke("project:plain-root", [path.dirname(plain)]), /isn't a project/);
+  // Reopening keeps the same Project: the recent list and registry hold it by its path.
+  assert.equal((await runtime.invoke("project:switch", [plain])).path, plain);
 });
 
 test("quit stops agents after a disk failure and can retry before releasing ownership", async (t) => {
@@ -625,7 +651,7 @@ test("chat:queue-send stops the running Antigravity turn and starts the queued m
     messages.map((item) => [item.role, item.body, item.outcome]),
     [
       ["user", "long job", undefined],
-      ["assistant", "Working.\n\nWhat should I work on instead?", "cancelled"],
+      ["assistant", "Working.", "cancelled"],
       ["user", "then this", undefined],
     ],
   );
@@ -1397,4 +1423,36 @@ test("unlinking hides a branch-named issue after refresh, and relinking restores
   assert.deepEqual(await readIssues(), {}, "Project reconciliation preserves the explicit unlink");
   await link();
   assert.equal((await readIssues())[worktree.path].key, "ENG-12");
+});
+
+test("Project save failure and recovery publish status without another edit", async (t) => {
+  const { project, make, events } = await fixture(t);
+  const runtime = make();
+  const opened = await runtime.invoke("project:current");
+  const session = Object.values(opened.state.sessions)[0];
+  await runtime.invoke("chat:patch", [project, session.id, { title: "Before failure" }]);
+  await runtime.flush();
+  const file = path.join(project, ".milagre", "coordination.json");
+  const backup = `${file}.save-check`;
+  await fs.rename(file, backup);
+  await fs.mkdir(file);
+  try {
+    const before = events.length;
+    await assert.rejects(runtime.invoke("chat:patch", [project, session.id, { title: "Newest title" }]));
+    const failed = events.slice(before).findLast((event) => event.channel === "project:state");
+    assert.ok(failed.payload.state.persistence?.error, "the failed write itself announces unsaved status");
+    assert.ok(runtime.snapshot().projects.find((entry) => entry.path === project).state.persistence);
+  } finally {
+    await fs.rmdir(file);
+    await fs.rename(backup, file);
+  }
+  const before = events.length;
+  await runtime.invoke("scope:retry-save", [project]);
+  const recovered = events.slice(before).filter((event) => event.channel === "project:state");
+  assert.equal(recovered[0].payload.state.persistence.saving, true);
+  assert.equal(recovered.at(-1).payload.state.persistence, undefined);
+  const saved = await readSavedState(project);
+  assert.equal(saved.sessions[session.id].title, "Newest title");
+  assert.equal(saved.persistence, undefined);
+  await assert.rejects(runtime.invoke("scope:retry-save", [path.join(project, "unopened")]), /Open the Project/);
 });

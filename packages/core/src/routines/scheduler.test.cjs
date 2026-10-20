@@ -11,6 +11,13 @@ const START = Date.UTC(2026, 0, 5, 10, 0, 0);
 const PASS_HINT = '\n\nIf nothing needs doing, reply starting with "(pass)" and a short reason.';
 const base = { chatId: "c1", name: "check", prompt: "look at CI", every: "15m", timezone: "UTC", createdBy: { kind: "user" } };
 
+// A Run's status, wherever its Routine is.
+const runStatus = (store, runId) =>
+  store
+    .list()
+    .flatMap((item) => store.runs(item.id))
+    .find((item) => item.id === runId)?.status;
+
 function setup({ enabled = true, chatOptions = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-scheduler-"));
   const clock = { t: START };
@@ -18,7 +25,7 @@ function setup({ enabled = true, chatOptions = {} } = {}) {
   const storeOptions = { file: path.join(dir, "routines.json"), now: () => clock.t, id: () => `id${++n}` };
   const store = createRoutineStore(storeOptions);
   store.setEnabled(enabled);
-  const calls = { send: [], patch: [] };
+  const calls = { send: [], patch: [], name: [] };
   const state = { busy: false, archived: false, exists: true, reply: "", startResult: { turnId: "t1" }, sendError: null, patchError: null };
   const chats = {
     exists: () => state.exists,
@@ -33,6 +40,10 @@ function setup({ enabled = true, chatOptions = {} } = {}) {
     async patchRunContext(chatId, runId, patch) {
       calls.patch.push({ chatId, runId, patch });
       if (state.patchError) throw state.patchError;
+    },
+    // What the Run's status was when it was asked to name it: the Run has ended by then.
+    async nameRun(chatId, runId, options) {
+      calls.name.push({ chatId, runId, options, status: runStatus(store, runId) });
     },
     ...chatOptions,
   };
@@ -118,6 +129,33 @@ test("an acting turn finishes acted and leaves the event alone", async () => {
   assert.equal("quiet" in event, false);
   assert.equal(lastRun(ctx).status, "acted");
   assert.deepEqual(ctx.calls.patch[0].patch, { quiet: false });
+});
+
+test("a heartbeat's acted and quiet turns ask for the Run to be named once it has ended; a failed one doesn't", async () => {
+  const ctx = setup();
+  due(ctx);
+  await ctx.scheduler.tick();
+  ctx.state.reply = "Fixed the flaky test.";
+  ctx.scheduler.observe("c1", { type: "turn-started" });
+  ctx.scheduler.observe("c1", { type: "turn-completed" });
+  await ctx.scheduler.idle();
+  const acted = lastRun(ctx);
+  assert.deepEqual(ctx.calls.name, [{ chatId: "c1", runId: acted.id, options: {}, status: "acted" }]);
+
+  ctx.clock.t = ctx.store.get(ctx.routine.id).nextRunAt;
+  await ctx.scheduler.tick();
+  ctx.state.reply = "(pass) CI green";
+  ctx.scheduler.observe("c1", { type: "turn-started" });
+  ctx.scheduler.observe("c1", { type: "turn-completed", markedUnread: false });
+  await ctx.scheduler.idle();
+  assert.deepEqual(ctx.calls.name[1], { chatId: "c1", runId: lastRun(ctx).id, options: { quietSummary: "CI green" }, status: "quiet" });
+
+  ctx.clock.t = ctx.store.get(ctx.routine.id).nextRunAt;
+  await ctx.scheduler.tick();
+  ctx.scheduler.observe("c1", { type: "turn-started" });
+  ctx.scheduler.observe("c1", { type: "turn-failed", message: "boom" });
+  await ctx.scheduler.idle();
+  assert.equal(ctx.calls.name.length, 2);
 });
 
 test("failed and cancelled turns finish failed", async () => {
@@ -604,8 +642,8 @@ function triggers({ chatOptions = {} } = {}) {
   let n = 0;
   const store = createRoutineStore({ file: path.join(dir, "routines.json"), now: () => clock.t, id: () => `id${++n}` });
   store.setEnabled(true);
-  const calls = { start: [], send: [], patch: [], archive: [], linked: [], defer: [], order: [] };
-  const state = { busy: new Set(), linked: "c1", gate: null, startError: null, createdWorktree: true, reply: "" };
+  const calls = { start: [], send: [], patch: [], archive: [], linked: [], defer: [], order: [], name: [] };
+  const state = { busy: new Set(), linked: "c1", gate: null, startError: null, createdWorktree: true, reply: "", nameError: null };
   const chats = {
     exists: () => true,
     archived: () => false,
@@ -643,6 +681,10 @@ function triggers({ chatOptions = {} } = {}) {
     async archive(chatId, options) {
       calls.order.push("archive");
       calls.archive.push({ chatId, ...options });
+    },
+    async nameRun(chatId, runId, options) {
+      calls.name.push({ chatId, runId, options, status: runStatus(store, runId) });
+      if (state.nameError) throw state.nameError;
     },
     async linkedChat(issue) {
       calls.linked.push(issue);
@@ -765,6 +807,105 @@ test("an acted first turn keeps its Chat", async () => {
   assert.equal(ctx.store.runs(routine.id)[0].status, "acted");
   assert.deepEqual(ctx.calls.patch[0].patch, { quiet: false });
   assert.deepEqual(ctx.calls.archive, []);
+});
+
+test("an acted Run in a new Chat asks for the Run and its Chat to be named, once the Run has ended", async () => {
+  const ctx = triggers();
+  const routine = createSchedule(ctx);
+  nextSlot(ctx, routine);
+  await tickAndSettle(ctx);
+  endTurn(ctx, "new1", "Sorted 4 issues.");
+  await ctx.raw.idle();
+  const run = ctx.store.runs(routine.id)[0];
+  assert.deepEqual(ctx.calls.name, [{ chatId: "new1", runId: run.id, options: {}, status: "acted" }]);
+});
+
+test("a quiet Run in a new Chat passes its summary to be named, and the Chat is archived as before", async () => {
+  const ctx = triggers();
+  const routine = createSchedule(ctx);
+  nextSlot(ctx, routine);
+  await tickAndSettle(ctx);
+  endTurn(ctx, "new1", "(pass) inbox empty", true);
+  await ctx.raw.idle();
+  const run = ctx.store.runs(routine.id)[0];
+  assert.deepEqual(ctx.calls.name, [{ chatId: "new1", runId: run.id, options: { quietSummary: "inbox empty" }, status: "quiet" }]);
+  assert.deepEqual(ctx.calls.archive, [{ chatId: "new1", removeWorktree: true }]);
+});
+
+test("a failed Run in a new Chat is not named", async () => {
+  const ctx = triggers();
+  const routine = createSchedule(ctx);
+  nextSlot(ctx, routine);
+  await tickAndSettle(ctx);
+  ctx.scheduler.observe("new1", { type: "turn-started" });
+  ctx.scheduler.observe("new1", { type: "turn-failed", message: "boom" });
+  await ctx.raw.idle();
+  assert.deepEqual(ctx.calls.name, []);
+});
+
+test("a comment's Run is named like a beat: the Run only, through the same call", async () => {
+  const ctx = triggers();
+  const routine = createComments(ctx);
+  ctx.scheduler.enqueueEvent(routine.id, commentEvent("c1"));
+  await ctx.scheduler.tick();
+  endTurn(ctx, "c1", "Android is covered too.");
+  await ctx.raw.idle();
+  const run = ctx.store.runs(routine.id)[0];
+  assert.deepEqual(ctx.calls.name, [{ chatId: "c1", runId: run.id, options: {}, status: "acted" }]);
+});
+
+test("naming never throws into the scheduler: a rejection or a throw is logged and the Run stays as it ended", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const ctx = triggers();
+  const routine = createSchedule(ctx);
+  ctx.state.nameError = new Error("no model");
+  nextSlot(ctx, routine);
+  await tickAndSettle(ctx);
+  const event = endTurn(ctx, "new1", "Sorted 4 issues.");
+  await ctx.raw.idle();
+  assert.equal("quiet" in event, false);
+  assert.equal(ctx.store.runs(routine.id)[0].status, "acted");
+  assert.ok(warn.mock.calls.some((call) => String(call.arguments[0]).startsWith("[routines]") && String(call.arguments[1]).includes("no model")));
+
+  // A call that throws before it returns a promise is swallowed the same way.
+  const sync = triggers({
+    chatOptions: {
+      nameRun() {
+        throw new Error("sync boom");
+      },
+    },
+  });
+  const other = createSchedule(sync);
+  nextSlot(sync, other);
+  await tickAndSettle(sync);
+  endTurn(sync, "new1", "Sorted 4 issues.");
+  await sync.raw.idle();
+  assert.equal(sync.store.runs(other.id)[0].status, "acted");
+  assert.ok(warn.mock.calls.some((call) => String(call.arguments[1]).includes("sync boom")));
+});
+
+test("idle waits for a Run's naming", async () => {
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  const ctx = triggers({
+    chatOptions: {
+      async nameRun(chatId, runId, options) {
+        await gate;
+        ctx.calls.name.push({ chatId, runId, options });
+      },
+    },
+  });
+  const routine = createSchedule(ctx);
+  nextSlot(ctx, routine);
+  await tickAndSettle(ctx);
+  endTurn(ctx, "new1", "Sorted 4 issues.");
+  let idle = false;
+  const waiting = ctx.raw.idle().then(() => (idle = true));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(idle, false);
+  release();
+  await waiting;
+  assert.equal(ctx.calls.name.length, 1);
 });
 
 test("a failed first turn finishes failed and keeps its Chat", async () => {

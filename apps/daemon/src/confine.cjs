@@ -115,7 +115,6 @@ const PATHS = Object.freeze({
   "project:find": none,
   "project:image": ([projectPath]) => [projectPath],
   "project:set-icon": ([projectPath]) => [projectPath],
-  "project:set-hidden": ([projectPath]) => [projectPath],
   "main-sync:read": ([projectPath]) => [projectPath],
   "main-sync:save": ([projectPath]) => [projectPath],
   // The global default names no folder. Changing it reaches every Project on the Mac, so a confined phone only reads it.
@@ -200,16 +199,20 @@ const PATHS = Object.freeze({
   "agent:set-permission-mode": ([value]) => [chatProject(value?.chatId)],
   "agent:models": (args) => (args[0] == null ? [] : [args[0]]),
   "agent:cli-status": (args) => (args[0] == null ? [] : [args[0]]),
+  "scope:retry-save": ([scope]) => [scope],
   "chat:patch": ([projectPath]) => [projectPath],
   "chat:archive-subagent": ([projectPath]) => [projectPath],
   "chat:archive-finished-subagents": ([projectPath]) => [projectPath],
   "chat:subagent": ([projectPath]) => [projectPath],
+  "chat:task-output": ([chatId]) => [chatProject(chatId)],
   "worktree:pull-request": ([worktreePath]) => [worktreePath],
   "worktree:pull-requests": ([worktreePath]) => [worktreePath],
   "project:branches": ([projectPath]) => [projectPath],
   "attachment:preview": ([file]) => [attached(file)],
   // A null Project (user skills only) is refused: confined, the phone sees no user skills.
   "skills:list": ([projectPath]) => [projectPath],
+  // The file search for the phone's @ menu: the root must be inside the folder; it names no other path.
+  "project:files": ([root]) => [root],
   "skills:read": ([projectPath, file]) => [projectPath, file],
   "worktree:create": ([value]) => [value?.projectPath],
   "worktree:link-issue": ([value]) => [value?.projectPath],

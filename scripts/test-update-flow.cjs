@@ -168,7 +168,7 @@ async function browserChecks() {
     const placement = await evaluate(`(() => {
       const pill = ${button("Update available")}.closest('[data-face=pill]').getBoundingClientRect();
       const chip = [...document.querySelectorAll('button')].find(n => n.textContent.includes('Subagents')).getBoundingClientRect();
-      const column = document.querySelector('textarea[aria-label="Prompt"]').closest('.max-w-3xl').getBoundingClientRect();
+      const column = document.querySelector('[data-prompt-editor]').closest('[data-composer-wrap]').getBoundingClientRect();
       return { pillCenter: (pill.left + pill.right) / 2, columnCenter: (column.left + column.right) / 2, pillBottom: pill.bottom, chipBottom: chip.bottom, fixed: getComputedStyle(${button("Update available")}.closest("[data-update-notice]")).position };
     })()`);
     assert.ok(Math.abs(placement.pillCenter - placement.columnCenter) < 1, `pill is centred: ${JSON.stringify(placement)}`);

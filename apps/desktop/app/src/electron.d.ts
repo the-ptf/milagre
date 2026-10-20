@@ -4,6 +4,7 @@ import type { McpAccount, McpAccountCheck, McpChangedEvent, McpProvider, McpServ
 import type { LocalMcpApi } from "@milagre/shared/local-mcp";
 import type { LinearIssue, LinearIssuesResult, LinearStatus } from "@milagre/shared/linear";
 import type {
+  BackgroundTaskOutput,
   ProjectAccountScope,
   ProjectAccountsSnapshot,
   NamedProjectLink,
@@ -353,7 +354,7 @@ export type MilagreBridge = {
   saveLimitAutoSwitch: (value: boolean) => Promise<{ autoSwitch: boolean }>;
   /** Experimental: agents set heartbeats that send a prompt back into their Chat on a schedule. Off by default. */
   readRoutinesEnabled: () => Promise<{ enabled: boolean }>;
-  saveRoutinesEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
+  saveRoutinesEnabled: (value: boolean, consentVersion?: string) => Promise<{ enabled: boolean }>;
   /** This Mac's routines that haven't ended, newest first, each with its latest Runs first. */
   listRoutines: () => Promise<{ routines: Array<Routine & { runs: RoutineRun[] }> }>;
   updateRoutine: (id: string, patch: RoutineUpdate) => Promise<Routine>;
@@ -423,7 +424,7 @@ export type MilagreBridge = {
   listEditors: () => Promise<EditorInfo[]>;
   /** Opens a file (or, with no path, the folder) in an editor. `path` is relative to `root`. Returns a Result with a failure code and message. */
   openInEditor: (request: { root: string; path?: string; line?: number; editor?: string }) => Promise<Result<null>>;
-  getCurrentProject: () => Promise<OpenProject>;
+  getCurrentProject: () => Promise<OpenProject | null>;
   openProject: () => Promise<OpenProject | null>;
   /** Opens a folder of this computer as a Project, without the dialog. */
   openProjectAt: (folder: string) => Promise<OpenProject>;
@@ -431,9 +432,18 @@ export type MilagreBridge = {
   readMedia: (request: { scope: string; path: string }) => Promise<MediaBytes>;
   /** Projects opened lately, most recent first; folders that are gone are left out. */
   listRecentProjects: () => Promise<RecentProject[]>;
+  /** Onboarding: folders Claude Code and Codex sessions on this Mac worked in, newest first. */
+  listAgentFolders: () => Promise<import("@milagre/shared/model").AgentFolder[]>;
+  /** Onboarding: a new folder in ~/Code with Git, opened as a Project. */
+  createProject: (name: string) => Promise<OpenProject>;
+  /** Onboarding: clones a repository into ~/Code and opens it. */
+  cloneProject: (url: string) => Promise<OpenProject>;
+  /** Sets up Git in a Project folder that has none (git init, first commit when Git knows who you are), then opens it. */
+  setUpGit: (folder: string) => Promise<OpenProject>;
   /** Keeps a recent project out of the all-Projects sidebar and the phone's list, or shows it again; resolves to the list. */
   setProjectHidden: (projectPath: string, hidden: boolean) => Promise<RecentProject[]>;
   /** Loads a recent project's chats without opening it; later changes arrive through onProjectState. */
+  retrySave: (scope: string) => Promise<void>;
   readProject: (projectPath: string) => Promise<OpenProject>;
   /** Every opened Project, seeded once from existing coordination files. */
   listNamedLinks: () => Promise<NamedProjectLink[]>;
@@ -544,6 +554,8 @@ export type MilagreBridge = {
   searchChats: (scope: string, query: string, options?: { limit?: number }) => Promise<ChatSearchMatch[]>;
   /** One subagent of Chat `chatId` with its whole transcript (subagent-tails-v1). */
   readSubagent: (scope: string, chatId: number, agentId: string) => Promise<Subagent>;
+  /** The end of a background command's output in Chat `chatId` (a chat key), read from its live agent process. */
+  readTaskOutput: (chatId: string, taskId: string) => Promise<BackgroundTaskOutput>;
   /** Every chat's listening ports now, by chat key. */
   getAgentPorts: () => Promise<AgentPorts>;
   /** Stops the command listening on one of a chat's ports; false when the chat's list doesn't show that pid. */

@@ -11,36 +11,58 @@ import Animated, {
   LinearTransition,
   ReduceMotion,
   useAnimatedStyle,
-  useReducedMotion,
   useSharedValue,
   withSequence,
   withTiming,
 } from "react-native-reanimated";
 import { IconButton } from "./ui";
+import { useMotionScale, useReducedMotion } from "./motion";
 import { useTheme } from "./theme";
 
 const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
 const TRACK_EASE = cubicBezier(0.23, 1, 0.32, 1);
-export const INBOX_LAYOUT = LinearTransition.duration(240).easing(EASE_OUT).reduceMotion(ReduceMotion.System);
-const ENTER_RIGHT = FadeInRight.duration(180)
-  .easing(EASE_OUT)
-  .withInitialValues({ transform: [{ translateX: 40 }] })
-  .reduceMotion(ReduceMotion.System);
-const ENTER_LEFT = FadeInLeft.duration(180)
-  .easing(EASE_OUT)
-  .withInitialValues({ transform: [{ translateX: -40 }] })
-  .reduceMotion(ReduceMotion.System);
-const EXIT = FadeOut.duration(100).reduceMotion(ReduceMotion.System);
+type InboxKit = {
+  layout?: ReturnType<typeof LinearTransition.duration>;
+  right?: ReturnType<typeof FadeInRight.duration>;
+  left?: ReturnType<typeof FadeInLeft.duration>;
+  exit?: ReturnType<typeof FadeOut.duration>;
+};
+const kits = new Map<number, InboxKit>();
+/** Layout and page animations for an Animations setting: Fast shortens them, Off drops them. */
+function kitFor(scale: number): InboxKit {
+  let kit = kits.get(scale);
+  if (kit) return kit;
+  const ms = (value: number) => Math.round(value * scale);
+  kit =
+    scale <= 0
+      ? {}
+      : {
+          layout: LinearTransition.duration(ms(240)).easing(EASE_OUT).reduceMotion(ReduceMotion.System),
+          right: FadeInRight.duration(ms(180))
+            .easing(EASE_OUT)
+            .withInitialValues({ transform: [{ translateX: 40 }] })
+            .reduceMotion(ReduceMotion.System),
+          left: FadeInLeft.duration(ms(180))
+            .easing(EASE_OUT)
+            .withInitialValues({ transform: [{ translateX: -40 }] })
+            .reduceMotion(ReduceMotion.System),
+          exit: FadeOut.duration(ms(100)).reduceMotion(ReduceMotion.System),
+        };
+  kits.set(scale, kit);
+  return kit;
+}
+export const useInboxLayout = () => kitFor(useTheme().motionScale).layout;
 
 export function InboxPage({ pageKey, direction, children }: { pageKey: string; direction: number; children: ReactNode }) {
   const reduced = useReducedMotion();
+  const kit = kitFor(useMotionScale());
   return (
     <Animated.View
       key={pageKey}
       collapsable={false}
-      entering={reduced ? undefined : direction > 0 ? ENTER_RIGHT : ENTER_LEFT}
-      exiting={reduced ? undefined : EXIT}
-      layout={INBOX_LAYOUT}
+      entering={reduced ? undefined : direction > 0 ? kit.right : kit.left}
+      exiting={reduced ? undefined : kit.exit}
+      layout={kit.layout}
     >
       {children}
     </Animated.View>
@@ -50,6 +72,7 @@ export function InboxPage({ pageKey, direction, children }: { pageKey: string; d
 export function InboxPager({ index, count, select, label = "message" }: { index: number; count: number; select: (index: number) => void; label?: string }) {
   const { scheme, colors } = useTheme();
   const reduced = useReducedMotion();
+  const scale = useMotionScale();
   const last = Math.max(0, count - 1);
   const current = Math.min(last, Math.max(0, index));
   const choose = (page: number) => {
@@ -86,7 +109,7 @@ export function InboxPager({ index, count, select, label = "message" }: { index:
               backgroundColor: scheme === "dark" ? "#fff" : "#000",
               transform: [{ translateX: last ? (current / last) * 78 : 0 }],
               transitionProperty: "transform",
-              transitionDuration: reduced ? 0 : 220,
+              transitionDuration: reduced ? 0 : Math.round(220 * scale),
               transitionTimingFunction: TRACK_EASE,
             }}
           />
