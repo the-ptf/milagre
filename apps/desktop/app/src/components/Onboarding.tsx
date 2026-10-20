@@ -31,12 +31,12 @@ const quiet =
   "inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[14px] font-medium text-ink-2 transition-colors hover:text-ink disabled:cursor-default disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
 /** ~/Code/web for /Users/me/Code/web, so a path reads the way people say it. */
-export function homePath(folder: string) {
+function homePath(folder: string) {
   return folder.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, "~");
 }
 
 /** "today", "yesterday", "3 days ago", "last week", or the date. */
-export function lastUsedLabel(iso: string, now = new Date()) {
+function lastUsedLabel(iso: string, now = new Date()) {
   const days = Math.floor((new Date(now.toDateString()).getTime() - new Date(new Date(iso).toDateString()).getTime()) / 86_400_000);
   if (days <= 0) return "today";
   if (days === 1) return "yesterday";
