@@ -3,7 +3,7 @@ import { BackHandler, Keyboard, StyleSheet, Text, View, useWindowDimensions } fr
 import { router, useFocusEffect, type Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withSpring, withTiming, type SharedValue } from "react-native-reanimated";
+import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { ArrowLeft01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { useSession } from "./session";
@@ -11,7 +11,8 @@ import { ProjectNavigation } from "./project-navigation";
 import { ChangesView } from "./app/changes";
 import { DiffView, type DiffTarget } from "./app/diff";
 import { IconButton } from "./ui";
-import { useTheme } from "./theme";
+import { springTo, scaledTiming, useMotionScale } from "./motion";
+import { getMotionScale, useTheme } from "./theme";
 import { dragTo, settle } from "./panel-motion";
 
 type Side = "left" | "right";
@@ -89,7 +90,7 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
       Keyboard.dismiss();
       if (side) setMounted((previous) => (previous[side] ? previous : { ...previous, [side]: true }));
       setOpen(side);
-      progress.set(withSpring(side === "left" ? 1 : side === "right" ? -1 : 0, SPRING));
+      progress.set(springTo(side === "left" ? 1 : side === "right" ? -1 : 0, SPRING, getMotionScale()));
     },
     [progress],
   );
@@ -121,7 +122,7 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
       cancelNavigation();
       setOpen(null);
       progress.set(
-        withTiming(0, { duration: 180, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.System }, () => {
+        withTiming(0, scaledTiming({ duration: 180, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.System }, getMotionScale()), () => {
           if (href) scheduleOnRN(go, href, secondary);
         }),
       );
@@ -172,10 +173,13 @@ export function useSidePanels({ chatId, worktreeId }: { chatId?: number; worktre
   useEffect(() => () => detach(token), [detach, token]);
   const { width } = useWindowDimensions();
   const ours = panels.screen?.token === token;
+  const scale = useMotionScale();
   const gesture = useMemo(
     () =>
-      swipe({ progress, from, width, min: worktreeId === undefined ? 0 : -1, max: 1, offset: [-SLOP_X, SLOP_X], pull, settled }).enabled(ours && !panels.open),
-    [progress, from, width, worktreeId, pull, settled, ours, panels.open],
+      swipe({ progress, from, width, min: worktreeId === undefined ? 0 : -1, max: 1, offset: [-SLOP_X, SLOP_X], pull, settled, scale }).enabled(
+        ours && !panels.open,
+      ),
+    [progress, from, width, worktreeId, pull, settled, ours, panels.open, scale],
   );
   return { gesture, open: ours ? panels.open : null, show };
 }
@@ -210,6 +214,7 @@ function swipe({
   offset,
   pull,
   settled,
+  scale,
 }: {
   progress: SharedValue<number>;
   from: SharedValue<number>;
@@ -219,6 +224,7 @@ function swipe({
   offset: [number, number];
   pull?: (side: Side) => void;
   settled: (to: number) => void;
+  scale: number;
 }) {
   return Gesture.Pan()
     .activeOffsetX(offset)
@@ -232,7 +238,7 @@ function swipe({
     })
     .onEnd((event) => {
       const to = settle(from.get(), progress.get(), event.velocityX);
-      progress.set(withSpring(to, SPRING));
+      progress.set(springTo(to, SPRING, scale));
       scheduleOnRN(settled, to);
     });
 }
@@ -243,6 +249,7 @@ export function SidePanelsHost() {
   const session = useSession();
   const { screen, open, mounted, progress, from, show, settled, navigate } = usePanels();
   const { width } = useWindowDimensions();
+  const scale = useMotionScale();
   const left = useAnimatedStyle(() => ({ transform: [{ translateX: (Math.max(progress.get(), 0) - 1) * width }] }));
   const right = useAnimatedStyle(() => ({ transform: [{ translateX: (1 + Math.min(progress.get(), 0)) * width }] }));
   const shade = useAnimatedStyle(() => ({ opacity: Math.abs(progress.get()) }));
@@ -257,8 +264,9 @@ export function SidePanelsHost() {
         max: open === "left" ? 1 : 0,
         offset: open === "left" ? [-SLOP_X, 1e5] : [-1e5, SLOP_X],
         settled,
+        scale,
       }).enabled(!!open),
-    [progress, from, width, open, settled],
+    [progress, from, width, open, settled, scale],
   );
   if (!screen || !session.client) return null;
   const hidden = (side: Side) =>

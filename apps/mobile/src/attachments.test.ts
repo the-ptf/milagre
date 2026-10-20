@@ -1,6 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appendAttachments, attachmentPrompt, prepareAttachments, type Attachment } from "./attachments.ts";
+import {
+  appendAttachments,
+  ATTACHMENT_LIMIT_MESSAGE,
+  attachmentPrompt,
+  addMention,
+  mentionAttachment,
+  mentionAttachments,
+  prepareAttachments,
+  settleLimitError,
+  type Attachment,
+} from "./attachments.ts";
 import type { Client } from "./client.ts";
 test("attachment drafts are bounded without dropping an existing selection", () => {
   const file = { id: "a", name: "a.txt", uri: "file:///a" };
@@ -65,4 +75,53 @@ test("a busy Mac retries the one upload it turned away, not the files already se
   const result = await prepareAttachments(client, "/p", attachments, retry);
   assert.deepEqual(result.files, ["/host/a.txt", "/host/b.txt"]);
   assert.deepEqual(uploads, ["a.txt", "b.txt", "b.txt"]);
+});
+test("a mentioned file attaches by its absolute path and never leaves the project", () => {
+  const item = mentionAttachment("/w", "src/a.ts");
+  assert.equal(item.name, "a.ts");
+  assert.equal(item.path, "/w/src/a.ts");
+  assert.equal(mentionAttachment("/w/", "a.ts").path, "/w/a.ts");
+  assert.throws(() => mentionAttachment("/w", "../x"), /inside the project/);
+  assert.throws(() => mentionAttachment("/w", "/etc/passwd"), /inside the project/);
+});
+test("a mention with a ./ segment is refused too", () => {
+  assert.throws(() => mentionAttachment("/w", "./a.ts"), /inside the project/);
+  assert.throws(() => mentionAttachment("/w", "a/./b.ts"), /inside the project/);
+});
+test("mentioning a file at the limit reports it instead of throwing, and a repeat changes nothing", () => {
+  const full = ["a", "b", "c", "d"].map((name) => mentionAttachment("/w", `${name}.ts`));
+  const over = addMention(full, "/w", "e.ts");
+  assert.equal(over.next, full);
+  assert.match(over.error ?? "", /up to 4/);
+  assert.equal(addMention(full, "/w", "a.ts").error, undefined);
+  assert.equal(addMention([], "/w", "../x").error, "Mention a file inside the project.");
+  assert.equal(addMention(full.slice(0, 3), "/w", "e.ts").next.length, 4);
+});
+test("send attaches each confirmed mention once, within the limit, and says when the limit dropped one", () => {
+  const have = [mentionAttachment("/w", "a.ts")];
+  const result = mentionAttachments('see @a.ts @b.ts @b.ts @"c d.ts" @../x @team', "/w", have, (path) => path !== "team");
+  assert.deepEqual(
+    result.added.map((item) => item.path),
+    ["/w/b.ts", "/w/c d.ts"],
+  );
+  assert.equal(result.dropped, false);
+  const capped = mentionAttachments("@b.ts @c.ts @d.ts @e.ts", "/w", have, () => true);
+  assert.deepEqual(
+    capped.added.map((item) => item.name),
+    ["b.ts", "c.ts", "d.ts"],
+  );
+  assert.equal(capped.dropped, true);
+  assert.deepEqual(
+    mentionAttachments("no mentions", "/w", [], () => true),
+    { added: [], dropped: false },
+  );
+});
+test("the limit error goes once there is room again or the draft is cleared, and other errors stay", () => {
+  const limit = ATTACHMENT_LIMIT_MESSAGE;
+  assert.equal(settleLimitError(limit, 4, "fix @src/e.ts"), limit, "still full with a mention in the draft: the error stays");
+  assert.equal(settleLimitError(limit, 3, "fix @src/e.ts"), "", "a tile was removed");
+  assert.equal(settleLimitError(limit, 0, ""), "", "every tile removed and the composer cleared");
+  assert.equal(settleLimitError(limit, 4, "  \n"), "", "a blank draft counts as cleared");
+  assert.equal(settleLimitError("Offline", 0, ""), "Offline", "an unrelated error is not this helper's to clear");
+  assert.equal(settleLimitError("", 0, ""), "");
 });

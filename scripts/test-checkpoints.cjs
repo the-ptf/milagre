@@ -209,9 +209,9 @@ async function browserChecks() {
 
     // /undo opens the same list instead of reaching the agent.
     await evaluate('window.setDraft("/undo")');
-    await wait('document.querySelector("textarea[aria-label=Prompt]")?.value === "/undo"');
+    await wait('document.querySelector("[data-prompt-editor]")?.value === "/undo"');
     await evaluate(
-      'document.querySelector("textarea[aria-label=Prompt]").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))',
+      'document.querySelector("[data-prompt-editor]").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))',
     );
     await wait('document.querySelector("[data-undo-panel]")?.dataset.undoPanel === "list"');
     assert.equal(await evaluate("window.sent"), undefined);

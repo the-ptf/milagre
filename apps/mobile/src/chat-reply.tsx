@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useEffect, useRef, useState } from "react";
 import { Image, Pressable, Text, View, type ImageSourcePropType, type ViewInstance } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { router } from "expo-router";
@@ -8,6 +8,11 @@ import type { ChatMessage, ChatStep, LinkedContext } from "@milagre/shared/model
 import { linkedContext, linkedHeading } from "@milagre/shared/linked-message";
 import { activitySummary, replyActivity, unspokenThought } from "@milagre/shared/reply-parts";
 import { FileChip } from "./file-chip";
+import { promptParts } from "@milagre/shared/prompt-parts";
+import { isMentionOfFile, mentionedFile, mentionedFiles } from "@milagre/shared/prompt-mentions";
+import { FileMentionChip, SkillChip } from "./prompt-chip";
+import { promptAccessibilityLabel } from "./prompt-label";
+import { useSkillNames } from "./use-skill-names";
 import { Markdown } from "./markdown";
 import { Icon } from "./icons";
 import { ActivityTitle } from "./activity-item";
@@ -214,6 +219,11 @@ function LinkedHeader({ context, onOpenChat }: { context: LinkedContext; onOpenC
   );
 }
 
+function openMention(path: string, attached: string[], root: string) {
+  const file = mentionedFile(path, attached, root);
+  if (file) router.push({ pathname: "/file-preview", params: { path: file } });
+}
+
 export const ChatReply = memo(function ChatReply({
   message,
   run,
@@ -245,8 +255,15 @@ export const ChatReply = memo(function ChatReply({
   /** Set when a usage-limit reply is the Chat's last message with no turn running: its card then offers other accounts for this Project. */
   limitProjectPath?: string;
 }) {
-  const { colors } = useTheme();
+  const { colors, textPx } = useTheme();
   const styles = useStyles();
+  const skillNames = useSkillNames(message?.role === "user" ? basePath : undefined);
+  const userText = message?.role === "user" ? (run?.text ?? message.body ?? "") : "";
+  const userFiles = message?.files;
+  const userParts = useMemo(
+    () => promptParts(userText, { skills: skillNames, files: isMentionOfFile(userFiles ?? [], basePath ?? "") }),
+    [userText, skillNames, userFiles, basePath],
+  );
   const [toolCallDisplay] = useToolCallDisplay();
   const savedMedia = useCallback((path: string) => media(message?.images?.find((image) => image.sourcePath === path)?.path || path), [media, message?.images]);
   const openActivity = () => onActivity(message ? String(message.id) : "run");
@@ -290,18 +307,24 @@ export const ChatReply = memo(function ChatReply({
             ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
           }}
         >
-          <Text selectable style={{ color: colors.ink, fontSize: 15, lineHeight: 22 }}>
+          <Text selectable style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) }}>
             {text}
           </Text>
         </View>
       </View>
     );
-  if (message?.role === "user")
+  if (message?.role === "user") {
+    const root = basePath ?? "";
+    const attached = message.files ?? [];
+    // A file the text names with @ shows as a chip in the text, so it gets no tile of its own.
+    const inline = mentionedFiles(text, attached, root);
+    const parts = userParts;
+    const lineHeight = Math.round(textPx * 1.4667);
     return (
       <View style={{ alignSelf: "flex-end", alignItems: "flex-end", gap: 6, maxWidth: "88%" }}>
         <Photos message={message} media={media} />
         {message.files
-          ?.filter((file) => !message.images?.some((image) => image.path === file || image.sourcePath === file))
+          ?.filter((file) => !inline.has(file) && !message.images?.some((image) => image.path === file || image.sourcePath === file))
           .map((file) => (
             <FileChip key={file} path={file} />
           ))}
@@ -325,14 +348,23 @@ export const ChatReply = memo(function ChatReply({
                 ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
               }}
             >
-              <Text selectable style={{ color: colors.ink, fontSize: 15, lineHeight: 22 }}>
-                {text}
+              <Text selectable accessibilityLabel={promptAccessibilityLabel(parts)} style={{ color: colors.ink, fontSize: textPx, lineHeight }}>
+                {parts.map((part, index) =>
+                  part.kind === "skill" ? (
+                    <SkillChip key={index} name={part.name} />
+                  ) : part.kind === "file" ? (
+                    <FileMentionChip key={index} path={part.path} onOpen={() => openMention(part.path, attached, root)} />
+                  ) : (
+                    part.text
+                  ),
+                )}
               </Text>
             </View>
           )
         )}
       </View>
     );
+  }
   return (
     <View style={{ gap: 14, paddingVertical: 8 }}>
       {linked && <LinkedHeader context={linked} onOpenChat={onOpenChat} />}

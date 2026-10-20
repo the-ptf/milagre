@@ -4,10 +4,10 @@ import { openModal } from "../../lib/modal";
 import { shortcutModifier, useShortcutHints } from "../../lib/shortcut-hints";
 import { ShortcutKeys } from "./ShortcutKeys";
 
-export const TOOLTIP_SHOW_DELAY = 400;
+const TOOLTIP_SHOW_DELAY = 400;
 
 /** Shared tooltip presentation for ordinary triggers and text hit-tested under a native input. */
-export function TooltipBubble({
+function TooltipBubble({
   label,
   rect,
   align = "start",

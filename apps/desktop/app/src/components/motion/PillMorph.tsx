@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import { useMotionScale } from "../../lib/ease";
 import { useDismiss } from "../../lib/use-dismiss";
 import { PILL_TONES, PillSlot, StatusPill } from "../primitives/StatusPill";
 import Tooltip from "../primitives/Tooltip";
@@ -84,7 +85,8 @@ function Morph({
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement | null>(null);
   const panelId = useId();
-  const reduce = useReducedMotion();
+  const scale = useMotionScale();
+  const reduce = scale === 0;
   // The panel's size, and how far its right edge moves past the pill's so a narrow window still fits it.
   const [room, setRoom] = useState({ width: preferredWidth, height: preferredHeight, shift: 0 });
   const [pillSize, measurePill] = useSize();
@@ -173,7 +175,7 @@ function Morph({
           tabIndex={-1}
           data-slot={panelSlot}
           data-state={opened ? "open" : "closed"}
-          {...morphFace(opened, reduce)}
+          {...morphFace(opened, reduce, scale)}
           data-expanded={(opened && expanded) || undefined}
           style={opened && expanded ? { inset: 0 } : fill ? { width: room.width, height: room.height } : { width: room.width, maxHeight: room.height }}
           className={`absolute right-0 bottom-0 flex flex-col bg-surface focus:outline-none ${opened ? "visible" : HIDDEN_FACE}`}
@@ -185,7 +187,7 @@ function Morph({
       <motion.div
         ref={measurePill}
         data-face="pill"
-        {...morphFace(!opened, reduce)}
+        {...morphFace(!opened, reduce, scale)}
         className={`absolute right-0 bottom-0 z-10 flex ${opened ? HIDDEN_FACE : "visible"}`}
       >
         <Tooltip label={tooltip} align="end">

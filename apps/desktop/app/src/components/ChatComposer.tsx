@@ -39,6 +39,12 @@ import type {
 import { FindBar } from "./FindBar";
 import { Notice } from "./Notice";
 import { Attachments } from "./Attachments";
+import { lazyView } from "../lib/lazy-view";
+import { PromptText } from "./PromptText";
+import { useFilesRoot } from "./editor-links";
+import { useSentSkills } from "./useSentSkills";
+import { useScope } from "../lib/computer-bridge";
+import { isMentionOfFile, mentionedFile, mentionedFiles } from "../lib/prompt-mentions";
 import type { ImageDraft } from "./usePastedImages";
 import { PromptComposer } from "./PromptComposer";
 import { QueuedMessages } from "./QueuedMessages";
@@ -88,6 +94,9 @@ import { extractOutdatedProvider } from "../lib/cli-status";
 import { splitFences } from "../lib/message-fences";
 import { CodeBlock } from "./markdown/CodeBlock";
 import { useDismiss } from "../lib/use-dismiss";
+import { useSettings } from "../lib/settings";
+
+const AttachmentPreview = lazyView(() => import("./AttachmentPreview").then((module) => module.AttachmentPreview));
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
@@ -99,20 +108,49 @@ function Icon({ icon, size = 16 }: { icon: IconData; size?: number }) {
  * A reply: its activity (thinking, tool steps and the text between them) folded into one block, the images it generated, then its answer.
  * A reply with no answer that ended or stopped to ask shows its last thinking instead, dimmed.
  */
-/** What the user typed, as typed; only closed ``` fences render as code (diff comments send their snippets in them). */
-function UserBody({ body }: { body: string }) {
+const NO_FILES: readonly string[] = [];
+
+/** The skills a sent message names (lowercase name to description) and the attached files it mentions inline as chips. */
+function usePromptMentions(message: AppChatMessage, isUser: boolean) {
+  const root = useFilesRoot() ?? "";
+  const scope = useScope();
+  const files = message.files;
+  const body = message.body;
+  const described = useSentSkills(scope, isUser && /(^|\s)\//.test(body));
+  const isFile = useMemo(() => isMentionOfFile(files ?? [], root), [files, root]);
+  const inline = useMemo(() => (isUser && files?.length ? mentionedFiles(body, files, root) : null), [isUser, body, files, root]);
+  return { root, files, described, isFile, inline };
+}
+
+/** What the user typed, as typed, with skills and mentioned files as chips; only closed ``` fences render as code (diff comments send their snippets in them). */
+function UserBody({
+  body,
+  skills,
+  files,
+  root,
+  attached,
+}: {
+  body: string;
+  skills: ReadonlyMap<string, string>;
+  files: (path: string) => boolean;
+  root: string;
+  attached: readonly string[];
+}) {
   const parts = useMemo(() => splitFences(body), [body]);
+  const [opened, setOpened] = useState<string | null>(null);
+  const open = useCallback((path: string) => setOpened(mentionedFile(path, attached, root) ?? null), [attached, root]);
   return (
     <div className="break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
       {parts.map((part, index) =>
         part.kind === "text" ? (
-          <Fragment key={index}>{part.text}</Fragment>
+          <PromptText key={index} text={part.text} skills={skills} files={files} onOpenFile={open} />
         ) : (
           <div key={index} className="whitespace-normal">
             <CodeBlock code={part.code} fence={part.fence || undefined} diff />
           </div>
         ),
       )}
+      {opened && <AttachmentPreview path={opened} name={opened.split("/").at(-1) || opened} close={() => setOpened(null)} />}
     </div>
   );
 }
@@ -212,6 +250,7 @@ const MessageSection = memo(function MessageSection({
   /** Opens Settings > Accounts, from the limit card. */
   onOpenAccounts?: () => void;
 }) {
+  const mentions = usePromptMentions(message, isUser);
   if (isHandoff(message)) return <HandoffDivider context={message.context} models={models} />;
   if (isWorktreeLinked(message)) return <WorktreeLinkDivider context={message.context} />;
   if (isCompaction(message)) return <CompactionDivider context={message.context} />;
@@ -249,7 +288,7 @@ const MessageSection = memo(function MessageSection({
     >
       {linked && <LinkedMessageHeader context={linked} onOpenChat={onOpenChat} />}
       <div
-        className={`min-w-0 max-w-full text-[13px] leading-[1.55] text-ink ${advisor ? "w-full rounded-[14px]" : bubble ? "relative rounded-xl bg-field px-3 py-1.5" : feedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "rounded-xl border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
+        className={`min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.55] text-ink ${advisor ? "w-full rounded-[14px]" : bubble ? "relative rounded-xl bg-field px-3 py-1.5" : feedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "rounded-xl border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
       >
         {/* Beside the bubble, not under it: showing it on hover never moves the transcript. */}
         {bubble && undoId && onUndo && (
@@ -272,7 +311,10 @@ const MessageSection = memo(function MessageSection({
             </Tooltip>
           </div>
         )}
-        <Attachments images={isUser ? message.images : message.images?.filter((image) => !image.sourcePath)} files={message.files} />
+        <Attachments
+          images={isUser ? message.images : message.images?.filter((image) => !image.sourcePath)}
+          files={mentions.inline ? message.files?.filter((file) => !mentions.inline!.has(file)) : message.files}
+        />
         {advisor ? (
           <AdvisorResultCard context={advisor} body={message.body} />
         ) : prAction ? (
@@ -285,7 +327,7 @@ const MessageSection = memo(function MessageSection({
           <AnswerCard answered={answered} />
         ) : isUser ? (
           message.body.trim() ? (
-            <UserBody body={message.body} />
+            <UserBody body={message.body} skills={mentions.described} files={mentions.isFile} root={mentions.root} attached={mentions.files ?? NO_FILES} />
           ) : null
         ) : recommendation ? (
           <>
@@ -943,6 +985,7 @@ export function ChatComposer({
   onSendDesignMessage,
   onOpenDiff,
 }: ChatComposerProps) {
+  const chatWidth = useSettings().appearance.chatWidth;
   const root = useRef<HTMLDivElement>(null);
   const chatId = messages[0]?.session_id ?? "new";
   // A first message, including its preview while setup runs, opens the conversation layout.
@@ -987,7 +1030,7 @@ export function ChatComposer({
     void review.inspect(id);
   });
   const focusPrompt = useCallback(() => {
-    requestAnimationFrame(() => root.current?.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')?.focus());
+    requestAnimationFrame(() => root.current?.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
   }, []);
   useEffect(() => {
     if (highlightId !== null) root.current?.querySelector(`#message-${highlightId}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -1004,7 +1047,8 @@ export function ChatComposer({
       return;
     }
     const typing =
-      !!target?.closest("input, select, [contenteditable='true'], .xterm") || (target?.tagName === "TEXTAREA" && !target.closest("[data-promptbar]"));
+      !!target?.closest("input, select, [contenteditable='true']:not([data-prompt-editor]), .xterm") ||
+      (target?.tagName === "TEXTAREA" && !target.closest("[data-promptbar]"));
     const hidden = !root.current?.offsetParent;
     if (
       isSending ||
@@ -1057,7 +1101,7 @@ export function ChatComposer({
     if (!files.length) return;
     event.preventDefault();
     void imageDraft.attachFiles(files);
-    event.currentTarget.querySelector<HTMLTextAreaElement>('textarea[aria-label="Prompt"]')?.focus();
+    event.currentTarget.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
   }
 
   return (
@@ -1110,7 +1154,7 @@ export function ChatComposer({
               autoScrollKey={`${messages.length}-${isSending}-${streamingSteps?.length ?? 0}`}
               viewportProps={{ onScroll: (event) => setScrolled(event.currentTarget.scrollTop > 4) }}
             >
-              <div className="chat-column mx-auto flex min-h-full w-full max-w-3xl flex-col gap-3 px-3 pt-12 pb-4">
+              <div data-chat-width={chatWidth} className="chat-column mx-auto flex min-h-full w-full max-w-[var(--chat-width)] flex-col gap-3 px-3 pt-12 pb-4">
                 <StepDetailsScope scope={messageScope}>
                   <MessageTranscript
                     findOpen={findOpen}
@@ -1170,14 +1214,15 @@ export function ChatComposer({
             <div
               aria-hidden
               data-busy={isSending || undefined}
-              className="chat-bottom-blur progressive-blur pointer-events-none absolute inset-x-0 bottom-0 z-10 h-20"
+              className="chat-bottom-blur progressive-blur pointer-events-none absolute inset-x-0 bottom-0 z-10 h-14"
             >
               <ProgressiveBlurLayers />
             </div>
           </div>
         )}
         <div
-          className={`mx-auto flex w-full max-w-3xl shrink-0 items-center justify-end gap-2 px-3 empty:hidden ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3.5 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
+          data-chat-width={chatWidth}
+          className={`chat-gutter mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 items-center justify-end gap-2 px-3 empty:hidden ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3.5 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
         >
           {/* The PR fix sits at the left of the composer's chip row; the chat's ports, to-dos and subagents at the right.
           Each pill is frosted glass; the LayoutGroup slides the others over when one comes or goes. */}
@@ -1213,7 +1258,11 @@ export function ChatComposer({
           </LayoutGroup>
         </div>
 
-        <div className={`relative mx-auto w-full max-w-3xl shrink-0 p-1.5 ${isNewChat ? "" : "z-20 -mt-1.5"}`}>
+        <div
+          data-chat-width={chatWidth}
+          data-composer-wrap
+          className={`chat-gutter relative mx-auto w-full max-w-[var(--chat-width)] shrink-0 p-1.5 ${isNewChat ? "" : "z-20 -mt-1.5"}`}
+        >
           {/* The update pill floats centred on the chip row's line, outside its flow. */}
           <UpdatePillSlot className="bottom-full mb-2" />
           {isNewChat && scopeKind !== "link" && !offlineName && (

@@ -1,7 +1,8 @@
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, KeyboardEvent } from "react";
+import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, ArrowDown01Icon, ArrowUp01Icon, Attachment01Icon, ClipboardPasteIcon, FlashIcon, SecurityCheckIcon } from "@hugeicons/core-free-icons";
 import type { AgentCliStatus, ContextUsage, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
@@ -17,11 +18,13 @@ import { useSettings } from "../lib/settings";
 import { ProviderLogo } from "./ProviderLogo";
 import { Attachments } from "./Attachments";
 import { useProjectFiles } from "./useProjectFiles";
-import { promptToken, fileMentionPath, removePromptToken, insertPromptToken } from "../lib/file-mentions";
+import { promptToken, fileMentionPath, insertPromptToken } from "../lib/file-mentions";
+import { formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
+import { rankSkillMatches } from "@milagre/shared/skill-catalog";
 import { useSkills } from "./useSkills";
 import { ScrollArea } from "./primitives/ScrollArea";
-import { promptSkillParts } from "../lib/prompt-skills";
-import { PromptHighlights } from "./PromptHighlights";
+import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
+import { useKnownFiles } from "./useKnownFiles";
 import { ContextRing } from "./ContextRing";
 import { offlinePlaceholder } from "../lib/computers";
 
@@ -156,7 +159,8 @@ export function PromptComposer({
   const [permissionOpen, setPermissionOpen] = useState(false);
   // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Experimental).
   const [fatality, setFatality] = useState(0);
-  const { ultracodeFatality } = useSettings();
+  const { ultracodeFatality, appearance } = useSettings();
+  const chatSize = appearance.chatSize;
   const effortLevels = capability.efforts;
   const effortIndex = Math.max(0, effortLevels.indexOf(effort ?? ""));
   const effortName = effort ? effortCopy(effort).name : "";
@@ -182,7 +186,7 @@ export function PromptComposer({
   const [active, setActive] = useState(0);
   const [engaged, setEngaged] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<PromptEditorHandle>(null);
   const compactWidthRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const overflowRef = useRef<CompactOverflow>(null);
@@ -229,19 +233,67 @@ export function PromptComposer({
       })),
     ...skillRows,
   ];
-  const skillParts = promptSkillParts(
-    draft,
-    commands.map((command) => command.name.slice(1)),
+  const skillNames = commands.map((command) => command.name.slice(1));
+  const skillKey = skillNames.join("\n");
+  const skillDescriptions = useMemo(
+    () => new Map(commands.map((command) => [command.name.slice(1).toLowerCase(), command.desc])),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `commands` is rebuilt each render; its names and descriptions are what count.
+    [commands.map((command) => `${command.name}\t${command.desc}`).join("\n")],
   );
-  const hasSkill = skillParts.some((part) => part.skill);
-  const inputTextClass = expanded ? "min-h-[68px] px-2 py-2 text-[14px] leading-5" : "min-h-7 px-1 py-[5px] text-[13px] leading-[18px]";
+  // The mention being typed is the @ menu's search; the rest are looked up so they show as chips.
+  const typing = token?.kind === "at" ? draft.slice(token.start + 1, token.end) : null;
+  const { known, version: knownVersion, markKnown } = useKnownFiles(projectPath, draft, typing);
+  const parts = useMemo(
+    () => promptParts(draft, { skills: skillKey ? skillKey.split("\n") : [], files: (path) => known.has(path) }),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `known` is a Set that grows in place; `knownVersion` counts its growth.
+    [draft, skillKey, known, knownVersion],
+  );
+  // The @ menu searched the mention being typed: an exact match is a file too.
+  const typedFound = typing !== null && fileSearch.files.includes(typing) ? typing : null;
+  useEffect(() => {
+    if (typedFound) markKnown(typedFound);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `markKnown` is rebuilt each render.
+  }, [typedFound, projectPath]);
+  // A chip is its file's only representation: the file is attached while the chip is in the draft (no tile), deleting
+  // the chip detaches it, and undoing that attaches it again. Files attached by paste or + are never detached here.
+  // A remote Chat can't take files from this Mac, so nothing is attached until the user sends (which shows why).
+  const mentionAttached = useRef(new Set<string>());
+  const mentionScope = useRef(imageDraft.scope);
+  const chipKey = [...new Set(parts.flatMap((part) => (part.kind === "file" ? [fileMentionPath(projectPath, part.path) ?? ""] : [])).filter(Boolean))].join(
+    "\n",
+  );
+  const chipPaths = useMemo(() => (chipKey ? chipKey.split("\n") : []), [chipKey]);
+  useEffect(() => {
+    // Another Chat's attachments: what this composer attached for the last one is gone with them.
+    if (mentionScope.current !== imageDraft.scope) {
+      mentionScope.current = imageDraft.scope;
+      mentionAttached.current.clear();
+    }
+    for (const path of [...mentionAttached.current]) {
+      if (chipPaths.includes(path)) continue;
+      mentionAttached.current.delete(path);
+      if (imageDraft.files.includes(path)) imageDraft.removeFile(path);
+    }
+    if (imageDraft.remote) return;
+    for (const path of chipPaths) {
+      if (imageDraft.files.includes(path)) continue;
+      mentionAttached.current.add(path);
+      imageDraft.attachPath(path);
+    }
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `imageDraft` is a new object each render; its files and scope are what count.
+  }, [chipPaths, imageDraft.files, imageDraft.scope, imageDraft.remote]);
+  const onSendLatest = useRef(onSend);
+  onSendLatest.current = onSend;
+  const inputTextClass = expanded
+    ? "min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
+    : "min-h-7 px-1 py-[5px] text-[length:var(--chat-size)] leading-[18px]";
   const rows: MenuRow[] =
     menu === "at"
       ? plusOpen
         ? SOURCES
         : fileSearch.files.map((path) => ({ key: `file:${path}`, name: path.split("/").at(-1) || path, desc: path, path }))
       : menu === "slash"
-        ? commands.filter((command) => `${command.name.slice(1)} ${command.desc}`.toLowerCase().includes(tokenQuery))
+        ? rankSkillMatches(commands, tokenQuery, (command) => ({ name: command.name, description: command.desc }))
         : [];
   const providerNotice = cliNotice(cliStatus?.[provider]);
   const providerTabs = pickerProviders(cliStatus, selectedModel.provider, provider);
@@ -261,12 +313,9 @@ export function PromptComposer({
   }, [active, engaged, menu, tokenQuery, rows.length]);
 
   useLayoutEffect(() => {
-    const input = inputRef.current;
+    const input = inputRef.current?.root;
     if (!input) return;
-    input.style.height = "0px";
     const contentHeight = input.scrollHeight;
-    input.style.height = `${Math.min(Math.max(contentHeight, 28), 100)}px`;
-    input.style.overflowY = contentHeight > 100 ? "auto" : "hidden";
     if (!expanded) compactWidthRef.current = input.clientWidth;
     const next = composerLayout({
       draft,
@@ -278,13 +327,13 @@ export function PromptComposer({
       measure: (text) => {
         const context = (canvasRef.current ??= document.createElement("canvas")).getContext("2d");
         if (!context) return null;
-        context.font = `13px ${getComputedStyle(input).fontFamily}`;
+        context.font = `${getComputedStyle(document.documentElement).getPropertyValue("--chat-size").trim() || "13px"} ${getComputedStyle(input).fontFamily}`;
         return context.measureText(text).width;
       },
     });
     overflowRef.current = next.overflow;
     if (next.expanded !== expanded) setExpanded(next.expanded);
-  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded]);
+  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded, chatSize]);
 
   // Any press outside the open picker closes it, including the prompt field and the rest of the composer.
   useDismiss(
@@ -334,6 +383,20 @@ export function PromptComposer({
     setModelOpen(false);
     setPermissionOpen(false);
     setPlusOpen(false);
+    // Every chip's file goes with the message, even one whose attachment the effect hasn't caught up with yet; the
+    // parent's send reads its attachments from its render, so commit them first and send from the new render.
+    // A remote Chat refuses this Mac's files, so a chip's file stays a mention there (no refusal notice at send).
+    const missing = imageDraft.remote ? [] : chipPaths.filter((path) => !imageDraft.files.includes(path));
+    if (missing.length) {
+      flushSync(() => {
+        for (const path of missing) {
+          mentionAttached.current.add(path);
+          imageDraft.attachPath(path);
+        }
+      });
+      onSendLatest.current();
+      return;
+    }
     onSend();
   }
 
@@ -353,13 +416,16 @@ export function PromptComposer({
       if (token && row.path) {
         const path = fileMentionPath(projectPath, row.path);
         if (!path) return;
+        markKnown(row.path);
+        if (!imageDraft.files.includes(path) && !imageDraft.remote) mentionAttached.current.add(path);
         imageDraft.attachPath(path);
-        onDraftChange(removePromptToken(draft, token));
-        const position = token.start;
-        requestAnimationFrame(() => inputRef.current?.setSelectionRange(position, position));
+        const mention = formatFileMention(row.path);
+        onDraftChange(insertPromptToken(draft, token, mention));
+        inputRef.current?.setSelection(token.start + mention.length + 1);
       }
     } else {
       onDraftChange(token ? insertPromptToken(draft, token, row.name) : `${draft}${row.name} `);
+      inputRef.current?.setSelection(token ? token.start + row.name.length + 1 : draft.length + row.name.length + 1);
     }
     setPlusOpen(false);
     setDismissed(true);
@@ -381,26 +447,28 @@ export function PromptComposer({
 
   // Up on the first line steps back through sent prompts, Down on the last line steps forward and finally restores
   // the draft that was there before, like a shell or VS Code's chat.
-  function recall(event: KeyboardEvent<HTMLTextAreaElement>) {
+  function recall(event: KeyboardEvent<HTMLDivElement>) {
     const up = event.key === "ArrowUp";
     if ((!up && event.key !== "ArrowDown") || event.shiftKey || event.altKey || event.metaKey || event.ctrlKey || event.nativeEvent.isComposing) return false;
-    const { selectionStart, selectionEnd, value } = event.currentTarget;
-    if (selectionStart !== selectionEnd || (up ? value.slice(0, selectionStart) : value.slice(selectionEnd)).includes("\n")) return false;
+    const editor = inputRef.current;
+    if (!editor || !(up ? editor.isCaretOnFirstLine() : editor.isCaretOnLastLine())) return false;
     const current = browsing.current;
     if (!current && !up) return false;
     const index = (current?.index ?? history.length) + (up ? -1 : 1);
     if (index < 0) return false;
     event.preventDefault();
-    const stash = current?.stash ?? value;
+    const stash = current?.stash ?? draft;
     const next = index < history.length ? history[index] : stash;
     browsing.current = index < history.length ? { index, stash } : null;
     setDismissed(true);
     onDraftChange(next);
-    requestAnimationFrame(() => inputRef.current?.setSelectionRange(next.length, next.length));
+    inputRef.current?.setSelection(next.length);
     return true;
   }
 
-  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    // Keys during an IME composition belong to the IME: Enter commits the text, it doesn't pick or send.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (menu && rows.length > 0) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -415,7 +483,7 @@ export function PromptComposer({
       }
     }
     if (recall(event)) return;
-    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       send();
     }
@@ -444,7 +512,8 @@ export function PromptComposer({
               />
               {rows.map((row, index) => {
                 const source = menu === "at" ? SOURCES.find((item) => item.key === row.key) : undefined;
-                const showGroup = row.group && row.group !== rows[index - 1]?.group;
+                // A search lists its matches best first across the groups, so it carries no group headings.
+                const showGroup = !tokenQuery && row.group && row.group !== rows[index - 1]?.group;
                 return (
                   <Fragment key={row.key}>
                     {showGroup && (
@@ -609,7 +678,7 @@ export function PromptComposer({
           <Attachments
             localFiles={imageDraft.localFiles}
             images={imageDraft.images}
-            files={imageDraft.files}
+            files={imageDraft.files.filter((file) => !chipPaths.includes(file))}
             removeImage={imageDraft.remove}
             removeFile={imageDraft.removeFile}
           />
@@ -628,28 +697,23 @@ export function PromptComposer({
             className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"}`}
           >
             <div className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"}`}>
-              {hasSkill && (
-                <PromptHighlights
-                  inputRef={inputRef}
-                  parts={skillParts}
-                  descriptions={new Map(commands.map((command) => [command.name.toLowerCase(), command.desc]))}
-                  className={inputTextClass}
-                />
-              )}
-              <textarea
-                onPaste={(event) => void imageDraft.onPaste(event)}
+              <PromptEditor
                 ref={inputRef}
-                rows={1}
+                resetKey={imageDraft.scope}
                 value={draft}
-                onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
-                onChange={(event) => {
-                  setCaret(event.target.selectionStart);
-                  onDraftChange(event.target.value);
+                parts={parts}
+                skillDescriptions={skillDescriptions}
+                onPaste={(event) => void imageDraft.onPaste(event)}
+                onSelect={setCaret}
+                onChange={(value, position) => {
+                  setCaret(position);
+                  onDraftChange(value);
                   setDismissed(false);
                   setPlusOpen(false);
                 }}
                 onKeyDown={handleKeyDown}
                 disabled={Boolean(offlineName)}
+                maxHeight={100}
                 placeholder={
                   (running
                     ? // A provider that can't steer mid-turn takes the message at the start of the next turn.
@@ -658,8 +722,8 @@ export function PromptComposer({
                       : "Queue a message for the next turn…"
                     : "Prompt or mention a file with @") + (offlineName ? offlinePlaceholder(offlineName) : "")
                 }
-                aria-label="Prompt"
-                className={`${inputTextClass} ${expanded ? "" : "placeholder-shown:whitespace-nowrap placeholder:truncate"} ${hasSkill ? "prompt-input-highlighted" : "text-ink"} relative block min-w-0 w-full resize-none overflow-hidden bg-transparent caret-ink outline-none [overflow-wrap:anywhere] placeholder:text-ink-3`}
+                className={inputTextClass}
+                placeholderClassName={expanded ? "" : "truncate whitespace-nowrap"}
               />
             </div>
             <button

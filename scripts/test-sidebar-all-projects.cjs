@@ -395,7 +395,9 @@ async function browserChecks() {
         mouse("mouseMove", from.x, Math.round(from.y + ((to.bottom - 4 - from.y) * step) / 10));
         await delay(16);
       }
-      for (let i = 0; i < 20 && !(await evaluate(dragging)); i++) await delay(25);
+      // Wait for the drag's first render before judging the press lost: releasing a press whose drag begins a moment
+      // later drops it where it stands, which pins the chat and leaves the next attempt without its row.
+      for (let i = 0; i < 100 && !(await evaluate(dragging)); i++) await delay(50);
     }
     // A slow runner can process those moves before the drag's first render, so none of them set a target. Nudge at the
     // target, read live, until the drop line shows.

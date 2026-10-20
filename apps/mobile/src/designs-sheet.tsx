@@ -60,7 +60,7 @@ const refOf = (design: Artifact): ArtifactRef => ({ id: design.id, version: desi
  * message for the agent.
  */
 export function DesignsSheet({ hostId, chatId, id, version, chosen }: { hostId?: string; chatId?: string; id?: string; version?: string; chosen?: string }) {
-  const { colors } = useTheme();
+  const { colors, motionScale } = useTheme();
   const styles = useStyles();
   const { client, designs: feature, snapshot } = useSession();
   const insets = useSafeAreaInsets();
@@ -478,7 +478,7 @@ export function DesignsSheet({ hostId, chatId, id, version, chosen }: { hostId?:
             {!painted && (
               <Animated.View
                 pointerEvents="none"
-                exiting={FadeOut.duration(220)}
+                exiting={motionScale > 0 ? FadeOut.duration(Math.round(220 * motionScale)) : undefined}
                 style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center", backgroundColor: colors.surface }]}
               >
                 <DrawingDesignIcon />

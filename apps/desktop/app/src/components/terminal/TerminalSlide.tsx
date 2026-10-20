@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { animate, motion, useMotionValue, useMotionValueEvent, usePresence, useReducedMotion } from "motion/react";
-import { SPRING_LAYOUT } from "../../lib/ease";
+import { animate, motion, useMotionValue, useMotionValueEvent, usePresence } from "motion/react";
+import { SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 
 // The gap between the Chat and the panel, part of the room that opens.
 const GAP = 8;
@@ -12,7 +12,8 @@ const GAP = 8;
  * the slot moves, so the Terminal is fitted once instead of on every frame and the shell isn't sent a resize per frame.
  */
 export function TerminalSlide({ height, children }: { height: number; children: ReactNode }) {
-  const reduced = useReducedMotion();
+  const scale = useMotionScale();
+  const reduced = scale === 0;
   const slot = useRef<HTMLDivElement>(null);
   const shown = useMotionValue(0);
   // The card's height in pixels while the slot moves; null at rest, where it fills the slot.
@@ -45,7 +46,7 @@ export function TerminalSlide({ height, children }: { height: number; children: 
     sliding.current = true;
     setCard(cardHeight);
     const controls = animate(shown, isPresent ? cardHeight + GAP : 0, {
-      ...SPRING_LAYOUT,
+      ...scaledSpring(SPRING_LAYOUT, scale),
       onComplete: () => {
         sliding.current = false;
         if (isPresent) setCard(null);
@@ -53,7 +54,7 @@ export function TerminalSlide({ height, children }: { height: number; children: 
       },
     });
     return () => controls.stop();
-  }, [isPresent, reduced, shown, safeToRemove]);
+  }, [isPresent, reduced, scale, shown, safeToRemove]);
 
   const moving = !reduced && card !== null;
   return (
@@ -71,7 +72,7 @@ export function TerminalSlide({ height, children }: { height: number; children: 
         style={moving ? { height: card, flexShrink: 0 } : { flex: "1 1 0%" }}
         initial={reduced ? false : { opacity: 0 }}
         animate={{ opacity: isPresent ? 1 : 0 }}
-        transition={reduced ? { duration: 0 } : { duration: isPresent ? 0.24 : 0.16 }}
+        transition={reduced ? { duration: 0 } : { duration: scaled(isPresent ? 0.24 : 0.16, scale) }}
       >
         {children}
       </motion.div>

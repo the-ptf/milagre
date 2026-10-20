@@ -1,6 +1,7 @@
 import { useState, type ButtonHTMLAttributes, type CSSProperties, type ReactNode, type Ref } from "react";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
-import { AnimatePresence, motion, useReducedMotion, type Transition } from "motion/react";
+import { AnimatePresence, motion, type Transition } from "motion/react";
+import { useMotionScale } from "../../lib/ease";
 
 const EASE_OUT: Transition["ease"] = [0.23, 1, 0.32, 1];
 const PILL_IN: Transition = { duration: 0.26, ease: EASE_OUT };
@@ -11,6 +12,9 @@ export const PILL_TONES = {
   orange: "text-orange [--status-pill-tint:var(--orange)] [--status-pill-ring:color-mix(in_oklab,var(--orange)_25%,transparent)] focus-visible:outline-orange",
   red: "text-red [--status-pill-tint:var(--red)] [--status-pill-ring:color-mix(in_oklab,var(--red)_25%,transparent)] focus-visible:outline-red",
 } as const;
+
+/** Motion Off in Appearance, or the system asking for reduced motion (motion's own useReducedMotion ignores the app setting). */
+const useMotionOff = () => useMotionScale() === 0;
 
 /**
  * One slot in the composer's chip row (the PR fix, Ports, to-dos, Browser, Simulators, Subagents). It grows in from a
@@ -33,7 +37,7 @@ export function PillSlot({
   /** No layout slide: a transform would become the containing block of a fixed descendant (an expanded PillMorph). */
   still?: boolean;
 }) {
-  const reduced = useReducedMotion();
+  const reduced = useMotionOff();
   const hidden = reduced ? { opacity: 0 } : { opacity: 0, scale: 0.85 };
   return (
     <motion.div
@@ -44,9 +48,9 @@ export function PillSlot({
       style={style}
       initial={hidden}
       animate={{ opacity: 1, scale: 1 }}
-      exit={{ ...hidden, transition: { duration: 0.14 } }}
+      exit={{ ...hidden, transition: { duration: reduced ? 0 : 0.14 } }}
       // The pill shows once its neighbours have started to slide, so it never draws over one still in its old place.
-      transition={{ ...PILL_IN, delay: 0.09, layout: PILL_IN, opacity: { duration: 0.16, delay: 0.09 } }}
+      transition={reduced ? { duration: 0 } : { ...PILL_IN, delay: 0.09, layout: PILL_IN, opacity: { duration: 0.16, delay: 0.09 } }}
     >
       {children}
     </motion.div>
@@ -107,7 +111,7 @@ export function StatusPill({
 
 /** The label whole; when it changes, its letters rise in one after another. */
 function Letters({ text }: { text: string }) {
-  const reduced = useReducedMotion();
+  const reduced = useMotionOff();
   const [shown, setShown] = useState({ text, generation: 0 });
   if (shown.text !== text) setShown({ text, generation: shown.generation + 1 });
   if (!shown.generation || reduced) return <span>{text}</span>;
@@ -153,7 +157,7 @@ function RollingNumber({ value }: { value: number }) {
 }
 
 function Digit({ digit, direction }: { digit: string; direction: number }) {
-  const reduced = useReducedMotion();
+  const reduced = useMotionOff();
   const travel = reduced ? 0 : direction;
   return (
     <span className="relative inline-flex h-[1lh] overflow-hidden">

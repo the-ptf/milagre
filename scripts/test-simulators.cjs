@@ -205,11 +205,11 @@ async function browserChecks() {
     await waitFor(
       '(()=>{const pane=document.querySelector("[data-chat-pane]").getBoundingClientRect(),dock=document.querySelector("[data-slot=simulator-popover]").getBoundingClientRect();return pane.right<=dock.left&&dock.right<=innerWidth})()',
     );
-    await click("textarea");
+    await click("[data-prompt-editor]");
     await delay(100);
     assert.ok(await evaluate('!!document.querySelector("[data-slot=simulator-popover]")'), "pressing the chat keeps the docked viewer");
     await screenshot("docked-dark");
-    assert.equal(await evaluate('document.querySelector("[data-slot=simulator-connection]").dataset.state'), "error");
+    await waitFor('document.querySelector("[data-slot=simulator-connection]").dataset.state==="error"');
     assert.ok(
       await evaluate(`(()=>{const s=document.querySelector('[aria-label="iPhone 17, choose simulator"] span');return s.scrollWidth<=s.clientWidth})()`),
       "device name fits beside the connection status",

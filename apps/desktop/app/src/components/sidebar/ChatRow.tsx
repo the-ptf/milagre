@@ -353,8 +353,8 @@ export const ChatRow = memo(function ChatRow({
     );
   if (diff)
     facts.push(
-      <span key="diff" data-chat-diff className="shrink-0 font-mono text-[11px] tabular-nums">
-        <span className="text-green">+{formatLineCount(diff.added)}</span> <span className="text-red">−{formatLineCount(diff.removed)}</span>
+      <span key="diff" data-chat-diff className="shrink-0 font-mono text-[length:calc(11px+var(--sidebar-delta))] tabular-nums">
+        <span className="text-diff-add">+{formatLineCount(diff.added)}</span> <span className="text-diff-remove">−{formatLineCount(diff.removed)}</span>
       </span>,
     );
   if (lastAt !== undefined)
@@ -467,7 +467,7 @@ export const ChatRow = memo(function ChatRow({
             </span>
             <ChatMarkDot mark={mark} failed={item.details?.failed} background={item.background} topAligned={twoLines} />
             <span
-              className={`sidebar-copy min-w-0 flex-1 truncate text-[14px] ${prLines ? "leading-5" : ""} transition-[padding] duration-150 ${shortcutHint ? "pr-12" : "group-hover/row:pr-6"} ${menu ? "pr-6" : ""} ${
+              className={`sidebar-copy min-w-0 flex-1 truncate text-[length:calc(14px+var(--sidebar-delta))] ${prLines ? "leading-5" : ""} transition-[padding] duration-150 ${shortcutHint ? "pr-12" : "group-hover/row:pr-6"} ${menu ? "pr-6" : ""} ${
                 item.unread ? "font-semibold text-ink" : active ? "font-medium text-ink" : "font-medium text-ink-2"
               }`}
             >
@@ -498,7 +498,7 @@ export const ChatRow = memo(function ChatRow({
                 <ChatTitle label={item.label} />
               )}
               {item.worktreeCount !== undefined && !factLine && (
-                <span className="block text-[11px] font-normal text-ink-3">{linkChatWorktreesLabel(item.worktreeCount)}</span>
+                <span className="block text-[length:calc(11px+var(--sidebar-delta))] font-normal text-ink-3">{linkChatWorktreesLabel(item.worktreeCount)}</span>
               )}
             </span>
           </button>
@@ -512,15 +512,15 @@ export const ChatRow = memo(function ChatRow({
             {facts.map((fact, index) => (
               <Fragment key={(fact as { key: string | null }).key}>
                 {index > 0 && (
-                  <span aria-hidden className="text-[12px] leading-4 text-ink-3 opacity-60">
+                  <span aria-hidden className="text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-3 opacity-60">
                     ·
                   </span>
                 )}
-                <span className="flex min-w-0 shrink items-center text-[12px] leading-4 text-ink-3">{fact}</span>
+                <span className="flex min-w-0 shrink items-center text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-3">{fact}</span>
               </Fragment>
             ))}
             {facts.length > 0 && hasChips && (
-              <span aria-hidden className="text-[12px] leading-4 text-ink-3 opacity-60">
+              <span aria-hidden className="text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-3 opacity-60">
                 ·
               </span>
             )}
@@ -532,7 +532,7 @@ export const ChatRow = memo(function ChatRow({
               <span
                 data-chat-pr-more
                 aria-label={`${hiddenPullRequests} more pull request${hiddenPullRequests === 1 ? "" : "s"}`}
-                className="shrink-0 text-[12px] leading-4 tabular-nums text-ink-3"
+                className="shrink-0 text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums text-ink-3"
               >
                 +{hiddenPullRequests}
               </span>
@@ -651,7 +651,7 @@ function LinearIssueChip({ issue }: { issue: LinearIssue }) {
         event.stopPropagation();
         window.open(issue.url, "_blank", "noopener,noreferrer");
       }}
-      className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-sm text-[12px] leading-4 tabular-nums text-ink-3 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+      className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-sm text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums text-ink-3 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
     >
       <LinearLogo size={11} />
       <span className="truncate">{issueChipLabel(issue)}</span>
@@ -683,7 +683,7 @@ function PullRequestChip({ pr, labelled }: { pr: PullRequest; labelled: boolean 
         rel="noopener noreferrer"
         aria-label={`Open ${pr.state === "MERGED" ? "merged " : ""}pull request #${pr.number}${blocker ? `, ${BLOCKERS[blocker].short.toLowerCase()}` : readyToMerge ? ", ready to merge" : checking ? ", CI running" : ""}`}
         data-chat-pr
-        className="group/pr inline-flex min-w-0 items-center gap-1 rounded-sm text-[12px] leading-4 tabular-nums text-ink-3 no-underline hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+        className="group/pr inline-flex min-w-0 items-center gap-1 rounded-sm text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums text-ink-3 no-underline hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
         onClick={(event) => event.stopPropagation()}
       >
         <span aria-hidden className={`inline-flex group-hover/pr:hidden group-focus-visible/pr:hidden ${prTone(pr)}`}>
@@ -732,7 +732,7 @@ function RenameField({ initial, onDone }: { initial: string; onDone: (title: str
         }
       }}
       onBlur={(event) => finish(event.currentTarget.value.trim())}
-      className="sidebar-copy min-w-0 flex-1 bg-transparent text-[14px] font-medium text-ink outline-none"
+      className="sidebar-copy min-w-0 flex-1 bg-transparent text-[length:calc(14px+var(--sidebar-delta))] font-medium text-ink outline-none"
     />
   );
 }
@@ -870,8 +870,8 @@ function ChatHoverCard({
               <span className="text-ink-3">No changes</span>
             ) : (
               <span className="tabular-nums">
-                <span className="text-green">+{formatLineCount(details.diff.added)}</span>{" "}
-                <span className="text-red">−{formatLineCount(details.diff.removed)}</span>
+                <span className="text-diff-add">+{formatLineCount(details.diff.added)}</span>{" "}
+                <span className="text-diff-remove">−{formatLineCount(details.diff.removed)}</span>
               </span>
             )}
           </CardLine>

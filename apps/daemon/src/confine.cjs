@@ -210,6 +210,8 @@ const PATHS = Object.freeze({
   "attachment:preview": ([file]) => [attached(file)],
   // A null Project (user skills only) is refused: confined, the phone sees no user skills.
   "skills:list": ([projectPath]) => [projectPath],
+  // The file search for the phone's @ menu: the root must be inside the folder; it names no other path.
+  "project:files": ([root]) => [root],
   "skills:read": ([projectPath, file]) => [projectPath, file],
   "worktree:create": ([value]) => [value?.projectPath],
   "worktree:link-issue": ([value]) => [value?.projectPath],

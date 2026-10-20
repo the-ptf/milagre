@@ -161,14 +161,14 @@ function FileList({ changes }: { changes: Extract<GitChanges, { isRepo: true }> 
           {changes.files.length} {changes.files.length === 1 ? "file" : "files"} changed
         </span>
         <span className="tabular-nums">
-          <span className="text-green">+{formatLineCount(added)}</span> <span className="text-red">−{formatLineCount(removed)}</span>
+          <span className="text-diff-add">+{formatLineCount(added)}</span> <span className="text-diff-remove">−{formatLineCount(removed)}</span>
         </span>
       </div>
       <ScrollArea as="ul" chainScroll className="max-h-36 py-1">
         {changes.files.map((file) => (
           <li key={file.path} className="flex items-center gap-2 px-3 py-0.5 text-[12px]" title={file.path}>
             <span
-              className={`w-3 shrink-0 font-mono font-semibold ${file.status === "added" ? "text-green" : file.status === "deleted" ? "text-red" : "text-orange"}`}
+              className={`w-3 shrink-0 font-mono font-semibold ${file.status === "added" ? "text-diff-add" : file.status === "deleted" ? "text-diff-remove" : "text-orange"}`}
             >
               {file.status === "added" ? "A" : file.status === "deleted" ? "D" : "M"}
             </span>
@@ -184,9 +184,9 @@ function FileList({ changes }: { changes: Extract<GitChanges, { isRepo: true }> 
               </span>
             )}
             <span className="shrink-0 tabular-nums text-ink-3">
-              {file.added > 0 && <span className="text-green">+{formatLineCount(file.added)}</span>}
+              {file.added > 0 && <span className="text-diff-add">+{formatLineCount(file.added)}</span>}
               {file.added > 0 && file.removed > 0 && " "}
-              {file.removed > 0 && <span className="text-red">−{formatLineCount(file.removed)}</span>}
+              {file.removed > 0 && <span className="text-diff-remove">−{formatLineCount(file.removed)}</span>}
             </span>
           </li>
         ))}

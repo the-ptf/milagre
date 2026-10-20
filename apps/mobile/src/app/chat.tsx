@@ -38,7 +38,15 @@ import { useComposer, usePendingChats, useSession } from "../session";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
-import { appendAttachments, attachmentPrompt, prepareAttachments } from "../attachments";
+import {
+  addMention,
+  appendAttachments,
+  ATTACHMENT_LIMIT_MESSAGE,
+  attachmentPrompt,
+  mentionAttachments,
+  prepareAttachments,
+  settleLimitError,
+} from "../attachments";
 import { BackgroundRing, PullRequestAction, SubagentChip } from "../status-indicators";
 import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
@@ -84,7 +92,9 @@ import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
 import { ErrorNotice, GlassIconButton, HeaderButton, IconButton, PageScroll, PillButton, PullDown, useStyles } from "../ui";
+import { clearSentDraft } from "../draft-clear";
 import { PromptField } from "../prompt-field";
+import { createKnownFiles, mentionPaths } from "../file-mentions";
 import { ContextRing } from "../context-ring";
 import { PlanPanel, PlanPill, usePlanPanel } from "../plan-pill";
 import { useTheme } from "../theme";
@@ -159,6 +169,8 @@ export default function ChatScreen() {
   // Answers just sent: the card leaves and the answers show at once, until the host's copy arrives.
   const [sentAnswers, setSentAnswers] = useState<{ requestId: string; message: ChatMessage | null; count: number } | null>(null);
   const sendingRef = useRef(false);
+  /** Which typed @mentions name a Project file: those are tinted and attached at send. */
+  const knownFiles = useRef(createKnownFiles());
   // The id of a send that failed before the host answered: it may have been saved, so the same text resent reuses it.
   const failedSends = useRef(createResendMemory());
   const [picking, setPicking] = useState(false);
@@ -671,10 +683,21 @@ export default function ChatScreen() {
       setPicking(false);
     }
   }
+  /** The @ menu's pick: attach the file the mention names, if there is room. */
+  function mentionFile(path: string) {
+    const root = worktree?.path;
+    if (!root) return;
+    const { error: refused } = addMention(attachments, root, path);
+    if (refused) setError(refused);
+    else {
+      composer.setAttachments((current) => ({ ...current, [chatId]: addMention(current[chatId] || [], root, path).next }));
+      knownFiles.current.seed(root, path);
+    }
+  }
   async function pasteImage(image: PastedImage) {
     if (attachmentDisabled || pickingNow.current) {
       discardPastedImage(image);
-      setError(attachments.length >= 4 ? "Attach up to 4 photos or files per message." : "Wait for the current attachment to finish, then paste again.");
+      setError(attachments.length >= 4 ? ATTACHMENT_LIMIT_MESSAGE : "Wait for the current attachment to finish, then paste again.");
       return;
     }
     pickingNow.current = true;
@@ -770,9 +793,25 @@ export default function ChatScreen() {
     sendingRef.current = true;
     setBusy(true);
     setError("");
+    // Mentioned files attach when the message goes (a removed tile does not unmention the file). A mention not yet checked
+    // against the Project (the one just typed) is asked about now, for up to a second; a file the limit leaves out stops the send.
+    const mentionRoot = worktree?.path;
+    // Only a mention the Mac has not answered about waits (up to a second); an ordinary send still clears the composer before its first await.
+    if (withAttachments && mentionRoot && knownFiles.current.unchecked(mentionRoot, mentionPaths(body), 1).length)
+      await knownFiles.current.resolve(client, mentionRoot, mentionPaths(body));
+    const mentions =
+      withAttachments && mentionRoot
+        ? mentionAttachments(body, mentionRoot, attachments, (path) => knownFiles.current.has(mentionRoot, path))
+        : { added: [], dropped: false };
+    if (mentions.dropped) {
+      sendingRef.current = false;
+      setBusy(false);
+      setError(ATTACHMENT_LIMIT_MESSAGE);
+      return false;
+    }
     const sent = body;
     const sendingProjectPath = project.path;
-    const sending = withAttachments ? attachments : [];
+    const sending = withAttachments ? [...attachments, ...mentions.added] : [];
     const focus = focused.current;
     const current = () => focus !== null && focused.current === focus && session.isSelected();
     const clearsDraft = sent === draft || issueKey !== undefined;
@@ -807,7 +846,7 @@ export default function ChatScreen() {
         accepted: false,
       },
     }));
-    if (clearsDraft) composer.setDrafts((current) => ({ ...current, [chatId]: "" }));
+    if (clearsDraft) composer.setDrafts((current) => clearSentDraft(current, chatId, sent, issueKey !== undefined));
     const sentIds = new Set(sending.map((item) => item.id));
     composer.setAttachments((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((item) => !sentIds.has(item.id)) }));
     following.current = true;
@@ -1099,9 +1138,9 @@ export default function ChatScreen() {
               {worktree?.name ?? ""}
             </Text>
             <Text style={{ fontSize: 12 }}>
-              <Text style={{ color: colors.green }}>{diff && (diff.added > 0 || diff.removed > 0) ? `+${diff.added}` : ""}</Text>
+              <Text style={{ color: colors.add }}>{diff && (diff.added > 0 || diff.removed > 0) ? `+${diff.added}` : ""}</Text>
               {diff && (diff.added > 0 || diff.removed > 0) ? " " : ""}
-              <Text style={{ color: colors.red }}>{diff && (diff.added > 0 || diff.removed > 0) ? `−${diff.removed}` : ""}</Text>
+              <Text style={{ color: colors.remove }}>{diff && (diff.added > 0 || diff.removed > 0) ? `−${diff.removed}` : ""}</Text>
             </Text>
           </View>
         )}
@@ -1701,12 +1740,14 @@ export default function ChatScreen() {
                               icon={Cancel01Icon}
                               size={32}
                               disabled={busy || picking}
-                              onPress={() =>
-                                composer.setAttachments((current) => ({
-                                  ...current,
-                                  [chatId]: (current[chatId] || []).filter((attachment) => attachment.id !== item.id),
-                                }))
-                              }
+                              onPress={() => {
+                                // Removing this tile may leave room again, which ends the limit error.
+                                setError((current) => settleLimitError(current, attachments.filter((attachment) => attachment.id !== item.id).length, draft));
+                                composer.setAttachments((currentAttachments) => ({
+                                  ...currentAttachments,
+                                  [chatId]: (currentAttachments[chatId] || []).filter((attachment) => attachment.id !== item.id),
+                                }));
+                              }}
                             />
                           </View>
                         ))}
@@ -1718,10 +1759,16 @@ export default function ChatScreen() {
                       projectPath={worktree?.path || (project.link ? "" : project.path)}
                       draft={draft}
                       onImagePaste={(image) => void pasteImage(image)}
+                      known={knownFiles.current}
+                      onMention={worktree?.path ? mentionFile : undefined}
                       commands={chat ? UNDO_COMMANDS : undefined}
                       // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
                       placeholder={run && !providerCapabilities(chat?.provider ?? actualProvider).steer ? "Queue a message for the next turn" : undefined}
-                      onChangeText={(value) => composer.setDrafts((current) => ({ ...current, [chatId]: value }))}
+                      onChangeText={(value) => {
+                        // Clearing the composer also clears the limit error that its mentions caused.
+                        setError((current) => settleLimitError(current, attachments.length, value));
+                        composer.setDrafts((current) => ({ ...current, [chatId]: value }));
+                      }}
                     />
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                       <PullDown

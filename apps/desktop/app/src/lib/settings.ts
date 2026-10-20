@@ -8,6 +8,8 @@ import { DESKTOP_CHAT_ROW_SHOW, parseChatRowShow, type ChatRowShow } from "@mila
 import { parseToolCallDisplay, type ToolCallDisplay } from "@milagre/shared/chat-display";
 import { DEFAULT_NOTIFICATION_CHIME, parseNotificationChime, type NotificationChime } from "@milagre/shared/notification-chimes";
 import { applyPalette } from "./theme-sheet.ts";
+import { applyAppearance } from "./appearance.ts";
+import { DEFAULT_APPEARANCE, parseAppearance, type Appearance } from "@milagre/shared/appearance";
 
 export type ThemePreference = "system" | "light" | "dark";
 /** Whether plan usage reads as the share used or the share left. */
@@ -58,6 +60,8 @@ export interface AppSettings {
   ultracodeFatality: boolean;
   /** Settings › Notifications: the sound a chat's notification plays, instead of the system's. */
   notificationChime: NotificationChime;
+  /** Settings › Appearance: fonts, sizes, chat width, diff colors and motion. */
+  appearance: Appearance;
 }
 
 const STORAGE_KEY = "milagre-settings";
@@ -92,6 +96,7 @@ const DEFAULTS: AppSettings = {
   otherComputers: false,
   ultracodeFatality: false,
   notificationChime: DEFAULT_NOTIFICATION_CHIME,
+  appearance: DEFAULT_APPEARANCE,
 };
 
 function load(): AppSettings {
@@ -130,6 +135,7 @@ function load(): AppSettings {
       otherComputers: typeof saved.otherComputers === "boolean" ? saved.otherComputers : DEFAULTS.otherComputers,
       ultracodeFatality: typeof saved.ultracodeFatality === "boolean" ? saved.ultracodeFatality : DEFAULTS.ultracodeFatality,
       notificationChime: parseNotificationChime(saved.notificationChime),
+      appearance: parseAppearance(saved.appearance),
     };
   } catch {
     return DEFAULTS;
@@ -195,24 +201,26 @@ function currentScheme(): "light" | "dark" {
 
 /** Paints the saved theme before React's first render, so a non-default theme never flashes Milagre Blue. */
 export function applyThemeNow() {
-  const { colorTheme, customTheme } = getSettings();
+  const { colorTheme, customTheme, appearance } = getSettings();
   const scheme = currentScheme();
   document.documentElement.classList.toggle("dark", scheme === "dark");
   applyPalette(resolvePalette(colorTheme, scheme, customTheme));
+  applyAppearance(appearance);
 }
 
 export function useApplyTheme() {
   const scheme = useResolvedScheme();
-  const { colorTheme, customTheme } = useSettings();
+  const { colorTheme, customTheme, appearance } = useSettings();
   const palette = useMemo(() => resolvePalette(colorTheme, scheme, customTheme), [colorTheme, scheme, customTheme]);
   useEffect(() => {
     const root = document.documentElement;
     root.classList.add("theme-switching");
     root.classList.toggle("dark", scheme === "dark");
     applyPalette(palette);
+    applyAppearance(appearance);
     const frame = window.requestAnimationFrame(() => root.classList.remove("theme-switching"));
     return () => window.cancelAnimationFrame(frame);
-  }, [palette, scheme]);
+  }, [palette, scheme, appearance]);
   // The window behind the page takes the page's color, so a resize never flashes another one.
   useEffect(() => {
     void window.milagre?.setWindowBackground(palette.page).catch(() => {});

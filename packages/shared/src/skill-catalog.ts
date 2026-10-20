@@ -38,6 +38,33 @@ export function filterSkills<T extends SkillOption>(skills: T[], { query, scope,
   );
 }
 
+/**
+ * How well a command or skill answers what was typed after `/`: 0 when its name starts with it (the part after a
+ * plugin prefix counts too), 1 when the name contains it, 2 when only the description does, -1 for no match.
+ */
+export function skillMatchRank(name: string, description: string, query: string) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return 0;
+  const full = name.replace(/^\//, "").toLowerCase();
+  const short = full.slice(full.lastIndexOf(":") + 1);
+  if (full.startsWith(needle) || short.startsWith(needle)) return 0;
+  if (full.includes(needle)) return 1;
+  return `${full} ${description}`.toLowerCase().includes(needle) ? 2 : -1;
+}
+
+/** The items matching `query`, name-prefix matches first, then name matches, then description matches; ties keep their order. */
+export function rankSkillMatches<T>(items: readonly T[], query: string, read: (item: T) => { name: string; description: string }): T[] {
+  return (
+    items
+      .map((item, index) => ({ item, index, rank: skillMatchRank(read(item).name, read(item).description, query) }))
+      .filter((entry) => entry.rank >= 0)
+      // Sorts the array the map above just made (Hermes, which also reads this package, has no toSorted).
+      // oxlint-disable-next-line unicorn/no-array-sort
+      .sort((a, b) => a.rank - b.rank || a.index - b.index)
+      .map((entry) => entry.item)
+  );
+}
+
 export function groupSkills<T extends SkillOption>(skills: T[]) {
   return SKILL_SCOPES.map((group) => ({ ...group, skills: skills.filter((skill) => skill.scope === group.scope) })).filter((group) => group.skills.length > 0);
 }

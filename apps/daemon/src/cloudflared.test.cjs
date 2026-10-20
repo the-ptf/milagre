@@ -112,3 +112,17 @@ test("a tunnel starts with the bundled executable when PATH has no cloudflared",
   assert.equal(tunnel.url, "https://managed-test.trycloudflare.com");
   await tunnel.close();
 });
+test("the packaged app bundles every font OFL license", async () => {
+  const root = path.join(__dirname, "../../..");
+  const build = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8")).build;
+  const entry = build.extraResources.find((item) => item.from === "licenses" && item.to === "licenses");
+  assert.ok(entry, "extraResources copies licenses/ to resources/licenses");
+  for (const name of ["inter", "geist", "geist-mono", "jetbrains-mono"]) {
+    const file = `${name}-OFL.txt`;
+    assert.ok(
+      entry.filter.some((glob) => path.matchesGlob(file, glob)),
+      `${file} matches the filter`,
+    );
+    assert.match(await fs.readFile(path.join(root, "licenses", file), "utf8"), /SIL OPEN FONT LICENSE/i);
+  }
+});

@@ -11,7 +11,7 @@ import { ErrorNotice, PillButton, useStyles } from "../ui";
 import { fonts, useTheme } from "../theme";
 
 const MARKER = { add: "+", remove: "−", context: "" } as const;
-const code = { fontFamily: fonts.mono, fontSize: 12, lineHeight: 18 } as const;
+const codeStyle = (size: number) => ({ fontFamily: fonts.mono, fontSize: size, lineHeight: Math.round(size * 1.5) }) as const;
 
 export type DiffTarget = {
   worktreeId: string;
@@ -109,10 +109,11 @@ export function DiffView({ target }: { target: DiffTarget }) {
 }
 
 const Row = memo(function Row({ row }: { row: DiffRow }) {
-  const { colors } = useTheme();
+  const { colors, codeSize } = useTheme();
+  const code = codeStyle(codeSize);
   const TINT = { add: colors.diffAdd, remove: colors.diffRemove, context: "transparent" } as const;
   const WORD = { add: colors.diffAddWord, remove: colors.diffRemoveWord, context: "transparent" } as const;
-  const MARKER_COLOR = { add: colors.green, remove: colors.red, context: colors.ink3 } as const;
+  const MARKER_COLOR = { add: colors.add, remove: colors.remove, context: colors.ink3 } as const;
   if (row.type === "hunk")
     return (
       <Text numberOfLines={1} style={[code, { fontSize: 11, color: colors.ink3, backgroundColor: colors.inset, paddingHorizontal: 12, paddingVertical: 3 }]}>

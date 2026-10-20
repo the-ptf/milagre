@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { motion, useMotionValue, useMotionValueEvent, usePresence, useReducedMotion, animate } from "motion/react";
-import { EASE_OUT, SPRING_LAYOUT } from "../../lib/ease";
+import { motion, useMotionValue, useMotionValueEvent, usePresence, animate } from "motion/react";
+import { EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 import { ResizeHandle } from "../primitives/ResizeHandle";
 import { dockLayer } from "./dock-area";
 import { roomToWiden, usePanelWidth, type ResizablePanel } from "./panel-width";
@@ -54,7 +54,8 @@ export const DockSlide = forwardRef<
     handle?: ReactNode;
   } & Omit<React.HTMLAttributes<HTMLDivElement>, "style" | "className" | "children">
 >(function DockSlide({ width, reserve, style, className, panelClassName, children, onEntered, resizing = false, handle, ...rest }, ref) {
-  const reduced = useReducedMotion();
+  const scale = useMotionScale();
+  const reduced = scale === 0;
   const shown = useMotionValue(reduced || width === null ? (width ?? 0) : 0);
   const [sliding, setSliding] = useState(!reduced && width !== null);
   const [slide] = useState(() => Symbol(reserve));
@@ -77,7 +78,7 @@ export const DockSlide = forwardRef<
       setRoom(reserve, slide, null);
       if (isPresent) return;
       // Filling the workspace, it only fades (the content's exit), then goes.
-      const timer = window.setTimeout(done, reduced ? 0 : 180);
+      const timer = window.setTimeout(done, scaled(180, scale));
       return () => window.clearTimeout(timer);
     }
     // Only opening and closing spring (and a panel coming back from filling the workspace with no width yet). Any
@@ -97,7 +98,7 @@ export const DockSlide = forwardRef<
     springing.current = true;
     setSliding(true);
     const controls = animate(shown, isPresent ? width : 0, {
-      ...SPRING_LAYOUT,
+      ...scaledSpring(SPRING_LAYOUT, scale),
       onComplete: () => {
         springing.current = false;
         setSliding(false);
@@ -105,7 +106,7 @@ export const DockSlide = forwardRef<
       },
     });
     return () => controls.stop();
-  }, [width, reduced, resizing, reserve, slide, shown, isPresent, safeToRemove]);
+  }, [width, reduced, scale, resizing, reserve, slide, shown, isPresent, safeToRemove]);
   useEffect(
     () => () => {
       setRoom(reserve, slide, null);
@@ -129,7 +130,7 @@ export const DockSlide = forwardRef<
         initial={reduced ? false : { opacity: 0, x: 24 }}
         animate={{ opacity: 1, x: 0 }}
         exit={reduced ? undefined : { opacity: 0, x: 24 }}
-        transition={reduced ? { duration: 0 } : { duration: 0.24, ease: EASE_OUT }}
+        transition={{ duration: scaled(0.24, scale), ease: EASE_OUT }}
         onAnimationComplete={onEntered}
       >
         {children}
