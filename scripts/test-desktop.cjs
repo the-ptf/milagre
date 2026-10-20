@@ -424,7 +424,9 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     if (connection) {
       try {
         const state = await connection.call("Runtime.evaluate", {
-          expression: "JSON.stringify({url:location.href,body:document.body?.textContent,bridge:typeof window.milagre})",
+          expression:
+            "(async () => JSON.stringify({url:location.href,body:document.body?.textContent,bridge:typeof window.milagre,connection:await window.milagre?.getRuntimeConnection()}))()",
+          awaitPromise: true,
           returnByValue: true,
         });
         console.error("Desktop page at failure:", state.result.value);
