@@ -107,6 +107,8 @@ const designsOn = {
   save: async () => {},
   connectionChanged() {},
 };
+/** A Chat with no listening ports (useChatPorts in ports.tsx). */
+const noPorts = { ports: [], error: "", refresh: () => {}, drop: () => {} };
 function load(file, modules, extra = "", cache = new Map()) {
   if (cache.has(file)) return cache.get(file);
   // These helpers stay private in production; the source harness exposes them only to tests.
@@ -208,6 +210,8 @@ test("background tasks on the phone open command output and subagent details", (
     "../subagent-glance": { WholeSubagentDetail: "WholeSubagentDetail" },
     "../task-output": { TaskOutput: "TaskOutput" },
     "../ui": { CircleButton: "CircleButton", ListRow: "ListRow", PageScroll: "PageScroll" },
+    // No ports listening, so no background command moves to Ports.
+    "../ports": { useChatPorts: () => noPorts },
   });
   const render = () => {
     react.begin();
@@ -1899,7 +1903,7 @@ function chatHost({
     "../theme": { hex: () => ({ surface: "#ffffff" }) },
     "../simulator": { SimulatorChip: "SimulatorChip" },
     "../browser": { BrowserChip: "BrowserChip" },
-    "../ports": { PortsChip: "PortsChip" },
+    "../ports": { PortsChip: "PortsChip", useChatPorts: () => noPorts },
     "../terminal": { TerminalChip: "TerminalChip", terminalPlaces: () => undefined },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
@@ -5629,7 +5633,12 @@ function simulatorHost(client, file = "simulator.tsx") {
         styles: {},
       },
     },
-    file === "simulator.tsx" ? "\nexports.TestSimulatorWebView = SimulatorWebView;" : "",
+    file === "simulator.tsx"
+      ? "\nexports.TestSimulatorWebView = SimulatorWebView;"
+      : file === "ports.tsx"
+        ? // The Chat screen reads the ports once and hands them to the pill (app/chat.tsx).
+          "\nexports.TestChatPorts = ({ chatId }) => PortsChip({ chatId, ports: useChatPorts(useSession().client, chatId).ports });"
+        : "",
   );
   return {
     source,
@@ -7494,7 +7503,7 @@ test("mobile Ports pill requests only its Chat and hides empty or mismatched res
       "ports.tsx",
     );
     t.after(() => h.cleanup());
-    const render = () => h.render("PortsChip", { chatId: "/p#7" });
+    const render = () => h.render("TestChatPorts", { chatId: "/p#7" });
     assert.equal(render(), null);
     await settle();
     assert.deepEqual(JSON.parse(JSON.stringify(calls)), [["chat:ports", ["/p#7"]]]);
