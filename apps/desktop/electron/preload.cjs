@@ -155,7 +155,7 @@ function makeBridge(invoke, listen, send) {
     readLimitAutoSwitch: () => invoke("limits:auto-switch:read"),
     saveLimitAutoSwitch: (value) => invoke("limits:auto-switch:save", value),
     readRoutinesEnabled: () => invoke("routines:enabled:read"),
-    saveRoutinesEnabled: (value) => invoke("routines:enabled:save", value),
+    saveRoutinesEnabled: (value, consentVersion) => invoke("routines:enabled:save", value, consentVersion),
     listRoutines: () => invoke("routines:list"),
     updateRoutine: (id, patch) => invoke("routines:update", id, patch),
     deleteRoutine: (id) => invoke("routines:delete", id),

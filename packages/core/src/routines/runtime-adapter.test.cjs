@@ -1,3 +1,4 @@
+const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -20,7 +21,7 @@ const baseState = {
 };
 
 // `sessionMode` is the permission mode saved on the Chat (AgentSession.permissionMode), as the composer last set it.
-function fixture({ turnSettings = null, sessionMode, runs = {}, busy = false, open = true } = {}) {
+function fixture({ turnSettings = null, sessionMode, runs = {}, busy = false, open = true, canRun } = {}) {
   const sent = [];
   const patched = [];
   const state = sessionMode ? { ...baseState, sessions: { ...baseState.sessions, 2: { ...baseState.sessions[2], permissionMode: sessionMode } } } : baseState;
@@ -42,9 +43,25 @@ function fixture({ turnSettings = null, sessionMode, runs = {}, busy = false, op
     cachedState: (scope) => (open && scope === "/project" ? state : undefined),
     openState: async () => state,
     isClosing: () => false,
+    ...(canRun ? { canRun } : {}),
   });
   return { adapter, sent, patched };
 }
+
+test("turning Routines off blocks a send and throws at every final start check", async () => {
+  let allowed = false;
+  const { adapter, sent } = fixture({ canRun: () => allowed });
+  const message = { body: "check", prompt: "check", context: { kind: "routine-run", runId: "r1" } };
+  await assert.rejects(adapter.send(chatId, message), /Routines are off/);
+  assert.equal(sent.length, 0);
+  allowed = true;
+  await adapter.send(chatId, message);
+  assert.equal(sent[0].canStart(), true);
+  assert.equal(sent[0].canStart(), true);
+  allowed = false;
+  // Throwing lets ChatHost emit turn-failed and release its busy state even after message-sent.
+  assert.throws(() => sent[0].canStart(), /Routines are off/);
+});
 
 test("a Chat in a Project not open yet counts as there, so it is never swept as gone", () => {
   const { adapter } = fixture({ open: false });
@@ -557,7 +574,7 @@ function linearRoutines(t, linear, now) {
 test("routine_create takes the one connected Linear workspace, and a Linear not made yet lists none", async (t) => {
   const fake = { enabled: () => true, workspaces: () => [{ id: "acme", organization: { name: "Acme" } }], query: async () => ({}) };
   const { routines } = linearRoutines(t, () => fake);
-  await routines.save(true);
+  await routines.save(true, AI_CONSENT_VERSION);
   const create = routines.definitions("/project#2").find((tool) => tool.name === "routine_create");
   await create.run({ name: "Assigned", prompt: "Look at {{issue.key}}", trigger: "linear", linearEvent: "assigned" });
   assert.equal(routines.list().routines[0].trigger.workspace, "acme");
@@ -566,7 +583,7 @@ test("routine_create takes the one connected Linear workspace, and a Linear not 
   const early = linearRoutines(t, () => {
     throw new ReferenceError("Cannot access 'linear' before initialization");
   });
-  await early.routines.save(true);
+  await early.routines.save(true, AI_CONSENT_VERSION);
   const tool = early.routines.definitions("/project#2").find((item) => item.name === "routine_create");
   await assert.rejects(tool.run({ name: "A", prompt: "B", trigger: "linear", linearEvent: "assigned" }), /Say which Linear workspace/);
   await early.routines.save(false);
@@ -594,7 +611,7 @@ test("the Routines switch starts and stops Linear polling", async (t) => {
     [],
     "off: nothing polls",
   );
-  await routines.save(true);
+  await routines.save(true, AI_CONSENT_VERSION);
   const first = timers.find((timer) => !timer.cleared && timer.ms === 0);
   assert.ok(first, "on: a poll is due at once");
   // A timer that fired is done with, as a cleared one is.
@@ -632,7 +649,7 @@ test("Linear polling runs on the Routines' clock", async (t) => {
     trigger: { kind: "linear", workspace: "acme", event: "assigned" },
     target: { kind: "new-chat", projectPath: "/project", workspace: "worktree" },
   });
-  await routines.save(true);
+  await routines.save(true, AI_CONSENT_VERSION);
   const first = timers.find((timer) => !timer.cleared && timer.ms === 0);
   first.cleared = true;
   await first.fn();
@@ -809,12 +826,12 @@ test("the scheduler's timer runs only while Routines are on", async (t) => {
   const { routines, live } = timedRoutines(t);
   routines.start();
   assert.equal(live().length, 0, "off: nothing ticks");
-  await routines.save(true);
+  await routines.save(true, AI_CONSENT_VERSION);
   assert.equal(live().length, 1, "on: one timer ticks");
   assert.equal(live()[0].ms, 1000);
   await routines.save(false);
   assert.equal(live().length, 0, "off again: the timer stops");
-  await routines.save(true);
+  await routines.save(true, AI_CONSENT_VERSION);
   assert.equal(live().length, 1, "on again: it ticks again");
   routines.stop();
   assert.equal(live().length, 0);
@@ -1510,7 +1527,7 @@ test("stopping Routines waits for a Run that never finishes starting only as lon
     worktrees: { base: async () => "main", create: () => ((creating += 1), new Promise(() => {})) },
     timers: { now: () => clock, setInterval: () => ({ unref() {} }), clearInterval() {}, stopWaitMs: 100 },
   });
-  await routines.save(true);
+  await routines.save(true, AI_CONSENT_VERSION);
   const routine = await routines.create({
     name: "Triage",
     prompt: "Look",

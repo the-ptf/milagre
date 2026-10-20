@@ -33,6 +33,24 @@ test("setEnabled persists", () => {
   assert.equal(createRoutineStore(options).enabled(), true);
 });
 
+test("pre-consent and stale Routine profiles stay off without losing their Routines or Runs", () => {
+  const { store, options, file } = setup();
+  const routine = store.upsertHeartbeat(base);
+  store.setEnabled(true);
+  const run = store.startRun(routine.id, START);
+  store.finishRun(run.id, { status: "acted" });
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  for (const version of [undefined, "old-version"]) {
+    fs.writeFileSync(file, JSON.stringify({ ...saved, aiConsentVersion: version }));
+    const migrated = createRoutineStore(options);
+    assert.equal(migrated.enabled(), false);
+    assert.deepEqual(migrated.get(routine.id), store.get(routine.id));
+    assert.deepEqual(migrated.runs(routine.id), store.runs(routine.id));
+    migrated.setEnabled(true);
+    assert.equal(createRoutineStore(options).enabled(), true);
+  }
+});
+
 test("upsertHeartbeat twice with the same name and chat keeps one Routine", () => {
   const { store } = setup();
   const first = store.upsertHeartbeat(base);
@@ -1635,7 +1653,18 @@ test("queues, seen keys and cursors survive a store re-created on the same file"
     again.claimQueued(clock.t, 3).map((claim) => claim.run.event.key),
     ["hook:4", "hook:5"],
   );
-  assert.deepEqual(Object.keys(saved(options)).toSorted(), ["enabled", "linear", "queues", "rejections", "removed", "routines", "runs", "seen", "version"]);
+  assert.deepEqual(Object.keys(saved(options)).toSorted(), [
+    "aiConsentVersion",
+    "enabled",
+    "linear",
+    "queues",
+    "rejections",
+    "removed",
+    "routines",
+    "runs",
+    "seen",
+    "version",
+  ]);
 });
 
 test("remove deletes a Routine's queue and seen keys, and keeps the Linear cursors", () => {
@@ -1656,7 +1685,7 @@ test("a file saved before triggers existed loads with empty queues, and a damage
   const { file, options } = setup();
   fs.writeFileSync(file, JSON.stringify({ version: 1, enabled: true, routines: [], runs: {} }));
   const old = createRoutineStore(options);
-  assert.equal(old.enabled(), true);
+  assert.equal(old.enabled(), false);
   assert.equal(old.linearCursor("acme"), undefined);
   const routine = old.create(spec);
   assert.deepEqual(old.enqueue(routine.id, delivery(1)), { queued: true });

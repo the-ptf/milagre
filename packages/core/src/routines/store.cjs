@@ -1,6 +1,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const { everyToCron, nextRun } = require("./cron.cjs");
 
 const DEFAULT_EXPIRY_MS = 7 * 864e5;
@@ -491,7 +492,10 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     }
     const state = {
       version: VERSION,
-      enabled: parsed.enabled === true,
+      // Older profiles enabled Routines before their device had accepted the disclosure. Keep their data, but require
+      // an explicit enable from a client with the current disclosure before any automatic Run may start.
+      enabled: parsed.enabled === true && parsed.aiConsentVersion === AI_CONSENT_VERSION,
+      aiConsentVersion: parsed.aiConsentVersion === AI_CONSENT_VERSION ? AI_CONSENT_VERSION : null,
       routines,
       runs: validRuns,
       // Files saved before triggers existed have none of these.
@@ -607,6 +611,7 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     return transact((state, tx) => {
       tx.changed = state.enabled !== (value === true);
       state.enabled = value === true;
+      state.aiConsentVersion = state.enabled ? AI_CONSENT_VERSION : null;
       return state.enabled;
     });
   }

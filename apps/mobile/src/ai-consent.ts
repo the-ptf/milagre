@@ -1,6 +1,14 @@
 import { Alert, AppState, Linking } from "react-native";
 import * as SecureStore from "expo-secure-store";
-import { createAiConsent, requiresAiConsent, AI_CONSENT_TITLE, AI_CONSENT_DESCRIPTION, AI_CONSENT_DETAIL, PRIVACY_URL } from "@milagre/shared/ai-consent";
+import {
+  createAiConsent,
+  requiresAiConsent,
+  AI_CONSENT_VERSION,
+  AI_CONSENT_TITLE,
+  AI_CONSENT_DESCRIPTION,
+  AI_CONSENT_DETAIL,
+  PRIVACY_URL,
+} from "@milagre/shared/ai-consent";
 
 const KEY = "milagre.ai-sharing-consent";
 export const aiConsent = createAiConsent({
@@ -38,5 +46,7 @@ export async function beforeAiCall(method: string, args: unknown[]) {
   if (requiresAiConsent(method, args)) {
     // Live Activity replies may run in a headless task. They must never present UI.
     await aiConsent.require(method !== "live-activity:answer" && AppState.currentState === "active");
+    // Only a successful device decision may authorize automatic Runs on the connected computer.
+    if (method === "routines:enabled:save" && args[0] === true) args[1] = AI_CONSENT_VERSION;
   }
 }

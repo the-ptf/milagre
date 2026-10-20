@@ -1,3 +1,4 @@
+const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { b64url } = require("@milagre/shared/relay-crypto");
@@ -241,7 +242,7 @@ test("a paired desktop reads and manages this Mac's Routines, and hears them cha
     assert.ok(status.methods.includes(method), method);
   assert.equal((await desktop.call("routines:list")).error, undefined);
   // A switch flipped in this Mac's window reaches the desktop as routines:changed, and the desktop can flip it back.
-  await mac.client.call("routines:enabled:save", [true]);
+  await mac.client.call("routines:enabled:save", [true, AI_CONSENT_VERSION]);
   await within(
     desktop.event("routines:changed", (payload) => payload?.enabled === true),
     "routines:changed",

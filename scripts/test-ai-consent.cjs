@@ -9,15 +9,20 @@ import { AiConsentDialog, PrivacySettings } from '/src/components/AiConsent';
 import { bridgeFor } from '/src/lib/computer-bridge';
 import '/src/styles.css';
 window.__sent = 0;
-window.milagre = Object.freeze({ sendMessage: async () => ++window.__sent, on: () => Object.freeze({ sendMessage: async () => ++window.__sent }) });
+window.__routineCalls = [];
+window.milagre = Object.freeze({ sendMessage: async () => ++window.__sent, on: () => Object.freeze({ sendMessage: async () => ++window.__sent }),
+ saveRoutinesEnabled: async (...args) => window.__routineCalls.push(args), runRoutineNow: async (...args) => window.__routineCalls.push(args) });
 function Fixture() {
  const [error, setError] = useState('');
  const [settings, setSettings] = useState(false);
  async function send(id) { setError(''); try { await bridgeFor(id).sendMessage({}); } catch (e) { setError(e.message); } }
+ async function routine(enable) { setError(''); try { if (enable) await bridgeFor(null).saveRoutinesEnabled(true); else await bridgeFor(null).runRoutineNow('r1'); } catch (e) { setError(e.message); } }
  return <main style={{ padding: 32, maxWidth: 660, margin: 'auto' }}>
   <button onClick={() => void send(null)}>Send local</button>
   <button onClick={() => void send('remote')}>Send remote</button>
   <button onClick={() => setSettings(!settings)}>Settings</button>
+  <button onClick={() => void routine(true)}>Enable Routines</button>
+  <button onClick={() => void routine(false)}>Run now</button>
   <p role="alert">{error}</p>
   {settings && <><h1>Privacy & AI</h1><PrivacySettings /></>}
   <AiConsentDialog />
@@ -86,6 +91,28 @@ async function browserChecks() {
     await evaluate(`document.querySelector('dialog').dispatchEvent(new Event('cancel', { cancelable: true }))`);
     await waitFor(`!document.querySelector('dialog[open]')`);
     assert.equal(await evaluate("window.__sent"), 1);
+    await click("Enable Routines");
+    await waitFor(`!!document.querySelector('dialog[open]')`);
+    assert.equal(await evaluate("window.__routineCalls.length"), 0);
+    assert.match(await evaluate(`document.querySelector('dialog').textContent`), /automatic Runs.*disconnected/);
+    await click("Not now");
+    await waitFor(`!document.querySelector('dialog[open]')`);
+    assert.equal(await evaluate("window.__routineCalls.length"), 0);
+    await click("Enable Routines");
+    await waitFor(`!!document.querySelector('dialog[open]')`);
+    await click("Allow sharing");
+    await waitFor("window.__routineCalls.length === 1");
+    assert.deepEqual(await evaluate("window.__routineCalls[0]"), [true, require("@milagre/shared/ai-consent").AI_CONSENT_VERSION]);
+    await click("Settings");
+    await click("Settings");
+    await waitFor(`document.querySelector('[role="status"]')?.textContent.includes('allowed')`);
+    await click("Reset AI sharing permission");
+    await waitFor(`document.querySelector('[role="status"]')?.textContent.includes('will ask')`);
+    await click("Run now");
+    await waitFor(`!!document.querySelector('dialog[open]')`);
+    assert.equal(await evaluate("window.__routineCalls.length"), 1);
+    await click("Not now");
+    await waitFor(`!document.querySelector('dialog[open]')`);
     assert.deepEqual(errors, []);
     console.log("PASS: AI consent gates frozen local/remote bridges, cancels, persists after reload, and resets in Settings");
     app.exit(0);

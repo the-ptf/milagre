@@ -12,7 +12,10 @@ import { createRoot } from 'react-dom/client';
 import { RoutinesPage } from '/src/components/routines/RoutinesPage';
 import { HeartbeatCard } from '/src/components/routines/HeartbeatCard';
 import { NextCheck } from '/src/components/routines/NextCheck';
+import { AI_CONSENT_VERSION } from '@milagre/shared/ai-consent';
 import '/src/styles.css';
+// This check exercises editing after consent; test-ai-consent covers the disclosure itself.
+localStorage.setItem('milagre.ai-sharing-consent', AI_CONSENT_VERSION);
 // Keep the two-hour-old Run on the same calendar day, even when CI runs just after midnight.
 const now = new Date(2026, 9, 17, 12, 0, 0).getTime();
 Date.now = () => now;
