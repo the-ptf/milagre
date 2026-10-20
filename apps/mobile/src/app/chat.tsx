@@ -40,11 +40,11 @@ import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
 import { appendAttachments, attachmentPrompt, prepareAttachments } from "../attachments";
 import { BackgroundRing, PullRequestAction, SubagentChip } from "../status-indicators";
-import { chatActivity } from "@milagre/shared/chat-activity";
+import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
 import { SimulatorChip } from "../simulator";
 import { BrowserChip } from "../browser";
-import { PortsChip } from "../ports";
+import { PortsChip, useChatPorts } from "../ports";
 import { TerminalChip, terminalPlaces } from "../terminal";
 import { KeyboardChatScrollView, KeyboardStickyView } from "react-native-keyboard-controller";
 import { ChatReply } from "../chat-reply";
@@ -569,6 +569,9 @@ export default function ChatScreen() {
     params.id ? session.snapshot?.project?.state.sessions[Number(params.id)]?.plan : undefined,
     `${session.snapshot?.project?.path}#${params.id}`,
   );
+  // Polled here, not in the chip: a command serving one of these ports leaves the background line.
+  const portsChat = params.id && Number(params.id) > 0 && session.snapshot ? `${session.snapshot.project.path}#${params.id}` : undefined;
+  const { ports } = useChatPorts(portsChat ? session.client : null, portsChat);
   if (!session.client || (!session.snapshot && !wanted)) return <Redirect href="/" />;
   if (!session.snapshot || !targetMatches || needsWorktree) {
     return (
@@ -608,6 +611,7 @@ export default function ChatScreen() {
   const undoHighlight = (undo.view === "list" ? undo.tasks[0] : undo.view === "preview" ? undo.preview : null)?.messageId;
   // What the Chat is doing (chat-activity.mjs), the same as its sidebar row and desktop's composer show.
   const activity = chat ? chatActivity(chat, run) : undefined;
+  const background = chat ? backgroundItems(chat, ports) : [];
   // Feedback cards read the agent's resolutions again only when a comment may have changed.
   const designsMoved = designActivity(
     [...messages.flatMap((message) => message.steps ?? []), ...(run?.steps ?? [])],
@@ -1371,11 +1375,11 @@ export default function ChatScreen() {
                 label={run?.waitingForSubagents ? "Waiting on subagents" : `Working with ${model.name}`}
               />
             )}
-            {!run && !pending && activity?.activity === "background" && (
+            {!run && !pending && activity?.activity === "background" && background.length > 0 && (
               <BackgroundIndicator
-                count={activity.background}
-                startedAt={activity.since}
-                mark={<BackgroundRing count={activity.background} />}
+                count={background.length}
+                startedAt={background[0]?.startedAt}
+                mark={<BackgroundRing count={background.length} />}
                 onPress={() => chat && router.push({ pathname: "/background", params: { id: String(chat.id) } })}
               />
             )}
@@ -1438,7 +1442,7 @@ export default function ChatScreen() {
                   {params.id && Number(params.id) > 0 && chat && !chat.archived && (
                     <TerminalChip key={`terminal-${chatId}`} chatId={chatId} places={terminalPlaces(chat)} />
                   )}
-                  {params.id && Number(params.id) > 0 && <PortsChip key={`ports-${chatId}`} chatId={chatId} />}
+                  {params.id && Number(params.id) > 0 && <PortsChip key={`ports-${chatId}`} chatId={chatId} ports={ports} />}
                   {params.id && Number(params.id) > 0 && <SimulatorChip key={chatId} chatId={chatId} />}
                   {agents.length > 0 && <SubagentChip agents={agents} onPress={() => headerAction("agents")} />}
                 </ScrollView>
