@@ -651,7 +651,7 @@ test("chat:queue-send stops the running Antigravity turn and starts the queued m
     messages.map((item) => [item.role, item.body, item.outcome]),
     [
       ["user", "long job", undefined],
-      ["assistant", "Working.\n\nWhat should I work on instead?", "cancelled"],
+      ["assistant", "Working.", "cancelled"],
       ["user", "then this", undefined],
     ],
   );

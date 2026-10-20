@@ -390,8 +390,8 @@ function replyBody(text, event, hasSteps) {
     const failure = event.notice ? event.message : `Agent error: ${event.message}`;
     return reply ? `${reply}\n\n${failure}` : failure;
   }
-  if (event.type === "turn-cancelled" && event.quit) return reply ? `${reply}\n\nStopped when Milagre closed.` : "Stopped when Milagre closed.";
-  if (event.type === "turn-cancelled") return reply ? `${reply}\n\nWhat should I work on instead?` : "What should I work on instead?";
+  // Cancellation belongs to the message's outcome, not to the agent's words (or language).
+  if (event.type === "turn-cancelled") return reply;
   return reply || (hasSteps ? "" : "The agent finished without a reply.");
 }
 
