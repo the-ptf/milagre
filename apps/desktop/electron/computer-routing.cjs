@@ -144,6 +144,9 @@ const RESULTS = {
   "link:open": (id, result) => (isObject(result) ? { ...field(id, result, "link", withLink), projects: each(id, result.projects, withPath) } : result),
   "project:snapshot": withPath,
   "chat:ports": withChat,
+  "simulator:list": withChat,
+  "simulator:attach": withChat,
+  "simulator:detach": withChat,
   "chat:runs": (id, result) => field(id, result, "runs", keyed),
   "chat:inbox": (id, result) => {
     const item = (id, value) => field(id, field(id, value, "key", key), "projectPath", key);
