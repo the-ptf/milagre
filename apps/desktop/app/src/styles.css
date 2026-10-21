@@ -1006,23 +1006,11 @@ a:focus-visible .animated-underline::after {
   --blur-start: 0%;
   --blur-end: 100%;
 }
-/* The bar's buttons sit over this strip, so the tint is solid down to their bottom edge (the toolbar line plus 32px)
- * and fades below it: a message or a card scrolled under them never shows through. */
 .chat-top-blur > :last-child {
-  background: linear-gradient(
-    to bottom,
-    var(--chat-bg, var(--page)) calc(var(--window-chrome-top) + 32px),
-    color-mix(in oklab, var(--chat-bg, var(--page)) 35%, transparent) calc(var(--window-chrome-top) + 44px),
-    transparent
-  );
+  background: linear-gradient(to bottom, color-mix(in oklab, var(--chat-bg, var(--page)) 35%, transparent), transparent);
 }
 .chat-top-blur[data-busy] > :last-child {
-  background: linear-gradient(
-    to bottom,
-    var(--chat-bg, var(--page)) calc(var(--window-chrome-top) + 32px),
-    color-mix(in oklab, var(--chat-bg, var(--page)) 50%, transparent) calc(var(--window-chrome-top) + 44px),
-    transparent
-  );
+  background: linear-gradient(to bottom, color-mix(in oklab, var(--chat-bg, var(--page)) 50%, transparent), transparent);
 }
 
 /* The bottom mirrors the top: blur and tint grow gradually toward the composer. */
