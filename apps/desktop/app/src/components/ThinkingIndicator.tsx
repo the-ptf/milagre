@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { useDisplayNow } from "../lib/display-clock";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
@@ -27,12 +28,7 @@ function RunningLogo() {
 
 function useElapsed(startedAt?: number) {
   const [mountedAt] = useState(() => Date.now());
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 100);
-    return () => window.clearInterval(timer);
-  }, []);
+  const now = useDisplayNow(100);
 
   const total = Math.floor(Math.max(0, now - (startedAt ?? mountedAt)) / 100) / 10;
   return total < 60 ? `${total.toFixed(1)}s` : `${Math.floor(total / 60)}m ${(total % 60).toFixed(1)}s`;

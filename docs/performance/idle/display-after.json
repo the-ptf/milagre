@@ -1,0 +1,60 @@
+{
+  "baseline": false,
+  "visibleCommits": 30,
+  "hiddenCommits": 0,
+  "visibleStart": {
+    "commits": 12,
+    "visibility": "visible",
+    "elapsed": "11.0s",
+    "heap": {
+      "backingStorageSize": 9681067,
+      "embedderHeapUsedSize": 1193408,
+      "totalSize": 12238848,
+      "usedSize": 11371916
+    }
+  },
+  "visibleEnd": {
+    "commits": 42,
+    "visibility": "visible",
+    "elapsed": "14.0s",
+    "heap": {
+      "backingStorageSize": 9681025,
+      "embedderHeapUsedSize": 1125600,
+      "totalSize": 12238848,
+      "usedSize": 11405388
+    }
+  },
+  "hiddenStart": {
+    "commits": 42,
+    "visibility": "hidden",
+    "elapsed": "14.0s",
+    "heap": {
+      "backingStorageSize": 9681025,
+      "embedderHeapUsedSize": 1121016,
+      "totalSize": 12238848,
+      "usedSize": 11406032
+    }
+  },
+  "hiddenEnd": {
+    "commits": 42,
+    "visibility": "hidden",
+    "elapsed": "14.0s",
+    "heap": {
+      "backingStorageSize": 9681025,
+      "embedderHeapUsedSize": 1120592,
+      "totalSize": 12238848,
+      "usedSize": 11405688
+    }
+  },
+  "returned": {
+    "commits": 44,
+    "visibility": "visible",
+    "elapsed": "55.3s",
+    "heap": {
+      "backingStorageSize": 9681025,
+      "embedderHeapUsedSize": 1054208,
+      "totalSize": 12238848,
+      "usedSize": 11411920
+    }
+  }
+}

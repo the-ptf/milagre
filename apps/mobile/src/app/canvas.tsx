@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDisplayNow } from "../display-clock";
 import { Pressable, RefreshControl, Text, View } from "react-native";
 import { Redirect, Stack, router, type Href } from "expo-router";
 import { ArrowRight01Icon, GitBranchIcon, Link04Icon } from "@hugeicons/core-free-icons";
@@ -61,14 +62,12 @@ export default function CanvasScreen() {
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  const now = useDisplayNow(60_000);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
-    const timer = setInterval(() => setNow(Date.now()), 60_000);
     return () => {
       alive.current = false;
-      clearInterval(timer);
     };
   }, []);
   const currentPath = session.snapshot?.project.path;

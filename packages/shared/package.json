@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "files": [
+    "src/chat-window-cache.ts",
+    "src/display-clock.ts",
+    "src/chat-history.ts",
     "src/*.mjs",
     "src/design-catalog-fonts/*",
     "src/*.d.mts",
@@ -48,6 +51,9 @@
   ],
   "type": "module",
   "exports": {
+    "./chat-window-cache": "./src/chat-window-cache.ts",
+    "./display-clock": "./src/display-clock.ts",
+    "./chat-history": "./src/chat-history.ts",
     "./live-activity": {
       "types": "./src/live-activity.d.mts",
       "default": "./src/live-activity.mjs"

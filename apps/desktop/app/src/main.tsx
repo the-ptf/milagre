@@ -3,8 +3,10 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./styles.css";
 import { applyThemeNow } from "./lib/settings";
+import { followDisplayVisibility } from "./lib/display-clock";
 
 applyThemeNow();
+followDisplayVisibility();
 const floatingView = new URLSearchParams(window.location.search).get("floating-inbox");
 const floating = floatingView === "dock" || floatingView === "inbox" || floatingView === "preview" || floatingView === "drag";
 document.documentElement.toggleAttribute("data-floating-inbox", floating);

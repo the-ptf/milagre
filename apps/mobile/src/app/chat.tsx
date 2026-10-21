@@ -1,6 +1,7 @@
 import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import { Alert, Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
@@ -357,7 +358,8 @@ export default function ChatScreen() {
   const pr = rowPullRequests(chatPrs)[0] ?? null;
   const remote = lean && (!pending || pendingCanonicalId !== null) ? Math.max(0, historyPage.total - historyPage.messages.length) : 0;
   // The design the user last chose on the design sheet, which its cards mark.
-  const chosen = useMemo(() => chosenDesign(messages.filter((message) => message.role === "user").map((message) => message.body)), [messages]);
+  const history = chatHistory(messages);
+  const chosen = useMemo(() => chosenDesign(history.userBodies), [history.userBodies]);
   const designChoice = chosen ? `${chosen.id}:${chosen.version}` : undefined;
   // Long Chats mount their newest messages first; earlier ones load on request.
   const [shown, setShown] = useState({ key: scrollKey, count: PAGE });
@@ -588,10 +590,7 @@ export default function ChatScreen() {
   // What the Chat is doing (chat-activity.mjs), the same as its sidebar row and desktop's composer show.
   const activity = chat ? chatActivity(chat, run) : undefined;
   // Feedback cards read the agent's resolutions again only when a comment may have changed.
-  const designsMoved = designActivity(
-    [...messages.flatMap((message) => message.steps ?? []), ...(run?.steps ?? [])],
-    messages.filter((message) => message.role === "user").map((message) => message.body),
-  );
+  const designsMoved = history.designActivity + designActivity(run?.steps ?? [], []);
   const contextUsage = run?.contextUsage ?? chat?.contextUsage;
   const preferences = chatPreferences(composer.preferences[chatId], composer.defaults, run?.permissionMode);
   const turn = turnTarget(composer.preferences[chatId], chat?.provider, composer.defaults);

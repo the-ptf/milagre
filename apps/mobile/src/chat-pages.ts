@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { ChatMessage } from "@milagre/shared/model";
 import type { ChatPage } from "./client.ts";
+import { ChatWindowCache, prependChatPage } from "@milagre/shared/chat-window-cache";
 
 // The messages of the Chat on screen, from a host that keeps them by Chat (the snapshot then has none: messagesInChats,
 // #300): its latest turns, earlier ones on request, and its last turns read again each time the snapshot changes.
@@ -10,19 +11,13 @@ export type ChatWindow = ChatPage & { loading: boolean };
 
 const TURNS = 20;
 const TAIL = 2;
-const KEPT = 6;
 const EMPTY: ChatWindow = Object.freeze({ messages: [], hasMore: false, total: 0, loading: true }) as ChatWindow;
 const NONE: ChatWindow = Object.freeze({ messages: [], hasMore: false, total: 0, loading: false }) as ChatWindow;
-const windows = new Map<string, ChatWindow>();
+const windows = new ChatWindowCache<ChatWindow>({ maxChats: 6, maxBytes: 4 * 1024 * 1024, turns: TURNS });
 const listeners = new Map<string, Set<() => void>>();
 
 function set(key: string, next: ChatWindow) {
-  windows.delete(key);
   windows.set(key, next);
-  for (const old of windows.keys()) {
-    if (windows.size <= KEPT) break;
-    if (!listeners.get(old)?.size) windows.delete(old);
-  }
   // A copy: a listener can resubscribe while it is told, and a live Set would then be walked forever.
   for (const listener of [...(listeners.get(key) ?? [])]) listener();
 }
@@ -106,7 +101,12 @@ export function useChatPage(
       let set = listeners.get(key);
       if (!set) listeners.set(key, (set = new Set()));
       set.add(listener);
-      return () => set!.delete(listener);
+      windows.retain(key);
+      return () => {
+        set!.delete(listener);
+        if (!set!.size) listeners.delete(key);
+        windows.release(key);
+      };
     },
     [key],
   );
@@ -125,9 +125,9 @@ export function useChatPage(
     const request = client!
       .chatMessages(projectPath!, chatId!, { before: first.id, turns: TURNS })
       .then((earlier) => {
-        const latest = windows.get(key) ?? current;
-        const known = new Set(latest.messages.map((message) => message.id));
-        set(key, { ...latest, messages: [...earlier.messages.filter((message) => !known.has(message.id)), ...latest.messages], hasMore: earlier.hasMore });
+        const latest = windows.get(key);
+        const next = prependChatPage(latest, first.id, earlier);
+        if (next && next !== latest) set(key, next);
       })
       .finally(() => earlierLoads.delete(key));
     earlierLoads.set(key, request);
