@@ -88,6 +88,21 @@ for (const name of ["test-sidebar-usage", "test-command-palette", "test-prompt-s
   });
 }
 
+test("Subagents runs on macOS and Linux in default, Electron-only, targeted and sharded selections", () => {
+  const file = "scripts/test-subagents.cjs";
+  const electron = discoverElectronChecks(root);
+  for (const platform of ["darwin", "linux"]) {
+    const select = (args) => selectTests({ unit: [], electron, filters: { ...parseArgs(args), platform, commandExists: () => true } });
+    for (const args of [[], ["--electron"], ["--only", "test-subagents"]]) {
+      const selected = select(args);
+      assert.ok(selected.electron.includes(file), `${platform}: ${JSON.stringify(args)}`);
+      assert.ok(!selected.skipped.some((item) => item.file === file));
+    }
+    const shards = Array.from({ length: 12 }, (_, i) => select(["--electron", "--shard", `${i + 1}/12`]));
+    assert.equal(shards.flatMap((shard) => shard.electron).filter((item) => item === file).length, 1, platform);
+  }
+});
+
 test("an Electron check is retried once, only on Linux CI", () => {
   assert.equal(shouldRetry({ platform: "linux", ci: "true", attempt: 1 }), true);
   assert.equal(shouldRetry({ platform: "linux", ci: "true", attempt: 2 }), false);
