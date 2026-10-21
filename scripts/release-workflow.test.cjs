@@ -360,7 +360,8 @@ test("a stable release needs every platform it built; a beta needs only macOS", 
   const deploy = publishWorkflow.jobs["deploy-linux-repository"];
   assert.equal(deploy.uses, "./.github/workflows/deploy-linux-repository.yml");
   assert.deepEqual(deploy.needs, ["prepare", "publish"]);
-  assert.equal(deploy.if, "needs.prepare.outputs.channel == 'stable'");
+  // publish follows the skipped windows job; without always() the deploy would be skipped on every stable.
+  assert.equal(deploy.if, "always() && needs.publish.result == 'success' && needs.prepare.outputs.channel == 'stable'");
   assert.equal(deploy.with.tag, "${{ needs.prepare.outputs.release_tag }}");
 });
 

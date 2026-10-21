@@ -370,7 +370,8 @@ jobs:
           node scripts/plan-release.cjs next-draft
   deploy-linux-repository:
     needs: [prepare, publish]
-    if: needs.prepare.outputs.channel == 'stable'
+    # always(): publish follows the skipped windows job, and a job downstream of a skipped one is skipped without it.
+    if: always() && needs.publish.result == 'success' && needs.prepare.outputs.channel == 'stable'
     uses: ./.github/workflows/deploy-linux-repository.yml
     with:
       tag: ${{ needs.prepare.outputs.release_tag }}
