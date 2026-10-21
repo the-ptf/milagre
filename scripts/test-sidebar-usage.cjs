@@ -21,6 +21,7 @@ const weekly = { id: "weekly", label: "Weekly", shortLabel: "wk", usedPercent: 9
 const session = { id: "session", label: "Session", shortLabel: "5h", usedPercent: 32, resetsAt: null };
 window.setDisplay = usageDisplay => updateSettings({ usageDisplay });
 window.setSidebarUsage = sidebarUsage => updateSettings({ appearance: { ...JSON.parse(localStorage.getItem("milagre-settings") || "{}").appearance, sidebarUsage } });
+window.setProviderIcons = providerIcons => updateSettings({ appearance: { ...getSettings().appearance, providerIcons } });
 // The Project's saved accounts: two for Claude, so its card offers a picker; one for Codex, which stays plain text.
 const accountListeners = new Set();
 let claudeChoice = null;
@@ -265,6 +266,21 @@ async function browserChecks() {
       "Compact usage places all provider icons on one horizontal line",
     );
     await screenshot("compact-dark");
+    assert.deepEqual(
+      await evaluate(
+        '(() => { const rail = document.querySelector(".sidebar-usage").getBoundingClientRect(); const aside = document.querySelector("aside").getBoundingClientRect(); return [...document.querySelectorAll(".sidebar-usage-row")].map(r => r.getBoundingClientRect().width).concat([rail.width, (rail.left + rail.right) / 2 - (aside.left + aside.right) / 2]); })()',
+      ),
+      [32, 32, 32, 100, 0],
+      "Compact usage is contained around the icons and centered in the sidebar",
+    );
+    await evaluate('window.setProviderIcons("simplified"); window.setTheme("dark")');
+    await waitFor(
+      '[...document.querySelectorAll("[data-provider-logo]")].every(svg => svg.children.length === 1 && svg.firstElementChild.getAttribute("fill") === "currentColor" && getComputedStyle(svg).color === "rgb(255, 255, 255)")',
+    );
+    await evaluate('window.setTheme("light")');
+    await waitFor('[...document.querySelectorAll("[data-provider-logo]")].every(svg => getComputedStyle(svg).color === "rgb(0, 0, 0)")');
+    await evaluate('window.setProviderIcons("original")');
+    await waitFor('!!document.querySelector("[data-provider-logo=codex] linearGradient") && !!document.querySelector("[data-provider-logo=antigravity] mask")');
     await evaluate("window.setCollapsed(true)");
     await waitFor('document.querySelector("aside").dataset.sidebarCollapsed === "true"');
     assert.equal(

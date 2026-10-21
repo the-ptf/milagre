@@ -1,5 +1,11 @@
-// Each agent's brand mark in color, from Lobe Icons (@lobehub/icons-static-svg 1.95.1), on a 24x24 viewBox.
+// Each agent's brand mark from Lobe Icons (@lobehub/icons-static-svg 1.95.1), on a 24x24 viewBox.
 // Desktop draws them with DOM SVG and mobile with react-native-svg; both read the shapes from here.
+import type { ModelProvider } from "./model.ts";
+
+/** The same outline in either the original brand colors or a single monochrome fill. */
+export function providerLogoPath(provider: ModelProvider): string {
+  return provider === "claude" ? CLAUDE_LOGO.d : provider === "codex" ? CODEX_LOGO.d : ANTIGRAVITY_LOGO.d;
+}
 
 /** Linear's mark, from Simple Icons (simple-icons `linear`), for Linear issue chips and pickers. Drawn in the color of the text beside it. */
 export const LINEAR_LOGO = {

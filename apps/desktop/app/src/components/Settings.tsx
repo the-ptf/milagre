@@ -81,6 +81,7 @@ import {
   MOTION_SPEEDS,
   SIDEBAR_SIZES,
   SIDEBAR_USAGE_MODES,
+  PROVIDER_ICON_STYLES,
   UI_FONTS,
   type FontOption,
 } from "@milagre/shared/appearance";
@@ -993,6 +994,16 @@ function AppearanceSettings() {
                 options={CHAT_WIDTHS.map((width) => ({ value: width.id, label: width.label }))}
               />
             </div>
+          </Row>
+          <Row label="Provider icons" description="Original colors, or black and white to match the mode." preview={preview.row("ui")}>
+            <Select
+              label="Provider icons"
+              width={200}
+              value={appearance.providerIcons}
+              onChange={(providerIcons) => change("ui", { providerIcons })}
+              onOpenChange={preview.menu("ui")}
+              options={PROVIDER_ICON_STYLES.map((style) => ({ value: style.id, label: style.label }))}
+            />
           </Row>
           <Row label="Sidebar usage" description="One row per provider, or provider icons in one line." preview={preview.row("usage")}>
             <Select

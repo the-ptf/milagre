@@ -7,6 +7,12 @@ const customTheme = {
   dark: { background: "#1d1430", text: "#efe6ff", accent: "#e85d9a" },
 };
 
+test("provider icons default to original and retain a valid simplified choice", () => {
+  assert.equal(parsePhoneThemeSettings(null).providerIcons, "original");
+  assert.equal(parsePhoneThemeSettings(JSON.stringify({ providerIcons: "simplified" })).providerIcons, "simplified");
+  assert.equal(parsePhoneThemeSettings(JSON.stringify({ providerIcons: "unknown" })).providerIcons, "original");
+});
+
 test("nothing saved means Milagre Blue following the system", () => {
   assert.deepEqual(parsePhoneThemeSettings(null), DEFAULT_PHONE_THEME);
   assert.equal(DEFAULT_PHONE_THEME.colorTheme, "milagre-blue");

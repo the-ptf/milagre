@@ -1234,10 +1234,14 @@ a:focus-visible .animated-underline::after {
 .sidebar-usage[data-usage-compact="true"] {
   flex-direction: row;
   gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
 }
 
 .sidebar-usage[data-usage-compact="true"] .sidebar-usage-row {
-  flex: 1 1 0%;
+  flex: none;
+  width: 32px;
   justify-content: center;
   padding-left: 0;
   padding-right: 0;
@@ -1256,6 +1260,7 @@ a:focus-visible .animated-underline::after {
 [data-sidebar-collapsed="true"] .sidebar-usage {
   flex-direction: column;
   gap: 2px;
+  width: 100%;
 }
 
 [data-sidebar-collapsed="true"] .sidebar-usage .sidebar-usage-row {

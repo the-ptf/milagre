@@ -223,6 +223,15 @@ async function browserChecks() {
     await openMenu("Chat width");
     await pick("Full");
     await waitFor(`${region("width")}.textContent.includes("Full")`);
+    await openMenu("Provider icons");
+    await pick("Simplified");
+    await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.providerIcons === "simplified"`);
+    await waitFor(
+      `(() => { const logos = [...document.querySelectorAll("[data-provider-logo]")]; return logos.length >= 3 && logos.every(svg => svg.children.length === 1 && svg.firstElementChild.getAttribute("fill") === "currentColor"); })()`,
+    );
+    await openMenu("Provider icons");
+    await pick("Original");
+    await waitFor(`!!document.querySelector("[data-provider-logo=codex] linearGradient")`);
     // Sidebar usage: switches between Expanded and Compact in the preview and saves to appearance.sidebarUsage.
     assert.equal(await evaluate(`${region("usage")}.dataset.previewUsage`), "expanded");
     await openMenu("Sidebar usage");

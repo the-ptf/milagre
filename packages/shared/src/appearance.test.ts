@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_APPEARANCE, clampChatWidth, MONO_FONTS, UI_FONTS, fontStack, parseAppearance } from "./appearance.mjs";
 
+test("provider icons default to original and retain a valid simplified choice", () => {
+  assert.equal(parseAppearance({}).providerIcons, "original");
+  assert.equal(parseAppearance({ providerIcons: "simplified" }).providerIcons, "simplified");
+  assert.equal(parseAppearance({ providerIcons: "unknown" }).providerIcons, "original");
+});
+
 test("parseAppearance keeps good fields and defaults bad ones", () => {
   assert.deepEqual(parseAppearance({ chatSize: "huge", motion: "fast", sidebarUsage: "compact" }), {
     ...DEFAULT_APPEARANCE,
