@@ -212,3 +212,10 @@ test("another computer's Routines, Runs and targets come back naming it, and its
     { target: { kind: "chat", chatId: "/p#3" } },
   ]);
 });
+
+test("remote usage is readable while every account mutation remains local", () => {
+  for (const method of ["usage:read", "usage:cached"]) assert.equal(isLocalOnly(method), false, method);
+  for (const method of ["accounts:add", "accounts:select", "accounts:login", "accounts:cancel", "accounts:remove", "accounts:assign", "chat:limit-switch"])
+    assert.equal(isLocalOnly(method), true, method);
+  assert.deepEqual(qualifyEvent(ID, "usage:changed", { scopeKey: "/p" }), { scopeKey: `${ID}|/p` });
+});

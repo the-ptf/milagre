@@ -1752,7 +1752,7 @@ function ChatList({
       if (!all.length) return;
       const step = event.key === "ArrowDown" ? 1 : -1;
       const index = all.findIndex((slot) => sameTarget(slot, current.target));
-      over(all[index === -1 ? (step > 0 ? 0 : all.length - 1) : Math.min(all.length - 1, Math.max(0, index + step))]);
+      over(all[index === -1 ? (step > 0 ? 0 : all.length - 1) : Math.min(all.length - 1, Math.max(0, index + step))] ?? null);
     } else if (event.key === " ") {
       event.preventDefault();
       drop();

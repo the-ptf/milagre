@@ -27,3 +27,9 @@ test("a paired Mac reads and manages this Mac's Routines", () => {
   ])
     assert.equal(peerPolicy.denies(method), false, method);
 });
+
+test("a paired Mac can read usage but cannot mutate provider accounts", () => {
+  for (const method of ["usage:read", "usage:cached", "accounts:scope"]) assert.equal(peerPolicy.denies(method), false, method);
+  for (const method of ["accounts:add", "accounts:select", "accounts:login", "accounts:cancel", "accounts:remove", "accounts:assign", "chat:limit-switch"])
+    assert.equal(peerPolicy.denies(method), true, method);
+});

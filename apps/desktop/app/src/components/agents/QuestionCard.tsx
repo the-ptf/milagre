@@ -42,7 +42,7 @@ export function QuestionCard({
 }) {
   const reduce = useReducedMotion();
   const [drafts, setDrafts] = useState<QuestionDrafts>({});
-  const [active, setActive] = useState(0);
+  const [selected, setActive] = useState(0);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const panelRef = useRef<HTMLDivElement>(null);
   // Next, or a pick that moves on, and the panel remounts, so focus would fall to the page: put it in the new panel.
@@ -50,6 +50,7 @@ export function QuestionCard({
   const questions = request.questions;
   const count = questions.length;
   const several = count > 1;
+  const active = Math.min(selected, Math.max(0, count - 1));
   const question = questions[active];
   const answers = draftAnswers(questions, drafts);
   const pending = answering === null;
@@ -107,6 +108,7 @@ export function QuestionCard({
     target?.focus();
   }, [active]);
 
+  if (!question) return null;
   const draft = draftOf(drafts, question.id);
 
   return (

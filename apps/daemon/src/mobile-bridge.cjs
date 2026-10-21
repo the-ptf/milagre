@@ -538,6 +538,7 @@ async function startMobileBridge({
       // A snapshot carries the runs too, so "project" covers "runs".
       const types = [];
       if (entry.kinds.has("accounts")) types.push("accounts");
+      if (entry.kinds.has("usage")) types.push("usage");
       if (entry.kinds.has("mcp")) types.push("mcp");
       if (entry.kinds.has("designs")) types.push("designs");
       if (entry.kinds.has("links")) types.push("links");
@@ -588,6 +589,7 @@ async function startMobileBridge({
     followState(channel, payload);
     for (const entry of live) {
       if (channel === "accounts:changed" && !confine) signal(entry, "accounts", 0);
+      if (channel === "usage:changed" && !confine) signal(entry, "usage", 0);
       if (channel === "mcp:changed" && !confine) signal(entry, "mcp", 0);
       if (channel === "designs:enabled-changed") signal(entry, "designs", 0);
       // Every socket is told, a confined phone's Project socket included: it is the only one such a phone may open (a

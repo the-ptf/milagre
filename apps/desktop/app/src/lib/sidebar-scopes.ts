@@ -197,7 +197,8 @@ export function useScopeStates(enabled: boolean, keys: string[]) {
           if (!opened.state?.sessions) return;
           // A live update can arrive before a slow read answers, especially from another computer. Keep that
           // newer state, so the old snapshot doesn't undo pin settings or move the rows back.
-          const state = scopeStateCache[key] !== beforeRead ? scopeStateCache[key] : opened.state;
+          const cached = scopeStateCache[key];
+          const state = cached && cached !== beforeRead ? cached : opened.state;
           if (!isLinkScopeKey(key)) projectCopies.set(key, { ...opened, state } as OpenProject);
           scopeStateCache[key] = state;
           for (const listener of readListeners) listener(key, state);

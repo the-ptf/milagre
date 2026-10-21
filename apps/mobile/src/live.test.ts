@@ -318,3 +318,13 @@ test("a Routines change passes through the socket without fetching the Project o
   assert.equal(snapshots, before);
   stop();
 });
+
+test("a usage signal reaches subscribers without fetching Project state", () => {
+  const { timers } = clock();
+  const { made, create } = sockets();
+  const signals: string[] = [];
+  const live = openLive("ws://mac/live", {}, { onSignal: (signal) => signals.push(signal), onStatus() {}, create, timers });
+  made[0]!.onmessage!({ data: '{"type":"usage"}' });
+  assert.deepEqual(signals, ["usage"]);
+  live.close();
+});

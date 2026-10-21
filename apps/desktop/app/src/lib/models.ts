@@ -1,3 +1,4 @@
+import { MODEL_CATALOG } from "../model.ts";
 import { PROVIDERS } from "@milagre/shared/providers";
 import type { AgentModels, ModelCapabilities, ModelOption, ModelProvider } from "../model";
 
@@ -39,7 +40,10 @@ export function resolveModel(models: ModelOption[], wanted: string | undefined, 
     models.find((model) => model.id === wanted) ??
     models.find((model) => model.provider === provider && model.recommended) ??
     models.find((model) => model.provider === provider) ??
-    models[0]
+    models[0] ??
+    MODEL_CATALOG.find((model) => model.provider === provider && model.recommended) ??
+    MODEL_CATALOG.find((model) => model.provider === provider) ??
+    MODEL_CATALOG[0]
   );
 }
 
@@ -69,6 +73,7 @@ export function nextSelection(
   current: ModelOption,
   { defaultId, applyDefault, preferredProvider }: { defaultId: string; applyDefault: boolean; preferredProvider?: ModelProvider },
 ): ModelOption {
+  if (models.length === 0) return current;
   const useDefault =
     applyDefault &&
     (preferredProvider === undefined ||

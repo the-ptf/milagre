@@ -829,7 +829,7 @@ function fontOptions(list: readonly FontOption[]) {
 /** A saved font that is no longer installed reads as the default; the saved value stays. */
 function shownFont(list: readonly FontOption[], id: string) {
   const font = list.find((candidate) => candidate.id === id);
-  return font && (font.bundled || isFontInstalled(font.label)) ? id : list[0].id;
+  return font && (font.bundled || isFontInstalled(font.label)) ? id : (list[0]?.id ?? "system");
 }
 
 function pxOptions<T extends string>(list: readonly { id: T; px: number }[]) {

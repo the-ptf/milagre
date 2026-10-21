@@ -25,7 +25,7 @@ const MANIFEST = {
   "test-chat-attachments.cjs": { seconds: 24 },
   "test-site.cjs": { seconds: 23 },
   "test-task-track.cjs": { seconds: 20 },
-  // Darwin-only until #526: 19.6 s on its first Linux run.
+  // #526 removed the canvas behind #240; the replacement Subagents check runs on Linux too.
   "test-subagents.cjs": { seconds: 20 },
   "test-chat-pins.cjs": { seconds: 17 },
   "test-sidebar-links.cjs": { seconds: 16 },
@@ -60,7 +60,6 @@ const MANIFEST = {
   // Red on the Linux CI runner (xvfb); each issue holds the log and the triage notes.
   "test-chat-layout.cjs": { platforms: ["darwin"], reason: "message preview overlaps the prompt on Linux, #234" },
   "test-chat-send-feedback.cjs": { seconds: 28 },
-  "test-prompt-skills.cjs": { platforms: ["darwin"], reason: "skill tooltip never shows on hover under xvfb, #238" },
   // The Routines page, form and Chat surfaces on a Vite fixture (no build); about 6s on a Mac, so a Linux runner guess.
   "test-routines.cjs": { seconds: 9 },
 };

@@ -403,6 +403,8 @@ export function LinkWorkspace({
     if (await send(`Project ${chosen?.projectId}:\n${body}`, true)) comments.removeMany(entries.map((entry) => entry.id));
   }
   const root = session?.workspacePath ?? "";
+  const gitSession = gitDialog ? state.sessions[gitDialog.sessionId] : undefined;
+  const gitDialogTitle = gitSession ? chatTitle(gitSession, chatMessagesOf(gitSession.id)) : "Chat";
   return (
     <BridgeContext.Provider value={bridge}>
       <ScopeContext.Provider value={owner}>
@@ -755,8 +757,8 @@ export function LinkWorkspace({
               projectName={opened.projects.find((project) => project.id === gitDialog.member.projectId)?.name}
               cwd={gitDialog.member.worktreePath}
               base={gitDialog.member.base}
-              provider={state.sessions[gitDialog.sessionId]?.provider}
-              chat={gitChatContext(chatTitle(state.sessions[gitDialog.sessionId], chatMessagesOf(gitDialog.sessionId)), chatMessagesOf(gitDialog.sessionId))}
+              provider={gitSession?.provider}
+              chat={gitChatContext(gitDialogTitle, chatMessagesOf(gitDialog.sessionId))}
               turnRunning={Boolean(agents.runs[chatKeyForScope(scope, gitDialog.sessionId)])}
               onClose={() => setGitDialog(null)}
               onSendToAgent={(text) => {

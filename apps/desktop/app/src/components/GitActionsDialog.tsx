@@ -448,6 +448,7 @@ export function GitActionsDialog({
     }
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
+    if (!first || !last) return;
     const active = document.activeElement;
     if (event.shiftKey && (active === first || active === panelRef.current)) {
       event.preventDefault();

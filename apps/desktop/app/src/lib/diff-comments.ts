@@ -53,16 +53,16 @@ export function selectionFromRows(hunk: DiffHunk, fromRow: number, toRow: number
 /** Where a comment sits now: the hunk and the indexes of its lines, or undefined once the diff no longer has them. */
 export function locateComment(comment: DiffComment, hunks: DiffHunk[]): { hunk: number; lines: number[] } | undefined {
   const { snippet, side, start, end } = comment;
-  for (let h = 0; h < hunks.length; h++) {
-    const all = hunks[h].lines.map((_, index) => index);
+  for (const [h, hunk] of hunks.entries()) {
+    const all = hunk.lines.map((line, index) => ({ line, index }));
     // A split selection skips the other column's lines in between, so try that reading too.
-    const readings = [all, all.filter((index) => onSide(hunks[h].lines[index], side))];
+    const readings = [all, all.filter(({ line }) => onSide(line, side))];
     for (const indexes of readings) {
       for (let i = 0; i + snippet.length <= indexes.length; i++) {
         const window = indexes.slice(i, i + snippet.length);
-        if (!window.every((index, k) => rowText(hunks[h].lines[index]) === snippet[k])) continue;
-        const numbers = window.map((index) => numberOn(hunks[h].lines[index], side)).filter((value): value is number => value !== undefined);
-        if (numbers.length > 0 && Math.min(...numbers) === start && Math.max(...numbers) === end) return { hunk: h, lines: window };
+        if (!window.every(({ line }, k) => rowText(line) === snippet[k])) continue;
+        const numbers = window.map(({ line }) => numberOn(line, side)).filter((value): value is number => value !== undefined);
+        if (numbers.length > 0 && Math.min(...numbers) === start && Math.max(...numbers) === end) return { hunk: h, lines: window.map(({ index }) => index) };
       }
     }
   }

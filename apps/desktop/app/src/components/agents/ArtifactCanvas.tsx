@@ -299,7 +299,6 @@ export const ArtifactCanvas = forwardRef<
   // One block per group once any design has one; until then the frames stay in one row, numbered across the blocks.
   const rows = useMemo(() => designGroups(designs), [designs]);
   const grouped = rows.some((row) => row.group);
-  const starts = rows.map((_, index) => rows.slice(0, index).reduce((total, row) => total + row.designs.length, 0));
   // Until the user pans or zooms, the canvas keeps the asked-for design in view as frames load and change size.
   const moved = useRef(false);
   const viewRef = useRef(view);
@@ -575,7 +574,7 @@ export const ArtifactCanvas = forwardRef<
                   key={design.id}
                   chatId={chatId}
                   design={design}
-                  number={starts[index] + offset + 1}
+                  number={rows.slice(0, index).reduce((total, row) => total + row.designs.length, 0) + offset + 1}
                   version={versions[design.id] ?? null}
                   onVersion={onVersion}
                   commenting={commenting}

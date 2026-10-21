@@ -14,8 +14,26 @@ export function useUsage(client: Client | null, scopeKey?: string, revision = 0)
   useEffect(() => {
     if (!usage) return;
     void usage.loadCached();
+    let live: { close(): void } | null = null;
+    const connect = () => {
+      if (live || !client) return;
+      live = client.live(scopeKey ?? "", {
+        onSignal: (signal) => {
+          if (signal === "usage") void usage.loadCached(true);
+        },
+        onStatus: (open) => {
+          if (open) void usage.loadCached(true);
+        },
+      });
+    };
     const refresh = () => {
-      if (AppState.currentState === "active") void usage.refreshIfStale(60000);
+      if (AppState.currentState === "active") {
+        connect();
+        void usage.refreshIfStale(60000);
+      } else {
+        live?.close();
+        live = null;
+      }
     };
     refresh();
     const timer = setInterval(refresh, 5 * 60000);
@@ -23,7 +41,8 @@ export function useUsage(client: Client | null, scopeKey?: string, revision = 0)
     return () => {
       clearInterval(timer);
       subscription.remove();
+      live?.close();
     };
-  }, [usage]);
+  }, [usage, client, scopeKey]);
   return { ...state, refresh: usage?.refresh ?? (() => Promise.resolve()) };
 }

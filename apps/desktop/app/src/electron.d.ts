@@ -600,6 +600,7 @@ export type MilagreBridge = {
     value: string,
   ) => Promise<import("@milagre/shared/model").AccountsSnapshot>;
   onAccountsChanged: (callback: () => void) => () => void;
+  onUsageChanged: (callback: (payload: { scopeKey?: string }) => void) => () => void;
   readUsage: (scopeKey?: string) => Promise<UsageSnapshot>;
   /** Whether the Mac stays awake while an agent works (the screen can still sleep). */
   setKeepAwake: (enabled: boolean) => Promise<void>;

@@ -9,6 +9,7 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { SidebarUsage } from "/src/components/usage/SidebarUsage";
+import { useUsage } from "/src/components/usage/useUsage";
 import { applyThemeNow, getSettings, updateSettings } from "/src/lib/settings";
 import "/src/fonts.css";
 import "/src/styles.css";
@@ -56,7 +57,45 @@ function Fixture() {
     <SidebarUsage scope={scope} usage={{ snapshot, loading: false, refresh: async () => {}, refreshIfStale: () => {} }} />
   </aside>;
 }
-createRoot(document.getElementById("root")).render(<Fixture />);
+const root = createRoot(document.getElementById("root"));
+root.render(<Fixture />);
+window.showLiveUsage = () => {
+  const remote = "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
+  const first = remote + "|/projects/work";
+  const second = remote + "|/projects/other";
+  const usageListeners = new Set();
+  const remoteAccounts = new Set();
+  const snapshot = (percent) => ({ accountKey: "work-default", providers: [{ provider: "claude", status: "ok", updatedAt: new Date().toISOString(), account: { id: "work", label: "Remote work" }, windows: [{ ...weekly, usedPercent: percent }] }] });
+  let saved = snapshot(34);
+  const pending = [];
+  const pendingCache = [];
+  window.deferUsageCache = false;
+  window.finishUsageCache = () => pendingCache.shift()();
+  window.usageReads = [];
+  window.localUsageReads = 0;
+  window.remoteUsageChanged = (percent) => {
+    saved = snapshot(percent);
+    usageListeners.forEach(listener => listener({ scopeKey: first }));
+  };
+  window.remoteAccountsChanged = () => remoteAccounts.forEach(listener => listener());
+  window.finishUsageRead = (percent) => pending.shift()(snapshot(percent));
+  window.milagre.on = () => ({
+    getCachedUsage: () => window.deferUsageCache ? new Promise(resolve => { const value = saved; pendingCache.push(() => resolve(value)); }) : Promise.resolve(saved),
+    readUsage: (scope) => { window.usageReads.push(scope); return new Promise(resolve => pending.push(resolve)); },
+    onAccountsChanged: listener => (remoteAccounts.add(listener), () => remoteAccounts.delete(listener)),
+    onUsageChanged: listener => (usageListeners.add(listener), () => usageListeners.delete(listener)),
+  });
+  window.milagre.readUsage = async () => { window.localUsageReads++; return snapshot(99); };
+  window.milagre.getCachedUsage = async () => { window.localUsageReads++; return snapshot(99); };
+  function LiveFixture() {
+    const [scope, setScope] = useState(first);
+    window.switchUsageScope = () => { saved = snapshot(12); setScope(second); };
+    const usage = useUsage(scope);
+    window.refreshLiveUsage = usage.refresh;
+    return <aside style={{ width: 224, margin: 24 }}><SidebarUsage usage={usage} scope={scope} /></aside>;
+  }
+  root.render(<LiveFixture />);
+};
 `;
 
 async function browserChecks() {
@@ -205,12 +244,52 @@ async function browserChecks() {
     await waitFor(`${cardText}.includes("victor@example.test")`);
     await delay(100);
     assert.equal(await evaluate(`Boolean(${picker})`), false, "One saved account shows plain text");
+    await evaluate('window.setScope("6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7|/projects/work")');
+    await evaluate('document.querySelectorAll(".sidebar-usage-row")[0].click()');
+    await waitFor(`${cardText}.includes("Work")`);
+    assert.equal(await evaluate(`Boolean(${picker})`), false, "Remote usage never offers an account picker");
+    assert.equal(await evaluate("window.assigned.length"), 1, "Remote usage did not assign an account");
+    await screenshot("remote-account-read-only");
     await evaluate("window.setScope(undefined)");
     await evaluate('document.querySelector("aside").style.marginTop = ""');
     await evaluate("window.setCollapsed(true)");
     await waitFor('document.querySelector("aside").dataset.sidebarCollapsed === "true"');
     assert.equal(await evaluate('getComputedStyle(document.querySelectorAll(".sidebar-usage-row")[1].querySelector(".sidebar-copy")).display'), "none");
     assert.equal(await evaluate('document.querySelectorAll(".sidebar-usage-rail")[1].firstElementChild.getBoundingClientRect().width'), 16);
+    // The hook routes reads and live signals to the computer on screen, without touching this Mac's usage.
+    await evaluate("window.showLiveUsage()");
+    await waitFor('document.querySelector(".sidebar-usage-row")?.textContent.includes("34%")');
+    assert.equal(await evaluate("window.localUsageReads"), 0);
+    assert.deepEqual(await evaluate("window.usageReads"), ["6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7|/projects/work"]);
+    await evaluate("window.finishUsageRead(70)");
+    await waitFor('document.querySelector(".sidebar-usage-row")?.textContent.includes("70%")');
+    await evaluate("window.remoteUsageChanged(88)");
+    await waitFor('document.querySelector(".sidebar-usage-row")?.textContent.includes("88%")');
+    assert.equal(await evaluate("window.usageReads.length"), 1, "Pushes fetch saved numbers, without looping through provider reads");
+    await evaluate("window.deferUsageCache = true; window.remoteUsageChanged(89)");
+    await evaluate("window.refreshLiveUsage(); true");
+    await waitFor("window.usageReads.length === 2");
+    await evaluate("window.finishUsageRead(90)");
+    await waitFor('document.querySelector(".sidebar-usage-row")?.textContent.includes("90%")');
+    await evaluate("window.finishUsageCache(); window.deferUsageCache = false");
+    await delay(100);
+    assert.match(await evaluate('document.querySelector(".sidebar-usage-row").textContent'), /90%/, "A late pushed cache cannot replace a newer live read");
+    await evaluate("window.remoteAccountsChanged()");
+    await waitFor("window.usageReads.length === 3");
+    await evaluate("window.switchUsageScope()");
+    await waitFor('document.querySelector(".sidebar-usage-row")?.textContent.includes("12%")');
+    await waitFor("window.usageReads.length === 4");
+    await evaluate("window.finishUsageRead(91)");
+    await delay(100);
+    assert.match(
+      await evaluate('document.querySelector(".sidebar-usage-row").textContent'),
+      /12%/,
+      "A late previous-scope response cannot replace current usage",
+    );
+    await evaluate("window.finishUsageRead(23)");
+    await waitFor('document.querySelector(".sidebar-usage-row")?.textContent.includes("23%")');
+    assert.equal(await evaluate("window.localUsageReads"), 0);
+    await screenshot("remote-live-usage");
     console.log(
       "PASS: weekly-only width, 5h column alignment, actual percentages, remaining mode, banked resets row, Antigravity Gemini windows, collapsed rail, account email and name fallback, account picker",
     );

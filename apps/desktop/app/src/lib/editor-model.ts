@@ -51,6 +51,7 @@ function isClosingBreak(node: EditorNode, parent: EditorNode, parentIsBlock: boo
   let index = Array.prototype.indexOf.call(siblings, node) as number;
   for (index += 1; index < siblings.length; index++) {
     const next = siblings[index];
+    if (!next) continue;
     if (next.nodeType === TEXT_NODE && !next.nodeValue) continue;
     return isBlock(next);
   }
@@ -83,10 +84,11 @@ function serialize(root: EditorNode, stop?: Point): string {
       if (stop && stop.node === container && stop.offset === index) throw new Stop();
       if (index === children.length) break;
       const node = children[index];
+      if (!node) continue;
       if (node.nodeType === TEXT_NODE) {
         const raw = node.nodeValue ?? "";
         if (raw) flush();
-        if (stop?.node === node) {
+        if (stop && stop.node === node) {
           const skip = fillerWidth(node, raw);
           out += raw.slice(skip, Math.max(skip, Math.min(stop.offset, raw.length)));
           throw new Stop();
@@ -152,6 +154,7 @@ export function textOffsetToDom(root: EditorNode, offset: number): Point {
     const children = container.childNodes;
     for (let index = 0; index < children.length; index++) {
       const node = children[index];
+      if (!node) continue;
       if (node.nodeType === TEXT_NODE) {
         const raw = node.nodeValue ?? "";
         if (!raw) continue;

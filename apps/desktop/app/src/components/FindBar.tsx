@@ -33,9 +33,12 @@ function collectRanges(root: Element, query: string): Range[] {
     for (const start of matchOffsets(nodes.map((node) => node.data).join(""), query)) {
       const from = locateOffset(lengths, start, "start");
       const to = locateOffset(lengths, start + query.length, "end");
+      const startNode = nodes[from.index];
+      const endNode = nodes[to.index];
+      if (!startNode || !endNode) continue;
       const range = document.createRange();
-      range.setStart(nodes[from.index], from.offset);
-      range.setEnd(nodes[to.index], to.offset);
+      range.setStart(startNode, from.offset);
+      range.setEnd(endNode, to.offset);
       ranges.push(range);
     }
   };
