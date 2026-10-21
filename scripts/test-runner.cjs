@@ -23,6 +23,8 @@ const MANIFEST = {
   "test-update-flow.cjs": { seconds: 25 },
   "test-floating-inbox.cjs": { seconds: 25 },
   "test-chat-attachments.cjs": { seconds: 24 },
+  // #234: about 50 s locally on Ubuntu 24.04 amd64 through OrbStack; refresh from CI when available.
+  "test-chat-layout.cjs": { seconds: 50 },
   "test-site.cjs": { seconds: 23 },
   "test-task-track.cjs": { seconds: 20 },
   // #526 removed the canvas behind #240; the replacement Subagents check runs on Linux too.
@@ -58,7 +60,6 @@ const MANIFEST = {
   // needsBuild: loads apps/desktop/dist; test-project-links only passed serially because test-desktop built it first.
   "test-design-csp.cjs": { needsBuild: true },
   // Red on the Linux CI runner (xvfb); each issue holds the log and the triage notes.
-  "test-chat-layout.cjs": { platforms: ["darwin"], reason: "message preview overlaps the prompt on Linux, #234" },
   "test-chat-send-feedback.cjs": { platforms: ["darwin"], reason: "message navigation rebuilds on Linux, #235" },
   // The Routines page, form and Chat surfaces on a Vite fixture (no build); about 6s on a Mac, so a Linux runner guess.
   "test-routines.cjs": { seconds: 9 },
