@@ -20,6 +20,7 @@ import { ScrollArea } from "../primitives/ScrollArea";
 import { LinearLogo } from "../ProviderLogo";
 import { WorkspaceIcon } from "../WorkspaceIcon";
 import { useDismiss } from "../../lib/use-dismiss";
+import { bySection, type ComputerSection } from "../../lib/computer-scopes";
 
 type HugeIconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
 
@@ -27,8 +28,8 @@ function HugeIcon({ icon, size = 16 }: { icon: HugeIconData; size?: number }) {
   return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
 }
 
-/** One Project in the chooser. `computer` names another computer's Project, shown once there are two or more computers. */
-export type PickerProject = { path: string; name: string; initial: string; current: boolean; shown: boolean; listed: boolean; computer?: string };
+/** One Project in the chooser, under its computer's section once there are two or more computers. */
+export type PickerProject = { path: string; name: string; initial: string; current: boolean; shown: boolean; listed: boolean; computerId: string };
 
 const FIELD_ICONS: Record<ChatRowField, ReactNode> = {
   computer: <HugeIcon icon={LaptopIcon} />,
@@ -55,6 +56,7 @@ const rowsOf = (panel: HTMLElement | null) => [...(panel?.querySelectorAll<HTMLE
  */
 export function FiltersButton({
   projects,
+  computers,
   imageOf,
   currentImage,
   onShowProject,
@@ -66,6 +68,8 @@ export function FiltersButton({
 }: {
   /** Null when the sidebar lists only the open Project, so there is nothing to choose. */
   projects: PickerProject[] | null;
+  /** With other computers, the sections Projects are listed under; null with this Mac alone. */
+  computers: ComputerSection[] | null;
   imageOf: (path: string) => string | null | undefined;
   currentImage?: string | null;
   onShowProject: (path: string, show: boolean) => void;
@@ -82,7 +86,10 @@ export function FiltersButton({
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [sub, setSub] = useState<{ which: Sub; top: number; focus: boolean } | null>(null);
-  const hiddenCount = projects?.filter((project) => !project.shown).length ?? 0;
+  // The sidebar leaves out unchecked Projects, and every Project of a hidden computer but the open one.
+  const hiddenCount =
+    projects?.filter((project) => !project.shown || (!project.current && computers?.some((computer) => computer.id === project.computerId && computer.hidden)))
+      .length ?? 0;
   const fields = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer" || offerComputer);
 
   // Below the button, at the top of the sidebar; collapsed, beside the rail.
@@ -161,6 +168,36 @@ export function FiltersButton({
     </button>
   );
 
+  const projectRow = (project: PickerProject, section: { name: string; hidden: boolean }) => {
+    const offWithComputer = section.hidden && !project.current;
+    return (
+      <button
+        key={project.path}
+        data-menu-row
+        data-project-choice={project.path}
+        role="menuitemcheckbox"
+        aria-checked={project.shown}
+        type="button"
+        disabled={!project.listed || offWithComputer}
+        title={offWithComputer ? `Hidden with ${section.name}` : project.current && !project.shown ? "Shown while it's the open project" : project.path}
+        onClick={() => onShowProject(project.path, !project.shown)}
+        className={ROW}
+      >
+        <span
+          aria-hidden
+          className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] transition-colors duration-100 ${project.shown ? "bg-ink text-surface" : "border-[1.5px] border-ink-3"}`}
+        >
+          {project.shown && <HugeIcon icon={Tick02Icon} size={12} />}
+        </span>
+        <span className="flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
+          <WorkspaceIcon src={project.current ? currentImage : imageOf(project.path)} fallback={project.initial} />
+        </span>
+        <span className={`min-w-0 flex-1 truncate text-[13.5px] ${project.shown ? "text-ink" : "text-ink-3"}`}>{project.name}</span>
+        {project.current && <span className="shrink-0 text-[11px] text-ink-3">Open</span>}
+      </button>
+    );
+  };
+
   return (
     <>
       <Tooltip label={hiddenCount ? `Filters (${hiddenCount} projects hidden)` : "Filters"} side="bottom">
@@ -219,36 +256,32 @@ export function FiltersButton({
                     highlightClassName="inset-x-0 rounded-[8px] bg-hover-2"
                   >
                     {sub.which === "projects"
-                      ? (projects ?? []).map((project) => (
-                          <button
-                            key={project.path}
-                            data-menu-row
-                            data-project-choice={project.path}
-                            role="menuitemcheckbox"
-                            aria-checked={project.shown}
-                            type="button"
-                            disabled={!project.listed}
-                            title={project.current && !project.shown ? "Shown while it's the open project" : project.path}
-                            onClick={() => onShowProject(project.path, !project.shown)}
-                            className={ROW}
-                          >
-                            <span
-                              aria-hidden
-                              className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] transition-colors duration-100 ${project.shown ? "bg-ink text-surface" : "border-[1.5px] border-ink-3"}`}
+                      ? (computers ? bySection(projects ?? [], computers) : [{ id: "", name: "", local: false, hidden: false, rows: projects ?? [] }]).map(
+                          (section, index) => (
+                            <div
+                              key={section.id}
+                              role="group"
+                              aria-label={computers ? section.name : undefined}
+                              data-project-section={section.id || undefined}
+                              className="flex flex-col gap-px"
                             >
-                              {project.shown && <HugeIcon icon={Tick02Icon} size={12} />}
-                            </span>
-                            <span className="flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
-                              <WorkspaceIcon src={project.current ? currentImage : imageOf(project.path)} fallback={project.initial} />
-                            </span>
-                            <span className={`min-w-0 flex-1 truncate text-[13.5px] ${project.shown ? "text-ink" : "text-ink-3"}`}>{project.name}</span>
-                            {project.current ? (
-                              <span className="shrink-0 text-[11px] text-ink-3">Open</span>
-                            ) : (
-                              project.computer && <span className="max-w-20 shrink-0 truncate text-[11px] text-ink-3">{project.computer}</span>
-                            )}
-                          </button>
-                        ))
+                              {computers && (
+                                <div
+                                  data-project-section-header
+                                  className={`flex h-7 items-center gap-2 px-2 text-[11.5px] text-ink-3 ${index > 0 ? "mt-1.5" : ""}`}
+                                >
+                                  <span className="min-w-0 flex-1 truncate font-medium">{section.local ? `${section.name} · This Mac` : section.name}</span>
+                                  {section.hidden && (
+                                    <span data-project-section-hidden className="shrink-0" title={`Check ${section.name} under Computers to show its Projects`}>
+                                      Hidden
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              {section.rows.map((project) => projectRow(project, section))}
+                            </div>
+                          ),
+                        )
                       : fields.map((field) => (
                           <button
                             key={field.id}

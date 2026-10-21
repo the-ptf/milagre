@@ -1,7 +1,9 @@
 // Run with npm test -- --only test-sidebar-computers. The footer's computers popover in the real App against a stand-in for
 // main: the laptop button opens a popover of This Mac and each computer with its route line, a gear with its tooltip
-// opens that computer's settings (This Mac's opens Settings › Devices), Add computer opens its dialog, and nothing about
-// computers shows while Settings › Devices › Other computers is off. Set MILAGRE_SCREENSHOT_DIR to save screenshots.
+// opens that computer's settings (This Mac's opens Settings › Devices), unchecking a computer leaves its Projects out of
+// the sidebar (kept across a restart), Filters › Projects lists Projects under their computer, Add computer opens its
+// dialog from the popover and from Settings › Devices, and nothing about computers shows while Settings › Devices ›
+// Other computers is off. Set MILAGRE_SCREENSHOT_DIR to save screenshots.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -171,14 +173,27 @@ async function browserChecks() {
 
     await evaluate(`document.querySelector('[data-computer-row="c-arketa"] [data-computer-gear]').click()`);
     await waitFor(`document.querySelector('h1')?.textContent === 'arketa' && !!document.querySelector('[data-computer-settings]')`);
+    const sidebarSwitch = `document.querySelector('[data-computer-show-in-sidebar] [role="switch"]')`;
+    assert.equal(await evaluate(`${sidebarSwitch}.getAttribute('aria-checked')`), "true");
+    await evaluate(`${sidebarSwitch}.click()`);
+    await waitFor(`${sidebarSwitch}.getAttribute('aria-checked') === 'false'`);
+    assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem("milagre.hiddenComputers") || "[]")`), ["c-arketa"]);
+    await evaluate(`${sidebarSwitch}.click()`);
+    await waitFor(`${sidebarSwitch}.getAttribute('aria-checked') === 'true' && !localStorage.getItem("milagre.hiddenComputers")`);
     await evaluate(`document.querySelector('[aria-label="Settings navigation"] button[aria-label="Back"]').click()`);
     await waitFor(`!!document.querySelector('[data-computers-button]')`);
     await openPopover();
     await evaluate(`document.querySelector('[data-computer-row="this-mac"] [data-computer-gear]').click()`);
     await waitFor(`document.querySelector('h1')?.textContent === 'Devices'`);
+    // Settings › Devices adds a computer too, not only the laptop button.
+    await evaluate(`document.querySelector('[data-settings-add-computer]').click()`);
+    await waitFor(`!!document.querySelector('dialog[data-add-computer]')?.open`);
+    await screenshot("devices-add-computer");
+    await evaluate(`document.querySelector('dialog[data-add-computer]').dispatchEvent(new Event('cancel', { cancelable: true }))`);
+    await waitFor(`!document.querySelector('dialog')`);
     await evaluate(`document.querySelector('[aria-label="Settings navigation"] button[aria-label="Back"]').click()`);
     await waitFor(`!!document.querySelector('[data-computers-button]')`);
-    console.log("PASS: a computer's gear opens its settings, and This Mac's opens Settings › Devices");
+    console.log("PASS: a computer's gear opens its settings, with Show in sidebar; This Mac's opens Settings › Devices, which adds a computer");
 
     const scopes = () => evaluate(`[...document.querySelectorAll('[data-sidebar-scope]')].map((section) => section.dataset.sidebarScope)`);
     // Scope keys hold "|" and "/", which a double-quoted attribute selector takes as they are.
@@ -212,11 +227,13 @@ async function browserChecks() {
     await screenshot("merged-list");
     console.log("PASS: every computer's Projects in one list by name, each row naming its computer, the offline one dimmed");
 
-    // Filters › Projects lists every computer's Projects, hidden ones unchecked, each naming its computer.
+    // Filters › Projects lists every computer's Projects under its computer (This Mac first, then by name), hidden ones unchecked.
     const choices = () =>
       evaluate(
-        `[...document.querySelectorAll('[data-filters-sub="projects"] [data-project-choice]')].map((row) => [row.dataset.projectChoice, row.getAttribute('aria-checked'), row.lastElementChild.textContent])`,
+        `[...document.querySelectorAll('[data-filters-sub="projects"] [data-project-choice]')].map((row) => [row.closest('[data-project-section]').dataset.projectSection, row.dataset.projectChoice, row.getAttribute('aria-checked')])`,
       );
+    const sectionHeaders = () =>
+      evaluate(`[...document.querySelectorAll('[data-filters-sub="projects"] [data-project-section-header]')].map((header) => header.textContent.trim())`);
     await evaluate(`document.querySelector('[data-filters]').click()`);
     await waitFor(`!!document.querySelector('[data-filters-panel] [data-sub="projects"]')`);
     await evaluate(`document.querySelector('[data-filters-panel] [data-sub="projects"]').click()`);
@@ -224,14 +241,16 @@ async function browserChecks() {
     assert.deepEqual(
       await choices(),
       [
-        ["c-arketa|/Users/a/arketa-web", "true", "arketa"],
-        ["c-studio|/Users/s/homelab", "true", "studio"],
-        ["/work/milagre-ade", "true", "Open"],
-        ["c-studio|/Users/s/notes", "true", "studio"],
-        ["c-arketa|/Users/a/old-site", "false", "arketa"],
+        ["local", "/work/milagre-ade", "true"],
+        ["c-arketa", "c-arketa|/Users/a/arketa-web", "true"],
+        ["c-arketa", "c-arketa|/Users/a/old-site", "false"],
+        ["c-studio", "c-studio|/Users/s/homelab", "true"],
+        ["c-studio", "c-studio|/Users/s/notes", "true"],
       ],
-      "every computer's Projects by name, the hidden one unchecked",
+      "every computer's Projects under its computer, by name, the hidden one unchecked",
     );
+    assert.deepEqual(await sectionHeaders(), ["victor-mbp · This Mac", "arketa", "studio"]);
+    assert.equal(await evaluate(`document.querySelector('[data-project-choice="/work/milagre-ade"]').textContent.includes('Open')`), true);
     await screenshot("filters-projects");
     await evaluate(`document.querySelector('[data-project-choice="c-arketa|/Users/a/old-site"]').click()`);
     await waitFor(`!!document.querySelector('[data-sidebar-scope="c-arketa|/Users/a/old-site"]')`);
@@ -250,7 +269,7 @@ async function browserChecks() {
       `window.setComputers([...window.computerList, { id: "c-new", name: "garden-mini", hostId: "n".repeat(22), relayHost: "relay.milagre.cloud", state: "online", route: "lan", lastSeen: Date.now(), addedAt: 3, message: null, lan: true, lanRoutes: [] }])`,
     );
     await waitFor(`!!document.querySelector('[data-project-choice="c-new|/Users/n/garden"]')`);
-    assert.equal(await evaluate(`document.querySelector('[data-project-choice="c-new|/Users/n/garden"]').lastElementChild.textContent`), "garden-mini");
+    assert.deepEqual(await sectionHeaders(), ["victor-mbp · This Mac", "arketa", "garden-mini", "studio"], "a new computer's section joins by name");
     await waitFor(`!!document.querySelector('[data-sidebar-scope="c-new|/Users/n/garden"]')`);
     await screenshot("filters-new-computer");
     await evaluate(`window.setComputers(window.computerList.filter((computer) => computer.id !== "c-new"))`);
@@ -259,8 +278,52 @@ async function browserChecks() {
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
     await waitFor(`!document.querySelector('[data-filters-panel]')`);
     console.log(
-      "PASS: Filters › Projects lists every computer's Projects, hidden ones too, saves a choice on its computer, and follows a computer being added",
+      "PASS: Filters › Projects lists every computer's Projects under its computer, hidden ones too, saves a choice on its computer, and follows a computer being added",
     );
+
+    // Unchecking a computer in the popover leaves its Projects out of the sidebar; it stays listed, paired and connected.
+    await openPopover();
+    const studioShow = `document.querySelector('[data-computer-row="c-studio"] [data-computer-show]')`;
+    assert.equal(await evaluate(`${studioShow}.getAttribute('aria-checked')`), "true");
+    await evaluate(`${studioShow}.click()`);
+    await waitFor(`!document.querySelector('[data-sidebar-scope^="c-studio|"]')`);
+    assert.equal(await evaluate(`${studioShow}.getAttribute('aria-checked')`), "false");
+    assert.equal(await evaluate(`!!document.querySelector('[data-computers-panel]')`), true, "the popover stays open");
+    assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem("milagre.hiddenComputers") || "[]")`), ["c-studio"]);
+    assert.deepEqual(await scopes(), ["c-arketa|/Users/a/arketa-web", "/work/milagre-ade"]);
+    await screenshot("popover-hidden-computer");
+    await evaluate(`document.querySelector('[data-computers-panel]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await waitFor(`!document.querySelector('[data-computers-panel]')`);
+    // Filters says so: its section is Hidden, its rows can't be chosen, and the count takes them in.
+    await evaluate(`document.querySelector('[data-filters]').click()`);
+    await waitFor(`!!document.querySelector('[data-filters-panel] [data-sub="projects"]')`);
+    assert.match(await evaluate(`document.querySelector('[data-filters-panel] [data-sub="projects"]').textContent`), /3 hidden/);
+    assert.equal(await evaluate(`document.querySelector('[data-filters]').hasAttribute('data-filters-active')`), true);
+    await evaluate(`document.querySelector('[data-filters-panel] [data-sub="projects"]').click()`);
+    await waitFor(`!!document.querySelector('[data-filters-sub="projects"]')`);
+    assert.equal(await evaluate(`!!document.querySelector('[data-project-section="c-studio"] [data-project-section-hidden]')`), true);
+    assert.equal(await evaluate(`!!document.querySelector('[data-project-section="c-arketa"] [data-project-section-hidden]')`), false);
+    assert.equal(await evaluate(`document.querySelector('[data-project-choice="c-studio|/Users/s/homelab"]').disabled`), true);
+    assert.equal(await evaluate(`document.querySelector('[data-project-choice="c-arketa|/Users/a/arketa-web"]').disabled`), false);
+    await screenshot("filters-hidden-computer");
+    await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await waitFor(`!document.querySelector('[data-filters-panel]')`);
+    // A restart keeps it hidden; checking it again brings its Projects back.
+    await window.loadURL(process.argv[2]);
+    await waitFor(`!!document.querySelector('[data-computers-button]')`);
+    await waitFor(`document.querySelectorAll('[data-sidebar-scope]').length === 2`);
+    await delay(150);
+    assert.deepEqual(await scopes(), ["c-arketa|/Users/a/arketa-web", "/work/milagre-ade"], "still hidden after a restart");
+    await openPopover();
+    assert.equal(await evaluate(`${studioShow}.getAttribute('aria-checked')`), "false");
+    await evaluate(`${studioShow}.click()`);
+    await waitFor(`document.querySelectorAll('[data-sidebar-scope^="c-studio|"]').length === 2`);
+    assert.equal(await evaluate(`localStorage.getItem("milagre.hiddenComputers")`), null);
+    await evaluate(`document.querySelector('[data-computers-panel]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await waitFor(`!document.querySelector('[data-computers-panel]')`);
+    assert.deepEqual(errors, []);
+    console.log("PASS: unchecking a computer in the popover hides its Projects from the sidebar, Filters marks it Hidden, and a restart keeps it");
 
     // Removing a computer's Project from the list asks that computer, and leaves this Mac's list as it was.
     await evaluate(`document.querySelector('[data-sidebar-scope="c-arketa|/Users/a/arketa-web"] [data-scope-menu]').click()`);

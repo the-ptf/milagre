@@ -72,3 +72,56 @@ export function useHiddenProjects(): ReadonlySet<string> {
   }, []);
   return hidden;
 }
+
+const HIDDEN_COMPUTERS_KEY = "milagre.hiddenComputers";
+const HIDDEN_COMPUTERS_CHANGED = "milagre:hidden-computers-changed";
+// The last read, so useSyncExternalStore gets the same set until the saved list changes.
+let computersRead: { raw: string | null; set: ReadonlySet<string> } = { raw: null, set: NONE };
+
+/**
+ * Computers whose Projects this Mac's sidebar leaves out (their ids, "local" for This Mac), unchecked in the computers
+ * popover. Only what the sidebar lists: the computer stays paired and connected, and its Projects keep their own choices.
+ */
+export function readHiddenComputers(): ReadonlySet<string> {
+  let raw: string | null = null;
+  try {
+    raw = globalThis.localStorage?.getItem(HIDDEN_COMPUTERS_KEY) ?? null;
+  } catch {
+    /* ignore storage errors */
+  }
+  if (raw === computersRead.raw) return computersRead.set;
+  let set = NONE;
+  try {
+    const saved = JSON.parse(raw ?? "[]");
+    if (Array.isArray(saved)) set = new Set(saved.filter((item): item is string => typeof item === "string" && item.length > 0));
+  } catch {
+    /* a broken list hides nothing */
+  }
+  computersRead = { raw, set };
+  return set;
+}
+
+export function setComputerHidden(id: string, hidden: boolean): void {
+  const next = new Set(readHiddenComputers());
+  if (hidden) next.add(id);
+  else next.delete(id);
+  try {
+    if (next.size > 0) globalThis.localStorage?.setItem(HIDDEN_COMPUTERS_KEY, JSON.stringify([...next]));
+    else globalThis.localStorage?.removeItem(HIDDEN_COMPUTERS_KEY);
+  } catch {
+    /* ignore storage errors */
+  }
+  if (typeof Event === "function") window.dispatchEvent?.(new Event(HIDDEN_COMPUTERS_CHANGED));
+}
+
+export function subscribeHiddenComputers(changed: () => void) {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === HIDDEN_COMPUTERS_KEY) changed();
+  };
+  window.addEventListener(HIDDEN_COMPUTERS_CHANGED, changed);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(HIDDEN_COMPUTERS_CHANGED, changed);
+    window.removeEventListener("storage", onStorage);
+  };
+}

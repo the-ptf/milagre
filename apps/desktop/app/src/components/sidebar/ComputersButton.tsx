@@ -1,13 +1,15 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, LaptopIcon, Settings01Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, LaptopIcon, Settings01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import GlideMenu from "@/components/primitives/GlideMenu";
 import Tooltip from "@/components/primitives/Tooltip";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { useDismiss } from "../../lib/use-dismiss";
 import { useSettings } from "../../lib/settings";
-import { DOT_COLOR, computerTone, routeLine, settingsTooltip, useComputers, type ComputerTone } from "../../lib/computers";
+import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
+import { DOT_COLOR, computerTone, routeLine, settingsTooltip, useComputers, useHiddenComputers, type ComputerTone } from "../../lib/computers";
+import { setComputerHidden } from "../../lib/hidden-projects";
 
 const icon = (data: typeof LaptopIcon, size: number) => <HugeiconsIcon icon={data} size={size} strokeWidth={1.8} color="currentColor" />;
 
@@ -16,6 +18,8 @@ function HostRow({
   name,
   line,
   tone,
+  shown,
+  onShow,
   gearLabel,
   onGear,
 }: {
@@ -23,20 +27,47 @@ function HostRow({
   name: string;
   line: string;
   tone: ComputerTone;
+  /** Its Projects are in the sidebar; unchecked, the sidebar leaves them out. */
+  shown: boolean;
+  onShow: (shown: boolean) => void;
   gearLabel: string;
   onGear: () => void;
 }) {
   return (
-    <div data-row data-computer-row={id} className="group/host relative z-10 flex h-11 items-center gap-2.5 rounded-[8px] pr-2 pl-2.5">
-      <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: DOT_COLOR[tone] }} />
-      <span className="flex min-w-0 flex-1 flex-col leading-tight">
-        <span data-computer-name className="truncate text-[13px] font-medium text-ink">
-          {name}
+    <div
+      data-row
+      data-computer-row={id}
+      data-computer-hidden={!shown || undefined}
+      className="group/host relative z-10 flex h-11 items-center gap-1 rounded-[8px] pr-2"
+    >
+      <button
+        type="button"
+        role="menuitemcheckbox"
+        aria-checked={shown}
+        data-menu-row
+        data-computer-show
+        title={shown ? `Hide ${name}'s Projects from the sidebar` : `Show ${name}'s Projects in the sidebar`}
+        onClick={() => onShow(!shown)}
+        className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-[8px] pl-2.5 text-left outline-none focus-visible:bg-hover-2"
+      >
+        <span
+          aria-hidden
+          className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] transition-colors duration-100 ${shown ? "bg-ink text-surface" : "border-[1.5px] border-ink-3"}`}
+        >
+          {shown && <HugeiconsIcon icon={Tick02Icon} size={12} strokeWidth={1.8} color="currentColor" />}
         </span>
-        <span data-computer-line className="truncate text-[11.5px] text-ink-3">
-          {line}
+        <span className="flex min-w-0 flex-1 flex-col leading-tight">
+          <span data-computer-name className={`truncate text-[13px] font-medium ${shown ? "text-ink" : "text-ink-3"}`}>
+            {name}
+          </span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span aria-hidden className="size-1.5 shrink-0 rounded-full" style={{ background: DOT_COLOR[tone] }} />
+            <span data-computer-line className="truncate text-[11.5px] text-ink-3">
+              {line}
+            </span>
+          </span>
         </span>
-      </span>
+      </button>
       <Tooltip label={gearLabel} side="bottom" align="end">
         <button
           type="button"
@@ -44,7 +75,7 @@ function HostRow({
           data-computer-gear
           aria-label={gearLabel}
           onClick={onGear}
-          className="flex size-[26px] items-center justify-center rounded-[7px] text-ink opacity-0 outline-none transition-opacity duration-100 group-hover/host:opacity-100 hover:bg-hover-2 focus-visible:bg-hover-2 focus-visible:opacity-100"
+          className="flex size-[26px] shrink-0 items-center justify-center rounded-[7px] text-ink opacity-0 outline-none transition-opacity duration-100 group-hover/host:opacity-100 hover:bg-hover-2 focus-visible:bg-hover-2 focus-visible:opacity-100"
         >
           {icon(Settings01Icon, 15)}
         </button>
@@ -55,8 +86,9 @@ function HostRow({
 
 /**
  * The footer's laptop button (spec "Computer status", design sidebar-c-sections v6): a popover of This Mac and each
- * paired computer with its status dot and route, a gear per computer that opens its settings (This Mac's: Settings ›
- * Devices), and Add computer. Shown only while Settings › Devices › Other computers is on.
+ * paired computer with its status dot and route, a check that keeps its Projects in the sidebar or leaves them out, a gear
+ * per computer that opens its settings (This Mac's: Settings › Devices), and Add computer. Shown only while Settings ›
+ * Devices › Other computers is on.
  */
 export function ComputersButton({
   collapsed,
@@ -72,6 +104,7 @@ export function ComputersButton({
 }) {
   const { otherComputers } = useSettings();
   const { thisMac, computers } = useComputers();
+  const hidden = useHiddenComputers();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -149,6 +182,8 @@ export function ComputersButton({
                   name={thisMac}
                   line="This Mac"
                   tone="online"
+                  shown={!hidden.has(LOCAL_COMPUTER)}
+                  onShow={(shown) => setComputerHidden(LOCAL_COMPUTER, !shown)}
                   gearLabel={`${thisMac} settings: devices`}
                   onGear={pick(() => onOpenSettings(null))}
                 />
@@ -159,6 +194,8 @@ export function ComputersButton({
                     name={computer.name}
                     line={routeLine(computer, now)}
                     tone={computerTone(computer)}
+                    shown={!hidden.has(computer.id)}
+                    onShow={(shown) => setComputerHidden(computer.id, !shown)}
                     gearLabel={settingsTooltip(computer.name)}
                     onGear={pick(() => onOpenSettings(computer.id))}
                   />
