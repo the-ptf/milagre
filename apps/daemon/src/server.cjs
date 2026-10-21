@@ -634,7 +634,7 @@ async function startDaemon({
               "desktop-v1",
               "snapshot-pages-v1",
               "result-pages-v1",
-              ...(policy?.denies("push:register") ? [] : ["mobile-push-v1"]),
+              ...(policy?.denies("push:register") ? [] : ["mobile-push-v1", "mobile-push-schedule-v1"]),
               STATE_PATCHES,
               CHAT_PAGES,
               SUBAGENT_TAILS,

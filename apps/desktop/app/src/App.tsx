@@ -702,6 +702,7 @@ function App() {
     showDockBadge,
     notifyWhenWaiting,
     notificationChime,
+    notificationSchedule,
     showAttentionButton,
     floatingInbox,
   } = useSettings();
@@ -1220,6 +1221,9 @@ function App() {
     void window.milagre.setNotificationChime?.(notificationChime).catch(() => {});
   }, [notificationChime]);
   useEffect(() => window.milagre.onPlayChime?.(playNotificationChime), []);
+  useEffect(() => {
+    void window.milagre.setNotificationSchedule?.(notificationSchedule).catch(() => {});
+  }, [notificationSchedule]);
 
   // A turn that ends in the open project while Milagre is in the background gets a completion alert, unless a bot runs it.
   useEffect(

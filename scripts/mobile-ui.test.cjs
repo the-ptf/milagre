@@ -12605,3 +12605,40 @@ test("provider logos preserve their shapes and use white or black in Simplified 
   assert.ok(find(render("codex"), (node) => node.type === "LinearGradient"));
   assert.ok(find(render("antigravity"), (node) => node.type === "Mask"));
 });
+
+test("phone notification schedule controls save days, overnight hours, timezone and anytime", () => {
+  const state = { schedule: null };
+  const saved = [];
+  const { NotificationScheduleSetting } = load("notification-schedule-setting.tsx", {
+    "react-native": { Text: "Text", View: "View" },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/notification-schedule": require("@milagre/shared/notification-schedule"),
+    "./push": {
+      usePush: () => ({
+        state,
+        busy: false,
+        preferences: (value) => {
+          saved.push(value);
+          Object.assign(state, value);
+        },
+      }),
+    },
+    "./ui": { ...uiHooks, PillButton: "PillButton", PullDown: "PullDown", Toggle: "Toggle" },
+  });
+  const render = () => NotificationScheduleSetting();
+  const toggle = (title) => find(render(), (node) => node.type === "Toggle" && node.props.title === title);
+  toggle("Notification schedule").props.onPress();
+  assert.deepEqual([...state.schedule.days], [1, 2, 3, 4, 5]);
+  toggle("Sat").props.onPress();
+  assert.deepEqual([...state.schedule.days], [1, 2, 3, 4, 5, 6]);
+  const pick = (label, value) => find(render(), (node) => node.type === "PullDown" && node.props.label === label).props.onSelect(value);
+  pick("Start time", "22:00");
+  pick("End time", "06:00");
+  pick("Timezone", "UTC");
+  assert.equal(state.schedule.start, "22:00");
+  assert.equal(state.schedule.end, "06:00");
+  assert.equal(state.schedule.timeZone, "UTC");
+  assert.match(textOf(render()), /Ends the next day/);
+  toggle("Notification schedule").props.onPress();
+  assert.equal(saved.at(-1).schedule, null);
+});

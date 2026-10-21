@@ -7,6 +7,7 @@ const { isTurnEnd, projectOfKey, sessionIdFromKey } = require("@milagre/shared/a
 const { createActivityTracker } = require("@milagre/shared/chat-activity");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 const { notificationChimeChannel, notificationChimeSound, parseNotificationChime } = require("@milagre/shared/notification-chimes");
+const { notificationAllowed, parseNotificationSchedule } = require("@milagre/shared/notification-schedule");
 const validOwner = (owner) => path.isAbsolute(owner) || isLinkScopeKey(owner);
 
 const FOCUS_MS = 15000;
@@ -52,6 +53,7 @@ function registration(value) {
     notifyOnCompletion: value.notifyOnCompletion,
     // The phone's notification chime, bundled in its build. Older phones send none: the system sound.
     chime: parseNotificationChime(value.chime),
+    schedule: parseNotificationSchedule(value.schedule),
   };
 }
 
@@ -97,11 +99,18 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
   }
   function current(device, chatId) {
     const view = focus.get(device.deviceId);
-    return !closed && devices.get(device.deviceId) === device && !(view?.chatId === chatId && view.until > now()) && !isChatFocused(chatId);
+    return (
+      !closed &&
+      notificationAllowed(device.schedule, now()) &&
+      devices.get(device.deviceId) === device &&
+      !(view?.chatId === chatId && view.until > now()) &&
+      !isChatFocused(chatId)
+    );
   }
   /** An approval or question (`requestId`), or with `completion` the end of the chat's work (chat-activity.mjs). */
   function deliver(chatId, run, event, requestId, completion) {
     if (!devices.size || (!requestId && isQuietChat(chatId))) return;
+    const occurredAt = now();
     const version = epoch;
     const eventId = randomUUID();
     const task = (async () => {
@@ -111,7 +120,7 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
       const validEvent = () => epoch === version && chats.get(chatId) === run && (requestId ? !run.ended && run.requests.has(requestId) : run.ended);
       if (!notice || !validEvent()) return;
       for (const device of devices.values()) {
-        if (!(requestId ? device.notifyWhenWaiting : device.notifyOnCompletion)) continue;
+        if (!(requestId ? device.notifyWhenWaiting : device.notifyOnCompletion) || !notificationAllowed(device.schedule, occurredAt)) continue;
         const isCurrent = () => validEvent() && current(device, chatId);
         if (!isCurrent()) continue;
         const sending = Promise.resolve(

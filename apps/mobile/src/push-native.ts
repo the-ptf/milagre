@@ -8,6 +8,8 @@ import { shouldPresentNotification, type PushView } from "./push-controller";
 import type { NotificationPermissionsStatus } from "expo-notifications";
 import { NOTIFICATION_CHIMES, notificationChimeChannel, notificationChimeSound } from "@milagre/shared/notification-chimes";
 
+import { notificationAllowed } from "@milagre/shared/notification-schedule";
+
 export const pushStore = createPushStore(SecureStore, Crypto.randomUUID);
 const isExpoGo = () => Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 const allowed = (permissions: NotificationPermissionsStatus) => permissions.granted || [2, 3, 4].includes(permissions.ios?.status ?? -1);
@@ -58,7 +60,7 @@ export const pushNative = {
     const api = await notifications();
     api.setNotificationHandler({
       handleNotification: async (notice) => {
-        const show = shouldPresentNotification(notice.request.content.data, view());
+        const show = shouldPresentNotification(notice.request.content.data, view()) && notificationAllowed((await pushStore.read()).schedule);
         return { shouldShowBanner: show, shouldShowList: show, shouldPlaySound: show, shouldSetBadge: false };
       },
     });

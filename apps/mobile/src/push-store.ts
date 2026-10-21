@@ -1,8 +1,10 @@
 import type { SavedHost } from "./hosts-store.ts";
 import type { NotificationChime } from "@milagre/shared/notification-chimes";
 
+import { parseNotificationSchedule, type NotificationSchedule } from "@milagre/shared/notification-schedule";
+
 /** `chime` is the notification chime; state saved before it existed has none, read as the system sound. */
-export type PushPreferences = { notifyWhenWaiting: boolean; notifyOnCompletion: boolean; chime?: NotificationChime };
+export type PushPreferences = { notifyWhenWaiting: boolean; notifyOnCompletion: boolean; chime?: NotificationChime; schedule?: NotificationSchedule | null };
 export type PushState = PushPreferences & {
   deviceId: string;
   enabled: boolean;
@@ -30,7 +32,7 @@ export function createPushStore(storage: Storage, newId: () => string) {
         const value = JSON.parse(saved) as PushState;
         if (typeof value.deviceId !== "string" || typeof value.enabled !== "boolean" || !Array.isArray(value.registered) || !Array.isArray(value.pending))
           throw new Error("Could not read notification settings.");
-        state = value;
+        state = { ...value, schedule: parseNotificationSchedule(value.schedule) };
       } else {
         const initial: PushState = {
           deviceId: newId(),
@@ -54,7 +56,7 @@ export function createPushStore(storage: Storage, newId: () => string) {
   }
   return {
     read: () => ordered(read),
-    update: (value: Partial<Pick<PushState, "enabled" | "token" | "notifyWhenWaiting" | "notifyOnCompletion" | "chime">>) =>
+    update: (value: Partial<Pick<PushState, "enabled" | "token" | "notifyWhenWaiting" | "notifyOnCompletion" | "chime" | "schedule">>) =>
       ordered(async () => write({ ...(await read()), ...value })),
     registered: (host: SavedHost) =>
       ordered(async () => {

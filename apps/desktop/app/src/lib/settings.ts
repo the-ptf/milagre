@@ -11,6 +11,8 @@ import { applyPalette } from "./theme-sheet.ts";
 import { applyAppearance } from "./appearance.ts";
 import { DEFAULT_APPEARANCE, parseAppearance, type Appearance } from "@milagre/shared/appearance";
 
+import { parseNotificationSchedule, type NotificationSchedule } from "@milagre/shared/notification-schedule";
+
 export type ThemePreference = "system" | "light" | "dark";
 /** Whether plan usage reads as the share used or the share left. */
 export type UsageDisplay = "used" | "remaining";
@@ -60,6 +62,7 @@ export interface AppSettings {
   ultracodeFatality: boolean;
   /** Settings › Notifications: the sound a chat's notification plays, instead of the system's. */
   notificationChime: NotificationChime;
+  notificationSchedule: NotificationSchedule | null;
   /** Settings › Appearance: fonts, sizes, chat width, diff colors and motion. */
   appearance: Appearance;
 }
@@ -96,6 +99,7 @@ const DEFAULTS: AppSettings = {
   otherComputers: false,
   ultracodeFatality: false,
   notificationChime: DEFAULT_NOTIFICATION_CHIME,
+  notificationSchedule: null,
   appearance: DEFAULT_APPEARANCE,
 };
 
@@ -135,6 +139,13 @@ function load(): AppSettings {
       otherComputers: typeof saved.otherComputers === "boolean" ? saved.otherComputers : DEFAULTS.otherComputers,
       ultracodeFatality: typeof saved.ultracodeFatality === "boolean" ? saved.ultracodeFatality : DEFAULTS.ultracodeFatality,
       notificationChime: parseNotificationChime(saved.notificationChime),
+      notificationSchedule: (() => {
+        try {
+          return parseNotificationSchedule(saved.notificationSchedule);
+        } catch {
+          return null;
+        }
+      })(),
       appearance: parseAppearance(saved.appearance),
     };
   } catch {
