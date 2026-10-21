@@ -10,10 +10,22 @@ function overlay(): Overlay | undefined {
   return (navigator as Navigator & { windowControlsOverlay?: Overlay }).windowControlsOverlay;
 }
 
+// The width of the bar's own controls from sidebarLeft (the sidebar toggle and the tools after it), which the sidebar reports.
+let barWidth = 0;
+const barListeners = new Set<() => void>();
+
+export function setBarControlsWidth(width: number) {
+  const next = Math.round(width);
+  if (next === barWidth) return;
+  barWidth = next;
+  for (const notify of barListeners) notify();
+}
+
 /** Geometry belongs to the local window, not to the computer whose Project it displays. */
 function readWindowChrome(): ChromeLayout {
   const mode = window.milagreWindowChrome?.controls ?? "external";
-  let sidebarLeft = mode === "leading" ? 88 : 12;
+  // Traffic lights at x 16 span 60px with a 16px margin each side on macOS 26 and later.
+  let sidebarLeft = mode === "leading" ? 92 : 12;
   let rightInset = mode === "overlay" ? 150 : 0;
   const controls = overlay();
   if (mode !== "external" && controls) {
@@ -23,29 +35,33 @@ function readWindowChrome(): ChromeLayout {
     } else {
       const rect = controls.getTitlebarAreaRect();
       if (rect.width > 0) {
-        sidebarLeft = rect.x > 0 ? rect.x + 8 : 12;
+        // macOS reports the lights with their margin on both sides, so the toggle keeps the gap the lights keep from the
+        // window edge. Overlay controls on the left end flush with the rect.
+        sidebarLeft = rect.x > 0 ? rect.x + (mode === "leading" ? 0 : 8) : 12;
         const trailing = Math.max(0, window.innerWidth - rect.right);
         rightInset = trailing > 0 ? trailing + 8 : 0;
       }
     }
   }
-  return { sidebarLeft, rightInset, controlsEnd: sidebarLeft + 32 + 8 };
+  return { sidebarLeft, rightInset, controlsEnd: sidebarLeft + Math.max(32, barWidth) + 8 };
 }
 
 function subscribe(notify: () => void) {
   const controls = overlay();
   controls?.addEventListener("geometrychange", notify);
   window.addEventListener("resize", notify);
+  barListeners.add(notify);
   return () => {
     controls?.removeEventListener("geometrychange", notify);
     window.removeEventListener("resize", notify);
+    barListeners.delete(notify);
   };
 }
 
 // A primitive snapshot stays stable between geometry events, as useSyncExternalStore requires.
 function snapshot() {
-  const { sidebarLeft, rightInset } = readWindowChrome();
-  return `${sidebarLeft}:${rightInset}`;
+  const { sidebarLeft, rightInset, controlsEnd } = readWindowChrome();
+  return `${sidebarLeft}:${rightInset}:${controlsEnd}`;
 }
 
 export function useWindowChrome(): ChromeLayout {

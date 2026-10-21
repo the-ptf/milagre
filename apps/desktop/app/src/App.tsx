@@ -2206,17 +2206,21 @@ function App() {
     return (
       <DotBackground>
         {saveNotices}
-        <div className="flex h-screen gap-3 p-3 pt-10">
-          <SettingsNav
-            showProjectSettings={false}
-            section={settingsSection}
-            onSelectProject={() => {}}
-            onSelect={setSettingsSection}
-            computerId={settingsComputer ?? undefined}
-            onSelectComputer={selectSettingsComputer}
-            onBack={() => setView("chat")}
-          />
-          <main className="min-w-0 flex-1">
+        <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
+        {/* The same frame as Settings beside a Project: the nav under the top bar, the page from the window's top. */}
+        <div className="flex h-screen gap-3 pr-3">
+          <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
+            <SettingsNav
+              showProjectSettings={false}
+              section={settingsSection}
+              onSelectProject={() => {}}
+              onSelect={setSettingsSection}
+              computerId={settingsComputer ?? undefined}
+              onSelectComputer={selectSettingsComputer}
+              onBack={() => setView("chat")}
+            />
+          </div>
+          <main className="min-w-0 flex-1 pb-3">
             <SettingsPanel
               section={settingsSection}
               computerId={settingsComputer ?? undefined}
@@ -2625,7 +2629,7 @@ function App() {
               />
             </div>
             {view === "settings" && (
-              <div className="flex shrink-0 py-3 pl-3">
+              <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
                 <SettingsNav
                   section={settingsSection}
                   project={settingsProject ?? project}

@@ -50,8 +50,10 @@ function Fixture() {
   useApplyTheme();
   useApplyOtherComputers();
   return (
-    <div style={{ display: 'flex', gap: 12, height: '100vh', padding: 12 }}>
-      <SettingsNav section={section} onSelect={setSection} onSelectProject={() => {}} onBack={() => {}} showProjectSettings={false} />
+    <div style={{ display: 'flex', gap: 12, height: '100vh', padding: '0 12px 0 0' }}>
+      <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
+        <SettingsNav section={section} onSelect={setSection} onSelectProject={() => {}} onBack={() => {}} showProjectSettings={false} />
+      </div>
       <main style={{ flex: 1, minWidth: 0 }}><SettingsPanel section={section} models={[]} update={null} /></main>
     </div>
   );
@@ -94,16 +96,18 @@ async function browserChecks() {
     // Appearance: every control is a menu; picking a size saves it and the preview follows; fonts draw in their own face.
     // The mini window preview shows where each row applies: hovering a row highlights its region.
     await waitFor(`!!document.querySelector('[data-preview-area="sidebar"]')`);
-    // Only leading window controls need room above Settings. The Back button must
-    // remain above the app's drag strip when Windows places it in that top row.
+    // Back sits in the top bar on every decoration, after the window controls when they lead, and stays
+    // above the app's drag strip.
     await evaluate(`Object.defineProperty(navigator, 'windowControlsOverlay', { configurable: true, value: undefined })`);
-    for (const [controls, expectedTop] of [
-      ["leading", 64],
-      ["overlay", 24],
-      ["external", 24],
+    for (const [controls, expectedLeft] of [
+      ["leading", 92],
+      ["overlay", 12],
+      ["external", 12],
     ]) {
       await evaluate(`window.milagreWindowChrome = { controls: ${JSON.stringify(controls)} }; window.dispatchEvent(new Event('resize'))`);
-      await waitFor(`document.querySelector('button[aria-label="Back"]').getBoundingClientRect().top === ${expectedTop}`);
+      await waitFor(
+        `(() => { const r = document.querySelector('button[aria-label="Back"]').getBoundingClientRect(); return r.top === 6 && r.left === ${expectedLeft}; })()`,
+      );
     }
     assert.equal(await evaluate(`getComputedStyle(document.querySelector('button[aria-label="Back"]')).webkitAppRegion`), "no-drag");
     const region = (area) => `document.querySelector('[data-preview-area=${JSON.stringify(area)}]')`;

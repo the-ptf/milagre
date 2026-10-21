@@ -93,8 +93,8 @@ async function browserChecks() {
     await waitFor('!!document.querySelector("[aria-label=\\"Command palette\\"]")');
     await evaluate('document.querySelector("[aria-label=\\"Command palette\\"]").focus()');
     assert.ok(
-      await evaluate('document.querySelector("[aria-label=\\\"Command palette\\\"]").textContent.includes("Search")'),
-      "Search is a visible command-palette entry",
+      await evaluate('document.querySelector("[data-sidebar-tools] [aria-label=\\"Command palette\\"]").getAttribute("aria-keyshortcuts").endsWith("+K")'),
+      "Search sits in the top bar and names its shortcut",
     );
     assert.equal(await evaluate('document.querySelectorAll("[data-shortcut-hint]").length'), 0);
     await key("Meta", { metaKey: true });
