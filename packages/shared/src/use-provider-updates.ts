@@ -23,6 +23,8 @@ export function useProviderUpdates(transport: ProviderUpdateTransport | null) {
     const request = ++revision.current;
     try {
       const next = await transport.read();
+      // Optional discovery can be unavailable on older transports. Keep that reply out of UI state.
+      if (!Array.isArray(next)) return;
       if (generation.current === current && request === revision.current) setUpdates(next);
     } catch {
       /* An older or offline computer simply has no update notice. */

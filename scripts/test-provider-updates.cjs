@@ -7,15 +7,15 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { ProviderUpdateNotice } from '/src/components/ProviderUpdateNotice';
 import '/src/styles.css';
-window.release = '0.163.0'; window.installed = false; window.calls = []; window.fail = true;
+window.release = 'unavailable'; window.available = false; window.reads = 0; window.installed = false; window.calls = []; window.fail = true;
 window.milagre = {
- getProviderUpdates: async () => window.installed ? [] : [{provider:'codex',installedVersion:'0.160.0',version:window.release}],
+ getProviderUpdates: async () => { window.reads++; return !window.available ? null : window.installed ? [] : [{provider:'codex',installedVersion:'0.160.0',version:window.release}]; },
  updateCli: async (...args) => { window.calls.push(args); await new Promise(resolve => window.finish = resolve); if(window.fail) return {ok:false,error:'Permission denied. Try again.'}; window.installed=true; return {ok:true}; }
 };
 window.settings = 0;
 document.documentElement.classList.add('dark');
 const root=createRoot(document.getElementById('root'));
-window.mount=()=>root.render(<div style={{display:'flex',padding:40,justifyContent:'flex-end'}}><ProviderUpdateNotice key={window.release} onSettings={()=>window.settings++} /></div>);
+window.mount=()=>root.render(<div data-update-fixture style={{display:'flex',padding:40,justifyContent:'flex-end'}}><ProviderUpdateNotice key={window.release} onSettings={()=>window.settings++} /></div>);
 window.mount();
 `;
 
@@ -42,6 +42,11 @@ async function browserChecks() {
   let passed = false;
   try {
     await win.loadURL(process.argv[2]);
+    await wait("window.reads > 0");
+    await delay(100);
+    assert.equal(await run("!!document.querySelector('[data-update-fixture]')"), true, "An unavailable optional endpoint must not unmount the app");
+    assert.equal(await run("!!document.querySelector('[data-provider-update]')"), false);
+    await run("window.available=true;window.release='0.163.0';window.mount()");
     await wait("document.body.textContent.includes('Codex v0.163.0')");
     await shot("available");
     await click("Settings");
