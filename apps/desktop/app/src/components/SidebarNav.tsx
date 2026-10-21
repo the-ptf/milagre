@@ -1035,7 +1035,7 @@ export default memo(function SidebarNav({
           </Tooltip>
         </div>
         {!botsMode && (
-          <div data-sidebar-tools className="flex items-center gap-1">
+          <div data-sidebar-tools className="flex items-center gap-1 [-webkit-app-region:no-drag]">
             {onOpenCanvas && (
               <Tooltip label="Canvas" side="bottom">
                 <button
