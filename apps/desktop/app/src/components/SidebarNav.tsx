@@ -687,7 +687,11 @@ export default memo(function SidebarNav({
       )
     : localScopes;
   // Every Project, hidden ones too, since the project chooser lists them all.
-  const scopeImage = useProjectImages([...projects.map((row) => row.path), ...remote.scopes.filter((scope) => !scope.link).map((scope) => scope.key)]);
+  const scopeImage = useProjectImages([
+    ...projects.map((row) => row.path),
+    ...registeredProjects.map((project) => project.path),
+    ...remote.scopes.filter((scope) => !scope.link).map((scope) => scope.key),
+  ]);
   const showAll = !collapsed;
   const {
     states: scopeStates,
@@ -793,16 +797,32 @@ export default memo(function SidebarNav({
       })
     : [];
   // Collapsed with two or more scopes: one icon per scope instead of the open one's chat initials.
-  const scopeIcon = (scope: (typeof scopes)[number], current: boolean) =>
-    scope.link ? (
-      <ProjectAvatarStack
-        projects={scope.link.projectIds.map((id) => registeredProjects.find((project) => project.id === id) ?? { path: "", name: "Project" })}
-      />
-    ) : (
+  const scopeIcon = (scope: (typeof scopes)[number], current: boolean) => {
+    if (scope.link) {
+      const firstId = scope.link.projectIds[0];
+      const first = (firstId ? registeredProjects.find((project) => project.id === firstId) : undefined) ??
+        (current ? selectedLink?.projects[0] : undefined) ?? { path: "", name: scope.name || "Project" };
+      const fallback = (first.name.trim().slice(0, 1) || scope.name.trim().slice(0, 1) || "P").toUpperCase();
+      return (
+        <span
+          data-rail-link-icon
+          className="relative flex size-6 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface"
+        >
+          <span className="flex size-full items-center justify-center opacity-35">
+            <WorkspaceIcon src={scopeImage(first.path)} fallback={fallback} />
+          </span>
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-surface drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
+            <HugeIcon icon={Link04Icon} size={13} />
+          </span>
+        </span>
+      );
+    }
+    return (
       <span className="flex size-6 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
         <WorkspaceIcon src={current && !selectedLink ? workspace.image : scopeImage(scope.key)} fallback={scope.initial} />
       </span>
     );
+  };
   const railScopes: RailScope[] | null =
     collapsed && scopes.length > 1
       ? scopes.map((scope) => {
