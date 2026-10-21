@@ -139,3 +139,10 @@ test("the chat shows the answers: one question's picks alone, several after thei
   assert.equal(answerSummary([token], { token: ["hunter2"] }), "••••••");
   assert.equal(answerSummary([token], { token: ["Green"] }), "Green");
 });
+
+test("empty and missing active questions cannot send an answer", () => {
+  assert.equal(primaryEnabled([], {}, 0), false);
+  assert.equal(primaryEnabled([color], {}, 2), false);
+  assert.equal(sendsOnPick([]), false);
+  assert.equal(answerSummary([], {}), "");
+});

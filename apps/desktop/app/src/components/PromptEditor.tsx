@@ -242,7 +242,7 @@ export function PromptEditor({
     });
     hosts.current = nextHosts;
     root.replaceChildren(...nodes);
-    setChips((current) => (current.length === nextChips.length && current.every((chip, index) => chip.host === nextChips[index].host) ? current : nextChips));
+    setChips((current) => (current.length === nextChips.length && current.every((chip, index) => chip.host === nextChips[index]?.host) ? current : nextChips));
     placeSelection(restore);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `signature` stands for `layout`.
   }, [signature, renders]);

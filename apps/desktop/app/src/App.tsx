@@ -791,10 +791,11 @@ function App() {
       return;
     }
     if (!("worktrees" in next)) return;
-    statesRef.current = { ...statesRef.current, [projectPath]: reconcileState(statesRef.current[projectPath], next) };
+    const reconciled = reconcileState(statesRef.current[projectPath], next);
+    statesRef.current = { ...statesRef.current, [projectPath]: reconciled };
     setStates(statesRef.current);
     const seen = projectsSeen.current.get(projectPath);
-    if (seen) rememberProjectCopy({ ...seen, state: statesRef.current[projectPath] });
+    if (seen) rememberProjectCopy({ ...seen, state: reconciled });
   }
 
   useEffect(() => stateEvents.onProjectState(({ path, state: next }) => receiveState(path, next)), []);
@@ -1804,7 +1805,8 @@ function App() {
         if (!step || tiles.length < 2 || event.shiftKey) return;
         event.preventDefault();
         const at = tiles.indexOf(focusedChatKeyRef.current ?? "");
-        openLinkedChat(tiles[(at + step + tiles.length) % tiles.length]);
+        const next = tiles[(at + step + tiles.length) % tiles.length];
+        if (next) openLinkedChat(next);
         return;
       }
       if (event.shiftKey) {

@@ -74,7 +74,7 @@ function antigravityCatalog(): ModelOption[] {
  * The picker shows it until the agents report their own lists (agent:models), and for an agent whose
  * CLI is missing, too old or couldn't be asked.
  */
-export const MODEL_CATALOG: ModelOption[] = [
+export const MODEL_CATALOG: [ModelOption, ...ModelOption[]] = [
   { id: "gpt-6.1-sol", name: "GPT-6.1-Sol", provider: "codex", description: "Latest generation workhorse model", recommended: true },
   { id: "gpt-6-astra", name: "GPT-6-Astra", provider: "codex", description: "Frontier intelligence for the most demanding work" },
   { id: "gpt-6-sol", name: "GPT-6-Sol", provider: "codex", description: "Previous generation workhorse model" },

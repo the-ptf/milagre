@@ -461,7 +461,7 @@ export function PromptComposer({
     if (index < 0) return false;
     event.preventDefault();
     const stash = current?.stash ?? draft;
-    const next = index < history.length ? history[index] : stash;
+    const next = index < history.length ? (history[index] ?? stash) : stash;
     browsing.current = index < history.length ? { index, stash } : null;
     setDismissed(true);
     onDraftChange(next);
@@ -481,7 +481,8 @@ export function PromptComposer({
       }
       if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
         event.preventDefault();
-        pick(rows[active] ?? rows[0]);
+        const row = rows[active] ?? rows[0];
+        if (row) pick(row);
         return;
       }
     }

@@ -1,7 +1,7 @@
 export type PromptToken = { kind: "at" | "slash"; query: string; start: number; end: number };
 export function promptToken(draft: string, caret = draft.length): PromptToken | null {
   const match = /(^|\s)([@/])([^\s@"]*)$/.exec(draft.slice(0, caret));
-  if (!match) return null;
+  if (!match || match[1] === undefined || match[3] === undefined) return null;
   return { kind: match[2] === "@" ? "at" : "slash", query: match[3].toLowerCase(), start: match.index + match[1].length, end: caret };
 }
 export function fileMentionPath(root: string, relative: string): string | null {

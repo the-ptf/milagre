@@ -81,7 +81,8 @@ export function UndoPanel({
       setActive((current + (event.key === "ArrowDown" ? 1 : tasks.length - 1)) % tasks.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      void review.inspect(tasks[current].id);
+      const task = tasks[current];
+      if (task) void review.inspect(task.id);
     }
   }
 
