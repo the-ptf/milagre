@@ -73,6 +73,19 @@ test("a platform skip prints the manifest reason when it has one", () => {
   assert.match(MANIFEST["test-chat-layout.cjs"].reason, /#\d+/);
 });
 
+test("prompt skills runs on Linux, including one of the twelve CI shards", () => {
+  const file = "scripts/test-prompt-skills.cjs";
+  const electron = discoverElectronChecks(root);
+  const select = (args) => selectTests({ unit: [], electron, filters: { ...parseArgs(args), platform: "linux", commandExists: () => true } });
+  for (const args of [[], ["--electron"], ["--only", "test-prompt-skills"]]) {
+    const selected = select(args);
+    assert.ok(selected.electron.includes(file), `${args.join(" ") || "default"} includes prompt skills`);
+    assert.ok(!selected.skipped.some((item) => item.file === file));
+  }
+  const shards = Array.from({ length: 12 }, (_, index) => select(["--electron", "--shard", `${index + 1}/12`]));
+  assert.equal(shards.flatMap((shard) => shard.electron).filter((item) => item === file).length, 1);
+});
+
 test("an Electron check is retried once, only on Linux CI", () => {
   assert.equal(shouldRetry({ platform: "linux", ci: "true", attempt: 1 }), true);
   assert.equal(shouldRetry({ platform: "linux", ci: "true", attempt: 2 }), false);

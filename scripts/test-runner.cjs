@@ -61,7 +61,6 @@ const MANIFEST = {
   "test-chat-layout.cjs": { platforms: ["darwin"], reason: "message preview overlaps the prompt on Linux, #234" },
   "test-chat-send-feedback.cjs": { platforms: ["darwin"], reason: "message navigation rebuilds on Linux, #235" },
   "test-command-palette.cjs": { platforms: ["darwin"], reason: "presses Meta, the Mac-only hint modifier, #236" },
-  "test-prompt-skills.cjs": { platforms: ["darwin"], reason: "skill tooltip never shows on hover under xvfb, #238" },
   // The Routines page, form and Chat surfaces on a Vite fixture (no build); about 6s on a Mac, so a Linux runner guess.
   "test-routines.cjs": { seconds: 9 },
   "test-sidebar-usage.cjs": { platforms: ["darwin"], reason: "usage card text differs on Linux, #254" },
