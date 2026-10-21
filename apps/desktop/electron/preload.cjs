@@ -337,6 +337,7 @@ function makeBridge(invoke, listen, send) {
     getCachedUsage: (scopeKey) => invoke("usage:cached", scopeKey),
     setNotifyWhenWaiting: (on) => invoke("settings:notify-when-waiting", on),
     setNotificationChime: (chime) => invoke("settings:notification-chime", chime),
+    setNotificationSchedule: (schedule) => invoke("settings:notification-schedule", schedule),
     onPlayChime: (callback) => listen("notification:play-chime", callback),
     setWindowBackground: (background) => invoke("settings:window-background", background),
     syncNotifications: (state) => invoke("notification:state", state),

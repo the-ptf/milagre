@@ -39,7 +39,7 @@ test("opt-in obtains permission/token and registers the remembered computers wit
   assert.deepEqual(calls[0], {
     host,
     method: "push:register",
-    args: [{ deviceId, token: "ExpoPushToken[one]", hostId: host.id, notifyWhenWaiting: true, notifyOnCompletion: true, chime: "system" }],
+    args: [{ deviceId, token: "ExpoPushToken[one]", hostId: host.id, notifyWhenWaiting: true, notifyOnCompletion: true, chime: "system", schedule: null }],
   });
   await controller.preferences({ notifyOnCompletion: false });
   assert.equal((calls.at(-1)!.args[0] as { notifyOnCompletion: boolean }).notifyOnCompletion, false);
@@ -232,4 +232,35 @@ test("restart finishes local Forget before a suspended network cleanup and rejec
   release();
   await refresh;
   assert.deepEqual(methods, ["push:unregister"]);
+});
+
+test("phone schedules reach capable computers and are removed when anytime is selected", async () => {
+  const calls: { method: string; args: unknown[] }[] = [];
+  const { controller, store } = fixture({
+    call: async (_host: SavedHost, method: string, args: unknown[]) => {
+      calls.push({ method, args });
+      return { capabilities: ["mobile-push-schedule-v1"] };
+    },
+  });
+  await controller.enable();
+  const schedule = { days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", timeZone: "America/Toronto" };
+  await controller.preferences({ schedule });
+  assert.deepEqual((await store.read()).schedule, schedule);
+  assert.equal(calls.at(-2)?.method, "daemon:status");
+  assert.deepEqual((calls.at(-1)!.args[0] as { schedule: unknown }).schedule, schedule);
+  await controller.preferences({ schedule: null });
+  assert.equal((calls.at(-1)!.args[0] as { schedule: unknown }).schedule, null);
+});
+
+test("an older computer is unregistered before it can ignore quiet hours", async () => {
+  const errors: string[] = [];
+  const { controller, calls } = fixture({ onError: (message: string) => errors.push(message) });
+  await controller.enable();
+  calls.length = 0;
+  await controller.preferences({ schedule: { days: [1], start: "09:00", end: "17:00", timeZone: "UTC" } });
+  assert.deepEqual(
+    calls.map((call) => call.method),
+    ["daemon:status", "push:unregister"],
+  );
+  assert.match(errors[0]!, /Update Milagre on Mac/);
 });

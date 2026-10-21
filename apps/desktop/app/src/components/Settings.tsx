@@ -1,3 +1,4 @@
+import { NotificationScheduleSetting } from "./NotificationScheduleSetting";
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
 import { useDesignsEnabled } from "../lib/designs-enabled";
 import { useBots } from "../lib/bots-store";
@@ -798,6 +799,9 @@ function NotificationsSettings() {
         <Row label="Attention button" description="Top right, when a chat in another project needs an approval or an answer">
           <Switch label="Attention button" checked={settings.showAttentionButton} onChange={(showAttentionButton) => updateSettings({ showAttentionButton })} />
         </Row>
+      </Group>
+      <Group title="Schedule">
+        <NotificationScheduleSetting />
       </Group>
       <Group title="Sound">
         <NotificationChimeSetting />

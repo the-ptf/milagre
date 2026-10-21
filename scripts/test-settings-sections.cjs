@@ -323,6 +323,35 @@ async function browserChecks() {
       ["Notify when finished", "Dock badge", "Notify when waiting", "Attention button"],
       "Notifications lists the four alerts, then the chime picker",
     );
+    const scheduleTrigger = `document.querySelector('button[aria-label="Notification schedule"]')`;
+    assert.equal(await evaluate(`${scheduleTrigger}.textContent.trim()`), "Anytime");
+    await evaluate(`${scheduleTrigger}.scrollIntoView({ block: "center" }); ${scheduleTrigger}.click()`);
+    const scheduleOption = (label) =>
+      `[...document.querySelectorAll('[role="listbox"][aria-label="Notification schedule"] [role="option"]')].find(o => o.textContent.trim() === ${JSON.stringify(label)})`;
+    await waitFor(`!!${scheduleOption("Weekdays, 9 AM to 5 PM")}`);
+    await evaluate(`${scheduleOption("Weekdays, 9 AM to 5 PM")}.click()`);
+    await waitFor(`document.querySelector('button[aria-label="Notification start time"]')?.textContent.trim() === "9:00 AM"`);
+    assert.deepEqual(await evaluate(`[...document.querySelectorAll('[aria-label="Notification days"] [aria-pressed="true"]')].map(b => b.textContent)`), [
+      "Mon",
+      "Tue",
+      "Wed",
+      "Thu",
+      "Fri",
+    ]);
+    await evaluate(`document.querySelector('[aria-label="Notification days"] button[aria-label="Sat"]').click()`);
+    await waitFor(`${scheduleTrigger}.textContent.trim() === "Custom hours"`);
+    await screenshot("notification-schedule-custom");
+    await openSection("Appearance");
+    await openSection("Notifications");
+    assert.equal(
+      await evaluate(`document.querySelector('[aria-label="Notification days"] button[aria-label="Sat"]').getAttribute('aria-pressed')`),
+      "true",
+      "custom days persist across navigation",
+    );
+    await evaluate(`${scheduleTrigger}.scrollIntoView({ block: "center" }); ${scheduleTrigger}.click()`);
+    await waitFor(`!!${scheduleOption("Anytime")}`);
+    await evaluate(`${scheduleOption("Anytime")}.click()`);
+    await waitFor(`!document.querySelector('button[aria-label="Notification start time"]')`);
     const chimeTrigger = `document.querySelector('button[aria-label="Notification chime"]')`;
     assert.equal(await evaluate(`${chimeTrigger}.textContent.trim()`), "System default", "the system sound by default");
     assert.equal(await evaluate(`!!document.querySelector("[data-chime-play]")`), false, "nothing to replay for the system sound");

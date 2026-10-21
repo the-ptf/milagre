@@ -255,7 +255,10 @@ test("a paired desktop reads and manages this Mac's Routines, and hears them cha
 test("a paired desktop receives live usage while provider account changes are refused", async (t) => {
   const unavailable = (provider) => async () => ({ provider, status: "unavailable", windows: [] });
   const mac = await startTestMac(t, {
-    runtime: { usageReaders: { claude: unavailable("claude"), codex: unavailable("codex"), antigravity: unavailable("antigravity") } },
+    runtime: {
+      agentCli: async () => ({ problem: "Provider CLI unavailable in this fixture" }),
+      usageReaders: { claude: unavailable("claude"), codex: unavailable("codex"), antigravity: unavailable("antigravity") },
+    },
   });
   const desktop = mac.dial(connectDesktop, { name: "Usage viewer" });
   await desktop.hello();

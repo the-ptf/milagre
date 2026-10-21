@@ -4,6 +4,8 @@ const { completionNotice, notificationText } = require("@milagre/shared/attentio
 const { createActivityTracker } = require("@milagre/shared/chat-activity");
 const { parseNotificationChime } = require("@milagre/shared/notification-chimes");
 
+const { notificationAllowed, parseNotificationSchedule } = require("@milagre/shared/notification-schedule");
+
 const MAX_TITLE = 120;
 
 const capped = (value, max) => {
@@ -22,7 +24,7 @@ const keyOf = (chatId, requestId) => `${chatId}\n${requestId}`;
 // A chat's notification plays the chime picked in Settings > Notifications: the system notice goes silent and playChime
 // plays the clip in the window. With no window to play it (playChime returns false), the system sound stays.
 class AttentionNotifier {
-  /** @param {{ createNotification: (notice: {title: string; subtitle: string; body: string; silent?: boolean}) => Electron.Notification; isAppFocused: () => boolean; openChat: (chatId: string) => void; openPhoneSettings?: () => void; setBadge?: (badge: string) => void; canPlayChime?: () => boolean; playChime?: (chime: string) => void }} options */
+  /** @param {{ createNotification: (notice: {title: string; subtitle: string; body: string; silent?: boolean}) => Electron.Notification; isAppFocused: () => boolean; openChat: (chatId: string) => void; openPhoneSettings?: () => void; setBadge?: (badge: string) => void; canPlayChime?: () => boolean; playChime?: (chime: string) => void; now?: () => number }} options */
   constructor({
     createNotification,
     isAppFocused,
@@ -31,8 +33,11 @@ class AttentionNotifier {
     setBadge = () => {},
     canPlayChime = () => false,
     playChime = () => {},
+    now = Date.now,
   }) {
     this.createNotification = createNotification;
+    this.now = now;
+    this.schedule = null;
     this.canPlayChime = canPlayChime;
     this.playChime = playChime;
     this.chime = "system";
@@ -85,6 +90,10 @@ class AttentionNotifier {
     this.chime = parseNotificationChime(chime);
   }
 
+  setSchedule(value) {
+    this.schedule = parseNotificationSchedule(value);
+  }
+
   /** A chat's notification, silent when the window plays the chime instead; show() it, then call the returned `played`. */
   chatNotification(notice) {
     const chime = this.chime !== "system" && this.canPlayChime() ? this.chime : null;
@@ -132,7 +141,7 @@ class AttentionNotifier {
   /** @param {{ chatId?: string; requestId?: string; title?: string; body?: string }} [notice] */
   notify({ chatId, requestId, title, body } = {}) {
     const key = keyOf(String(chatId), String(requestId));
-    if (!this.open.has(key) || this.open.get(key) || this.isAppFocused()) return false;
+    if (!this.open.has(key) || this.open.get(key) || this.isAppFocused() || !notificationAllowed(this.schedule, this.now())) return false;
     const { notification, played } = this.chatNotification({
       title: capped(title, MAX_TITLE) || "Milagre",
       subtitle: "",
@@ -157,6 +166,7 @@ class AttentionNotifier {
   }
 
   showCompletion(chatId, title, result) {
+    if (!notificationAllowed(this.schedule, this.now())) return false;
     if (this.isAppFocused() && this.activeChatId === chatId) return false;
     const notice = completionNotice(title, result);
     const { notification, played } = this.chatNotification({

@@ -80,3 +80,14 @@ test("late secure writes complete before disable and a failed write preserves th
   await assert.rejects(store.update({ enabled: true }), /storage/);
   assert.equal((await store.read()).enabled, false);
 });
+
+test("a phone's schedule survives restart and anytime clears it", async () => {
+  const storage = driver();
+  const schedule = { days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", timeZone: "America/Toronto" };
+  const store = createPushStore(storage, () => deviceId);
+  await store.update({ schedule });
+  const restarted = createPushStore(storage, () => "unused");
+  assert.deepEqual((await restarted.read()).schedule, schedule);
+  await restarted.update({ schedule: null });
+  assert.equal((await createPushStore(storage, () => "unused").read()).schedule, null);
+});
