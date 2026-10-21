@@ -19,12 +19,14 @@ const NOT_REMOTE = "Not available on a remote computer";
 
 /**
  * Why another computer's Routines aren't listed or current, or null when they are. An older Milagre there refuses them
- * outright; an offline one is shown from the last copy it sent, which can't be changed until it is back.
+ * outright; an offline one is shown from the last copy it sent, which can't be changed until it is back; one with its
+ * switch off lists none, which would otherwise read as having none.
  */
-function computerRoutinesProblem(view: ComputerView, error: string | null): string | null {
+function computerRoutinesProblem(view: ComputerView, error: string | null, enabled: boolean | null): string | null {
   if (error?.includes(NOT_REMOTE)) return `Update Milagre on ${view.name} to see its Routines.`;
   if (isDimmed(view)) return `${view.name} is offline. Its Routines are the last copy it sent; you can change them once it's back.`;
   if (error) return `Couldn't read ${view.name}'s Routines: ${error}`;
+  if (enabled === false) return `Routines are off on ${view.name}. Turn them on there in Settings › Experimental to see its Routines here.`;
   return null;
 }
 const card = "divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface";
@@ -76,7 +78,8 @@ export function RoutinesPage({
   // With other computers, each row says which Mac it runs on, as Chat rows do.
   const computerName = (id: string) => (id === LOCAL_COMPUTER ? thisMac : (computers.find((computer) => computer.id === id)?.name ?? "Computer"));
   const remoteProblems = computers.flatMap((computer) => {
-    const problem = computerRoutinesProblem(computer, byComputer[computer.id]?.error ?? null);
+    const read = byComputer[computer.id];
+    const problem = computerRoutinesProblem(computer, read?.error ?? null, read?.enabled ?? null);
     return problem ? [{ id: computer.id, problem }] : [];
   });
   const onComputers = Object.keys(byComputer).filter((id) => byComputer[id]?.enabled === true);
