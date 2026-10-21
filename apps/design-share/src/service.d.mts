@@ -16,19 +16,20 @@ export function createPageService<Snapshot>(options: {
   storage: Storage;
   validate(value: unknown): Snapshot;
   render(snapshot: Snapshot): string;
-  admit(ip: string): Promise<boolean>;
-  reserve(ip: string, bytes: number): Promise<boolean>;
+  admit(ip: string, replacement?: boolean): Promise<boolean>;
+  reserve(ip: string, bytes: number, replacement?: boolean): Promise<boolean>;
 }): { fetch(request: Request, id: string, ip: string): Promise<Response> };
 export interface QuotaLimits {
   bytes: number;
   pages: number;
   daily: number;
   perIp: number;
+  perIpUpdates: number;
 }
 export function quotaLimits(env: Record<string, string | undefined>): QuotaLimits;
 export function createQuotaService(options: { storage: Storage; limits: QuotaLimits; now?: () => number }): {
-  admit(ip: string): Promise<boolean>;
-  reserve(ip: string, bytes: number): Promise<boolean>;
+  admit(ip: string, replacement?: boolean): Promise<boolean>;
+  reserve(ip: string, bytes: number, replacement?: boolean): Promise<boolean>;
 };
 export function routeRequest(
   request: Request,
