@@ -4,18 +4,7 @@ import { issueChipLabel, LINK_PR_HINT, type LinearIssue } from "@milagre/shared/
 import { LinearLogo } from "../ProviderLogo";
 import { LinearIssuePicker } from "../LinearIssuePicker";
 import { SpinnerRing } from "../primitives/SpinnerRing";
-import {
-  Fragment,
-  memo,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -62,37 +51,14 @@ import { chatMarkTone } from "@milagre/shared/chats";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { activityAgo, DESKTOP_CHAT_ROW_SHOW, type ChatRowShow } from "@milagre/shared/chat-row";
+import { useDisplayNow } from "../../lib/display-clock";
 import type { BotMark } from "@/lib/bot-marks";
 import { BotAvatar } from "../bots/BotAvatar";
 
-// One clock for every row's last activity, so "5m" moves on without each row keeping a timer. A read refreshes a stale
-// value, so a row mounted long after the last tick starts right.
-const TICK = 30_000;
-let minuteNow = Date.now();
-const minuteListeners = new Set<() => void>();
-let minuteTimer: number | null = null;
-function readMinute() {
-  if (Date.now() - minuteNow >= TICK) minuteNow = Date.now();
-  return minuteNow;
-}
-function subscribeMinute(listener: () => void) {
-  minuteListeners.add(listener);
-  minuteTimer ??= window.setInterval(() => {
-    minuteNow = Date.now();
-    minuteListeners.forEach((notify) => notify());
-  }, TICK);
-  return () => {
-    minuteListeners.delete(listener);
-    if (minuteListeners.size === 0 && minuteTimer !== null) {
-      window.clearInterval(minuteTimer);
-      minuteTimer = null;
-    }
-  };
-}
-const NO_MINUTE = () => () => {};
 /** Now, to the minute, while `on`; 0 otherwise, so rows that don't show the time never re-render for it. */
 function useMinute(on: boolean) {
-  return useSyncExternalStore(on ? subscribeMinute : NO_MINUTE, () => (on ? readMinute() : 0));
+  const now = useDisplayNow(30_000, on);
+  return on ? now : 0;
 }
 
 const markToneClass = { accent: "text-accent", orange: "text-orange", red: "text-red", ink3: "text-ink-3" } as const;

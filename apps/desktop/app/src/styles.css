@@ -1528,6 +1528,12 @@ code.step-shimmer {
  * the legs and the sparkle take turns: while the sparkle holds, the legs light up, left then right, from 15% ink; once
  * they are dim again the sparkle swells, turns and settles back (four-fold symmetry, so the quarter turn loops seamlessly).
  * Reduced motion stops every part on a dim, static logo. */
+:root[data-display-hidden] *,
+:root[data-display-hidden] *::before,
+:root[data-display-hidden] *::after {
+  animation-play-state: paused !important;
+}
+
 .running-logo {
   overflow: visible;
 }
