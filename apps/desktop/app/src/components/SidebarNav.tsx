@@ -1073,10 +1073,13 @@ export default memo(function SidebarNav({
                   onClick={onOpenRoutines}
                   className={`${TOOL_BUTTON} relative size-8 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
                 >
-                  <HugeIcon icon={RepeatIcon} size={16} />
-                  {routinesUnread && (
-                    <span aria-hidden data-routines-unread className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-accent ring-2 ring-canvas" />
-                  )}
+                  {/* The dot sits on the icon's top-right corner, cut out of it by its ring. */}
+                  <span className="relative flex">
+                    <HugeIcon icon={RepeatIcon} size={16} />
+                    {routinesUnread && (
+                      <span aria-hidden data-routines-unread className="absolute -top-1 -right-1 size-2 rounded-full bg-accent ring-2 ring-canvas" />
+                    )}
+                  </span>
                 </button>
               </Tooltip>
             )}
