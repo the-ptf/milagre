@@ -11,8 +11,8 @@ import {
   ComputerTerminal01Icon,
   FilterHorizontalIcon,
   FolderAddIcon,
+  FrameIcon,
   GitBranchIcon,
-  FlowConnectionIcon,
   GitPullRequestIcon,
   Globe02Icon,
   Link04Icon,
@@ -130,7 +130,7 @@ function Sidebar() {
     <Part area="sidebar" outline={["sidebar"]} className="flex w-[272px] shrink-0 flex-col rounded-window bg-surface pt-2 shadow-card">
       <Part keep={["sidebar", "ui"]} className="mx-2 mb-3 flex items-center gap-1 text-[13px] text-ink-3">
         <span className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[8px] px-2">
-          <Icon icon={FlowConnectionIcon} />
+          <Icon icon={FrameIcon} />
           Canvas
         </span>
         <span className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[8px] px-2">

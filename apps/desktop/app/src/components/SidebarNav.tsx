@@ -27,7 +27,7 @@ import {
   Copy01Icon,
   FolderAddIcon,
   FolderOpenIcon,
-  FlowConnectionIcon,
+  FrameIcon,
   Link04Icon,
   MoreVerticalIcon,
   PencilEdit02Icon,
@@ -1035,7 +1035,7 @@ export default memo(function SidebarNav({
           </Tooltip>
         </div>
         {!botsMode && (
-          <div data-sidebar-tools className="flex items-center gap-1">
+          <div data-sidebar-tools className="flex items-center gap-1 [-webkit-app-region:no-drag]">
             {onOpenCanvas && (
               <Tooltip label="Canvas" side="bottom">
                 <button
@@ -1045,7 +1045,7 @@ export default memo(function SidebarNav({
                   onClick={onOpenCanvas}
                   className={`${TOOL_BUTTON} size-8 ${canvasActive ? "bg-hover-2 text-ink" : ""}`}
                 >
-                  <HugeIcon icon={FlowConnectionIcon} size={16} />
+                  <HugeIcon icon={FrameIcon} size={16} />
                 </button>
               </Tooltip>
             )}
