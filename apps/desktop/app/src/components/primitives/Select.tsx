@@ -52,6 +52,7 @@ export function Select<T extends string>({
   triggerClassName = "",
   searchable = false,
   variant = "field",
+  compact = false,
   leading,
   onOpenChange,
 }: {
@@ -70,6 +71,8 @@ export function Select<T extends string>({
    * reads as plain text with a chevron (a heading that is also a choice), and the panel opens from its left edge.
    */
   variant?: "field" | "chip" | "text";
+  /** The field at 28px, beside the toolbar's 28px icon buttons. */
+  compact?: boolean;
   /** Shown before the label when the selected option has no icon of its own. */
   leading?: ReactNode;
   /** Told each time the menu opens or closes: a hover surface the trigger sits in (the usage card) stays open while the panel is in use, and the Appearance preview highlights the row's area. */
@@ -175,7 +178,7 @@ export function Select<T extends string>({
             ? `flex h-7 items-center gap-1.5 rounded-full pr-2 pl-2.5 text-[12.5px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "bg-field"} ${triggerClassName}`
             : variant === "text"
               ? `-mx-1.5 flex min-w-0 max-w-full items-center gap-1 rounded-[6px] px-1.5 text-left text-ink transition-colors hover:bg-hover-2 ${open ? "bg-hover-2" : ""} ${triggerClassName}`
-              : `flex h-8 items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"} ${triggerClassName}`
+              : `flex ${compact ? "h-7" : "h-8"} items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"} ${triggerClassName}`
         }
       >
         {variant !== "text" && (selected?.icon ?? leading)}
