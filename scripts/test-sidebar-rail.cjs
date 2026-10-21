@@ -28,11 +28,18 @@ let recent = [
 window.milagre = {
   listRecentProjects: async () => recent,
   setProjectHidden: async (path, hidden) => (recent = recent.map((project) => (project.path === path ? { ...project, hidden } : project))),
-  listProjects: async () => [],
-  listNamedLinks: async () => [],
+  listProjects: async () => [
+    { id: "p-arketa", path: "/work/arketa", name: "arketa", position: null, openedAt: "" },
+    { id: "p-shop", path: "/work/shop", name: "shop", position: null, openedAt: "" },
+    { id: "p-api", path: "/work/api", name: "api", position: null, openedAt: "" },
+  ],
+  listNamedLinks: async () => [
+    { id: "link-1", name: "Arketa + Shop + API", projectIds: ["p-arketa", "p-shop", "p-api"], createdAt: "", updatedAt: "" },
+  ],
   getProjectImage: async () => null,
   listEditors: async () => [],
   readProject: async (path) => ({ path, name: path, state: path === "/work/shop" ? state(7, "Shop chat", "/work/shop") : state(1, "Fix the login flow", "/work/arketa") }),
+  readNamedLink: async () => ({ id: "link-1", name: "Arketa + Shop + API", projectIds: ["p-arketa", "p-shop", "p-api"], state: { sessions: {}, worktrees: {}, messages: [] } }),
   onProjectState: () => () => {},
   onLinkState: () => () => {},
   patchChat: async () => {},
@@ -51,6 +58,7 @@ window.render = (projectPath) =>
         runningKeys={"/work/arketa#1\\n/work/shop#7"} waitingKeys={"/work/shop#7"} attentionPaths={["/work/shop"]}
         onOpenScopeChat={(key, id) => { window.opened = key + "#" + id; }}
         onSwitchProject={(path) => { window.switched = path; }}
+        onSwitchLink={(id) => { window.switchedLink = id; }}
         onPick={(id) => { window.picked = id; }} />
     </div>,
   );
@@ -170,8 +178,27 @@ async function browserChecks() {
       [
         ["/work/arketa", "running", "true"],
         ["/work/shop", "attention", null],
+        ["milagre-link:link-1", "idle", null],
       ],
-      "One icon per Project with its chats' state; a waiting chat shows attention over running",
+      "One icon per Project and Link with its chats' state; a waiting chat shows attention over running",
+    );
+    assert.deepEqual(
+      await evaluate(`(() => {
+        const button = document.querySelector('[data-rail-scope="milagre-link:link-1"]');
+        const icon = button?.querySelector('[data-rail-link-icon]');
+        if (!button || !icon) return null;
+        const br = button.getBoundingClientRect();
+        const ir = icon.getBoundingClientRect();
+        return {
+          width: Math.round(ir.width),
+          height: Math.round(ir.height),
+          inside: ir.left >= br.left && ir.right <= br.right,
+          text: icon.textContent.trim(),
+          hasSvg: !!icon.querySelector('svg'),
+        };
+      })()`),
+      { width: 24, height: 24, inside: true, text: "A", hasSvg: true },
+      "A Link on the collapsed rail renders a single 24px tile with the dimmed first project initial and Link icon overlay",
     );
     assert.equal(await evaluate(`!!document.querySelector("[data-chat-id]")`), false, "No chat initials on the rail with several Projects");
     assert.equal(
