@@ -122,16 +122,16 @@ export function useComputerScopes(computers: ComputerView[]): {
   }, [byComputer, computers, hiddenRemote, setHidden]);
 }
 
-/** A computer as the project chooser heads its section: This Mac (`local`), or a paired one; `hidden` while the sidebar leaves it out. */
-export type ComputerSection = { id: string; name: string; local: boolean; hidden: boolean };
+/** A computer as the project chooser heads its section: This Mac (`local`), or a paired one. */
+export type ComputerSection = { id: string; name: string; local: boolean };
 
 /** The project chooser's sections: This Mac first, then the paired computers by name. */
-export function computerSections(thisMac: string, computers: { id: string; name: string }[], hidden: ReadonlySet<string>): ComputerSection[] {
+export function computerSections(thisMac: string, computers: { id: string; name: string }[]): ComputerSection[] {
   return [
-    { id: LOCAL_COMPUTER, name: thisMac, local: true, hidden: hidden.has(LOCAL_COMPUTER) },
+    { id: LOCAL_COMPUTER, name: thisMac, local: true },
     ...[...computers]
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.id.localeCompare(b.id))
-      .map((computer) => ({ id: computer.id, name: computer.name, local: false, hidden: hidden.has(computer.id) })),
+      .map((computer) => ({ id: computer.id, name: computer.name, local: false })),
   ];
 }
 

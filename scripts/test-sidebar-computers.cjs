@@ -1,7 +1,7 @@
 // Run with npm test -- --only test-sidebar-computers. The footer's computers popover in the real App against a stand-in for
 // main: the laptop button opens a popover of This Mac and each computer with its route line, a gear with its tooltip
 // opens that computer's settings (This Mac's opens Settings › Devices), unchecking a computer leaves its Projects out of
-// the sidebar (kept across a restart), Filters › Projects lists Projects under their computer, Add computer opens its
+// the sidebar and Filters › Projects (kept across a restart), Filters › Projects lists Projects under their computer, Add computer opens its
 // dialog from the popover and from Settings › Devices, and nothing about computers shows while Settings › Devices ›
 // Other computers is off. Set MILAGRE_SCREENSHOT_DIR to save screenshots.
 const assert = require("node:assert/strict");
@@ -294,17 +294,22 @@ async function browserChecks() {
     await screenshot("popover-hidden-computer");
     await evaluate(`document.querySelector('[data-computers-panel]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
     await waitFor(`!document.querySelector('[data-computers-panel]')`);
-    // Filters says so: its section is Hidden, its rows can't be chosen, and the count takes them in.
+    // Filters › Projects leaves its Projects out too; the count is still the unchecked Projects listed.
     await evaluate(`document.querySelector('[data-filters]').click()`);
     await waitFor(`!!document.querySelector('[data-filters-panel] [data-sub="projects"]')`);
-    assert.match(await evaluate(`document.querySelector('[data-filters-panel] [data-sub="projects"]').textContent`), /3 hidden/);
-    assert.equal(await evaluate(`document.querySelector('[data-filters]').hasAttribute('data-filters-active')`), true);
+    assert.match(await evaluate(`document.querySelector('[data-filters-panel] [data-sub="projects"]').textContent`), /1 hidden/);
     await evaluate(`document.querySelector('[data-filters-panel] [data-sub="projects"]').click()`);
     await waitFor(`!!document.querySelector('[data-filters-sub="projects"]')`);
-    assert.equal(await evaluate(`!!document.querySelector('[data-project-section="c-studio"] [data-project-section-hidden]')`), true);
-    assert.equal(await evaluate(`!!document.querySelector('[data-project-section="c-arketa"] [data-project-section-hidden]')`), false);
-    assert.equal(await evaluate(`document.querySelector('[data-project-choice="c-studio|/Users/s/homelab"]').disabled`), true);
-    assert.equal(await evaluate(`document.querySelector('[data-project-choice="c-arketa|/Users/a/arketa-web"]').disabled`), false);
+    assert.deepEqual(await sectionHeaders(), ["victor-mbp · This Mac", "arketa"], "no section for the hidden computer");
+    assert.deepEqual(
+      await choices(),
+      [
+        ["local", "/work/milagre-ade", "true"],
+        ["c-arketa", "c-arketa|/Users/a/arketa-web", "true"],
+        ["c-arketa", "c-arketa|/Users/a/old-site", "false"],
+      ],
+      "the hidden computer's Projects aren't listed",
+    );
     await screenshot("filters-hidden-computer");
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
@@ -323,7 +328,7 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-computers-panel]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
     await waitFor(`!document.querySelector('[data-computers-panel]')`);
     assert.deepEqual(errors, []);
-    console.log("PASS: unchecking a computer in the popover hides its Projects from the sidebar, Filters marks it Hidden, and a restart keeps it");
+    console.log("PASS: unchecking a computer in the popover hides its Projects from the sidebar and Filters › Projects, and a restart keeps it");
 
     // Removing a computer's Project from the list asks that computer, and leaves this Mac's list as it was.
     await evaluate(`document.querySelector('[data-sidebar-scope="c-arketa|/Users/a/arketa-web"] [data-scope-menu]').click()`);

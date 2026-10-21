@@ -919,7 +919,10 @@ export default memo(function SidebarNav({
         listed: true,
         computerId: project.computerId,
       })),
-  ].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path));
+  ]
+    // A hidden computer's Projects leave the chooser too; the open one stays, as it stays in the sidebar.
+    .filter((project) => project.current || !hiddenComputers.has(project.computerId))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path));
 
   // A Project's ⋯ rows: the four actions, and removing it from the list unless it's the open one. A Link gets its name copied and can be edited.
   const scopeMenu = (scope: { key: string; name: string; link: NamedProjectLink | null }, current: boolean): ScopeMenuItem[] => {
@@ -1100,7 +1103,7 @@ export default memo(function SidebarNav({
                   )}
                   <FiltersButton
                     projects={pickerProjects}
-                    computers={multi || hiddenComputers.size > 0 ? computerSections(thisMac, computers, hiddenComputers) : null}
+                    computers={multi ? computerSections(thisMac, computers) : null}
                     imageOf={scopeImage}
                     currentImage={selectedLink ? undefined : workspace.image}
                     onShowProject={showProject}

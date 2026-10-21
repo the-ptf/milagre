@@ -61,21 +61,17 @@ test("the open Project of another computer is kept once, as the local list holds
   assert.deepEqual(withoutLocal(remote, [{ key: `${A}|/a/web` }, { key: "/work/x" }]), [{ key: `${A}|/a/app` }]);
 });
 
-test("the project chooser's sections: This Mac first, then the computers by name, each saying whether it is hidden", () => {
-  const sections = computerSections(
-    "victor",
-    [
-      { id: S, name: "studio" },
-      { id: A, name: "Arketa" },
-      { id: "c-deer", name: "Deer" },
-    ],
-    new Set([S]),
-  );
+test("the project chooser's sections: This Mac first, then the computers by name", () => {
+  const sections = computerSections("victor", [
+    { id: S, name: "studio" },
+    { id: A, name: "Arketa" },
+    { id: "c-deer", name: "Deer" },
+  ]);
   assert.deepEqual(sections, [
-    { id: "local", name: "victor", local: true, hidden: false },
-    { id: A, name: "Arketa", local: false, hidden: false },
-    { id: "c-deer", name: "Deer", local: false, hidden: false },
-    { id: S, name: "studio", local: false, hidden: true },
+    { id: "local", name: "victor", local: true },
+    { id: A, name: "Arketa", local: false },
+    { id: "c-deer", name: "Deer", local: false },
+    { id: S, name: "studio", local: false },
   ]);
   const rows = [
     { path: `${S}|/s/app`, computerId: S },

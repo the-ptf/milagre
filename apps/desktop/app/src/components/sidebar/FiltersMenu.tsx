@@ -68,7 +68,7 @@ export function FiltersButton({
 }: {
   /** Null when the sidebar lists only the open Project, so there is nothing to choose. */
   projects: PickerProject[] | null;
-  /** With other computers, the sections Projects are listed under; null with this Mac alone. */
+  /** With other computers, the sections Projects are listed under; null with this Mac alone. A hidden computer's Projects aren't passed. */
   computers: ComputerSection[] | null;
   imageOf: (path: string) => string | null | undefined;
   currentImage?: string | null;
@@ -86,10 +86,7 @@ export function FiltersButton({
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [sub, setSub] = useState<{ which: Sub; top: number; focus: boolean } | null>(null);
-  // The sidebar leaves out unchecked Projects, and every Project of a hidden computer but the open one.
-  const hiddenCount =
-    projects?.filter((project) => !project.shown || (!project.current && computers?.some((computer) => computer.id === project.computerId && computer.hidden)))
-      .length ?? 0;
+  const hiddenCount = projects?.filter((project) => !project.shown).length ?? 0;
   const fields = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer" || offerComputer);
 
   // Below the button, at the top of the sidebar; collapsed, beside the rail.
@@ -168,35 +165,32 @@ export function FiltersButton({
     </button>
   );
 
-  const projectRow = (project: PickerProject, section: { name: string; hidden: boolean }) => {
-    const offWithComputer = section.hidden && !project.current;
-    return (
-      <button
-        key={project.path}
-        data-menu-row
-        data-project-choice={project.path}
-        role="menuitemcheckbox"
-        aria-checked={project.shown}
-        type="button"
-        disabled={!project.listed || offWithComputer}
-        title={offWithComputer ? `Hidden with ${section.name}` : project.current && !project.shown ? "Shown while it's the open project" : project.path}
-        onClick={() => onShowProject(project.path, !project.shown)}
-        className={ROW}
+  const projectRow = (project: PickerProject) => (
+    <button
+      key={project.path}
+      data-menu-row
+      data-project-choice={project.path}
+      role="menuitemcheckbox"
+      aria-checked={project.shown}
+      type="button"
+      disabled={!project.listed}
+      title={project.current && !project.shown ? "Shown while it's the open project" : project.path}
+      onClick={() => onShowProject(project.path, !project.shown)}
+      className={ROW}
+    >
+      <span
+        aria-hidden
+        className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] transition-colors duration-100 ${project.shown ? "bg-ink text-surface" : "border-[1.5px] border-ink-3"}`}
       >
-        <span
-          aria-hidden
-          className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] transition-colors duration-100 ${project.shown ? "bg-ink text-surface" : "border-[1.5px] border-ink-3"}`}
-        >
-          {project.shown && <HugeIcon icon={Tick02Icon} size={12} />}
-        </span>
-        <span className="flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
-          <WorkspaceIcon src={project.current ? currentImage : imageOf(project.path)} fallback={project.initial} />
-        </span>
-        <span className={`min-w-0 flex-1 truncate text-[13.5px] ${project.shown ? "text-ink" : "text-ink-3"}`}>{project.name}</span>
-        {project.current && <span className="shrink-0 text-[11px] text-ink-3">Open</span>}
-      </button>
-    );
-  };
+        {project.shown && <HugeIcon icon={Tick02Icon} size={12} />}
+      </span>
+      <span className="flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
+        <WorkspaceIcon src={project.current ? currentImage : imageOf(project.path)} fallback={project.initial} />
+      </span>
+      <span className={`min-w-0 flex-1 truncate text-[13.5px] ${project.shown ? "text-ink" : "text-ink-3"}`}>{project.name}</span>
+      {project.current && <span className="shrink-0 text-[11px] text-ink-3">Open</span>}
+    </button>
+  );
 
   return (
     <>
@@ -256,7 +250,7 @@ export function FiltersButton({
                     highlightClassName="inset-x-0 rounded-[8px] bg-hover-2"
                   >
                     {sub.which === "projects"
-                      ? (computers ? bySection(projects ?? [], computers) : [{ id: "", name: "", local: false, hidden: false, rows: projects ?? [] }]).map(
+                      ? (computers ? bySection(projects ?? [], computers) : [{ id: "", name: "", local: false, rows: projects ?? [] }]).map(
                           (section, index) => (
                             <div
                               key={section.id}
@@ -268,17 +262,12 @@ export function FiltersButton({
                               {computers && (
                                 <div
                                   data-project-section-header
-                                  className={`flex h-7 items-center gap-2 px-2 text-[11.5px] text-ink-3 ${index > 0 ? "mt-1.5" : ""}`}
+                                  className={`flex h-7 items-center px-2 text-[11.5px] font-medium text-ink-3 ${index > 0 ? "mt-1.5" : ""}`}
                                 >
-                                  <span className="min-w-0 flex-1 truncate font-medium">{section.local ? `${section.name} · This Mac` : section.name}</span>
-                                  {section.hidden && (
-                                    <span data-project-section-hidden className="shrink-0" title={`Check ${section.name} under Computers to show its Projects`}>
-                                      Hidden
-                                    </span>
-                                  )}
+                                  <span className="min-w-0 truncate">{section.local ? `${section.name} · This Mac` : section.name}</span>
                                 </div>
                               )}
-                              {section.rows.map((project) => projectRow(project, section))}
+                              {section.rows.map(projectRow)}
                             </div>
                           ),
                         )
