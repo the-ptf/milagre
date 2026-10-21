@@ -62,6 +62,12 @@ window.pushRemote = (state) => {
   for (const callback of computerEvents) callback({ channel: "project:state", payload: { path: remoteProjects["c-arketa"].path, state } });
 };
 window.setChatOrder = (chatOrder) => updateSettings({ chatOrder });
+window.usageReads = [];
+const remoteUsage = (id) => ({ accountKey: id, providers: [{
+  provider: "claude", status: "ok", updatedAt: new Date().toISOString(),
+  account: { id: "work", label: "Remote work", email: "remote@example.test" },
+  windows: [{ id: "weekly", label: "Weekly", shortLabel: "wk", usedPercent: 37, resetsAt: null }],
+}] });
 const remote = (id) => new Proxy({
   listRecentProjects: async () => projectsOf(id).map(({ path, name, hidden }) => ({ path, name, ...(hidden ? { hidden } : {}) })),
   setProjectHidden: async () => {
@@ -75,6 +81,8 @@ const remote = (id) => new Proxy({
   readChatMessages: async () => ({ messages: [], hasMore: false, total: 0 }),
   getRuns: async () => ({ runs: {}, seq: 0 }),
   listBranches: async () => ["main"],
+  getCachedUsage: async () => remoteUsage(id),
+  readUsage: async (scope) => { window.usageReads.push([id, scope]); return remoteUsage(id); },
   // A computer answers with its own list; this Mac's must not become it.
   forgetProject: async (key) => ((window.forgotten ??= []).push(key), projectsOf(id).filter((project) => project.path !== key).map(({ path, name }) => ({ path, name }))),
   sendMessage: async (request) => (window.sent.push(request), { sessionId: 4 }),
@@ -157,7 +165,7 @@ async function browserChecks() {
       evaluate(
         `[...document.querySelectorAll('[data-computers-panel] [data-computer-row]')].map((row) => [row.dataset.computerRow, row.querySelector('[data-computer-name]').textContent.trim(), row.querySelector('[data-computer-line]').textContent.trim()])`,
       );
-    await waitFor(`!!document.querySelector('[data-computers-button]')`);
+    await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`);
     await openPopover();
     assert.deepEqual(await lines(), [
       ["this-mac", "victor-mbp", "This Mac"],
@@ -181,7 +189,7 @@ async function browserChecks() {
     await evaluate(`${sidebarSwitch}.click()`);
     await waitFor(`${sidebarSwitch}.getAttribute('aria-checked') === 'true' && !localStorage.getItem("milagre.hiddenComputers")`);
     await evaluate(`document.querySelector('[aria-label="Settings navigation"] button[aria-label="Back"]').click()`);
-    await waitFor(`!!document.querySelector('[data-computers-button]')`);
+    await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`);
     await openPopover();
     await evaluate(`document.querySelector('[data-computer-row="this-mac"] [data-computer-gear]').click()`);
     await waitFor(`document.querySelector('h1')?.textContent === 'Devices'`);
@@ -192,7 +200,7 @@ async function browserChecks() {
     await evaluate(`document.querySelector('dialog[data-add-computer]').dispatchEvent(new Event('cancel', { cancelable: true }))`);
     await waitFor(`!document.querySelector('dialog')`);
     await evaluate(`document.querySelector('[aria-label="Settings navigation"] button[aria-label="Back"]').click()`);
-    await waitFor(`!!document.querySelector('[data-computers-button]')`);
+    await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`);
     console.log("PASS: a computer's gear opens its settings, with Show in sidebar; This Mac's opens Settings › Devices, which adds a computer");
 
     const scopes = () => evaluate(`[...document.querySelectorAll('[data-sidebar-scope]')].map((section) => section.dataset.sidebarScope)`);
@@ -316,7 +324,7 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('[data-filters-panel]')`);
     // A restart keeps it hidden; checking it again brings its Projects back.
     await window.loadURL(process.argv[2]);
-    await waitFor(`!!document.querySelector('[data-computers-button]')`);
+    await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`);
     await waitFor(`document.querySelectorAll('[data-sidebar-scope]').length === 2`);
     await delay(150);
     assert.deepEqual(await scopes(), ["c-arketa|/Users/a/arketa-web", "/work/milagre-ade"], "still hidden after a restart");
@@ -346,6 +354,16 @@ async function browserChecks() {
       `[...document.querySelectorAll('[data-sidebar-scope="c-arketa|/Users/a/arketa-web"] [data-chat-id] button')].find((b) => b.textContent.includes('Fix flaky deploy check')).click()`,
     );
     await waitFor(`document.querySelector('[data-chat-pane]')?.textContent.includes('The deploy check fails about one run in five.')`);
+    await waitFor(`document.querySelector('.sidebar-usage-row')?.textContent.includes('37%')`);
+    assert.ok(
+      await evaluate(`window.usageReads.some(([id, scope]) => id === 'c-arketa' && scope === 'c-arketa|/Users/a/arketa-web')`),
+      "usage is read from the open Chat's computer and Project",
+    );
+    await evaluate(`document.querySelector('.sidebar-usage-row').click()`);
+    await waitFor(`document.querySelector('[data-usage-account]')?.textContent.includes('remote@example.test')`);
+    assert.equal(await evaluate(`!!document.querySelector('[data-usage-card] [aria-haspopup="listbox"]')`), false, "remote usage has no account picker");
+    await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await waitFor(`!document.querySelector('[data-usage-card]')`);
     await screenshot("remote-chat");
 
     const menuOf = async (scope, title) => {
@@ -439,7 +457,7 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('[data-chat-computer]')`);
     await waitFor(`!document.querySelector('[data-computers-button]')`);
     await evaluate(`window.setOther(true)`);
-    await waitFor(`!!document.querySelector('[data-computers-button]')`);
+    await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`);
     console.log("PASS: with only this Mac, rows have no computer line");
     await openPopover();
     await evaluate(`document.querySelector('[data-add-computer-row]').click()`);
@@ -518,10 +536,16 @@ async function main() {
     await server.listen();
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
-    const child = require("node:child_process").spawn(require("electron"), [path.resolve(__filename), `${server.resolvedUrls.local[0]}__sidebar-computers`], {
-      env,
-      stdio: "inherit",
-    });
+    // Keep the real splash and panel animations painting when another macOS window covers this check.
+    const unthrottled = ["--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows", "--disable-features=CalculateNativeWinOcclusion"];
+    const child = require("node:child_process").spawn(
+      require("electron"),
+      [path.resolve(__filename), `${server.resolvedUrls.local[0]}__sidebar-computers`, ...unthrottled],
+      {
+        env,
+        stdio: "inherit",
+      },
+    );
     process.exitCode = await new Promise((resolve, reject) => {
       child.on("error", reject);
       child.on("exit", (code) => resolve(code ?? 1));

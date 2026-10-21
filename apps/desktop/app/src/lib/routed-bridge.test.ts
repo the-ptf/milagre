@@ -124,7 +124,6 @@ const ALLOWED: Record<string, string[]> = {
   "components/AddComputerDialog.tsx": ["onComputerAddPending", "computers"],
   "components/useAgentRuns.ts": ["onRuntimeSnapshot", "onComputerEvent", "getRuns"],
   "components/usePastedImages.ts": ["getPathForFile"],
-  "components/usage/useUsage.ts": ["onAccountsChanged", "readUsage", "getCachedUsage"],
   "components/terminal/TerminalPanel.tsx": ["onCloseFocusedTerminal", "setTerminalFocused"],
   "components/SkillsSettings.tsx": ["openSkill", "revealSkill"],
   // This Mac's Linear account and its Experimental switch.
