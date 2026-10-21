@@ -8,7 +8,7 @@ const { spawnSync } = require("node:child_process");
 const YAML = require("yaml");
 const script = path.join(__dirname, "finalize-update-feeds.cjs");
 const names = ["Milagre-1.2.3-arm64.zip", "Milagre-1.2.3-x64.zip", "Milagre-1.2.3-arm64.dmg", "Milagre-1.2.3-x64.dmg"];
-function fixture(t, { tag = "v1.2.3", feeds = ["latest-mac.yml", "beta-mac.yml"] } = {}) {
+function fixture(t, { tag = "v1.2.3", feeds = ["latest-mac.yml"] } = {}) {
   const v = tag.slice(1);
   const files = [`Milagre-${v}-arm64.zip`, `Milagre-${v}-x64.zip`, `Milagre-${v}-arm64.dmg`, `Milagre-${v}-x64.dmg`];
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-feeds-"));
@@ -56,17 +56,12 @@ test("rejects empty assets and symlinks", (t) => {
   fs.symlinkSync(path.join(f.root, names[1]), path.join(f.root, names[0]));
   assert.notEqual(f.run().status, 0);
 });
-test("a stable tag refreshes both the latest and the beta macOS feeds", (t) => {
-  const f = fixture(t);
-  assert.equal(f.run().status, 0);
-  const digest = createHash("sha512").update("abc").digest("base64");
-  for (const name of ["latest-mac.yml", "beta-mac.yml"]) assert.equal(YAML.parse(fs.readFileSync(path.join(f.root, name), "utf8")).sha512, digest);
-  assert.equal(f.run("--check").status, 0);
-});
-test("a stable tag without the beta feed fails", (t) => {
-  const f = fixture(t, { feeds: ["latest-mac.yml"] });
+test("a stable tag carrying a beta feed fails: beta installs would download the beta they already run", (t) => {
+  const f = fixture(t, { feeds: ["latest-mac.yml", "beta-mac.yml"] });
+  const result = f.run("--check");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /must not carry the beta feed: beta-mac\.yml/);
   assert.notEqual(f.run().status, 0);
-  assert.notEqual(f.run("--check").status, 0);
 });
 test("a beta tag needs only the beta feed and refreshes it", (t) => {
   const f = fixture(t, { tag: "v1.2.3-beta.7", feeds: ["beta-mac.yml"] });
@@ -93,8 +88,6 @@ test("a macos,linux platform list needs the Linux feed and its installers", (t) 
   for (const name of linux) fs.writeFileSync(path.join(f.root, name), "abc");
   const feed = { version: "1.2.3", files: linux.map((url) => ({ url, sha512: "stale", size: 1 })), path: linux[0], sha512: "stale" };
   fs.writeFileSync(path.join(f.root, "latest-linux.yml"), YAML.stringify(feed));
-  assert.notEqual(f.run(...both, "--check").status, 0, "no Linux beta feed: beta installs could not move to this release");
-  fs.writeFileSync(path.join(f.root, "beta-linux.yml"), YAML.stringify(feed));
   assert.equal(f.run(...both).status, 0);
   assert.equal(f.run(...both, "--check").status, 0);
   fs.unlinkSync(path.join(f.root, "latest-mac.yml"));

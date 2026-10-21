@@ -59,8 +59,9 @@ function compareKeys(/** @type {number[]} */ a, /** @type {number[]} */ b) {
 }
 
 /**
- * Where beta installs read their update: the newest published release that carries this platform's beta feed file.
- * GitHub's atom feed, which electron-updater reads for prereleases, also lists every tag; a tag without a published
+ * Where beta installs read their update: the newest published beta (vX.Y.Z-beta.N) that carries this platform's beta
+ * feed file. Stable releases are skipped: each one rebuilds the newest beta's commit, so a beta install already has its
+ * code, and stables before v0.230 also carried a copy of the beta feed. GitHub's atom feed, which electron-updater reads for prereleases, also lists every tag; a tag without a published
  * release (such as the per-merge draft candidates of releases before v0.229) has no files, so the updater would read
  * its missing feed and see nothing. The REST API lists published releases only. Resolves to null when none carries
  * the file; rejects when GitHub can't be read.
@@ -79,7 +80,7 @@ async function resolveBetaFeed({ fetch = globalThis.fetch, platform = process.pl
   let best = null;
   for (const release of releases) {
     const key = versionKey(release.tag_name);
-    if (release.draft || !key || !release.assets?.some((asset) => asset.name === file)) continue;
+    if (release.draft || !key || key[3] === Infinity || !release.assets?.some((asset) => asset.name === file)) continue;
     if (!best || compareKeys(key, best.key) > 0) best = { key, tag: release.tag_name };
   }
   return best ? `https://github.com/${OWNER}/${REPO}/releases/download/${best.tag}` : null;

@@ -23,16 +23,16 @@ async function main() {
   const v = options.tag.slice(1);
   const beta = v.includes("-beta.");
   const feeds = {
-    macos: [
-      beta ? ["beta-mac.yml"] : ["latest-mac.yml", "beta-mac.yml"],
-      [`Milagre-${v}-arm64.zip`, `Milagre-${v}-x64.zip`, `Milagre-${v}-arm64.dmg`, `Milagre-${v}-x64.dmg`],
-    ],
-    windows: [beta ? ["beta.yml"] : ["latest.yml", "beta.yml"], [`Milagre-Setup-${v}-x64.exe`]],
-    linux: [
-      beta ? ["beta-linux.yml"] : ["latest-linux.yml", "beta-linux.yml"],
-      [`Milagre-${v}-x86_64.AppImage`, `Milagre-${v}-amd64.deb`, `Milagre-${v}-x86_64.rpm`],
-    ],
+    macos: [[beta ? "beta-mac.yml" : "latest-mac.yml"], [`Milagre-${v}-arm64.zip`, `Milagre-${v}-x64.zip`, `Milagre-${v}-arm64.dmg`, `Milagre-${v}-x64.dmg`]],
+    windows: [[beta ? "beta.yml" : "latest.yml"], [`Milagre-Setup-${v}-x64.exe`]],
+    linux: [[beta ? "beta-linux.yml" : "latest-linux.yml"], [`Milagre-${v}-x86_64.AppImage`, `Milagre-${v}-amd64.deb`, `Milagre-${v}-x86_64.rpm`]],
   };
+  // A stable rebuilds the newest beta's commit, which beta installs already run: a beta feed on it would offer them a
+  // second download of the same code.
+  const betaFeeds = { macos: "beta-mac.yml", windows: "beta.yml", linux: "beta-linux.yml" };
+  for (const platform of selected)
+    if (!beta && fs.existsSync(path.resolve(options.artifacts, betaFeeds[platform])))
+      throw new Error(`A stable release must not carry the beta feed: ${betaFeeds[platform]}`);
   const changes = [];
   for (const platform of selected) {
     const [names, expected] = feeds[platform];

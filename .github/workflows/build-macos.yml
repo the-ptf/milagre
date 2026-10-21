@@ -94,17 +94,6 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: node scripts/with-apple-credentials.cjs npm run package:mac -- --x64 --arm64 --config.extraMetadata.version="${VERSION}" --config.publish.channel="${CHANNEL}" --config.forceCodeSigning=true --config.dmg.sign=true
-      # electron-builder writes only the current channel's feed for the github provider, so a stable
-      # build copies latest-mac.yml to beta-mac.yml; beta installs then move to the stable release.
-      - name: Mirror the stable feed to the beta channel
-        if: inputs.channel == 'latest'
-        shell: bash
-        run: |
-          if [ ! -f release/latest-mac.yml ]; then
-            echo "::error::release/latest-mac.yml was not generated; there is no stable feed to mirror to beta."
-            exit 1
-          fi
-          cp release/latest-mac.yml release/beta-mac.yml
       - name: Notarize and staple disk images
         shell: bash
         env:
