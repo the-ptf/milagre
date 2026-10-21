@@ -80,6 +80,7 @@ import {
   MONO_FONTS,
   MOTION_SPEEDS,
   SIDEBAR_SIZES,
+  SIDEBAR_USAGE_MODES,
   UI_FONTS,
   type FontOption,
 } from "@milagre/shared/appearance";
@@ -992,6 +993,16 @@ function AppearanceSettings() {
                 options={CHAT_WIDTHS.map((width) => ({ value: width.id, label: width.label }))}
               />
             </div>
+          </Row>
+          <Row label="Sidebar usage" description="One row per provider, or provider icons in one line." preview={preview.row("usage")}>
+            <Select
+              label="Sidebar usage"
+              width={200}
+              value={appearance.sidebarUsage}
+              onChange={(sidebarUsage) => change("usage", { sidebarUsage })}
+              onOpenChange={preview.menu("usage")}
+              options={SIDEBAR_USAGE_MODES.map((mode) => ({ value: mode.id, label: mode.label }))}
+            />
           </Row>
         </Group>
         <Group title="Diffs">

@@ -1,5 +1,6 @@
 export const SIZE_STEPS = ["small", "default", "medium", "large", "larger"];
 export const CHAT_WIDTH_IDS = ["comfortable", "wide", "full", "custom"];
+export const SIDEBAR_USAGE_IDS = ["expanded", "compact"];
 export const DIFF_COLOR_IDS = ["red-green", "blue-orange", "purple-yellow"];
 export const MOTION_IDS = ["normal", "fast", "off"];
 
@@ -11,6 +12,7 @@ export const DEFAULT_APPEARANCE = {
   codeSize: "default",
   chatWidth: "comfortable",
   chatWidthPx: 900,
+  sidebarUsage: "expanded",
   diffColors: "red-green",
   motion: "normal",
 };
@@ -44,6 +46,11 @@ export const CHAT_WIDTHS = [
   { id: "wide", label: "Wide", px: 1024 },
   { id: "full", label: "Full", px: null },
   { id: "custom", label: "Custom", px: null },
+];
+
+export const SIDEBAR_USAGE_MODES = [
+  { id: "expanded", label: "Expanded" },
+  { id: "compact", label: "Compact" },
 ];
 
 /** Red and green keeps each theme's own colors (null). */
@@ -130,6 +137,7 @@ const VALID = {
   chatSize: CHAT_SIZES.map((step) => step.id),
   codeSize: CODE_SIZES.map((step) => step.id),
   chatWidth: CHAT_WIDTH_IDS,
+  sidebarUsage: SIDEBAR_USAGE_IDS,
   diffColors: DIFF_COLOR_IDS,
   motion: MOTION_IDS,
 };

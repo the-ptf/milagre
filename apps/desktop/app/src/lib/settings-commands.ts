@@ -16,6 +16,18 @@ export function settingsCommands(settings: AppSettings, update: (patch: Partial<
     };
   }
 
+  function appearanceChoice<K extends keyof AppSettings["appearance"]>(key: K, value: AppSettings["appearance"][K], label: string, keywords = ""): Command {
+    return {
+      id: `setting:appearance:${key}:${value}`,
+      label,
+      keywords,
+      group: "Quick settings",
+      icon: "settings",
+      detail: settings.appearance[key] === value ? "Current" : undefined,
+      run: () => update({ appearance: { ...settings.appearance, [key]: value } }),
+    };
+  }
+
   return [
     choice("theme", "dark", "Mode: Dark", "appearance color mode"),
     choice("theme", "light", "Mode: Light", "appearance color mode"),
@@ -27,6 +39,8 @@ export function settingsCommands(settings: AppSettings, update: (patch: Partial<
     choice("usageDisplay", "remaining", "Usage: Remaining", "plan limits left"),
     choice("showUsageInSidebar", true, "Sidebar usage: Show", "on enable plan limits"),
     choice("showUsageInSidebar", false, "Sidebar usage: Hide", "off disable plan limits"),
+    appearanceChoice("sidebarUsage", "expanded", "Sidebar usage: Expanded", "appearance plan limits rows"),
+    appearanceChoice("sidebarUsage", "compact", "Sidebar usage: Compact", "appearance plan limits icons one line"),
     choice("chatOrder", "created", "Chat order: Newest chat first", "sidebar sort created date"),
     choice("chatOrder", "recent", "Chat order: Latest message first", "sidebar sort recent activity"),
     choice("claudeReplies", "concise", "Claude replies: Concise", "short responses"),

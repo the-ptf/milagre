@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { DEFAULT_APPEARANCE, clampChatWidth, MONO_FONTS, UI_FONTS, fontStack, parseAppearance } from "./appearance.mjs";
 
 test("parseAppearance keeps good fields and defaults bad ones", () => {
-  assert.deepEqual(parseAppearance({ chatSize: "huge", motion: "fast" }), { ...DEFAULT_APPEARANCE, motion: "fast" });
+  assert.deepEqual(parseAppearance({ chatSize: "huge", motion: "fast", sidebarUsage: "compact" }), {
+    ...DEFAULT_APPEARANCE,
+    motion: "fast",
+    sidebarUsage: "compact",
+  });
+  assert.deepEqual(parseAppearance({ sidebarUsage: "invalid" }), DEFAULT_APPEARANCE);
   assert.deepEqual(parseAppearance(null), DEFAULT_APPEARANCE);
 });
 
