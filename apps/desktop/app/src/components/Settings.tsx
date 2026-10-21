@@ -32,7 +32,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  ArrowLeft02Icon,
+  ArrowLeft01Icon,
   BookOpen01Icon,
   BubbleChatIcon,
   ConnectIcon,
@@ -181,63 +181,68 @@ export function SettingsNav({
   const rows = current ? projectRows({ recent, currentPath: current.path, currentName: current.name }) : [];
   const imageOf = useProjectImages(rows.map((row) => row.path));
   return (
-    <aside aria-label="Settings navigation" className="flex h-full w-[224px] shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card">
-      <div aria-hidden className={`${chrome.sidebarLeft > 12 ? "h-[calc(var(--window-chrome-height)-12px)]" : "h-2"} shrink-0`} />
-      <div className="title-drag relative z-[60] mx-2 mb-1.5 flex h-9 shrink-0 items-center gap-1 px-1">
+    <aside aria-label="Settings navigation" className="relative flex h-full w-[224px] shrink-0 flex-col">
+      {/* Back and the title sit in the window's top bar beside its controls, where the sidebar keeps its toggle. */}
+      <div
+        className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60] flex h-8 items-center gap-1"
+        style={{ left: chrome.sidebarLeft - 12 }}
+      >
         <button
           type="button"
           aria-label="Back"
           onClick={onBack}
-          className="flex size-7 items-center justify-center rounded-[7px] text-ink-2 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96] [-webkit-app-region:no-drag]"
+          className="flex size-8 items-center justify-center rounded-[8px] text-ink-2 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96] [-webkit-app-region:no-drag]"
         >
-          <Icon icon={ArrowLeft02Icon} size={16} />
+          <Icon icon={ArrowLeft01Icon} size={18} />
         </button>
-        <h2 className="text-[15px] font-semibold text-ink">Settings</h2>
+        <h2 className="text-[14px] font-semibold text-ink">Settings</h2>
       </div>
-      <GlideGroup>
-        {SECTIONS.map((item) => (
-          <RailButton key={item.key} icon={item.icon} label={item.label} active={section === item.key} onClick={() => onSelect(item.key)} />
-        ))}
-      </GlideGroup>
-      {computers.length > 0 && (
-        <div data-settings-computers>
-          <div className="mx-2 mt-2 flex h-8 items-center px-2 text-[12.5px] font-medium text-ink-3">Computers</div>
-          <GlideGroup>
-            <RailButton icon={<ComputerDot tone="online" />} label={thisMac} active={false} onClick={() => onSelect("devices")} />
-            {computers.map((computer) => (
-              <RailButton
-                key={computer.id}
-                icon={<ComputerDot tone={computerTone(computer)} />}
-                label={computer.name}
-                active={section === "computer" && computerId === computer.id}
-                onClick={() => onSelectComputer?.(computer.id)}
-              />
-            ))}
-          </GlideGroup>
-        </div>
-      )}
-      {showProjectSettings && (
-        <>
-          <div className="mx-2 mt-2 flex h-8 shrink-0 items-center px-2 text-[12.5px] font-medium text-ink-3">Projects</div>
-          <ScrollArea className="min-h-0 flex-1 pb-2">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-window bg-surface pt-2 shadow-card">
+        <GlideGroup>
+          {SECTIONS.map((item) => (
+            <RailButton key={item.key} icon={item.icon} label={item.label} active={section === item.key} onClick={() => onSelect(item.key)} />
+          ))}
+        </GlideGroup>
+        {computers.length > 0 && (
+          <div data-settings-computers>
+            <div className="mx-2 mt-2 flex h-8 items-center px-2 text-[12.5px] font-medium text-ink-3">Computers</div>
             <GlideGroup>
-              {rows.map((row) => (
+              <RailButton icon={<ComputerDot tone="online" />} label={thisMac} active={false} onClick={() => onSelect("devices")} />
+              {computers.map((computer) => (
                 <RailButton
-                  key={row.path}
-                  icon={
-                    <span className="flex size-[18px] items-center justify-center overflow-hidden rounded-[5px] bg-ink text-[10px] font-semibold text-surface">
-                      <WorkspaceIcon src={imageOf(row.path)} fallback={row.initial} />
-                    </span>
-                  }
-                  label={row.name}
-                  active={section === "project" && project?.path === row.path}
-                  onClick={() => onSelectProject({ path: row.path, name: row.name })}
+                  key={computer.id}
+                  icon={<ComputerDot tone={computerTone(computer)} />}
+                  label={computer.name}
+                  active={section === "computer" && computerId === computer.id}
+                  onClick={() => onSelectComputer?.(computer.id)}
                 />
               ))}
             </GlideGroup>
-          </ScrollArea>
-        </>
-      )}
+          </div>
+        )}
+        {showProjectSettings && (
+          <>
+            <div className="mx-2 mt-2 flex h-8 shrink-0 items-center px-2 text-[12.5px] font-medium text-ink-3">Projects</div>
+            <ScrollArea className="min-h-0 flex-1 pb-2">
+              <GlideGroup>
+                {rows.map((row) => (
+                  <RailButton
+                    key={row.path}
+                    icon={
+                      <span className="flex size-[18px] items-center justify-center overflow-hidden rounded-[5px] bg-ink text-[10px] font-semibold text-surface">
+                        <WorkspaceIcon src={imageOf(row.path)} fallback={row.initial} />
+                      </span>
+                    }
+                    label={row.name}
+                    active={section === "project" && project?.path === row.path}
+                    onClick={() => onSelectProject({ path: row.path, name: row.name })}
+                  />
+                ))}
+              </GlideGroup>
+            </ScrollArea>
+          </>
+        )}
+      </div>
     </aside>
   );
 }

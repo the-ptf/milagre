@@ -7,7 +7,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --window-chrome-height: 60px;
+  --window-chrome-height: 44px;
   --window-chrome-top: calc((var(--window-chrome-height) - 32px) / 2);
 
   /* Settings > Appearance; applyAppearance (lib/appearance.ts) overrides these inline. Defaults are today's values. */

@@ -30,7 +30,7 @@ window.milagreWindowChrome = { controls: new URLSearchParams(location.search).ge
 window.simulateGeometry = (controls, x, width, visible = true) => {
   const target = navigator.windowControlsOverlay ?? new EventTarget();
   Object.defineProperty(target, "visible", { configurable: true, value: visible });
-  Object.defineProperty(target, "getTitlebarAreaRect", { configurable: true, writable: true, value: () => new DOMRect(x, 0, width, 60) });
+  Object.defineProperty(target, "getTitlebarAreaRect", { configurable: true, writable: true, value: () => new DOMRect(x, 0, width, 44) });
   window.milagreWindowChrome = { controls };
   Object.defineProperty(navigator, "windowControlsOverlay", { configurable: true, value: target });
   window.dispatchEvent(new Event("resize"));
@@ -54,9 +54,9 @@ function Fixture() {
     <AttentionButton label="Review ready" items={[{ key: "1", project: "Layout", asking: false }]} offset={2} onOpen={() => window.attentionOpened = true} /></>}
     <div style={{ display: "flex", height: "100%", gap: 12 }}>
       <div data-sidebar-host className={"min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3 " + (settings ? "hidden" : "flex")}>
-        <SidebarNav fill workspaceName="Layout" recents={[{ id: "1", label: "Check window controls" }]} activeId="1" />
+        <SidebarNav fill workspaceName="Layout" recents={[{ id: "1", label: "Check window controls" }]} activeId="1" onOpenCanvas={() => {}} onOpenCommands={() => {}} />
       </div>
-      {settings && <div className="flex shrink-0 py-3 pl-3">
+      {settings && <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
         <SettingsNav section="appearance" onSelect={() => {}} onSelectProject={() => {}} showProjectSettings={false} onBack={() => window.settingsBackCalls = (window.settingsBackCalls ?? 0) + 1} />
       </div>}
       <main style={{ flex: 1, minWidth: 0, background: "#20242c", borderRadius: 12, padding: 20, margin: "var(--window-chrome-height) 12px 12px 0" }}>
@@ -134,8 +134,12 @@ async function browserChecks() {
         await waitFor('!!document.querySelector("[data-panel-toggle=terminal]")');
         await delay(400);
         const sidebar = await bounds("[data-sidebar-toggle] button");
-        assert.equal(sidebar.y, 14, "the button center stays on the 30px toolbar line");
+        assert.equal(sidebar.y, 6, "the button center stays on the 22px toolbar line");
         assert.equal(sidebar.x, await evaluate("readChrome().sidebarLeft"));
+        const tools = await bounds("[data-sidebar-tools]");
+        assert.equal(tools.y, 6, "Canvas, Search and Filters share the toolbar line");
+        assert.ok(tools.x >= sidebar.right, "the tools follow the sidebar toggle");
+        assert.ok((await evaluate("readChrome().controlsEnd")) >= tools.right + 8, "the controls end after the tools");
         if (chrome.controls === "external") assert.equal(sidebar.x, 12, "external controls need no Mac inset");
         if (chrome.controls === "overlay") {
           assert.equal(
@@ -175,8 +179,9 @@ async function browserChecks() {
         assert.equal((await bounds("[data-sidebar-toggle] button")).width, 0, "a hidden sidebar cannot leave a visible toggle outside its parent");
         const backSelector = '[aria-label="Settings navigation"] button[aria-label="Back"]';
         const settingsBack = await bounds(backSelector);
-        const leadingControls = (await evaluate("readChrome().sidebarLeft")) > 12;
-        assert.equal(settingsBack.top, leadingControls ? 64 : 24, "Settings reserves the large top gap only for leading native controls");
+        assert.equal(settingsBack.top, 6, "Settings Back sits in the top bar, on the toolbar line");
+        assert.equal(settingsBack.x, await evaluate("readChrome().sidebarLeft"), "Settings Back starts where the sidebar toggle does");
+        assert.equal((await bounds('[aria-label="Settings navigation"] > div:last-child')).top, 44, "the Settings card starts right under the bar");
         assert.equal(
           await evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(backSelector)})).webkitAppRegion`),
           "no-drag",
@@ -217,7 +222,7 @@ async function browserChecks() {
         await evaluate("window.showEditor(false)");
         // Leading controls (including Linux decorations on the left) and fullscreen disappearance.
         await evaluate('window.simulateGeometry("leading", 80, innerWidth - 80)');
-        await waitFor('document.querySelector("[data-sidebar-toggle]").getBoundingClientRect().x === 88');
+        await waitFor('document.querySelector("[data-sidebar-toggle]").getBoundingClientRect().x === 80');
         await evaluate('window.simulateGeometry("leading", 0, innerWidth, false)');
         await waitFor('document.querySelector("[data-sidebar-toggle]").getBoundingClientRect().x === 12');
         // Resizing and geometry events move every subscribed control together.

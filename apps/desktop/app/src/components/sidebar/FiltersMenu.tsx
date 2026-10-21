@@ -63,7 +63,6 @@ export function FiltersButton({
   show,
   offerComputer,
   onShowField,
-  collapsed,
   className,
 }: {
   /** Null when the sidebar lists only the open Project, so there is nothing to choose. */
@@ -77,7 +76,6 @@ export function FiltersButton({
   /** Two or more computers: the computer is something a row can show. */
   offerComputer: boolean;
   onShowField: (field: ChatRowField, show: boolean) => void;
-  collapsed: boolean;
   className: string;
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -89,11 +87,11 @@ export function FiltersButton({
   const hiddenCount = projects?.filter((project) => !project.shown).length ?? 0;
   const fields = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer" || offerComputer);
 
-  // Below the button, at the top of the sidebar; collapsed, beside the rail.
+  // Below the button, in the window's top bar.
   const place = () => {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return false;
-    setPosition(collapsed ? { top: rect.top, left: rect.right + 8 } : { top: rect.bottom + 6, left: rect.left });
+    setPosition({ top: rect.bottom + 6, left: rect.left });
     return true;
   };
   const close = () => {
