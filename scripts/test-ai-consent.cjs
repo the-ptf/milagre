@@ -91,6 +91,9 @@ async function browserChecks() {
     await evaluate(`document.querySelector('dialog').dispatchEvent(new Event('cancel', { cancelable: true }))`);
     await waitFor(`!document.querySelector('dialog[open]')`);
     assert.equal(await evaluate("window.__sent"), 1);
+    // This Mac's Routines follow the decision: Reset stopped them.
+    assert.deepEqual(await evaluate("JSON.stringify(window.__routineCalls)"), JSON.stringify([[false, null]]));
+    await evaluate("window.__routineCalls = []");
     await click("Enable Routines");
     await waitFor(`!!document.querySelector('dialog[open]')`);
     assert.equal(await evaluate("window.__routineCalls.length"), 0);
@@ -101,16 +104,25 @@ async function browserChecks() {
     await click("Enable Routines");
     await waitFor(`!!document.querySelector('dialog[open]')`);
     await click("Allow sharing");
-    await waitFor("window.__routineCalls.length === 1");
-    assert.deepEqual(await evaluate("window.__routineCalls[0]"), [true, require("@milagre/shared/ai-consent").AI_CONSENT_VERSION]);
+    // The decision lets this Mac run Routines, and the call itself carries the consent version.
+    await waitFor("window.__routineCalls.length === 2");
+    const version = require("@milagre/shared/ai-consent").AI_CONSENT_VERSION;
+    assert.deepEqual(
+      await evaluate("JSON.stringify(window.__routineCalls)"),
+      JSON.stringify([
+        [true, version],
+        [true, version],
+      ]),
+    );
     await click("Settings");
     await click("Settings");
     await waitFor(`document.querySelector('[role="status"]')?.textContent.includes('allowed')`);
     await click("Reset AI sharing permission");
     await waitFor(`document.querySelector('[role="status"]')?.textContent.includes('will ask')`);
+    await evaluate("window.__routineCalls = []");
     await click("Run now");
     await waitFor(`!!document.querySelector('dialog[open]')`);
-    assert.equal(await evaluate("window.__routineCalls.length"), 1);
+    assert.equal(await evaluate("window.__routineCalls.length"), 0);
     await click("Not now");
     await waitFor(`!document.querySelector('dialog[open]')`);
     assert.deepEqual(errors, []);

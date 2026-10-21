@@ -5,9 +5,9 @@ export const AI_CONSENT_TITLE = "Allow sharing with AI providers?";
 export const AI_CONSENT_DESCRIPTION =
   "When you send or continue a Chat, Milagre sends your prompts, attachments, relevant project files, conversation history and tool results to the AI providers you use: Anthropic (Claude), OpenAI (Codex) or Google (Antigravity). Agents and advisors you configure may use a different provider. This data can include personal or confidential information.";
 export const AI_CONSENT_DETAIL =
-  "Sharing lets those providers generate responses and carry out your requests. Their privacy policies and your provider account settings govern how they process and retain this data. Allowing applies to future AI actions from this device. Enabling Routines also allows their automatic Runs on that computer while this device is disconnected. You can reset this device's permission in Settings > Privacy & AI.";
+  "Sharing lets those providers generate responses and carry out your requests. Their privacy policies and your provider account settings govern how they process and retain this data. Allowing applies to future AI actions from this device. Creating, turning on or running a Routine also allows its automatic Runs on that computer while this device is disconnected. You can reset this device's permission in Settings > Privacy & AI.";
 export const AI_RESET_DETAIL =
-  "Reset blocks future AI actions from this device until you allow sharing again. Enabled Routines continue on their computer; turn Routines off in Settings > Experimental to stop future automatic Runs. Reset does not stop agents already running or delete data already sent. Use Stop in the Chat to stop a running agent.";
+  "Reset blocks future AI actions from this device until you allow sharing again. Enabled Routines continue on their computer; pause them on the Routines page to stop future automatic Runs. On a Mac, Reset also stops that Mac's own Routines until you allow sharing again. Reset does not stop agents already running or delete data already sent. Use Stop in the Chat to stop a running agent.";
 export const AI_PROVIDER_POLICIES = [
   { name: "Anthropic", url: "https://www.anthropic.com/legal/privacy" },
   { name: "OpenAI", url: "https://openai.com/policies/privacy-policy/" },
@@ -102,6 +102,19 @@ const methods = {
   answerBotGate: "bots:answer-gate",
 };
 
+/**
+ * Routine writes that let a computer run Routines, with where their consent version goes: after the device allows AI
+ * sharing, the computer reads it there and authorizes itself (there is no Routines switch).
+ */
+const ROUTINE_WRITES = { createRoutine: 1, runRoutineNow: 1, updateRoutine: 2 };
+export const ROUTINE_CONSENT_ARG = { "routines:create": 1, "routines:run-now": 1, "routines:update": 2 };
+const withConsent = (args, at) => {
+  const next = [...args];
+  while (next.length < at) next.push(undefined);
+  next[at] = AI_CONSENT_VERSION;
+  return next;
+};
+
 /** Wrap both local and paired-computer bridges at their shared call boundary. */
 export function protectAiBridge(bridge, requireConsent) {
   const wrapped = new Map();
@@ -119,6 +132,7 @@ export function protectAiBridge(bridge, requireConsent) {
             const input = property === "respondToPermission" ? [{ decision: args[2] }] : property === "setAgentPermissionMode" ? [{ mode: args[1] }] : args;
             if (requiresAiConsent(method, input)) await requireConsent(property !== "setAgentPermissionMode");
             if (property === "saveRoutinesEnabled" && args[0] === true) args = [true, AI_CONSENT_VERSION];
+            else if (ROUTINE_WRITES[property] !== undefined && requiresAiConsent(method, input)) args = withConsent(args, ROUTINE_WRITES[property]);
             return value.apply(bridge, args);
           });
         return wrapped.get(property);

@@ -31,36 +31,6 @@ export function ExperimentalSection() {
       };
     }, [session.client]),
   );
-  // The Mac's Routines switch; null until the Mac answers (an older Mac rejects the read).
-  const [routines, setRoutines] = useState<boolean | null>(null);
-  const [routinesError, setRoutinesError] = useState("");
-  useFocusEffect(
-    useCallback(() => {
-      const client = session.client;
-      if (!client) return;
-      let live = true;
-      client.call<{ enabled: boolean } | null>("routines:enabled:read", []).then(
-        (value) => live && setRoutines(value ? value.enabled === true : null),
-        () => live && setRoutines(null),
-      );
-      return () => {
-        live = false;
-      };
-    }, [session.client]),
-  );
-  async function changeRoutines(next: boolean) {
-    const client = session.client;
-    if (!client || routines === null) return;
-    setRoutinesError("");
-    setRoutines(next);
-    try {
-      const value = await client.call<{ enabled: boolean }>("routines:enabled:save", [next]);
-      setRoutines(value.enabled === true);
-    } catch (failure) {
-      setRoutines(!next);
-      setRoutinesError(failure instanceof Error ? failure.message : "Could not change this setting.");
-    }
-  }
   return (
     <View style={{ gap: 8 }}>
       {/* This phone's own switches, kept on the phone. */}
@@ -112,13 +82,6 @@ export function ExperimentalSection() {
               <PillButton title="Retry Designs setting" secondary onPress={() => void session.designs.refresh()} />
             </>
           ) : null}
-        </View>
-      )}
-      {session.client && routines !== null && (
-        <View style={[styles.card, { gap: 4 }]}>
-          <Toggle title="Routines" selected={routines} onPress={() => void changeRoutines(!routines)} />
-          <Text style={styles.caption}>Let agents set Heartbeats that check back on a Chat on a schedule. Open Chats get it after Reload chat.</Text>
-          {routinesError ? <ErrorNotice message={routinesError} /> : null}
         </View>
       )}
     </View>

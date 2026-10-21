@@ -2022,10 +2022,6 @@ function App() {
     setRoutineId(id);
     setView("routines");
   });
-  const openExperimental = useEvent(() => {
-    setSettingsSection("experimental");
-    setView("settings");
-  });
   const openProjectSettings = useEvent((path?: string) => {
     setSettingsProject(path && path !== projectRef.current?.path ? { path, name: projectName(path) } : null);
     setSettingsSection("project");
@@ -2708,7 +2704,6 @@ function App() {
                       onOpenChat={openLinkedChat}
                       onOpenRunChat={openRunChat}
                       onCloseRunChat={closeRunPane}
-                      onOpenExperimental={openExperimental}
                     />
                   )}
                 </div>

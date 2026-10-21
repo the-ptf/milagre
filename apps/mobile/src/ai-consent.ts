@@ -3,6 +3,7 @@ import * as SecureStore from "expo-secure-store";
 import {
   createAiConsent,
   requiresAiConsent,
+  ROUTINE_CONSENT_ARG,
   AI_CONSENT_VERSION,
   AI_CONSENT_TITLE,
   AI_CONSENT_DESCRIPTION,
@@ -48,5 +49,11 @@ export async function beforeAiCall(method: string, args: unknown[]) {
     await aiConsent.require(method !== "live-activity:answer" && AppState.currentState === "active");
     // Only a successful device decision may authorize automatic Runs on the connected computer.
     if (method === "routines:enabled:save" && args[0] === true) args[1] = AI_CONSENT_VERSION;
+    // A Routine created, turned on or run from here lets the Mac run Routines (there is no switch).
+    const at = ROUTINE_CONSENT_ARG[method as keyof typeof ROUTINE_CONSENT_ARG];
+    if (at !== undefined) {
+      while (args.length < at) args.push(undefined);
+      args[at] = AI_CONSENT_VERSION;
+    }
   }
 }

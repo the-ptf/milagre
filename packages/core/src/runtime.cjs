@@ -1214,13 +1214,14 @@ function createRuntime(options) {
   commands.handle("routines:enabled:save", (_event, value, consentVersion) => routines.save(value === true, consentVersion));
   commands.handle("routines:list", () => routines.list());
   // Create and change check a Routine's target the same way (routineTargets): a listed Project, a Chat that is there.
-  commands.handle("routines:update", (_event, id, patch) => routines.update(id, patch));
+  commands.handle("routines:update", (_event, id, patch, consentVersion) => routines.update(id, patch, consentVersion));
   commands.handle("routines:delete", (_event, id) => routines.remove(id));
-  commands.handle("routines:run-now", (_event, id) => routines.runNow(id));
+  commands.handle("routines:run-now", (_event, id, consentVersion) => routines.runNow(id, consentVersion));
   // A Routine the user made in the Routines form; routines.create checks its target (a Project Milagre lists).
-  commands.handle("routines:create", async (_event, input) => {
+  // Create, change and Run now carry the consent version from a device that allowed AI sharing: it lets this Mac run them.
+  commands.handle("routines:create", async (_event, input, consentVersion) => {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("A Routine needs its settings.");
-    const routine = await routines.create(input);
+    const routine = await routines.create(input, consentVersion);
     // A webhook's URL goes to the form that made it; after that, routines:hook reads it.
     return routine.trigger.kind === "webhook" ? { routine, hookUrl: routines.hook(routine.id).url } : { routine };
   });

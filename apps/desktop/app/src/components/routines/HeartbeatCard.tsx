@@ -65,7 +65,7 @@ export function HeartbeatCard({ step }: { step: HeartbeatStep }) {
         </button>
       ) : (
         <span data-heartbeat-stopped className="shrink-0 text-[12px] text-ink-3">
-          {enabled ? "Stopped" : "Routines are off"}
+          Stopped
         </span>
       )}
     </div>
