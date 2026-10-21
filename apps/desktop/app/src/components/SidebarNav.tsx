@@ -1012,11 +1012,12 @@ export default memo(function SidebarNav({
   }, []);
   return (
     <div className={`relative flex min-h-0 shrink-0 flex-col ${fill ? "h-full" : "h-[600px]"} ${className}`}>
-      {/* The window's top bar, beside its controls: the sidebar toggle, then Canvas, Search, Routines and Link projects. */}
+      {/* The window's top bar, beside its controls: the sidebar toggle, then Canvas, Search, Routines and Link projects.
+          A scrolled chat runs under it, so the group blurs what is behind it. */}
       <div
         ref={bar}
         data-sidebar-bar
-        className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60] flex items-center gap-1"
+        className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60] flex items-center gap-1 rounded-[10px] bg-page/60 backdrop-blur-md"
         style={{ left: chrome.sidebarLeft - 12 }}
       >
         <div data-sidebar-toggle>
