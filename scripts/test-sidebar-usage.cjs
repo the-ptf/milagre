@@ -1,5 +1,7 @@
 // Browser integration check using the app's existing Electron/Vite dependencies.
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 
@@ -7,8 +9,13 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { SidebarUsage } from "/src/components/usage/SidebarUsage";
-import { updateSettings } from "/src/lib/settings";
+import { applyThemeNow, getSettings, updateSettings } from "/src/lib/settings";
+import "/src/fonts.css";
 import "/src/styles.css";
+// Exercise a supported bundled font: system font metrics differ across Linux images and macOS.
+updateSettings({ theme: "dark", usageDisplay: "used", appearance: { ...getSettings().appearance, uiFont: "inter" } });
+applyThemeNow();
+window.setTheme = theme => { updateSettings({ theme }); applyThemeNow(); };
 const weekly = { id: "weekly", label: "Weekly", shortLabel: "wk", usedPercent: 96, resetsAt: null };
 const session = { id: "session", label: "Session", shortLabel: "5h", usedPercent: 32, resetsAt: null };
 window.setDisplay = usageDisplay => updateSettings({ usageDisplay });
@@ -49,12 +56,12 @@ function Fixture() {
     <SidebarUsage scope={scope} usage={{ snapshot, loading: false, refresh: async () => {}, refreshIfStale: () => {} }} />
   </aside>;
 }
-document.documentElement.classList.add("dark");
 createRoot(document.getElementById("root")).render(<Fixture />);
 `;
 
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
+  app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "milagre-sidebar-usage-")));
   await app.whenReady();
   const window = new BrowserWindow({ width: 320, height: 180, show: false, webPreferences: { backgroundThrottling: false } });
   const evaluate = (source) => window.webContents.executeJavaScript(source);
@@ -64,6 +71,12 @@ async function browserChecks() {
       await delay(25);
     }
     throw new Error(`Timed out: ${source}`);
+  }
+  async function resize(width, height) {
+    // setContentSize returns before the renderer's resize event, which closes an open usage card.
+    await evaluate('window.usageResized = false; window.addEventListener("resize", () => { window.usageResized = true; }, { once: true }); true');
+    window.setContentSize(width, height);
+    await waitFor(`window.usageResized && innerWidth === ${width} && innerHeight === ${height}`);
   }
   const geometry = () =>
     evaluate(`(() => [...document.querySelectorAll('.sidebar-usage-row')].map(row =>
@@ -82,6 +95,13 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor('document.querySelectorAll(".sidebar-usage-row").length === 3');
+    assert.equal(
+      await evaluate('document.fonts.load(\'12px "Inter Variable"\').then(faces => faces.length > 0 && faces.every(face => face.status === "loaded"))'),
+      true,
+      "The bundled Inter font loaded before measuring the rows",
+    );
+    await evaluate("document.fonts.ready.then(() => true)");
+    assert.match(await evaluate('getComputedStyle(document.querySelector(".sidebar-copy.truncate")).fontFamily'), /^"Inter Variable"/);
     const [claude, codex, antigravity] = await geometry();
     assert.equal(antigravity.length, 2, "Antigravity shows its Gemini 5-hour and weekly windows");
     assert.deepEqual(
@@ -118,7 +138,7 @@ async function browserChecks() {
       ["32%", "96%"],
     );
     await screenshot("5h-dark");
-    await evaluate('document.documentElement.classList.remove("dark")');
+    await evaluate('window.setTheme("light")');
     await screenshot("5h-light");
     await evaluate('window.setSession(false); window.setDisplay("remaining")');
     await waitFor('document.querySelectorAll(".sidebar-usage-row")[1].textContent.includes("4%")');
@@ -127,24 +147,34 @@ async function browserChecks() {
     await evaluate('window.setDisplay("used")');
     await waitFor('document.querySelectorAll(".sidebar-usage-row")[1].textContent.includes("96%")');
     await screenshot("weekly-only-light");
-    window.setContentSize(560, 420);
+    await resize(560, 420);
     await evaluate('document.querySelector("aside").style.marginTop = "300px"');
     const cardText = '(document.querySelector("[data-usage-card]")?.textContent ?? "")';
     await evaluate('document.querySelectorAll(".sidebar-usage-row")[1].click()');
     await waitFor(`${cardText}.includes("victor@example.test")`);
-    assert.doesNotMatch(await evaluate(cardText), /Codex/);
-    assert.match(await evaluate(cardText), /Banked resets3 left/);
+    const codexCard = await evaluate(cardText);
+    assert.match(codexCard, /victor@example\.test/);
+    assert.doesNotMatch(codexCard, /Codex/);
+    assert.match(codexCard, /Banked resets3 left/);
     assert.equal(await evaluate('document.querySelector("[data-usage-account]").textContent'), "victor@example.test");
     assert.match(await evaluate('document.querySelectorAll(".sidebar-usage-row")[1].getAttribute("aria-label")'), /victor@example.test/);
     await screenshot("codex-card-banked");
-    await evaluate('document.documentElement.classList.add("dark")');
+    // Resizing really dismisses a card; the next click must happen after delivery of that event.
+    await resize(580, 440);
+    await waitFor('!document.querySelector("[data-usage-card]")');
+    await evaluate('document.querySelectorAll(".sidebar-usage-row")[1].click()');
+    await waitFor(`${cardText}.includes("victor@example.test")`);
+    assert.match(await evaluate(cardText), /Banked resets3 left/);
+    await evaluate('window.setTheme("dark")');
     await screenshot("codex-account-dark");
     await evaluate('document.querySelectorAll(".sidebar-usage-row")[0].click()');
     await waitFor(`${cardText}.includes("Work")`);
-    assert.doesNotMatch(await evaluate(cardText), /Claude/);
+    const claudeCard = await evaluate(cardText);
+    assert.match(claudeCard, /Work/);
+    assert.doesNotMatch(claudeCard, /Claude/);
     assert.equal(await evaluate('document.querySelector("[data-usage-account]").textContent'), "Work");
     await screenshot("claude-account-name");
-    assert.doesNotMatch(await evaluate(cardText), /Banked/, "No banked row when the account has none");
+    assert.doesNotMatch(claudeCard, /Banked/, "No banked row when the account has none");
     await evaluate('document.querySelectorAll(".sidebar-usage-row")[2].click()');
     await waitFor(`${cardText}.includes("Default account")`);
     assert.match(await evaluate(cardText), /Gemini 5-hour/);
@@ -223,7 +253,12 @@ async function main() {
     await server.listen();
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
-    const child = spawn(require("electron"), [path.resolve(__filename), `${server.resolvedUrls.local[0]}__sidebar_usage__`], { env, stdio: "inherit" });
+    const child = spawn(require("electron"), [path.resolve(__filename), `${server.resolvedUrls.local[0]}__sidebar_usage__`], {
+      env,
+      stdio: "inherit",
+      timeout: 60_000,
+      killSignal: "SIGKILL",
+    });
     process.exitCode = await new Promise((resolve, reject) => {
       child.on("error", reject);
       child.on("exit", (code) => resolve(code ?? 1));
