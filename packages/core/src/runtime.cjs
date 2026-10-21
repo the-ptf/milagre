@@ -1366,7 +1366,9 @@ function createRuntime(options) {
     if (options.readUsage) return options.readUsage();
     await environmentReady;
     const usage = usageForAccounts(scope);
-    return usageWithAccounts(usage, await usage.read());
+    const snapshot = await usageWithAccounts(usage, await usage.read());
+    emit("usage:changed", { scopeKey: scope });
+    return snapshot;
   });
   commands.handle("usage:cached", async (_event, scope) => {
     scope = await validateAccountScope(scope, true);

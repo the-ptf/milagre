@@ -211,3 +211,31 @@ test("usage reads and cached usage stay isolated to the selected scope", async (
     ["usage:read", ["link:two"]],
   ]);
 });
+
+test("usage pushes reload saved limits without another provider read and ignore a late cache", async () => {
+  let saved = snapshot(32);
+  let reads = 0;
+  const late = deferred<UsageSnapshot>();
+  let delayed = false;
+  const state = createUsageState(
+    client(async (method) => {
+      if (method === "usage:read") {
+        reads++;
+        return snapshot(90);
+      }
+      return delayed ? late.promise : saved;
+    }),
+    () => NOW,
+  );
+  await state.loadCached();
+  saved = snapshot(66);
+  await state.loadCached(true);
+  assert.equal(sessionPercent(state.get().snapshot), 66);
+  assert.equal(reads, 0);
+  delayed = true;
+  const pending = state.loadCached(true);
+  await state.refresh();
+  late.resolve(snapshot(70));
+  await pending;
+  assert.equal(sessionPercent(state.get().snapshot), 90);
+});

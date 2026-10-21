@@ -9,7 +9,7 @@ import { ProviderLogo } from "../ProviderLogo";
 import { UsageBar } from "./UsageBar";
 import { projectAccountOptions, useProjectAccounts } from "../ProjectAccountsSettings";
 import { Select } from "../primitives/Select";
-import { bridgeForKey } from "../../lib/computer-bridge";
+import { bridgeForKey, isRemoteKey } from "../../lib/computer-bridge";
 
 export const USAGE_CARD_WIDTH = 288;
 
@@ -121,7 +121,7 @@ export function UsageCard({ id, usage, scope, loading, position, onRefresh, onPi
           <ProviderLogo provider={usage.provider} size={16} />
         </span>
         <div className="min-w-0 flex-1">
-          {scope ? (
+          {scope && !isRemoteKey(scope) ? (
             <AccountPicker scope={scope} provider={usage.provider} account={account} onOpenChange={onPickerOpenChange} />
           ) : (
             <AccountText account={account} />

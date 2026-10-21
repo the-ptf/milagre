@@ -43,7 +43,6 @@ const LOCAL_ONLY_PREFIXES = Object.freeze([
   "phone:",
   "settings:",
   "update:",
-  "usage:",
 ]);
 const NOT_REMOTE = "Not available on a remote computer";
 /** @param {string} channel */
@@ -105,6 +104,7 @@ const withRoutine = (id, routine) =>
 
 /** @type {Record<string, (id: string, payload: any) => any>} */
 const EVENTS = {
+  "usage:changed": (id, payload) => field(id, payload, "scopeKey", key),
   "project:state": withPath,
   "link:state": (id, payload) => field(id, payload, "linkId", linkId),
   "agent:event": withChat,
