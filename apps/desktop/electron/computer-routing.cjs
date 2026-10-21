@@ -20,6 +20,7 @@ const LOCAL_ONLY = Object.freeze([
   "accounts:assign",
   "chat:limit-switch",
   "agent:update-cli",
+  "agent:provider-updates",
   "linear:connect",
   "linear:cancel",
   "linear:disconnect",

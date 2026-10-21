@@ -852,3 +852,26 @@ test("a confined phone's routines:targets reaches the daemon limited to its fold
   assert.deepEqual(await confine.checkCall("routines:targets", []), { args: [{ within: root }] });
   assert.deepEqual(await confine.checkCall("routines:targets", [{ within: "/" }]), { args: [{ within: root }] });
 });
+
+test("provider update cards read and install through the phone bridge; confined phones cannot install", async (t) => {
+  const updates = [{ provider: "codex", installedVersion: "0.160.0", version: "0.163.0" }];
+  const installed = [];
+  const runtime = (options) => ({
+    ...options,
+    providerUpdates: async () => updates,
+    runCliUpdate: async (provider, options) => {
+      installed.push([provider, options.targetVersion]);
+      return { ok: true, version: options.targetVersion };
+    },
+  });
+  const confined = await fixture(t, { runtime });
+  const refused = await confined.rpc("agent:update-cli", ["codex", "0.163.0"]);
+  assert.notEqual(refused.status, 200);
+  assert.equal(installed.length, 0);
+  const normal = await fixture(t, { allowedRoot: false, runtime });
+  assert.deepEqual((await normal.rpc("agent:provider-updates")).body.result, updates);
+  assert.equal((await normal.rpc("agent:update-cli", ["codex", "0.163.0"])).body.result.ok, true);
+  assert.deepEqual(installed, [["codex", "0.163.0"]]);
+  assert.notEqual((await normal.rpc("agent:update-cli", ["codex", "$(bad)"])).status, 200);
+  assert.equal(installed.length, 1);
+});

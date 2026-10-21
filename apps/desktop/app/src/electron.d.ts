@@ -531,7 +531,8 @@ export type MilagreBridge = {
   /** How each agent's CLI stands (missing, outdated, broken, logged out, or ready); checked again on every call while it has a problem. */
   getCliStatus: (scopeKey?: string) => Promise<AgentCliStatus>;
   /** Runs update for the specified CLI agent and refreshes status. */
-  updateCli: (provider: ModelProvider) => Promise<{ ok: boolean; version?: string; error?: string; status?: CliStatus }>;
+  getProviderUpdates: () => Promise<import("@milagre/shared/model").ProviderUpdate[]>;
+  updateCli: (provider: ModelProvider, targetVersion?: string) => Promise<{ ok: boolean; version?: string; error?: string; status?: CliStatus }>;
   stopAdvisor: (chatId: string, id: string) => Promise<Subagent>;
   retryAdvisor: (chatId: string, id: string) => Promise<Subagent>;
   /** Where Antigravity's install stands while `updateCli("antigravity")` runs: download bytes, then extract, validate, done. */

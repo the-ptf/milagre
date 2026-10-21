@@ -46,6 +46,12 @@ export interface CliStatus {
   state: CliState;
   message?: string;
 }
+export interface ProviderUpdate {
+  provider: ModelProvider;
+  installedVersion: string;
+  version: string;
+}
+
 export type AgentCliStatus = Record<ModelProvider, CliStatus>;
 
 export interface Project {
