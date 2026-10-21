@@ -43,6 +43,7 @@ const MANIFEST = {
   "test-allow-computer.cjs": { seconds: 11 },
   "test-chat-selections.cjs": { seconds: 11 },
   "test-popover-dismiss.cjs": { seconds: 11 },
+  "test-find-in-chat.cjs": { seconds: 10 },
   "test-genui.cjs": { seconds: 10 },
   "test-canvas-links.cjs": { seconds: 10 },
   "test-floating-inbox-native.cjs": { seconds: 10, needsBuild: true },
@@ -60,7 +61,6 @@ const MANIFEST = {
   "test-chat-layout.cjs": { platforms: ["darwin"], reason: "message preview overlaps the prompt on Linux, #234" },
   "test-chat-send-feedback.cjs": { platforms: ["darwin"], reason: "message navigation rebuilds on Linux, #235" },
   "test-command-palette.cjs": { platforms: ["darwin"], reason: "presses Meta, the Mac-only hint modifier, #236" },
-  "test-find-in-chat.cjs": { platforms: ["darwin"], reason: "presses Meta+G, the Mac-only find-next shortcut, #237" },
   "test-prompt-skills.cjs": { platforms: ["darwin"], reason: "skill tooltip never shows on hover under xvfb, #238" },
   "test-sidebar-resize.cjs": { platforms: ["darwin"], reason: "reads the width mid-transition on Linux, #239" },
   // The Routines page, form and Chat surfaces on a Vite fixture (no build); about 6s on a Mac, so a Linux runner guess.
