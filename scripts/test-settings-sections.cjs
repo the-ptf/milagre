@@ -1,4 +1,4 @@
-// Settings sections in Electron: Experimental lists only Designs, Floating inbox, Ultracode Fatality, Routines and Bots; Notifications holds the
+// Settings sections in Electron: Experimental lists only Designs, Floating inbox, Ultracode Fatality and Bots (Routines left it); Notifications holds the
 // chime picker (picking one saves and plays it; the replay button plays it again); Devices holds Drive other computers, which
 // tells main each time it flips. The legacy sidebar switch is gone everywhere.
 const assert = require("node:assert/strict");
@@ -221,12 +221,13 @@ async function browserChecks() {
     await waitFor(`${region("width")}.textContent.includes("Full")`);
     await openSection("Experimental");
     await waitFor(`!!document.querySelector("[data-slot=designs-setting]")`);
-    // The Routines switch shows once the Mac's setting is read.
-    await waitFor(`!!document.querySelector('main [role="switch"][aria-label="Routines"]')`);
+    await waitFor(`!!document.querySelector('main [role="switch"][aria-label="Bots"]')`);
+    // Routines have no switch any more: a computer runs them once a device allowed AI sharing for it.
+    await delay(300);
     assert.deepEqual(
       await switches(),
-      ["Designs", "Floating inbox", "Ultracode Fatality", "Routines", "Bots"],
-      "Experimental lists only Designs, Floating inbox, Ultracode Fatality, Routines and Bots",
+      ["Designs", "Floating inbox", "Ultracode Fatality", "Bots"],
+      "Experimental lists only Designs, Floating inbox, Ultracode Fatality and Bots",
     );
     assert.equal(
       await evaluate(`/legacy sidebar|Other computers|Notification chime|Custom theme|usage limits|Linear/i.test(document.querySelector("main").textContent)`),
@@ -324,7 +325,7 @@ async function browserChecks() {
     assert.deepEqual(errors, []);
     await screenshot("notifications");
     console.log(
-      "PASS: Experimental lists only Designs, Floating inbox, Ultracode Fatality, Routines and Bots, with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips",
+      "PASS: Experimental lists only Designs, Floating inbox, Ultracode Fatality and Bots (no Routines switch), with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips",
     );
     app.exit(0);
   } catch (error) {
