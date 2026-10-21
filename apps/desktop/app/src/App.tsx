@@ -1,3 +1,4 @@
+import { ProviderUpdateNotice } from "./components/ProviderUpdateNotice";
 import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components/PersistenceNotice";
 import { AiConsentDialog } from "./components/AiConsent";
 import { UpdateShell, useAppUpdates } from "./components/UpdateNotice";
@@ -450,6 +451,7 @@ function App() {
   const updateCliRef = useRef(updateCli);
   updateCliRef.current = updateCli;
   const handleUpdateCli = useCallback((provider: ModelProvider) => updateCliRef.current(provider), []);
+  const handleProvidersUpdated = useCallback(() => refreshCliStatusRef.current(), []);
 
   useEffect(() => {
     if (!notice) return;
@@ -2506,6 +2508,9 @@ function App() {
       <ScopeContext.Provider value={project.path}>
         <DotBackground key="app">
           <PersistenceNotices scopes={globalUnsavedScopes}>
+            <div className="pointer-events-none absolute bottom-5 right-5 z-50 max-w-[calc(100%-40px)] [&>*]:pointer-events-auto [-webkit-app-region:no-drag]">
+              <ProviderUpdateNotice onSettings={openAccounts} onUpdated={handleProvidersUpdated} />
+            </div>
             {hostConnection.connected && hostConnection.hostOutdated && (
               <div
                 role="status"

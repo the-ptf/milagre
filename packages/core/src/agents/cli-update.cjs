@@ -112,8 +112,57 @@ async function updateAntigravity({ antigravity, onProgress, signal } = {}) {
   }
 }
 
+// Optional latest-release upgrades must reach the version advertised by the card, even
+// when the installed version already satisfies Milagre's minimum.
+async function upgradeRelease(name, deps) {
+  const {
+    targetVersion,
+    inspect = inspectCli,
+    execImpl = exec,
+    execFileImpl = execFile,
+    resolve = resolveExecutable,
+    linkVersion = linkNewestClaudeVersion,
+  } = deps;
+  const satisfied = (status) => !status.problem && parseVersion(status.version) && isAtLeast(parseVersion(status.version), targetVersion);
+  let status = await inspect(name);
+  if (satisfied(status)) return { ok: true, version: status.version };
+  const commands =
+    name === "claude"
+      ? [
+          ["claude", ["install", "--force", "latest"]],
+          ["npm", ["install", "-g", "@anthropic-ai/claude-code@latest"]],
+        ]
+      : [["npm", ["install", "-g", "@openai/codex@latest"]]];
+  let failure;
+  for (const [program, args] of commands) {
+    if ((deps.platform || process.platform) === "win32") {
+      const file = await resolve(program);
+      failure = file
+        ? await new Promise((done) =>
+            execCommand(file, args, { encoding: "utf8", timeout: 120000, windowsHide: true }, (error) => done(error?.message), execFileImpl),
+          )
+        : `${program} is not installed on PATH.`;
+    } else {
+      const result = await runCommand([program, ...args].join(" "), execImpl);
+      failure = result.error;
+      if (name === "claude") linkVersion();
+    }
+    status = await inspect(name);
+    if (satisfied(status)) return { ok: true, version: status.version };
+  }
+  return {
+    ok: false,
+    version: status.version,
+    error: status.problem || failure || `The installed ${name} is still ${status.version ?? "unavailable"}. Version ${targetVersion} could not be activated.`,
+  };
+}
+
 async function runCliUpdate(name, deps = {}) {
   if (name === "antigravity") return updateAntigravity(deps);
+  if (deps.targetVersion) {
+    if (!["claude", "codex"].includes(name) || !/^\d+\.\d+\.\d+$/.test(deps.targetVersion)) return { ok: false, error: "Invalid provider release." };
+    return upgradeRelease(name, deps);
+  }
   if ((deps.platform || process.platform) === "win32") return runWindowsCliUpdate(name, deps);
   const { inspect = inspectCli, execImpl = exec, linkVersion = linkNewestClaudeVersion } = deps;
 
