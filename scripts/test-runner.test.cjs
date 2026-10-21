@@ -86,6 +86,19 @@ test("Linux runs sidebar usage in default, Electron-only and targeted selections
   assert.equal(shards.flatMap((shard) => shard.electron).filter((item) => item === file).length, 1);
 });
 
+test("Linux runs send feedback in default, Electron-only and targeted selections and exactly one CI shard", () => {
+  const file = "scripts/test-chat-send-feedback.cjs";
+  const electron = discoverElectronChecks(root);
+  const select = (args) => selectTests({ unit: [], electron, filters: { ...parseArgs(args), platform: "linux", commandExists: () => true } });
+  for (const args of [[], ["--electron"], ["--only", "test-chat-send-feedback"]]) {
+    const selected = select(args);
+    assert.ok(selected.electron.includes(file));
+    assert.ok(!selected.skipped.some((item) => item.file === file));
+  }
+  const shards = Array.from({ length: 12 }, (_, i) => select(["--electron", "--shard", `${i + 1}/12`]));
+  assert.equal(shards.flatMap((shard) => shard.electron).filter((item) => item === file).length, 1);
+});
+
 test("an Electron check is retried once, only on Linux CI", () => {
   assert.equal(shouldRetry({ platform: "linux", ci: "true", attempt: 1 }), true);
   assert.equal(shouldRetry({ platform: "linux", ci: "true", attempt: 2 }), false);

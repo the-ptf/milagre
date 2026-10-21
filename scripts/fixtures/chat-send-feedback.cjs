@@ -138,7 +138,7 @@ if (new URLSearchParams(location.search).has("link")) {
     opened={opened} state={linkState} agents={{ runs: {} }} drafts={createScopeDrafts()}
     preferences={{ models: [model], selectedModel: model, onModelChange: noop, cliStatus: {}, onModelPickerOpen: noop, onUpdateCli: noop,
       capability: { efforts: ["high"], ultracode: false, fastMode: false } }}
-    hostConnection={{ connected: true }} ports={{}} linkedWork={{ delegations: [], negotiations: [], receiveOnly: [] }}
+    hostConnection={{ connected: true }} saveScopes={[]} ports={{}} linkedWork={{ delegations: [], negotiations: [], receiveOnly: [] }}
     onSwitchProject={noop} onSwitchLink={noop} onLinkProject={noop} onEditLink={noop} onOpenProject={noop}
     onSettings={noop} onOpenAccounts={noop} onCanvasChat={noop}
   />);

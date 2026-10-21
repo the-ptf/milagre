@@ -13,6 +13,10 @@ async function browserChecks() {
   await app.whenReady();
   const window = new BrowserWindow({ width: 1100, height: 760, useContentSize: true, show: false, webPreferences: { backgroundThrottling: false } });
   const consoleErrors = [];
+  window.webContents.on("render-process-gone", (_event, details) => {
+    console.error(`Send feedback renderer exited: ${details.reason}`);
+    app.exit(1);
+  });
   window.webContents.on("console-message", (event) => {
     if (event.level === "error") {
       consoleErrors.push(event.message);
@@ -445,23 +449,38 @@ async function browserChecks() {
         await waitFor(`document.querySelector('[data-streaming]')?.textContent.includes('continues')`);
         assert.equal(await evaluate("window.renderedMessageIds.filter(id => id > 0).length"), 0, "streaming leaves the loaded saved message cards memoized");
       }
-      await evaluate(`window.emitAgent(99, { type: 'turn-started' }); window.emitAgent(99, { type: 'text-delta', text: 'Other chat' })`);
       // The open chat's own streamed text schedules a trailing 250 ms rail refresh; let it land before counting.
+      await evaluate("document.fonts.ready.then(() => true)");
+      await waitFor(`document.querySelectorAll('[data-slot="preview-rail-item"]').length === 15`);
+      assert.ok(await evaluate("window.railItemsRendered > 0"), "navigation instrumentation observed the loaded Chat");
+      const railState = () =>
+        evaluate(`(() => {
+        const viewport = document.querySelector('[aria-label="Conversation"]');
+        return JSON.stringify({ renders: window.railItemsRendered, top: viewport.scrollTop, height: viewport.scrollHeight,
+          active: document.querySelector('[data-slot="preview-rail-item"][aria-current]')?.getAttribute('aria-label') });
+      })()`);
+      const railDeadline = Date.now() + 5000;
+      let railSeen = await railState();
       let railStableSince = Date.now();
-      let railSeen = await evaluate("window.railItemsRendered");
-      while (Date.now() - railStableSince < 500) {
+      let stableSamples = 0;
+      while (stableSamples < 10 || Date.now() - railStableSince < 500) {
+        assert.ok(Date.now() < railDeadline, `navigation did not settle in the ${busy ? "working" : "idle"} Chat: ${railSeen}`);
         await delay(50);
-        const now = await evaluate("window.railItemsRendered");
+        const now = await railState();
         if (now !== railSeen) {
           railSeen = now;
           railStableSince = Date.now();
-        }
+          stableSamples = 0;
+        } else stableSamples++;
       }
       await evaluate("window.transcriptRenders = 0; window.railItemsRendered = 0");
+      await evaluate(`window.emitAgent(99, { type: 'turn-started' }); window.emitAgent(99, { type: 'text-delta', text: 'Other chat' })`);
       for (let update = 0; update < 5; update++) {
         await evaluate(`window.emitAgent(99, { type: 'text-delta', text: ' background output' })`);
         await delay(50);
       }
+      // Include the last delta's trailing refresh in the measurement, without resetting either counter.
+      await delay(500);
       assert.equal(await evaluate("window.transcriptRenders"), 0, "another running chat does not rebuild the open transcript");
       assert.equal(await evaluate("window.railItemsRendered"), 0, "another running chat does not rebuild the message navigation");
       await evaluate("window.renderedMessageIds = []");
@@ -478,8 +497,11 @@ async function browserChecks() {
       await evaluate("window.saveSend(); window.ackSend()");
       await waitFor(acknowledged);
       assert.equal(await occurrences("Follow-up in a long chat"), 1, "long-chat acknowledgement replaces the preview");
-      await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true }))`);
-      await waitFor(`!!document.querySelector('[aria-label="Find in chat"]')`);
+      await evaluate(`document.querySelector(${JSON.stringify(prompt)}).focus()`);
+      const modifiers = [process.platform === "darwin" ? "meta" : "control"];
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode: "f", modifiers });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode: "f", modifiers });
+      await waitFor(`document.activeElement === document.querySelector('[aria-label="Find in chat"]') && !!document.activeElement`);
       await waitFor(`document.querySelectorAll('[data-slot="message"]:not([data-streaming])').length === 301`);
       await evaluate(`(() => {
         const input = document.querySelector('[aria-label="Find in chat"]');
@@ -550,10 +572,19 @@ async function main() {
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
     const child = spawn(require("electron"), [path.resolve(__filename), `${server.resolvedUrls.local[0]}__chat_send_feedback__`], { env, stdio: "inherit" });
-    process.exitCode = await new Promise((resolve, reject) => {
-      child.on("error", reject);
-      child.on("exit", (code) => resolve(code ?? 1));
-    });
+    let watchdog;
+    try {
+      process.exitCode = await new Promise((resolve, reject) => {
+        watchdog = setTimeout(() => {
+          child.kill("SIGKILL");
+          reject(new Error("Send feedback check exceeded 180 seconds"));
+        }, 180000);
+        child.once("error", reject);
+        child.once("exit", (code) => resolve(code ?? 1));
+      });
+    } finally {
+      clearTimeout(watchdog);
+    }
   } finally {
     await server.close();
   }
