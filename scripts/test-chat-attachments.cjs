@@ -100,7 +100,7 @@ async function browserChecks() {
   };
   const errors = [];
   window.webContents.on("console-message", (details) => {
-    if (details.level === "error") errors.push(details.message);
+    if (details.level === "error" || details.level === 3) errors.push(details.message);
   });
   const waitFor = async (source) => {
     for (let n = 0; n < 200; n++) {
@@ -205,7 +205,9 @@ async function browserChecks() {
       ["photo.png", "image/png"],
     ]);
     await waitFor(String.raw`!!document.querySelector("[aria-label=\"Preview clip.mp4\"]")`);
-    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "", "Paths do not pollute draft text");
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "[Image #1] ", "Attached image inserts [Image #1] token");
+    assert.equal(await evaluate('document.querySelectorAll("[data-prompt-editor] [data-chip=image]").length'), 1, "Attached image renders as an inline chip");
+    assert.equal(await evaluate('document.querySelector("[data-promptbar] [data-image-badge]")?.textContent'), "#1", "Composer image thumbnail shows #1 badge");
     assert.equal(await evaluate('document.querySelector("[aria-label=Send]").disabled'), false, "File-only messages can send");
     await chooseFiles([["Card.tsx", "text/typescript"]]);
     await click('[aria-label="Preview Card.tsx"]');
@@ -311,8 +313,10 @@ async function browserChecks() {
     assert.deepEqual(await evaluate("window.calls[0].images.map(i=>i.name)"), ["photo.png"]);
     assert.ok(await evaluate('window.calls[0].prompt.includes("/fixture/files/note.txt") && window.calls[0].prompt.includes("/fixture/files/clip.mp4")'));
     assert.deepEqual(await evaluate("window.saved.messages.at(-1).files"), ["/fixture/files/note.txt", "/fixture/files/clip.mp4", "/fixture/files/photo.png"]);
-    assert.equal(await evaluate("window.saved.messages.at(-1).body"), "");
-    await waitFor(String.raw`!!document.querySelector("article [aria-label=\"Preview photo.png\"]")`);
+    assert.equal(await evaluate("window.saved.messages.at(-1).body"), "[Image #1]");
+    await waitFor(
+      String.raw`!!document.querySelector("article [aria-label=\"Preview photo.png\"]") && !!document.querySelector("article [data-chip=\"image\"]")`,
+    );
     await click('article [aria-label="Preview note.txt"]');
     await waitFor(`document.querySelector('dialog[open]')?.textContent.includes('export const greeting')`);
     await key("Escape");
@@ -320,6 +324,10 @@ async function browserChecks() {
     assert.deepEqual(await evaluate("window.fileReads"), ["/fixture/files/note.txt"]);
     assert.equal(await evaluate("window.interrupted"), undefined, "File preview Escape never stops active agent");
     await click('article [aria-label="Preview photo.png"]');
+    await waitFor(`document.querySelector('dialog[open] img')?.naturalWidth > 0`);
+    await key("Escape");
+    await waitFor(String.raw`!document.querySelector("dialog")`);
+    await click('article [data-chip="image"]');
     await waitFor(`document.querySelector('dialog[open] img')?.naturalWidth > 0`);
     await key("Escape");
     await waitFor(String.raw`!document.querySelector("dialog")`);
@@ -372,13 +380,21 @@ async function browserChecks() {
       `(() => { const dt = new DataTransfer(); dt.items.add(new File([Uint8Array.from(atob(window.imageBytes), c=>c.charCodeAt(0))], 'pasted.png', {type:'image/png'})); document.querySelector('[data-prompt-editor]').dispatchEvent(new ClipboardEvent('paste', { bubbles:true, cancelable:true, clipboardData:dt })); })()`,
     );
     await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.src.startsWith('data:image/png')`);
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "[Image #1] ", "Pasting an image inserts [Image #1]");
     await evaluate(
       `Object.defineProperty(navigator.clipboard, 'read', { configurable: true, value: async () => [{ types: ['image/png'], getType: async () => new Blob([Uint8Array.from(atob(window.imageBytes), c => c.charCodeAt(0))], { type: 'image/png' }) }] })`,
     );
     await click('[aria-label="Add attachments and sources"]');
     await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Paste image')).click()`);
     await waitFor(`!!document.querySelector('[data-promptbar] [aria-label="Preview Pasted image.png"]')`);
-    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "", "Pasting through the attachment menu leaves text untouched");
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "[Image #1] [Image #2] ", "Pasting a second image inserts [Image #2]");
+    await click('[data-promptbar] [aria-label="Remove pasted.png"]');
+    await waitFor(`document.querySelector("[data-prompt-editor]").value.trim() === "[Image #1]"`);
+    assert.equal(
+      await evaluate('document.querySelector("[data-prompt-editor]").value.trim()'),
+      "[Image #1]",
+      "Removing Image #1 shifts [Image #2] to [Image #1]",
+    );
     await screenshot("clipboard-image");
     await chooseFiles([["discard.txt", "text/plain"]]);
     // Sidebar chats keep creation order, newest first: Other chat (session 5) is ⌘1, Attachment test (session 3) is ⌘2.
@@ -433,6 +449,7 @@ async function browserChecks() {
   } catch (error) {
     console.error(error);
     console.error(errors);
+    console.error(await evaluate("document.body.innerText.slice(0, 2000)"));
     console.error(
       await evaluate(
         `(() => { const v = document.querySelector('dialog video'); return v ? { src:v.src, error:v.error?.message, code:v.error?.code, ready:v.readyState, network:v.networkState } : null; })()`,

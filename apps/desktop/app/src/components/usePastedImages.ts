@@ -2,6 +2,7 @@ import { MAX_IMAGE_BYTES, MAX_IMAGES, IMAGE_TYPES, IMAGE_ERRORS } from "@milagre
 import { useEffect, useRef, useState } from "react";
 import type { ClipboardEvent } from "react";
 import type { ImageAttachment } from "../model";
+import { remapImageMentions } from "@milagre/shared/prompt-mentions";
 
 const TYPES = new Set(IMAGE_TYPES);
 
@@ -22,7 +23,13 @@ export const REMOTE_FILES_NOTICE = "Files from this Mac can't be attached to a c
 
 /** `remote`: the chat is on another Mac, so files from this one are refused (pasted images travel as data and still go). */
 export function usePastedImages(scope: string, remote = false) {
-  const [images, setImages] = useState<ImageAttachment[]>([]);
+  const [images, commitImages] = useState<ImageAttachment[]>([]);
+  const currentImages = useRef(images);
+  function setImages(update: ImageAttachment[] | ((current: ImageAttachment[]) => ImageAttachment[])) {
+    const next = typeof update === "function" ? update(currentImages.current) : update;
+    currentImages.current = next;
+    commitImages(next);
+  }
   const localFiles = useRef(new Map<string, File>());
   const [files, setFiles] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -47,33 +54,37 @@ export function usePastedImages(scope: string, remote = false) {
     };
   }, [scope]);
 
-  async function addFiles(files: File[]) {
-    if (!files.length) return;
+  async function addFiles(files: File[]): Promise<number[]> {
+    if (!files.length) return [];
     setError("");
     if (reading.current) {
       setError("Wait for the current image to finish loading, then try again.");
-      return;
+      return [];
     }
     if (files.some((file) => !TYPES.has(file.type))) {
       setError(IMAGE_ERRORS.type);
-      return;
+      return [];
     }
     if (files.some((file) => file.size > MAX_IMAGE_BYTES)) {
       setError(IMAGE_ERRORS.size);
-      return;
+      return [];
     }
     if (images.length + files.length > MAX_IMAGES) {
       setError(IMAGE_ERRORS.count);
-      return;
+      return [];
     }
     const current = generation.current;
     reading.current = true;
     setLoading(true);
     try {
       const next = await Promise.all(files.map(readImage));
-      if (current === generation.current) setImages((existing) => [...existing, ...next]);
+      if (current !== generation.current) return [];
+      const base = currentImages.current.length;
+      setImages((existing) => [...existing, ...next]);
+      return next.map((_, i) => base + i + 1);
     } catch (error) {
       if (current === generation.current) setError(error instanceof Error ? error.message : "Could not read image.");
+      return [];
     } finally {
       if (current === generation.current) {
         reading.current = false;
@@ -82,17 +93,17 @@ export function usePastedImages(scope: string, remote = false) {
     }
   }
 
-  async function onPaste(event: ClipboardEvent<HTMLElement>) {
+  async function onPaste(event: ClipboardEvent<HTMLElement>): Promise<number[]> {
     const files = Array.from(event.clipboardData.items)
       .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
       .map((item) => item.getAsFile())
       .filter((file): file is File => file !== null);
-    if (!files.length) return;
+    if (!files.length) return [];
     event.preventDefault();
-    await addFiles(files);
+    return addFiles(files);
   }
 
-  async function pasteImage() {
+  async function pasteImage(): Promise<number[]> {
     const current = generation.current;
     try {
       const items = await navigator.clipboard.read();
@@ -101,25 +112,26 @@ export function usePastedImages(scope: string, remote = false) {
         const type = item.types.find((type) => TYPES.has(type));
         if (type) files.push(new File([await item.getType(type)], `Pasted image.${type.split("/")[1]}`, { type }));
       }
-      if (current !== generation.current) return;
+      if (current !== generation.current) return [];
       if (!files.length) {
         setError("Copy an image first, then try Paste image again.");
-        return;
+        return [];
       }
-      await addFiles(files);
+      return await addFiles(files);
     } catch {
       if (current === generation.current) setError("Could not read the clipboard. Allow clipboard access or paste with the keyboard shortcut.");
+      return [];
     }
   }
 
-  async function attachFiles(selected: File[]) {
+  async function attachFiles(selected: File[]): Promise<number[]> {
     if (remote) {
       if (selected.length) setError(REMOTE_FILES_NOTICE);
-      return;
+      return [];
     }
     if (reading.current) {
       setError("Wait for the current attachment to finish loading, then try again.");
-      return;
+      return [];
     }
     const current = generation.current;
     reading.current = true;
@@ -148,12 +160,15 @@ export function usePastedImages(scope: string, remote = false) {
         failed = true;
       }
     }
-    if (current !== generation.current) return;
+    if (current !== generation.current) return [];
+    const added = nextImages.filter((image) => !currentImages.current.some((item) => item.path === image.path));
+    const base = currentImages.current.length;
     setFiles((existing) => [...new Set([...existing, ...paths])]);
     setImages((existing) => [...existing, ...nextImages.filter((image) => !existing.some((item) => item.path === image.path))]);
     if (failed) setError("Could not get a local path for one or more files. Choose them again with Add files.");
     reading.current = false;
     setLoading(false);
+    return added.map((_, i) => base + i + 1);
   }
 
   function attachPath(path: string) {
@@ -170,9 +185,16 @@ export function usePastedImages(scope: string, remote = false) {
     setImages((current) => current.filter((image) => image.path !== path));
   }
 
-  function restore(sentImages: ImageAttachment[], sentFiles: string[]) {
-    setImages((current) => [...sentImages, ...current.filter((image) => !sentImages.some((sent) => sent.id === image.id))]);
+  function restore(sentImages: ImageAttachment[], sentFiles: string[], draft = "") {
+    const current = currentImages.current;
+    const merged = [...sentImages, ...current.filter((image) => !sentImages.some((sent) => sent.id === image.id))];
+    const remapped = remapImageMentions(
+      draft,
+      current.map((image) => merged.findIndex((item) => item.id === image.id) + 1),
+    );
+    setImages(merged);
     setFiles((current) => [...new Set([...sentFiles, ...current])]);
+    return remapped;
   }
 
   return {

@@ -1,4 +1,4 @@
-import { skillLabel, type PromptPart } from "@milagre/shared/prompt-parts";
+import { imageLabel, skillLabel, type PromptPart } from "@milagre/shared/prompt-parts";
 
 /**
  * What VoiceOver reads for a sent prompt. The chips are inline Views, which the native text reads as U+FFFC, so the
@@ -11,6 +11,7 @@ export function promptAccessibilityLabel(parts: readonly PromptPart[]): string |
     .map((part) => {
       if (part.kind === "skill") return `skill ${skillLabel(part.name)}`;
       if (part.kind === "file") return `file ${part.path.split("/").filter(Boolean).at(-1) ?? part.path}`;
+      if (part.kind === "image") return imageLabel(part.index);
       return part.text;
     })
     .join("");

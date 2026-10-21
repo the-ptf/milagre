@@ -426,15 +426,23 @@ test("extra sandbox permissions are declined", async (t) => {
   );
 });
 
-test("passes images as local files and removes them afterwards", async (t) => {
+test("passes images as interleaved local files and removes them afterwards", async (t) => {
   const { session, events } = codex(t);
   const png = `data:image/png;base64,${Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]).toString("base64")}`;
-  await session.startTurn({ ...TURN, images: decodeImages([{ dataUrl: png }]) });
+  await session.startTurn({ ...TURN, prompt: "Before [Image #2] then [Image #1] after", images: decodeImages([{ dataUrl: png }, { dataUrl: png }]) });
   await ended(events);
   const turnStart = (await received(session)).find((message) => message.method === "turn/start");
-  const image = turnStart.params.input.find((input) => input.type === "localImage");
-  assert.deepEqual(turnStart.imagesExist, [true]);
-  assert.equal(fs.existsSync(image.path), false);
+  const input = turnStart.params.input;
+  assert.deepEqual(
+    input.map((block) => block.type),
+    ["text", "localImage", "text", "localImage", "text"],
+  );
+  assert.deepEqual(
+    input.filter((block) => block.type === "text").map((block) => block.text),
+    ["Before ", " then ", " after"],
+  );
+  assert.deepEqual(turnStart.imagesExist, [true, true]);
+  for (const image of input.filter((block) => block.type === "localImage")) assert.equal(fs.existsSync(image.path), false);
 });
 
 test("closes a session whose startup failed so the next message starts over", async (t) => {

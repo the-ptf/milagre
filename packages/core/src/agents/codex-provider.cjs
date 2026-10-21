@@ -32,6 +32,7 @@ const {
   WorkspaceAccess,
 } = require("./permissions.cjs");
 const { PendingQuestions, codexQuestionRequest, codexQuestionResponse } = require("./questions.cjs");
+const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
 // Outside Plan mode, Codex offers its question tool (request_user_input) only behind this feature.
 // It is set per thread, where an unknown feature is ignored; `--enable` would refuse to start instead.
@@ -108,10 +109,10 @@ function toolImageEvents(item) {
   return events;
 }
 
-const turnInput = (prompt, files) => [
-  { type: "text", text: prompt, text_elements: [] },
-  ...(files?.paths ?? []).map((file) => ({ type: "localImage", path: file })),
-];
+const turnInput = (prompt, files) =>
+  promptImageBlocks(prompt, files?.paths ?? []).map((block) =>
+    block.type === "text" ? { type: "text", text: block.text, text_elements: [] } : { type: "localImage", path: block.image },
+  );
 
 // account/read answers in well under a second; a Codex that doesn't is not held up for the default RPC timeout.
 const ACCOUNT_TIMEOUT_MS = 8000;
