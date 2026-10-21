@@ -143,12 +143,6 @@ jobs:
         run: npm ci
       - name: Build Linux installers
         run: npm run package:linux -- --config.extraMetadata.version="${VERSION}" --config.publish.channel="${FEED_CHANNEL}"
-      # As on macOS: electron-builder writes only the current channel's feed, so beta installs read a copy and move to this release.
-      - name: Mirror the stable feed to the beta channel
-        if: env.CHANNEL == 'stable'
-        run: |-
-          test -f release/latest-linux.yml || { echo "::error::release/latest-linux.yml was not generated; there is no stable feed to mirror to beta."; exit 1; }
-          cp release/latest-linux.yml release/beta-linux.yml
       - name: Exercise installed Linux desktop
         run: |-
           sudo apt-get install -y ./release/*.deb
@@ -246,12 +240,6 @@ jobs:
           CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: npm run package:win -- --config.extraMetadata.version="${VERSION}" --config.publish.channel="${FEED_CHANNEL}" --config.forceCodeSigning=true
-      - name: Mirror the stable feed to the beta channel
-        if: env.CHANNEL == 'stable'
-        shell: bash
-        run: |-
-          test -f release/latest.yml || { echo "::error::release/latest.yml was not generated; there is no stable feed to mirror to beta."; exit 1; }
-          cp release/latest.yml release/beta.yml
       - name: Verify installer Authenticode
         shell: pwsh
         run: |-
