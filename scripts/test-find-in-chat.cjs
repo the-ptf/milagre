@@ -4,6 +4,9 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 
+// Match the real desktop shortcuts: Command on macOS, Control on Linux and Windows.
+const COMMAND = process.platform === "darwin" ? "meta" : "control";
+
 const fixture = `
 window.milagre = Object.freeze({ listEditors: async () => [] });
 import React, { useEffect, useState } from "react";
@@ -153,7 +156,7 @@ async function browserChecks() {
     await evaluate('window.openChatWith("Chat one needle")');
     await waitFor('document.querySelector("[aria-label=Conversation]").textContent.includes("Chat one needle")');
     await evaluate('document.querySelector("[data-prompt-editor]").focus()');
-    key("F", ["meta"]);
+    key("F", [COMMAND]);
     await waitFor(bar);
     await waitFor('document.activeElement === document.querySelector("[data-find-bar] input")');
     window.webContents.insertText("needle");
@@ -169,14 +172,14 @@ async function browserChecks() {
     // A new, empty chat has nothing to search.
     await evaluate('document.querySelector("[aria-label=\\"New chat\\"]").click()');
     await waitFor('!!document.querySelector("[data-new-chat-pickers]")');
-    key("F", ["meta"]);
+    key("F", [COMMAND]);
     await delay(300);
     assert.equal(await evaluate(bar), false);
 
     // The command palette lists Find in chat on a chat with messages, and running it opens the bar.
     await evaluate('window.openChatWith("Chat one needle")');
     await waitFor('document.querySelector("[aria-label=Conversation]").textContent.includes("Chat one needle")');
-    key("K", ["meta"]);
+    key("K", [COMMAND]);
     await waitFor('!!document.querySelector("dialog[open][aria-label=\\"Command palette\\"]")');
     window.webContents.insertText("search text");
     await waitFor('[...document.querySelectorAll("dialog [role=option]")].some(el => el.textContent.includes("Find in chat"))');
@@ -196,7 +199,7 @@ async function browserChecks() {
     await evaluate('document.querySelector("[aria-label=Send]").click()');
     // The working indicator names the model only to screen readers.
     await waitFor("!!document.querySelector('[role=status][aria-label^=\"Working with\"]')");
-    key("F", ["meta"]);
+    key("F", [COMMAND]);
     await waitFor(bar);
     await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     key("Escape");
@@ -216,7 +219,7 @@ async function browserChecks() {
     await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     assert.equal(await evaluate('!!document.querySelector("[data-find-bar]")'), false);
 
-    key("F", ["meta"]);
+    key("F", [COMMAND]);
     await waitFor('document.activeElement === document.querySelector("[data-find-bar] input")');
     assert.equal(await count(), "");
 
@@ -243,9 +246,9 @@ async function browserChecks() {
 
     key("Return", ["shift"]);
     await waitFor('document.querySelector("[data-find-count]").textContent === "2 of 5"');
-    key("G", ["meta"]);
+    key("G", [COMMAND]);
     await waitFor('document.querySelector("[data-find-count]").textContent === "3 of 5"');
-    key("G", ["meta", "shift"]);
+    key("G", [COMMAND, "shift"]);
     await waitFor('document.querySelector("[data-find-count]").textContent === "2 of 5"');
     // Previous from the first wraps to the last.
     key("Return", ["shift"]);
@@ -271,7 +274,7 @@ async function browserChecks() {
 
     // Reopening with the bar open selects the field text.
     await evaluate('document.querySelector("[data-prompt-editor]").focus()');
-    key("F", ["meta"]);
+    key("F", [COMMAND]);
     await waitFor('document.activeElement === document.querySelector("[data-find-bar] input")');
     assert.equal(
       await evaluate(
