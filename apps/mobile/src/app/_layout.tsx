@@ -1,3 +1,4 @@
+import { ProviderUpdateNotice } from "../provider-update-notice";
 import { useState } from "react";
 import { Stack, router } from "expo-router";
 import { ThemeProvider, DarkTheme, DefaultTheme } from "expo-router/react-navigation";
@@ -89,6 +90,7 @@ export default function Layout() {
                       <Stack.Screen name="projects" options={{ title: "Projects" }} />
                       <Stack.Screen name="canvas" options={{ title: "Canvas" }} />
                       <Stack.Screen name="routines" options={{ title: "Routines" }} />
+                      <Stack.Screen name="routine" options={{ title: "Routine" }} />
                       <Stack.Screen name="routine-form" options={{ ...sheet, sheetAllowedDetents: [1] }} />
                       <Stack.Screen name="project-settings" options={{ title: "Project" }} />
                       <Stack.Screen name="link-projects" options={{ ...sheet, sheetAllowedDetents: [1] }} />
@@ -140,6 +142,7 @@ export default function Layout() {
                       <Stack.Screen name="diff" options={{ title: "Diff" }} />
                     </Stack>
                     <SidePanelsHost />
+                    <ProviderUpdateNotice />
                   </UpdateShell>
                   <Splash />
                 </ThemeProvider>

@@ -1,13 +1,13 @@
-export const AI_CONSENT_VERSION = "2026-10-10";
+export const AI_CONSENT_VERSION = "2026-10-20";
 export const PRIVACY_URL = "https://milagre.cloud/privacy";
 export const SUPPORT_URL = "https://milagre.cloud/support";
 export const AI_CONSENT_TITLE = "Allow sharing with AI providers?";
 export const AI_CONSENT_DESCRIPTION =
   "When you send or continue a Chat, Milagre sends your prompts, attachments, relevant project files, conversation history and tool results to the AI providers you use: Anthropic (Claude), OpenAI (Codex) or Google (Antigravity). Agents and advisors you configure may use a different provider. This data can include personal or confidential information.";
 export const AI_CONSENT_DETAIL =
-  "Sharing lets those providers generate responses and carry out your requests. Their privacy policies and your provider account settings govern how they process and retain this data. Allowing applies to future AI actions from this device. You can reset this permission in Settings > Privacy & AI.";
+  "Sharing lets those providers generate responses and carry out your requests. Their privacy policies and your provider account settings govern how they process and retain this data. Allowing applies to future AI actions from this device. Enabling Routines also allows their automatic Runs on that computer while this device is disconnected. You can reset this device's permission in Settings > Privacy & AI.";
 export const AI_RESET_DETAIL =
-  "Reset blocks future AI actions from this device until you allow sharing again. It does not stop agents already running or delete data already sent. Use Stop in the Chat to stop a running agent.";
+  "Reset blocks future AI actions from this device until you allow sharing again. Enabled Routines continue on their computer; turn Routines off in Settings > Experimental to stop future automatic Runs. Reset does not stop agents already running or delete data already sent. Use Stop in the Chat to stop a running agent.";
 export const AI_PROVIDER_POLICIES = [
   { name: "Anthropic", url: "https://www.anthropic.com/legal/privacy" },
   { name: "OpenAI", url: "https://openai.com/policies/privacy-policy/" },
@@ -63,10 +63,15 @@ export function createAiConsent({ read, write, ask }) {
 }
 
 export function requiresAiConsent(method, args = []) {
+  if (method === "routines:enabled:save") return args[0] === true;
+  if (method === "routines:update") return args[1]?.enabled !== false;
   if (method === "agent:respond-permission") return args[0]?.decision !== "deny";
   if (method === "agent:set-permission-mode") return args[0]?.mode !== "ask";
+  // A sign-off lets the bot's turn go on; a denial ends it.
+  if (method === "bots:answer-gate") return args[2] !== "deny";
   return [
     "chat:send",
+    "bots:send",
     "link:send",
     "chat:resume",
     "chat:queue-send",
@@ -74,6 +79,8 @@ export function requiresAiConsent(method, args = []) {
     "advisor:retry",
     "agent:answer-question",
     "live-activity:answer",
+    "routines:run-now",
+    "routines:create",
   ].includes(method);
 }
 
@@ -87,6 +94,12 @@ const methods = {
   answerQuestion: "agent:answer-question",
   respondToPermission: "agent:respond-permission",
   setAgentPermissionMode: "agent:set-permission-mode",
+  saveRoutinesEnabled: "routines:enabled:save",
+  runRoutineNow: "routines:run-now",
+  createRoutine: "routines:create",
+  updateRoutine: "routines:update",
+  sendToBot: "bots:send",
+  answerBotGate: "bots:answer-gate",
 };
 
 /** Wrap both local and paired-computer bridges at their shared call boundary. */
@@ -105,6 +118,7 @@ export function protectAiBridge(bridge, requireConsent) {
           wrapped.set(property, async (...args) => {
             const input = property === "respondToPermission" ? [{ decision: args[2] }] : property === "setAgentPermissionMode" ? [{ mode: args[1] }] : args;
             if (requiresAiConsent(method, input)) await requireConsent(property !== "setAgentPermissionMode");
+            if (property === "saveRoutinesEnabled" && args[0] === true) args = [true, AI_CONSENT_VERSION];
             return value.apply(bridge, args);
           });
         return wrapped.get(property);

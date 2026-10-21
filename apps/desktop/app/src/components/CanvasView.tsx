@@ -263,7 +263,7 @@ function Diff({ diff }: { diff?: CanvasWorktree["diff"] }) {
   if (!diff || (!diff.added && !diff.removed)) return null;
   return (
     <span className="shrink-0 text-[11px] font-medium tabular-nums">
-      <span className="text-green">+{diff.added}</span> <span className="text-red">−{diff.removed}</span>
+      <span className="text-diff-add">+{diff.added}</span> <span className="text-diff-remove">−{diff.removed}</span>
     </span>
   );
 }

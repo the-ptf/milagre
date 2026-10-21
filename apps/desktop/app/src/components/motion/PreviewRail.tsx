@@ -1,6 +1,6 @@
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useCallback, useMemo, useId, useLayoutEffect, useRef, useState } from "react";
-import { EASE_OUT, SPRING_LAYOUT } from "../../lib/ease";
+import { EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 
 export interface PreviewRailItem {
   id: string;
@@ -60,7 +60,8 @@ export function PreviewRail({
   previewClassName = "",
 }: PreviewRailProps) {
   const uid = useId();
-  const reduce = useReducedMotion() ?? false;
+  const speed = useMotionScale();
+  const reduce = speed === 0;
   const [internalActiveId, setInternalActiveId] = useState(items[0]?.id ?? "");
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
@@ -152,7 +153,7 @@ export function PreviewRail({
                   data-slot="preview-rail-tick"
                   aria-hidden="true"
                   animate={{ scaleX: scale }}
-                  transition={reduce ? { duration: 0 } : SPRING_LAYOUT}
+                  transition={scaledSpring(SPRING_LAYOUT, speed)}
                   className={`block h-px w-4 origin-right bg-current ${highlighted ? "text-ink" : "text-line-strong"}`}
                 />
               </button>
@@ -174,14 +175,16 @@ export function PreviewRail({
                     style={{ transform: `translateY(${previewBounds.offset}px)`, maxHeight: previewBounds.maxHeight }}
                     className={`w-full max-w-sm overflow-hidden ${previewSide === "before" ? "ml-auto" : ""} ${previewClassName}`}
                   >
-                    <motion.div layoutId={`preview-rail-card-${uid}`} transition={reduce ? { duration: 0 } : SPRING_LAYOUT}>
+                    <motion.div layoutId={`preview-rail-card-${uid}`} transition={scaledSpring(SPRING_LAYOUT, speed)}>
                       <AnimatePresence mode="wait" initial={false}>
                         <motion.div
                           key={item.id}
                           initial={reduce ? { opacity: 0 } : { opacity: 0, y: 4, filter: "blur(6px)" }}
                           animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
-                          exit={reduce ? { opacity: 0 } : { opacity: 0, y: -2, filter: "blur(4px)", transition: { duration: 0.12, ease: EASE_OUT } }}
-                          transition={{ duration: reduce ? 0 : 0.18, ease: EASE_OUT }}
+                          exit={
+                            reduce ? { opacity: 0 } : { opacity: 0, y: -2, filter: "blur(4px)", transition: { duration: scaled(0.12, speed), ease: EASE_OUT } }
+                          }
+                          transition={{ duration: scaled(0.18, speed), ease: EASE_OUT }}
                         >
                           {renderPreview ? renderPreview(item) : <DefaultPreview item={item} />}
                         </motion.div>
@@ -204,6 +207,7 @@ export function PreviewRail({
       railClassName,
       rowTemplate,
       reduce,
+      speed,
       selectItem,
       showPreview,
       previewSide,

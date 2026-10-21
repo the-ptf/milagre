@@ -1,4 +1,4 @@
-// Settings sections in Electron: Experimental lists only Designs, Floating inbox, Ultracode Fatality and Routines; Notifications holds the
+// Settings sections in Electron: Experimental lists only Designs, Floating inbox, Ultracode Fatality, Routines and Bots; Notifications holds the
 // chime picker (picking one saves and plays it; the replay button plays it again); Devices holds Drive other computers, which
 // tells main each time it flips. The legacy sidebar switch is gone everywhere.
 const assert = require("node:assert/strict");
@@ -10,6 +10,7 @@ const fixture = `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SettingsNav, SettingsPanel } from '/src/components/Settings';
+import { useApplyTheme } from '/src/lib/settings';
 import { useApplyOtherComputers } from '/src/lib/computers';
 import '/src/styles.css';
 window.enabledCalls = [];
@@ -18,8 +19,9 @@ window.played = [];
 HTMLMediaElement.prototype.play = function () { window.played.push(this.src.split('/').pop().split('?')[0]); return Promise.resolve(); };
 window.savedShare = { id: "orphan", url: "https://share.milagre.cloud/s/orphan", title: "Deleted Chat page", createdAt: 1780000000000, designCount: 2 };
 window.shareCalls = [];
+window.botsSaves = [];
 window.milagre = {
-  listEditors: async () => [],
+  listEditors: async () => [], setWindowBackground: async () => {},
   getPhoneStatus: async () => ({ enabled: false, state: "off", remote: "none" }),
   onPhoneStatus: () => () => {},
   listDevices: async () => [],
@@ -31,6 +33,11 @@ window.milagre = {
   onDesignsEnabledChanged: () => () => {},
   readRoutinesEnabled: async () => ({ enabled: false }),
   saveRoutinesEnabled: async (enabled) => ({ enabled }),
+  readBotsEnabled: async () => ({ enabled: false }),
+  saveBotsEnabled: async (enabled) => { window.botsSaves.push(enabled); return { enabled }; },
+  onBotsEnabledChanged: () => () => {},
+  listBots: async () => ({ enabled: false, bots: [], gates: [], grants: [], chats: [] }),
+  onBotsChanged: () => () => {},
   artifacts: {
     allPageShares: async () => { window.shareCalls.push(["all"]); return [window.savedShare]; },
     revokeSavedPageShare: async ({ id }) => { window.shareCalls.push(["revoke", id]); window.savedShare = { ...window.savedShare, revoked: true }; },
@@ -40,6 +47,7 @@ window.milagre = {
 };
 function Fixture() {
   const [section, setSection] = useState('appearance');
+  useApplyTheme();
   useApplyOtherComputers();
   return (
     <div style={{ display: 'flex', gap: 12, height: '100vh', padding: 12 }}>
@@ -83,14 +91,142 @@ async function browserChecks() {
   const switches = () => evaluate(`[...document.querySelectorAll('main [role="switch"]')].map((s) => s.getAttribute("aria-label"))`);
   try {
     await window.loadURL(process.argv[2]);
+    // Appearance: every control is a menu; picking a size saves it and the preview follows; fonts draw in their own face.
+    // The mini window preview shows where each row applies: hovering a row highlights its region.
+    await waitFor(`!!document.querySelector('[data-preview-area="sidebar"]')`);
+    // Only leading window controls need room above Settings. The Back button must
+    // remain above the app's drag strip when Windows places it in that top row.
+    await evaluate(`Object.defineProperty(navigator, 'windowControlsOverlay', { configurable: true, value: undefined })`);
+    for (const [controls, expectedTop] of [
+      ["leading", 64],
+      ["overlay", 24],
+      ["external", 24],
+    ]) {
+      await evaluate(`window.milagreWindowChrome = { controls: ${JSON.stringify(controls)} }; window.dispatchEvent(new Event('resize'))`);
+      await waitFor(`document.querySelector('button[aria-label="Back"]').getBoundingClientRect().top === ${expectedTop}`);
+    }
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector('button[aria-label="Back"]')).webkitAppRegion`), "no-drag");
+    const region = (area) => `document.querySelector('[data-preview-area=${JSON.stringify(area)}]')`;
+    const rowOf = (label) => `document.querySelector('button[aria-label=${JSON.stringify(label)}]').closest('[data-preview-row]')`;
+    assert.equal(await evaluate(`${region("sidebar")}.hasAttribute("data-highlighted")`), false, "nothing is highlighted at rest");
+    await evaluate(`${rowOf("Interface font")}.scrollIntoView({ block: "center" })`);
+    await screenshot("preview");
+    await evaluate(`${rowOf("Sidebar size")}.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }))`);
+    await waitFor(`${region("sidebar")}.hasAttribute("data-highlighted")`);
+    assert.equal(await evaluate(`${region("width")}.hasAttribute("data-highlighted")`), false, "only the sidebar is highlighted");
+    await evaluate(`${rowOf("Sidebar size")}.scrollIntoView({ block: "center" })`);
+    await screenshot("preview-sidebar");
+    await evaluate(`${rowOf("Sidebar size")}.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse" }))`);
+    await waitFor(`!${region("sidebar")}.hasAttribute("data-highlighted")`);
+    assert.equal(await evaluate(`document.querySelectorAll('main input[type="number"]').length`), 0, "no number fields on Appearance");
+    const openMenu = async (label) => {
+      await evaluate(`document.querySelector('button[aria-label=${JSON.stringify(label)}]').click()`);
+      await waitFor(`!!document.querySelector('[role="listbox"][aria-label=${JSON.stringify(label)}]')`);
+    };
+    const pick = (text) =>
+      evaluate(
+        `[...document.querySelectorAll('[role="listbox"] [role="option"]')].find((o) => o.textContent.trim().startsWith(${JSON.stringify(text)})).click()`,
+      );
+    // Custom chat width: a px field beside the menu; Enter commits, blur clamps, Escape restores.
+    assert.equal(await evaluate(`!!document.querySelector('input[aria-label="Custom chat width in pixels"]')`), false, "no px field until Custom");
+    await openMenu("Chat width");
+    await pick("Custom");
+    await waitFor(`!!document.querySelector('input[aria-label="Custom chat width in pixels"]')`);
+    const widthField = `document.querySelector('input[aria-label="Custom chat width in pixels"]')`;
+    const typeWidth = (text) =>
+      evaluate(
+        `(() => { const input = ${widthField}; input.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(text)}); input.dispatchEvent(new Event("input", { bubbles: true })); })()`,
+      );
+    const widthKey = (key) => evaluate(`${widthField}.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, bubbles: true }))`);
+    await typeWidth("1100");
+    await widthKey("Enter");
+    await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.chatWidthPx === 1100`);
+    await waitFor(`document.documentElement.style.getPropertyValue('--chat-width') === "1100px"`);
+    await typeWidth("99999");
+    await evaluate(`${widthField}.dispatchEvent(new FocusEvent("focusout", { bubbles: true }))`);
+    await waitFor(`${widthField}.value === "2400"`);
+    await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.chatWidthPx === 2400`);
+    await typeWidth("700");
+    await widthKey("Escape");
+    await waitFor(`${widthField}.value === "2400"`);
+    assert.equal(await evaluate(`JSON.parse(localStorage.getItem("milagre-settings")).appearance.chatWidthPx`), 2400, "Escape saves nothing");
+    await evaluate(`document.querySelector('button[aria-label="Chat width"]').scrollIntoView({ block: "center" })`);
+    await screenshot("width");
+    // Wide: the preview's chat column is 1024 css px before the scale, labelled, and stays highlighted after the change.
+    await openMenu("Chat width");
+    await pick("Wide");
+    await waitFor(`${region("width")}.offsetWidth === 1024`);
+    assert.match(await evaluate(`${region("width")}.textContent`), /1024 px/, "the column is labelled with its width");
+    assert.equal(await evaluate(`${region("width")}.hasAttribute("data-highlighted")`), true, "a change holds the highlight");
+    await screenshot("preview-width");
+    await openMenu("Chat size");
+    await pick("15 px");
+    await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.chatSize === "large"`);
+    await waitFor(`getComputedStyle(document.querySelector('[data-preview-text]')).fontSize === "15px"`);
+    assert.equal(
+      await evaluate(`getComputedStyle(document.querySelector('[data-preview-composer]')).fontSize`),
+      "15px",
+      "the preview composer follows Chat size",
+    );
+    const diffStyle = (property) => evaluate(`getComputedStyle(document.querySelector('[data-preview-diff]')).${property}`);
+    assert.match(await diffStyle("fontFamily"), /monospace/, "the preview diff is monospace by default");
+    assert.equal(await diffStyle("fontSize"), "12px", "the preview diff follows Code size");
+    await openMenu("Code size");
+    await pick("14 px");
+    await waitFor(`getComputedStyle(document.querySelector('[data-preview-diff]')).fontSize === "14px"`);
+    await openMenu("Monospace font");
+    await pick("JetBrains Mono");
+    await waitFor(`getComputedStyle(document.querySelector('[data-preview-diff]')).fontFamily.startsWith('"JetBrains Mono Variable"')`);
+    await openMenu("Sidebar size");
+    assert.deepEqual(
+      await evaluate(`[...document.querySelectorAll('[role="listbox"] [role="option"]')].map((o) => o.textContent.trim())`),
+      ["12 px", "13 pxdefault", "14 px", "15 px"],
+      "sidebar sizes show the chat-name size, the default tagged",
+    );
+    await evaluate(`document.querySelector('button[aria-label="Sidebar size"]').click()`);
+    await waitFor(`!document.querySelector('[role="listbox"]')`);
+    await openMenu("Interface font");
+    const search = `document.querySelector('[role="listbox"][aria-label="Interface font"]').parentElement.querySelector('input')`;
+    await evaluate(
+      `(() => { const input = ${search}; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "inter"); input.dispatchEvent(new Event("input", { bubbles: true })); })()`,
+    );
+    await waitFor(`[...document.querySelectorAll('[role="listbox"] [role="option"]')].some((o) => o.textContent.trim() === "Inter")`);
+    assert.ok(
+      await evaluate(
+        `getComputedStyle([...document.querySelectorAll('[role="listbox"] [role="option"] strong')].find((o) => o.textContent.trim() === "Inter")).fontFamily.startsWith('"Inter')`,
+      ),
+      "the Inter row is drawn in Inter",
+    );
+    await evaluate(`document.querySelector('button[aria-label="Interface font"]').click()`);
+    await waitFor(`!document.querySelector('[role="listbox"]')`);
+    await screenshot("appearance");
+    // Sticky: scrolled down to Motion, the preview is still on screen.
+    await evaluate(`document.querySelector('button[aria-label="Panel animations"]').scrollIntoView({ block: "end" })`);
+    await delay(100);
+    const previewBox = await evaluate(
+      `(() => { const r = document.querySelector('[data-slot="appearance-window-preview"]').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: innerHeight }; })()`,
+    );
+    assert.ok(previewBox.top >= 0 && previewBox.bottom <= previewBox.height, `the preview stays in view: ${JSON.stringify(previewBox)}`);
+    await screenshot("preview-sticky");
+    // Panel animations replays the Changes panel in the preview, which then closes again.
+    await openMenu("Panel animations");
+    await pick("Fast");
+    await waitFor(`!!document.querySelector("[data-preview-panel]")`);
+    await delay(400);
+    await screenshot("preview-motion");
+    await waitFor(`!document.querySelector("[data-preview-panel]")`);
+    // Full: the column fills the miniature and the markers say so.
+    await openMenu("Chat width");
+    await pick("Full");
+    await waitFor(`${region("width")}.textContent.includes("Full")`);
     await openSection("Experimental");
     await waitFor(`!!document.querySelector("[data-slot=designs-setting]")`);
     // The Routines switch shows once the Mac's setting is read.
     await waitFor(`!!document.querySelector('main [role="switch"][aria-label="Routines"]')`);
     assert.deepEqual(
       await switches(),
-      ["Designs", "Floating inbox", "Ultracode Fatality", "Routines"],
-      "Experimental lists only Designs, Floating inbox, Ultracode Fatality and Routines",
+      ["Designs", "Floating inbox", "Ultracode Fatality", "Routines", "Bots"],
+      "Experimental lists only Designs, Floating inbox, Ultracode Fatality, Routines and Bots",
     );
     assert.equal(
       await evaluate(`/legacy sidebar|Other computers|Notification chime|Custom theme|usage limits|Linear/i.test(document.querySelector("main").textContent)`),
@@ -123,6 +259,19 @@ async function browserChecks() {
     await waitFor(`!${shareDialog}`);
     await evaluate(`${designsSetting}.querySelector('[role="switch"][aria-label="Designs"]').click()`);
     await waitFor(`${designsSetting}.textContent.includes("Published pages")`);
+    const botsSwitch = 'document.querySelector("[data-slot=bots-setting] [role=switch][aria-label=Bots]")';
+    await waitFor(`${botsSwitch} && !${botsSwitch}.disabled`);
+    assert.equal(await evaluate(`${botsSwitch}.getAttribute("aria-checked")`), "false", "Bots is off by default");
+    assert.equal(
+      await evaluate(
+        'document.querySelector("[data-slot=bots-setting]").textContent.includes("Named bots that work for you and ask before anything irreversible.")',
+      ),
+      true,
+    );
+    await evaluate(`${botsSwitch}.click()`);
+    await waitFor(`${botsSwitch}.getAttribute("aria-checked") === "true"`);
+    assert.deepEqual(await evaluate("window.botsSaves"), [true]);
+    await screenshot("bots-on");
     assert.equal(await evaluate(`!!document.querySelector('[aria-label="Murilo mode"]')`), false, "Murilo mode moved to Settings › Chat");
     for (const label of ["Appearance", "Notifications", "Devices"]) {
       await openSection(label);
@@ -175,7 +324,7 @@ async function browserChecks() {
     assert.deepEqual(errors, []);
     await screenshot("notifications");
     console.log(
-      "PASS: Experimental lists only Designs, Floating inbox, Ultracode Fatality and Routines, with no legacy sidebar switch or Murilo mode; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips",
+      "PASS: Experimental lists only Designs, Floating inbox, Ultracode Fatality, Routines and Bots, with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips",
     );
     app.exit(0);
   } catch (error) {

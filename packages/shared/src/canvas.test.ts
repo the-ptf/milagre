@@ -48,6 +48,30 @@ test("the canvas shows only Worktrees with a chat the sidebar lists", () => {
   assert.equal(worktrees[1].chats[0].provider, "codex");
 });
 
+test("a Worktree whose only Chat is a hidden Run Chat is left out until the Chat waits on someone", () => {
+  const hidden = session(10, 2, { routine: { routineId: "r", runId: "u", hidden: true } });
+  const base = state([worktree(1, "main"), worktree(2, "runs")], [session(11, 1), hidden]);
+  assert.deepEqual(
+    canvasWorktrees(base, idle).map((item) => item.branch),
+    ["main"],
+  );
+  for (const mark of ["waiting", "question"] as const) {
+    const shown = canvasWorktrees(base, (id) => (id === 10 ? mark : "idle"));
+    assert.deepEqual(
+      shown.map((item) => [item.branch, item.chats.map((chat) => chat.id)]),
+      [
+        ["main", [11]],
+        ["runs", [10]],
+      ],
+    );
+  }
+  for (const mark of ["running", "background", "unread", "delegated"] as const)
+    assert.deepEqual(
+      canvasWorktrees(base, () => mark).map((item) => item.branch),
+      ["main"],
+    );
+});
+
 test("a Worktree in a named Link's shared conversation stays, with no chats of its own", () => {
   const shared = { linkId: "link-1", sessionId: 7 };
   const worktrees = canvasWorktrees(state([worktree(1, "member", { sharedChat: shared }), worktree(2, "idle")], [session(10, 2, { archived: true })]), idle);

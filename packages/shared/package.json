@@ -27,6 +27,7 @@
     "src/mcp.ts",
     "src/local-mcp.ts",
     "src/use-local-mcp.ts",
+    "src/use-provider-updates.ts",
     "src/linear.ts",
     "src/chat-row.ts",
     "src/chat-display.ts",
@@ -85,6 +86,22 @@
     "./prompt-skills": {
       "types": "./src/prompt-skills.d.mts",
       "default": "./src/prompt-skills.mjs"
+    },
+    "./prompt-parts": {
+      "types": "./src/prompt-parts.d.mts",
+      "default": "./src/prompt-parts.mjs"
+    },
+    "./prompt-mentions": {
+      "types": "./src/prompt-mentions.d.mts",
+      "default": "./src/prompt-mentions.mjs"
+    },
+    "./file-kinds": {
+      "types": "./src/file-kinds.d.mts",
+      "default": "./src/file-kinds.mjs"
+    },
+    "./appearance": {
+      "types": "./src/appearance.d.mts",
+      "default": "./src/appearance.mjs"
     },
     "./checkpoints": "./src/checkpoints.ts",
     "./use-checkpoints": "./src/use-checkpoints.ts",
@@ -170,6 +187,10 @@
       "types": "./src/archive.d.mts",
       "default": "./src/archive.mjs"
     },
+    "./bots": {
+      "types": "./src/bots.d.mts",
+      "default": "./src/bots.mjs"
+    },
     "./attention": {
       "types": "./src/attention.d.mts",
       "default": "./src/attention.mjs"
@@ -251,6 +272,7 @@
     "./main-sync": "./src/main-sync.ts",
     "./mcp": "./src/mcp.ts",
     "./local-mcp": "./src/local-mcp.ts",
+    "./use-provider-updates": "./src/use-provider-updates.ts",
     "./use-local-mcp": "./src/use-local-mcp.ts",
     "./linear": "./src/linear.ts",
     "./skill-catalog": "./src/skill-catalog.ts",

@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import { followTerminal, type TerminalFollower } from "@milagre/shared/terminal-client";
 import type { TerminalInfo } from "@milagre/shared/terminal";
 import { THEME_EVENT } from "./theme-sheet";
+import { APPEARANCE_EVENT } from "./appearance";
 import { isMac } from "./shortcut-hints";
 import { removeTerminal, updateTerminal } from "./terminal-store";
 import { bridgeForKey } from "./computer-bridge";
@@ -58,6 +59,24 @@ function fontFamily() {
   return mono || 'ui-monospace, "SF Mono", Menlo, monospace';
 }
 
+/** The Code size setting plus half a pixel, as the terminal always ran half a pixel above the code blocks. */
+function codeFontSize() {
+  const size = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--code-size"));
+  return (Number.isFinite(size) ? size : 12) + 0.5;
+}
+
+// Open terminals follow the Code size and Code font settings live: set the options, then refit (which resizes the PTY).
+function reapplyAppearance() {
+  const fontSize = codeFontSize();
+  const family = fontFamily();
+  for (const session of sessions.values()) {
+    if (session.term.options.fontSize === fontSize && session.term.options.fontFamily === family) continue;
+    session.term.options.fontSize = fontSize;
+    session.term.options.fontFamily = family;
+    fitTerminal(session.id);
+  }
+}
+
 function reapplyTheme() {
   const theme = terminalTheme();
   for (const session of sessions.values()) session.term.options.theme = theme;
@@ -69,6 +88,7 @@ function watchTheme() {
   if (themeWatched) return;
   themeWatched = true;
   window.addEventListener(THEME_EVENT, reapplyTheme);
+  window.addEventListener(APPEARANCE_EVENT, reapplyAppearance);
 }
 
 function create(info: TerminalInfo): Session {
@@ -77,7 +97,7 @@ function create(info: TerminalInfo): Session {
     allowTransparency: true,
     cursorBlink: true,
     fontFamily: fontFamily(),
-    fontSize: 12.5,
+    fontSize: codeFontSize(),
     lineHeight: 1.2,
     scrollback: 10_000,
     macOptionIsMeta: false,

@@ -33,11 +33,11 @@ async function browserChecks() {
     fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, `${name}.png`), (await window.webContents.capturePage()).toPNG());
   }
-  const prompt = 'textarea[aria-label="Prompt"]';
+  const prompt = "[data-prompt-editor]";
   const type = (value) =>
     evaluate(`(() => {
     const input = document.querySelector(${JSON.stringify(prompt)});
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(value)});
+    input.value = ${JSON.stringify(value)};
     input.dispatchEvent(new Event('input', { bubbles: true }));
   })()`);
   async function clickText(text) {

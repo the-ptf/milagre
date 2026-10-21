@@ -5,8 +5,15 @@ import { createHostsStore } from "./hosts-store";
 import { createNavigationStore } from "./navigation-store";
 import { createProjectOrderStore } from "./project-order-store";
 import { createFoldedProjectsStore } from "./folded-projects-store";
+import { createHiddenProjectsStore } from "./hidden-projects-store";
 
 export const savedProjectOrder = createProjectOrderStore({
+  getItemAsync: SecureStore.getItemAsync,
+  setItemAsync: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
+});
+
+/** The Projects and Links hidden from the Projects list on this phone, per paired computer. */
+export const savedHiddenProjects = createHiddenProjectsStore({
   getItemAsync: SecureStore.getItemAsync,
   setItemAsync: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
 });

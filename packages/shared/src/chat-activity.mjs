@@ -73,12 +73,16 @@ export const BACKGROUND_ITEM_LABELS = Object.freeze({ subagent: "Subagent", advi
  * The Chat's background work as its background line lists it, oldest first: what each is and since when. A command's
  * output can be read while it runs (chat:task-output); a subagent or advisor carries its own transcript.
  */
-export function backgroundItems(session) {
+export function backgroundItems(session, ports = []) {
   const agent = (type) => (item) => ({ type, id: item.id, title: item.title, startedAt: item.startedAt, agent: item });
+  // A command serving one of the Chat's ports shows in Ports, where it can be opened and stopped, and not here too.
+  const served = new Set(ports.map((port) => port.taskId).filter(Boolean));
   return oldestFirst([
     ...backgroundSubagents(session).map(agent("subagent")),
     ...activeAdvisors(session).map(agent("advisor")),
-    ...backgroundTasks(session).map((task) => ({ type: TASK_TYPES[task.kind] ?? "task", id: task.id, title: task.title, startedAt: task.startedAt })),
+    ...backgroundTasks(session)
+      .filter((task) => !served.has(task.id))
+      .map((task) => ({ type: TASK_TYPES[task.kind] ?? "task", id: task.id, title: task.title, startedAt: task.startedAt })),
   ]);
 }
 

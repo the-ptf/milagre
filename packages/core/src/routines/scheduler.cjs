@@ -98,7 +98,8 @@ const claimedSettings = (routine) => ({ provider: routine.provider, model: routi
  * `chats` is the adapter the runtime builds: exists, archived, busy (a turn open, preparing, or an approval or question
  * pending), send (resolves once the message is accepted, with a `started` promise for the turn), replyText,
  * patchRunContext, startChat (makes a Run's Chat, in a new Worktree or the Project folder, and words its first message),
- * archive and linkedChat (the Chat a Linear issue's comments go into, or null).
+ * archive, linkedChat (the Chat a Linear issue's comments go into, or null) and nameRun (titles an acted or quiet Run once
+ * it has ended, and a Run's own Chat with it; `{ quietSummary }` for a quiet one).
  */
 function createRoutineScheduler({
   store,
@@ -442,6 +443,15 @@ function createRoutineScheduler({
     }
   }
 
+  // Asks for a Run that has ended to be titled from what it did. Nothing it does reaches the Run, which has its status.
+  function nameRun(chatId, runId, options) {
+    try {
+      track(Promise.resolve(chats.nameRun(chatId, runId, options)).catch((error) => console.warn("[routines] nameRun failed", error)));
+    } catch (error) {
+      console.warn("[routines] nameRun failed", error);
+    }
+  }
+
   // Archives a Chat a Run started, once `after` settles; its Worktree goes too when the Run made it (and, the adapter
   // checks, nothing in it is worth keeping).
   function archive(chatId, removeWorktree, after = Promise.resolve()) {
@@ -489,9 +499,9 @@ function createRoutineScheduler({
         quiet = true;
         summary = pass.summary;
         event.quiet = true;
-        finish(run, chatId, { status: "quiet", summary });
-      } else {
-        finish(run, chatId, { status: "acted" });
+        if (finish(run, chatId, { status: "quiet", summary })) nameRun(chatId, entry.runId, { quietSummary: summary });
+      } else if (finish(run, chatId, { status: "acted" })) {
+        nameRun(chatId, entry.runId, {});
       }
     } else if (failedAgain(finish(run, chatId, { status: "failed", error: event.type === "turn-failed" ? event.message : "cancelled" }))) {
       event.quiet = true;

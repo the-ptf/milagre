@@ -46,10 +46,12 @@ export function BackgroundWork({
   const [selected, setSelected] = useState<BackgroundItem | null>(null);
   const current = items.find((item) => item.type === selected?.type && item.id === selected.id);
   const child = current ?? (selected?.type === "command" ? selected : undefined);
-  if (!showIndicator && !(open && child)) return null;
+  // The line hides when all that is left serves a port: the Ports pill shows it.
+  const indicator = showIndicator && items.length > 0;
+  if (!indicator && !(open && child)) return null;
   return (
     <div className="w-full min-w-0">
-      {showIndicator && <BackgroundIndicator count={items.length} startedAt={items[0]?.startedAt} mark={mark} expanded={open} onClick={() => setOpen(!open)} />}
+      {indicator && <BackgroundIndicator count={items.length} startedAt={items[0]?.startedAt} mark={mark} expanded={open} onClick={() => setOpen(!open)} />}
       {open && (
         <div data-background-tasks className="mt-1 ml-3 flex max-h-[360px] min-h-0 flex-col rounded-control border border-line bg-surface text-ink-2">
           {child ? (

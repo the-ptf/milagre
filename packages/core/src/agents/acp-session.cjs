@@ -78,7 +78,11 @@ function acpPermissionRequest(requestId, call, options) {
     detail = call.rawInput === undefined ? undefined : capText(JSON.stringify(call.rawInput, null, 2));
   } catch {}
   const title = str(call.title).endsWith("?") ? str(call.title) : `Use ${name}?`;
-  return compact({ ...base, kind: "other", tool: name, title, detail });
+  // An MCP tool's server and tool, as Claude names it, for what matches on them (bots/gates.cjs, Bot rules).
+  const { _meta: meta } = call;
+  const mcp = meta?.mcp;
+  const mcpName = typeof mcp?.server === "string" && typeof mcp?.tool === "string" ? `mcp__${mcp.server}__${mcp.tool}` : undefined;
+  return compact({ ...base, kind: "other", tool: name, toolName: mcpName, title, detail });
 }
 
 // The user's decision -> the agent's option. Allow for chat falls back to allow once, and the reverse.
@@ -123,6 +127,8 @@ class AcpSession {
     mcpExtras = null,
     clientVersion = "0.0.0",
     interruptGraceMs = 3000,
+    // Bot rules only: the bot's answer to each permission request (see PendingPermissions).
+    permissionPolicy,
     config = antigravityAcp,
     createRpc = (options) => new AcpRpc(options),
   }) {
@@ -143,6 +149,7 @@ class AcpSession {
       mcpExtras,
       clientVersion,
       interruptGraceMs,
+      permissionPolicy,
       config,
       createRpc,
     });
@@ -173,7 +180,7 @@ class AcpSession {
         forward: (update) => this.mapUpdate(update),
         turnActive: () => this.turnActive && !this.cancelRequested,
       }) ?? null;
-    this.permissions = new PendingPermissions((event) => this.emit(event));
+    this.permissions = new PendingPermissions((event) => this.emit(event), { policy: permissionPolicy });
     this.questions = new PendingQuestions((event) => this.emit(event));
   }
 

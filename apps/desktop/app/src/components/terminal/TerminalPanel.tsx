@@ -135,13 +135,17 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
 
   // The choice opens with its first Worktree focused, so Enter takes it.
   useEffect(() => {
-    if (picking) requestAnimationFrame(() => plus.current?.querySelector<HTMLButtonElement>("[data-picker-row]")?.focus());
+    // The panel is still rising from zero height; focusing its first row must not scroll the surrounding Chat.
+    if (picking) requestAnimationFrame(() => plus.current?.querySelector<HTMLButtonElement>("[data-picker-row]")?.focus({ preventScroll: true }));
   }, [picking]);
 
   useDismiss(
     picking,
     () => chatId && setTerminalPicking(chatId, false),
     (target) => Boolean(plus.current?.contains(target)),
+    // CSS keeps this picker attached to +. Opening the panel resizes and scrolls the Chat above it,
+    // so those scrolls must follow the anchor rather than dismiss the Worktree choice.
+    () => {},
   );
 
   function startResize(event: React.PointerEvent) {

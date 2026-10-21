@@ -382,7 +382,7 @@ async function browserChecks() {
     }
     await evaluate(`document.querySelector("${pill}").click()`);
     await waitFor(isOpen);
-    await evaluate('document.querySelector("textarea[aria-label=Prompt]").dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}))');
+    await evaluate('document.querySelector("[data-prompt-editor]").dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}))');
     await waitFor(isClosed);
     await settle();
     // Reduced motion: the surface jumps straight to the panel, with no transition.

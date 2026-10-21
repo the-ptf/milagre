@@ -1,3 +1,4 @@
+import { DIFF_COLOR_IDS, MOTION_IDS, PHONE_CODE_SIZES, PHONE_TEXT_SIZES, type DiffColors, type MotionSpeed } from "@milagre/shared/appearance";
 import { parseCustomTheme, resolveThemeSettings, type CustomTheme, type ThemeChoice } from "@milagre/shared/themes";
 
 // The phone's color theme, read once and shared by every screen. No React Native imports, so it runs under node:test.
@@ -6,14 +7,31 @@ export type PhoneThemeSettings = {
   colorTheme: ThemeChoice;
   customThemeEnabled: boolean;
   customTheme: CustomTheme | null;
+  textSize: PhoneTextSize;
+  codeSize: PhoneCodeSize;
+  diffColors: DiffColors;
+  motion: MotionSpeed;
 };
+
+type PhoneTextSize = "small" | "default" | "large" | "larger";
+type PhoneCodeSize = "small" | "default" | "large";
+const TEXT_SIZES = PHONE_TEXT_SIZES.map((size) => size.id) as PhoneTextSize[];
+const CODE_SIZES = PHONE_CODE_SIZES.map((size) => size.id) as PhoneCodeSize[];
 
 export const DEFAULT_PHONE_THEME: PhoneThemeSettings = {
   mode: "system",
   colorTheme: "milagre-blue",
   customThemeEnabled: false,
   customTheme: null,
+  textSize: "default",
+  codeSize: "default",
+  diffColors: "red-green",
+  motion: "normal",
 };
+
+function oneOf<T extends string>(list: readonly T[], value: unknown, fallback: T): T {
+  return list.includes(value as T) ? (value as T) : fallback;
+}
 
 const MODES: readonly PhoneThemeSettings["mode"][] = ["system", "light", "dark"];
 
@@ -34,6 +52,10 @@ export function parsePhoneThemeSettings(raw: string | null): PhoneThemeSettings 
     colorTheme: resolveThemeSettings({ colorTheme: saved.colorTheme, customThemeEnabled, customTheme }),
     customThemeEnabled,
     customTheme,
+    textSize: oneOf(TEXT_SIZES, saved.textSize, "default"),
+    codeSize: oneOf(CODE_SIZES, saved.codeSize, "default"),
+    diffColors: oneOf(DIFF_COLOR_IDS, saved.diffColors, "red-green"),
+    motion: oneOf(MOTION_IDS, saved.motion, "normal"),
   };
 }
 

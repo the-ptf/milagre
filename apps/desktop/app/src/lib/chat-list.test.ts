@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ChatMessage } from "../model";
-import { chatMark, dropIntent, folderName, formatLineCount, orderChats } from "./chat-list.ts";
+import type { AgentSession, ChatMessage } from "../model";
+import { chatMark, dropIntent, folderName, formatLineCount, isChatListed, orderChats } from "./chat-list.ts";
 import { createPendingChat, withPendingChat } from "@milagre/shared/chats";
 import type { CoordinatorState } from "../model";
 
@@ -112,4 +112,18 @@ test("dropIntent: between rows pins, unpins or reorders; on a row links other Wo
   assert.equal(dropIntent(recent, pinned, "on"), "link");
   assert.deepEqual(dropIntent(recent, pinned, "on", true), { invalid: "linked" });
   assert.deepEqual(dropIntent(recent, { worktree: "/b" }, "on"), { invalid: "same-worktree" });
+});
+
+test("isChatListed: a Chat needs a message, and a hidden Run Chat is listed only while it waits on the user", () => {
+  const message = (id: number) => ({ id, session_id: 1, body: "Result", context: null, role: "assistant" }) as ChatMessage;
+  const plain = { id: 1 } as AgentSession;
+  const hidden = { id: 2, routine: { routineId: "r", runId: "u", hidden: true } } as AgentSession;
+  const kept = { id: 3, routine: { routineId: "r", runId: "u", hidden: false } } as AgentSession;
+  assert.equal(isChatListed(plain, [message(1)], false), true);
+  assert.equal(isChatListed(plain, [], false), false);
+  assert.equal(isChatListed(hidden, [message(1)], false), false);
+  assert.equal(isChatListed(hidden, [message(1)], true), true);
+  assert.equal(isChatListed(kept, [message(1)], false), true);
+  // Waiting doesn't list a Chat that has nothing to show.
+  assert.equal(isChatListed(hidden, [], true), false);
 });

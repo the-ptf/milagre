@@ -1,7 +1,15 @@
 import { chatSummary } from "@milagre/shared/chat-summary";
-import type { AgentSession, ChatMessage } from "../model";
-import { comparePins } from "@milagre/shared/chats";
+import type { AgentSession, ChatMessage, LinkChatSession } from "../model";
+import { comparePins, isListedChat } from "@milagre/shared/chats";
 export { chatTitle, pinOrderAt } from "@milagre/shared/chats";
+
+/**
+ * Whether the sidebar lists a Chat: it has a message to show, and it isn't a hidden Run Chat, unless that one waits on
+ * an approval or a question (`waiting`), which it shows until it is answered.
+ */
+export function isChatListed(session: AgentSession | LinkChatSession, sessionMessages: readonly ChatMessage[], waiting: boolean): boolean {
+  return isListedChat(session, chatSummary(session, sessionMessages).count, waiting);
+}
 
 /** What the mark at the left of a chat row shows; the first that applies wins. */
 export type ChatMark = "question" | "waiting" | "delegated" | "running" | "background" | "unread" | "idle";

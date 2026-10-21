@@ -350,6 +350,8 @@ async function startDaemon({
     dataDir,
     send: sender.send,
     isChatFocused,
+    // Bots' threads and the Chats they open: the bot hears when they finish, not the phone.
+    isQuietChat: (chatId) => runtime.isQuietChat(chatId),
     onError,
     context: async (chatId) => {
       const owner = projectOfKey(chatId);
@@ -742,7 +744,24 @@ async function startDaemon({
         // Only a desktop open (it passes takeNotice) takes the restored-chats notice; the phone's bridge opens without it.
         else if (request.method === "project:open") result = await runtime.openProject(request.args[0], { takeNotice: request.args[1]?.takeNotice === true });
         else if (request.method === "project:current" && view.projectPath) result = await runtime.invoke("project:snapshot", [view.projectPath]);
-        else result = await runtime.invoke(request.method, request.args, context);
+        else {
+          const args =
+            policy &&
+            (request.method === "link:update" || request.method === "link:create") &&
+            request.args[0] &&
+            typeof request.args[0] === "object" &&
+            !Array.isArray(request.args[0]) &&
+            "hidden" in request.args[0]
+              ? [
+                  (() => {
+                    const { hidden: _hidden, ...rest } = request.args[0];
+                    return rest;
+                  })(),
+                  ...request.args.slice(1),
+                ]
+              : request.args;
+          result = await runtime.invoke(request.method, args, context);
+        }
         // An open may finish after its caller disconnects. Dispose that late session as well.
         if (isClosed() && /^(simulator|browser):/.test(request.method)) await runtime.disconnect?.(context.clientId);
         if (request.method === "link:open" && result?.link) view.linkId = result.link.id;

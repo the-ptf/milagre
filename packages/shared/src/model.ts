@@ -1,6 +1,8 @@
+import type { GateMeta } from "./bots.mjs";
+
 export type SessionStatus = "Created" | "Running" | "Stopped";
 export type ModelProvider = "codex" | "claude" | "antigravity";
-export type PermissionMode = "ask" | "auto" | "full";
+export type PermissionMode = "ask" | "auto" | "full" | "bot";
 /** Where a new chat runs: the selected checkout, or a fresh git worktree. */
 export type Isolation = "local" | "worktree";
 
@@ -44,6 +46,12 @@ export interface CliStatus {
   state: CliState;
   message?: string;
 }
+export interface ProviderUpdate {
+  provider: ModelProvider;
+  installedVersion: string;
+  version: string;
+}
+
 export type AgentCliStatus = Record<ModelProvider, CliStatus>;
 
 export interface Project {
@@ -161,8 +169,11 @@ export interface AgentSession {
   resumeTurn?: { stoppedAt?: number };
   /** How full the agent's context window was when its last turn ended. */
   contextUsage?: ContextUsage;
-  /** The Routine and Run that started this Chat; set only on a Chat a Run created. */
-  routine?: { routineId: string; runId: string };
+  /**
+   * The Routine and Run that started this Chat; set only on a Chat a Run created. `hidden` keeps it out of every Chat list
+   * until it waits on an approval or question; it is absent on a Chat made before Run Chats were hidden.
+   */
+  routine?: { routineId: string; runId: string; hidden?: boolean };
   /** The permission mode the Chat's composer last set (a pick, or a person's message); a heartbeat's beat runs in it. */
   permissionMode?: PermissionMode;
   /**
@@ -252,7 +263,15 @@ export interface LinkPreparation {
   error?: string;
   retainedPaths?: string[];
 }
+/** A failed save retained by the Computer, until every pending edit has reached disk. Never persisted itself. */
+export interface PersistenceFailure {
+  error: string;
+  code?: string;
+  saving: boolean;
+}
+
 export interface LinkState {
+  persistence?: PersistenceFailure;
   /** From a host that keeps messages by Chat (chat-pages-v1): `messages` is empty, and the Chats on screen read their own. */
   messagesInChats?: boolean;
   next_id: number;
@@ -371,6 +390,16 @@ export type WorktreeLinkedContext = {
 export type ChatReloadContext = { kind: "reload" };
 
 /**
+ * What Milagre writes into a bot's thread (packages/core/src/bots): a sign-off that expired, a Chat the bot opened that
+ * finished a turn or that the user took over. `bot-message` marks a prompt a bot sent into a Chat it opened.
+ */
+export type BotContext =
+  | { kind: "bot-gate-expired"; requestId: string; chatKey: string }
+  | { kind: "bot-chat-finished"; chatKey: string; status: "done" | "failed" }
+  | { kind: "bot-chat-taken-over"; chatKey: string }
+  | { kind: "bot-message"; botId: string; botName: string };
+
+/**
  * What starts a Routine: the clock, a change in a Linear workspace, or a POST to its webhook URL. A webhook's `hookId` is
  * the hex sha256 of the secret in the URL, so the Routine never holds the secret itself; `signed` says an HMAC is checked.
  */
@@ -457,6 +486,8 @@ export interface RoutineRun {
   /** What started this Run. */
   event?: RoutineEvent;
   summary?: string;
+  /** What the Run did, set when it ends; the Runs list shows it as the row's name. */
+  title?: string;
   error?: string;
   /** An event refused before it ran (a webhook whose signature didn't match); only the newest are kept. */
   rejected?: boolean;
@@ -504,6 +535,7 @@ export type ChatContext =
   | UsageLimitContext
   | AccountSwitchContext
   | ChatReloadContext
+  | BotContext
   | RoutineRunContext
   | CheckpointRestoreContext
   | "handover"
@@ -622,6 +654,8 @@ export interface PermissionRequest {
   setup?: { projectPath: string; source: string; computer: string };
   /** Short name of the tool, e.g. "Bash", "Shell" or "Edit files". */
   tool: string;
+  /** The agent's own name for the tool, when `tool` shows another (Claude's MCP tools: "Send Message"). */
+  toolName?: string;
   title: string;
   description?: string;
   command?: string;
@@ -638,6 +672,8 @@ export interface PermissionRequest {
   stepId?: string;
   /** On a Delegation's card: where it goes ("Project / branch / Chat"), what it says, and whether it opens a Negotiation. */
   delegation?: { target: string; message: string; negotiation: boolean };
+  /** On a bot's sign-off card: the gated action and the bot that wants it. */
+  gate?: GateMeta;
 }
 
 export type PermissionDecision = "allow" | "allow-for-chat" | "deny";
@@ -766,6 +802,8 @@ export interface AgentPort {
   address: string;
   /** Set by a desktop window on a port that listens on another computer, which `localhost` doesn't reach. */
   computerId?: string;
+  /** The agent's background command that serves it, which the port then stands for instead of the background line. */
+  taskId?: string;
 }
 
 /** Every chat's listening ports, by chat key; a chat with none is absent. */
@@ -888,6 +926,7 @@ export interface WorktreeRequest {
 }
 
 export interface CoordinatorState {
+  persistence?: PersistenceFailure;
   /** From a host that keeps messages by Chat (chat-pages-v1): `messages` is empty, and the Chats on screen read their own. */
   messagesInChats?: boolean;
   next_id: number;
@@ -908,9 +947,21 @@ export interface RestoredChats {
 export interface OpenProject {
   path: string;
   name: string;
+  /** False for a folder outside Git: its one Worktree is the folder itself, and its Chats work there. */
+  git?: boolean;
   state: CoordinatorState;
   /** Only on the first open after chats came back from linked worktrees' old files. */
   restoredChats?: RestoredChats[];
+}
+
+/** A folder an agent session on this computer worked in, for onboarding. */
+export interface AgentFolder {
+  path: string;
+  name: string;
+  provider: ModelProvider;
+  /** ISO time of the newest session there. */
+  lastUsed: string;
+  git: boolean;
 }
 
 /** worktree:link-issue's answer: `renamed` when the branch took the issue's name, `stored` when only the key was kept. */

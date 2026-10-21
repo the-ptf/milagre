@@ -9,10 +9,16 @@ test("macOS keeps traffic lights aligned to the 30px toolbar center", () => {
   assert.equal(chrome.options.titleBarOverlay.height, 60);
 });
 
-test("external decorations never reserve space inside the content", () => {
-  for (const platform of ["linux", "win32"]) {
-    assert.deepEqual(windowChrome(platform), { controls: "external", options: {} });
-  }
+test("Linux keeps external decorations unless integrated controls are requested", () => {
+  assert.deepEqual(windowChrome("linux"), { controls: "external", options: {} });
+});
+
+test("Windows integrates window controls and hides the native menu row by default", () => {
+  const chrome = windowChrome("win32");
+  assert.equal(chrome.controls, "overlay");
+  assert.equal(chrome.options.titleBarStyle, "hidden");
+  assert.equal(chrome.options.titleBarOverlay.height, 60);
+  assert.equal(chrome.options.autoHideMenuBar, true);
 });
 
 test("the integrated mode supplies Electron controls on desktops without native decorations", () => {

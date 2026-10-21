@@ -258,7 +258,7 @@ function Diff({ diff }: { diff?: CanvasWorktree["diff"] }) {
   if (!diff || (!diff.added && !diff.removed)) return null;
   return (
     <Text style={{ fontSize: 12, fontVariant: ["tabular-nums"] }}>
-      <Text style={{ color: colors.green }}>+{diff.added}</Text> <Text style={{ color: colors.red }}>−{diff.removed}</Text>
+      <Text style={{ color: colors.add }}>+{diff.added}</Text> <Text style={{ color: colors.remove }}>−{diff.removed}</Text>
     </Text>
   );
 }

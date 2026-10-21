@@ -45,7 +45,10 @@ foreach ($sid in @($me, $system)) {
  $r = [Security.AccessControl.FileSystemAccessRule]::new($sid, [Security.AccessControl.FileSystemRights]::FullControl, $inherit, [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
  [void]$a.AddAccessRule($r)
 }
-Set-Acl -LiteralPath $p -AclObject $a
+# Persist only the security sections changed above. Set-Acl also attempts to
+# write audit information on an already-protected path, requiring
+# SeSecurityPrivilege that a normal desktop process does not have.
+$i.SetAccessControl($a)
 $a = Get-Acl -LiteralPath $p
 `
     : ""

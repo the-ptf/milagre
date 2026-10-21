@@ -14,6 +14,7 @@ import { consentOpen } from "../lib/ai-consent";
 import { useInbox } from "../lib/inbox";
 import { useResolvedScheme, useSettings } from "../lib/settings";
 import { applyPalette } from "../lib/theme-sheet";
+import { applyAppearance } from "../lib/appearance";
 import { useDismiss } from "../lib/use-dismiss";
 import { answerSummary, draftAnswers, draftOf, pickOption, typeAnswer, type QuestionDrafts } from "../lib/question-answers";
 import { ScrollArea } from "./primitives/ScrollArea";
@@ -102,13 +103,14 @@ function FloatingInboxContent({ view }: { view: "dock" | "inbox" | "preview" }) 
   const [previewKey, setPreviewKey] = useState<string | null>(null);
   const [placement, setPlacement] = useState<"left" | "right" | "bottom">("right");
   const [inboxOpen, setInboxOpen] = useState(false);
-  const { colorTheme, customTheme, floatingInboxActivity } = useSettings();
+  const { colorTheme, customTheme, floatingInboxActivity, appearance } = useSettings();
   const snapshot = visibleInbox(rawSnapshot, floatingInboxActivity);
   const scheme = useResolvedScheme();
   useEffect(() => {
     document.documentElement.classList.toggle("dark", scheme === "dark");
     applyPalette(resolvePalette(colorTheme, scheme, customTheme));
-  }, [scheme, colorTheme, customTheme]);
+    applyAppearance(appearance);
+  }, [scheme, colorTheme, customTheme, appearance]);
   useEffect(() => {
     if (view === "dock") void window.milagre.resizeFloatingBar(snapshot.agents.length);
   }, [snapshot.agents.length, view]);

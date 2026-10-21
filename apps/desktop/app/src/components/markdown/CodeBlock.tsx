@@ -8,7 +8,7 @@ import { highlight, isLanguageReady, loadLanguage } from "./highlighter";
 
 const ROW_TINT = { add: "bg-[var(--diff-add)]", remove: "bg-[var(--diff-remove)]", context: "" } as const;
 const ROW_MARKER = { add: "+", remove: "−", context: " " } as const;
-const MARKER_COLOR = { add: "text-green", remove: "text-red", context: "" } as const;
+const MARKER_COLOR = { add: "text-diff-add", remove: "text-diff-remove", context: "" } as const;
 
 // A block highlights once it is within this distance of the viewport; far ones stay plain text of the same size.
 const NEAR_MARGIN = 800;
@@ -105,7 +105,7 @@ export function CodeBlock({ code, fence, diff = false }: { code: string; fence?:
         </button>
       </div>
       {rows ? (
-        <pre className="overflow-x-auto py-1.5 font-mono text-[12px] leading-[1.6]">
+        <pre className="overflow-x-auto py-1.5 font-mono text-[length:var(--code-size)] leading-[1.6]">
           <code className="block min-w-max">
             {rows.map((row, index) => (
               <span key={index} className={`flex pr-3 ${ROW_TINT[row.kind]}`}>
@@ -127,7 +127,7 @@ export function CodeBlock({ code, fence, diff = false }: { code: string; fence?:
           </code>
         </pre>
       ) : (
-        <pre className="overflow-x-auto px-3 py-2.5 font-mono text-[12px] leading-[1.6]">
+        <pre className="overflow-x-auto px-3 py-2.5 font-mono text-[length:var(--code-size)] leading-[1.6]">
           <code>
             {/* Lines stay joined by real newlines so a hand selection copies blank lines too. */}
             {lines

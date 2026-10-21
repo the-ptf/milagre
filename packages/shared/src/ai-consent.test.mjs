@@ -2,6 +2,49 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AI_CONSENT_VERSION, createAiConsent, requiresAiConsent, protectAiBridge } from "./ai-consent.mjs";
 
+test("routine activation and manual Runs require consent, while pausing and reading stay available", () => {
+  for (const [method, args] of [
+    ["routines:enabled:save", [true]],
+    ["routines:run-now", ["r1"]],
+    ["routines:create", [{}]],
+    ["routines:update", ["r1", { prompt: "new prompt" }]],
+    ["routines:update", ["r1", { enabled: true }]],
+  ])
+    assert.equal(requiresAiConsent(method, args), true, method);
+  for (const [method, args] of [
+    ["routines:enabled:save", [false]],
+    ["routines:update", ["r1", { enabled: false }]],
+    ["routines:list", []],
+    ["routines:delete", ["r1"]],
+  ])
+    assert.equal(requiresAiConsent(method, args), false, method);
+});
+
+test("desktop Routine bridge waits for consent and supplies its version only after acceptance", async () => {
+  const calls = [];
+  let accept = false;
+  const { consent } = fixture(async () => accept);
+  const bridge = protectAiBridge(
+    {
+      saveRoutinesEnabled: async (...args) => calls.push(args),
+      runRoutineNow: async (...args) => calls.push(args),
+      createRoutine: async (...args) => calls.push(args),
+      updateRoutine: async (...args) => calls.push(args),
+    },
+    () => consent.require(),
+  );
+  await assert.rejects(bridge.saveRoutinesEnabled(true), /permission/);
+  await assert.rejects(bridge.runRoutineNow("r1"), /permission/);
+  await assert.rejects(bridge.createRoutine({}), /permission/);
+  await assert.rejects(bridge.updateRoutine("r1", { enabled: true }), /permission/);
+  assert.deepEqual(calls, []);
+  await bridge.saveRoutinesEnabled(false);
+  await bridge.updateRoutine("r1", { enabled: false });
+  accept = true;
+  await bridge.saveRoutinesEnabled(true);
+  assert.deepEqual(calls, [[false], ["r1", { enabled: false }], [true, AI_CONSENT_VERSION]]);
+});
+
 function fixture(ask = async () => true, initial = null) {
   let saved = initial;
   const consent = createAiConsent({
@@ -97,6 +140,9 @@ test("all AI entry points are protected while reading, stopping, and denying rem
   assert.equal(requiresAiConsent("agent:respond-permission", [{ decision: "deny" }]), false);
   assert.equal(requiresAiConsent("agent:set-permission-mode", [{ mode: "full" }]), true);
   assert.equal(requiresAiConsent("agent:set-permission-mode", [{ mode: "ask" }]), false);
+  assert.equal(requiresAiConsent("bots:send", ["ops", "hi"]), true);
+  assert.equal(requiresAiConsent("bots:answer-gate", ["/p#1", "r1", "once"]), true);
+  assert.equal(requiresAiConsent("bots:answer-gate", ["/p#1", "r1", "deny"]), false);
   for (const method of ["chat:messages", "agent:interrupt", "advisor:stop", "push:unregister"]) assert.equal(requiresAiConsent(method), false, method);
 });
 

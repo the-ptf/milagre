@@ -46,6 +46,8 @@ const messages = [
 function Fixture() {
   useTerminalSync(${JSON.stringify(CHAT)});
   const [model] = useState(MODEL_CATALOG[0]);
+  const [places, setPlaces] = useState();
+  window.setPlaces = setPlaces;
   // The chat pane as App lays it out: the Chat, then its Terminals, in one column.
   return <div data-chat-pane style={{ display: "flex", flexDirection: "column", height: "100vh", padding: 12, paddingTop: 48, boxSizing: "border-box", overflow: "hidden" }}>
     <ChatComposer messages={messages}
@@ -56,7 +58,7 @@ function Fixture() {
       fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop}
       onRecommendationSelect={noop} worktrees={[]} onWorktreeChange={noop}
       isolation="local" onIsolationChange={noop} branches={[]} baseBranch="main" onBaseBranchChange={noop} newChatError={null} />
-    <TerminalPanel chatId={${JSON.stringify(CHAT)}} notify={(message) => window.notices.push(message)} />
+    <TerminalPanel chatId={${JSON.stringify(CHAT)}} places={places} notify={(message) => window.notices.push(message)} />
     <PanelToggles right={12} />
   </div>;
 }
@@ -107,7 +109,10 @@ async function electronChecks() {
   const terminals = createTerminals({
     resolveChat: async (chatId) => {
       if (chatId !== CHAT) throw new Error("Unknown Chat");
-      return [{ path: worktree, label: "dev-server" }];
+      return [
+        { path: worktree, label: "dev-server" },
+        { path: scratch, label: "website" },
+      ];
     },
     shell: () => selectedShell,
     settingsFile: path.join(scratch, "terminal-settings.json"),
@@ -183,7 +188,7 @@ async function electronChecks() {
     // The panel rises as it opens; once it has, the Chat has made room: its prompt sits above the panel, not under it.
     await waitFor('!!document.querySelector("[data-terminal-slot]:not([data-sliding])")', "the panel to finish opening");
     const layout = await evaluate(
-      '(() => { const prompt = document.querySelector("textarea[aria-label=Prompt]").getBoundingClientRect(); const panel = document.querySelector("[data-terminal-panel]").getBoundingClientRect(); return { promptBottom: prompt.bottom, panelTop: panel.top, panelBottom: panel.bottom, height: innerHeight }; })()',
+      '(() => { const prompt = document.querySelector("[data-prompt-editor]").getBoundingClientRect(); const panel = document.querySelector("[data-terminal-panel]").getBoundingClientRect(); return { promptBottom: prompt.bottom, panelTop: panel.top, panelBottom: panel.bottom, height: innerHeight }; })()',
     );
     assert.ok(layout.promptBottom <= layout.panelTop && layout.panelBottom <= layout.height, `The prompt is under the Terminals: ${JSON.stringify(layout)}`);
     // WebGL where the GPU offers WebGL2; where it doesn't (CI's Linux blocklists it), the DOM renderer draws instead.
@@ -259,6 +264,7 @@ async function electronChecks() {
     // Choosing bash leaves the existing Terminal alone and applies to the next tab.
     const bash = (await terminals.profiles()).shells.find((item) => item.label === "bash");
     if (bash) {
+      const existingId = (await terminals.list({ chatId: CHAT })).terminals[0].id;
       await waitFor('!!document.querySelector("[aria-label=\\"Shell for new Terminals\\"]")', "the shell selector");
       await evaluate('document.querySelector("[aria-label=\\"Shell for new Terminals\\"]").click()');
       await waitFor('!!document.querySelector("[role=listbox]")', "available shells");
@@ -266,7 +272,7 @@ async function electronChecks() {
       await evaluate('[...document.querySelectorAll("[role=option]")].find((row) => row.textContent.startsWith("bash")).click()');
       await waitFor('document.querySelector("[aria-label=\\"Shell for new Terminals\\"]").textContent.includes("bash")', "saved bash selection");
       assert.equal((await terminals.profiles()).selectedShell, bash.file);
-      assert.equal((await terminals.list({ chatId: CHAT })).terminals[0].title, path.basename(selectedShell.file));
+      assert.equal((await terminals.list({ chatId: CHAT })).terminals[0].id, existingId, "Choosing a shell keeps the existing Terminal");
     }
     // + adds a second tab; a running command makes it busy, and ⌘W asks before ending it.
     await evaluate("document.querySelector(\"[aria-label='New Terminal']\").click()");
@@ -295,9 +301,35 @@ async function electronChecks() {
     await type("exit\r");
     await waitFor('!document.querySelector("[data-terminal-panel]")', "the panel closed after exit");
     assert.deepEqual((await terminals.list({ chatId: CHAT })).terminals, []);
+    // A linked Chat must keep its Worktree picker open while the empty panel rises.
+    await evaluate(
+      `window.setPlaces(${JSON.stringify([
+        { path: worktree, label: "dev-server" },
+        { path: scratch, label: "website" },
+      ])})`,
+    );
+    await delay(300);
+    press("J", ["meta"]);
+    await waitFor('!!document.querySelector("[data-terminal-slot]:not([data-sliding])")', "the linked Chat picker to finish opening");
+    await waitFor('document.querySelectorAll("[data-picker-row]").length === 2', "the linked Worktree choices");
+    press("Return");
+    await waitFor('!!document.querySelector("[data-terminal-panel] .xterm")', "a Terminal in the chosen linked Worktree");
+    await type("pwd\r");
+    await waitFor(`${shown}.includes(${JSON.stringify(worktree)})`, "the chosen linked Worktree folder");
+    await evaluate('document.querySelector("[aria-label=\\"New Terminal\\"]").click()');
+    await waitFor('document.querySelectorAll("[data-picker-row]").length === 2', "the next Terminal's Worktree choices");
+    await evaluate('document.querySelectorAll("[data-picker-row]")[1].click()');
+    await waitFor(`${tabs}.length === 2`, "a Terminal in the second linked Worktree");
+    assert.equal((await terminals.list({ chatId: CHAT })).terminals[1].cwd, scratch);
+    await evaluate('document.querySelector("[aria-label=\\"New Terminal\\"]").click()');
+    await waitFor('!!document.querySelector("[data-picker-panel]")', "the Worktree picker again");
+    await waitFor('document.activeElement?.hasAttribute("data-picker-row")', "keyboard focus in the picker");
+    press("Escape");
+    await waitFor('!document.querySelector("[data-picker-panel]")', "Escape to dismiss the picker");
+    assert.equal((await terminals.list({ chatId: CHAT })).terminals.length, 2);
     assert.deepEqual(await evaluate("window.notices"), []);
     console.log(
-      "PASS: ⌘J opens a Terminal in the Worktree, runs commands with colors, fits the PTY, hides and shows, + adds a tab, ⌘W asks before ending a busy one, exit closes the panel",
+      "PASS: Terminal commands, sizing, tabs and closing; linked Worktree picker survives opening, supports keyboard and click choices, and dismisses with Escape",
     );
     await terminals.dispose();
     app.exit(0);

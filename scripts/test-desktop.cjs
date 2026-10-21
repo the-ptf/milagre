@@ -87,10 +87,12 @@ function packagedRaster(executable) {
   return path.join(resources, "app.asar/node_modules/@milagre/core/src/design-raster.cjs");
 }
 
-async function checkApp({ executable, args, profile, project, expectTheme, expectStartupError = false, recoverOwnership }) {
-  console.log(`CHECK: ${expectTheme ? "installed" : "source"} desktop${expectStartupError ? " ownership recovery" : ""}`);
+async function checkApp({ executable, args, profile, project, expectTheme, expectStartupError = false, onboarding, recoverOwnership }) {
+  console.log(`CHECK: ${expectTheme ? "installed" : "source"} desktop${expectStartupError ? " ownership recovery" : onboarding ? " onboarding" : ""}`);
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
+  // Onboarding reads agent history from these: a fake Claude Code history names one folder without Git.
+  if (onboarding) Object.assign(env, { CLAUDE_CONFIG_DIR: onboarding.claudeHome, CODEX_HOME: onboarding.codexHome, MILAGRE_ONBOARDING_TEMP_FOLDERS: "1" });
   env.MILAGRE_DEV_SERVER_URL = pathToFileURL(path.join(root, "apps/desktop/dist/index.html")).href;
   // The packaged app's updater must not download/install a newer release during this check.
   const child = spawn(executable, [...args, `--user-data-dir=${profile}`, "--remote-debugging-port=0", "--proxy-server=http://127.0.0.1:9"], {
@@ -125,6 +127,47 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       assert.equal(result.exceptionDetails, undefined, JSON.stringify(result.exceptionDetails));
       return result.result.value;
     };
+    if (onboarding) {
+      const shot = async (name) => {
+        if (!process.env.MILAGRE_SCREENSHOT_DIR) return;
+        await fs.mkdir(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
+        const image = await connection.call("Page.captureScreenshot");
+        await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name), Buffer.from(image.data, "base64"));
+      };
+      const click = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+      await waitFor(
+        () => evaluate('document.querySelector("[data-onboarding]")?.dataset.step === "1" && !document.querySelector(".startup-splash-screen")'),
+        "first-launch onboarding",
+      );
+      assert.equal(await evaluate("window.milagre.getCurrentProject()"), null);
+      assert.equal(await evaluate('!!document.querySelector("[data-startup-error]")'), false);
+      assert.ok(await evaluate('document.body.textContent.includes("Choose your agent")'));
+      await waitFor(() => evaluate('document.querySelectorAll("[data-onboarding-agents] [data-agent]:not([data-state=checking])").length === 3'), "agent rows");
+      await shot("onboarding-agent.png");
+      await evaluate('[...document.querySelectorAll("[data-onboarding] footer button")].at(-1).click()');
+      await waitFor(() => evaluate('document.querySelector("[data-onboarding]")?.dataset.step === "2"'), "project step");
+      await waitFor(
+        () => evaluate(`!!document.querySelector('[data-folder=${JSON.stringify(path.basename(onboarding.plainFolder))}]')`),
+        "agent history folder",
+      );
+      assert.equal(await evaluate("document.querySelectorAll('[data-onboarding-tile]').length"), 3);
+      await shot("onboarding-project.png");
+      await click(`[data-folder=${JSON.stringify(path.basename(onboarding.plainFolder))}] button`);
+      await waitFor(() => evaluate("!!document.querySelector('[data-no-git]')"), "No Git explanation");
+      await shot("onboarding-no-git.png");
+      await evaluate('[...document.querySelectorAll("[data-no-git] button")].find((button) => button.textContent === "Open folder").click()');
+      await waitFor(() => evaluate("!document.querySelector('[data-onboarding]') && !!document.querySelector('[data-first-chat-starters]')"), "first Chat");
+      assert.ok(await evaluate("!!document.querySelector('[data-no-git-note]')"), "a Project without Git says its Chat works in the folder");
+      assert.equal(
+        await evaluate("window.milagre.getCurrentProject().then((project) => [project.path, project.git])").then(JSON.stringify),
+        JSON.stringify([onboarding.plainFolder, false]),
+      );
+      // The app fades in over the onboarding screen; the picture waits for it.
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      await shot("onboarding-first-chat.png");
+      console.log("PASS: fresh install walks onboarding and opens a folder without Git");
+      return;
+    }
     if (expectStartupError) {
       await waitFor(
         () => evaluate('document.body?.textContent.includes("already owned") && !!document.querySelector("[data-startup-error]")'),
@@ -252,7 +295,7 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
           await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "native-inbox.png"), Buffer.from(shot.data, "base64"));
         }
         await evaluate("window.milagre.openInboxChat(" + JSON.stringify(project + "#2") + ")");
-        await waitFor(() => evaluate(`!!document.querySelector('textarea[aria-label="Prompt"]')`), "inbox opens Chat in the main window");
+        await waitFor(() => evaluate(`!!document.querySelector('[data-prompt-editor]')`), "inbox opens Chat in the main window");
         await evaluate("window.milagre.openInboxSettings()");
         await waitFor(() => evaluate(`!!document.querySelector('[role="switch"][aria-label="Floating inbox"]')`), "return to Experimental settings");
         assert.equal(await evaluate('JSON.parse(localStorage.getItem("milagre-settings")).floatingInbox'), true);
@@ -306,22 +349,19 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     await evaluate(`(() => {
       const measure = (window.__measureText = CanvasRenderingContext2D.prototype.measureText);
       CanvasRenderingContext2D.prototype.measureText = function (text) { return { width: measure.call(this, text).width / 2 }; };
-      const input = document.querySelector('textarea[aria-label="Prompt"]');
+      const input = document.querySelector('[data-prompt-editor]');
       if (!input) throw new Error('Prompt missing');
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'A draft long enough that the compact prompt has to wrap it onto a second line, while the estimate says it fits');
+      input.value = 'A draft long enough that the compact prompt has to wrap it onto a second line, while the estimate says it fits';
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`);
-    await waitFor(
-      () => evaluate(`document.querySelector('textarea[aria-label="Prompt"]')?.className.includes('min-h-[68px]')`),
-      "tall composer for a wrapped draft",
-    );
+    await waitFor(() => evaluate(`document.querySelector('[data-prompt-editor]')?.className.includes('min-h-[68px]')`), "tall composer for a wrapped draft");
     await delay(200);
-    assert.equal(await evaluate(`document.querySelector('textarea[aria-label="Prompt"]').className.includes('min-h-[68px]')`), true, "the composer stays tall");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').className.includes('min-h-[68px]')`), true, "the composer stays tall");
     await evaluate("(CanvasRenderingContext2D.prototype.measureText = window.__measureText, true)");
     await evaluate(`(() => {
-      const input = document.querySelector('textarea[aria-label="Prompt"]');
+      const input = document.querySelector('[data-prompt-editor]');
       if (!input) throw new Error('Prompt missing');
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'Keep this unsent draft');
+      input.value = 'Keep this unsent draft';
       input.dispatchEvent(new Event('input', { bubbles: true }));
     })()`);
     const hostControl = await require("@milagre/daemon/client").connect({ dataDir: profile });
@@ -346,7 +386,7 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     const restarted = await require("@milagre/daemon/bootstrap").ensureDaemon({ dataDir: profile, version: "0.1.0", cwd: project });
     restarted.close();
     await waitFor(() => evaluate('!document.querySelector("[data-host-disconnected]")'), "desktop reconnect without reload");
-    assert.equal(await evaluate("document.querySelector('textarea[aria-label=\"Prompt\"]').value"), "Keep this unsent draft");
+    assert.equal(await evaluate("document.querySelector('[data-prompt-editor]').value"), "Keep this unsent draft");
     console.log("PASS: a shared client updates desktop and host restart restores state without losing its draft");
     // A host that dies without being asked to stop (killed outright: its lock and socket stay behind) is started again.
     const crashed = await require("@milagre/daemon/client").connect({ dataDir: profile });
@@ -368,7 +408,7 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     } finally {
       replacement.close();
     }
-    assert.equal(await evaluate("document.querySelector('textarea[aria-label=\"Prompt\"]').value"), "Keep this unsent draft");
+    assert.equal(await evaluate("document.querySelector('[data-prompt-editor]').value"), "Keep this unsent draft");
     if (process.env.MILAGRE_SCREENSHOT_DIR) {
       const shot = await connection.call("Page.captureScreenshot");
       await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "host-restarted.png"), Buffer.from(shot.data, "base64"));
@@ -384,7 +424,9 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     if (connection) {
       try {
         const state = await connection.call("Runtime.evaluate", {
-          expression: "JSON.stringify({url:location.href,body:document.body?.textContent,bridge:typeof window.milagre})",
+          expression:
+            "(async () => JSON.stringify({url:location.href,body:document.body?.textContent,bridge:typeof window.milagre,connection:await window.milagre?.getRuntimeConnection()}))()",
+          awaitPromise: true,
           returnByValue: true,
         });
         console.error("Desktop page at failure:", state.result.value);
@@ -478,6 +520,21 @@ async function main() {
       path.join(profile, "project-settings.json"),
       JSON.stringify({ projects: { [project]: { setupCommand: "npm ci", filesToCopy: [".env"] } } }),
     );
+    const freshFolder = path.join(temporary, "empty-folder");
+    const plainFolder = path.join(temporary, "notes");
+    await fs.mkdir(freshFolder);
+    await fs.mkdir(plainFolder);
+    await fs.writeFile(path.join(plainFolder, "todo.md"), "- milk\n");
+    const claudeHome = path.join(temporary, "claude-home");
+    await fs.mkdir(path.join(claudeHome, "projects", "-notes"), { recursive: true });
+    await fs.writeFile(path.join(claudeHome, "projects", "-notes", "session.jsonl"), `${JSON.stringify({ type: "user", cwd: plainFolder })}\n`);
+    await checkApp({
+      executable: require("electron"),
+      args: [path.join(root, "apps/desktop")],
+      profile: path.join(temporary, "fresh-profile"),
+      project: freshFolder,
+      onboarding: { claudeHome, codexHome: path.join(temporary, "codex-home"), plainFolder },
+    });
     await checkApp({ executable: require("electron"), args: [path.join(root, "apps/desktop")], profile, project, expectTheme: false });
     await checkDesignRaster({ executable: require("electron"), raster: path.join(root, "packages/core/src/design-raster.cjs"), label: "source" });
     const packagedIndex = process.argv.indexOf("--packaged");

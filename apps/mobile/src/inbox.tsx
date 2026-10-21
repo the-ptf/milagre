@@ -13,7 +13,7 @@ import { useSession } from "./session";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { useReducedMotion } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import { InboxPage, InboxPager, INBOX_LAYOUT } from "./inbox-motion";
+import { InboxPage, InboxPager, useInboxLayout } from "./inbox-motion";
 import { ProviderLogo, SpinnerRing } from "./icons";
 import { Approval, Questions, type InboxQuestionDraft } from "./questions";
 import { useTheme } from "./theme";
@@ -186,6 +186,7 @@ function PhoneInboxPages({
   const [direction, setDirection] = useState(1);
   const [drafts, setDrafts] = useState<Record<string, InboxQuestionDraft>>({});
   const { colors } = useTheme();
+  const inboxLayout = useInboxLayout();
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { height } = useSafeAreaFrame();
@@ -211,7 +212,7 @@ function PhoneInboxPages({
   const swipe = useMemo(() => inboxSwipe(select, index), [select, index]);
   return (
     <Animated.View
-      layout={INBOX_LAYOUT}
+      layout={inboxLayout}
       style={{
         backgroundColor: colors.surface,
         paddingTop: 12,
@@ -236,7 +237,7 @@ function PhoneInboxPages({
         <Text style={{ color: colors.ink3, fontSize: 11, textAlign: "center", paddingBottom: 4 }}>Swipe or tap the arrows to move between messages</Text>
       )}
       <GestureDetector gesture={swipe}>
-        <Animated.View layout={INBOX_LAYOUT} style={{ overflow: "hidden" }}>
+        <Animated.View layout={inboxLayout} style={{ overflow: "hidden" }}>
           <PageScroll
             ref={scroll}
             showsVerticalScrollIndicator={false}

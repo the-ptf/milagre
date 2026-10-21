@@ -76,8 +76,7 @@ createRoot(document.getElementById("root")).render(<Fixture />);
 
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-chrome-"));
-  app.setPath("userData", profile);
+  app.setPath("userData", process.env.MILAGRE_CHROME_TEST_PROFILE);
   app.on("window-all-closed", () => {});
   await app.whenReady();
   let exitCode = 0;
@@ -176,7 +175,13 @@ async function browserChecks() {
         assert.equal((await bounds("[data-sidebar-toggle] button")).width, 0, "a hidden sidebar cannot leave a visible toggle outside its parent");
         const backSelector = '[aria-label="Settings navigation"] button[aria-label="Back"]';
         const settingsBack = await bounds(backSelector);
-        assert.ok(settingsBack.top >= 60, "the whole Settings Back button stays below the drag strip and native controls");
+        const leadingControls = (await evaluate("readChrome().sidebarLeft")) > 12;
+        assert.equal(settingsBack.top, leadingControls ? 64 : 24, "Settings reserves the large top gap only for leading native controls");
+        assert.equal(
+          await evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(backSelector)})).webkitAppRegion`),
+          "no-drag",
+          "Settings Back remains clickable inside the title bar",
+        );
         clickAt(settingsBack.x + settingsBack.width / 2, settingsBack.y + 4);
         await waitFor("window.settingsBackCalls === 1");
         clickAt(settingsBack.x + settingsBack.width / 2, settingsBack.bottom - 4);
@@ -232,8 +237,6 @@ async function browserChecks() {
   } catch (error) {
     console.error(error);
     exitCode = 1;
-  } finally {
-    fs.rmSync(profile, { recursive: true, force: true });
   }
   app.exit(exitCode);
 }
@@ -273,9 +276,10 @@ async function main() {
       },
     ],
   });
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-chrome-"));
   try {
     await server.listen();
-    const env = { ...process.env };
+    const env = { ...process.env, MILAGRE_CHROME_TEST_PROFILE: profile };
     delete env.ELECTRON_RUN_AS_NODE;
     const child = spawn(require("electron"), [path.resolve(__filename), `${server.resolvedUrls.local[0]}__chrome__`], { env, stdio: "inherit" });
     process.exitCode = await new Promise((resolve, reject) => {
@@ -284,6 +288,8 @@ async function main() {
     });
   } finally {
     await server.close();
+    // Electron holds profile files open on Windows until its process exits.
+    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 (process.versions.electron ? browserChecks() : main()).catch((error) => {

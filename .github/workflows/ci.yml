@@ -131,11 +131,11 @@ jobs:
           echo "quick-checks, unit: $RESULTS"
           for result in $RESULTS; do [ "$result" = success ] || exit 1; done
   native-tests:
-    # The Windows tests, on merge groups and pushes to main: windows-latest runners took 70 to 161 s for the same
-    # suites, so on a PR run they set the pace. The merge queue runs them before a PR lands; the gate below stays
-    # green on a PR run, where they are skipped. The Linux repository signing test is a quick-checks step.
+    # Catch Windows runtime and permission regressions before review, as well as in the merge queue and on main.
+    # PRs unrelated to desktop skip this job through the same change filter as the Electron checks.
     name: native-tests (windows-latest)
-    if: github.event_name != 'pull_request'
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
     timeout-minutes: 30
     runs-on: windows-latest
     steps:

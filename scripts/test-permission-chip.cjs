@@ -61,7 +61,7 @@ async function browserChecks() {
   };
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(String.raw`!!document.querySelector("textarea")`);
+    await waitFor(String.raw`!!document.querySelector("[data-prompt-editor]")`);
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: '2', metaKey: true, bubbles: true, cancelable: true }))`);
     await waitFor(String.raw`document.querySelector("[aria-current=page]")?.textContent.includes("Review PR 10923")`);
     assert.equal(await chip(), "Full", "an idle Chat with no pick shows the default");

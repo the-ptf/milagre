@@ -1,10 +1,11 @@
 const path = require("node:path");
 const { PLAN_TOOL_NAMES } = require("../chat-plan-tools.cjs");
 const { ROUTINE_TOOL_NAMES } = require("../routines/tools.cjs");
+const { BOT_TOOL_NAMES } = require("../bots/tools.cjs");
 
 // Approval requests from both agents, in the shape of the `permission-request` event, and the
 // replies each agent expects for the user's answer. A request is
-//   { requestId, kind: "command"|"edit"|"other", tool, title, description?, command?, cwd?,
+//   { requestId, kind: "command"|"edit"|"other", tool, toolName?, title, description?, command?, cwd?,
 //     diff?, files?, detail?, reason?, allowForChat, stepId? }
 // where stepId names the tool step (see steps.cjs) the request is about,
 // and a decision is "allow" | "allow-for-chat" | "deny", or "cancelled" when the turn stops first.
@@ -39,11 +40,13 @@ function claudeEditDiff(toolName, input) {
   return capText(prefixLines(input.new_source, "+"));
 }
 
-// canUseTool(toolName, input, options) -> request. The SDK's own title, displayName and description win.
+// canUseTool(toolName, input, options) -> request. The SDK's own title, displayName and description win; `toolName`
+// keeps the tool's own name when the card shows another, for what matches on it (bots/gates.cjs).
 function claudeRequest(toolName, input, options = {}) {
   const base = {
     requestId: String(options.requestId ?? options.toolUseID),
     tool: options.displayName || toolName,
+    toolName: options.displayName && options.displayName !== toolName ? toolName : undefined,
     description: options.description || undefined,
     reason: options.decisionReason || (options.blockedPath ? `Reaches outside this chat's folder: ${options.blockedPath}` : undefined),
     allowForChat: Boolean(options.suggestions?.length) && !options.suppressAlwaysAllowRule,
@@ -204,6 +207,26 @@ const PLAN_TOOLS = new Set([...PLAN_TOOL_NAMES, ...ROUTINE_READS, ...SELF_GATED_
  */
 const isUngatedMilagreTool = (definition) => definition.readOnly === true || PLAN_TOOLS.has(definition.name);
 
+/**
+ * The milagre tools a bot's thread and the Chats a bot opened keep: the reads, the plan tools, the ones that only write
+ * the Chat's own canvas or page, and the bot's own tools. Bot rules allow what no gate matches and gates leave Milagre's
+ * tools alone, so every other one (Routine writes, Delegations, Worktree Links, other Chats, Linear writes…) is withheld
+ * there, and so is any milagre write tool added later until it is listed here.
+ */
+const BOT_RULES_TOOLS = new Set([...PLAN_TOOL_NAMES, "design_show", "design_apply", "artifact_show", "artifact_resolve_comment", ...BOT_TOOL_NAMES]);
+const isBotRulesTool = (definition) => definition.readOnly === true || BOT_RULES_TOOLS.has(definition.name);
+
+/**
+ * The milagre tool a request is about, or null for any other: Claude names it `mcp__milagre__<tool>` (its card may show
+ * a display name, then `toolName` keeps this), Codex only in its card's title, Antigravity in `toolName` (acp-session.cjs).
+ */
+function milagreToolOf(request = {}) {
+  const named = /^mcp__milagre__(.+)$/.exec(request.toolName ?? request.tool ?? "")?.[1];
+  if (named) return named;
+  if (request.tool !== "MCP: milagre") return null;
+  return /run tool "([^"]+)"/.exec(request.title ?? "")?.[1] ?? "";
+}
+
 function isCodexPlanToolApproval(params = {}) {
   if (params.serverName !== "milagre" || !isCodexMcpApproval(params)) return false;
   const tool = /^Allow the milagre MCP server to run tool "([^"]+)"\?$/.exec(String(params.message ?? ""))?.[1];
@@ -228,10 +251,17 @@ function codexDecision(decision) {
   return CODEX_DECISIONS[decision] ?? "decline";
 }
 
-// Milagre permission modes the user can switch a running turn to.
-const PERMISSION_MODES = new Set(["ask", "auto", "full"]);
+// Milagre permission modes a running turn can switch to. Bot rules is set by a bot, never offered to the user.
+const PERMISSION_MODES = new Set(["ask", "auto", "full", "bot"]);
 // How much a permission mode allows, least first. A tool never gives a Chat more than its caller has without the user's say.
 const MODE_RANK = Object.freeze({ ask: 0, auto: 1, full: 2 });
+// Bot rules has no rank: what it allows hangs on the bot's gates. So that every comparison fails closed, a caller in Bot
+// rules (or in no mode Milagre knows) counts as Ask, and a Chat that would run something in Bot rules counts as more
+// than Full, so a tool always asks before sending it anything.
+const callerMode = (mode) => (Object.hasOwn(MODE_RANK, mode ?? "") ? mode : "ask");
+const modeRank = (mode) => (Object.hasOwn(MODE_RANK, mode ?? "") ? MODE_RANK[mode] : Infinity);
+/** Whether running in `mode` is more than a caller in `caller` may give a Chat without the user's say. */
+const raisesMode = (mode, caller) => modeRank(mode) > MODE_RANK[callerMode(caller)];
 
 // True when every path is inside root.
 function insideRoot(root, files) {
@@ -323,9 +353,15 @@ class WorkspaceAccess {
 // The mode follows the user's switch mid-turn. Full answers every request without a card. Switching
 // to Auto answers the waiting edits Auto wouldn't have asked about (`inWorkspace`); later ones are left
 // to the agent's own Auto rules, which still ask before anything leaves the worktree.
+// In Bot rules the bot's `policy(request)` answers first: "allow" or "deny" without a card, `{ gate }`
+// for a sign-off card that carries the gate, nothing (or a throw) for an ordinary card. `flagged` is what an
+// earlier check of the same tool call found (Claude's PreToolUse hook): `{ gate }`, or `{}` when it couldn't
+// tell. A flagged request is never allowed without a card. A request `fromMilagre` (askApproval: Milagre's own card for
+// what one of its tools would do, such as a Delegation) is the user's to answer: Bot rules never answer it.
 class PendingPermissions {
-  constructor(emit) {
+  constructor(emit, { policy } = {}) {
     this.emit = emit;
+    this.policy = policy;
     this.mode = "ask";
     // requestId -> { answer, allowForChat, inWorkspace }
     this.answers = new Map();
@@ -335,13 +371,34 @@ class PendingPermissions {
     return this.answers.size;
   }
 
-  add(request, answer, { inWorkspace = false } = {}) {
+  add(request, answer, { inWorkspace = false, flagged, fromMilagre = false } = {}) {
     if (this.mode === "full") {
       answer("allow");
       return;
     }
-    this.answers.set(request.requestId, { answer, allowForChat: Boolean(request.allowForChat), inWorkspace: request.kind === "edit" && inWorkspace });
-    this.emit({ type: "permission-request", ...request });
+    let published = request;
+    if (this.mode === "bot" && this.policy && !fromMilagre) {
+      let verdict = this.decide(request);
+      if (flagged && verdict !== "deny" && !verdict?.gate) verdict = flagged.gate ? { gate: flagged.gate } : undefined;
+      if (verdict === "allow" || verdict === "deny") {
+        answer(verdict);
+        return;
+      }
+      // A sign-off is for this one action: "Always allow in this chat" would let the agent skip the gate next time.
+      if (verdict?.gate) published = { ...request, gate: verdict.gate, allowForChat: false };
+    }
+    this.answers.set(published.requestId, { answer, allowForChat: Boolean(published.allowForChat), inWorkspace: published.kind === "edit" && inWorkspace });
+    this.emit({ type: "permission-request", ...published });
+  }
+
+  // A policy that fails leaves the request to the user's card.
+  decide(request) {
+    try {
+      return this.policy(request);
+    } catch (error) {
+      console.warn("Bot permission policy failed:", error.message);
+      return undefined;
+    }
   }
 
   setMode(mode) {
@@ -374,6 +431,7 @@ class PendingPermissions {
 }
 
 module.exports = {
+  BOT_RULES_TOOLS,
   CANCELLED_MESSAGE,
   DENIED_MESSAGE,
   MODE_RANK,
@@ -384,9 +442,14 @@ module.exports = {
   claudeEditDiff,
   insideRoot,
   insideWorkspace,
+  callerMode,
   isAcpPlanToolPermission,
+  isBotRulesTool,
   isCodexPlanToolApproval,
   isUngatedMilagreTool,
+  milagreToolOf,
+  modeRank,
+  raisesMode,
   WorkspaceAccess,
   claudeAccessRequest,
   claudeRequest,

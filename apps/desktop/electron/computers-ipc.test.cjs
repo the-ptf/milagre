@@ -102,7 +102,13 @@ test("while a computer isn't online, the window's reads come from its cache; any
           ? [{ path: "/p", name: "p" }]
           : method === "project:switch"
             ? { path: "/p", name: "p", state: { sessions: { 4: { id: 4 } } } }
-            : null,
+            : method === "routines:list"
+              ? { routines: [{ id: "abcd1234", target: { kind: "chat", chatId: "/p#4" }, runs: [] }] }
+              : method === "routines:enabled:read"
+                ? { enabled: true }
+                : method === "routines:hook"
+                  ? { url: "https://secret", signed: false }
+                  : null,
       remove: async (id) => void removed.push(id),
     },
     { cache },
@@ -110,6 +116,9 @@ test("while a computer isn't online, the window's reads come from its cache; any
   // Online: answers go through, and the lists and states they carry are kept.
   assert.deepEqual(await call("computers:invoke", ID, "project:recent", []), [{ path: `${ID}|/p`, name: "p" }]);
   await call("computers:invoke", ID, "project:switch", [`${ID}|/p`]);
+  await call("computers:invoke", ID, "routines:list", []);
+  await call("computers:invoke", ID, "routines:enabled:read", []);
+  await call("computers:invoke", ID, "routines:hook", [`${ID}|abcd1234`]);
   await call("computers:remember", ID, {
     kind: "chat",
     scope: `${ID}|/p`,
@@ -139,6 +148,14 @@ test("while a computer isn't online, the window's reads come from its cache; any
   assert.deepEqual(await call("computers:invoke", ID, "chat:runs", []), { runs: {}, seq: 0 });
   await assert.rejects(call("computers:invoke", ID, "project:switch", [`${ID}|/never`]), { message: "studio is offline." });
   await assert.rejects(call("computers:invoke", ID, "chat:send", [{ projectPath: `${ID}|/p` }]), { message: "studio is offline." });
+  // Its Routines read as last seen; a webhook URL is a secret, never kept, and a change waits for it.
+  assert.deepEqual(await call("computers:invoke", ID, "routines:list", []), {
+    routines: [{ id: `${ID}|abcd1234`, target: { kind: "chat", chatId: `${ID}|/p#4` }, runs: [] }],
+  });
+  assert.deepEqual(await call("computers:invoke", ID, "routines:enabled:read", []), { enabled: true });
+  await assert.rejects(call("computers:invoke", ID, "routines:targets", []), { message: "studio is offline." });
+  await assert.rejects(call("computers:invoke", ID, "routines:hook", [`${ID}|abcd1234`]), { message: "studio is offline." });
+  await assert.rejects(call("computers:invoke", ID, "routines:update", [`${ID}|abcd1234`, { enabled: false }]), { message: "studio is offline." });
 
   await call("computers:remove", ID);
   assert.deepEqual(removed, [ID]);

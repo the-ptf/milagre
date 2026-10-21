@@ -1,4 +1,4 @@
-function prosePrompt(prompt) {
+export function prosePrompt(prompt) {
   return prompt.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|(`+)[^\n]*?(?:\1(?!`)|(?=\n|$))/g, (code) => code.replace(/[^\n]/g, " "));
 }
 

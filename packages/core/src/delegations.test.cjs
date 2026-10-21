@@ -559,7 +559,9 @@ test("a Negotiation stops after 10 rounds and asks the user to step in", async (
   };
   capped.scripts.web = async (session) => session.finish("counter-proposal");
   await capped.send("api", "Negotiate forever");
-  assert.match((await findMessage(capped, "api", "linked-notice")).body, /reached 10 rounds without an agreement/);
+  // Ten rounds each way, every turn opening with a restore divider (the fake sessions keep no native id): give them time.
+  const notice = await waitFor(async () => (await capped.messages(capped.chatOf("api"))).find((message) => message.context?.kind === "linked-notice"), 60_000);
+  assert.match(notice.body, /reached 10 rounds without an agreement/);
   assert.match((await findMessage(capped, "web", "linked-notice")).body, /reached 10 rounds/);
   assert.equal(capped.sessionOf("web").prompts.length, 10);
   assert.match(refusals[0], /reached 10 rounds/);
@@ -982,6 +984,45 @@ test("over a Link, a raise asks on its own card even where Always allow covers t
   assert.equal(card.title, "Send a Delegation to /web#2 in Full permission?");
   assert.equal(card.allowForChat, false);
   assert.equal(fake.delivered.length, 0);
+});
+
+test("Bot rules weigh as Ask for the caller and above Full for the receiving Chat", async () => {
+  const fake = desk();
+  const modes = { "/api#1": "bot", "/web#2": "ask" };
+  fake.ports.permissionMode = (key) => modes[key] ?? "ask";
+  const cards = [];
+  fake.ports.approve = async (key, request) => {
+    cards.push(request);
+    return "deny";
+  };
+  await fake.delegations.ready;
+  // Over a Link a caller in Bot rules asks as an Ask caller does: Bot rules never answer Milagre's own card (askApproval).
+  await assert.rejects(fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" }), /denied/);
+  assert.equal(cards.at(-1).title, "Send a Delegation to /web#2?");
+  // Anything above Ask in the receiving Chat is a raise for it.
+  modes["/web#2"] = "auto";
+  await assert.rejects(fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" }), /denied/);
+  assert.equal(cards.at(-1).title, "Send a Delegation to /web#2 in Auto mode?");
+  // A Chat in Bot rules is more than any caller has.
+  modes["/api#1"] = "full";
+  modes["/web#2"] = "bot";
+  await assert.rejects(fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" }), /denied/);
+  assert.equal(cards.at(-1).title, "Send a Delegation to /web#2 in Bot rules?");
+  assert.equal(fake.delivered.length, 0);
+});
+
+test("a bot's Chat takes no Delegation: only its bot steers it", async () => {
+  const fake = desk();
+  fake.ports.botOf = (key) => (key === "/web#2" ? "Ops" : null);
+  await fake.delegations.ready;
+  await assert.rejects(
+    fake.delegations.delegate("/api#1", { worktree: "/web", chat: "/web#2", message: "Add it" }),
+    /^Error: Ops runs that Chat; only the user can take it over, in Milagre\. Pick another one, or "new"\.$/,
+  );
+  assert.equal(fake.delivered.length, 0);
+  // A new Chat in its Worktree is an ordinary Chat.
+  await fake.delegations.delegate("/api#1", { worktree: "/web", chat: "new", message: "Add it" });
+  assert.equal(fake.delivered.at(-1).key, "/web#9");
 });
 
 // A receiving Chat on a provider that can't steer queues the message (chat-host.cjs), and the queue outlives a restart.

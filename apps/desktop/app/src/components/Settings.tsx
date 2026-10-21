@@ -1,5 +1,6 @@
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
 import { useDesignsEnabled } from "../lib/designs-enabled";
+import { useBots } from "../lib/bots-store";
 import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/ai-consent";
 import { PrivacySettings } from "./AiConsent";
 import { showUpdateNotice } from "./UpdateNotice";
@@ -56,17 +57,33 @@ import { DEFAULT_FILES_TO_COPY, parsePatterns, previewSentence } from "../lib/fi
 import { PERMISSION_MODES } from "../model";
 import type { ModelOption, PermissionMode } from "../model";
 import { providerForId, resolveModel } from "../lib/models";
-import { updateSettings, useSettings } from "../lib/settings";
+import { getSettings, updateSettings, useSettings } from "../lib/settings";
+import { useWindowChrome } from "../lib/window-chrome";
 import type { ClaudeReplies, UsageDisplay } from "../lib/settings";
 import type { ChatOrder } from "../lib/chat-list";
 import { useEditors } from "../lib/editors";
 import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
+import { isRemoteScopeHidden, setRemoteScopeHidden } from "../lib/hidden-projects";
 import { cloudflarePhonesNote, pairingWindow, phoneLanLine, phoneQrSrc, phoneStatusLine } from "../lib/phone";
 import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQuestion } from "../lib/devices";
 import { GlideGroup, RailButton } from "./SidebarNav";
 import { Select } from "./primitives/Select";
 import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
+import { AppearanceWindowPreview, type PreviewArea } from "./settings/AppearanceWindowPreview";
+import {
+  CHAT_SIZES,
+  CHAT_WIDTHS,
+  CODE_SIZES,
+  DIFF_PAIRS,
+  clampChatWidth,
+  MONO_FONTS,
+  MOTION_SPEEDS,
+  SIDEBAR_SIZES,
+  UI_FONTS,
+  type FontOption,
+} from "@milagre/shared/appearance";
+import { isFontInstalled, withBundledNames } from "../lib/appearance";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { NOTIFICATION_CHIMES, type NotificationChime } from "@milagre/shared/notification-chimes";
 import {
@@ -153,6 +170,7 @@ export function SettingsNav({
   onBack: () => void;
 }) {
   const [recent, setRecent] = useState<RecentProject[]>([]);
+  const chrome = useWindowChrome();
   const { thisMac, computers } = useComputers();
   useEffect(() => {
     window.milagre.listRecentProjects().then(
@@ -164,13 +182,13 @@ export function SettingsNav({
   const imageOf = useProjectImages(rows.map((row) => row.path));
   return (
     <aside aria-label="Settings navigation" className="flex h-full w-[224px] shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card">
-      <div aria-hidden className="h-[calc(var(--window-chrome-height)-12px)] shrink-0" />
-      <div className="mx-2 mb-1.5 flex h-9 shrink-0 items-center gap-1 px-1">
+      <div aria-hidden className={`${chrome.sidebarLeft > 12 ? "h-[calc(var(--window-chrome-height)-12px)]" : "h-2"} shrink-0`} />
+      <div className="title-drag relative z-[60] mx-2 mb-1.5 flex h-9 shrink-0 items-center gap-1 px-1">
         <button
           type="button"
           aria-label="Back"
           onClick={onBack}
-          className="flex size-7 items-center justify-center rounded-[7px] text-ink-2 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96]"
+          className="flex size-7 items-center justify-center rounded-[7px] text-ink-2 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96] [-webkit-app-region:no-drag]"
         >
           <Icon icon={ArrowLeft02Icon} size={16} />
         </button>
@@ -415,15 +433,73 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Row({ label, description, children }: { label: string; description?: string; children: ReactNode }) {
+function Row({
+  label,
+  description,
+  preview,
+  children,
+}: {
+  label: string;
+  description?: string;
+  /** On Appearance: the row tells the window preview while the pointer is over it. */
+  preview?: { onEnter: () => void; onLeave: () => void };
+  children: ReactNode;
+}) {
   return (
-    <div className="flex min-h-12 items-center justify-between gap-6 px-4 py-2">
+    <div
+      data-preview-row={preview ? "" : undefined}
+      onPointerEnter={preview?.onEnter}
+      onPointerLeave={preview?.onLeave}
+      className="flex min-h-12 items-center justify-between gap-6 px-4 py-2"
+    >
       <div className="grid min-w-0 gap-0.5">
         <span className="text-[13.5px] font-medium text-ink">{label}</span>
         {description && <span className="text-[12px] text-ink-3">{description}</span>}
       </div>
       <div className="shrink-0 text-[13px] text-ink-2">{children}</div>
     </div>
+  );
+}
+
+/** The custom chat width: digits right-aligned with a px suffix. Enter or blur saves the clamped value, Escape restores the saved one. */
+function ChatWidthField({ value, onCommit, onFocusChange }: { value: number; onCommit: (px: number) => void; onFocusChange?: (focused: boolean) => void }) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => setText(String(value)), [value]);
+  const commit = () => {
+    // An empty field is not a width: put the saved one back.
+    if (text.trim() === "") {
+      setText(String(value));
+      return;
+    }
+    const px = clampChatWidth(text);
+    setText(String(px));
+    if (px !== value) onCommit(px);
+  };
+  return (
+    <label className="flex h-8 items-center gap-1.5 rounded-control border border-line bg-surface pr-2.5 pl-3 text-[13px] font-medium text-ink focus-within:border-ink-3">
+      <input
+        aria-label="Custom chat width in pixels"
+        inputMode="numeric"
+        value={text}
+        onChange={(event) => setText(event.target.value.replace(/[^0-9]/g, ""))}
+        onFocus={() => onFocusChange?.(true)}
+        onBlur={() => {
+          commit();
+          onFocusChange?.(false);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") commit();
+          else if (event.key === "Escape") {
+            // Reverting is all Escape does here; App's Escape handler would otherwise leave Settings.
+            event.preventDefault();
+            event.stopPropagation();
+            setText(String(value));
+          }
+        }}
+        className="w-12 bg-transparent text-right outline-none tabular-nums"
+      />
+      <span className="text-ink-3">px</span>
+    </label>
   );
 }
 
@@ -476,6 +552,22 @@ export function DesignsSettings() {
       {designs.error && (
         <p role="alert" className="px-4 pb-3 text-[12px] text-red">
           {designs.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function BotsSettings() {
+  const bots = useBots();
+  return (
+    <div data-slot="bots-setting">
+      <Row label="Bots" description="Named bots that work for you and ask before anything irreversible.">
+        <Switch label="Bots" checked={bots.enabled} disabled={!bots.ready || bots.saving} onChange={(enabled) => void bots.setEnabled(enabled)} />
+      </Row>
+      {bots.error && (
+        <p role="alert" className="px-4 pb-3 text-[12px] text-red">
+          {bots.error}
         </p>
       )}
     </div>
@@ -556,6 +648,7 @@ function ExperimentalSettings() {
           <Switch label="Ultracode Fatality" checked={settings.ultracodeFatality} onChange={(ultracodeFatality) => updateSettings({ ultracodeFatality })} />
         </Row>
         <RoutinesSetting />
+        <BotsSettings />
       </Group>
     </>
   );
@@ -699,8 +792,89 @@ function NotificationsSettings() {
   );
 }
 
+/** Two dots, additions then deletions, in the pair's colors (the default pair shows the theme's own green and red). */
+function DiffDots({ pair }: { pair: (typeof DIFF_PAIRS)[number] }) {
+  const colors = (document.documentElement.classList.contains("dark") ? pair.dark : pair.light) ?? { add: "var(--green)", remove: "var(--red)" };
+  return (
+    <span data-diff-dots className="flex gap-1" aria-hidden>
+      <span className="size-2.5 rounded-full" style={{ background: colors.add }} />
+      <span className="size-2.5 rounded-full" style={{ background: colors.remove }} />
+    </span>
+  );
+}
+
+function fontOptions(list: readonly FontOption[]) {
+  return list
+    .filter((font) => font.bundled || isFontInstalled(font.label))
+    .map((font) => ({
+      value: font.id,
+      label: font.label,
+      description: font.id === "system" ? "default" : undefined,
+      style: { fontFamily: withBundledNames(font.stack) },
+    }));
+}
+
+/** A saved font that is no longer installed reads as the default; the saved value stays. */
+function shownFont(list: readonly FontOption[], id: string) {
+  const font = list.find((candidate) => candidate.id === id);
+  return font && (font.bundled || isFontInstalled(font.label)) ? id : list[0].id;
+}
+
+function pxOptions<T extends string>(list: readonly { id: T; px: number }[]) {
+  return list.map((size) => ({ value: size.id, label: `${size.px} px`, description: size.id === "default" ? "default" : undefined }));
+}
+
+// The window's stripes (as on body, pinned to the viewport), so a strip painted with them is invisible over the page.
+const STRIPES = {
+  backgroundColor: "var(--stripe-bg)",
+  backgroundImage: "repeating-linear-gradient(-45deg, transparent 0, transparent 7px, var(--stripe) 7px, var(--stripe) 8px)",
+  backgroundAttachment: "fixed",
+} as const;
+// A change keeps its area highlighted this long after the menu closes.
+const PREVIEW_HOLD_MS = 1500;
+
+/** A state update that drops `area` and keeps anything else. */
+const unlessArea = (area: PreviewArea) => (current: PreviewArea | null) => (current === area ? null : current);
+
+/**
+ * What the Appearance window preview highlights: an open menu (or the focused px field) first, then the area just
+ * changed (held 1.5 s), then the row under the pointer. Moving onto another row drops the held one.
+ */
+function usePreviewHighlight() {
+  const [hovered, setHovered] = useState<PreviewArea | null>(null);
+  const [menu, setMenu] = useState<PreviewArea | null>(null);
+  const [held, setHeld] = useState<PreviewArea | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  return {
+    highlight: menu ?? held ?? hovered,
+    row: (area: PreviewArea) => ({
+      onEnter: () => {
+        setHovered(area);
+        setHeld((current) => (current === area ? current : null));
+      },
+      onLeave: () => setHovered(unlessArea(area)),
+    }),
+    menu: (area: PreviewArea) => (open: boolean) => setMenu(open ? area : unlessArea(area)),
+    /** Holds `area` for 1.5 s; null drops a held area at once. */
+    hold: (area: PreviewArea | null) => {
+      setHeld(area);
+      window.clearTimeout(timer.current);
+      if (area) timer.current = window.setTimeout(() => setHeld(null), PREVIEW_HOLD_MS);
+    },
+  };
+}
+
 function AppearanceSettings() {
   const settings = useSettings();
+  const { appearance } = settings;
+  const setAppearance = (patch: Partial<typeof appearance>) => updateSettings({ appearance: { ...getSettings().appearance, ...patch } });
+  const preview = usePreviewHighlight();
+  const [playMotion, setPlayMotion] = useState(0);
+  const change = (area: PreviewArea, patch: Partial<typeof appearance>) => {
+    setAppearance(patch);
+    preview.hold(area);
+  };
   return (
     <>
       <Group title="Mode">
@@ -728,6 +902,119 @@ function AppearanceSettings() {
         </Row>
         {settings.customThemeEnabled && <CustomThemeEditor />}
       </Group>
+      <div>
+        {/* Sticky over the rows below it; the strip above the card repaints the window's stripes so rows vanish under it. */}
+        <div className="sticky top-0 z-20 -mx-6 px-6 pt-7" style={STRIPES}>
+          <AppearanceWindowPreview highlight={preview.highlight} playMotion={playMotion} />
+        </div>
+        <Group title="Typography">
+          <Row label="Interface font" description="Used across the app." preview={preview.row("ui")}>
+            <Select
+              label="Interface font"
+              width={260}
+              searchable
+              value={shownFont(UI_FONTS, appearance.uiFont)}
+              onChange={(uiFont) => change("ui", { uiFont })}
+              onOpenChange={preview.menu("ui")}
+              options={fontOptions(UI_FONTS)}
+            />
+          </Row>
+          <Row label="Monospace font" description="Code, diffs and the terminal." preview={preview.row("code")}>
+            <Select
+              label="Monospace font"
+              width={260}
+              searchable
+              value={shownFont(MONO_FONTS, appearance.monoFont)}
+              onChange={(monoFont) => change("code", { monoFont })}
+              onOpenChange={preview.menu("code")}
+              options={fontOptions(MONO_FONTS)}
+            />
+          </Row>
+          <Row label="Sidebar size" description="Project and chat names in the sidebar." preview={preview.row("sidebar")}>
+            <Select
+              label="Sidebar size"
+              width={160}
+              value={appearance.sidebarSize}
+              onChange={(sidebarSize) => change("sidebar", { sidebarSize })}
+              onOpenChange={preview.menu("sidebar")}
+              options={pxOptions(SIDEBAR_SIZES.map((size) => ({ id: size.id, px: 13 + size.delta })))}
+            />
+          </Row>
+          <Row label="Chat size" description="Messages and the composer." preview={preview.row("chat")}>
+            <Select
+              label="Chat size"
+              width={160}
+              value={appearance.chatSize}
+              onChange={(chatSize) => change("chat", { chatSize })}
+              onOpenChange={preview.menu("chat")}
+              options={pxOptions(CHAT_SIZES)}
+            />
+          </Row>
+          <Row label="Code size" description="Code blocks, diffs and the terminal." preview={preview.row("code")}>
+            <Select
+              label="Code size"
+              width={160}
+              value={appearance.codeSize}
+              onChange={(codeSize) => change("code", { codeSize })}
+              onOpenChange={preview.menu("code")}
+              options={pxOptions(CODE_SIZES)}
+            />
+          </Row>
+        </Group>
+        <Group title="Layout">
+          <Row label="Chat width" description="How wide messages and the composer grow on large screens." preview={preview.row("width")}>
+            <div className="flex items-center gap-2">
+              {appearance.chatWidth === "custom" && (
+                <ChatWidthField
+                  value={appearance.chatWidthPx}
+                  onCommit={(chatWidthPx) => change("width", { chatWidthPx })}
+                  onFocusChange={preview.menu("width")}
+                />
+              )}
+              <Select
+                label="Chat width"
+                width={200}
+                value={appearance.chatWidth}
+                onChange={(chatWidth) => change("width", { chatWidth })}
+                onOpenChange={preview.menu("width")}
+                options={CHAT_WIDTHS.map((width) => ({ value: width.id, label: width.label }))}
+              />
+            </div>
+          </Row>
+        </Group>
+        <Group title="Diffs">
+          <Row label="Diff colors" description="Additions and deletions, including change counts." preview={preview.row("diff")}>
+            <Select
+              label="Diff colors"
+              width={220}
+              value={appearance.diffColors}
+              onChange={(diffColors) => change("diff", { diffColors })}
+              onOpenChange={preview.menu("diff")}
+              options={DIFF_PAIRS.map((pair) => ({
+                value: pair.id,
+                label: pair.label,
+                icon: <DiffDots pair={pair} />,
+              }))}
+            />
+          </Row>
+        </Group>
+        <Group title="Motion">
+          <Row label="Panel animations" description="How fast panels open and close. macOS Reduce Motion turns them off.">
+            <Select
+              label="Panel animations"
+              width={160}
+              value={appearance.motion}
+              onChange={(motion) => {
+                setAppearance({ motion });
+                // The replay is the feedback here, so a highlight still held from another row goes.
+                preview.hold(null);
+                setPlayMotion((count) => count + 1);
+              }}
+              options={MOTION_SPEEDS.map((speed) => ({ value: speed.id, label: speed.label }))}
+            />
+          </Row>
+        </Group>
+      </div>
     </>
   );
 }
@@ -1548,23 +1835,30 @@ function ProjectIconSetting({ project }: { project: SettingsProject }) {
   );
 }
 
-// Shared with the phone: a hidden project also leaves its Projects list.
+// This Mac's sidebar visibility for the Project.
 function ShowInSidebarSetting({ project }: { project: SettingsProject }) {
-  const [hidden, setHidden] = useState<boolean | null>(null);
+  const remote = isRemoteKey(project.path);
+  const [hidden, setHidden] = useState<boolean | null>(() => (remote ? isRemoteScopeHidden(project.path) : null));
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    bridgeForKey(project.path)
-      .listRecentProjects()
-      .then(
-        (list) => setHidden(Boolean(list.find((item) => item.path === project.path)?.hidden)),
-        () => setHidden(false),
-      );
-  }, [project.path]);
+    if (remote) {
+      setHidden(isRemoteScopeHidden(project.path));
+      return;
+    }
+    window.milagre.listRecentProjects().then(
+      (list) => setHidden(Boolean(list.find((item) => item.path === project.path)?.hidden)),
+      () => setHidden(false),
+    );
+  }, [project.path, remote]);
   async function change(show: boolean) {
     setError(null);
     setHidden(!show);
+    if (remote) {
+      setRemoteScopeHidden(project.path, !show);
+      return;
+    }
     try {
-      const list = await bridgeForKey(project.path).setProjectHidden(project.path, !show);
+      const list = await window.milagre.setProjectHidden(project.path, !show);
       setHidden(Boolean(list.find((item) => item.path === project.path)?.hidden));
       window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
     } catch (failure) {
@@ -1574,7 +1868,7 @@ function ShowInSidebarSetting({ project }: { project: SettingsProject }) {
   }
   return (
     <div data-show-in-sidebar>
-      <Row label="Show in sidebar" description="In the sidebar, and in your phone's Projects list. Filters › Projects chooses them all at once.">
+      <Row label="Show in sidebar" description="In the sidebar on this Mac. Filters › Projects chooses them all at once.">
         <Switch label="Show in sidebar" checked={hidden === false} onChange={(show) => void change(show)} />
       </Row>
       {error && <p className="px-4 pb-3 break-words text-[12px] text-red">{error}</p>}
@@ -1678,7 +1972,7 @@ function RoutinesSetting() {
     setError(null);
     setEnabled(next);
     try {
-      setEnabled((await window.milagre.saveRoutinesEnabled(next)).enabled);
+      setEnabled((await bridgeFor(null).saveRoutinesEnabled(next)).enabled);
     } catch (failure) {
       setEnabled(!next);
       setError(ipcErrorMessage(failure));

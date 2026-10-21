@@ -77,7 +77,7 @@ async function browserChecks() {
   const permissions = '[data-promptbar] button[aria-label="Agent permissions"]';
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(`!!document.querySelector('textarea')`);
+    await waitFor(`!!document.querySelector('[data-prompt-editor]')`);
 
     await click(model);
     await waitFor(`!!document.querySelector('[data-picker-panel] input')`);
@@ -109,9 +109,9 @@ async function browserChecks() {
     await waitFor(`${tabs} === "Codex,Claude,Antigravity"`);
     await click("[data-picker-panel] input");
     assert.equal(await panels(), 1, "Pressing inside the picker keeps it open");
-    await click("textarea");
+    await click("[data-prompt-editor]");
     assert.equal(await panels(), 0, "Pressing the prompt field closes the model picker");
-    assert.equal(await evaluate(`document.activeElement?.tagName`), "TEXTAREA", "The press still lands in the prompt field");
+    assert.equal(await evaluate(`document.activeElement?.hasAttribute("data-prompt-editor")`), true, "The press still lands in the prompt field");
     await screenshot("model-picker-closed");
 
     await click(model);
@@ -131,7 +131,7 @@ async function browserChecks() {
 
     await click('button[aria-label="Theme"]');
     assert.equal(await panels(), 1);
-    await click("textarea");
+    await click("[data-prompt-editor]");
     assert.equal(await panels(), 0, "Pressing elsewhere closes Select");
     await click('button[aria-label="Theme"]');
     await click('[data-testid="stopper"]');
@@ -155,7 +155,7 @@ async function browserChecks() {
     await window.setSize(980, 640);
     await delay(200);
     assert.equal(await panels(), 1, "Resizing keeps the picker open");
-    await click("textarea");
+    await click("[data-prompt-editor]");
     assert.equal(await panels(), 0);
     assert.equal(await evaluate(`document.documentElement.hasAttribute('data-popover-open')`), false, "The drag region returns when nothing is open");
 
@@ -169,7 +169,7 @@ async function browserChecks() {
       before,
       "Select follows its trigger after a resize",
     );
-    await click("textarea");
+    await click("[data-prompt-editor]");
     assert.equal(await panels(), 0);
 
     assert.deepEqual(errors, []);

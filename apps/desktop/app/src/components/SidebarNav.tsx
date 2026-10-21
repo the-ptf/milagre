@@ -58,6 +58,12 @@ import { SidebarLinksProvider, useSidebarLinks, type LinkListHandle, type LinkSc
 import { updateSettings, useSettings } from "../lib/settings";
 import { UpdateSettingsBadge } from "./UpdateNotice";
 import { RECENT_PROJECTS_CHANGED } from "../lib/project-list";
+import { MODEL_CATALOG, type ModelOption } from "../model";
+import { useBots } from "../lib/bots-store";
+import { BotMarksContext, botMarks as botMarksOf, useBotMarks } from "../lib/bot-marks";
+import { SidebarModeSwitch, type SidebarMode } from "./bots/SidebarModeSwitch";
+import { BotList, NewBotButton } from "./bots/BotList";
+import { NewBotSheet } from "./bots/NewBotSheet";
 import { useRoutines } from "../lib/routines";
 import {
   cachedProjectCopy,
@@ -142,6 +148,16 @@ type SidebarNavProps = {
   /** Opens the Routines page; its button sits between Search and Filters. */
   onOpenRoutines?: () => void;
   routinesActive?: boolean;
+  /** Projects or Bots; the switch shows only while Bots is on (Settings › Experimental) and this is given. */
+  sidebarMode?: SidebarMode;
+  onSidebarMode?: (mode: SidebarMode) => void;
+  selectedBotId?: string | null;
+  onPickBot?: (id: string) => void;
+  /** The models New bot offers, and the one it starts on. */
+  models?: ModelOption[];
+  defaultModel?: ModelOption;
+  /** A hidden Run Chat is unread: the Routines button shows a dot. */
+  routinesUnread?: boolean;
   onOpenCommands?: () => void;
   hintsEnabled?: boolean;
   /** The project folder, for the project menu's reveal and copy path. */
@@ -265,7 +281,10 @@ function ScopeHeader({
             <IconChevronDownSmall size={14} />
           </span>
         </span>
-        <span data-scope-name className={`min-w-0 flex-1 truncate text-[13px] ${current ? "font-medium text-ink" : "text-ink-2"}`}>
+        <span
+          data-scope-name
+          className={`min-w-0 flex-1 truncate text-[length:calc(13px+var(--sidebar-delta))] ${current ? "font-medium text-ink" : "text-ink-2"}`}
+        >
           {name}
         </span>
       </button>
@@ -481,8 +500,12 @@ export function RailButton({
         ${active ? "bg-hover-2 group-hover/glide:bg-transparent" : ""}`}
     >
       <span className={`flex size-5 shrink-0 items-center justify-center ${active ? "text-ink" : "text-ink-2"}`}>{icon}</span>
-      <span className={`sidebar-copy ml-1.5 min-w-0 flex-1 truncate text-[15px] font-medium ${active ? "text-ink" : "text-ink-2"}`}>{label}</span>
-      {count && <span className="sidebar-copy mr-2 shrink-0 text-[12px] font-medium tabular-nums text-ink-3">{count}</span>}
+      <span
+        className={`sidebar-copy ml-1.5 min-w-0 flex-1 truncate text-[length:calc(15px+var(--sidebar-delta))] font-medium ${active ? "text-ink" : "text-ink-2"}`}
+      >
+        {label}
+      </span>
+      {count && <span className="sidebar-copy mr-2 shrink-0 text-[length:calc(12px+var(--sidebar-delta))] font-medium tabular-nums text-ink-3">{count}</span>}
     </button>
   );
 }
@@ -510,6 +533,13 @@ export default memo(function SidebarNav({
   canvasActive = false,
   onOpenRoutines,
   routinesActive = false,
+  sidebarMode = "projects",
+  onSidebarMode,
+  selectedBotId = null,
+  onPickBot,
+  models = MODEL_CATALOG,
+  defaultModel,
+  routinesUnread = false,
   onOpenCommands,
   hintsEnabled = true,
   projectPath,
@@ -558,6 +588,11 @@ export default memo(function SidebarNav({
   // The Projects' group order, saved across restarts and windows; see stableOrder.
   const scopeOrder = useRef<string[]>(lastLists.order ?? readScopeOrder());
   const showHints = useShortcutHints() && hintsEnabled;
+  const bots = useBots();
+  const botsOn = bots.enabled && onSidebarMode !== undefined;
+  const botsMode = botsOn && sidebarMode === "bots";
+  const botMarks = useMemo(() => botMarksOf(bots.snapshot), [bots.snapshot]);
+  const [newBotOpen, setNewBotOpen] = useState(false);
 
   const selectedTitle = activeTitle === undefined ? demoActiveTitle : activeTitle;
   // One identity for every row, so memo(ChatRow) skips when the sidebar re-renders.
@@ -829,48 +864,37 @@ export default memo(function SidebarNav({
       );
   };
 
-  // Checked in the project chooser; the flag lives with the Project, so the phone's list follows.
+  // Checked in the project chooser; the choice belongs to this Mac alone.
   const showProject = (path: string, show: boolean) => {
+    if (isRemoteKey(path)) {
+      remote.setHidden(path, !show);
+      return;
+    }
     if (path.startsWith("milagre-link:")) {
       const id = path.slice("milagre-link:".length);
-      if (isRemoteKey(path)) {
-        remote.setHidden(path, !show);
-        const linkId = unqualifyKey(id);
-        const bridge = bridgeForKey(path);
-        void bridge.listNamedLinks().then((links) => {
-          const link = links.find((l) => l.id === linkId);
-          if (link) {
-            bridge.updateNamedLink({ id: link.id, name: link.name, projectIds: link.projectIds, hidden: !show }).catch(() => {});
-          }
+      const link = namedLinks.find((l) => l.id === id);
+      if (link) {
+        setNamedLinks((links) => links.map((l) => (l.id === id ? { ...l, hidden: !show } : l)));
+        window.milagre?.updateNamedLink?.({ id, name: link.name, projectIds: link.projectIds, hidden: !show }).catch(() => {
+          setListsChanged((count) => count + 1);
         });
-      } else {
-        const link = namedLinks.find((l) => l.id === id);
-        if (link) {
-          setNamedLinks((links) => links.map((l) => (l.id === id ? { ...l, hidden: !show } : l)));
-          window.milagre?.updateNamedLink?.({ id, name: link.name, projectIds: link.projectIds, hidden: !show }).catch(() => {
-            setListsChanged((count) => count + 1);
-          });
-        }
       }
       return;
     }
-    if (isRemoteKey(path)) remote.setHidden(path, !show);
     setRecentProjects((list) => list.map((project) => (project.path === path ? { ...project, hidden: !show } : project)));
-    bridgeForKey(path)
-      .setProjectHidden(path, !show)
-      .then(
-        (list) => {
-          if (!isRemoteKey(path) && Array.isArray(list)) setRecentProjects(list);
-          window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
-        },
-        () => setListsChanged((count) => count + 1),
-      );
+    window.milagre?.setProjectHidden?.(path, !show).then(
+      (list) => {
+        if (Array.isArray(list)) setRecentProjects(list);
+        window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
+      },
+      () => setListsChanged((count) => count + 1),
+    );
   };
   // By name, like the phone's: the recent list reorders as Projects open, and a row must not move under the pointer.
   // Other computers' Projects follow, each saying its computer; the open one of another computer is already a local row.
   const pickerProjects: PickerProject[] = [
     ...projects.map((row) => {
-      const recent = recentProjects.find((project) => project.path === row.path);
+      const recent = recentProjects.find((project) => project.path === row.path) ?? remote.projects.find((project) => project.path === row.path);
       return { ...row, shown: !recent?.hidden, listed: !!recent, computer: multi && isRemoteKey(row.path) ? rowComputer(row.path)?.name : undefined };
     }),
     ...namedLinks.map((link) => ({
@@ -996,203 +1020,244 @@ export default memo(function SidebarNav({
             width: collapsed ? SIDEBAR_MOTION.collapsedWidth : expandedWidth,
             flex: "1 1 0%",
             // Following the pointer while dragging; the eased width transition would make the edge lag behind it.
-            transitionDuration: resizing ? "0ms" : `${SIDEBAR_MOTION.duration}ms`,
+            transitionDuration: resizing ? "0ms" : `calc(${SIDEBAR_MOTION.duration}ms * var(--motion-scale))`,
             transitionTimingFunction: SIDEBAR_MOTION.easing,
-            "--sidebar-copy-duration": `${SIDEBAR_MOTION.copyDuration}ms`,
+            "--sidebar-copy-duration": `calc(${SIDEBAR_MOTION.copyDuration}ms * var(--motion-scale))`,
             "--sidebar-copy-offset": `${SIDEBAR_MOTION.copyOffset}px`,
             "--sidebar-easing": SIDEBAR_MOTION.easing,
           } as CSSProperties
         }
       >
         <div className="flex min-h-0 w-full shrink-0 flex-col">
-          <ScrollArea className="sidebar-scroll flex-1 overflow-x-hidden pt-2">
-            {/* Canvas, Search, Routines and Filters in one row; collapsed, a column on the rail. */}
-            <div data-sidebar-tools className={`mb-3 flex gap-1 ${collapsed ? "mx-auto w-8 flex-col items-center" : "mx-2 w-[calc(100%-16px)] items-center"}`}>
-              {onOpenCanvas && (
-                <Tooltip label="Canvas" side="bottom" className={collapsed ? "" : "min-w-0 flex-1"}>
-                  <button
-                    type="button"
-                    aria-label="Canvas"
-                    aria-pressed={canvasActive}
-                    onClick={onOpenCanvas}
-                    className={`${TOOL_BUTTON} ${collapsed ? "size-8" : "w-full"} ${canvasActive ? "bg-hover-2 text-ink" : ""}`}
-                  >
-                    <HugeIcon icon={GitMergeIcon} size={16} />
-                    {!collapsed && <span className="sidebar-copy min-w-0 truncate">Canvas</span>}
-                  </button>
-                </Tooltip>
-              )}
-              {onOpenCommands && (
-                <Tooltip
-                  label="Search commands, chats, and projects"
-                  side="bottom"
-                  shortcut={`${shortcutModifier}K`}
-                  className={collapsed ? "" : "min-w-0 flex-1"}
-                >
-                  <button
-                    type="button"
-                    aria-label="Command palette"
-                    aria-keyshortcuts={IS_MAC ? "Meta+K" : "Control+K"}
-                    onClick={onOpenCommands}
-                    className={`${TOOL_BUTTON} ${collapsed ? "size-8" : "w-full"}`}
-                  >
-                    <IconMagnifyingGlass size={16} />
-                    {!collapsed && <span className="sidebar-copy min-w-0 truncate">Search</span>}
-                  </button>
-                </Tooltip>
-              )}
-              {onOpenRoutines && (
-                <Tooltip label="Routines" side="bottom">
-                  <button
-                    type="button"
-                    aria-label="Routines"
-                    aria-pressed={routinesActive}
-                    data-sidebar-routines
-                    onClick={onOpenRoutines}
-                    className={`${TOOL_BUTTON} size-8 shrink-0 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
-                  >
-                    <HugeIcon icon={RepeatIcon} size={16} />
-                  </button>
-                </Tooltip>
-              )}
-              <FiltersButton
-                projects={pickerProjects}
-                imageOf={scopeImage}
-                currentImage={selectedLink ? undefined : workspace.image}
-                onShowProject={showProject}
-                show={chatRowShow}
-                offerComputer={multi}
-                onShowField={(field, on) => updateSettings({ chatRowShow: { ...chatRowShow, [field]: on } })}
-                collapsed={collapsed}
-                className={`${TOOL_BUTTON} size-8 shrink-0`}
-              />
+          {botsOn && (
+            <div className="shrink-0 pt-2">
+              <SidebarModeSwitch mode={botsMode ? "bots" : "projects"} onMode={(mode) => onSidebarMode?.(mode)} collapsed={collapsed} />
             </div>
-            <SidebarLinksProvider scopes={linkScopes} projects={registeredProjects} onAskChat={onAskChat}>
-              {showAll ? (
-                <>
-                  {/* Pinned chats of every Project and Link sit on top, like the single-project sidebar. Each group's list
-                    renders its pinned rows into its slot here, so a drag moves a chat between Pinned and its group. */}
-                  <div data-all-pinned={anyPinned || undefined} className={anyPinned ? "mb-2" : ""}>
-                    {anyPinned && <p className="sidebar-copy mx-2 mb-1 h-8 pl-2 text-[12.5px] font-medium leading-8 text-ink-3">Pinned</p>}
-                    {groups.map((group) => (
-                      <div key={group.scope.key} ref={pinSlotRef(group.scope.key)} data-pinned-scope={group.scope.key} />
-                    ))}
-                  </div>
-                  {groups.map(({ scope, current, state, rest, pinned, list, dimmed }, index) => {
-                    const open = !closedScopes.includes(scope.key);
-                    return (
-                      <section
-                        key={scope.key}
-                        data-sidebar-scope={scope.key}
-                        data-current={current || undefined}
-                        aria-label={scope.name}
-                        data-offline={dimmed || undefined}
-                        className={`mb-2 ${dimmed ? "opacity-50" : ""}`}
+          )}
+          <ScrollArea className={`sidebar-scroll flex-1 overflow-x-hidden ${botsOn ? "" : "pt-2"}`}>
+            {botsMode ? (
+              <BotList snapshot={bots.snapshot} selectedBotId={selectedBotId} onPickBot={(id) => onPickBot?.(id)} collapsed={collapsed} />
+            ) : (
+              <BotMarksContext.Provider value={botMarks}>
+                {/* Canvas, Search, Routines and Filters in one row; collapsed, a column on the rail. */}
+                <div
+                  data-sidebar-tools
+                  className={`mb-3 flex gap-1 ${collapsed ? "mx-auto w-8 flex-col items-center" : "mx-2 w-[calc(100%-16px)] items-center"}`}
+                >
+                  {onOpenCanvas && (
+                    <Tooltip label="Canvas" side="bottom" className={collapsed ? "" : "min-w-0 flex-1"}>
+                      <button
+                        type="button"
+                        aria-label="Canvas"
+                        aria-pressed={canvasActive}
+                        onClick={onOpenCanvas}
+                        className={`${TOOL_BUTTON} ${collapsed ? "size-8" : "w-full"} ${canvasActive ? "bg-hover-2 text-ink" : ""}`}
                       >
-                        {scope.link && !scopes[index - 1]?.link && (
-                          <p className="mx-2 mt-1 mb-1 h-6 pl-2 text-[12.5px] font-medium leading-6 text-ink-3">Links</p>
+                        <HugeIcon icon={GitMergeIcon} size={16} />
+                        {!collapsed && <span className="sidebar-copy min-w-0 truncate">Canvas</span>}
+                      </button>
+                    </Tooltip>
+                  )}
+                  {onOpenCommands && (
+                    <Tooltip
+                      label="Search commands, chats, and projects"
+                      side="bottom"
+                      shortcut={`${shortcutModifier}K`}
+                      className={collapsed ? "" : "min-w-0 flex-1"}
+                    >
+                      <button
+                        type="button"
+                        aria-label="Command palette"
+                        aria-keyshortcuts={IS_MAC ? "Meta+K" : "Control+K"}
+                        onClick={onOpenCommands}
+                        className={`${TOOL_BUTTON} ${collapsed ? "size-8" : "w-full"}`}
+                      >
+                        <IconMagnifyingGlass size={16} />
+                        {!collapsed && <span className="sidebar-copy min-w-0 truncate">Search</span>}
+                      </button>
+                    </Tooltip>
+                  )}
+                  {onOpenRoutines && (
+                    <Tooltip label="Routines" side="bottom">
+                      <button
+                        type="button"
+                        // The dot is drawn only; the label says it, as the phone's dock button does.
+                        aria-label={routinesUnread ? "Routines, unread Runs" : "Routines"}
+                        aria-pressed={routinesActive}
+                        data-sidebar-routines
+                        onClick={onOpenRoutines}
+                        className={`${TOOL_BUTTON} relative size-8 shrink-0 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
+                      >
+                        <HugeIcon icon={RepeatIcon} size={16} />
+                        {routinesUnread && (
+                          <span aria-hidden data-routines-unread className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-accent ring-2 ring-surface" />
                         )}
-                        <ScopeHeader
-                          name={scope.name}
-                          icon={
-                            scope.link ? (
-                              <ProjectAvatarStack
-                                projects={scope.link.projectIds.map(
-                                  (id) => registeredProjects.find((project) => project.id === id) ?? { path: "", name: "Project" },
-                                )}
-                              />
-                            ) : (
-                              <span className="flex size-5 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
-                                <WorkspaceIcon src={current && !selectedLink ? workspace.image : scopeImage(scope.key)} fallback={scope.initial} />
-                              </span>
-                            )
-                          }
-                          open={open}
-                          current={current}
-                          attention={!current && attentionPaths.includes(scope.key)}
-                          onToggle={() => toggleScope(scope.key)}
-                          onNewChat={
-                            current
-                              ? () => {
-                                  if (activeTitle === undefined) setDemoActiveTitle(null);
-                                  onNewChat?.();
-                                }
-                              : () => onNewChatInScope?.(scope.key)
-                          }
-                          menu={scopeMenu(scope, current)}
-                        />
-                        {/* Rows grow open and shut instead of appearing at once; closed ones leave the tab order. */}
-                        <div
-                          inert={!open}
-                          data-scope-body
-                          className="grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
-                          style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
-                        >
-                          <div className="min-w-0 overflow-hidden">
-                            {rest.length > 0 || pinned.length > 0 ? (
-                              <ChatList
-                                recents={pinned.length ? [...pinned, ...rest] : rest}
-                                scopeKey={scope.key}
-                                {...list}
-                                header={null}
-                                pinnedTarget={pinSlots[scope.key] ?? null}
-                                anyPinned={anyPinned}
-                              />
-                            ) : !state && !current && failedScopes.has(scope.key) ? (
-                              <p className="mx-2 flex h-8 items-center gap-1 pl-9 text-[13px] text-ink-3">
-                                Couldn't load chats.
-                                <button
-                                  type="button"
-                                  onClick={() => retryScope(scope.key)}
-                                  className="cursor-pointer text-ink-2 underline-offset-2 hover:underline"
-                                >
-                                  Retry
-                                </button>
-                              </p>
-                            ) : (
-                              <p className="mx-2 h-8 pl-9 text-[13px] leading-8 text-ink-3">{state || current ? "No chats yet" : "Loading chats…"}</p>
+                      </button>
+                    </Tooltip>
+                  )}
+                  <FiltersButton
+                    projects={pickerProjects}
+                    imageOf={scopeImage}
+                    currentImage={selectedLink ? undefined : workspace.image}
+                    onShowProject={showProject}
+                    show={chatRowShow}
+                    offerComputer={multi}
+                    onShowField={(field, on) => updateSettings({ chatRowShow: { ...chatRowShow, [field]: on } })}
+                    collapsed={collapsed}
+                    className={`${TOOL_BUTTON} size-8 shrink-0`}
+                  />
+                </div>
+                <SidebarLinksProvider scopes={linkScopes} projects={registeredProjects} onAskChat={onAskChat}>
+                  {showAll ? (
+                    <>
+                      {/* Pinned chats of every Project and Link sit on top, like the single-project sidebar. Each group's list
+                    renders its pinned rows into its slot here, so a drag moves a chat between Pinned and its group. */}
+                      <div data-all-pinned={anyPinned || undefined} className={anyPinned ? "mb-2" : ""}>
+                        {anyPinned && (
+                          <p className="sidebar-copy mx-2 mb-1 h-8 pl-2 text-[length:calc(12.5px+var(--sidebar-delta))] font-medium leading-8 text-ink-3">
+                            Pinned
+                          </p>
+                        )}
+                        {groups.map((group) => (
+                          <div key={group.scope.key} ref={pinSlotRef(group.scope.key)} data-pinned-scope={group.scope.key} />
+                        ))}
+                      </div>
+                      {groups.map(({ scope, current, state, rest, pinned, list, dimmed }, index) => {
+                        const open = !closedScopes.includes(scope.key);
+                        return (
+                          <section
+                            key={scope.key}
+                            data-sidebar-scope={scope.key}
+                            data-current={current || undefined}
+                            aria-label={scope.name}
+                            data-offline={dimmed || undefined}
+                            className={`mb-2 ${dimmed ? "opacity-50" : ""}`}
+                          >
+                            {scope.link && !scopes[index - 1]?.link && (
+                              <p className="mx-2 mt-1 mb-1 h-6 pl-2 text-[length:calc(12.5px+var(--sidebar-delta))] font-medium leading-6 text-ink-3">Links</p>
                             )}
-                          </div>
+                            <ScopeHeader
+                              name={scope.name}
+                              icon={
+                                scope.link ? (
+                                  <ProjectAvatarStack
+                                    projects={scope.link.projectIds.map(
+                                      (id) => registeredProjects.find((project) => project.id === id) ?? { path: "", name: "Project" },
+                                    )}
+                                  />
+                                ) : (
+                                  <span className="flex size-5 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
+                                    <WorkspaceIcon src={current && !selectedLink ? workspace.image : scopeImage(scope.key)} fallback={scope.initial} />
+                                  </span>
+                                )
+                              }
+                              open={open}
+                              current={current}
+                              attention={!current && attentionPaths.includes(scope.key)}
+                              onToggle={() => toggleScope(scope.key)}
+                              onNewChat={
+                                current
+                                  ? () => {
+                                      if (activeTitle === undefined) setDemoActiveTitle(null);
+                                      onNewChat?.();
+                                    }
+                                  : () => onNewChatInScope?.(scope.key)
+                              }
+                              menu={scopeMenu(scope, current)}
+                            />
+                            {/* Rows grow open and shut instead of appearing at once; closed ones leave the tab order. */}
+                            <div
+                              inert={!open}
+                              data-scope-body
+                              className="grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+                              style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
+                            >
+                              <div className="min-w-0 overflow-hidden">
+                                {rest.length > 0 || pinned.length > 0 ? (
+                                  <ChatList
+                                    recents={pinned.length ? [...pinned, ...rest] : rest}
+                                    scopeKey={scope.key}
+                                    {...list}
+                                    header={null}
+                                    pinnedTarget={pinSlots[scope.key] ?? null}
+                                    anyPinned={anyPinned}
+                                  />
+                                ) : !state && !current && failedScopes.has(scope.key) ? (
+                                  <p className="mx-2 flex h-8 items-center gap-1 pl-9 text-[length:calc(13px+var(--sidebar-delta))] text-ink-3">
+                                    Couldn't load chats.
+                                    <button
+                                      type="button"
+                                      onClick={() => retryScope(scope.key)}
+                                      className="cursor-pointer text-ink-2 underline-offset-2 hover:underline"
+                                    >
+                                      Retry
+                                    </button>
+                                  </p>
+                                ) : (
+                                  <p className="mx-2 h-8 pl-9 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">
+                                    {state || current ? "No chats yet" : "Loading chats…"}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </section>
+                        );
+                      })}
+                    </>
+                  ) : railScopes ? (
+                    <ScopeRail scopes={railScopes} onOpenScope={openRailScope} onOpenChat={openRailChat} />
+                  ) : (
+                    <ChatList
+                      recents={recents}
+                      scopeKey={currentKey}
+                      isActive={(item) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle)}
+                      collapsed={collapsed}
+                      actions={chatActions}
+                      showHints={showHints}
+                      onPick={pickChat}
+                      show={chatRowShow}
+                      linkProjectId={selectedLink ? null : linkProjectIdOf(projectPath)}
+                      header={
+                        <div className={`sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2 ${collapsed ? "hidden" : ""}`}>
+                          <span className="text-[length:calc(12.5px+var(--sidebar-delta))] font-medium text-ink-3">Chats</span>
+                          <Tooltip label="New chat" shortcut="⌘N" align="end">
+                            <button
+                              type="button"
+                              aria-label="New chat"
+                              onClick={() => {
+                                if (activeTitle === undefined) setDemoActiveTitle(null);
+                                onNewChat?.();
+                              }}
+                              className={CHATS_HEADER_BUTTON}
+                            >
+                              <IconPlusMedium size={16} />
+                            </button>
+                          </Tooltip>
                         </div>
-                      </section>
-                    );
-                  })}
-                </>
-              ) : railScopes ? (
-                <ScopeRail scopes={railScopes} onOpenScope={openRailScope} onOpenChat={openRailChat} />
-              ) : (
-                <ChatList
-                  recents={recents}
-                  scopeKey={currentKey}
-                  isActive={(item) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle)}
-                  collapsed={collapsed}
-                  actions={chatActions}
-                  showHints={showHints}
-                  onPick={pickChat}
-                  show={chatRowShow}
-                  linkProjectId={selectedLink ? null : linkProjectIdOf(projectPath)}
-                  header={
-                    <div className={`sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2 ${collapsed ? "hidden" : ""}`}>
-                      <span className="text-[12.5px] font-medium text-ink-3">Chats</span>
-                      <Tooltip label="New chat" shortcut="⌘N" align="end">
-                        <button
-                          type="button"
-                          aria-label="New chat"
-                          onClick={() => {
-                            if (activeTitle === undefined) setDemoActiveTitle(null);
-                            onNewChat?.();
-                          }}
-                          className={CHATS_HEADER_BUTTON}
-                        >
-                          <IconPlusMedium size={16} />
-                        </button>
-                      </Tooltip>
-                    </div>
-                  }
-                />
-              )}
-            </SidebarLinksProvider>
+                      }
+                    />
+                  )}
+                </SidebarLinksProvider>
+              </BotMarksContext.Provider>
+            )}
           </ScrollArea>
+
+          {botsMode && (
+            <div className="mt-2 shrink-0">
+              <NewBotButton collapsed={collapsed} onClick={() => setNewBotOpen(true)} />
+            </div>
+          )}
+          {newBotOpen && (
+            <NewBotSheet
+              models={models}
+              defaultModel={defaultModel}
+              onClose={() => setNewBotOpen(false)}
+              onCreated={(bot) => {
+                setNewBotOpen(false);
+                onPickBot?.(bot.id);
+              }}
+            />
+          )}
 
           {usage && <div className={`mt-3 border-t border-line pt-1.5 ${collapsed ? "mx-auto w-8" : "mx-2 w-[calc(100%-16px)]"}`}>{usage}</div>}
 
@@ -1344,6 +1409,7 @@ function ChatList({
   };
   const rowElement = (id: string) => rowIn(containers(), id);
   const sidebarLinks = useSidebarLinks();
+  const botMarks = useBotMarks();
   const links = sidebarLinks.links;
   const [drag, setDrag] = useState<ChatDrag | null>(null);
   const dragRef = useRef<ChatDrag | null>(null);
@@ -1713,6 +1779,7 @@ function ChatList({
       dimOffline={dimOffline || (Boolean(pinnedTarget) && Boolean(item.pinned))}
       dragging={drag?.id === item.id}
       linked={linkProjectId ? sidebarLinks.endsFor(scopeKey, item) : undefined}
+      bot={botMarks.get(`${scopeKey}#${item.id}`)}
     />
   );
 

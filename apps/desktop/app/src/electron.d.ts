@@ -19,6 +19,7 @@ import type {
   RoutineTrigger,
 } from "@milagre/shared/model";
 import type { Result } from "@milagre/shared/result";
+import type { BotRecord, BotsSnapshot, GateRecord } from "@milagre/shared/bots";
 import type { StatePatch } from "@milagre/shared/state-patch";
 export type FloatingDragOverlay = {
   targets: Array<{ edge: "left" | "right" | "bottom"; x: number; y: number; width: number; height: number; active: boolean }>;
@@ -26,6 +27,23 @@ export type FloatingDragOverlay = {
 
 /** On a state event from a host that sends patches: what changed since the state numbered `base`, or `resync`. */
 type StateNumbering = { patch?: StatePatch; base?: number; version?: number; epoch?: string; resync?: boolean; messages?: MessageChanges };
+/** A starter bot and the setup card it asks for. */
+export type BotTemplate = {
+  id: string;
+  name: string;
+  role: string;
+  color: string;
+  body: BotRecord["body"];
+  fields: Array<{ id: string; label: string; kind: "projects" | "text"; required: boolean; options?: Array<{ value: string; label: string }> }>;
+};
+export type BotCreateInput = {
+  templateId: string;
+  name: string;
+  answers: { projects: string[]; ci?: string; linearTeam?: string };
+  provider: string;
+  model: string;
+};
+export type BotPatch = { name?: string; role?: string; brief?: string; paused?: boolean; projects?: string[] };
 /** To a client that reads messages by Chat: the messages a change added, changed (each after the one before it in its Chat) or removed. */
 export type MessageChanges = { changed: Array<{ message: ChatMessage; after: number | null }>; removed: number[] };
 /** Where a search match is and what matched. */
@@ -303,6 +321,25 @@ export type MilagreBridge = {
   readDesignsEnabled: () => Promise<{ enabled: boolean }>;
   saveDesignsEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
   onDesignsEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
+  /** This Mac's default-off Experimental Bots switch. Bots stay on this Mac: a paired computer's bridge refuses them. */
+  readBotsEnabled: () => Promise<{ enabled: boolean }>;
+  saveBotsEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
+  onBotsEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
+  listBots: () => Promise<BotsSnapshot>;
+  onBotsChanged: (callback: (snapshot: BotsSnapshot) => void) => () => void;
+  botTemplates: () => Promise<BotTemplate[]>;
+  createBot: (input: BotCreateInput) => Promise<BotRecord>;
+  updateBot: (id: string, patch: BotPatch) => Promise<BotRecord>;
+  /** The bot's Chats stay in Milagre as the user's; its pending sign-offs are denied. */
+  removeBot: (id: string) => Promise<void>;
+  sendToBot: (id: string, text: string) => Promise<void>;
+  /** A sign-off is the card `requestId` in Chat `chatKey`: request ids repeat across Chats. */
+  answerBotGate: (chatKey: string, requestId: string, choice: "once" | "always" | "deny") => Promise<GateRecord>;
+  revokeBotGrant: (id: string) => Promise<void>;
+  readBotBrief: (id: string) => Promise<{ text: string }>;
+  readBotMemory: (id: string) => Promise<{ text: string; lines: number; bytes: number }>;
+  /** `base`: the text read when the profile opened MEMORY.md; the save is refused when the file changed since. */
+  saveBotMemory: (id: string, text: string, base?: string) => Promise<unknown>;
   readLinearStatus: () => Promise<LinearStatus>;
   /** Opens Linear in the browser and resolves once the Mac is connected. A second call replaces a waiting one. */
   /** `window`: sign in from a window of its own with an empty session (Add workspace), not the browser. */
@@ -317,7 +354,7 @@ export type MilagreBridge = {
   saveLimitAutoSwitch: (value: boolean) => Promise<{ autoSwitch: boolean }>;
   /** Experimental: agents set heartbeats that send a prompt back into their Chat on a schedule. Off by default. */
   readRoutinesEnabled: () => Promise<{ enabled: boolean }>;
-  saveRoutinesEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
+  saveRoutinesEnabled: (value: boolean, consentVersion?: string) => Promise<{ enabled: boolean }>;
   /** This Mac's routines that haven't ended, newest first, each with its latest Runs first. */
   listRoutines: () => Promise<{ routines: Array<Routine & { runs: RoutineRun[] }> }>;
   updateRoutine: (id: string, patch: RoutineUpdate) => Promise<Routine>;
@@ -387,7 +424,7 @@ export type MilagreBridge = {
   listEditors: () => Promise<EditorInfo[]>;
   /** Opens a file (or, with no path, the folder) in an editor. `path` is relative to `root`. Returns a Result with a failure code and message. */
   openInEditor: (request: { root: string; path?: string; line?: number; editor?: string }) => Promise<Result<null>>;
-  getCurrentProject: () => Promise<OpenProject>;
+  getCurrentProject: () => Promise<OpenProject | null>;
   openProject: () => Promise<OpenProject | null>;
   /** Opens a folder of this computer as a Project, without the dialog. */
   openProjectAt: (folder: string) => Promise<OpenProject>;
@@ -395,9 +432,18 @@ export type MilagreBridge = {
   readMedia: (request: { scope: string; path: string }) => Promise<MediaBytes>;
   /** Projects opened lately, most recent first; folders that are gone are left out. */
   listRecentProjects: () => Promise<RecentProject[]>;
+  /** Onboarding: folders Claude Code and Codex sessions on this Mac worked in, newest first. */
+  listAgentFolders: () => Promise<import("@milagre/shared/model").AgentFolder[]>;
+  /** Onboarding: a new folder in ~/Code with Git, opened as a Project. */
+  createProject: (name: string) => Promise<OpenProject>;
+  /** Onboarding: clones a repository into ~/Code and opens it. */
+  cloneProject: (url: string) => Promise<OpenProject>;
+  /** Sets up Git in a Project folder that has none (git init, first commit when Git knows who you are), then opens it. */
+  setUpGit: (folder: string) => Promise<OpenProject>;
   /** Keeps a recent project out of the all-Projects sidebar and the phone's list, or shows it again; resolves to the list. */
   setProjectHidden: (projectPath: string, hidden: boolean) => Promise<RecentProject[]>;
   /** Loads a recent project's chats without opening it; later changes arrive through onProjectState. */
+  retrySave: (scope: string) => Promise<void>;
   readProject: (projectPath: string) => Promise<OpenProject>;
   /** Every opened Project, seeded once from existing coordination files. */
   listNamedLinks: () => Promise<NamedProjectLink[]>;
@@ -485,7 +531,8 @@ export type MilagreBridge = {
   /** How each agent's CLI stands (missing, outdated, broken, logged out, or ready); checked again on every call while it has a problem. */
   getCliStatus: (scopeKey?: string) => Promise<AgentCliStatus>;
   /** Runs update for the specified CLI agent and refreshes status. */
-  updateCli: (provider: ModelProvider) => Promise<{ ok: boolean; version?: string; error?: string; status?: CliStatus }>;
+  getProviderUpdates: () => Promise<import("@milagre/shared/model").ProviderUpdate[]>;
+  updateCli: (provider: ModelProvider, targetVersion?: string) => Promise<{ ok: boolean; version?: string; error?: string; status?: CliStatus }>;
   stopAdvisor: (chatId: string, id: string) => Promise<Subagent>;
   retryAdvisor: (chatId: string, id: string) => Promise<Subagent>;
   /** Where Antigravity's install stands while `updateCli("antigravity")` runs: download bytes, then extract, validate, done. */

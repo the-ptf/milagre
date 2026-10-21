@@ -261,6 +261,35 @@ class ChatHost {
     if (failure) throw failure;
   }
 
+  /**
+   * A Chat a bot no longer runs: it leaves Bot rules for Ask, saved with it like the composer's pick, so the turns it
+   * starts again (a resume, a continue after a limit, a heartbeat's beat, the messages queued behind its turn) ask the
+   * user. A chat in another mode keeps it.
+   */
+  async leaveBotRules(chatId) {
+    const asked = (settings) => (settings?.permissionMode === "bot" ? { ...settings, permissionMode: "ask" } : settings);
+    const turn = this.turns.get(chatId);
+    if (turn?.permissionMode === "bot") this.turns.set(chatId, asked(turn));
+    const projectPath = projectOfKey(chatId);
+    const sessionId = sessionIdFromKey(chatId);
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        const session = latest.sessions[sessionId];
+        const queued = session?.queued?.some((entry) => entry.turn?.permissionMode === "bot");
+        if (!session || (session.permissionMode !== "bot" && session.resumeTurn?.permissionMode !== "bot" && !queued)) return latest;
+        const left = {
+          ...asked(session),
+          ...(session.resumeTurn ? { resumeTurn: asked(session.resumeTurn) } : {}),
+          ...(queued ? { queued: session.queued.map((entry) => (entry.turn ? { ...entry, turn: asked(entry.turn) } : entry)) } : {}),
+        };
+        return { ...latest, sessions: { ...latest.sessions, [sessionId]: left } };
+      },
+      { chats: [] },
+    );
+    if (changed) this.broadcast(projectPath, state);
+  }
+
   /** Forgets what this run knows of a chat that was deleted. */
   forget(chatId) {
     this.routineTurns.delete(chatId);
@@ -269,9 +298,10 @@ class ChatHost {
   /**
    * A worktree's chat with no messages yet, made when it has none: where a message Milagre sends opens a new chat. Resolves
    * with its id. `fresh` always makes a new one. `origin` ({ routineId, runId }) marks it as a Routine's Run's, saved as
-   * `routine`, and `title` names it, both in the same change.
+   * `routine` and hidden from the Chat lists until the user writes in it (`hidden`). `title` names it, and
+   * `generatedTitle` gives it a name the user's own and the first message's naming leave alone, all in the same change.
    */
-  async emptyChat(projectPath, worktreeId, { operationId, assertActive, origin, title, fresh = false } = {}) {
+  async emptyChat(projectPath, worktreeId, { operationId, assertActive, origin, title, generatedTitle, fresh = false } = {}) {
     let sessionId;
     const { state, changed } = await this.states.update(
       projectPath,
@@ -282,12 +312,13 @@ class ChatHost {
         if (worktree.sharedChat) throw new Error("This Worktree belongs to a shared Link Chat. Open its Link instead.");
         const result = fresh ? newChat(latest, worktree) : starterChat(latest, worktree);
         sessionId = result.session.id;
-        if (!operationId && !origin && title === undefined) return result.state;
+        if (!operationId && !origin && title === undefined && generatedTitle === undefined) return result.state;
         const session = {
           ...result.session,
           ...(operationId ? { localMcpOperations: [...(result.session.localMcpOperations ?? []), operationId] } : {}),
-          ...(origin ? { routine: { routineId: origin.routineId, runId: origin.runId } } : {}),
+          ...(origin ? { routine: { routineId: origin.routineId, runId: origin.runId, hidden: true } } : {}),
           ...(title !== undefined ? { title } : {}),
+          ...(generatedTitle !== undefined ? { generatedTitle } : {}),
         };
         return { ...result.state, sessions: { ...result.state.sessions, [sessionId]: session } };
       },
@@ -295,6 +326,29 @@ class ChatHost {
     );
     if (changed) this.broadcast(projectPath, state);
     return sessionId;
+  }
+
+  /**
+   * Names a Run's Chat from what the Run did: saves `generatedTitle` while the Chat is still `runId`'s (its `routine`) and
+   * has no title of its own, so a name the user gave it, or a Linear Run's issue title, always wins. Resolves true when
+   * it saved.
+   */
+  async nameRunChat(projectPath, sessionId, runId, generatedTitle) {
+    let named = false;
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        const session = latest.sessions[sessionId];
+        if (!session || session.routine?.runId !== runId || session.title?.trim()) return latest;
+        named = true;
+        if (session.generatedTitle === generatedTitle) return latest;
+        return { ...latest, sessions: { ...latest.sessions, [sessionId]: { ...session, generatedTitle } } };
+      },
+      // The name is on the session; the Chat's messages aren't read, so none are loaded.
+      { chats: [] },
+    );
+    if (changed) this.broadcast(projectPath, state);
+    return named;
   }
 
   /** The chat on screen, by chat key, or null. A turn that ends in any other chat leaves it unread. */
@@ -1202,15 +1256,25 @@ class ChatHost {
   async resumeInterrupted(projectPath, state) {
     for (const session of Object.values(state.sessions)) {
       // A queue whose turn had ended moves on; one behind a stopped turn waits for that turn to resume and finish.
-      if (!session.resumeTurn && session.queued?.length && !session.queueHeld && !session.archived) {
+      if (this.startsQueue(session)) {
         await this.startQueued(chatKey(projectPath, session.id), session.queued[0].id).catch((error) =>
           console.warn(`Milagre couldn't start the queue of a chat in ${projectPath}:`, error.message),
         );
         continue;
       }
-      if (!session.resumeTurn || this.now() - (session.resumeTurn.stoppedAt ?? 0) > RESUME_WINDOW_MS) continue;
+      if (!this.willResume(session)) continue;
       await this.resumeChat(projectPath, session.id).catch((error) => console.warn(`Milagre couldn't resume a chat in ${projectPath}:`, error.message));
     }
+  }
+
+  /** Whether the saved chat `session` has a turn a quit stopped that continues when its project opens. */
+  willResume(session) {
+    return Boolean(session?.resumeTurn) && this.now() - (session.resumeTurn.stoppedAt ?? 0) <= RESUME_WINDOW_MS;
+  }
+
+  /** Whether the saved chat `session` has queued messages that start when its project opens: its turn had ended. */
+  startsQueue(session) {
+    return Boolean(session && !session.resumeTurn && session.queued?.length && !session.queueHeld && !session.archived);
   }
 
   /** Continues one chat a quit stopped, on the turn's saved options. Resolves false when it has nothing to continue. */

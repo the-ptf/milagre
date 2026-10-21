@@ -5,13 +5,14 @@ const { ProjectStates } = require("./project-states.cjs");
 const { readProjectState, saveProjectState, compactProjectState } = require("./project-store.cjs");
 
 /** `active(id, chatId)` says whether a shared Chat's turn is busy, so its messages stay in memory (see ProjectStates). */
-function createLinkStore({ dataDir, active = () => true, lazyMessages = {} }) {
+function createLinkStore({ dataDir, active = () => true, lazyMessages = {}, persistenceChanged }) {
   const root = path.join(dataDir, "links");
   const directory = (id) => {
     if (!validLinkId(id)) throw new Error("Invalid Link ID");
     return path.join(root, id);
   };
   const states = new ProjectStates({
+    persistenceChanged,
     read: async (id) => {
       try {
         return await readProjectState(directory(id));
@@ -32,6 +33,7 @@ function createLinkStore({ dataDir, active = () => true, lazyMessages = {} }) {
     };
   return {
     directory,
+    withPersistence: (id, state) => states.withPersistence(id, state),
     cached: (id) => states.states.get(id),
     has: (id) => states.has(id),
     ids: () => states.projects(),
@@ -46,6 +48,7 @@ function createLinkStore({ dataDir, active = () => true, lazyMessages = {} }) {
     searchableMessages: checked((id, chats) => states.searchableMessages(id, chats)),
     findMessage: checked((id, field, value) => states.findMessage(id, field, value)),
     unloadIdle: () => states.unloadIdle(),
+    retry: checked((id) => states.retry(id)),
     flush: (id) => states.flush(id),
     close: () => states.close(),
     async ownedWorktrees() {

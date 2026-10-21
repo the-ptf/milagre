@@ -73,6 +73,32 @@ const request = (chatId, extra = {}) => ({
   ...extra,
 });
 
+test("sessions receive the chat's permission policy", async (t) => {
+  const { manager, created } = harness();
+  t.after(() => manager.closeAll());
+  const policy = () => "allow";
+  const asked = [];
+  manager.permissionPolicy = (chatId) => {
+    asked.push(chatId);
+    return chatId === "/p#1" ? policy : undefined;
+  };
+  await manager.startTurn(request("/p#1"));
+  await manager.startTurn(request("/p#2"));
+  assert.equal(created[0].options.permissionPolicy, policy);
+  assert.equal(created[1].options.permissionPolicy, undefined);
+  assert.deepEqual(asked, ["/p#1", "/p#2"]);
+});
+
+test("hasSession tells whether a chat has a live session", async (t) => {
+  const { manager } = harness();
+  t.after(() => manager.closeAll());
+  assert.equal(manager.hasSession("/p#1"), false);
+  await manager.startTurn(request("/p#1"));
+  assert.equal(manager.hasSession("/p#1"), true);
+  await manager.closeChat("/p#1");
+  assert.equal(manager.hasSession("/p#1"), false);
+});
+
 test("createSession receives the turn's accountId", async (t) => {
   const { manager, created } = harness();
   t.after(() => manager.closeAll());
@@ -619,7 +645,7 @@ test("Milagre's own tools ask through the chat's approval cards and read its per
   const session = {
     turnActive: true,
     closed: false,
-    permissions: { mode: "auto", add: (request, answer) => added.push({ request, answer }) },
+    permissions: { mode: "auto", add: (request, answer, options) => added.push({ request, answer, options }) },
     startTurn: async () => ({ turnId: "t", steered: false }),
     close: async () => {},
   };
@@ -630,6 +656,8 @@ test("Milagre's own tools ask through the chat's approval cards and read its per
   assert.equal(manager.permissionMode("p#1"), "auto");
   assert.equal(manager.isTurnActive("p#1"), true);
   const decision = manager.askApproval("p#1", { requestId: "r" });
+  // Milagre's own card: Bot rules leave it to the user (PendingPermissions).
+  assert.deepEqual(added[0].options, { fromMilagre: true });
   added[0].answer("deny");
   assert.equal(await decision, "deny");
 });

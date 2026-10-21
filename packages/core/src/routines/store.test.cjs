@@ -33,6 +33,24 @@ test("setEnabled persists", () => {
   assert.equal(createRoutineStore(options).enabled(), true);
 });
 
+test("pre-consent and stale Routine profiles stay off without losing their Routines or Runs", () => {
+  const { store, options, file } = setup();
+  const routine = store.upsertHeartbeat(base);
+  store.setEnabled(true);
+  const run = store.startRun(routine.id, START);
+  store.finishRun(run.id, { status: "acted" });
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  for (const version of [undefined, "old-version"]) {
+    fs.writeFileSync(file, JSON.stringify({ ...saved, aiConsentVersion: version }));
+    const migrated = createRoutineStore(options);
+    assert.equal(migrated.enabled(), false);
+    assert.deepEqual(migrated.get(routine.id), store.get(routine.id));
+    assert.deepEqual(migrated.runs(routine.id), store.runs(routine.id));
+    migrated.setEnabled(true);
+    assert.equal(createRoutineStore(options).enabled(), true);
+  }
+});
+
 test("upsertHeartbeat twice with the same name and chat keeps one Routine", () => {
   const { store } = setup();
   const first = store.upsertHeartbeat(base);
@@ -256,6 +274,191 @@ test("only the last 50 Runs are kept", () => {
   assert.equal(runs.length, 50);
   assert.ok(runs[0].scheduledFor > runs[49].scheduledFor);
   assert.equal(store.get(routine.id).runCount, 60);
+});
+
+// A Run of a trigger Routine, started, given a Chat (unless `chatId` is empty) and ended as `status`. Returns the Run's id.
+function runOnce(store, routine, clock, n, chatId, status = "acted") {
+  store.enqueue(routine.id, delivery(n));
+  const [claim] = store.claimQueued(clock.t);
+  if (chatId) store.attachChat(claim.run.id, { chatId });
+  store.finishRun(claim.run.id, { status });
+  return claim.run.id;
+}
+
+test("acted Runs keep their own 50, so quiet Runs can't push them out", () => {
+  const { store, clock } = setup();
+  const routine = store.create(spec);
+  const first = runOnce(store, routine, clock, 1, "", "acted");
+  for (let n = 2; n <= 61; n += 1) runOnce(store, routine, clock, n, "", "quiet");
+  let runs = store.runs(routine.id);
+  assert.equal(runs.filter((run) => run.status === "acted").length, 1);
+  assert.equal(runs.filter((run) => run.status === "quiet").length, 50);
+  assert.ok(runs.some((run) => run.id === first));
+  // The other way round: acted Runs are held to 50 whatever else is kept. A Run is trimmed when the next one is added, so
+  // the newest acted Run (still running when it was added) is counted from the Run after it.
+  for (let n = 62; n <= 120; n += 1) runOnce(store, routine, clock, n, "", "acted");
+  runOnce(store, routine, clock, 121, "", "quiet");
+  runs = store.runs(routine.id);
+  const acted = runs.filter((run) => run.status === "acted");
+  assert.equal(acted.length, 50);
+  assert.ok(!acted.some((run) => run.id === first), "the oldest acted Run went");
+  assert.ok(runs.some((run) => run.status === "quiet"));
+});
+
+test("failed Runs share the quiet Runs' 50, apart from the acted ones", () => {
+  const { store, clock } = setup();
+  const routine = store.create(spec);
+  const acted = runOnce(store, routine, clock, 1, "", "acted");
+  // Alternating, because three failures in a row would pause the trigger.
+  for (let n = 2; n <= 61; n += 1) runOnce(store, routine, clock, n, "", n % 2 === 0 ? "failed" : "quiet");
+  const runs = store.runs(routine.id);
+  assert.equal(runs.length, 51);
+  assert.equal(runs.filter((run) => run.status === "failed").length, 25);
+  assert.equal(runs.filter((run) => run.status === "quiet").length, 25);
+  assert.ok(runs.some((run) => run.id === acted));
+});
+
+test("onRunsDropped hears the Runs a trim, a delete and a purge took, with their Chats", () => {
+  const dropped = [];
+  const hear = (list) => dropped.push(list);
+
+  // A trim: the oldest acted Run goes when the Run after the 51st is added. One without a Chat is never reported.
+  {
+    const { options, clock } = setup();
+    const store = createRoutineStore({ ...options, onRunsDropped: hear });
+    const routine = store.create(spec);
+    const ids = [];
+    for (let n = 1; n <= 52; n += 1) ids.push(runOnce(store, routine, clock, n, n === 1 ? "" : `chat${n}`));
+    assert.deepEqual(dropped, [], "the first Run had no Chat, so its trim says nothing");
+    ids.push(runOnce(store, routine, clock, 53, "chat53"));
+    assert.deepEqual(dropped, [[{ routineId: routine.id, runId: ids[1], chatId: "chat2" }]]);
+    assert.equal(store.hasRun(ids[1]), false);
+    assert.equal(store.hasRun(ids[2]), true);
+  }
+
+  // A delete: every Run with a Chat, in one call, in the order they were started.
+  dropped.length = 0;
+  {
+    const { options, clock } = setup();
+    const store = createRoutineStore({ ...options, onRunsDropped: hear });
+    const routine = store.create({ ...spec, name: "gone" });
+    const one = runOnce(store, routine, clock, 1, "chat-one");
+    runOnce(store, routine, clock, 2, "");
+    const three = runOnce(store, routine, clock, 3, "chat-three", "quiet");
+    assert.deepEqual(dropped, []);
+    assert.equal(store.remove(routine.id), true);
+    assert.deepEqual(dropped, [
+      [
+        { routineId: routine.id, runId: one, chatId: "chat-one" },
+        { routineId: routine.id, runId: three, chatId: "chat-three" },
+      ],
+    ]);
+    // Deleting what isn't there, or a Routine with no Chats, is silent.
+    assert.equal(store.remove(routine.id), false);
+    const bare = store.create({ ...spec, name: "bare", trigger: webhook(OTHER_HOOK) });
+    runOnce(store, bare, clock, 4, "");
+    store.remove(bare.id);
+    assert.equal(dropped.length, 1);
+  }
+
+  // A purge 30 days after the Routine ended, on a write...
+  dropped.length = 0;
+  {
+    const { options, clock } = setup();
+    const store = createRoutineStore({ ...options, onRunsDropped: hear });
+    const routine = store.create(spec);
+    const run = runOnce(store, routine, clock, 1, "chat-old");
+    runOnce(store, routine, clock, 2, "");
+    store.complete(routine.id, "done");
+    clock.t += 31 * DAY;
+    assert.deepEqual(dropped, []);
+    store.create({ ...spec, name: "other", trigger: webhook(OTHER_HOOK) });
+    assert.deepEqual(dropped, [[{ routineId: routine.id, runId: run, chatId: "chat-old" }]]);
+  }
+
+  // ...and on load.
+  dropped.length = 0;
+  {
+    const { options, clock } = setup();
+    const store = createRoutineStore(options);
+    const routine = store.create(spec);
+    const run = runOnce(store, routine, clock, 1, "chat-late");
+    runOnce(store, routine, clock, 2, "");
+    store.complete(routine.id, "done");
+    clock.t += 31 * DAY;
+    const loaded = createRoutineStore({ ...options, onRunsDropped: hear });
+    assert.equal(loaded.get(routine.id), null);
+    assert.deepEqual(dropped, [[{ routineId: routine.id, runId: run, chatId: "chat-late" }]]);
+  }
+});
+
+test("a store whose onRunsDropped throws still writes, and says so in the log", () => {
+  const { options, clock, file } = setup();
+  const warned = [];
+  const warn = console.warn;
+  console.warn = (...args) => warned.push(args.join(" "));
+  try {
+    const store = createRoutineStore({
+      ...options,
+      onRunsDropped: () => {
+        throw new Error("archive failed");
+      },
+    });
+    const routine = store.create(spec);
+    runOnce(store, routine, clock, 1, "chat1");
+    assert.equal(store.remove(routine.id), true);
+    assert.equal(store.get(routine.id), null);
+    assert.deepEqual(saved({ file }).routines, []);
+  } finally {
+    console.warn = warn;
+  }
+  assert.equal(warned.length, 1);
+  assert.match(warned[0], /dropped Runs/);
+});
+
+test("finishRun and setRunTitle save a Run's title", () => {
+  const { store, clock, options } = setup();
+  const routine = store.create(spec);
+  for (let n = 1; n <= 2; n += 1) store.enqueue(routine.id, delivery(n));
+  const [one, two] = store.claimQueued(clock.t, 3);
+  assert.notEqual(store.finishRun(one.run.id, { status: "acted", summary: "did it", title: "Fix the flaky test" }), null);
+  const titled = (id) => store.runs(routine.id).find((run) => run.id === id);
+  assert.equal(titled(one.run.id).title, "Fix the flaky test");
+  assert.equal(titled(one.run.id).summary, "did it");
+  // No title given: none is stored.
+  store.finishRun(two.run.id, { status: "quiet" });
+  assert.equal("title" in titled(two.run.id), false);
+  // Set afterwards, on the Run that ended.
+  assert.equal(store.setRunTitle(two.run.id, "Nothing to do"), true);
+  assert.equal(titled(two.run.id).title, "Nothing to do");
+  assert.equal(store.setRunTitle(one.run.id, "A better name"), true);
+  assert.equal(titled(one.run.id).title, "A better name");
+  assert.throws(() => store.setRunTitle(one.run.id, ""), /title/);
+  assert.equal(titled(one.run.id).title, "A better name");
+  // Saved: a store opened on the same file reads the titles back.
+  const again = createRoutineStore(options);
+  assert.deepEqual(
+    again.runs(routine.id).map((run) => run.title),
+    ["Nothing to do", "A better name"],
+  );
+  // A Run that is gone is false, and nothing is written.
+  assert.equal(store.setRunTitle("nope", "x"), false);
+  store.remove(routine.id);
+  assert.equal(store.setRunTitle(one.run.id, "late"), false);
+});
+
+test("hasRun says whether a Run is still in the store", () => {
+  const { store, clock } = setup();
+  const routine = store.create(spec);
+  const run = runOnce(store, routine, clock, 1, "chat1");
+  assert.equal(store.hasRun(run), true);
+  assert.equal(store.hasRun("nope"), false);
+  store.remove(routine.id);
+  assert.equal(store.hasRun(run), false);
+});
+
+test("readOnlyReason is null for a store that writes", () => {
+  assert.equal(setup().store.readOnlyReason(), null);
 });
 
 test("a re-created store reads back the same Routines and Runs", () => {
@@ -1450,7 +1653,18 @@ test("queues, seen keys and cursors survive a store re-created on the same file"
     again.claimQueued(clock.t, 3).map((claim) => claim.run.event.key),
     ["hook:4", "hook:5"],
   );
-  assert.deepEqual(Object.keys(saved(options)).toSorted(), ["enabled", "linear", "queues", "rejections", "routines", "runs", "seen", "version"]);
+  assert.deepEqual(Object.keys(saved(options)).toSorted(), [
+    "aiConsentVersion",
+    "enabled",
+    "linear",
+    "queues",
+    "rejections",
+    "removed",
+    "routines",
+    "runs",
+    "seen",
+    "version",
+  ]);
 });
 
 test("remove deletes a Routine's queue and seen keys, and keeps the Linear cursors", () => {
@@ -1471,7 +1685,7 @@ test("a file saved before triggers existed loads with empty queues, and a damage
   const { file, options } = setup();
   fs.writeFileSync(file, JSON.stringify({ version: 1, enabled: true, routines: [], runs: {} }));
   const old = createRoutineStore(options);
-  assert.equal(old.enabled(), true);
+  assert.equal(old.enabled(), false);
   assert.equal(old.linearCursor("acme"), undefined);
   const routine = old.create(spec);
   assert.deepEqual(old.enqueue(routine.id, delivery(1)), { queued: true });
@@ -1893,6 +2107,9 @@ test("a file from a newer version opens read-only", () => {
   assert.equal(logged.length, 1);
   assert.equal(store.enabled(), false);
   assert.throws(() => store.setEnabled(true), /Routine store is read-only: .*version 2/);
+  assert.match(store.readOnlyReason(), /version 2/);
+  // A daemon start recovers interrupted Runs: a store that holds none and can't write has nothing to recover.
+  store.recoverInterrupted();
   assert.equal(bytes(file), text);
 });
 
@@ -2128,4 +2345,42 @@ test("the store says which Routines its upkeep purged, so their webhook secrets 
   clock.t += 31 * 864e5;
   createRoutineStore({ ...options, onPurged: (ids) => loaded.push(...ids) });
   assert.deepEqual(loaded, [other.id]);
+});
+
+test("a deleted or purged Routine is remembered as removed, across a reload, for good", () => {
+  const { store, clock, options } = setup();
+  const gone = store.create(spec);
+  const ended = store.create({ ...spec, name: "ended", trigger: webhook(OTHER_HOOK) });
+  assert.equal(store.wasRemoved(gone.id), false);
+  assert.equal(store.remove(gone.id), true);
+  assert.equal(store.wasRemoved(gone.id), true);
+  assert.equal(store.wasRemoved("never-here"), false);
+  assert.deepEqual(saved(options).removed, { [gone.id]: START });
+  // A Routine purged 30 days after it ended is remembered too, from the write that purged it.
+  store.complete(ended.id, "done");
+  clock.t += 31 * DAY;
+  store.create({ ...spec, name: "later" });
+  assert.equal(store.get(ended.id), null);
+  assert.equal(store.wasRemoved(ended.id), true);
+  const reloaded = createRoutineStore(options);
+  assert.equal(reloaded.wasRemoved(gone.id), true);
+  assert.equal(reloaded.wasRemoved(ended.id), true);
+  // Upkeep never forgets one: 100 days after the delete, its Run Chats are still known to be left behind by it.
+  clock.t = START + 100 * DAY;
+  reloaded.create({ ...spec, name: "much later", trigger: webhook("ef".repeat(32)) });
+  assert.equal(reloaded.wasRemoved(gone.id), true);
+  assert.equal(reloaded.wasRemoved(ended.id), true);
+  assert.deepEqual(Object.keys(saved(options).removed).toSorted(), [gone.id, ended.id].toSorted());
+  assert.equal(createRoutineStore(options).wasRemoved(gone.id), true);
+});
+
+test("a file saved before removed Routines were remembered loads with none, and a damaged entry is dropped", () => {
+  const { file, options } = setup();
+  fs.writeFileSync(file, JSON.stringify({ version: 1, enabled: true, routines: [], runs: {} }));
+  const store = createRoutineStore(options);
+  assert.equal(store.wasRemoved("r1"), false);
+  fs.writeFileSync(file, JSON.stringify({ version: 1, enabled: true, routines: [], runs: {}, removed: { r1: START, r2: "soon" } }));
+  const damaged = createRoutineStore(options);
+  assert.equal(damaged.wasRemoved("r1"), true);
+  assert.equal(damaged.wasRemoved("r2"), false);
 });

@@ -296,7 +296,9 @@ function codexModel({ getCommand, createRpc = (options) => new CodexRpc(options)
     else signal?.addEventListener("abort", abort, { once: true });
     try {
       rpc.start();
-      await rpc.request("initialize", { clientInfo: { name: "milagre", title: "Milagre", version: clientVersion }, capabilities: null });
+      // `environments: []` below (no shell or tools for a text call) is an experimental field: without the capability,
+      // thread/start refuses it and every title, commit message and Run name from Codex fails.
+      await rpc.request("initialize", { clientInfo: { name: "milagre", title: "Milagre", version: clientVersion }, capabilities: { experimentalApi: true } });
       rpc.notify("initialized");
       // thread/start alone would inherit the user's ~/.codex config: their MCP servers and shell tools. A text call
       // gets none of them, as an advisor does, so the repository text it reads can't make it run anything.

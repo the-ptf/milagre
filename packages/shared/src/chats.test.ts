@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSession, ChatMessage, CoordinatorState } from "./model.ts";
-import { chatTitle, comparePins, pinOrderAt } from "./chats.mjs";
+import { chatTitle, comparePins, pinOrderAt, shortTitle } from "./chats.mjs";
 
 const session: AgentSession = { id: 1, worktree_id: 1, agent_name: "main", status: "Created" };
+
+test("shortTitle keeps a line of 60 characters whole and cuts a longer one to 57 and an ellipsis", () => {
+  assert.equal(shortTitle("CI green"), "CI green");
+  assert.equal(shortTitle("x".repeat(60)), "x".repeat(60));
+  assert.equal(shortTitle("x".repeat(61)), `${"x".repeat(57)}…`);
+  assert.equal(shortTitle("x".repeat(61)).length, 58);
+});
 
 test("chatTitle prefers the user's name, then the first message's first line", () => {
   const messages = [
@@ -23,6 +30,18 @@ test("chat lists hide a worktree's empty starter chat but keep chats with messag
   assert.equal(isListedChat({} as never, 2), true);
   assert.equal(isListedChat({ handoverPending: true } as never, 0), true);
   assert.equal(isListedChat({ handoverDraft: "" } as never, 0), true);
+});
+
+test("a hidden Run Chat is left out of the lists until it waits on someone", async () => {
+  const { isHiddenRunChat, isListedChat } = await import("./chats.mjs");
+  const hidden = { routine: { routineId: "r", runId: "u", hidden: true } } as AgentSession;
+  assert.equal(isHiddenRunChat(hidden), true);
+  assert.equal(isHiddenRunChat(hidden, true), false);
+  assert.equal(isHiddenRunChat(undefined), false);
+  assert.equal(isListedChat(hidden, 3), false);
+  assert.equal(isListedChat(hidden, 3, true), true);
+  assert.equal(isListedChat({ routine: { routineId: "r", runId: "u", hidden: false } } as AgentSession, 3), true);
+  assert.equal(isListedChat({ routine: { routineId: "r", runId: "u" } } as AgentSession, 3), true); // made before hiding
 });
 
 test("pending input lists its Chat without modifying the persisted Project", async () => {

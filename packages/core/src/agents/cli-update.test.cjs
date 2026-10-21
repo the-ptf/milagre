@@ -139,3 +139,50 @@ test("runCliUpdate: a failed Antigravity install reports its message and the ver
   });
   assert.equal((await runCliUpdate("antigravity", {})).ok, false);
 });
+
+test("an advertised Claude upgrade runs even when the installed CLI meets the minimum", async () => {
+  const commands = [];
+  let version = "2.1.288";
+  const result = await runCliUpdate("claude", {
+    targetVersion: "2.1.300",
+    platform: "darwin",
+    linkVersion() {},
+    inspect: async () => ({ command: "/bin/claude", version }),
+    execImpl: (cmd, _opts, callback) => {
+      commands.push(cmd);
+      version = "2.1.300";
+      callback(null, "", "");
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(commands, ["claude install --force latest"]);
+});
+
+test("a failed Codex upgrade cannot report success because the old version still runs", async () => {
+  const result = await runCliUpdate("codex", {
+    targetVersion: "0.163.0",
+    platform: "darwin",
+    inspect: async () => ({ command: "/bin/codex", version: "0.160.0" }),
+    execImpl: (_cmd, _opts, callback) => callback(new Error("permission denied"), "", ""),
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /permission denied/);
+});
+
+test("Codex latest upgrade uses npm and verifies the newly activated version on Windows", async () => {
+  let version = "0.160.0";
+  const commands = [];
+  const result = await runCliUpdate("codex", {
+    targetVersion: "0.163.0",
+    platform: "win32",
+    resolve: async () => "C:\\npm.cmd",
+    inspect: async () => ({ command: "C:\\codex.cmd", version }),
+    execFileImpl: (file, args, opts, callback) => {
+      commands.push([file, args]);
+      version = "0.163.0";
+      callback(null, "", "");
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.match(JSON.stringify(commands), /@openai\/codex@latest/);
+});

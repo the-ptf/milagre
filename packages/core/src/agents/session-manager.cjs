@@ -31,8 +31,17 @@ function streamKey(event) {
 // session run one at a time per chat, and onSessionClosed(chatId) runs once a chat's session is gone. Events from a session that is no longer the chat's
 // current one are dropped. A turn's session steers it when the chat sends again while it runs.
 class SessionManager {
-  constructor({ createSession, send, linkedFor = () => null, onSessionClosed = () => {}, onTurnStarted = () => {}, idleMs = IDLE_MS, batchMs = BATCH_MS }) {
-    Object.assign(this, { createSession, send, linkedFor, onSessionClosed, onTurnStarted, idleMs, batchMs });
+  constructor({
+    createSession,
+    send,
+    linkedFor = () => null,
+    permissionPolicy = () => undefined,
+    onSessionClosed = () => {},
+    onTurnStarted = () => {},
+    idleMs = IDLE_MS,
+    batchMs = BATCH_MS,
+  }) {
+    Object.assign(this, { createSession, send, linkedFor, permissionPolicy, onSessionClosed, onTurnStarted, idleMs, batchMs });
     this.sessions = new Map();
     this.buffers = new Map();
     this.queues = new Map();
@@ -132,6 +141,8 @@ class SessionManager {
       ...(request.harness ? { harness: request.harness } : {}),
       ...(request.args ? { args: request.args } : {}),
       linked: this.linkedFor(chatId),
+      // A bot's thread or a Chat a bot opened gets the bot's answers for Bot rules mode.
+      permissionPolicy: this.permissionPolicy(chatId),
       emit: (event) => this.forward(chatId, entry, event),
     });
     this.sessions.set(chatId, entry);
@@ -246,10 +257,11 @@ class SessionManager {
   }
 
   // Milagre's own tools (a Delegation) ask through the chat's approval cards, which follow its permission
-  // mode (Full answers at once). A chat without a session has nobody to ask.
+  // mode (Full answers at once). In Bot rules the user answers them: they are Milagre's, not the bot's to allow. A chat
+  // without a session has nobody to ask.
   askApproval(chatId, request) {
     const permissions = this.sessions.get(chatId)?.session.permissions;
-    return permissions ? new Promise((resolve) => permissions.add(request, resolve)) : Promise.resolve("cancelled");
+    return permissions ? new Promise((resolve) => permissions.add(request, resolve, { fromMilagre: true })) : Promise.resolve("cancelled");
   }
 
   /** The live session's mode, else `fallback`: a Chat with no agent process has none of its own yet. */
@@ -261,6 +273,10 @@ class SessionManager {
     const entry = this.sessions.get(chatId);
     if (!entry || (provider && entry.provider !== provider) || entry.session.closed || (!entry.session.turnActive && !busyWithoutTurn(entry))) return null;
     return { accountId: entry.accountId, command: entry.command, env: entry.env, harness: entry.harness, args: entry.args };
+  }
+
+  hasSession(chatId) {
+    return this.sessions.has(chatId);
   }
 
   /** How much background work (subagents and tasks) still runs in the chat's agent process; closing it would stop it. */
