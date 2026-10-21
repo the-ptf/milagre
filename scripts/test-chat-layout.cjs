@@ -43,7 +43,7 @@ function Fixture() {
   window.setModel = (id) => setModel(MODEL_CATALOG.find((item) => item.id === id));
   const messages = Array.from({ length: count }, (_, index) => ({
     id: sessionId * 1000 + index + 1, session_id: sessionId, context: null, role: "assistant",
-    body: "PR aberta com sucesso: [#9 — fix: update app icon asset](https://github.com/example/project/pull/9). " + index
+    body: "Reply " + (index + 1) + ". PR aberta com sucesso: [#9 — fix: update app icon asset](https://github.com/example/project/pull/9). " + index
       + " The fix is in PR #289: https://github.com/the-ptf/milagre-ade/pull/289. Code: \`https://example.org\`.",
   }));
   if (imageChat) return <MessageScroller className="h-full" contentClassName="p-4">
@@ -92,6 +92,23 @@ async function browserChecks() {
     }
     throw new Error(`Timed out: ${source}`);
   }
+  // Browser resize, scroll events and Motion projection finish on frames, not on a fixed wall-clock delay.
+  const settleGeometry = (source) =>
+    evaluate(`new Promise((resolve, reject) => {
+      let previous, stable = 0;
+      const deadline = performance.now() + 10000;
+      const sample = () => {
+        try {
+          const current = JSON.stringify(${source});
+          stable = current === previous ? stable + 1 : 0;
+          previous = current;
+          if (stable >= 4) resolve();
+          else if (performance.now() >= deadline) reject(new Error('Layout did not settle: ' + current));
+          else requestAnimationFrame(sample);
+        } catch (error) { reject(error); }
+      };
+      requestAnimationFrame(sample);
+    })`);
   try {
     await window.loadURL(process.argv[2]);
     await waitFor('document.querySelectorAll("[data-slot=preview-rail-item]").length > 0');
@@ -261,15 +278,19 @@ async function browserChecks() {
     await evaluate("window.resizeLastImage(2000)");
     await waitFor(`${distanceFromBottom} <= 1 && document.querySelector("article:last-child img").naturalHeight === 2000`);
     await evaluate(`document.querySelector('[aria-label="Conversation"]').style.width = 'calc(100% - 1px)'`);
-    await delay(200);
+    const imageGeometry = `(() => { const v = document.querySelector('[aria-label="Conversation"]'); return [v.clientWidth, v.clientHeight, v.scrollHeight, v.scrollTop]; })()`;
+    await settleGeometry(imageGeometry);
     await evaluate(`document.querySelector('article').scrollIntoView({ block: 'center', behavior: 'instant' })`);
     await waitFor(`${distanceFromBottom} > 1000`);
+    await settleGeometry(imageGeometry);
     await evaluate("window.resizeLastImage(2200)");
+    await waitFor('document.querySelector("article:last-child img").naturalHeight === 2200');
     await delay(800);
     assert.ok(await evaluate(`${distanceFromBottom} > 1000`), "Find navigation preserves the reading position after an already-settled resize correction");
     await evaluate(readEarlier);
     await waitFor(`!!(${jumpButton})`);
     await evaluate("window.resizeLastImage(2400)");
+    await waitFor('document.querySelector("article:last-child img").naturalHeight === 2400');
     await delay(800);
     assert.ok(await evaluate(`${distanceFromBottom} > 1000`), "Image loading preserves the position after scrolling up");
     await evaluate("window.showImageChat(false)");
@@ -291,7 +312,10 @@ async function browserChecks() {
     await evaluate("window.setSending(false)");
     await waitFor(`!(${resolveButton}).disabled`);
     await delay(250);
-    await window.webContents.capturePage().then((image) => require("node:fs").writeFileSync("/tmp/milagre-conflict-pill.png", image.toPNG()));
+    if (process.env.MILAGRE_SCREENSHOT_DIR)
+      await window.webContents
+        .capturePage()
+        .then((image) => require("node:fs").writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "conflict-pill.png"), image.toPNG()));
     await evaluate(`window.setExtraMessages([{ id: 999999, session_id: 1, role: "user", body: "Fix CI on pull request #77",
       context: { kind: "pr-action", action: "checks-failed", pr: 77, url: "https://github.com/the-ptf/milagre-ade/pull/77" } }])`);
     await waitFor('!!document.querySelector("[data-slot=pr-action][data-action=checks-failed]")');
@@ -367,7 +391,11 @@ async function browserChecks() {
           require("node:fs").writeFileSync(require("node:path").join(process.env.MILAGRE_SCREENSHOT_DIR, "pill-address-review.png"), image.toPNG()),
         );
     await evaluate("window.setPrAction(null)");
-    await waitFor(`!(${resolveButton}) && !(${updateButton})`);
+    await waitFor(`!document.querySelector('[data-slot="pr-action"]')`);
+    const previewGeometry = `['[aria-label="Conversation"]', '[data-slot="preview-rail-card"]', '[data-promptbar]'].map(selector => {
+      const rect = document.querySelector(selector)?.getBoundingClientRect();
+      return rect ? [rect.top, rect.bottom, rect.left, rect.right] : null;
+    })`;
     for (const [height, count, draft] of [
       [600, 200, ""],
       [360, 50, ""],
@@ -377,15 +405,18 @@ async function browserChecks() {
       [600, 14, ""],
     ]) {
       window.setContentSize(800, height);
+      await waitFor(`innerWidth === 800 && innerHeight === ${height}`);
       await evaluate(`window.setMessageCount(${count})`);
       await evaluate(`window.setDraft(${JSON.stringify(draft)})`);
+      await waitFor(`document.querySelector('[data-prompt-editor]').value === ${JSON.stringify(draft)}`);
       await waitFor(`document.querySelectorAll("[data-slot=preview-rail-item]").length === ${Math.min(count, 15)}`);
       await waitFor(`document.querySelector('[data-slot="preview-rail-item"]')?.getAttribute('aria-label') === 'Go to assistant message 1 of ${count}'`);
       const labels = await evaluate(`[...document.querySelectorAll('[data-slot="preview-rail-item"]')].map(button => button.getAttribute('aria-label'))`);
       assert.equal(labels[0], `Go to assistant message 1 of ${count}`, "The first message stays reachable");
       assert.equal(labels.at(-1), `Go to assistant message ${count} of ${count}`, "The latest message stays reachable");
-      await delay(450);
-      for (const edge of ["first", "last"]) {
+      await settleGeometry(previewGeometry);
+      // Switch directly between ends as well: a still-mounted previous card must not satisfy the next check.
+      for (const edge of ["first", "last", "first"]) {
         const target = await evaluate(`(() => {
           const viewport = document.querySelector('[aria-label="Conversation"]').getBoundingClientRect();
           const buttons = [...document.querySelectorAll('[data-slot="preview-rail-item"]')];
@@ -397,8 +428,9 @@ async function browserChecks() {
           button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }));
           return button.getAttribute('aria-label');
         })()`);
-        await waitFor('!!document.querySelector("[data-slot=preview-rail-card]")');
-        await delay(350);
+        const number = target.match(/message (\d+) of/)[1];
+        await waitFor(`document.querySelector('[data-slot="preview-rail-title"]')?.textContent.startsWith('Reply ${number}.')`);
+        await settleGeometry(previewGeometry);
         const geometry = await evaluate(`(() => {
           const rect = selector => {
             const { top, bottom, left, right } = document.querySelector(selector).getBoundingClientRect();
@@ -409,6 +441,11 @@ async function browserChecks() {
           return { viewport: rect('[aria-label="Conversation"]'), preview: rect('[data-slot="preview-rail-card"]'), prompt: rect('[data-promptbar]'), railTop: Math.min(...rows.map(row => row.top)), railBottom: Math.max(...rows.map(row => row.bottom)) };
         })()`);
         console.log(JSON.stringify({ height, count, target, ...geometry }));
+        if (process.env.MILAGRE_SCREENSHOT_DIR)
+          require("node:fs").writeFileSync(
+            path.join(process.env.MILAGRE_SCREENSHOT_DIR, `preview-${height}-${count}-${draft ? "multiline" : "empty"}-${edge}.png`),
+            (await window.webContents.capturePage()).toPNG(),
+          );
         assert.ok(geometry.preview.bottom <= geometry.prompt.top, "Message preview overlaps the prompt");
         assert.ok(
           geometry.preview.top >= geometry.viewport.top && geometry.preview.bottom <= geometry.viewport.bottom,
@@ -418,10 +455,11 @@ async function browserChecks() {
           geometry.railTop >= geometry.viewport.top && geometry.railBottom <= geometry.viewport.bottom,
           "Navigation items escape the conversation viewport",
         );
-        await evaluate(
-          `document.querySelector('[aria-label="Message navigation"]').dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: document.body }))`,
-        );
       }
+      await evaluate(
+        `document.querySelector('[aria-label="Message navigation"]').dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: document.body }))`,
+      );
+      await waitFor('!document.querySelector("[data-slot=preview-rail-card]")');
     }
     await evaluate('window.setModel("claude-opus-5-5")');
     await evaluate('window.setDraft("")');
@@ -519,6 +557,13 @@ async function browserChecks() {
     app.exit(0);
   } catch (error) {
     console.error(error);
+    if (process.env.MILAGRE_SCREENSHOT_DIR)
+      await Promise.race([
+        window.webContents
+          .capturePage()
+          .then((image) => require("node:fs").writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "chat-layout-failure.png"), image.toPNG())),
+        delay(2000),
+      ]).catch(() => {}); // Diagnostics must never prevent the failed check from exiting.
     app.exit(1);
   }
 }
