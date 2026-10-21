@@ -1,7 +1,7 @@
 import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { BubbleChatIcon, Delete02Icon, MoreHorizontalIcon, PencilEdit02Icon, PlayIcon } from "@hugeicons/core-free-icons";
+import { BubbleChatIcon, Delete02Icon, LaptopIcon, MoreHorizontalIcon, PencilEdit02Icon, PlayIcon } from "@hugeicons/core-free-icons";
 import type { Routine } from "@milagre/shared/model";
 import { canRunNow } from "@milagre/shared/routines";
 import GlideMenu from "../primitives/GlideMenu";
@@ -159,6 +159,7 @@ function DeleteQuestion({ routine, onCancel, onDelete, className = "" }: { routi
 export function RoutineRow({
   routine,
   meta,
+  computer = null,
   status,
   unread = false,
   onOpen,
@@ -170,6 +171,8 @@ export function RoutineRow({
 }: {
   routine: RoutineWithRuns;
   meta: string;
+  /** Another computer's Routine: its name leads the meta with the laptop mark, as a Chat row's does. */
+  computer?: { name: string; offline?: boolean } | null;
   status: string;
   /** A Run Chat of this Routine, out of the sidebar, has a result nobody opened. */
   unread?: boolean;
@@ -208,8 +211,15 @@ export function RoutineRow({
               <span className={`truncate text-[13.5px] font-medium ${routine.enabled ? "text-ink" : "text-ink-2"}`}>{routine.name}</span>
               {unread && <span role="img" aria-label="Unread Runs" data-routine-unread className="size-2 shrink-0 rounded-full bg-accent" />}
             </span>
-            <span data-routine-meta className="truncate text-[12px] text-ink-3">
-              {meta}
+            <span data-routine-meta className="flex min-w-0 items-center gap-1 text-[12px] text-ink-3">
+              {computer && (
+                <span data-routine-computer className="flex max-w-[45%] shrink-0 items-center gap-1">
+                  <HugeiconsIcon icon={LaptopIcon} size={12} strokeWidth={2} color="currentColor" className="shrink-0" />
+                  <span className="truncate">{computer.offline ? `${computer.name}, offline` : computer.name}</span>
+                  <span aria-hidden>·</span>
+                </span>
+              )}
+              <span className="truncate">{meta}</span>
             </span>
             {problem && (
               <span data-routine-problem className="truncate text-[12px] text-red" title={problem}>

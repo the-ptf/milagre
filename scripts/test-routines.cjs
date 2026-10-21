@@ -538,21 +538,35 @@ async function browserChecks() {
     assert.equal(await evaluate("window.updated[0]"), "t2");
     assert.deepEqual(JSON.parse(await evaluate("JSON.stringify(window.updated[1].trigger)")), { kind: "webhook", signed: true });
 
-    // A paired computer comes online: its Routines join the list, every row names its Mac, and Run now goes to the studio.
+    // A paired computer comes online: its Routines join the list, its rows carry its laptop mark and name (this Mac's carry
+    // none), the Computer chips narrow the list to one Mac, and Run now goes to the studio.
     await click("[data-routine-back]");
     await waitFor(`!!document.querySelector('[data-routines-page]')`);
     await evaluate(`window.computersChanged({ thisMac: 'Here', computers: [window.studio] })`);
     const remote = "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7|ab12cd34";
     const row = (id) => `[data-routine-row=${JSON.stringify(id)}]`;
     await waitFor(`!!document.querySelector(${JSON.stringify(row(remote))})`);
-    await waitFor(`document.querySelector(${JSON.stringify(row(remote) + " [data-routine-meta]")}).textContent.startsWith('studio · ')`);
-    const metas = JSON.parse(
+    await waitFor(`document.querySelector(${JSON.stringify(row(remote) + " [data-routine-computer]")})?.textContent.startsWith('studio')`);
+    assert.equal(await evaluate(`!!document.querySelector(${JSON.stringify(row(remote) + " [data-routine-computer] svg")})`), true, "the laptop mark");
+    const marks = JSON.parse(
       await evaluate(
-        `JSON.stringify([...document.querySelectorAll('[data-routine-row]')].map((node) => [node.dataset.routineRow, node.querySelector('[data-routine-meta]')?.textContent ?? '']))`,
+        `JSON.stringify([...document.querySelectorAll('[data-routine-row]')].map((node) => [node.dataset.routineRow, !!node.querySelector('[data-routine-computer]')]))`,
       ),
     );
-    for (const [id, meta] of metas) assert.ok(meta.startsWith(id === remote ? "studio · " : "Here · "), `${id}: ${meta}`);
+    for (const [id, marked] of marks) assert.equal(marked, id === remote, id);
+    const computerChips = JSON.parse(
+      await evaluate(`JSON.stringify([...document.querySelectorAll('[data-routine-computer-filter]')].map((node) => node.textContent.trim()))`),
+    );
+    const total = marks.length;
+    assert.deepEqual(computerChips, [`Every computer ${total}`, `Here ${total - 1}`, "studio 1"]);
     await shot("routines-two-computers");
+    await click('[data-routine-computer-filter="6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"]');
+    await waitFor(`document.querySelectorAll('[data-routine-row]').length === 1`);
+    assert.equal(await evaluate(`!!document.querySelector(${JSON.stringify(row(remote))})`), true);
+    assert.equal(await evaluate(`document.querySelector('[data-routine-filter="all"]').textContent.trim()`), "All 1", "the kind counts follow the computer");
+    await shot("routines-one-computer");
+    await click('[data-routine-computer-filter="all"]');
+    await waitFor(`document.querySelectorAll('[data-routine-row]').length === ${total}`);
     await click(`${row(remote)} [data-routine-more]`);
     await waitFor(`!!document.querySelector('[data-routine-action="run"]')`);
     await click('[data-routine-action="run"]');
