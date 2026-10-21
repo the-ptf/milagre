@@ -2228,9 +2228,11 @@ function App() {
               models={models}
               update={update}
               onSectionChange={setSettingsSection}
+              onAddComputer={() => setAddComputerOpen(true)}
             />
           </main>
         </div>
+        {addComputerDialog}
       </DotBackground>
     );
   if (selectedLink)
@@ -2672,6 +2674,7 @@ function App() {
                     models={models}
                     update={update}
                     onSectionChange={setSettingsSection}
+                    onAddComputer={() => setAddComputerOpen(true)}
                   />
                 </div>
               )}

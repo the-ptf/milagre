@@ -121,3 +121,21 @@ export function useComputerScopes(computers: ComputerView[]): {
     };
   }, [byComputer, computers, hiddenRemote, setHidden]);
 }
+
+/** A computer as the project chooser heads its section: This Mac (`local`), or a paired one. */
+export type ComputerSection = { id: string; name: string; local: boolean };
+
+/** The project chooser's sections: This Mac first, then the paired computers by name. */
+export function computerSections(thisMac: string, computers: { id: string; name: string }[]): ComputerSection[] {
+  return [
+    { id: LOCAL_COMPUTER, name: thisMac, local: true },
+    ...[...computers]
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.id.localeCompare(b.id))
+      .map((computer) => ({ id: computer.id, name: computer.name, local: false })),
+  ];
+}
+
+/** Rows under their computer's section, in the order given; a section with no rows is left out. */
+export function bySection<T extends { computerId: string }>(rows: T[], sections: ComputerSection[]): (ComputerSection & { rows: T[] })[] {
+  return sections.map((section) => ({ ...section, rows: rows.filter((row) => row.computerId === section.id) })).filter((section) => section.rows.length > 0);
+}

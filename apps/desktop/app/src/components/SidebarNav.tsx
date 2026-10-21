@@ -48,8 +48,8 @@ import { projectMenuActions, type ProjectMenuKey } from "@/lib/reveal";
 import { projectRows, stableOrder, type RecentProject } from "@/lib/project-list";
 import { ComputersButton } from "./sidebar/ComputersButton";
 import { ChatRow, type ChatRowActions, type RowComputer, type SidebarRecent } from "./sidebar/ChatRow";
-import { useComputers, isDimmed } from "../lib/computers";
-import { mergeScopes, useComputerScopes, withoutLocal } from "../lib/computer-scopes";
+import { useComputers, useHiddenComputers, isDimmed } from "../lib/computers";
+import { computerSections, mergeScopes, useComputerScopes, withoutLocal } from "../lib/computer-scopes";
 import { LOCAL_COMPUTER, computerOfKey, unqualifyKey } from "@milagre/shared/chat-scopes";
 import { useDismiss } from "../lib/use-dismiss";
 import { dropIntent, pinOrderAt, type DropIntent, type DropZone } from "@/lib/chat-list";
@@ -559,8 +559,10 @@ export default memo(function SidebarNav({
   // Other computers (Settings › Devices): their Projects join the list, and every row says its computer.
   const { thisMac, computers } = useComputers();
   const remote = useComputerScopes(computers);
-  const remoteScopes = remote.scopes;
   const multi = computers.length > 0;
+  // Computers unchecked in the computers popover: the sidebar leaves out their Projects, all but the open one.
+  const hiddenComputers = useHiddenComputers();
+  const remoteScopes = remote.scopes.filter((scope) => !hiddenComputers.has(scope.computerId));
   // One object per computer and state, so memo'd rows keep their props.
   const rowComputers = useRef(new Map<string, RowComputer>());
   const rowComputer = (key: string): RowComputer | undefined => {
@@ -656,7 +658,7 @@ export default memo(function SidebarNav({
   // Every recent Project the user didn't hide, then every Link, like the phone's list. The open one is always there.
   const currentKey = selectedLink ? `milagre-link:${selectedLink.id}` : (projectPath ?? "");
   const projectScopes = projects
-    .filter((row) => row.current || !recentProjects.find((project) => project.path === row.path)?.hidden)
+    .filter((row) => row.current || (!recentProjects.find((project) => project.path === row.path)?.hidden && !hiddenComputers.has(computerOfKey(row.path))))
     .map((row) => ({ key: row.path, name: row.name, initial: row.initial, link: null as NamedProjectLink | null, computerId: computerOfKey(row.path) }));
   if (recentLoaded)
     scopeOrder.current = stableOrder(
@@ -673,7 +675,7 @@ export default memo(function SidebarNav({
   const localScopes = [
     ...orderedProjects,
     ...namedLinks
-      .filter((link) => link.id === selectedLink?.id || !link.hidden)
+      .filter((link) => link.id === selectedLink?.id || (!link.hidden && !hiddenComputers.has(LOCAL_COMPUTER)))
       .map((link) => ({ key: `milagre-link:${link.id}`, name: link.name, initial: "", link, computerId: LOCAL_COMPUTER })),
   ];
   // With other computers, one list by name (their order can't follow this Mac's open history); with this Mac alone, as before.
@@ -685,7 +687,7 @@ export default memo(function SidebarNav({
       )
     : localScopes;
   // Every Project, hidden ones too, since the project chooser lists them all.
-  const scopeImage = useProjectImages([...projects.map((row) => row.path), ...remoteScopes.filter((scope) => !scope.link).map((scope) => scope.key)]);
+  const scopeImage = useProjectImages([...projects.map((row) => row.path), ...remote.scopes.filter((scope) => !scope.link).map((scope) => scope.key)]);
   const showAll = !collapsed;
   const {
     states: scopeStates,
@@ -891,11 +893,11 @@ export default memo(function SidebarNav({
     );
   };
   // By name, like the phone's: the recent list reorders as Projects open, and a row must not move under the pointer.
-  // Other computers' Projects follow, each saying its computer; the open one of another computer is already a local row.
+  // Other computers' Projects follow, listed under their computer; the open one of another computer is already a local row.
   const pickerProjects: PickerProject[] = [
     ...projects.map((row) => {
       const recent = recentProjects.find((project) => project.path === row.path) ?? remote.projects.find((project) => project.path === row.path);
-      return { ...row, shown: !recent?.hidden, listed: !!recent, computer: multi && isRemoteKey(row.path) ? rowComputer(row.path)?.name : undefined };
+      return { ...row, shown: !recent?.hidden, listed: !!recent, computerId: computerOfKey(row.path) };
     }),
     ...namedLinks.map((link) => ({
       path: `milagre-link:${link.id}`,
@@ -904,6 +906,7 @@ export default memo(function SidebarNav({
       current: link.id === selectedLink?.id,
       shown: !link.hidden,
       listed: true,
+      computerId: LOCAL_COMPUTER,
     })),
     ...remote.projects
       .filter((project) => !projects.some((row) => row.path === project.path))
@@ -914,9 +917,12 @@ export default memo(function SidebarNav({
         current: false,
         shown: !project.hidden,
         listed: true,
-        computer: rowComputer(project.path)?.name,
+        computerId: project.computerId,
       })),
-  ].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path));
+  ]
+    // A hidden computer's Projects leave the chooser too; the open one stays, as it stays in the sidebar.
+    .filter((project) => project.current || !hiddenComputers.has(project.computerId))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path));
 
   // A Project's ⋯ rows: the four actions, and removing it from the list unless it's the open one. A Link gets its name copied and can be edited.
   const scopeMenu = (scope: { key: string; name: string; link: NamedProjectLink | null }, current: boolean): ScopeMenuItem[] => {
@@ -1097,6 +1103,7 @@ export default memo(function SidebarNav({
                   )}
                   <FiltersButton
                     projects={pickerProjects}
+                    computers={multi ? computerSections(thisMac, computers) : null}
                     imageOf={scopeImage}
                     currentImage={selectedLink ? undefined : workspace.image}
                     onShowProject={showProject}

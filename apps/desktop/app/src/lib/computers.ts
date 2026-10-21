@@ -3,6 +3,7 @@ import type { ComputersSnapshot, ComputerView } from "../electron.d.ts";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 import { useSettings } from "./settings.ts";
 import { computersSnapshot, subscribeComputers } from "./computers-store.ts";
+import { readHiddenComputers, subscribeHiddenComputers } from "./hidden-projects.ts";
 
 /**
  * Tells main whether to connect the saved computers: at launch, and each time Settings › Devices › Other computers
@@ -89,6 +90,17 @@ export function useComputers(): ComputersSnapshot {
   const { otherComputers } = useSettings();
   const current = useSyncExternalStore(subscribeComputers, computersSnapshot);
   return otherComputers ? current : offView(current);
+}
+
+const NONE_HIDDEN: ReadonlySet<string> = new Set();
+/**
+ * The computers whose Projects the sidebar leaves out (unchecked in the computers popover); none while Other computers
+ * is off, so This Mac can't stay hidden with no popover left to show it again.
+ */
+export function useHiddenComputers(): ReadonlySet<string> {
+  const { otherComputers } = useSettings();
+  const hidden = useSyncExternalStore(subscribeHiddenComputers, readHiddenComputers);
+  return otherComputers ? hidden : NONE_HIDDEN;
 }
 
 /** A completion notice's subtitle: a remote chat's computer first, as main labels its waiting notices. */
