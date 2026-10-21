@@ -160,6 +160,9 @@ function load(file, modules, extra = "", cache = new Map()) {
       }
       // A Chat's activity (chat-activity.mjs) is a pure derivation many screens read; tests get the real one.
       if (id === "@milagre/shared/chat-activity" && !(id in modules)) return require("@milagre/shared/chat-activity");
+      if (["@milagre/shared/chat-history", "@milagre/shared/chat-window-cache", "@milagre/shared/display-clock"].includes(id) && !(id in modules))
+        return require(id);
+      if (relative === "display-clock" && !(id in modules)) return load("display-clock.ts", modules, "", cache);
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -180,6 +183,73 @@ function load(file, modules, extra = "", cache = new Map()) {
   return exports;
 }
 const jsx = (type, props, key) => ({ type, props, key });
+
+test("display clocks stop off-screen and in the background, then catch up from wall time", () => {
+  const host = hookHost({ effects: true });
+  let focused = true,
+    now = 1000;
+  const listeners = new Set(),
+    timers = new Set();
+  const AppState = {
+    currentState: "active",
+    addEventListener(_event, fn) {
+      listeners.add(fn);
+      return { remove: () => listeners.delete(fn) };
+    },
+  };
+  const react = {
+    ...host,
+    useSyncExternalStore(subscribe, snapshot) {
+      host.useEffect(() => subscribe(() => {}), [subscribe]);
+      return snapshot();
+    },
+  };
+  const real = require("@milagre/shared/display-clock");
+  const clock = load("display-clock.ts", {
+    react,
+    "react-native": { AppState },
+    "expo-router": { useIsFocused: () => focused },
+    "@milagre/shared/display-clock": {
+      createDisplayClock(options) {
+        return real.createDisplayClock({
+          ...options,
+          now: () => now,
+          setInterval: (fn) => {
+            timers.add(fn);
+            return fn;
+          },
+          clearInterval: (fn) => timers.delete(fn),
+        });
+      },
+    },
+  });
+  const read = () => {
+    host.begin();
+    return clock.useDisplayNow(100);
+  };
+  try {
+    assert.equal(read(), 1000);
+    assert.equal(timers.size, 1);
+    AppState.currentState = "background";
+    for (const fn of [...listeners]) fn();
+    read();
+    assert.equal(timers.size, 0);
+    now = 5000;
+    AppState.currentState = "active";
+    for (const fn of [...listeners]) fn();
+    assert.equal(read(), 5000);
+    focused = false;
+    read();
+    assert.equal(timers.size, 0);
+    now = 9000;
+    focused = true;
+    assert.equal(read(), 9000);
+  } finally {
+    host.unmount();
+  }
+  assert.equal(timers.size, 0);
+  assert.equal(listeners.size, 0);
+});
 
 test("background tasks on the phone open command output and subagent details", () => {
   const react = hookHost();
@@ -10848,6 +10918,7 @@ test("unmarked design cards reload their catalog after Designs is turned on", as
 
 function canvasHost() {
   const react = hookHost();
+  react.useSyncExternalStore = (_subscribe, read) => read();
   const routes = [];
   const now = Date.now();
   const chat = (id, worktree_id, title, extra = {}) => ({
@@ -10915,8 +10986,12 @@ function canvasHost() {
   const { default: CanvasScreen } = load("app/canvas.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
-    "react-native": Object.fromEntries(["Pressable", "RefreshControl", "Text", "View"].map((name) => [name, name])),
+    "react-native": {
+      ...Object.fromEntries(["Pressable", "RefreshControl", "Text", "View"].map((name) => [name, name])),
+      AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
+    },
     "expo-router": {
+      useIsFocused: () => true,
       Redirect: "Redirect",
       Stack: { Screen: "StackScreen" },
       router: { canDismiss: () => false, dismissAll() {}, replace: (href) => routes.push(href) },
@@ -12418,4 +12493,59 @@ test("a Linear comment Routine on the phone form drops the Each Run rows: commen
   assert.ok(create, "a comment Routine saves without the user picking a Project");
   assert.equal(create[1][0].trigger.event, "comment");
   assert.deepEqual(create[1][0].target, { kind: "new-chat", projectPath: "/p", workspace: "worktree" }, "it carries the Project open on the phone");
+});
+
+test("provider update cards on the phone install the advertised release on the connected computer", async () => {
+  const react = hookHost();
+  const calls = [];
+  let transport;
+  let refreshed = 0;
+  const state = { current: { provider: "codex", version: "0.163.0", installedVersion: "0.160.0" }, working: false, error: "", dismiss() {}, install() {} };
+  const { ProviderUpdateNotice } = load("provider-update-notice.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { router: { push: (path) => calls.push(path) } },
+    "@hugeicons/core-free-icons": { Cancel01Icon: "close" },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
+    "@milagre/shared/providers": require("@milagre/shared/providers"),
+    "@milagre/shared/use-provider-updates": {
+      useProviderUpdates: (value) => {
+        transport = value;
+        return state;
+      },
+    },
+    "./session": {
+      useSession: () => ({
+        client: {
+          call: async (...args) => {
+            calls.push(args);
+            return { ok: true };
+          },
+        },
+        hostName: "Studio Mac",
+        refreshProviders: () => refreshed++,
+      }),
+    },
+    "./icons": { ProviderLogo: "ProviderLogo" },
+    "./ui": { IconButton: "IconButton", PillButton: "PillButton" },
+  });
+  react.begin();
+  const tree = ProviderUpdateNotice();
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Settings").props.onPress();
+  assert.equal(calls[0], "/accounts");
+  await transport.install(state.current);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), ["agent:update-cli", ["codex", "0.163.0"]]);
+  assert.equal(refreshed, 1);
+  state.working = true;
+  react.begin();
+  const pending = ProviderUpdateNotice();
+  assert.equal(find(pending, (node) => node.type === "PillButton" && node.props.title === "Updating…").props.disabled, true);
+  assert.equal(find(pending, (node) => node.type === "IconButton").props.disabled, true);
+  state.error = "Permission denied";
+  state.working = false;
+  react.begin();
+  const failed = ProviderUpdateNotice();
+  assert.equal(find(failed, (node) => node.props?.accessibilityRole === "alert").props.children, "Permission denied");
+  assert.equal(find(failed, (node) => node.type === "PillButton" && node.props.title === "Retry").props.disabled, false);
 });

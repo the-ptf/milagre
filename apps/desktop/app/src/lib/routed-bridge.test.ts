@@ -101,6 +101,7 @@ const ALLOWED: Record<string, string[]> = {
   "components/sidebar/SidebarLinks.tsx": ["onLinksChanged"],
   "components/LinkWorkspace.tsx": ["syncNotifications", "revealInFolder"],
   "components/ComputerAllowPrompt.tsx": ["onDevicesPending", "listPendingDevices", "allowDevice", "denyDevice"],
+  "components/ProviderUpdateNotice.tsx": ["getProviderUpdates", "updateCli"],
   "components/UpdateNotice.tsx": ["onUpdateState", "getUpdateState", "installUpdate", "checkForUpdates"],
   "components/UpdateReleaseNotes.tsx": ["getUpdateReleaseNotes"],
   "components/AccountsSettings.tsx": ["getCliStatus", "listAccounts", "onAccountsChanged", "accountAction", "onCliProgress", "updateCli"],

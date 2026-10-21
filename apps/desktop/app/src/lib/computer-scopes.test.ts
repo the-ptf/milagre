@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-(globalThis as any).window = { milagre: {}, addEventListener() {}, removeEventListener() {} };
-const { computerScopes, mergeScopes, withLocalVisibility, withoutLocal } = await import("./computer-scopes.ts");
+const stored = new Map<string, string>();
+(globalThis as any).localStorage = {
+  getItem: (key: string) => stored.get(key) ?? null,
+  setItem: (key: string, value: string) => stored.set(key, value),
+  removeItem: (key: string) => stored.delete(key),
+};
+const dispatched: string[] = [];
+(globalThis as any).window = { milagre: {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: (event: Event) => dispatched.push(event.type) };
+const { bySection, computerScopes, computerSections, mergeScopes, withLocalVisibility, withoutLocal } = await import("./computer-scopes.ts");
+const { readHiddenComputers, setComputerHidden } = await import("./hidden-projects.ts");
 
 const A = "c-arketa";
 const S = "c-studio";
@@ -51,4 +59,48 @@ test("every computer's scopes in one list: Projects by name, then Links; on a ti
 test("the open Project of another computer is kept once, as the local list holds it", () => {
   const remote = [{ key: `${A}|/a/web` }, { key: `${A}|/a/app` }];
   assert.deepEqual(withoutLocal(remote, [{ key: `${A}|/a/web` }, { key: "/work/x" }]), [{ key: `${A}|/a/app` }]);
+});
+
+test("the project chooser's sections: This Mac first, then the computers by name", () => {
+  const sections = computerSections("victor", [
+    { id: S, name: "studio" },
+    { id: A, name: "Arketa" },
+    { id: "c-deer", name: "Deer" },
+  ]);
+  assert.deepEqual(sections, [
+    { id: "local", name: "victor", local: true },
+    { id: A, name: "Arketa", local: false },
+    { id: "c-deer", name: "Deer", local: false },
+    { id: S, name: "studio", local: false },
+  ]);
+  const rows = [
+    { path: `${S}|/s/app`, computerId: S },
+    { path: "/work/app", computerId: "local" },
+    { path: `${A}|/a/web`, computerId: A },
+    { path: "/work/zed", computerId: "local" },
+  ];
+  assert.deepEqual(
+    bySection(rows, sections).map((section) => [section.id, section.rows.map((row) => row.path)]),
+    [
+      ["local", ["/work/app", "/work/zed"]],
+      [A, [`${A}|/a/web`]],
+      [S, [`${S}|/s/app`]],
+    ],
+    "rows keep their order inside a section, and Deer, with none, is left out",
+  );
+});
+
+test("a hidden computer is saved on this Mac, and the same set comes back until the list changes", () => {
+  assert.equal(readHiddenComputers().size, 0);
+  setComputerHidden(A, true);
+  setComputerHidden("local", true);
+  const first = readHiddenComputers();
+  assert.deepEqual([...first], [A, "local"]);
+  assert.equal(readHiddenComputers(), first, "one object per saved list, for useSyncExternalStore");
+  assert.ok(dispatched.length >= 2, "each change is announced");
+  setComputerHidden(A, false);
+  setComputerHidden("local", false);
+  assert.equal(stored.has("milagre.hiddenComputers"), false, "nothing hidden leaves nothing saved");
+  stored.set("milagre.hiddenComputers", "not json");
+  assert.equal(readHiddenComputers().size, 0, "a broken list hides nothing");
 });

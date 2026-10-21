@@ -1,3 +1,4 @@
+import { ProviderUpdateNotice } from "../provider-update-notice";
 import { useState } from "react";
 import { Stack, router } from "expo-router";
 import { ThemeProvider, DarkTheme, DefaultTheme } from "expo-router/react-navigation";
@@ -141,6 +142,7 @@ export default function Layout() {
                       <Stack.Screen name="diff" options={{ title: "Diff" }} />
                     </Stack>
                     <SidePanelsHost />
+                    <ProviderUpdateNotice />
                   </UpdateShell>
                   <Splash />
                 </ThemeProvider>

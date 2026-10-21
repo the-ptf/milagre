@@ -4,6 +4,7 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { ChatMessage } from "../model.ts";
 import type { MessageChanges } from "../electron.d.ts";
 import { stateEvents } from "./state-events.ts";
+import { ChatWindowCache, prependChatPage } from "@milagre/shared/chat-window-cache";
 
 // The messages of the Chats on screen, from a host that keeps them by Chat (chat-pages-v1, #300): a window of each Chat's
 // latest turns, read with readChatMessages, extended back on request and kept current from each change's messages.
@@ -19,21 +20,14 @@ export type ChatWindow = {
 };
 
 const TURNS = 20;
-const KEPT = 8;
 const EMPTY: ChatWindow = Object.freeze({ messages: [], hasMore: false, total: 0, loading: true }) as ChatWindow;
 const NONE: ChatWindow = Object.freeze({ messages: [], hasMore: false, total: 0, loading: false }) as ChatWindow;
-const windows = new Map<string, ChatWindow>();
+const windows = new ChatWindowCache<ChatWindow>({ maxChats: 8, maxBytes: 8 * 1024 * 1024, turns: TURNS });
 const listeners = new Map<string, Set<() => void>>();
 const keyOf = (scope: string, chatId: number) => `${scope}#${chatId}`;
 
 function set(key: string, next: ChatWindow) {
-  windows.delete(key);
   windows.set(key, next);
-  // The Chats looked at last stay; others are read again when they come back.
-  for (const old of windows.keys()) {
-    if (windows.size <= KEPT) break;
-    if (!listeners.get(old)?.size) windows.delete(old);
-  }
   // A copy: a listener can resubscribe while it is told, and a live Set would then be walked forever.
   for (const listener of [...(listeners.get(key) ?? [])]) listener();
   // A remote chat's window is its computer's offline copy too.
@@ -98,9 +92,9 @@ async function loadEarlier(scope: string, chatId: number, turns = TURNS) {
   const request = bridgeForKey(scope)
     .readChatMessages(scope, chatId, { before: current.messages[0].id, turns })
     .then((page) => {
-      const latest = windows.get(key) ?? current;
-      const known = new Set(latest.messages.map((message) => message.id));
-      set(key, { ...latest, messages: [...page.messages.filter((message) => !known.has(message.id)), ...latest.messages], hasMore: page.hasMore });
+      const latest = windows.get(key);
+      const next = prependChatPage(latest, current.messages[0]!.id, page);
+      if (next && next !== latest) set(key, next);
     })
     .finally(() => earlierLoads.delete(key));
   earlierLoads.set(key, request);
@@ -108,8 +102,12 @@ async function loadEarlier(scope: string, chatId: number, turns = TURNS) {
 }
 
 /** Reads every message of the Chat (find in chat searches all of it). */
-async function loadAll(scope: string, chatId: number) {
-  while (windows.get(keyOf(scope, chatId))?.hasMore) await loadEarlier(scope, chatId, 1_000);
+async function loadAll(scope: string, chatId: number, signal?: AbortSignal) {
+  const key = keyOf(scope, chatId);
+  while (listeners.get(key)?.size && windows.get(key)?.hasMore) {
+    if (signal?.aborted) break;
+    await loadEarlier(scope, chatId, 1_000);
+  }
 }
 
 let following = false;
@@ -146,7 +144,12 @@ export function useChatMessages(scope: string | null | undefined, chatId: number
       let set = listeners.get(key);
       if (!set) listeners.set(key, (set = new Set()));
       set.add(listener);
-      return () => set!.delete(listener);
+      windows.retain(key);
+      return () => {
+        set!.delete(listener);
+        if (!set!.size) listeners.delete(key);
+        windows.release(key);
+      };
     },
     [key],
   );
@@ -159,6 +162,6 @@ export function useChatMessages(scope: string | null | undefined, chatId: number
   return {
     ...chat,
     loadEarlier: useCallback(() => (key ? loadEarlier(scope!, chatId!) : Promise.resolve()), [key, scope, chatId]),
-    loadAll: useCallback(() => (key ? loadAll(scope!, chatId!) : Promise.resolve()), [key, scope, chatId]),
+    loadAll: useCallback((signal?: AbortSignal) => (key ? loadAll(scope!, chatId!, signal) : Promise.resolve()), [key, scope, chatId]),
   };
 }

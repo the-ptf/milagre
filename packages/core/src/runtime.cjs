@@ -31,6 +31,7 @@ const { CodexSession, recoverCodexSubagents } = require("./agents/codex-provider
 const { AcpSession } = require("./agents/acp-session.cjs");
 const { antigravityAcp, sweepTempDirs } = require("./agents/antigravity-acp.cjs");
 const { createCliCache, inspectCli } = require("./agents/cli.cjs");
+const { createProviderUpdates, releaseVersion } = require("./agents/provider-updates.cjs");
 const { runCliUpdate, linkNewestClaudeVersion } = require("./agents/cli-update.cjs");
 const { createAntigravity } = require("./agents/antigravity-install.cjs");
 const { recoverAntigravitySubagents } = require("./agents/antigravity-subagents.cjs");
@@ -1558,14 +1559,32 @@ function createRuntime(options) {
     routing.invalidate(provider);
     options.agentCliStatus?.invalidate?.(provider);
   };
+  const providerUpdates = options.providerUpdates ?? createProviderUpdates({ ready: () => environmentReady, antigravity });
+  commands.handle("agent:provider-updates", () => providerUpdates());
+  const cliUpdates = new Map();
   commands.handle("agent:cli-status", async (_event, scope) => agentCliStatus(await validateAccountScope(scope, true)));
-  commands.handle("agent:update-cli", async (_event, provider) => {
-    // Antigravity's download takes a while; its phases go out as they happen.
-    const result = await runCliUpdate(provider, { antigravity, onProgress: (progress) => emit("agent:cli-progress", { provider, ...progress }) });
-    agentCli.invalidate(provider);
-    agentCliStatus.invalidate(provider);
-    const status = await agentCliStatus();
-    return { ...result, status: status[provider] };
+  commands.handle("agent:update-cli", async (_event, provider, targetVersion) => {
+    if (!PROVIDERS.includes(provider)) throw new Error("Unknown provider.");
+    if (targetVersion !== undefined && !releaseVersion(targetVersion)) throw new Error("Invalid provider version.");
+    if (cliUpdates.has(provider)) return cliUpdates.get(provider);
+    const pending = (async () => {
+      // Antigravity's download takes a while; its phases go out as they happen.
+      const result = await (options.runCliUpdate ?? runCliUpdate)(provider, {
+        targetVersion,
+        antigravity,
+        onProgress: (progress) => emit("agent:cli-progress", { provider, ...progress }),
+      });
+      agentCli.invalidate(provider);
+      agentCliStatus.invalidate(provider);
+      const status = await agentCliStatus();
+      return { ...result, status: status[provider] };
+    })();
+    cliUpdates.set(provider, pending);
+    try {
+      return await pending;
+    } finally {
+      cliUpdates.delete(provider);
+    }
   });
 
   commands.handle("agent:models", async (_event, scope) => {

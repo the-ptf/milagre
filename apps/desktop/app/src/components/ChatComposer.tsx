@@ -15,6 +15,7 @@ import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import { useEvent } from "../lib/stable";
+import { chatHistory } from "@milagre/shared/chat-history";
 import type { AgentPort, BackgroundTask, ChatPlan, ContextUsage, Subagent } from "../model";
 import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
@@ -484,9 +485,13 @@ const MessageTranscript = memo(function MessageTranscript({
   }, [page]);
   // Messages the host still holds before the ones here (chat-pages-v1); find in chat reads them all.
   const remote = earlier?.count ?? 0;
+  const loadAll = earlier?.loadAll;
   useEffect(() => {
-    if (findOpen && remote > 0) void earlier?.loadAll();
-  }, [findOpen, remote, earlier]);
+    if (!findOpen || !loadAll) return;
+    const controller = new AbortController();
+    void loadAll(controller.signal).catch(() => {});
+    return () => controller.abort();
+  }, [findOpen, loadAll]);
   async function showEarlier() {
     if (historyRead.current || start + remote <= 0) return;
     historyRead.current = true;
@@ -616,7 +621,7 @@ interface ChatComposerProps {
   imageDraft: ImageDraft;
   projectPath: string;
   /** Messages of the Chat the host holds before `messages` (chat-pages-v1): how many, and reading them. */
-  earlier?: { count: number; load: () => Promise<void>; loadAll: () => Promise<void> };
+  earlier?: { count: number; load: () => Promise<void>; loadAll: (signal?: AbortSignal) => Promise<void> };
   /** The Project or Link (scope key) the messages belong to, for step output the host keeps out of the state. */
   messageScope?: string;
   /** The open conversation keeps its scroll view when a draft gets its saved Chat id. */
@@ -1118,17 +1123,9 @@ export function ChatComposer({
   });
   // Designs are read through the Chat's key; a shared Link Chat uses its Link-scoped key too.
   const artifactChat = runtimeChat;
-  const artifactSteps = useMemo(() => [...messages.flatMap((message) => message.steps ?? []), ...(streamingSteps ?? [])], [messages, streamingSteps]);
-  const userMessages = useMemo(() => messages.filter((message) => message.role === "user").map(({ id, body }) => ({ id, body })), [messages]);
-  // What the user typed in this chat, oldest first, for Up/Down in the prompt. Host-sent context (delegations, reports) is left out.
-  const promptHistory = useMemo(
-    () =>
-      messages
-        .filter((message) => message.role === "user" && !message.context && message.body.trim())
-        .map((message) => message.body)
-        .filter((body, index, bodies) => body !== bodies[index - 1]),
-    [messages],
-  );
+  const history = chatHistory(messages);
+  const artifactSteps = useMemo(() => (streamingSteps?.length ? [...history.steps, ...streamingSteps] : history.steps), [history.steps, streamingSteps]);
+  const { userMessages, promptHistory } = history;
 
   function handleFileDrop(event: DragEvent<HTMLDivElement>) {
     const files = Array.from(event.dataTransfer.files);
@@ -1397,8 +1394,9 @@ export function ChatTranscript({
   ChatComposerProps,
   "messages" | "messageScope" | "earlier" | "isSending" | "streamingText" | "streamingSteps" | "asking" | "waitingStepIds" | "runStartedAt" | "models"
 >) {
-  const steps = useMemo(() => [...messages.flatMap((message) => message.steps ?? []), ...(streamingSteps ?? [])], [messages, streamingSteps]);
-  const userMessages = useMemo(() => messages.filter((message) => message.role === "user").map(({ id, body }) => ({ id, body })), [messages]);
+  const history = chatHistory(messages);
+  const steps = useMemo(() => (streamingSteps?.length ? [...history.steps, ...streamingSteps] : history.steps), [history.steps, streamingSteps]);
+  const { userMessages } = history;
   return (
     <ReplyProviders chatId={chatKey} steps={steps} userMessages={userMessages}>
       <MessageScroller

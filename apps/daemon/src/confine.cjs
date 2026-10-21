@@ -198,6 +198,8 @@ const PATHS = Object.freeze({
   "agent:answer-question": ([value]) => [chatProject(value?.chatId)],
   "agent:set-permission-mode": ([value]) => [chatProject(value?.chatId)],
   "agent:models": (args) => (args[0] == null ? [] : [args[0]]),
+  "agent:provider-updates": () => [],
+  "agent:update-cli": denied,
   "agent:cli-status": (args) => (args[0] == null ? [] : [args[0]]),
   "scope:retry-save": ([scope]) => [scope],
   "chat:patch": ([projectPath]) => [projectPath],

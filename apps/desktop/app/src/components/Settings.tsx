@@ -51,7 +51,7 @@ import {
   UserCircleIcon,
   VolumeHighIcon,
 } from "@hugeicons/core-free-icons";
-import { DOT_COLOR, computerTone, routeLine, seenAgo, useComputers } from "../lib/computers";
+import { DOT_COLOR, computerTone, routeLine, seenAgo, useComputers, useHiddenComputers } from "../lib/computers";
 import type { FilesToCopy as FilesToCopyResult, PairedDevice, PhoneStatus, ReleaseChannel, UpdateState, WorktreeSetupSettings } from "../electron";
 import { DEFAULT_FILES_TO_COPY, parsePatterns, previewSentence } from "../lib/files-to-copy";
 import { PERMISSION_MODES } from "../model";
@@ -63,7 +63,7 @@ import type { ClaudeReplies, UsageDisplay } from "../lib/settings";
 import type { ChatOrder } from "../lib/chat-list";
 import { useEditors } from "../lib/editors";
 import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
-import { isRemoteScopeHidden, setRemoteScopeHidden } from "../lib/hidden-projects";
+import { isRemoteScopeHidden, setComputerHidden, setRemoteScopeHidden } from "../lib/hidden-projects";
 import { cloudflarePhonesNote, pairingWindow, phoneLanLine, phoneQrSrc, phoneStatusLine } from "../lib/phone";
 import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQuestion } from "../lib/devices";
 import { GlideGroup, RailButton } from "./SidebarNav";
@@ -265,6 +265,7 @@ function RoutePill({ state }: { state: "In use" | "Ready" | "Not available" }) {
  */
 function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void }) {
   const { computers } = useComputers();
+  const hiddenComputers = useHiddenComputers();
   const computer = computers.find((item) => item.id === id);
   const [name, setName] = useState(computer?.name ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -325,6 +326,8 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
     setBusy(true);
     try {
       await window.milagre.computers.remove(computer.id);
+      // A computer paired again comes back shown.
+      setComputerHidden(computer.id, false);
       onRemoved();
     } catch (cause) {
       setError(ipcErrorMessage(cause));
@@ -350,6 +353,11 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
             className="h-[30px] w-[220px] rounded-[8px] bg-field px-2.5 text-[13px] text-ink outline-none ring-1 ring-line-strong focus-visible:ring-accent"
           />
         </Row>
+        <div data-computer-show-in-sidebar>
+          <Row label="Show in sidebar" description={`${computer.name}'s Projects in the sidebar on this Mac. It stays connected while hidden.`}>
+            <Switch label="Show in sidebar" checked={!hiddenComputers.has(computer.id)} onChange={(show) => setComputerHidden(computer.id, !show)} />
+          </Row>
+        </div>
       </Group>
       <Group title="Connection">
         <div data-connection="lan">
@@ -1018,16 +1026,23 @@ function AppearanceSettings() {
   );
 }
 
-function OtherComputersSetting() {
+function OtherComputersSetting({ onAddComputer }: { onAddComputer?: () => void }) {
   const { otherComputers } = useSettings();
   return (
     <Group title="Other computers">
-      <Row
-        label="Drive other computers"
-        description="Drive the chats of other Macs running Milagre from this window. Add one from the laptop button at the bottom of the sidebar; their Projects join the sidebar."
-      >
+      <Row label="Drive other computers" description="Drive the chats of other Macs running Milagre from this window. Their Projects join the sidebar.">
         <Switch label="Drive other computers" checked={otherComputers} onChange={(next) => updateSettings({ otherComputers: next })} />
       </Row>
+      {otherComputers && onAddComputer && (
+        <Row
+          label="Add computer"
+          description="Pair with another Mac using the link from its Settings › Devices. The laptop button in the sidebar adds one too."
+        >
+          <button type="button" data-settings-add-computer onClick={onAddComputer} className={SECONDARY_BUTTON}>
+            Add computer…
+          </button>
+        </Row>
+      )}
     </Group>
   );
 }
@@ -1224,7 +1239,7 @@ function DeviceGroup({
   );
 }
 
-function DevicesSettings() {
+function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
   const { status, setStatus, loadError } = usePhoneStatus();
   const paired = usePairedDevices();
   const [error, setError] = useState<string | null>(null);
@@ -1390,7 +1405,7 @@ function DevicesSettings() {
           </div>
         </Group>
       )}
-      <OtherComputersSetting />
+      <OtherComputersSetting onAddComputer={onAddComputer} />
       {computers.length > 0 && <DeviceGroup title="Computers" devices={computers} fresh={paired.fresh} now={paired.now} busy={busy} onRemove={removeDevice} />}
       <DeviceGroup
         title="Phones"
@@ -2175,8 +2190,11 @@ export function SettingsPanel({
   onSectionChange,
   accountScope,
   computerId,
+  onAddComputer,
 }: {
   computerId?: string;
+  /** Opens Add computer, from Settings › Devices. */
+  onAddComputer?: () => void;
   onSectionChange?: (section: SettingsSection) => void;
   accountScope?: string;
   section: SettingsSection;
@@ -2225,7 +2243,7 @@ export function SettingsPanel({
           ))}
         {section === "mcp" && <McpSettings title={title} />}
         {section === "local-mcp" && <LocalMcpSettings bridge={window.milagre} />}
-        {section === "devices" && <DevicesSettings />}
+        {section === "devices" && <DevicesSettings onAddComputer={onAddComputer} />}
         {section === "experimental" && <ExperimentalSettings />}
         {section === "computer" && computerId && <ComputerSettings key={computerId} id={computerId} onRemoved={() => onSectionChange?.("devices")} />}
         {section === "privacy" && <PrivacySettings />}

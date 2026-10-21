@@ -5,7 +5,7 @@ import { Icon } from "./icons";
 import Svg, { Path } from "react-native-svg";
 import RNCMaskedView from "@react-native-masked-view/masked-view";
 import { LinearGradient } from "expo-linear-gradient";
-import { useIsFocused } from "expo-router";
+import { useDisplayNow, useScreenActive } from "./display-clock";
 import { LEFT, RIGHT, STAR, STAR_BOX } from "./logo";
 import { fonts, useTheme } from "./theme";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
@@ -23,7 +23,7 @@ type Segment = { to: number; duration: number; easing?: EasingFunction };
 export function useKeyframes(segments: Segment[], delay = 0) {
   const [value] = useState(() => new Animated.Value(0));
   // Loops stop while another screen covers this one; Animated.delay segments wake JS even on the native driver.
-  const active = useIsFocused();
+  const active = useScreenActive();
   useEffect(() => {
     if (!active) return;
     let loop: Animated.CompositeAnimation | undefined;
@@ -113,13 +113,7 @@ const RunningLogo = memo(function RunningLogo({ size = 16 }: { size?: number }) 
 function useElapsed(startedAt?: number) {
   // Measured from the clock, so the time is still right after the ticks pause under another screen.
   const [start] = useState(() => Date.now());
-  const [now, setNow] = useState(start);
-  const active = useIsFocused();
-  useEffect(() => {
-    if (!active) return;
-    const timer = setInterval(() => setNow(Date.now()), 100);
-    return () => clearInterval(timer);
-  }, [active]);
+  const now = useDisplayNow(100);
   const total = Math.floor(Math.max(0, now - (startedAt ?? start)) / 100) / 10;
   return total < 60 ? `${total.toFixed(1)}s` : `${Math.floor(total / 60)}m ${(total % 60).toFixed(1)}s`;
 }
@@ -192,7 +186,7 @@ export function ShimmerText({ children, style, numberOfLines = 1 }: { children: 
   const { colors } = useTheme();
   const [shift] = useState(() => new Animated.Value(0));
   const [reduced, setReduced] = useState(false);
-  const active = useIsFocused();
+  const active = useScreenActive();
   useEffect(() => {
     if (!active) return;
     let cancelled = false;

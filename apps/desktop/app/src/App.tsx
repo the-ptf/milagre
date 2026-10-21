@@ -1,3 +1,4 @@
+import { ProviderUpdateNotice } from "./components/ProviderUpdateNotice";
 import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components/PersistenceNotice";
 import { AiConsentDialog } from "./components/AiConsent";
 import { UpdateShell, useAppUpdates } from "./components/UpdateNotice";
@@ -112,6 +113,7 @@ import { useUsage } from "./components/usage/useUsage";
 import { loadChatPreferences, saveChatPreferences } from "./lib/chat-preferences";
 import { useComposerPreferences } from "./lib/use-composer-preferences";
 import { startOfflineCache } from "./lib/offline-cache";
+import { useDisplayNow } from "./lib/display-clock";
 import { isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers } from "./lib/computers";
 import { OfflineBanner } from "./components/OfflineBanner";
 import { settingsCommands } from "./lib/settings-commands";
@@ -450,6 +452,7 @@ function App() {
   const updateCliRef = useRef(updateCli);
   updateCliRef.current = updateCli;
   const handleUpdateCli = useCallback((provider: ModelProvider) => updateCliRef.current(provider), []);
+  const handleProvidersUpdated = useCallback(() => refreshCliStatusRef.current(), []);
 
   useEffect(() => {
     if (!notice) return;
@@ -545,14 +548,8 @@ function App() {
   // The open Project's computer, when it is another Mac: read-only while it isn't online, with the banner while it is away.
   const openComputer = project && isRemoteKey(project.path) ? pairedComputers.find((computer) => computer.id === computerOfKey(project.path)) : undefined;
   const readOnly = Boolean(project && isRemoteKey(project.path) && isReadOnly(openComputer));
-  const [bannerNow, setBannerNow] = useState(() => Date.now());
   const away = Boolean(openComputer && isDimmed(openComputer));
-  useEffect(() => {
-    if (!away) return;
-    setBannerNow(Date.now());
-    const timer = setInterval(() => setBannerNow(Date.now()), 60_000);
-    return () => clearInterval(timer);
-  }, [away, openComputer?.lastSeen]);
+  const bannerNow = useDisplayNow(60_000, away);
   const awayBanner = openComputer && away ? offlineBanner(openComputer, bannerNow) : null;
   useEffect(() => stateEvents.onLinkState((update) => setLinkStates((previous) => ({ ...previous, [update.linkId]: update.state }))), []);
 
@@ -2227,9 +2224,11 @@ function App() {
               models={models}
               update={update}
               onSectionChange={setSettingsSection}
+              onAddComputer={() => setAddComputerOpen(true)}
             />
           </main>
         </div>
+        {addComputerDialog}
       </DotBackground>
     );
   if (selectedLink)
@@ -2502,6 +2501,9 @@ function App() {
       <ScopeContext.Provider value={project.path}>
         <DotBackground key="app">
           <PersistenceNotices scopes={globalUnsavedScopes}>
+            <div className="pointer-events-none absolute bottom-5 right-5 z-50 max-w-[calc(100%-40px)] [&>*]:pointer-events-auto [-webkit-app-region:no-drag]">
+              <ProviderUpdateNotice onSettings={openAccounts} onUpdated={handleProvidersUpdated} />
+            </div>
             {hostConnection.connected && hostConnection.hostOutdated && (
               <div
                 role="status"
@@ -2668,6 +2670,7 @@ function App() {
                     models={models}
                     update={update}
                     onSectionChange={setSettingsSection}
+                    onAddComputer={() => setAddComputerOpen(true)}
                   />
                 </div>
               )}

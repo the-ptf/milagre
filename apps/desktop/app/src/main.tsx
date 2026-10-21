@@ -5,8 +5,10 @@ import "./fonts.css";
 import "./styles.css";
 import { AppMotionConfig } from "./components/motion/AppMotionConfig";
 import { applyThemeNow } from "./lib/settings";
+import { followDisplayVisibility } from "./lib/display-clock";
 
 applyThemeNow();
+followDisplayVisibility();
 const floatingView = new URLSearchParams(window.location.search).get("floating-inbox");
 const floating = floatingView === "dock" || floatingView === "inbox" || floatingView === "preview" || floatingView === "drag";
 document.documentElement.toggleAttribute("data-floating-inbox", floating);
