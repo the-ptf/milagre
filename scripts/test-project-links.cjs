@@ -247,7 +247,7 @@ async function main() {
     assert.ok(await evaluate(`document.body.textContent.includes('2 Worktrees')`));
     await shot("shared-chat");
     await input("[data-prompt-editor]", "Keep my draft while viewing the linked Projects");
-    await click("Canvas");
+    await evaluate(`document.querySelector('[data-sidebar-tools] button[aria-label="Canvas"]').click()`);
     await waitFor(() => evaluate(`!!document.querySelector('[data-canvas]')`), "Link canvas");
     assert.ok(await isCurrent(linkScope), "Canvas keeps the selected Link");
     await waitFor(
@@ -268,7 +268,7 @@ async function main() {
     await shot("link-canvas");
     await click("Back");
     assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "Keep my draft while viewing the linked Projects");
-    await click("Canvas");
+    await evaluate(`document.querySelector('[data-sidebar-tools] button[aria-label="Canvas"]').click()`);
     await waitFor(
       () => evaluate(`!![...document.querySelectorAll('[data-canvas-chat]')].find(button => button.textContent.includes('Shared Link Chat'))`),
       "canonical shared Chat in Canvas",

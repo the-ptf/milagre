@@ -27,7 +27,7 @@ import {
   Copy01Icon,
   FolderAddIcon,
   FolderOpenIcon,
-  GitMergeIcon,
+  FlowConnectionIcon,
   Link04Icon,
   MoreVerticalIcon,
   PencilEdit02Icon,
@@ -1012,7 +1012,7 @@ export default memo(function SidebarNav({
   }, []);
   return (
     <div className={`relative flex min-h-0 shrink-0 flex-col ${fill ? "h-full" : "h-[600px]"} ${className}`}>
-      {/* The window's top bar, beside its controls: the sidebar toggle, then Canvas, Search, Routines and Filters. */}
+      {/* The window's top bar, beside its controls: the sidebar toggle, then Canvas, Search, Routines and Link projects. */}
       <div
         ref={bar}
         data-sidebar-bar
@@ -1045,7 +1045,7 @@ export default memo(function SidebarNav({
                   onClick={onOpenCanvas}
                   className={`${TOOL_BUTTON} size-8 ${canvasActive ? "bg-hover-2 text-ink" : ""}`}
                 >
-                  <HugeIcon icon={GitMergeIcon} size={16} />
+                  <HugeIcon icon={FlowConnectionIcon} size={16} />
                 </button>
               </Tooltip>
             )}
@@ -1080,17 +1080,13 @@ export default memo(function SidebarNav({
                 </button>
               </Tooltip>
             )}
-            <FiltersButton
-              projects={pickerProjects}
-              computers={multi ? computerSections(thisMac, computers) : null}
-              imageOf={scopeImage}
-              currentImage={selectedLink ? undefined : workspace.image}
-              onShowProject={showProject}
-              show={chatRowShow}
-              offerComputer={multi}
-              onShowField={(field, on) => updateSettings({ chatRowShow: { ...chatRowShow, [field]: on } })}
-              className={`${TOOL_BUTTON} size-8`}
-            />
+            {onLinkProject && (
+              <Tooltip label="Link projects" side="bottom">
+                <button type="button" aria-label="Link projects" data-link-projects onClick={onLinkProject} className={`${TOOL_BUTTON} size-8`}>
+                  <HugeIcon icon={Link04Icon} size={16} />
+                </button>
+              </Tooltip>
+            )}
           </div>
         )}
       </div>
@@ -1290,19 +1286,18 @@ export default memo(function SidebarNav({
                   <IconFolderAdd size={17} />
                 </button>
               </Tooltip>
-              {onLinkProject && (
-                <Tooltip label="Link projects">
-                  <button
-                    type="button"
-                    aria-label="Link projects"
-                    data-link-projects
-                    onClick={onLinkProject}
-                    className={`${BOTTOM_BAR_BUTTON} ${collapsed ? "size-8" : "size-9"}`}
-                  >
-                    <HugeIcon icon={Link04Icon} size={17} />
-                  </button>
-                </Tooltip>
-              )}
+              <FiltersButton
+                projects={pickerProjects}
+                computers={multi ? computerSections(thisMac, computers) : null}
+                imageOf={scopeImage}
+                currentImage={selectedLink ? undefined : workspace.image}
+                onShowProject={showProject}
+                show={chatRowShow}
+                offerComputer={multi}
+                onShowField={(field, on) => updateSettings({ chatRowShow: { ...chatRowShow, [field]: on } })}
+                collapsed={collapsed}
+                className={`${BOTTOM_BAR_BUTTON} ${collapsed ? "size-8" : "size-9"}`}
+              />
               {onAddComputer && onOpenComputerSettings && (
                 <ComputersButton
                   collapsed={collapsed}
