@@ -1,5 +1,5 @@
 import type { ImageAttachment } from "@milagre/shared/model";
-import { promptParts } from "@milagre/shared/prompt-parts";
+import { formatImageMention, promptParts } from "@milagre/shared/prompt-parts";
 import type { Client } from "./client";
 
 export type Attachment = { id: string; name: string; uri: string; image?: ImageAttachment; base64?: string; path?: string };
@@ -9,6 +9,13 @@ export const MAX_FILE_BYTES = 5 * 1024 * 1024;
 export function appendAttachments(current: Attachment[], added: Attachment[]) {
   if (current.length + added.length > MAX_ATTACHMENTS) throw new Error(ATTACHMENT_LIMIT_MESSAGE);
   return [...current, ...added];
+}
+/** Appends `[Image #N]` mention(s) for newly attached photos/images to `draft`. */
+export function appendImageMentions(draft: string, existingImages: number, addedImages: number): string {
+  if (addedImages <= 0) return draft;
+  const mentions = Array.from({ length: addedImages }, (_, index) => formatImageMention(existingImages + index + 1)).join(" ");
+  const lead = draft.length > 0 && !/\s$/.test(draft) ? " " : "";
+  return `${draft}${lead}${mentions} `;
 }
 /** Uploads the files a message carries. `retry` runs each upload, so a busy Mac retries one file, not the ones already sent. */
 export async function prepareAttachments(

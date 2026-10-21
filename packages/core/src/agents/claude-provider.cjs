@@ -28,6 +28,7 @@ const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = requir
 const { mcpContent, runTool } = require("../linked-tools.cjs");
 const { advisorPolicy } = require("./advisor-policy.cjs");
 const { toClaudeConfig } = require("../mcp/definitions.cjs");
+const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
 // Milagre permission mode -> Claude Code permission mode. In Ask (`default`) Claude Code checks with
 // the user, through canUseTool, before edits and commands its rules don't already allow. Bot rules runs
@@ -74,10 +75,11 @@ class Inbox {
 
 // The uuid comes back in the result of the turn that reads the message (see mapClaudeMessage).
 function userMessage(prompt, images = []) {
-  const content = [
-    { type: "text", text: prompt },
-    ...images.map((image) => ({ type: "image", source: { type: "base64", media_type: image.mime, data: image.base64 } })),
-  ];
+  const content = promptImageBlocks(prompt, images).map((block) =>
+    block.type === "text"
+      ? { type: "text", text: block.text }
+      : { type: "image", source: { type: "base64", media_type: block.image.mime, data: block.image.base64 } },
+  );
   return { type: "user", uuid: randomUUID(), message: { role: "user", content }, parent_tool_use_id: null };
 }
 

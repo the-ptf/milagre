@@ -18,7 +18,8 @@ import { useSettings } from "../lib/settings";
 import { ProviderLogo } from "./ProviderLogo";
 import { Attachments } from "./Attachments";
 import { useProjectFiles } from "./useProjectFiles";
-import { promptToken, fileMentionPath, insertPromptToken } from "../lib/file-mentions";
+import { promptToken, fileMentionPath, insertImageMentions, insertPromptToken } from "../lib/file-mentions";
+import { shiftImageMentions } from "../lib/prompt-mentions";
 import { formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
 import { rankSkillMatches } from "@milagre/shared/skill-catalog";
 import { useSkills } from "./useSkills";
@@ -246,10 +247,11 @@ export function PromptComposer({
   // The mention being typed is the @ menu's search; the rest are looked up so they show as chips.
   const typing = token?.kind === "at" ? draft.slice(token.start + 1, token.end) : null;
   const { known, version: knownVersion, markKnown } = useKnownFiles(projectPath, draft, typing);
+  const imageCount = imageDraft.images.length;
   const parts = useMemo(
-    () => promptParts(draft, { skills: skillKey ? skillKey.split("\n") : [], files: (path) => known.has(path) }),
+    () => promptParts(draft, { skills: skillKey ? skillKey.split("\n") : [], files: (path) => known.has(path), images: imageCount }),
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `known` is a Set that grows in place; `knownVersion` counts its growth.
-    [draft, skillKey, known, knownVersion],
+    [draft, skillKey, known, knownVersion, imageCount],
   );
   // The @ menu searched the mention being typed: an exact match is a file too.
   const typedFound = typing !== null && fileSearch.files.includes(typing) ? typing : null;
@@ -409,12 +411,46 @@ export function PromptComposer({
     setProvider(model.provider);
   }
 
+  const draftLatest = useRef(draft);
+  draftLatest.current = draft;
+
+  function insertImages(promise: Promise<number[]>, range = inputRef.current?.getSelection() ?? { start: caret, end: caret }) {
+    const original = draftLatest.current;
+    void promise.then((indices) => {
+      if (!indices.length) return;
+      const currentCaret = inputRef.current?.getSelection().end ?? draftLatest.current.length;
+      const target = draftLatest.current === original ? range : { start: currentCaret, end: currentCaret };
+      const next = insertImageMentions(draftLatest.current, indices, target);
+      setCaret(next.caret);
+      onDraftChange(next.value);
+      inputRef.current?.setSelection(next.caret);
+    });
+  }
+
+  function handleRemoveImage(id: string) {
+    const index = imageDraft.images.findIndex((image) => image.id === id);
+    imageDraft.remove(id);
+    if (index >= 0) {
+      const next = shiftImageMentions(draftLatest.current, index + 1);
+      if (next !== draftLatest.current) onDraftChange(next);
+    }
+  }
+
+  function handleRemoveFile(path: string) {
+    const index = imageDraft.images.findIndex((image) => image.path === path);
+    imageDraft.removeFile(path);
+    if (index >= 0) {
+      const next = shiftImageMentions(draftLatest.current, index + 1);
+      if (next !== draftLatest.current) onDraftChange(next);
+    }
+  }
+
   function pick(row: MenuRow) {
     const source = SOURCES.find((item) => item.key === row.key);
     if (source?.key === "attach") {
       fileInputRef.current?.click();
     } else if (source?.key === "paste") {
-      void imageDraft.pasteImage();
+      insertImages(imageDraft.pasteImage());
     } else if (menu === "at") {
       if (token && row.path) {
         const path = fileMentionPath(projectPath, row.path);
@@ -674,7 +710,7 @@ export function PromptComposer({
             hidden
             aria-label="Choose attachments"
             onChange={(event) => {
-              void imageDraft.attachFiles(Array.from(event.target.files ?? []));
+              insertImages(imageDraft.attachFiles(Array.from(event.target.files ?? [])));
               event.target.value = "";
             }}
           />
@@ -682,8 +718,8 @@ export function PromptComposer({
             localFiles={imageDraft.localFiles}
             images={imageDraft.images}
             files={imageDraft.files.filter((file) => !chipPaths.includes(file))}
-            removeImage={imageDraft.remove}
-            removeFile={imageDraft.removeFile}
+            removeImage={handleRemoveImage}
+            removeFile={handleRemoveFile}
           />
           {imageDraft.loading && (
             <div role="status" className="px-2 text-xs text-ink-3">
@@ -706,7 +742,11 @@ export function PromptComposer({
                 value={draft}
                 parts={parts}
                 skillDescriptions={skillDescriptions}
-                onPaste={(event) => void imageDraft.onPaste(event)}
+                onPaste={(event) => {
+                  const selection = inputRef.current?.getSelection() ?? { start: caret, end: caret };
+                  const promise = imageDraft.onPaste(event);
+                  if (event.defaultPrevented) insertImages(promise, selection);
+                }}
                 onSelect={setCaret}
                 onChange={(value, position) => {
                   setCaret(position);

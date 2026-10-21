@@ -1628,8 +1628,8 @@ function App() {
         setNewChatError(message);
         if (!preserveComposer) {
           const nextDraft = draftStore.get();
-          setDraft([restoredDraft(body, submittedDraft, issue !== undefined), nextDraft].filter(Boolean).join("\n\n"));
-          imageDraft.restore(images, files);
+          const remapped = imageDraft.restore(images, files, nextDraft);
+          setDraft([restoredDraft(body, submittedDraft, issue !== undefined), remapped].filter(Boolean).join("\n\n"));
         }
       } else {
         if (!preserveComposer)

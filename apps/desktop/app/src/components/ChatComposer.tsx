@@ -45,8 +45,13 @@ import { lazyView } from "../lib/lazy-view";
 import { PromptText } from "./PromptText";
 import { useFilesRoot } from "./editor-links";
 import { useSentSkills } from "./useSentSkills";
-import { useScope } from "../lib/computer-bridge";
+import { isRemoteKey, useScope } from "../lib/computer-bridge";
 import { isMentionOfFile, mentionedFile, mentionedFiles } from "../lib/prompt-mentions";
+import { insertImageMentions } from "../lib/file-mentions";
+import { mediaUrl } from "../lib/media";
+import { useRemoteMedia } from "../lib/remote-media";
+import { MediaLightbox } from "./motion/LazyMediaLightbox";
+import type { LightboxItem } from "./motion/MediaLightbox";
 import type { ImageDraft } from "./usePastedImages";
 import { PromptComposer } from "./PromptComposer";
 import { QueuedMessages } from "./QueuedMessages";
@@ -111,41 +116,85 @@ function Icon({ icon, size = 16 }: { icon: IconData; size?: number }) {
  * A reply with no answer that ended or stopped to ask shows its last thinking instead, dimmed.
  */
 const NO_FILES: readonly string[] = [];
+const NO_IMAGES: NonNullable<AppChatMessage["images"]> = [];
 
-/** The skills a sent message names (lowercase name to description) and the attached files it mentions inline as chips. */
+/** The skills a sent message names (lowercase name to description) and the attached files and images it mentions inline as chips. */
 function usePromptMentions(message: AppChatMessage, isUser: boolean) {
   const root = useFilesRoot() ?? "";
   const scope = useScope();
   const files = message.files;
+  const images = message.images;
   const body = message.body;
   const described = useSentSkills(scope, isUser && /(^|\s)\//.test(body));
   const isFile = useMemo(() => isMentionOfFile(files ?? [], root), [files, root]);
   const inline = useMemo(() => (isUser && files?.length ? mentionedFiles(body, files, root) : null), [isUser, body, files, root]);
-  return { root, files, described, isFile, inline };
+  return { root, files, images, described, isFile, inline };
 }
 
-/** What the user typed, as typed, with skills and mentioned files as chips; only closed ``` fences render as code (diff comments send their snippets in them). */
+/** What the user typed, as typed, with skills, mentioned files and inline images as chips; only closed ``` fences render as code (diff comments send their snippets in them). */
 function UserBody({
   body,
   skills,
   files,
   root,
   attached,
+  images = NO_IMAGES,
 }: {
   body: string;
   skills: ReadonlyMap<string, string>;
   files: (path: string) => boolean;
   root: string;
   attached: readonly string[];
+  images?: NonNullable<AppChatMessage["images"]>;
 }) {
   const parts = useMemo(() => splitFences(body), [body]);
   const [opened, setOpened] = useState<string | null>(null);
+  const [openedImage, setOpenedImage] = useState<number | null>(null);
   const open = useCallback((path: string) => setOpened(mentionedFile(path, attached, root) ?? null), [attached, root]);
+  const scope = useScope();
+  const remote = isRemoteKey(scope);
+  const { sources: remoteSources } = useRemoteMedia(
+    remote && images.length ? scope : null,
+    images.flatMap((image) => (image.dataUrl || !image.path ? [] : [image.path])),
+  );
+  const media = useMemo(
+    () =>
+      images
+        .map((image, i) => ({
+          id: image.id,
+          index: i + 1,
+          name: image.name,
+          src: image.dataUrl ?? (remote ? (remoteSources[image.path ?? ""] ?? "") : mediaUrl(image.path ?? "")),
+          kind: "image" as const,
+          file: remote && image.path ? (remoteSources[image.path] ?? image.dataUrl) : (image.path ?? image.dataUrl),
+        }))
+        .filter((item): item is typeof item & LightboxItem => !!item.src),
+    [images, remote, remoteSources],
+  );
+  const imageNames = useMemo(() => images.map((image) => image.name), [images]);
+  const openImage = useCallback(
+    (index: number) => {
+      const target = media.findIndex((item) => item.index === index);
+      if (target >= 0) setOpenedImage(target);
+    },
+    [media],
+  );
+  const closeImage = useCallback(() => setOpenedImage(null), []);
+  const noThumb = useCallback(() => undefined, []);
   return (
     <div className="break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
       {parts.map((part, index) =>
         part.kind === "text" ? (
-          <PromptText key={index} text={part.text} skills={skills} files={files} onOpenFile={open} />
+          <PromptText
+            key={index}
+            text={part.text}
+            skills={skills}
+            files={files}
+            images={images.length}
+            imageNames={imageNames}
+            onOpenFile={open}
+            onOpenImage={media.length ? openImage : undefined}
+          />
         ) : (
           <div key={index} className="whitespace-normal">
             <CodeBlock code={part.code} fence={part.fence || undefined} diff />
@@ -153,6 +202,9 @@ function UserBody({
         ),
       )}
       {opened && <AttachmentPreview path={opened} name={opened.split("/").at(-1) || opened} close={() => setOpened(null)} />}
+      {openedImage !== null && media[openedImage] && (
+        <MediaLightbox items={media} start={openedImage} thumbFor={noThumb} onIndexChange={setOpenedImage} close={closeImage} />
+      )}
     </div>
   );
 }
@@ -342,7 +394,14 @@ const MessageSection = memo(function MessageSection({
           <AnswerCard answered={answered} />
         ) : isUser ? (
           message.body.trim() ? (
-            <UserBody body={message.body} skills={mentions.described} files={mentions.isFile} root={mentions.root} attached={mentions.files ?? NO_FILES} />
+            <UserBody
+              body={message.body}
+              skills={mentions.described}
+              files={mentions.isFile}
+              root={mentions.root}
+              attached={mentions.files ?? NO_FILES}
+              images={mentions.images ?? NO_IMAGES}
+            />
           ) : null
         ) : recommendation ? (
           <>
@@ -1127,11 +1186,17 @@ export function ChatComposer({
   const artifactSteps = useMemo(() => (streamingSteps?.length ? [...history.steps, ...streamingSteps] : history.steps), [history.steps, streamingSteps]);
   const { userMessages, promptHistory } = history;
 
+  const draftLatest = useRef(draft);
+  draftLatest.current = draft;
+
   function handleFileDrop(event: DragEvent<HTMLDivElement>) {
     const files = Array.from(event.dataTransfer.files);
     if (!files.length) return;
     event.preventDefault();
-    void imageDraft.attachFiles(files);
+    void imageDraft.attachFiles(files).then((indices) => {
+      if (!indices.length) return;
+      onDraftChange(insertImageMentions(draftLatest.current, indices).value);
+    });
     event.currentTarget.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
   }
 

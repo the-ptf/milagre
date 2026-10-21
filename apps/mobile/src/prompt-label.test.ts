@@ -11,11 +11,13 @@ test("chips read as their kind and name, never as an object replacement characte
   const label = promptAccessibilityLabel([
     { kind: "text", text: "Check " },
     { kind: "file", text: "@src/app/App.tsx", path: "src/app/App.tsx" },
+    { kind: "text", text: " and " },
+    { kind: "image", text: "[Image #1]", index: 1 },
     { kind: "text", text: " with " },
     { kind: "skill", text: "/tldr", name: "tldr" },
     { kind: "text", text: " and ping @alice" },
   ]);
-  assert.equal(label, "Check file App.tsx with skill Tldr and ping @alice");
+  assert.equal(label, "Check file App.tsx and Image #1 with skill Tldr and ping @alice");
   assert.ok(!label?.includes("￼"));
 });
 

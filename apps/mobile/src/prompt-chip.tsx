@@ -1,7 +1,7 @@
 import { Pressable, Text, View } from "react-native";
 import { File01Icon, Folder01Icon, Image01Icon, ReactIcon } from "@hugeicons/core-free-icons";
 import { fileKind } from "@milagre/shared/file-kinds";
-import { skillLabel } from "@milagre/shared/prompt-parts";
+import { imageLabel, skillLabel } from "@milagre/shared/prompt-parts";
 import { withAlpha } from "@milagre/shared/themes";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
@@ -78,6 +78,20 @@ export function FileMentionChip({ path, onOpen }: { path: string; onOpen?: () =>
       <KindIcon path={path} size={textPx} />
       <Text numberOfLines={1} style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.2), flexShrink: 1 }}>
         {name}
+      </Text>
+    </Box>
+  );
+}
+
+/** An inline image position (`[Image #1]`) in a sent prompt; a tap opens the photo viewer when `onOpen` is given. */
+export function ImageMentionChip({ index, onOpen }: { index: number; onOpen?: () => void }) {
+  const { colors, textPx } = useTheme();
+  const label = imageLabel(index);
+  return (
+    <Box px={textPx} color={colors.lineStrong} fill={colors.hover} onPress={onOpen} label={`Preview ${label}`}>
+      <Icon icon={Image01Icon} color="#26a69a" size={Math.round(textPx * 0.95)} strokeWidth={1.8} />
+      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.2), flexShrink: 1 }}>
+        {label}
       </Text>
     </Box>
   );

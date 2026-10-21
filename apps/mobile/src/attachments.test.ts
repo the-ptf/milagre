@@ -125,3 +125,10 @@ test("the limit error goes once there is room again or the draft is cleared, and
   assert.equal(settleLimitError("Offline", 0, ""), "Offline", "an unrelated error is not this helper's to clear");
   assert.equal(settleLimitError("", 0, ""), "");
 });
+test("appendImageMentions appends 1-based [Image #N] tokens for newly added image attachments", async () => {
+  const { appendImageMentions } = await import("./attachments.ts");
+  assert.equal(appendImageMentions("", 0, 1), "[Image #1] ");
+  assert.equal(appendImageMentions("Compare this", 0, 2), "Compare this [Image #1] [Image #2] ");
+  assert.equal(appendImageMentions("Compare [Image #1] ", 1, 1), "Compare [Image #1] [Image #2] ");
+  assert.equal(appendImageMentions("Compare ", 1, 0), "Compare ");
+});

@@ -39,9 +39,11 @@ import { useComposer, usePendingChats, useSession } from "../session";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
+import { shiftImageMentions } from "@milagre/shared/prompt-mentions";
 import {
   addMention,
   appendAttachments,
+  appendImageMentions,
   ATTACHMENT_LIMIT_MESSAGE,
   attachmentPrompt,
   mentionAttachments,
@@ -674,8 +676,13 @@ export default function ChatScreen() {
     try {
       const added = await pickAttachments(kind);
       if (currentScrollKey.current !== scrollKey) return;
+      const existingImages = attachments.filter((item) => item.image).length;
+      const addedImages = added.filter((item) => item.image).length;
       const next = appendAttachments(attachments, added);
       composer.setAttachments((current) => ({ ...current, [chatId]: next }));
+      if (addedImages > 0) {
+        composer.setDrafts((current) => ({ ...current, [chatId]: appendImageMentions(current[chatId] || "", existingImages, addedImages) }));
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -706,8 +713,10 @@ export default function ChatScreen() {
     try {
       const added = await preparePastedImage(image);
       if (currentScrollKey.current !== scrollKey) return;
+      const existingImages = attachments.filter((item) => item.image).length;
       const next = appendAttachments(attachments, [added]);
       composer.setAttachments((current) => ({ ...current, [chatId]: next }));
+      composer.setDrafts((current) => ({ ...current, [chatId]: appendImageMentions(current[chatId] || "", existingImages, 1) }));
     } catch (failure) {
       if (currentScrollKey.current === scrollKey) setError((failure as Error).message);
     } finally {
@@ -1708,57 +1717,66 @@ export default function ChatScreen() {
                     )}
                     {!!attachments.length && (
                       <PageScroll horizontal contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 8 }}>
-                        {attachments.map((item) => (
-                          <View
-                            key={item.id}
-                            style={{
-                              backgroundColor: colors.field,
-                              borderRadius: 12,
-                              borderCurve: "continuous",
-                              paddingLeft: item.image ? 4 : 10,
-                              flexDirection: "row",
-                              alignItems: "center",
-                              maxWidth: 220,
-                            }}
-                          >
-                            {item.image ? (
-                              <Image source={{ uri: item.uri }} accessibilityLabel={item.name} style={{ width: 44, height: 44, borderRadius: 8 }} />
-                            ) : (
-                              <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel={`Preview ${item.name}`}
-                                onPress={() =>
-                                  router.push({ pathname: "/file-preview", params: item.path ? { path: item.path } : { uri: item.uri, name: item.name } })
-                                }
-                                style={{ flexDirection: "row", alignItems: "center", flexShrink: 1 }}
-                              >
-                                <Icon icon={File01Icon} tone="ink2" size={18} />
-                                <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
-                                  {item.name}
-                                </Text>
-                              </Pressable>
-                            )}
-                            {item.image && (
-                              <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
-                                {item.name}
-                              </Text>
-                            )}
-                            <IconButton
-                              label={`Remove ${item.name}`}
-                              icon={Cancel01Icon}
-                              size={32}
-                              disabled={busy || picking}
-                              onPress={() => {
-                                // Removing this tile may leave room again, which ends the limit error.
-                                setError((current) => settleLimitError(current, attachments.filter((attachment) => attachment.id !== item.id).length, draft));
-                                composer.setAttachments((currentAttachments) => ({
-                                  ...currentAttachments,
-                                  [chatId]: (currentAttachments[chatId] || []).filter((attachment) => attachment.id !== item.id),
-                                }));
+                        {attachments.map((item) => {
+                          const imageIndex = item.image ? attachments.filter((attachment) => attachment.image).indexOf(item) + 1 : 0;
+                          return (
+                            <View
+                              key={item.id}
+                              style={{
+                                backgroundColor: colors.field,
+                                borderRadius: 12,
+                                borderCurve: "continuous",
+                                paddingLeft: item.image ? 4 : 10,
+                                flexDirection: "row",
+                                alignItems: "center",
+                                maxWidth: 220,
                               }}
-                            />
-                          </View>
-                        ))}
+                            >
+                              {item.image ? (
+                                <Image source={{ uri: item.uri }} accessibilityLabel={item.name} style={{ width: 44, height: 44, borderRadius: 8 }} />
+                              ) : (
+                                <Pressable
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Preview ${item.name}`}
+                                  onPress={() =>
+                                    router.push({ pathname: "/file-preview", params: item.path ? { path: item.path } : { uri: item.uri, name: item.name } })
+                                  }
+                                  style={{ flexDirection: "row", alignItems: "center", flexShrink: 1 }}
+                                >
+                                  <Icon icon={File01Icon} tone="ink2" size={18} />
+                                  <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
+                                    {item.name}
+                                  </Text>
+                                </Pressable>
+                              )}
+                              {item.image && (
+                                <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
+                                  {`#${imageIndex} ${item.name}`}
+                                </Text>
+                              )}
+                              <IconButton
+                                label={`Remove ${item.name}`}
+                                icon={Cancel01Icon}
+                                size={32}
+                                disabled={busy || picking}
+                                onPress={() => {
+                                  // Removing this tile may leave room again, which ends the limit error.
+                                  setError((current) => settleLimitError(current, attachments.filter((attachment) => attachment.id !== item.id).length, draft));
+                                  composer.setAttachments((currentAttachments) => ({
+                                    ...currentAttachments,
+                                    [chatId]: (currentAttachments[chatId] || []).filter((attachment) => attachment.id !== item.id),
+                                  }));
+                                  if (imageIndex > 0) {
+                                    composer.setDrafts((current) => ({
+                                      ...current,
+                                      [chatId]: shiftImageMentions(current[chatId] || "", imageIndex),
+                                    }));
+                                  }
+                                }}
+                              />
+                            </View>
+                          );
+                        })}
                       </PageScroll>
                     )}
                     <PromptField
@@ -1766,6 +1784,7 @@ export default function ChatScreen() {
                       client={client}
                       projectPath={worktree?.path || (project.link ? "" : project.path)}
                       draft={draft}
+                      images={attachments.filter((item) => item.image).length}
                       onImagePaste={(image) => void pasteImage(image)}
                       known={knownFiles.current}
                       onMention={worktree?.path ? mentionFile : undefined}

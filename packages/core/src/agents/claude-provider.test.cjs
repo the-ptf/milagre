@@ -460,11 +460,24 @@ test("a CLI that rejects the style still runs the turn, and the style is not ret
   assert.deepEqual(calls.flags, [{ outputStyle: "Concise" }]);
 });
 
-test("sends images as base64 content blocks", async (t) => {
+test("sends images as base64 content blocks and interleaves [Image #N] tokens in reading order", async (t) => {
   const { session, events, calls } = claude(t);
-  await session.startTurn({ ...TURN, images: [{ mime: "image/png", base64: "iVBORw0KGgo=" }] });
+  await session.startTurn({
+    ...TURN,
+    prompt: "Compare [Image #2] with [Image #1] here",
+    images: [
+      { mime: "image/png", base64: "img1" },
+      { mime: "image/jpeg", base64: "img2" },
+    ],
+  });
   await ended(events);
-  assert.deepEqual(calls.prompts[0].message.content[1], { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" } });
+  assert.deepEqual(calls.prompts[0].message.content, [
+    { type: "text", text: "Compare " },
+    { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "img2" } },
+    { type: "text", text: " with " },
+    { type: "image", source: { type: "base64", media_type: "image/png", data: "img1" } },
+    { type: "text", text: " here" },
+  ]);
 });
 
 test("resumes a saved session without announcing it again", async (t) => {

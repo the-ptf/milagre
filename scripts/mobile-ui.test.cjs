@@ -1285,6 +1285,7 @@ test("mobile skill input preserves edits and clears its description when the car
       client: {},
       projectPath: "/project",
       draft,
+      images: 1,
       onChangeText: (value) => {
         draft = value;
       },
@@ -1328,6 +1329,9 @@ test("mobile skill input preserves edits and clears its description when the car
   assert.deepEqual({ ...field().props.selection }, { start: 4, end: 9 }, "catalog recoloring preserves the native text selection");
   field().props.onChangeText("run /tldr please");
   assert.equal(field().props.selection, undefined, "ordinary typing keeps native caret control");
+  draft = "see [Image #1] next";
+  field().props.onChangeText("see [Image #1 next");
+  assert.equal(draft, "see  next", "Backspace removes the whole image reference");
 });
 
 function markdownHost({ media, basePath } = {}) {
@@ -6585,10 +6589,10 @@ test("the mobile paste action adds a clipboard screenshot to the draft", async (
   menu.props.onSelect("paste");
   await settle();
   assert.equal(screen.session.attachments["/p#new:1"][0].image.dataUrl, "data:image/jpeg;base64,YQ==");
-  assert.equal(screen.field().value, "first message");
+  assert.equal(screen.field().value, "first message [Image #1] ");
 });
 
-test("native image paste adds a screenshot without changing the message text", async () => {
+test("native image paste adds a screenshot and its inline reference", async () => {
   const source = { uri: "file:///native.png", width: 1170, height: 2532 };
   const image = {
     id: "paste",
@@ -6610,7 +6614,7 @@ test("native image paste adds a screenshot without changing the message text", a
   await settle();
   assert.equal(screen.session.attachments["/p#new:1"].length, 1);
   assert.equal(screen.session.attachments["/p#new:1"][0].image.dataUrl, "data:image/jpeg;base64,YQ==");
-  assert.equal(screen.field().value, "first message");
+  assert.equal(screen.field().value, "first message [Image #1] ");
 });
 
 test("the Ultracode announcer plays once and pauses when its overlay closes", async () => {
