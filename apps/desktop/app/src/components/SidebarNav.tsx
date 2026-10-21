@@ -1012,11 +1012,12 @@ export default memo(function SidebarNav({
   }, []);
   return (
     <div className={`relative flex min-h-0 shrink-0 flex-col ${fill ? "h-full" : "h-[600px]"} ${className}`}>
-      {/* The window's top bar, beside its controls: the sidebar toggle, then Canvas, Search, Routines and Link projects. */}
+      {/* The window's top bar, beside its controls: the sidebar toggle, then Canvas, Search, Routines and Link projects.
+          A scrolled chat runs under it, so the group sits on a solid pill. */}
       <div
         ref={bar}
         data-sidebar-bar
-        className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60] flex items-center gap-1"
+        className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60] flex items-center gap-1 rounded-[10px] bg-page"
         style={{ left: chrome.sidebarLeft - 12 }}
       >
         <div data-sidebar-toggle>
@@ -1073,10 +1074,13 @@ export default memo(function SidebarNav({
                   onClick={onOpenRoutines}
                   className={`${TOOL_BUTTON} relative size-8 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
                 >
-                  <HugeIcon icon={RepeatIcon} size={16} />
-                  {routinesUnread && (
-                    <span aria-hidden data-routines-unread className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-accent ring-2 ring-canvas" />
-                  )}
+                  {/* The dot sits on the icon's top-right corner, cut out of it by its ring. */}
+                  <span className="relative flex">
+                    <HugeIcon icon={RepeatIcon} size={16} />
+                    {routinesUnread && (
+                      <span aria-hidden data-routines-unread className="absolute -top-1 -right-1 size-2 rounded-full bg-accent ring-2 ring-canvas" />
+                    )}
+                  </span>
                 </button>
               </Tooltip>
             )}
