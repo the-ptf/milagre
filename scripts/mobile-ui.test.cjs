@@ -9150,6 +9150,13 @@ test("mobile Appearance Custom theme switch selects Custom on, Milagre Blue off,
   );
   textSize.props.onChange("large");
   assert.deepEqual(JSON.parse(JSON.stringify(saved.at(-1))), { textSize: "large" });
+  const providerIcons = find(render(), (n) => n.props?.label === "Provider icons");
+  assert.deepEqual(
+    providerIcons.props.options.map((option) => option.value),
+    ["original", "simplified"],
+  );
+  providerIcons.props.onChange("simplified");
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.at(-1))), { providerIcons: "simplified" });
   assert.equal(
     find(render(), (n) => n.type === "Segmented" && n.props?.label !== "Mode"),
     undefined,
@@ -12552,4 +12559,49 @@ test("provider update cards on the phone install the advertised release on the c
   const failed = ProviderUpdateNotice();
   assert.equal(find(failed, (node) => node.props?.accessibilityRole === "alert").props.children, "Permission denied");
   assert.equal(find(failed, (node) => node.type === "PillButton" && node.props.title === "Retry").props.disabled, false);
+});
+
+test("provider logos preserve their shapes and use white or black in Simplified mode", () => {
+  const react = hookHost();
+  let scheme = "dark";
+  let style = "simplified";
+  const shapes = require("../packages/shared/src/provider-logos.ts");
+  const svg = Object.fromEntries(
+    ["default", "Circle", "Defs", "FeGaussianBlur", "Filter", "G", "LinearGradient", "Mask", "Path", "Stop"].map((name) => [
+      name,
+      name === "default" ? "Svg" : name,
+    ]),
+  );
+  const { ProviderLogo } = load("icons.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {},
+    "react-native-svg": { ...svg, __esModule: true },
+    "@milagre/shared/provider-logos": shapes,
+    "@hugeicons/react-native": {},
+    "./theme": { useTheme: () => ({ scheme, settings: { providerIcons: style } }) },
+  });
+  const render = (provider, inverted = false) => {
+    react.begin();
+    return ProviderLogo({ provider, inverted });
+  };
+  for (const provider of ["claude", "codex", "antigravity"]) {
+    let tree = render(provider);
+    const path = find(tree, (node) => node.type === "Path");
+    assert.equal(path.props.d, shapes.providerLogoPath(provider));
+    assert.equal(path.props.fill, "#fff");
+    assert.equal(
+      find(tree, (node) => node.type === "Defs"),
+      undefined,
+    );
+    scheme = "light";
+    assert.equal(find(render(provider), (node) => node.type === "Path").props.fill, "#000");
+    assert.equal(find(render(provider, true), (node) => node.type === "Path").props.fill, "#fff", "selected chips keep contrast in light mode");
+    scheme = "dark";
+    assert.equal(find(render(provider, true), (node) => node.type === "Path").props.fill, "#000", "selected chips keep contrast in dark mode");
+  }
+  style = "original";
+  assert.equal(find(render("claude"), (node) => node.type === "Path").props.fill, shapes.CLAUDE_LOGO.fill);
+  assert.ok(find(render("codex"), (node) => node.type === "LinearGradient"));
+  assert.ok(find(render("antigravity"), (node) => node.type === "Mask"));
 });

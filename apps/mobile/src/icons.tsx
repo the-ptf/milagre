@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { Animated, Easing, View } from "react-native";
 import Svg, { Circle, Defs, FeGaussianBlur, Filter, G, LinearGradient, Mask, Path, Stop } from "react-native-svg";
-import { ANTIGRAVITY_LOGO, CLAUDE_LOGO, CODEX_LOGO, LINEAR_LOGO } from "@milagre/shared/provider-logos";
+import { ANTIGRAVITY_LOGO, CLAUDE_LOGO, CODEX_LOGO, LINEAR_LOGO, providerLogoPath } from "@milagre/shared/provider-logos";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react-native";
 import type { ModelProvider } from "@milagre/shared/model";
 import { useTheme, type Palette } from "./theme";
@@ -31,50 +31,69 @@ export function Icon({
   );
 }
 
-/** Each agent's brand mark in its own colors, the same shapes as desktop's ProviderLogo (@milagre/shared/provider-logos). */
-export function ProviderLogo({ provider, size = 15, dim = false }: { provider: ModelProvider; size?: number; dim?: boolean }) {
+/** Every provider mark follows the device's Appearance choice, using the same shapes as desktop. */
+export function ProviderLogo({
+  provider,
+  size = 15,
+  dim = false,
+  inverted = false,
+}: {
+  provider: ModelProvider;
+  size?: number;
+  dim?: boolean;
+  inverted?: boolean;
+}) {
   // Gradient, mask and filter ids are per instance: two logos on one screen must not share them.
   const id = `logo${useId().replace(/[^\w-]/g, "")}`;
+  const { settings, scheme } = useTheme();
+  const simplified = settings.providerIcons === "simplified";
+  const monochrome = (scheme === "dark") !== inverted ? "#fff" : "#000";
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" opacity={dim ? 0.6 : 1} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      {provider === "claude" && <Path d={CLAUDE_LOGO.d} fill={CLAUDE_LOGO.fill} />}
-      {provider === "codex" && (
+      {simplified ? (
+        <Path d={providerLogoPath(provider)} fill={monochrome} fillRule="evenodd" clipRule="evenodd" />
+      ) : (
         <>
-          <Defs>
-            <LinearGradient id={`${id}-codex`} gradientUnits="userSpaceOnUse" x1="12" x2="12" y1="0" y2="24">
-              {CODEX_LOGO.stops.map((stop) => (
-                <Stop key={stop.offset} offset={stop.offset} stopColor={stop.color} />
-              ))}
-            </LinearGradient>
-          </Defs>
-          <Path d={CODEX_LOGO.d} fill={`url(#${id}-codex)`} fillRule="evenodd" clipRule="evenodd" />
-        </>
-      )}
-      {provider === "antigravity" && (
-        <>
-          <Defs>
-            <Mask id={`${id}-arch`} maskUnits="userSpaceOnUse" x="0" y="1" width="24" height="23">
-              <Path d={ANTIGRAVITY_LOGO.d} fill="#fff" />
-            </Mask>
-            {ANTIGRAVITY_LOGO.blobs.map((blob) => (
-              <Filter
-                key={blob.id}
-                id={`${id}-${blob.id}`}
-                filterUnits="userSpaceOnUse"
-                x={blob.region[0]}
-                y={blob.region[1]}
-                width={blob.region[2]}
-                height={blob.region[3]}
-              >
-                <FeGaussianBlur stdDeviation={blob.blur} />
-              </Filter>
-            ))}
-          </Defs>
-          <G mask={`url(#${id}-arch)`}>
-            {ANTIGRAVITY_LOGO.blobs.map((blob) => (
-              <Path key={blob.id} d={blob.d} fill={blob.fill} filter={`url(#${id}-${blob.id})`} />
-            ))}
-          </G>
+          {provider === "claude" && <Path d={CLAUDE_LOGO.d} fill={CLAUDE_LOGO.fill} />}
+          {provider === "codex" && (
+            <>
+              <Defs>
+                <LinearGradient id={`${id}-codex`} gradientUnits="userSpaceOnUse" x1="12" x2="12" y1="0" y2="24">
+                  {CODEX_LOGO.stops.map((stop) => (
+                    <Stop key={stop.offset} offset={stop.offset} stopColor={stop.color} />
+                  ))}
+                </LinearGradient>
+              </Defs>
+              <Path d={CODEX_LOGO.d} fill={`url(#${id}-codex)`} fillRule="evenodd" clipRule="evenodd" />
+            </>
+          )}
+          {provider === "antigravity" && (
+            <>
+              <Defs>
+                <Mask id={`${id}-arch`} maskUnits="userSpaceOnUse" x="0" y="1" width="24" height="23">
+                  <Path d={ANTIGRAVITY_LOGO.d} fill="#fff" />
+                </Mask>
+                {ANTIGRAVITY_LOGO.blobs.map((blob) => (
+                  <Filter
+                    key={blob.id}
+                    id={`${id}-${blob.id}`}
+                    filterUnits="userSpaceOnUse"
+                    x={blob.region[0]}
+                    y={blob.region[1]}
+                    width={blob.region[2]}
+                    height={blob.region[3]}
+                  >
+                    <FeGaussianBlur stdDeviation={blob.blur} />
+                  </Filter>
+                ))}
+              </Defs>
+              <G mask={`url(#${id}-arch)`}>
+                {ANTIGRAVITY_LOGO.blobs.map((blob) => (
+                  <Path key={blob.id} d={blob.d} fill={blob.fill} filter={`url(#${id}-${blob.id})`} />
+                ))}
+              </G>
+            </>
+          )}
         </>
       )}
     </Svg>

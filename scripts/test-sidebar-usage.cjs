@@ -20,6 +20,8 @@ window.setTheme = theme => { updateSettings({ theme }); applyThemeNow(); };
 const weekly = { id: "weekly", label: "Weekly", shortLabel: "wk", usedPercent: 96, resetsAt: null };
 const session = { id: "session", label: "Session", shortLabel: "5h", usedPercent: 32, resetsAt: null };
 window.setDisplay = usageDisplay => updateSettings({ usageDisplay });
+window.setSidebarUsage = sidebarUsage => updateSettings({ appearance: { ...JSON.parse(localStorage.getItem("milagre-settings") || "{}").appearance, sidebarUsage } });
+window.setProviderIcons = providerIcons => updateSettings({ appearance: { ...getSettings().appearance, providerIcons } });
 // The Project's saved accounts: two for Claude, so its card offers a picker; one for Codex, which stays plain text.
 const accountListeners = new Set();
 let claudeChoice = null;
@@ -252,6 +254,45 @@ async function browserChecks() {
     await screenshot("remote-account-read-only");
     await evaluate("window.setScope(undefined)");
     await evaluate('document.querySelector("aside").style.marginTop = ""');
+    await evaluate('window.setSidebarUsage("compact")');
+    await waitFor('document.querySelector(".sidebar-usage").dataset.usageCompact === "true"');
+    assert.equal(await evaluate('getComputedStyle(document.querySelectorAll(".sidebar-usage-row")[1].querySelector(".sidebar-copy")).display'), "none");
+    assert.equal(await evaluate('document.querySelectorAll(".sidebar-usage-rail")[1].firstElementChild.getBoundingClientRect().width'), 16);
+    assert.equal(
+      await evaluate(
+        '(() => { const rows = [...document.querySelectorAll(".sidebar-usage-row")].map((r) => r.getBoundingClientRect()); return rows[0].top === rows[1].top && rows[1].top === rows[2].top && rows[0].left < rows[1].left && rows[1].left < rows[2].left; })()',
+      ),
+      true,
+      "Compact usage places all provider icons on one horizontal line",
+    );
+    await screenshot("compact-dark");
+    assert.deepEqual(
+      await evaluate(
+        '(() => { const rail = document.querySelector(".sidebar-usage").getBoundingClientRect(); const aside = document.querySelector("aside").getBoundingClientRect(); return [...document.querySelectorAll(".sidebar-usage-row")].map(r => r.getBoundingClientRect().width).concat([rail.width, (rail.left + rail.right) / 2 - (aside.left + aside.right) / 2]); })()',
+      ),
+      [32, 32, 32, 100, 0],
+      "Compact usage is contained around the icons and centered in the sidebar",
+    );
+    await evaluate('window.setProviderIcons("simplified"); window.setTheme("dark")');
+    await waitFor(
+      '[...document.querySelectorAll("[data-provider-logo]")].every(svg => svg.children.length === 1 && svg.firstElementChild.getAttribute("fill") === "currentColor" && getComputedStyle(svg).color === "rgb(255, 255, 255)")',
+    );
+    await evaluate('window.setTheme("light")');
+    await waitFor('[...document.querySelectorAll("[data-provider-logo]")].every(svg => getComputedStyle(svg).color === "rgb(0, 0, 0)")');
+    await evaluate('window.setProviderIcons("original")');
+    await waitFor('!!document.querySelector("[data-provider-logo=codex] linearGradient") && !!document.querySelector("[data-provider-logo=antigravity] mask")');
+    await evaluate("window.setCollapsed(true)");
+    await waitFor('document.querySelector("aside").dataset.sidebarCollapsed === "true"');
+    assert.equal(
+      await evaluate(
+        '(() => { const rows = [...document.querySelectorAll(".sidebar-usage-row")].map((r) => r.getBoundingClientRect()); return rows.every((row) => row.height === 32 && row.left === rows[0].left) && rows[0].top < rows[1].top && rows[1].top < rows[2].top; })()',
+      ),
+      true,
+      "Compact usage keeps full-size provider buttons stacked in a collapsed sidebar",
+    );
+    await evaluate("window.setCollapsed(false)");
+    await evaluate('window.setSidebarUsage("expanded")');
+    await waitFor('!document.querySelector(".sidebar-usage").dataset.usageCompact');
     await evaluate("window.setCollapsed(true)");
     await waitFor('document.querySelector("aside").dataset.sidebarCollapsed === "true"');
     assert.equal(await evaluate('getComputedStyle(document.querySelectorAll(".sidebar-usage-row")[1].querySelector(".sidebar-copy")).display'), "none");
@@ -291,7 +332,7 @@ async function browserChecks() {
     assert.equal(await evaluate("window.localUsageReads"), 0);
     await screenshot("remote-live-usage");
     console.log(
-      "PASS: weekly-only width, 5h column alignment, actual percentages, remaining mode, banked resets row, Antigravity Gemini windows, collapsed rail, account email and name fallback, account picker",
+      "PASS: weekly-only width, 5h column alignment, actual percentages, remaining mode, banked resets row, Antigravity Gemini windows, compact one-line mode, collapsed rail, account email and name fallback, account picker",
     );
     app.exit(0);
   } catch (error) {

@@ -1226,28 +1226,49 @@ a:focus-visible .animated-underline::after {
   opacity: 1;
 }
 
-/* Usage rows: the rail shows only the provider mark and its fullest window. */
+/* Usage rows: the rail (or compact mode) shows only the provider mark and its fullest window. */
 .sidebar-usage-rail {
   display: none;
 }
 
-[data-sidebar-collapsed="true"] .sidebar-usage {
-  flex-direction: column;
+.sidebar-usage[data-usage-compact="true"] {
+  flex-direction: row;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
 }
 
-[data-sidebar-collapsed="true"] .sidebar-usage-row {
-  width: 100%;
+.sidebar-usage[data-usage-compact="true"] .sidebar-usage-row {
+  flex: none;
+  width: 32px;
   justify-content: center;
   padding-left: 0;
   padding-right: 0;
 }
 
+.sidebar-usage[data-usage-compact="true"] .sidebar-usage-row > .sidebar-copy,
 [data-sidebar-collapsed="true"] .sidebar-usage-row > .sidebar-copy {
   display: none;
 }
 
+.sidebar-usage[data-usage-compact="true"] .sidebar-usage-rail,
 [data-sidebar-collapsed="true"] .sidebar-usage-rail {
   display: block;
+}
+
+[data-sidebar-collapsed="true"] .sidebar-usage {
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+}
+
+[data-sidebar-collapsed="true"] .sidebar-usage .sidebar-usage-row {
+  flex: none;
+  width: 100%;
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 [data-sidebar-collapsed="true"] .sidebar-glide-highlight {

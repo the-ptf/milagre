@@ -29,7 +29,7 @@ import { FileChip, FileKindIcon, SkillChip } from "../PromptChip";
 import { ProviderLogo } from "../ProviderLogo";
 
 /** The part of the window a setting changes. `ui` is the interface font: everything but code. */
-export type PreviewArea = "sidebar" | "chat" | "code" | "width" | "diff" | "ui";
+export type PreviewArea = "sidebar" | "chat" | "code" | "width" | "diff" | "ui" | "usage";
 
 // The miniature is drawn at a real window's size, at the real CSS variables, then scaled down to the card.
 const WINDOW_WIDTH = 1440;
@@ -102,6 +102,36 @@ const SIDEBAR_CHATS = [
   { title: "Fix the flaky surface test", added: 4, removed: 9, ago: "3h" },
 ] as const;
 
+const PREVIEW_USAGE = [
+  {
+    provider: "claude" as const,
+    name: "Claude",
+    windows: [
+      { label: "5h", percent: 18 },
+      { label: "wk", percent: 64 },
+    ],
+    peak: 64,
+  },
+  {
+    provider: "codex" as const,
+    name: "Codex",
+    windows: [
+      { label: "5h", percent: 32 },
+      { label: "wk", percent: 48 },
+    ],
+    peak: 48,
+  },
+  {
+    provider: "antigravity" as const,
+    name: "Antigravity",
+    windows: [
+      { label: "5h", percent: 9 },
+      { label: "wk", percent: 25 },
+    ],
+    peak: 25,
+  },
+] as const;
+
 function SidebarMark({ mark }: { mark?: "running" | "unread" }) {
   if (mark === "running")
     return <span className="size-3 rounded-full border-[1.5px] border-accent border-r-transparent" style={{ transform: "rotate(45deg)" }} />;
@@ -125,7 +155,51 @@ function ProjectRow({ initial, color, name, current = false }: { initial: string
   );
 }
 
-function Sidebar() {
+function SidebarUsagePreview({ compact }: { compact: boolean }) {
+  return (
+    <Part
+      area="usage"
+      keep={["sidebar", "ui", "usage"]}
+      tight
+      data-preview-usage={compact ? "compact" : "expanded"}
+      className="mx-2 mt-auto border-t border-line pt-1.5"
+    >
+      <div data-usage-compact={compact || undefined} className="sidebar-usage flex flex-col gap-0.5">
+        {PREVIEW_USAGE.map((item) => (
+          <div
+            key={item.provider}
+            className="sidebar-usage-row relative flex h-8 w-full min-w-0 items-center gap-1.5 rounded-[8px] px-2 text-[12px] tabular-nums text-ink-2"
+          >
+            <span className="flex shrink-0 items-center justify-center">
+              <ProviderLogo provider={item.provider} size={13} />
+            </span>
+            <span className="sidebar-copy min-w-0 truncate text-ink-2">{item.name}</span>
+            <span className="sidebar-copy ml-auto flex w-[104px] shrink-0 items-center gap-2">
+              {item.windows.map((entry) => (
+                <span key={entry.label} className="flex min-w-0 flex-1 flex-col items-end gap-[3px]">
+                  <span className="flex items-baseline gap-[3px] whitespace-nowrap leading-none">
+                    <span className="text-ink">{entry.percent}%</span>
+                    <span className="text-ink-3">{entry.label}</span>
+                  </span>
+                  <span className="relative block h-[2px] w-full shrink-0 overflow-hidden rounded-full bg-line-strong">
+                    <span className="absolute inset-y-0 left-0 rounded-full bg-ink-3" style={{ width: `${entry.percent}%` }} />
+                  </span>
+                </span>
+              ))}
+            </span>
+            <span aria-hidden className="sidebar-usage-rail absolute bottom-[3px] left-1/2 -translate-x-1/2">
+              <span className="relative block h-[2px] w-4 shrink-0 overflow-hidden rounded-full bg-line-strong">
+                <span className="absolute inset-y-0 left-0 rounded-full bg-ink-3" style={{ width: `${item.peak}%` }} />
+              </span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </Part>
+  );
+}
+
+function Sidebar({ compactUsage }: { compactUsage: boolean }) {
   return (
     <Part area="sidebar" outline={["sidebar"]} className="flex w-[272px] shrink-0 flex-col rounded-window bg-surface pt-2 shadow-card">
       <Part keep={["sidebar", "ui"]} className="mx-2 mb-3 flex items-center gap-1 text-[13px] text-ink-3">
@@ -181,7 +255,8 @@ function Sidebar() {
           <span className="min-w-0 flex-1 truncate text-[length:calc(14px+var(--sidebar-delta))] text-ink-2">Rate-limit pairing attempts</span>
         </Part>
       </div>
-      <Part keep={["sidebar", "ui"]} className="mx-2 mt-auto mb-2 flex items-center gap-1 border-t border-line pt-2 text-ink-3">
+      <SidebarUsagePreview compact={compactUsage} />
+      <Part keep={["sidebar", "ui"]} className="mx-2 mt-1.5 mb-2 flex items-center gap-1 border-t border-line pt-2 text-ink-3">
         {[
           { key: "add-project", icon: FolderAddIcon },
           { key: "tasks", icon: CheckListIcon },
@@ -476,7 +551,7 @@ export function AppearanceWindowPreview({ highlight, playMotion }: { highlight: 
                 </span>
               </Part>
               <div className="flex h-full w-full gap-3 pt-11 pb-2 pl-2">
-                <Sidebar />
+                <Sidebar compactUsage={appearance.sidebarUsage === "compact"} />
                 <div className="relative -mt-11 flex min-w-0 flex-1 flex-col pr-3 pb-1">
                   <ChatColumn widthPx={chatWidthPx(appearance.chatWidth, appearance.chatWidthPx)} />
                 </div>

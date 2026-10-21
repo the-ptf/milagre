@@ -223,6 +223,25 @@ async function browserChecks() {
     await openMenu("Chat width");
     await pick("Full");
     await waitFor(`${region("width")}.textContent.includes("Full")`);
+    await openMenu("Provider icons");
+    await pick("Simplified");
+    await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.providerIcons === "simplified"`);
+    await waitFor(
+      `(() => { const logos = [...document.querySelectorAll("[data-provider-logo]")]; return logos.length >= 3 && logos.every(svg => svg.children.length === 1 && svg.firstElementChild.getAttribute("fill") === "currentColor"); })()`,
+    );
+    await openMenu("Provider icons");
+    await pick("Original");
+    await waitFor(`!!document.querySelector("[data-provider-logo=codex] linearGradient")`);
+    // Sidebar usage: switches between Expanded and Compact in the preview and saves to appearance.sidebarUsage.
+    assert.equal(await evaluate(`${region("usage")}.dataset.previewUsage`), "expanded");
+    await openMenu("Sidebar usage");
+    await pick("Compact");
+    await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.sidebarUsage === "compact"`);
+    await waitFor(`${region("usage")}.dataset.previewUsage === "compact"`);
+    assert.equal(await evaluate(`${region("usage")}.hasAttribute("data-highlighted")`), true, "changing Sidebar usage highlights the usage area");
+    await openMenu("Sidebar usage");
+    await pick("Expanded");
+    await waitFor(`${region("usage")}.dataset.previewUsage === "expanded"`);
     await openSection("Experimental");
     await waitFor(`!!document.querySelector("[data-slot=designs-setting]")`);
     await waitFor(`!!document.querySelector('main [role="switch"][aria-label="Bots"]')`);

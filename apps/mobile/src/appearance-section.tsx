@@ -1,6 +1,6 @@
 import { Platform, Pressable, Text, View } from "react-native";
 import * as Haptics from "expo-haptics";
-import { DIFF_PAIRS, MOTION_SPEEDS, PHONE_CODE_SIZES, PHONE_TEXT_SIZES } from "@milagre/shared/appearance";
+import { DIFF_PAIRS, MOTION_SPEEDS, PHONE_CODE_SIZES, PHONE_TEXT_SIZES, PROVIDER_ICON_STYLES } from "@milagre/shared/appearance";
 import { DEFAULT_THEME_ID, seedsFrom, themes, themeSwatch, type ThemeChoice, type ThemeGroup } from "@milagre/shared/themes";
 import { CustomThemeSection } from "./custom-theme-section";
 import { useTheme } from "./theme";
@@ -18,6 +18,7 @@ const TEXT_SIZES = asOptions(PHONE_TEXT_SIZES);
 const CODE_SIZES = asOptions(PHONE_CODE_SIZES);
 const DIFF_COLORS = asOptions(DIFF_PAIRS);
 const MOTIONS = asOptions(MOTION_SPEEDS);
+const PROVIDER_ICONS = asOptions(PROVIDER_ICON_STYLES);
 
 /** One choice row: the label and what it changes on the left, a pull-down with the current choice on the right. */
 function Choice({
@@ -155,6 +156,18 @@ export function AppearanceSection() {
             value={settings.motion}
             options={MOTIONS}
             onChange={(motion) => set({ motion: motion as typeof settings.motion })}
+          />
+        </View>
+      </View>
+      <View style={{ gap: 8 }}>
+        <Text style={styles.section}>Icons</Text>
+        <View style={styles.card}>
+          <Choice
+            label="Provider icons"
+            detail="Original colors, or black and white to match the mode."
+            value={settings.providerIcons}
+            options={PROVIDER_ICONS}
+            onChange={(providerIcons) => set({ providerIcons: providerIcons as typeof settings.providerIcons })}
           />
         </View>
       </View>
