@@ -47,8 +47,20 @@ test("LAN routes keep private and loopback addresses only, and a damaged file re
   const computers = open();
   await computers.load();
   await computers.add({ id: "c1", hostId: HOST, name: "studio", relay: "wss://relay.milagre.cloud" });
-  await computers.setLanRoutes("c1", ["ws://192.168.1.20:8798", "ws://8.8.8.8:8798", "wss://10.0.0.1:8798", "ws://127.0.0.1:5000", 7]);
-  assert.deepEqual(computers.get("c1").lanRoutes, ["ws://192.168.1.20:8798"], "this Mac's own loopback is no route to another computer");
+  await computers.setLanRoutes("c1", [
+    "ws://192.168.1.20:8798",
+    "ws://8.8.8.8:8798",
+    "wss://10.0.0.1:8798",
+    "ws://127.0.0.1:5000",
+    "ws://100.128.0.1:8798",
+    "ws://100.107.136.115:8798",
+    7,
+  ]);
+  assert.deepEqual(
+    computers.get("c1").lanRoutes,
+    ["ws://192.168.1.20:8798", "ws://100.107.136.115:8798"],
+    "this Mac's own loopback is no route to another computer",
+  );
   await fs.writeFile(file, "[{ not json");
   assert.deepEqual(await open().load(), []);
   await fs.writeFile(

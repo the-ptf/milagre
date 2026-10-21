@@ -5,7 +5,7 @@ import { lanRouteFromAnswer, validLanRoute } from "./lan-route.ts";
 const hostId = "H".repeat(22);
 const key = "K".repeat(43);
 
-test("keeps private ws endpoints only, at most four", () => {
+test("keeps private and tailnet ws endpoints only, at most four", () => {
   const route = validLanRoute({
     hostId,
     key,
@@ -15,10 +15,12 @@ test("keeps private ws endpoints only, at most four", () => {
       "ws://10.0.0.7:8798",
       "ws://172.31.0.2:8798",
       "ws://172.32.0.2:8798",
+      "ws://100.128.0.2:8798",
+      "ws://100.63.0.2:8798",
       "wss://192.168.1.20:8798",
       "ws://8.8.8.8:8798",
       "ws://mac.local:8798",
-      "ws://192.168.1.21:8798",
+      "ws://100.107.136.115:8798",
       "ws://192.168.1.22:8798",
     ],
   });
@@ -26,7 +28,7 @@ test("keeps private ws endpoints only, at most four", () => {
     hostId,
     key,
     learnedAt: 5,
-    endpoints: ["ws://192.168.1.20:8798", "ws://10.0.0.7:8798", "ws://172.31.0.2:8798", "ws://192.168.1.21:8798"],
+    endpoints: ["ws://192.168.1.20:8798", "ws://10.0.0.7:8798", "ws://172.31.0.2:8798", "ws://100.107.136.115:8798"],
   });
 });
 

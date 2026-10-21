@@ -8,10 +8,10 @@ const MAX_LAN_ROUTES = 4;
 const HOST_ID = /^[A-Za-z0-9_-]{22}$/;
 // A computer's id here; no "|", which PR 4's stored chat keys use (`${computerId}|${key}`).
 const ID = /^[A-Za-z0-9-]{1,64}$/;
-// A LAN route: a private address, as the phone takes (apps/mobile/src/lan-route.ts). This Mac's own loopback reaches only
+// A LAN route: a private or Tailscale (100.64.0.0/10) address, as the phone takes (apps/mobile/src/lan-route.ts). This Mac's own loopback reaches only
 // this Mac, so only the end-to-end tests (allowLocalRelay) take it; it would still have to pass the probe's host id and
 // the hello's pinned key.
-const LAN_ROUTE = /^ws:\/\/(10\.\d{1,3}|172\.(1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}:\d{1,5}$/;
+const LAN_ROUTE = /^ws:\/\/(10\.\d{1,3}|172\.(1[6-9]|2\d|3[01])|192\.168|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\.\d{1,3}\.\d{1,3}:\d{1,5}$/;
 const LOOPBACK_ROUTE = /^ws:\/\/127\.0\.\d{1,3}\.\d{1,3}:\d{1,5}$/;
 
 const lanRoutesOf = (value, allowLoopback) =>
