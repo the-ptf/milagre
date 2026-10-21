@@ -208,10 +208,10 @@ export function createPageService({ storage, validate, render, admit, reserve })
           if (canonical.byteLength > MAX_BODY_BYTES) return response("Snapshot too large", 413);
           const hash = await digest(canonical);
           const result = () => JSON.stringify({ id, path: `/s/${id}` });
-          // An identical retry is free. Changed content replaces the page and pays like a new publication;
-          // only now, after hashing, can a replacement be told apart from a retry, so admit it before rendering.
+          // An identical retry is free. Changed content replaces the page: it pays its bytes and a daily update,
+          // not a new publication. Only now, after hashing, can a replacement be told apart from a retry.
           if (meta?.hash === hash) return response(result(), 200, "application/json; charset=utf-8");
-          if (meta && !(await admit(ip))) return response("Publishing limit reached", 429);
+          if (meta && !(await admit(ip, true))) return response("Publishing limit reached", 429);
           let html;
           try {
             html = encoder.encode(render(snapshot));
@@ -221,7 +221,7 @@ export function createPageService({ storage, validate, render, admit, reserve })
           }
           if (html.byteLength > MAX_HTML_BYTES) return response("Rendered snapshot too large", 413);
           // Count even failed writes against the budget. A crash can spend a reservation twice, but never bypass it.
-          if (!(await reserve(ip, canonical.byteLength + html.byteLength))) return response("Publishing limit reached", 429);
+          if (!(await reserve(ip, canonical.byteLength + html.byteLength, !!meta))) return response("Publishing limit reached", 429);
           const count = Math.ceil(html.byteLength / CHUNK_BYTES);
           // A replacement writes under the next revision and drops the old chunks in the same transaction,
           // so storage holds one version and readers of the old one stop instead of mixing the two.
@@ -251,12 +251,15 @@ export function quotaLimits(env) {
     pages: positive("MAX_TOTAL_PAGES", 10000, 1000000),
     daily: positive("MAX_DAILY_PAGES", 100, 10000),
     perIp: positive("MAX_DAILY_IP_PAGES", 10, 1000),
+    perIpUpdates: positive("MAX_DAILY_IP_UPDATES", 500, 100000),
   };
 }
 
 export function createQuotaService({ storage, limits, now = Date.now }) {
   const enqueue = serial();
-  const check = (ip, bytes, spend) =>
+  // A replacement of an existing page (a live Artifact updated again) spends bytes and its own daily
+  // per-IP update count. It never spends a publication, so updating one link cannot lock out new links.
+  const check = (ip, bytes, spend, replacement = false) =>
     enqueue(async () => {
       if (!ip || ip.length > 64 || !Number.isSafeInteger(bytes) || bytes < 1 || bytes > MAX_BODY_BYTES + MAX_HTML_BYTES) return false;
       const day = new Date(now()).toISOString().slice(0, 10);
@@ -265,22 +268,29 @@ export function createQuotaService({ storage, limits, now = Date.now }) {
         const total = storage.get("total") ?? { pages: 0, bytes: 0 };
         const currentDay = storage.get("date") === day;
         const daily = currentDay ? (storage.get("daily") ?? 0) : 0;
-        const count = currentDay ? (storage.get(`ip:${ipHash}`) ?? 0) : 0;
-        if (total.pages >= limits.pages || total.bytes + bytes > limits.bytes || daily >= limits.daily || count >= limits.perIp) return false;
+        const key = `${replacement ? "update" : "ip"}:${ipHash}`;
+        const count = currentDay ? (storage.get(key) ?? 0) : 0;
+        if (total.bytes + bytes > limits.bytes) return false;
+        if (replacement ? count >= limits.perIpUpdates : total.pages >= limits.pages || daily >= limits.daily || count >= limits.perIp) return false;
         if (!spend) return true;
         if (!currentDay) {
-          for (const key of storage.keys("ip:")) storage.delete(key);
+          for (const prefix of ["ip:", "update:"]) for (const stale of storage.keys(prefix)) storage.delete(stale);
           storage.put("date", day);
+          storage.put("daily", 0);
+        }
+        storage.put(key, count + 1);
+        if (replacement) {
+          storage.put("total", { ...total, bytes: total.bytes + bytes });
+          return true;
         }
         storage.put("total", { pages: total.pages + 1, bytes: total.bytes + bytes });
         storage.put("daily", daily + 1);
-        storage.put(`ip:${ipHash}`, count + 1);
         return true;
       });
     });
   return {
-    admit: (ip) => check(ip, 1, false),
-    reserve: (ip, bytes) => check(ip, bytes, true),
+    admit: (ip, replacement) => check(ip, 1, false, replacement === true),
+    reserve: (ip, bytes, replacement) => check(ip, bytes, true, replacement === true),
   };
 }
 

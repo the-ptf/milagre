@@ -270,6 +270,43 @@ test("quota stays durable, daily limits reset, and lifetime bytes are never refu
   assert.ok(storage.keys("ip:").every((key) => !key.includes("192.0.2")));
 });
 
+test("replacements spend bytes and their own daily update count, never a publication", async () => {
+  const storage = memory();
+  let now = Date.UTC(2026, 9, 21);
+  const service = createQuotaService({ storage, limits: { pages: 2, bytes: 100, daily: 1, perIp: 1, perIpUpdates: 2 }, now: () => now });
+  assert.equal(await service.reserve("192.0.2.1", 10), true);
+  assert.equal(await service.admit("192.0.2.1"), false, "the publication limit is spent");
+  assert.equal(await service.admit("192.0.2.1", true), true, "updating the existing link still works");
+  assert.equal(await service.reserve("192.0.2.1", 10, true), true);
+  assert.equal(await service.reserve("192.0.2.1", 10, true), true);
+  assert.equal(await service.reserve("192.0.2.1", 10, true), false, "daily updates per IP are bounded");
+  assert.equal(await service.reserve("192.0.2.2", 71, true), false, "updates still respect the lifetime byte budget");
+  assert.deepEqual(storage.get("total"), { pages: 1, bytes: 30 });
+  assert.equal(storage.get("daily"), 1);
+  now += 86400000;
+  assert.equal(await service.reserve("192.0.2.1", 10, true), true, "the update count resets the next day");
+  assert.equal(storage.get("daily"), 0, "an update on a new day does not inherit yesterday's publications");
+  assert.equal(await service.reserve("192.0.2.1", 10), true);
+  assert.equal(await service.reserve("192.0.2.3", 10), false, "the lifetime page count still applies");
+  assert.ok(storage.keys("update:").every((key) => !key.includes("192.0.2")));
+});
+
+test("the page service asks for replacement quota only when a page already exists", async () => {
+  const calls = [];
+  const f = await fixture({
+    admit: async (_ip, replacement) => (calls.push(["admit", replacement === true]), true),
+    reserve: async (_ip, _size, replacement) => (calls.push(["reserve", replacement === true]), true),
+  });
+  assert.equal((await f.send("PUT")).status, 201);
+  assert.equal((await f.send("PUT", { title: "Changed" })).status, 200);
+  assert.deepEqual(calls, [
+    ["admit", false],
+    ["reserve", false],
+    ["admit", true],
+    ["reserve", true],
+  ]);
+});
+
 test("concurrent quota reservations cannot exceed the global count", async () => {
   const service = createQuotaService({ storage: memory(), limits: { pages: 1, bytes: 100, daily: 1, perIp: 1 } });
   assert.deepEqual(await Promise.all([service.reserve("1", 20), service.reserve("2", 20)]), [true, false]);
