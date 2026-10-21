@@ -252,8 +252,8 @@ async function browserChecks() {
       requestAnimationFrame(watch);
     })`);
     assert.equal(firstMove, 400, "with motion off a layout slide is instant");
-    // Edge fades: the tint is the background the transcript sits on (the page, or a focused tile's surface) and stays
-    // soft, so an empty area under a fade shows no band, while a turn runs and when idle, in light, dark and a custom theme.
+    // Edge fades: a plain gradient from the background the transcript sits on (the page, or a focused tile's surface),
+    // with no blur, so an empty area under a fade shows no band, while a turn runs and when idle, in light, dark and a custom theme.
     const rectOf = (selector) =>
       evaluate(
         `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) }; })()`,
@@ -274,17 +274,17 @@ async function browserChecks() {
       for (let pixel = 0; pixel < width * height; pixel++) for (let channel = 0; channel < 3; channel++) sum[channel] += bitmap[pixel * 4 + channel];
       return sum.map((total) => total / (width * height));
     };
-    // The fade's tint as { rgb, alpha }: the browser reports the color-mix as an oklab() color, which a canvas turns into rgb.
+    // The fade's tint as { rgb, alpha }: the first color stop of its gradient, read back through a canvas.
     const tintOf = (selector) =>
       evaluate(`(() => {
         const image = getComputedStyle(document.querySelector(${JSON.stringify(selector + " > :last-child")})).backgroundImage;
-        const css = /oklab\\([^)]*\\)/.exec(image)?.[0];
-        if (!css) throw Error('No oklab tint in ' + image);
-        const [base, alpha] = css.slice(0, -1).split('/');
+        const css = /(?:rgba?|oklab|oklch|color)\\([^)]*\\)/.exec(image)?.[0];
+        if (!css) throw Error('No tint in ' + image);
         const context = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
-        context.fillStyle = base.trim() + ')';
+        context.fillStyle = css;
         context.fillRect(0, 0, 1, 1);
-        return { rgb: [...context.getImageData(0, 0, 1, 1).data].slice(0, 3), alpha: Number(alpha) };
+        const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
+        return { rgb: [r, g, b], alpha: Math.round((a / 255) * 100) / 100 };
       })()`);
     const rgbOf = (color) => /rgb\((\d+), (\d+), (\d+)\)/.exec(color).slice(1).map(Number);
     const shootFade = async (name) => {
@@ -313,7 +313,14 @@ async function browserChecks() {
             Math.abs(bottom.rgb[channel] - wanted[channel]) <= 2,
             where + ": the bottom fade tints toward the transcript background " + background + " (got " + JSON.stringify(bottom) + ")",
           );
-        assert.ok(bottom.alpha <= (busy ? 0.5 : 0.35) + 0.001, where + ": the bottom fade tint stays soft (got " + JSON.stringify(bottom) + ")");
+        assert.equal(bottom.alpha, 1, where + ": the bottom fade starts at the transcript background itself (got " + JSON.stringify(bottom) + ")");
+        assert.equal(
+          await evaluate(
+            `[...document.querySelectorAll('.chat-top-blur > :not(:last-child), .chat-bottom-blur > :not(:last-child)')].every((layer) => getComputedStyle(layer).display === 'none')`,
+          ),
+          true,
+          where + ": the edges fade without blurring the transcript",
+        );
         assert.deepEqual(await tintOf(".chat-top-blur"), bottom, where + ": the top fade mirrors the bottom's tint");
         assert.equal((await rectOf(".chat-bottom-blur")).height, 56, where + ": the bottom fade is 56px tall");
         // Over empty space the middle of the fade is the background itself: same pixels as just above the fade.
