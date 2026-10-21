@@ -462,8 +462,8 @@ export function SubagentTrack({
                   ? 0
                   : buttons.length - 1
                 : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
-            buttons[next].focus();
-            buttons[next].scrollIntoView({ block: "nearest" });
+            buttons[next]?.focus();
+            buttons[next]?.scrollIntoView({ block: "nearest" });
           }}
         >
           {child ? (

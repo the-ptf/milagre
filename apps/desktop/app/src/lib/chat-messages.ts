@@ -88,12 +88,13 @@ async function loadEarlier(scope: string, chatId: number, turns = TURNS) {
   const pending = earlierLoads.get(key);
   if (pending) return pending;
   const current = windows.get(key);
-  if (!current?.hasMore || !current.messages.length) return;
+  const first = current?.messages[0];
+  if (!current?.hasMore || !first) return;
   const request = bridgeForKey(scope)
-    .readChatMessages(scope, chatId, { before: current.messages[0].id, turns })
+    .readChatMessages(scope, chatId, { before: first.id, turns })
     .then((page) => {
       const latest = windows.get(key);
-      const next = prependChatPage(latest, current.messages[0]!.id, page);
+      const next = prependChatPage(latest, first.id, page);
       if (next && next !== latest) set(key, next);
     })
     .finally(() => earlierLoads.delete(key));

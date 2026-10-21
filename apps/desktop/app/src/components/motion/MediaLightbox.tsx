@@ -60,7 +60,12 @@ function flip(figure: Figure, to: Rect) {
   return { x: to.left + to.width / 2 - left, y: to.top + to.height / 2 - top, scale: to.width / width };
 }
 function pose(figure: Figure, to: Pose, transition: Transition) {
-  return Promise.all((Object.keys(to) as (keyof Pose)[]).map((key) => animate(figure[key], to[key]!, transition)));
+  return Promise.all(
+    (Object.keys(to) as (keyof Pose)[]).flatMap((key) => {
+      const value = to[key];
+      return value === undefined ? [] : [animate(figure[key], value, transition)];
+    }),
+  );
 }
 
 const Icon = ({ d }: { d: string }) => (
@@ -106,20 +111,23 @@ export function MediaLightbox({
   const current = () => latest.current.items[latest.current.index];
 
   const frame = (): Frame | null => {
-    const media = elements.media.get(current().id);
+    const selected = current();
+    const media = selected ? elements.media.get(selected.id) : undefined;
     if (!media || !stage.current) return null;
     return { width: media.offsetWidth, height: media.offsetHeight, frameWidth: stage.current.clientWidth, frameHeight: stage.current.clientHeight };
   };
   // A point relative to the stage centre, where the media is centred.
   const fromCentre = (clientX: number, clientY: number) => {
-    const box = stage.current!.getBoundingClientRect();
+    const area = stage.current;
+    if (!area) return null;
+    const box = area.getBoundingClientRect();
     return { x: clientX - box.left - box.width / 2, y: clientY - box.top - box.height / 2 };
   };
 
   const go = (by: number) => {
     const { index, items, closing, onIndexChange } = latest.current;
     const next = step(index, by, items.length);
-    if (next === index || closing) return;
+    if (!items[index] || !items[next] || next === index || closing) return;
     setDirection(by);
     setIndex(next);
     setZoom(FIT);
@@ -131,10 +139,12 @@ export function MediaLightbox({
     if (closing) return;
     setClosing(true);
     setZoom(FIT);
-    const figure = elements.figures.get(current().id);
+    const selected = current();
+    if (!selected) return close();
+    const figure = elements.figures.get(selected.id);
     if (!figure) return close();
     // Morph back into the thumbnail when it is on screen; otherwise just fade out.
-    const thumb = thumbFor(current().id),
+    const thumb = thumbFor(selected.id),
       target = thumbRect(thumb);
     const run =
       !reduce && target
@@ -154,9 +164,10 @@ export function MediaLightbox({
     // A cached image is ready before the dialog's ref and effect run, and a closed dialog has no size to morph from.
     openDialog(figure.el.closest("dialog"));
     // Decoding a large image at its full size takes a few frames; done first, the morph doesn't stall on it.
-    const media = elements.media.get(items[start].id);
+    const openingItem = items[start];
+    const media = openingItem ? elements.media.get(openingItem.id) : undefined;
     void (media instanceof HTMLImageElement ? media.decode().catch(() => {}) : Promise.resolve()).then(() => {
-      const thumb = thumbFor(items[start].id),
+      const thumb = openingItem ? thumbFor(openingItem.id) : undefined,
         source = thumbRect(thumb);
       if (reduce || !source) {
         figure.scale.jump(reduce ? 1 : 0.96);
@@ -184,6 +195,7 @@ export function MediaLightbox({
       event.preventDefault();
       event.stopPropagation();
       if (event.key === "Escape") return requestClose();
+      if (!nudge) return;
       const zoom = latest.current.zoom,
         bounds = frame();
       if (zoom.scale > 1 && bounds) setZoom({ ...panBy(zoom, nudge[0], nudge[1], bounds), smooth: true });
@@ -194,8 +206,9 @@ export function MediaLightbox({
       event.preventDefault();
       const zoom = latest.current.zoom,
         bounds = frame();
-      if ((event.ctrlKey || event.metaKey) && bounds && current().kind === "image") {
-        setZoom(zoomAt(zoom, zoom.scale * Math.exp(-event.deltaY * 0.01), fromCentre(event.clientX, event.clientY), bounds));
+      if ((event.ctrlKey || event.metaKey) && bounds && current()?.kind === "image") {
+        const point = fromCentre(event.clientX, event.clientY);
+        if (point) setZoom(zoomAt(zoom, zoom.scale * Math.exp(-event.deltaY * 0.01), point, bounds));
         return;
       }
       if (zoom.scale > 1 && bounds) {
@@ -225,7 +238,9 @@ export function MediaLightbox({
       window.removeEventListener("keydown", keys, true);
       area?.removeEventListener("wheel", wheel);
       dialog.current?.close();
-      (latest.current.thumbFor(current().id) ?? previous)?.focus();
+      const selected = current();
+      const thumb = selected ? latest.current.thumbFor(selected.id) : undefined;
+      (thumb ?? previous)?.focus();
     };
   }, []);
 
@@ -267,9 +282,16 @@ export function MediaLightbox({
     if (target instanceof HTMLVideoElement) return;
     if (!(target instanceof HTMLImageElement)) return requestClose();
     const bounds = frame();
-    if (!bounds) return;
-    setZoom(zoom.scale > 1 ? { ...FIT, smooth: true } : { ...zoomAt(zoom, 2.5, fromCentre(event.clientX, event.clientY), bounds), smooth: true });
+    const point = fromCentre(event.clientX, event.clientY);
+    if (!bounds || !point) return;
+    setZoom(zoom.scale > 1 ? { ...FIT, smooth: true } : { ...zoomAt(zoom, 2.5, point, bounds), smooth: true });
   };
+
+  useEffect(() => {
+    if (!item) close();
+  }, [item, close]);
+
+  if (!item) return null;
 
   const chrome = {
     initial: { opacity: 0 },

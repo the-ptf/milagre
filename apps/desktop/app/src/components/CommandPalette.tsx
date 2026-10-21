@@ -184,7 +184,8 @@ export function CommandPalette({
           }
         } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault();
-          if (results.length) setSelectedId(results[(selectedIndex + (event.key === "ArrowDown" ? 1 : -1) + results.length) % results.length].id);
+          const next = results[(selectedIndex + (event.key === "ArrowDown" ? 1 : -1) + results.length) % results.length];
+          if (next) setSelectedId(next.id);
         } else if (event.key === "Enter") {
           event.preventDefault();
           if (selected) close(selected);

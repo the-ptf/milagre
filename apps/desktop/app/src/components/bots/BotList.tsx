@@ -33,7 +33,10 @@ export function BotList({
           type="button"
           data-needs-you
           aria-label={`Needs you: ${pending.length}`}
-          onClick={() => onPickBot([...pending].sort((a, b) => a.createdAt - b.createdAt)[0].botId)}
+          onClick={() => {
+            const first = [...pending].sort((a, b) => a.createdAt - b.createdAt)[0];
+            if (first) onPickBot(first.botId);
+          }}
           className={`sidebar-rail-button mb-3 flex h-8 items-center rounded-[8px] border border-orange/30 bg-orange-tint text-orange transition-transform active:scale-[0.98] ${
             collapsed ? "mx-auto w-8 justify-center" : "mx-2 gap-1.5 px-2"
           }`}

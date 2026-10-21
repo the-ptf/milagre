@@ -29,7 +29,7 @@ export function splitStreamingBlocks(text: string): string[] {
     if (blankBefore && /^\S/.test(line) && !(item && inList)) {
       // The blank lines between blocks belong to neither.
       let end = index;
-      while (end > start && lines[end - 1].trim() === "") end -= 1;
+      while (end > start && (lines[end - 1] ?? "").trim() === "") end -= 1;
       blocks.push(lines.slice(start, end).join("\n"));
       start = index;
       inList = false;

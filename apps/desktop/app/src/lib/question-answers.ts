@@ -49,13 +49,13 @@ export function draftAnswers(questions: AgentQuestion[], drafts: QuestionDrafts)
 export function answerSummary(questions: AgentQuestion[], answers: QuestionAnswers): string {
   const shown = (question: AgentQuestion) =>
     (answers[question.id] ?? []).map((value) => (question.secret && !question.options.some((option) => option.label === value) ? "••••••" : value)).join(", ");
-  if (questions.length === 1) return shown(questions[0]);
+  if (questions.length === 1 && questions[0]) return shown(questions[0]);
   return questions.map((question, index) => `${tabLabel(question, index)}: ${shown(question)}`).join("\n");
 }
 
 /** A card with one single-choice question sends as soon as an option is picked. */
 export function sendsOnPick(questions: AgentQuestion[]): boolean {
-  return questions.length === 1 && !questions[0].multiSelect;
+  return questions.length === 1 && !!questions[0] && !questions[0].multiSelect;
 }
 
 /** On a card with several questions, a pick on a single-choice question moves on to the next one. The last question waits for Send, so the answers get a final look. */
@@ -80,7 +80,9 @@ export function primaryAction(questions: AgentQuestion[], active: number): "next
 
 /** Next needs the active question answered; Send needs every question answered. */
 export function primaryEnabled(questions: AgentQuestion[], drafts: QuestionDrafts, active: number): boolean {
-  return primaryAction(questions, active) === "next" ? questionAnswered(questions[active], drafts) : draftAnswers(questions, drafts) !== null;
+  const question = questions[active];
+  if (!question) return false;
+  return primaryAction(questions, active) === "next" ? questionAnswered(question, drafts) : draftAnswers(questions, drafts) !== null;
 }
 
 /** Where Next goes: one question on, staying on the last. */

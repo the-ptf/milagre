@@ -726,7 +726,8 @@ interface ChatComposerProps {
   starters?: Starter[];
 }
 
-const ISOLATIONS: Array<{ id: Isolation; name: string; description: string; icon: IconData }> = [
+type IsolationOption = { id: Isolation; name: string; description: string; icon: IconData };
+const ISOLATIONS: [IsolationOption, ...IsolationOption[]] = [
   { id: "local", name: "Local", description: "Work in the selected checkout", icon: LaptopIcon },
   { id: "worktree", name: "New worktree", description: "Start a new branch in its own worktree", icon: GitForkIcon },
 ];

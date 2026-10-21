@@ -56,7 +56,7 @@ function Content({ line, decoration }: { line: DiffLine; decoration?: Decorated 
     for (let i = 0; i < cuts.length - 1; i++) {
       const from = cuts[i];
       const to = cuts[i + 1];
-      if (from === to) continue;
+      if (from === undefined || to === undefined || from === to) continue;
       const changed = words.some(([a, b]) => from >= a && to <= b);
       pieces.push(
         <span
@@ -311,7 +311,13 @@ export const DiffFile = memo(function DiffFile({
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
-    const observer = new IntersectionObserver((entries) => setNear(entries[entries.length - 1].isIntersecting), { rootMargin: "800px 0px" });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries.at(-1);
+        if (entry) setNear(entry.isIntersecting);
+      },
+      { rootMargin: "800px 0px" },
+    );
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
@@ -361,7 +367,8 @@ export const DiffFile = memo(function DiffFile({
   let editorAt: string | undefined;
   if (draft && hunk && !draft.dragging) {
     for (let index = hi; index >= lo; index--) {
-      if (!draft.side || onSide(hunk.lines[index], draft.side)) {
+      const line = hunk.lines[index];
+      if (line && (!draft.side || onSide(line, draft.side))) {
         editorAt = `${draft.hunk}:${index}`;
         break;
       }
@@ -394,9 +401,10 @@ export const DiffFile = memo(function DiffFile({
             <CommentEditor
               text={draftText}
               onCancel={actions.cancel}
-              onSave={(text) =>
-                actions.save(selectionFromRows(hunks[editing.hunk], editing.anchor, editing.head, editing.side), file.path, text, editing.editing)
-              }
+              onSave={(text) => {
+                const target = hunks[editing.hunk];
+                if (target) actions.save(selectionFromRows(target, editing.anchor, editing.head, editing.side), file.path, text, editing.editing);
+              }}
             />
           )}
         </CommentSlot>

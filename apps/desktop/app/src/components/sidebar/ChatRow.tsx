@@ -246,9 +246,10 @@ export function ChatMarkDot({
 
 function recentInitials(label: string) {
   const words = label.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "?";
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+  const [first, second] = words;
+  if (!first) return "?";
+  if (!second) return first.slice(0, 2).toUpperCase();
+  return `${first.charAt(0)}${second.charAt(0)}`.toUpperCase();
 }
 
 // memo: the sidebar rebuilds on streamed batches, and a row only needs to render when its own item changes.
@@ -1038,7 +1039,8 @@ function ChatMenu({
 
   // Enter confirms the armed archive wherever focus is, since a mouse click on "Archive" leaves it on the page.
   // A row focused with the arrow keys keeps Enter for itself.
-  const confirmEntry = archiveItems.length === 1 && archiveItems[0].archiveChoice && !archiveItems[0].disabled ? archiveItems[0] : null;
+  const firstArchiveItem = archiveItems[0];
+  const confirmEntry = archiveItems.length === 1 && firstArchiveItem?.archiveChoice && !firstArchiveItem.disabled ? firstArchiveItem : null;
   useEffect(() => {
     if (!confirmEntry) return;
     const onKey = (event: KeyboardEvent) => {

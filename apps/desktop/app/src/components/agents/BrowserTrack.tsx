@@ -72,7 +72,7 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
   }, [api, chatId, close, refresh]);
   const visible = !!api && !!chatId && list.supported && list.targets.length > 0;
   const open = () => {
-    setSelected(list.targets.length === 1 ? list.targets[0] : null);
+    setSelected(list.targets.length === 1 ? (list.targets[0] ?? null) : null);
     setOpened(true);
     void refresh();
   };

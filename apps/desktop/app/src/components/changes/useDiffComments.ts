@@ -134,8 +134,11 @@ export function useCommentDraft() {
     );
   }, []);
   const edit = useCallback((comment: DiffComment, hunk: number, lines: number[], side: DiffSide | undefined) => {
+    const anchor = lines[0];
+    const head = lines.at(-1);
+    if (anchor === undefined || head === undefined) return;
     text.current = comment.body;
-    setDraft({ path: comment.path, hunk, side, anchor: lines[0], head: lines[lines.length - 1], dragging: false, editing: comment.id });
+    setDraft({ path: comment.path, hunk, side, anchor, head, dragging: false, editing: comment.id });
   }, []);
   const cancel = useCallback(() => {
     text.current = "";
