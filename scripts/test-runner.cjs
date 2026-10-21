@@ -24,6 +24,8 @@ const MANIFEST = {
   "test-floating-inbox.cjs": { seconds: 25 },
   "test-chat-attachments.cjs": { seconds: 24 },
   "test-site.cjs": { seconds: 23 },
+  // Restored in #235: 21-23 s in repeated sandboxed Linux/Xvfb runs with two CPUs.
+  "test-chat-send-feedback.cjs": { seconds: 22 },
   "test-task-track.cjs": { seconds: 20 },
   // Darwin-only until #526: 19.6 s on its first Linux run.
   "test-subagents.cjs": { seconds: 20 },
@@ -59,7 +61,6 @@ const MANIFEST = {
   "test-design-csp.cjs": { needsBuild: true },
   // Red on the Linux CI runner (xvfb); each issue holds the log and the triage notes.
   "test-chat-layout.cjs": { platforms: ["darwin"], reason: "message preview overlaps the prompt on Linux, #234" },
-  "test-chat-send-feedback.cjs": { platforms: ["darwin"], reason: "message navigation rebuilds on Linux, #235" },
   "test-command-palette.cjs": { platforms: ["darwin"], reason: "presses Meta, the Mac-only hint modifier, #236" },
   "test-prompt-skills.cjs": { platforms: ["darwin"], reason: "skill tooltip never shows on hover under xvfb, #238" },
   // The Routines page, form and Chat surfaces on a Vite fixture (no build); about 6s on a Mac, so a Linux runner guess.

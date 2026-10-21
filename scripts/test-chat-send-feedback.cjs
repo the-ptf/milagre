@@ -11,14 +11,23 @@ async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "milagre-chat-send-feedback-")));
   await app.whenReady();
-  const window = new BrowserWindow({ width: 1100, height: 760, useContentSize: true, show: false, webPreferences: { backgroundThrottling: false } });
+  let window;
   const consoleErrors = [];
-  window.webContents.on("console-message", (event) => {
-    if (event.level === "error") {
-      consoleErrors.push(event.message);
-      console.error(event.message);
-    }
-  });
+  async function loadFixture(url) {
+    // Each load starts an independent scenario. Release the preceding document's
+    // pending Vite imports instead of accumulating them in one WebContents on Linux.
+    const previous = window;
+    window = new BrowserWindow({ width: 1100, height: 760, useContentSize: true, show: false, webPreferences: { backgroundThrottling: false } });
+    window.webContents.on("console-message", (event) => {
+      if (event.level === "error") {
+        consoleErrors.push(event.message);
+        console.error(event.message);
+      }
+    });
+    // Keep a window alive during replacement so Electron doesn't quit between scenarios.
+    previous?.destroy();
+    await window.loadURL(url);
+  }
   const evaluate = (source) => window.webContents.executeJavaScript(source);
   async function waitFor(source, tries = 200) {
     for (let i = 0; i < tries; i++) {
@@ -80,7 +89,7 @@ async function browserChecks() {
   }
   const occurrences = (body) => evaluate(`(${transcript}?.textContent.match(new RegExp(${JSON.stringify(body)}, 'g')) ?? []).length`);
   try {
-    await window.loadURL(process.argv[2] + "?link=1");
+    await loadFixture(process.argv[2] + "?link=1");
     await waitFor(`!!document.querySelector(${JSON.stringify(prompt)})`, 1200);
     await send("Retry a shared Chat");
     await waitFor("window.calls.sent.length === 2");
@@ -90,7 +99,7 @@ async function browserChecks() {
     assert.equal(await evaluate("document.body.textContent.includes('Your command was not sent')"), false);
 
     // A chat on an agent that can't steer: its held queue sits above the composer, each message with Send now and Remove.
-    await window.loadURL(process.argv[2] + "?queue=1");
+    await loadFixture(process.argv[2] + "?queue=1");
     // The first page of the run waits on Vite's cold transforms.
     await waitFor(`[...document.querySelectorAll('aside [data-row]')].some(row => row.textContent.includes('Previous chat'))`, 1200);
     await evaluate(`[...document.querySelectorAll('aside [data-row]')].find(row => row.textContent.includes('Previous chat')).click()`);
@@ -111,7 +120,7 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-queued-remove="q2"]').click()`);
     await waitFor(`document.querySelectorAll('[data-queued-message]').length === 1`);
     assert.deepEqual(await evaluate("window.calls.queueRemoved"), [["/fixture#2", "q2"]]);
-    await window.loadURL(process.argv[2]);
+    await loadFixture(process.argv[2]);
     await waitFor(`!!document.querySelector('[aria-label="New chat"]')`);
     await newChat("New worktree");
     await type("Add a checkout page");
@@ -362,7 +371,7 @@ async function browserChecks() {
     assert.equal(await rows("Reply before state"), 1);
     assert.equal(await occurrences("Reply before state"), 1, "the saved message replaces the preview");
     // A Chat summary can arrive before its first message page, including before the send acknowledgement.
-    await window.loadURL(process.argv[2] + "?lean=1");
+    await loadFixture(process.argv[2] + "?lean=1");
     await waitFor(`!!document.querySelector('[aria-label="New chat"]')`);
     await newChat("Local");
     await send("Keep the first message visible");
@@ -408,7 +417,7 @@ async function browserChecks() {
     await waitFor(acknowledged);
 
     // A host that keeps messages by Chat: the newest turns come as a page, and Show earlier reads the next one.
-    await window.loadURL(process.argv[2] + "?long=1&lean=1");
+    await loadFixture(process.argv[2] + "?long=1&lean=1");
     await waitFor(`document.querySelectorAll('[data-slot="message"]').length === 40`);
     assert.equal(await evaluate("window.calls.pages"), 1, "the open Chat reads one page");
     await delay(400);
@@ -426,7 +435,7 @@ async function browserChecks() {
     );
     await screenshot("lean-history");
     for (const busy of [false, true]) {
-      await window.loadURL(process.argv[2] + "?long=1");
+      await loadFixture(process.argv[2] + "?long=1");
       await waitFor(`!!document.querySelector('[data-slot="message"]')`);
       assert.equal(await evaluate(`document.querySelectorAll('[data-slot="message"]').length`), 40, "long chats initially mount only the newest page");
       await delay(400);
@@ -448,8 +457,10 @@ async function browserChecks() {
       await evaluate(`window.emitAgent(99, { type: 'turn-started' }); window.emitAgent(99, { type: 'text-delta', text: 'Other chat' })`);
       // The open chat's own streamed text schedules a trailing 250 ms rail refresh; let it land before counting.
       let railStableSince = Date.now();
+      const railDeadline = railStableSince + 10_000;
       let railSeen = await evaluate("window.railItemsRendered");
       while (Date.now() - railStableSince < 500) {
+        assert.ok(Date.now() < railDeadline, "message navigation must settle before measuring background updates");
         await delay(50);
         const now = await evaluate("window.railItemsRendered");
         if (now !== railSeen) {

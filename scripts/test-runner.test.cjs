@@ -55,6 +55,19 @@ test("platform and tool prerequisites skip checks with a reason instead of faili
   assert.deepEqual(MANIFEST["test-windows-cli.cjs"].platforms, ["win32"]);
 });
 
+test("chat-send feedback stays enabled on macOS and Linux", () => {
+  const file = "scripts/test-chat-send-feedback.cjs";
+  for (const platform of ["darwin", "linux"]) {
+    const selected = selectTests({
+      unit: [],
+      electron: [file],
+      filters: { ...parseArgs(["--only", "test-chat-send-feedback"]), platform, commandExists: () => true },
+    });
+    assert.deepEqual(selected.electron, [file], platform);
+    assert.deepEqual(selected.skipped, [], platform);
+  }
+});
+
 test("unknown flags are rejected", () => {
   assert.throws(() => parseArgs(["--watchh"]), /Unknown option --watchh/);
 });
