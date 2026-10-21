@@ -848,8 +848,14 @@ function createRoutines({
     // any more; a Routine created, turned on or run from such a device says it too, through authorize).
     read: () => ({ enabled: store.enabled() }),
     save,
-    // store.list gives copies, so each takes its Runs in place.
-    list: () => ({ routines: store.list().map((routine) => Object.assign(routine, { runs: store.runs(routine.id) })) }),
+    // store.list gives copies, so each takes its Runs in place. While this computer may not run Routines, none has a next
+    // Run: every surface (rows, a Routine's page, a Chat's Next check, the phone) would otherwise promise one that won't come.
+    list: () => {
+      const mayRun = store.enabled();
+      return {
+        routines: store.list().map((routine) => Object.assign(routine, { runs: store.runs(routine.id) }, mayRun ? {} : { nextRunAt: null })),
+      };
+    },
     // A Routine from the Routines form: always the user's, whatever the input says.
     async create(input, consentVersion) {
       if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("A Routine needs its settings.");

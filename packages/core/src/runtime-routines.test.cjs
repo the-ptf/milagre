@@ -187,8 +187,10 @@ test("a Routine created or run with the consent version lets the computer run Ro
   assert.deepEqual(await f.runtime.invoke("routines:enabled:read"), { enabled: false }, "a write without consent authorizes nothing");
   assert.equal((await f.list()).length, 1, "the list shows Routines whether or not they may run");
   await assert.rejects(f.runtime.invoke("routines:run-now", [routine.id, "an older consent"]), /AI sharing is allowed/);
+  assert.equal((await f.list())[0].nextRunAt, null, "no next Run is promised while it may not run them");
   await f.runtime.invoke("routines:create", [input, AI_CONSENT_VERSION]);
   assert.deepEqual(await f.runtime.invoke("routines:enabled:read"), { enabled: true });
+  assert.equal(typeof (await f.list())[0].nextRunAt, "number", "once it may, the schedule shows its next Run");
 });
 
 test("a heartbeat an agent sets fires into its Chat, and a (pass) reply ends quiet", async (t) => {
