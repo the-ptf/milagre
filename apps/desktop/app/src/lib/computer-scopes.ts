@@ -129,8 +129,8 @@ export type ComputerSection = { id: string; name: string; local: boolean; hidden
 export function computerSections(thisMac: string, computers: { id: string; name: string }[], hidden: ReadonlySet<string>): ComputerSection[] {
   return [
     { id: LOCAL_COMPUTER, name: thisMac, local: true, hidden: hidden.has(LOCAL_COMPUTER) },
-    ...computers
-      .toSorted((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.id.localeCompare(b.id))
+    ...[...computers]
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.id.localeCompare(b.id))
       .map((computer) => ({ id: computer.id, name: computer.name, local: false, hidden: hidden.has(computer.id) })),
   ];
 }
