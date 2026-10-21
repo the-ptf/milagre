@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { PlusSignIcon, Pulse01Icon, RepeatIcon, ZapIcon } from "@hugeicons/core-free-icons";
+import { LaptopIcon, PlusSignIcon, Pulse01Icon, RepeatIcon, ZapIcon } from "@hugeicons/core-free-icons";
 import type { ModelOption } from "@milagre/shared/model";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
@@ -85,6 +85,8 @@ export function RoutinesPage({
   const onComputers = Object.keys(byComputer).filter((id) => byComputer[id]?.enabled === true);
   const onKey = onComputers.join(",");
   const [filter, setFilter] = useState<Filter>("all");
+  // One computer's Routines only, or every computer's ("all").
+  const [onComputer, setOnComputer] = useState<string>("all");
   const [error, setError] = useState<string | null>(null);
   // The Routine whose page shows its form in place (its id), "new" for New Routine in place of the list, or null.
   const [editing, setEditing] = useState<string | null>(null);
@@ -155,7 +157,15 @@ export function RoutinesPage({
     if (id) document.querySelector<HTMLElement>(`[data-routine-row="${CSS.escape(id)}"] [data-routine-open]`)?.focus();
   }, [routineId]);
 
-  const groups = useMemo(() => groupRoutines(routines), [routines]);
+  // With paired computers, the list narrows to one of them; a computer that leaves takes its choice with it.
+  const computerChoices =
+    computers.length > 0 ? [LOCAL_COMPUTER, ...computers.filter((computer) => byComputer[computer.id]).map((computer) => computer.id)] : [];
+  const pickedComputer = computerChoices.includes(onComputer) ? onComputer : "all";
+  const listed = useMemo(
+    () => (pickedComputer === "all" ? routines : routines.filter((routine) => computerOfRoutine(routine) === pickedComputer)),
+    [routines, pickedComputer],
+  );
+  const groups = useMemo(() => groupRoutines(listed), [listed]);
   const shown = (list: RoutineWithRuns[]) => (filter === "paused" ? list.filter((routine) => !routine.enabled) : list);
   const heartbeats = filter === "triggers" ? [] : shown(groups.heartbeats);
   const triggers = filter === "heartbeats" ? [] : shown(groups.triggers);
@@ -170,16 +180,18 @@ export function RoutinesPage({
       again();
     });
   };
+  // Another computer's row leads with its laptop mark and name, as a Chat row does; this Mac's needs none.
+  const rowComputer = (routine: RoutineWithRuns) => {
+    const id = computerOfRoutine(routine);
+    const view = id === LOCAL_COMPUTER ? undefined : computers.find((computer) => computer.id === id);
+    return id === LOCAL_COMPUTER ? null : { name: view?.name ?? "Computer", offline: view ? isDimmed(view) : false };
+  };
   const row = (routine: RoutineWithRuns) => (
     <RoutineRow
       key={routine.id}
       routine={routine}
-      meta={[
-        computers.length > 0 ? computerName(computerOfRoutine(routine)) : null,
-        routineMeta(routine, { chatTitle: (id) => chatTitles.get(id), modelName, now }),
-      ]
-        .filter(Boolean)
-        .join(" · ")}
+      computer={rowComputer(routine)}
+      meta={routineMeta(routine, { chatTitle: (id) => chatTitles.get(id), modelName, now })}
       status={routineStatus(routine, now)}
       unread={unreadRoutines?.has(routine.id) ?? false}
       onOpen={() => onOpenRoutine?.(routine.id)}
@@ -194,7 +206,7 @@ export function RoutinesPage({
     />
   );
   const chips: Array<{ id: Filter; label: string; count: number }> = [
-    { id: "all", label: "All", count: routines.length },
+    { id: "all", label: "All", count: listed.length },
     { id: "heartbeats", label: "Heartbeats", count: groups.heartbeats.length },
     { id: "triggers", label: "Triggers", count: groups.triggers.length },
     { id: "paused", label: "Paused", count: groups.paused.length },
@@ -311,22 +323,45 @@ export function RoutinesPage({
         ) : enabled ? (
           <>
             {routines.length > 0 && (
-              <div role="tablist" aria-label="Show" className="mt-5 flex gap-1.5">
-                {chips.map((chip) => (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={filter === chip.id}
-                    data-routine-filter={chip.id}
-                    onClick={() => setFilter(chip.id)}
-                    className={`h-7 rounded-full px-3 text-[12px] font-medium transition-colors ${
-                      filter === chip.id ? "bg-ink text-surface" : "border border-line-strong bg-surface text-ink-2 hover:bg-hover"
-                    }`}
-                  >
-                    {chip.label} {chip.count}
-                  </button>
-                ))}
+              <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
+                <div role="tablist" aria-label="Show" className="flex gap-1.5">
+                  {chips.map((chip) => (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={filter === chip.id}
+                      data-routine-filter={chip.id}
+                      onClick={() => setFilter(chip.id)}
+                      className={`h-7 rounded-full px-3 text-[12px] font-medium transition-colors ${
+                        filter === chip.id ? "bg-ink text-surface" : "border border-line-strong bg-surface text-ink-2 hover:bg-hover"
+                      }`}
+                    >
+                      {chip.label} {chip.count}
+                    </button>
+                  ))}
+                </div>
+                {computerChoices.length > 0 && (
+                  <div role="tablist" aria-label="Computer" className="flex flex-wrap gap-1.5">
+                    {["all", ...computerChoices].map((id) => (
+                      <button
+                        key={id}
+                        type="button"
+                        role="tab"
+                        aria-selected={pickedComputer === id}
+                        data-routine-computer-filter={id}
+                        onClick={() => setOnComputer(id)}
+                        className={`inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium transition-colors ${
+                          pickedComputer === id ? "bg-ink text-surface" : "border border-line-strong bg-surface text-ink-2 hover:bg-hover"
+                        }`}
+                      >
+                        {id !== "all" && <HugeiconsIcon icon={LaptopIcon} size={13} strokeWidth={2} color="currentColor" />}
+                        {id === "all" ? "Every computer" : computerName(id)}{" "}
+                        {id === "all" ? routines.length : routines.filter((routine) => computerOfRoutine(routine) === id).length}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             <div className={empty ? "flex min-h-[200px] flex-1 flex-col items-center justify-center gap-3 py-10 text-center" : "mt-5 space-y-5"}>
