@@ -18,7 +18,7 @@ import "/src/styles.css";
 // This component fixture owns its decoration geometry; native windows are covered by test-window-chrome.
 const titlebar = new EventTarget();
 titlebar.visible = false;
-titlebar.getTitlebarAreaRect = () => new DOMRect(titlebar.visible ? 80 : 0, 0, innerWidth - (titlebar.visible ? 80 : 0), 60);
+titlebar.getTitlebarAreaRect = () => new DOMRect(titlebar.visible ? 80 : 0, 0, innerWidth - (titlebar.visible ? 80 : 0), 44);
 Object.defineProperty(navigator, "windowControlsOverlay", { value: titlebar });
 window.setWindowDecoration = controls => {
   window.milagreWindowChrome = { controls };
@@ -138,8 +138,8 @@ async function browserChecks() {
     const backLeft = 'Math.round(document.querySelector("[data-diff-back]").getBoundingClientRect().left)';
     assert.equal(await evaluate(backLeft), 52, "External decorations reserve only the sidebar toggle and its gap");
     await evaluate('window.setWindowDecoration("leading")');
-    await waitFor(`${backLeft} === 128`);
-    assert.equal(await evaluate(backLeft), 128, "Back clears the integrated leading controls and sidebar toggle");
+    await waitFor(`${backLeft} === 120`);
+    assert.equal(await evaluate(backLeft), 120, "Back clears the integrated leading controls and sidebar toggle");
     await evaluate('window.setWindowDecoration("external")');
     await waitFor(`${backLeft} === 52`);
     // Electron routes a click in the drag strip to whatever paints on top; every bar button must beat the strip.
