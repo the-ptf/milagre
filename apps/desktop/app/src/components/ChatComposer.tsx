@@ -1031,6 +1031,15 @@ export function ChatComposer({
   // A first message, including its preview while setup runs, opens the conversation layout.
   const isNewChat = messages.length === 0;
   const workingModelName = runModelName ?? selectedModel.name;
+  let lastRunModel: string | undefined;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message?.role === "user" && message.model) {
+      lastRunModel = message.model;
+      break;
+    }
+  }
+  const rootModel = runModelName ?? models.find((model) => model.id === lastRunModel)?.name ?? lastRunModel;
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     if (isNewChat) setScrolled(false);
@@ -1281,6 +1290,9 @@ export function ChatComposer({
               key={chatId}
               chatKey={runtimeChat}
               agents={subagents}
+              rootModel={rootModel}
+              rootActivity={waitingForSubagents ? "Waiting on subagents" : activity?.activity}
+              plan={plan}
               provider={sessionProvider ?? selectedModel.provider}
               onArchiveFinished={onArchiveFinishedSubagents}
               onArchive={onArchiveSubagent}

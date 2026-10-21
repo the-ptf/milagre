@@ -110,6 +110,10 @@
       "types": "./src/subagent-glance.d.mts",
       "default": "./src/subagent-glance.mjs"
     },
+    "./subagent-tree": {
+      "types": "./src/subagent-tree.d.mts",
+      "default": "./src/subagent-tree.mjs"
+    },
     "./subagent-transcript": {
       "types": "./src/subagent-transcript.d.mts",
       "default": "./src/subagent-transcript.mjs"

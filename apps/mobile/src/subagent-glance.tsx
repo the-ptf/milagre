@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { useEffect, useRef, useState, type Ref } from "react";
+import { Pressable, Text, View, type ViewInstance } from "react-native";
 import {
   AlertCircleIcon,
   ArrowRight01Icon,
@@ -98,7 +98,19 @@ function StatusIcon({ agent, provider }: { agent: Subagent; provider: ModelProvi
 }
 
 /** A list row: status, title, time, what it says now (or its outcome), and how far it got. */
-export function SubagentRow({ agent, provider, now, onPress }: { agent: Subagent; provider: ModelProvider; now: number; onPress: () => void }) {
+export function SubagentRow({
+  agent,
+  provider,
+  now,
+  onPress,
+  rowRef,
+}: {
+  agent: Subagent;
+  provider: ModelProvider;
+  now: number;
+  onPress: () => void;
+  rowRef?: Ref<ViewInstance>;
+}) {
   const { colors } = useTheme();
   const running = subagentRunning(agent);
   const counts = planCounts(agent.tasks);
@@ -113,6 +125,7 @@ export function SubagentRow({ agent, provider, now, onPress }: { agent: Subagent
     .join(" · ");
   return (
     <Pressable
+      ref={rowRef}
       accessibilityRole="button"
       accessibilityLabel={`${agent.title}. ${subagentActivityLabel(agent)}. ${line}`}
       accessibilityHint="Opens what this subagent is doing"

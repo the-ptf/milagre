@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AlertCircleIcon,
@@ -25,6 +25,10 @@ import { SpinnerRing } from "../primitives/SpinnerRing";
 import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
 import { PillMorph } from "../motion/PillMorph";
+import { buildSubagentTree, flattenSubagentTree, subagentAncestors, subagentStatusLabel, type SubagentNode } from "@milagre/shared/subagent-tree";
+import { taskCounts } from "@milagre/shared/chat-plan";
+import type { ChatPlan } from "../../model";
+import { SubagentTree } from "./SubagentTree";
 
 const labels: Record<Subagent["status"], string> = {
   initializing: "Starting",
@@ -396,6 +400,9 @@ export function SubagentTrack({
   chatKey,
   agents,
   provider = "codex",
+  rootModel,
+  rootActivity,
+  plan,
   onArchiveFinished,
   onArchive,
   onStop,
@@ -404,6 +411,9 @@ export function SubagentTrack({
   chatKey?: string | null;
   agents: Subagent[];
   provider?: ModelProvider;
+  rootModel?: string;
+  rootActivity?: string;
+  plan?: ChatPlan;
   onArchiveFinished?: () => void;
   onArchive?: (id: string, archived: boolean) => void;
   onStop?: (id: string) => void;
@@ -412,16 +422,127 @@ export function SubagentTrack({
   const [opened, setOpened] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [archived, setArchived] = useState(false);
-  const visible = agents.filter((agent) => !agent.archived);
-  const archivedCount = agents.length - visible.length;
-  const rows = agents.filter((agent) => Boolean(agent.archived) === archived);
+  const tree = useMemo(() => buildSubagentTree(agents), [agents]);
+  const [view, setView] = useState<"list" | "tree" | null>(null);
+  const [automaticView, setAutomaticView] = useState<"list" | "tree">("list");
+  const treeView = !archived && (view ?? automaticView) === "tree";
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const [rootCollapsed, setRootCollapsed] = useState(false);
+  const [focus, setFocus] = useState<{ id: string; serial: number } | null>(null);
+  const [appearance, setAppearance] = useState(() => ({
+    tree,
+    view: treeView,
+    collapsed,
+    rootCollapsed,
+    selected,
+    opened,
+    seen: new Set(tree.nodes.keys()),
+    arriving: new Set<string>(),
+  }));
+  if (
+    appearance.tree !== tree ||
+    appearance.view !== treeView ||
+    appearance.collapsed !== collapsed ||
+    appearance.rootCollapsed !== rootCollapsed ||
+    appearance.selected !== selected ||
+    appearance.opened !== opened
+  ) {
+    const seen = new Set(appearance.seen);
+    const arriving = new Set<string>();
+    for (const id of tree.nodes.keys()) {
+      if (
+        !seen.has(id) &&
+        appearance.view === treeView &&
+        appearance.collapsed === collapsed &&
+        appearance.rootCollapsed === rootCollapsed &&
+        appearance.selected === selected &&
+        appearance.opened === opened
+      )
+        arriving.add(id);
+      seen.add(id);
+    }
+    setAppearance({ tree, view: treeView, collapsed, rootCollapsed, selected, opened, seen, arriving });
+  }
+
+  const panel = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!focus || !opened || selected) return;
+    const target = [...(panel.current?.querySelectorAll<HTMLButtonElement>("[data-subagent-id]") ?? [])].find((el) => el.dataset.subagentId === focus.id);
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [focus, opened, selected]);
+  function showStatus(status: "running" | "waiting" | "failed") {
+    const candidates = treeView ? flattenSubagentTree(tree, new Set()).map(({ node }) => node) : [...tree.nodes.values()];
+    const matches = candidates.filter(({ agent }) => (status === "running" ? ["initializing", "running"].includes(agent.status) : agent.status === status));
+    if (!matches.length) return;
+    const focusedId = (document.activeElement as HTMLElement | null)?.dataset.subagentId ?? focus?.id;
+    const index = matches.findIndex(({ agent }) => agent.id === focusedId);
+    const id = matches[(index + 1) % matches.length]!.agent.id;
+    setSelected(null);
+    setRootCollapsed(false);
+    const parents = new Set(subagentAncestors(tree, id));
+    setCollapsed((prev) => new Set([...prev].filter((entry) => !parents.has(entry))));
+    setFocus((prev) => ({ id, serial: (prev?.serial ?? 0) + 1 }));
+  }
+  function toggleBranch(id: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  const visible = [...tree.nodes.values()].map((node) => node.agent);
+  const archivedCount = new Set(agents.filter((agent) => agent.archived).map((agent) => agent.id)).size;
+  const rows = archived ? [...new Map(agents.filter((agent) => agent.archived).map((agent) => [agent.id, agent])).values()] : visible;
   const child = rows.find((agent) => agent.id === selected);
-  const running = visible.filter(subagentActive).length;
-  const done = visible.filter(subagentFinished).length;
+  const running = tree.counts.running;
+  const done = tree.counts.done;
   const now = useClock(opened && rows.some(subagentActive));
   const actionClass = "flex size-6 items-center justify-center rounded text-ink-3 hover:bg-hover hover:text-ink focus-visible:outline-2 disabled:opacity-40";
   const footerClass =
     "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-ink-3 hover:bg-hover hover:text-ink focus-visible:outline-2 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-ink-3";
+  const progress = plan?.tasks.length ? taskCounts(plan.tasks) : undefined;
+  function treeCard({ agent }: SubagentNode) {
+    return (
+      <>
+        <button
+          type="button"
+          data-subagent-open
+          data-subagent-id={agent.id}
+          onClick={() => {
+            setFocus((prev) => ({ id: agent.id, serial: (prev?.serial ?? 0) + 1 }));
+            setSelected(agent.id);
+          }}
+          title={`${agent.title} (${labels[agent.status]})`}
+          className="flex w-full min-w-0 text-left text-[13px] focus-visible:outline-2"
+        >
+          <SubagentRow agent={agent} provider={provider} now={now} />
+        </button>
+        <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[10px] text-ink-3">
+          <ProviderLogo provider={agent.provider ?? provider} size={12} />
+          <span className="min-w-0 flex-1 truncate" title={agent.model}>
+            {agent.model ?? agent.provider ?? provider}
+          </span>
+          <span data-subagent-status={agent.status} className="shrink-0 rounded bg-hover px-1.5 py-0.5">
+            {subagentStatusLabel(agent.status)}
+          </span>
+        </div>
+        <div className="mt-1 flex items-center justify-end gap-2">
+          <AdvisorControls agent={agent} onStop={onStop} onRetry={onRetry} />
+          <button
+            type="button"
+            aria-label={`Archive ${agent.title}`}
+            disabled={!onArchive || (agent.source === "milagre-advisor" && subagentActive(agent))}
+            onClick={() => onArchive?.(agent.id, true)}
+            className={actionClass}
+          >
+            <HugeiconsIcon icon={Archive02Icon} size={13} />
+          </button>
+        </div>
+      </>
+    );
+  }
   return (
     <PillMorph
       shown={agents.length > 0 && (visible.length > 0 || opened)}
@@ -434,11 +555,12 @@ export function SubagentTrack({
         if (next) {
           setSelected(null);
           setArchived(false);
+          setAutomaticView(tree.nested ? "tree" : "list");
         }
         setOpened(next);
       }}
-      width={child ? 440 : 420}
-      height={child ? 600 : 460}
+      width={child ? 440 : treeView ? 820 : 420}
+      height={child || treeView ? 600 : 460}
       pill={{
         leading: running ? <SpinnerRing size={12} /> : undefined,
         label: "Subagents",
@@ -449,6 +571,7 @@ export function SubagentTrack({
     >
       {(close) => (
         <div
+          ref={panel}
           className="flex min-h-0 flex-col p-1"
           onKeyDown={(event) => {
             if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
@@ -488,7 +611,7 @@ export function SubagentTrack({
                   <span>{archived ? "Archived" : "Subagents"}</span>
                   {!archived && (
                     <span className="tracking-normal normal-case tabular-nums">
-                      {[running && `${running} running`, done && `${done} done`].filter(Boolean).join(" · ")}
+                      {[`${visible.length} agents`, done && `${done} done`].filter(Boolean).join(" · ")}
                     </span>
                   )}
                 </h3>
@@ -496,37 +619,90 @@ export function SubagentTrack({
                   <HugeiconsIcon icon={ArrowShrink02Icon} size={14} aria-hidden />
                 </button>
               </div>
-              <ScrollArea as="ul" className="flex flex-col gap-0.5">
-                {rows.map((agent) => (
-                  <li key={agent.id} data-subagent-row className="group flex items-start gap-1 rounded-lg px-1 hover:bg-hover focus-within:bg-hover">
+              {!archived && (
+                <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-line px-2 pb-2">
+                  <div role="group" aria-label="Subagent view" className="mr-auto flex gap-0.5 rounded-md bg-hover p-0.5">
+                    {(["list", "tree"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        aria-label={`${mode === "list" ? "List" : "Tree"} view`}
+                        aria-pressed={(mode === "tree") === treeView}
+                        onClick={() => setView(mode)}
+                        className={`rounded px-2 py-1 text-[11px] capitalize focus-visible:outline-2 ${(mode === "tree") === treeView ? "bg-surface text-ink shadow-sm" : "text-ink-3 hover:text-ink"}`}
+                      >
+                        {mode}
+                      </button>
+                    ))}
+                  </div>
+                  {(["running", "waiting", "failed"] as const).map((status) => (
                     <button
+                      key={status}
                       type="button"
-                      data-subagent-open
-                      onClick={() => setSelected(agent.id)}
-                      title={`${agent.title} (${labels[agent.status]})`}
-                      className="flex min-w-0 flex-1 py-2 pl-1 text-left text-[13px] focus-visible:outline-2"
+                      data-subagent-count={status}
+                      aria-label={`Show ${status} subagents`}
+                      disabled={!tree.counts[status]}
+                      onClick={() => showStatus(status)}
+                      className="rounded-md bg-hover px-2 py-1 text-[11px] text-ink-2 tabular-nums hover:bg-hover-2 focus-visible:outline-2 disabled:opacity-40"
                     >
-                      <SubagentRow agent={agent} provider={provider} now={now} />
+                      {tree.counts[status]} {status}
                     </button>
-                    <span className="flex shrink-0 items-center gap-1 pt-1.5">
-                      <AdvisorControls agent={agent} onStop={onStop} onRetry={onRetry} />
-                      <span className="flex opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
-                        <Tooltip label={archived ? "Restore subagent" : "Archive subagent"}>
-                          <button
-                            type="button"
-                            aria-label={`${archived ? "Restore" : "Archive"} ${agent.title}`}
-                            disabled={!onArchive || (agent.source === "milagre-advisor" && subagentActive(agent))}
-                            onClick={() => onArchive?.(agent.id, !archived)}
-                            className={actionClass}
-                          >
-                            <HugeiconsIcon icon={Archive02Icon} size={14} />
-                          </button>
-                        </Tooltip>
+                  ))}
+                </div>
+              )}
+              {treeView ? (
+                <ScrollArea>
+                  <SubagentTree
+                    arriving={appearance.arriving}
+                    tree={tree}
+                    collapsed={collapsed}
+                    rootCollapsed={rootCollapsed}
+                    onToggleRoot={() => setRootCollapsed(!rootCollapsed)}
+                    onToggle={toggleBranch}
+                    provider={provider}
+                    model={rootModel}
+                    activity={rootActivity}
+                    plan={progress ? `${progress.done} of ${progress.total} tasks done` : undefined}
+                    renderCard={treeCard}
+                  />
+                </ScrollArea>
+              ) : (
+                <ScrollArea as="ul" className="flex flex-col gap-0.5">
+                  {rows.map((agent) => (
+                    <li key={agent.id} data-subagent-row className="group flex items-start gap-1 rounded-lg px-1 hover:bg-hover focus-within:bg-hover">
+                      <button
+                        type="button"
+                        data-subagent-open
+                        data-subagent-id={agent.id}
+                        onClick={() => {
+                          setFocus((prev) => ({ id: agent.id, serial: (prev?.serial ?? 0) + 1 }));
+                          setSelected(agent.id);
+                        }}
+                        title={`${agent.title} (${labels[agent.status]})`}
+                        className="flex min-w-0 flex-1 py-2 pl-1 text-left text-[13px] focus-visible:outline-2"
+                      >
+                        <SubagentRow agent={agent} provider={provider} now={now} />
+                      </button>
+                      <span className="flex shrink-0 items-center gap-1 pt-1.5">
+                        <AdvisorControls agent={agent} onStop={onStop} onRetry={onRetry} />
+                        <span className="flex opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+                          <Tooltip label={archived ? "Restore subagent" : "Archive subagent"}>
+                            <button
+                              type="button"
+                              aria-label={`${archived ? "Restore" : "Archive"} ${agent.title}`}
+                              disabled={!onArchive || (agent.source === "milagre-advisor" && subagentActive(agent))}
+                              onClick={() => onArchive?.(agent.id, !archived)}
+                              className={actionClass}
+                            >
+                              <HugeiconsIcon icon={Archive02Icon} size={14} />
+                            </button>
+                          </Tooltip>
+                        </span>
                       </span>
-                    </span>
-                  </li>
-                ))}
-              </ScrollArea>
+                    </li>
+                  ))}
+                </ScrollArea>
+              )}
               {!rows.length && <p className="px-3 py-5 text-[12px] text-ink-3">{archived ? "No archived subagents." : "No subagents to show."}</p>}
               <footer className="mt-1 flex shrink-0 items-center gap-1 border-t border-line pt-1">
                 {archived ? (

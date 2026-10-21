@@ -1,0 +1,9 @@
+# Issue routine improvements from #540
+
+Preserve `pick-issue-start-working.md` as the original prompt. These are proposals for future runs.
+
+1. Discover issues and open PRs with `gh` before choosing work. Skip issues already covered by another PR, those awaiting a product decision, and work needing a native build. Keep the chosen issue's acceptance criteria in the verification record.
+2. Use `test-milagre-app` and `test-milagre-mobile`, Milagre task/phase tools, and independent product and correctness personas. This run used Claude Opus 5.5 and GPT-6 Astra advisors. Resolve concrete findings before publishing.
+3. Run `npm ci` before mobile fingerprint checks. Missing native package inputs can produce an incomplete fingerprint; compare again after installation before editing. Use an installed compatible development client and task-scoped Metro port. Record and restore any simulator bundle-address override.
+4. Verify changes in a real isolated Project/profile with installed providers. A real nested Codex Chat supplies review screenshots; Electron and mobile harness images remain test evidence. Exercise collapse, detail/back, keyboard or screen-reader focus, themes, narrow windows and live updates. Keep unrelated ownership locks and listeners intact.
+5. Publish one self-contained artifact with embedded screenshot data and an anonymous public link at the top of the PR. Verify its anonymous content, include screenshot provenance and exact checks, and push PR images only to the separate screenshots branch. If sharing hits its quota, publish the same snapshot on an isolated review host through an already authorized account; record the public URL and verify it anonymously. Do not reset quotas or change production routes. Existing gh, Milagre MCP and Argent tools cover the workflow; no extra MCP installation is needed.

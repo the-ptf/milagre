@@ -255,7 +255,11 @@ test("a paired desktop reads and manages this Mac's Routines, and hears them cha
 test("a paired desktop receives live usage while provider account changes are refused", async (t) => {
   const unavailable = (provider) => async () => ({ provider, status: "unavailable", windows: [] });
   const mac = await startTestMac(t, {
-    runtime: { usageReaders: { claude: unavailable("claude"), codex: unavailable("codex"), antigravity: unavailable("antigravity") } },
+    runtime: {
+      usageReaders: { claude: unavailable("claude"), codex: unavailable("codex"), antigravity: unavailable("antigravity") },
+      // Usage also reads account labels. Keep that lookup independent of installed CLIs and live sign-in state.
+      agentCli: async () => ({ command: null, problem: "This fixture has no provider CLI" }),
+    },
   });
   const desktop = mac.dial(connectDesktop, { name: "Usage viewer" });
   await desktop.hello();

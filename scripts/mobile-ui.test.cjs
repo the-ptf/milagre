@@ -179,6 +179,8 @@ function load(file, modules, extra = "", cache = new Map()) {
     setInterval,
     clearInterval,
     queueMicrotask,
+    requestAnimationFrame: (callback) => setTimeout(() => callback(0), 0),
+    cancelAnimationFrame: clearTimeout,
   });
   return exports;
 }
@@ -2078,7 +2080,9 @@ const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 function subagentsHost({ call = async () => {} } = {}) {
   const react = hookHost();
+  const outlineReact = hookHost();
   const calls = [];
+  const focusEvents = [];
   const state = {
     sessions: {
       7: {
@@ -2088,7 +2092,7 @@ function subagentsHost({ call = async () => {} } = {}) {
     },
   };
   const session = {
-    snapshot: { project: { path: "/project", state } },
+    snapshot: { project: { path: "/project", state }, runs: { runs: {} } },
     client: {
       async call(method, args) {
         calls.push({ method, args: Array.from(args) });
@@ -2104,41 +2108,156 @@ function subagentsHost({ call = async () => {} } = {}) {
     refresh: async () => {},
     expectActivity() {},
   };
-  const { default: AgentsSheet } = load("app/agents.tsx", {
+  const subagentGlance = {
+    SubagentRow: "SubagentRow",
+    WholeSubagentDetail: "WholeSubagentDetail",
+    elapsed: () => "1s",
+    subagentRunning: (agent) => ["initializing", "running", "waiting"].includes(agent.status),
+    useClock: () => 0,
+  };
+  const controls = {
+    CircleButton: "CircleButton",
+    IconButton: "IconButton",
+    PillButton: "PillButton",
+    Segmented: "Segmented",
+    ListRow: "ListRow",
+    ErrorNotice: "ErrorNotice",
+    PageScroll: "PageScroll",
+  };
+  const common = {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Text: "Text", View: "View" },
+    "react-native": { Text: "Text", View: "View", AccessibilityInfo: { sendAccessibilityEvent: (...event) => focusEvents.push(event) } },
+    "react-native-reanimated": { __esModule: true, ...reanimatedStub, FadeIn: enterAnimation },
     "expo-router": { router: { back() {} }, useLocalSearchParams: () => ({ id: "7" }) },
     "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
     "@milagre/shared/project-edits": require("@milagre/shared/project-edits"),
     "@milagre/shared/agent-activity": require("@milagre/shared/agent-activity"),
+    "@milagre/shared/subagent-tree": require("@milagre/shared/subagent-tree"),
+    "@milagre/shared/chat-plan": require("@milagre/shared/chat-plan"),
+    "@milagre/shared/providers": require("@milagre/shared/providers"),
+    "./theme": { useTheme: () => ({ ...themeHooks.useTheme(), motionScale: 1 }) },
+    "./subagent-glance": subagentGlance,
+    "./icons": { Icon: "Icon", ProviderLogo: "ProviderLogo" },
+    "./ui": controls,
+  };
+  const { SubagentOutline } = load("subagent-tree.tsx", { ...common, react: outlineReact });
+  const { default: AgentsSheet } = load("app/agents.tsx", {
+    ...common,
+    "../subagent-tree": { SubagentOutline },
     "../session": { useSession: () => session },
-    "../subagent-glance": {
-      SubagentRow: "SubagentRow",
-      WholeSubagentDetail: "WholeSubagentDetail",
-      elapsed: () => "1s",
-      subagentRunning: (agent) => ["initializing", "running", "waiting"].includes(agent.status),
-      useClock: () => 0,
-    },
+    "../subagent-glance": subagentGlance,
     "../icons": { Icon: "Icon" },
-    "../ui": {
-      CircleButton: "CircleButton",
-      IconButton: "IconButton",
-      ListRow: "ListRow",
-      ErrorNotice: "ErrorNotice",
-      PageScroll: "PageScroll",
-      colors: {},
-      styles: {},
-    },
+    "../ui": controls,
   });
+  const outline = (props) => {
+    outlineReact.begin();
+    return SubagentOutline(props);
+  };
+  function expandOutline(node) {
+    if (Array.isArray(node)) return node.map(expandOutline);
+    if (!node || typeof node !== "object") return node;
+    if (node.type === SubagentOutline) return expandOutline(outline(node.props));
+    return { ...node, props: { ...node.props, children: expandOutline(node.props?.children) } };
+  }
   const render = () => {
     react.begin();
-    return AgentsSheet();
+    return expandOutline(AgentsSheet());
   };
   const button = (title) => find(render(), (node) => node.props?.title === title || node.props?.label === title);
   const open = (id) => find(render(), (node) => node.type === "SubagentRow" && node.props.agent.id === id).props.onPress();
-  return { render, button, open, calls, state, session };
+  return { render, button, open, calls, state, session, outline, focusEvents };
 }
+
+test("mobile status navigation focuses List rows after the announcement updates their scroll position", async () => {
+  const host = subagentsHost();
+  const { buildSubagentTree } = require("@milagre/shared/subagent-tree");
+  const tree = buildSubagentTree(host.state.sessions[7].subagents);
+  const scrolls = [];
+  let focused = null;
+  const props = {
+    tree,
+    mode: "list",
+    collapsed: new Set(),
+    onCollapsed() {},
+    rootCollapsed: false,
+    onRootCollapsed() {},
+    focused,
+    onFocused: (id) => {
+      focused = id;
+    },
+    chat: host.state.sessions[7],
+    rootStatus: "Idle",
+    provider: "claude",
+    now: 0,
+    disabled: false,
+    onOpen() {},
+    onControl() {},
+    onScrollTo: (y) => scrolls.push(y),
+  };
+  const render = () => host.outline({ ...props, focused });
+  let screen = render();
+  const row = find(screen, (node) => node.type === "SubagentRow" && node.props.agent.id === "running");
+  const nativeRow = { id: "running-row" };
+  row.props.rowRef(nativeRow);
+  find(screen, (node) => node.type === "View" && node.props.onLayout).props.onLayout({ nativeEvent: { layout: { y: 100 } } });
+  find(screen, (node) => node.type === "AnimatedView").props.onLayout({ nativeEvent: { layout: { y: 200 } } });
+  find(screen, (node) => node.type === "PillButton" && node.props.title === "1 Running").props.onPress();
+  assert.equal(scrolls.length, 0, "navigation waits for the new announcement's native layout");
+  assert.equal(host.focusEvents.length, 0, "the row receives focus with its final scroll position");
+  screen = render();
+  let announcement = find(screen, (node) => node.type === "Text" && node.props.accessibilityLiveRegion === "polite");
+  const firstKey = announcement.key;
+  announcement.props.onLayout();
+  find(screen, (node) => node.type === "View" && node.props.onLayout).props.onLayout({ nativeEvent: { layout: { y: 140 } } });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(scrolls, [340], "the first reveal uses the container position after the announcement appeared");
+  assert.deepEqual(host.focusEvents, [[nativeRow, "focus"]], "List mode focuses the native detail button");
+
+  find(screen, (node) => node.type === "PillButton" && node.props.title === "1 Running").props.onPress();
+  screen = render();
+  announcement = find(screen, (node) => node.type === "Text" && node.props.accessibilityLiveRegion === "polite");
+  assert.notEqual(announcement.key, firstKey, "repeating a single match still gets a committed layout");
+  announcement.props.onLayout();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(scrolls, [340, 340]);
+  assert.deepEqual(host.focusEvents, [
+    [nativeRow, "focus"],
+    [nativeRow, "focus"],
+  ]);
+
+  props.tree = buildSubagentTree(host.state.sessions[7].subagents.map((agent) => (agent.id === "running" ? { ...agent, status: "completed" } : agent)));
+  screen = render();
+  assert.ok(
+    find(screen, (node) => node.type === "SubagentRow" && node.props.agent.id === "running"),
+    "the completed target stays visible",
+  );
+  assert.equal(
+    find(screen, (node) => node.props?.accessibilityLiveRegion === "polite"),
+    undefined,
+    "completion removes the stale Running announcement",
+  );
+
+  props.tree = tree;
+  screen = render();
+  find(screen, (node) => node.type === "PillButton" && node.props.title === "1 Running").props.onPress();
+  assert.ok(
+    find(render(), (node) => node.props?.accessibilityLiveRegion === "polite"),
+    "a new navigation creates a fresh announcement",
+  );
+  props.tree = buildSubagentTree(host.state.sessions[7].subagents.map((agent) => ({ ...agent, archived: true })));
+  screen = render();
+  assert.equal(
+    find(screen, (node) => node.type === "SubagentRow"),
+    undefined,
+    "provider archival removes every target",
+  );
+  assert.equal(
+    find(screen, (node) => node.props?.accessibilityLiveRegion === "polite"),
+    undefined,
+    "archival removes the stale navigation announcement",
+  );
+});
 
 test("mobile archives finished subagents without offering archived browsing", async () => {
   const host = subagentsHost();

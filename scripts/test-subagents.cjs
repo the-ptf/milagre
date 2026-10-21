@@ -155,8 +155,8 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await waitFor('!!document.querySelector("[data-slot=subagent-track]")');
     await assertMainGutters();
-    assert.equal(await evaluate('document.querySelector("[data-slot=subagent-track]").textContent.includes("active")'), false);
-    assert.equal(await evaluate('document.querySelector("[data-slot=subagent-track]").textContent.includes("failed")'), false);
+    assert.equal(await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill]").textContent.includes("active")'), false);
+    assert.equal(await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill]").textContent.includes("failed")'), false);
     await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
     await waitFor('document.querySelector("[data-slot=subagent-popover]")?.dataset.state === "open"');
     assert.equal(await evaluate('document.querySelectorAll("dialog[open], [aria-modal=true]").length'), 0);
@@ -555,6 +555,59 @@ async function browserChecks() {
     await evaluate('[...document.querySelectorAll("[data-subagent-open]")].find(button => button.textContent.includes("Offline review")).click()');
     await waitFor('document.querySelector("[data-slot=subagent-transcript]").textContent.includes("After reconnecting")');
     assert.equal(await evaluate("window.summaryReads.length"), 2, "opening it again reads again");
+    await clickLabel("Collapse subagents");
+    // A real parent relationship selects Tree automatically; collapse state survives streaming updates.
+    await evaluate(`window.setChildren([
+      {id:"parent",title:"Inspect source",provider:"claude",model:"Opus",status:"running",startedAt:1,updatedAt:1,transcript:[]},
+      {id:"nested",parentId:"parent",title:"Check edge cases",provider:"codex",model:"GPT",status:"failed",startedAt:1,updatedAt:1,transcript:[{id:"result",kind:"message",text:"A nested failure"}]},
+      {id:"paused",title:"Await result",provider:"antigravity",status:"waiting",startedAt:1,updatedAt:1,transcript:[]}
+    ])`);
+    await waitFor('document.querySelector("[data-slot=subagent-track] button[aria-haspopup=dialog]")');
+    await evaluate('document.querySelector("[data-slot=subagent-track] button[aria-haspopup=dialog]").click()');
+    await waitFor('!!document.querySelector("[data-subagent-tree]")');
+    assert.equal(await evaluate('document.querySelector("[data-subagent-tree]").textContent.includes("Chat agent")'), true);
+    await clickLabel("Collapse branch Inspect source");
+    await waitFor('!document.querySelector("[data-subagent-id=nested]")');
+    await evaluate("window.setChildren(items=>items.map(a=>({...a,updatedAt:2})))");
+    await delay(100);
+    assert.equal(await evaluate('!!document.querySelector("[data-subagent-id=nested]")'), false);
+    await clickLabel("Show failed subagents");
+    await waitFor('document.activeElement?.getAttribute("data-subagent-id") === "nested"');
+    await clickLabel("Show waiting subagents");
+    await waitFor('document.activeElement?.getAttribute("data-subagent-id") === "paused"');
+    assert.equal(await evaluate('document.querySelector("[data-subagent-count=running]").textContent.trim()'), "1 running");
+    await screenshot("subagent-tree-dark");
+    await evaluate('document.documentElement.classList.remove("dark")');
+    await screenshot("subagent-tree-light");
+    await clickLabel("List view");
+    await waitFor('!document.querySelector("[data-subagent-tree]")');
+    await clickLabel("Tree view");
+    await waitFor('!!document.querySelector("[data-subagent-tree]")');
+    await clickLabel("Collapse branch Inspect source");
+    await clickLabel("Expand branch Inspect source");
+    await evaluate('document.querySelector("[data-subagent-id=nested]").click()');
+    await waitFor('document.querySelector("[data-slot=subagent-popover]").textContent.includes("A nested failure")');
+    await clickLabel("Back to subagents");
+    await waitFor('!!document.querySelector("[data-subagent-tree]")');
+    await waitFor('document.activeElement?.getAttribute("data-subagent-id") === "nested"');
+    await resize(420, 600);
+    await screenshot("subagent-tree-narrow");
+    assert.equal(
+      await evaluate('document.querySelector("[data-subagent-tree]").scrollWidth <= document.querySelector("[data-subagent-tree]").clientWidth'),
+      true,
+    );
+    await evaluate(
+      'window.setChildren(items => [...items, ...Array.from({length:12},(_,i)=>({id:"wide"+i,title:"Extra branch "+i,provider:["claude","codex","antigravity"][i%3],status:"completed",startedAt:1,updatedAt:1,endedAt:2,transcript:[]}))])',
+    );
+    await waitFor('document.querySelectorAll("[data-subagent-id]").length === 15');
+    assert.equal(
+      await evaluate('document.querySelector("[data-subagent-tree]").scrollWidth <= document.querySelector("[data-subagent-tree]").clientWidth'),
+      true,
+    );
+    await evaluate(
+      'document.querySelector("[data-subagent-id=nested]").focus(); document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowUp",bubbles:true}))',
+    );
+    await waitFor('document.activeElement?.getAttribute("data-subagent-id") === "parent"');
     await clickLabel("Collapse subagents");
     await evaluate("window.setChildren([])");
     await waitFor('!document.querySelector("[data-slot=subagent-track]")');
