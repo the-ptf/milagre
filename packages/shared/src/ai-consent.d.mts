@@ -11,5 +11,6 @@ export function createAiConsent(options: { read(): Promise<string | null>; write
   require(interactive?: boolean): Promise<void>;
   reset(): Promise<void>;
 };
+export const ROUTINE_CONSENT_ARG: { readonly "routines:create": 1; readonly "routines:run-now": 1; readonly "routines:update": 2 };
 export function requiresAiConsent(method: string, args?: unknown[]): boolean;
 export function protectAiBridge<T extends object>(bridge: T, requireConsent: (interactive?: boolean) => Promise<void>): T;

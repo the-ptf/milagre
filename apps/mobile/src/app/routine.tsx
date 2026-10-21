@@ -118,7 +118,7 @@ export default function RoutineScreen() {
   // read and no longer holds it, go back. Not while the list is still loading, or after a read that failed, or when the
   // Mac's Routines are off. A page with another screen on top (the Edit form) goes when it is back in view.
   const left = useRef(false);
-  const gone = !routine && routines.enabled === true && !routines.loading && !routines.error;
+  const gone = !routine && routines.enabled !== null && !routines.loading && !routines.error;
   useFocusEffect(
     useCallback(() => {
       if (gone) leave(left);

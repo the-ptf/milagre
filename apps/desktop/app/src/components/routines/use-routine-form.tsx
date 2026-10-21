@@ -106,13 +106,12 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
   const comment = isCommentRoutine(state);
   const heartbeat = state.runIn === "chat" && !comment;
 
-  // Where a new Routine can run: this Mac and every computer with Routines on. An edit stays on its Routine's computer.
+  // Where a new Routine can run: this Mac and every computer whose Routines answered (creating one there lets it run
+  // them). An edit stays on its Routine's computer.
   const { byComputer } = useRoutines();
   const { thisMac, computers } = useComputers();
-  const remotesOn = computers.filter((computer) => byComputer[computer.id]?.enabled === true).map((computer) => computer.id);
-  const sources = initial
-    ? [computerOfRoutine(initial)]
-    : [...(byComputer[LOCAL_COMPUTER]?.enabled === false && remotesOn.length > 0 ? [] : [LOCAL_COMPUTER]), ...remotesOn];
+  const remotesOn = computers.filter((computer) => typeof byComputer[computer.id]?.enabled === "boolean").map((computer) => computer.id);
+  const sources = initial ? [computerOfRoutine(initial)] : [LOCAL_COMPUTER, ...remotesOn];
   const sourceKey = sources.join(",");
   useEffect(() => {
     let live = true;

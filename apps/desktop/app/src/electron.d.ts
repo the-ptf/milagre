@@ -352,16 +352,16 @@ export type MilagreBridge = {
   /** Settings › Accounts: after a usage limit, move the Chat's Project to the next ready account and continue by itself. */
   readLimitAutoSwitch: () => Promise<{ autoSwitch: boolean }>;
   saveLimitAutoSwitch: (value: boolean) => Promise<{ autoSwitch: boolean }>;
-  /** Experimental: agents set heartbeats that send a prompt back into their Chat on a schedule. Off by default. */
+  /** Whether this Mac may run Routines: a device that allowed AI sharing authorized it (with a Routine write, or `true` here). `false` stops them. */
   readRoutinesEnabled: () => Promise<{ enabled: boolean }>;
   saveRoutinesEnabled: (value: boolean, consentVersion?: string) => Promise<{ enabled: boolean }>;
   /** This Mac's routines that haven't ended, newest first, each with its latest Runs first. */
   listRoutines: () => Promise<{ routines: Array<Routine & { runs: RoutineRun[] }> }>;
-  updateRoutine: (id: string, patch: RoutineUpdate) => Promise<Routine>;
+  updateRoutine: (id: string, patch: RoutineUpdate, consentVersion?: string) => Promise<Routine>;
   deleteRoutine: (id: string) => Promise<{ removed: boolean }>;
-  runRoutineNow: (id: string) => Promise<RoutineRun | undefined>;
+  runRoutineNow: (id: string, consentVersion?: string) => Promise<RoutineRun | undefined>;
   /** `hookUrl` comes with a webhook Routine (a later update). */
-  createRoutine: (input: RoutineCreate) => Promise<{ routine: Routine; hookUrl?: string }>;
+  createRoutine: (input: RoutineCreate, consentVersion?: string) => Promise<{ routine: Routine; hookUrl?: string }>;
   routineTargets: () => Promise<RoutineTargets>;
   /** The Routines form's Linear choices: labels and states are the named team's. `error` says why a read failed. */
   routineLinearOptions: (args?: { workspace?: string; team?: string }) => Promise<RoutineLinearOptions>;

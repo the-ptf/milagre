@@ -325,9 +325,7 @@ export default function RoutineFormSheet() {
               {routines.unavailable === "older" ? "Update Milagre on this Mac to use Routines." : "Routines aren't available on this connection."}
             </Text>
           ) : null}
-          {routines.enabled === false ? (
-            <Text style={styles.caption}>Routines are off on this Mac. Turn them on in Settings › Experimental to run this one.</Text>
-          ) : null}
+          {routines.enabled === false ? <Text style={styles.caption}>{"This Mac can't run Routines yet. Saving this one allows it."}</Text> : null}
           <View style={[styles.card, { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 0 }]}>
             <Icon icon={PencilEdit02Icon} tone="ink3" size={20} />
             <View style={{ flex: 1 }}>

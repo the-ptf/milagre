@@ -1,7 +1,7 @@
 import { Children, useMemo, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
-import { Add01Icon, ArrowRight01Icon, RepeatIcon, Settings01Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, RepeatIcon } from "@hugeicons/core-free-icons";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { canRunNow, unreadRunRoutines } from "@milagre/shared/routines";
 import { useSession } from "../session";
@@ -12,7 +12,7 @@ import { isHeartbeat, routineDeleteMessage, routineIcon, routineMeta } from "../
 import { ChatMarkIcon } from "../status-indicators";
 import { confirm } from "../confirm-store";
 import { Icon } from "../icons";
-import { ErrorNotice, HeaderButton, PageScroll, PullDown, RowSwitch, useStyles } from "../ui";
+import { ErrorNotice, HeaderButton, PageScroll, PillButton, PullDown, RowSwitch, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 type Filter = "all" | "heartbeats" | "triggers" | "paused";
@@ -47,13 +47,29 @@ export default function RoutinesScreen() {
   const routines = useRoutines(client);
   const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState("");
+  const [allowing, setAllowing] = useState(false);
+  // Routines have no switch: the Mac runs them once a device allowed AI sharing for it. Allow asks this phone (beforeAiCall)
+  // and passes the permission on.
+  async function allow() {
+    if (!client) return;
+    setError("");
+    setAllowing(true);
+    try {
+      await client.call("routines:enabled:save", [true]);
+      await routines.refresh();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Could not allow Routines.");
+    } finally {
+      setAllowing(false);
+    }
+  }
   // "2 h ago" moves on with the app's shared half-minute clock.
   const now = useActivityClock(true);
   const all = routines.routines;
   // A Routine with a hidden Run Chat nobody opened shows a dot; each new Run reads its Project again.
   const states = useProjectStates(runProjects(all), all.map((routine) => routine.runs?.[0]?.id ?? "").join(","));
   const unread = useMemo(() => unreadRunRoutines(states), [states]);
-  const empty = client && routines.enabled === true && !routines.loading && !all.length && !routines.error && !routines.unavailable && !error;
+  const empty = client && routines.enabled !== null && !routines.loading && !all.length && !routines.error && !routines.unavailable && !error;
   const heartbeats = all.filter(isHeartbeat);
   const triggers = all.filter((routine) => !isHeartbeat(routine));
   const counts: Record<Filter, number> = {
@@ -130,18 +146,9 @@ export default function RoutinesScreen() {
           ) : null}
           {routines.enabled === false ? (
             <View style={[styles.card, { gap: 8 }]}>
-              <Text style={[styles.text, { fontWeight: "600" }]}>Routines are off on this Mac</Text>
-              <Text style={styles.muted}>Turn them on in Settings › Experimental to let Routines run. Nothing runs while they are off.</Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Open Experimental settings"
-                onPress={() => router.push("/experimental")}
-                style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44, opacity: pressed ? 0.5 : 1 })}
-              >
-                <Icon icon={Settings01Icon} tone="ink" size={20} />
-                <Text style={[styles.text, { flex: 1, fontWeight: "500" }]}>Experimental</Text>
-                <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
-              </Pressable>
+              <Text style={[styles.text, { fontWeight: "600" }]}>{"Routines won't run on this Mac yet"}</Text>
+              <Text style={styles.muted}>Allow sharing with AI providers to let them run. Creating, turning on or running one also allows it.</Text>
+              <PillButton title={allowing ? "Allowing…" : "Allow"} disabled={allowing} onPress={() => void allow()} />
             </View>
           ) : null}
           {all.length ? (

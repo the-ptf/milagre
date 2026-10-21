@@ -166,13 +166,31 @@ async function fixture(t, { enable = true, restart, open = true, titleModels = {
 
 const latestRun = async (f) => (await f.list())[0]?.runs[0];
 
-test("the switch is off by default: no routine tools and no ticks", async (t) => {
+test("a new profile can't run Routines: no routine tools and no ticks", async (t) => {
   const f = await fixture(t, { enable: false });
   assert.deepEqual(await f.runtime.invoke("routines:enabled:read"), { enabled: false });
   assert.equal(f.tool("heartbeat_create"), undefined);
   assert.equal(f.tool("routine_list"), undefined);
   assert.deepEqual(await f.list(), []);
-  await assert.rejects(f.runtime.invoke("routines:run-now", ["missing"]), /Routines are off/);
+  await assert.rejects(f.runtime.invoke("routines:run-now", ["missing"]), /can't run on this computer until AI sharing is allowed/);
+});
+
+test("a Routine created or run with the consent version lets the computer run Routines; without it nothing changes", async (t) => {
+  const f = await fixture(t, { enable: false });
+  const input = {
+    name: "Morning triage",
+    prompt: "Triage",
+    trigger: { kind: "schedule", cron: "*/5 * * * *", timezone: "UTC" },
+    target: { kind: "new-chat", projectPath: f.project, workspace: "worktree" },
+  };
+  const { routine } = await f.runtime.invoke("routines:create", [input]);
+  assert.deepEqual(await f.runtime.invoke("routines:enabled:read"), { enabled: false }, "a write without consent authorizes nothing");
+  assert.equal((await f.list()).length, 1, "the list shows Routines whether or not they may run");
+  await assert.rejects(f.runtime.invoke("routines:run-now", [routine.id, "an older consent"]), /AI sharing is allowed/);
+  assert.equal((await f.list())[0].nextRunAt, null, "no next Run is promised while it may not run them");
+  await f.runtime.invoke("routines:create", [input, AI_CONSENT_VERSION]);
+  assert.deepEqual(await f.runtime.invoke("routines:enabled:read"), { enabled: true });
+  assert.equal(typeof (await f.list())[0].nextRunAt, "number", "once it may, the schedule shows its next Run");
 });
 
 test("a heartbeat an agent sets fires into its Chat, and a (pass) reply ends quiet", async (t) => {
@@ -297,7 +315,7 @@ test("a beat that checks with a tool, then ends with (pass), is quiet; a (pass) 
   assert.equal(f.published.findLast((item) => item.type === "turn-completed").quiet, undefined);
 });
 
-test("a live session's routine tools stop working once the switch is off", async (t) => {
+test("a live session's routine tools stop working once Routines may not run (Reset)", async (t) => {
   const f = await fixture(t);
   assert.equal((await runTool(f.tool("routine_list"), {})).isError, false);
   await f.runtime.invoke("routines:enabled:save", [false]);
@@ -307,7 +325,7 @@ test("a live session's routine tools stop working once the switch is off", async
   ]) {
     const result = await runTool(f.tool(name), args);
     assert.equal(result.isError, true, name);
-    assert.equal(result.text, "Routines are turned off in Settings › Experimental.");
+    assert.match(result.text, /^Routines can't run on this computer until the user allows AI sharing/);
   }
   assert.deepEqual(await f.list(), []);
 });

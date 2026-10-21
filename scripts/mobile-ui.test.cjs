@@ -8801,7 +8801,7 @@ test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the
   );
 });
 
-test("mobile Experimental page shows the Mac's Routines switch, hidden until read, saved on the Mac and rolled back when refused", async () => {
+test("mobile Experimental page has no Routines switch (Routines left Experimental)", async () => {
   const react = hookHost();
   const focused = [];
   const saves = [];
@@ -8840,47 +8840,11 @@ test("mobile Experimental page shows the Mac's Routines switch, hidden until rea
     return ExperimentalSection();
   };
   const settle = () => new Promise((resolve) => setImmediate(resolve));
-  const title = "Routines";
-  assert.equal(
-    find(render(), (n) => n.props?.title === title),
-    undefined,
-    "hidden until the Mac answers",
-  );
   for (const effect of focused.splice(0)) effect();
   await settle();
-  let tree = render();
-  assert.equal(find(tree, (n) => n.props?.title === title).props.selected, false);
-  assert.ok(
-    find(
-      tree,
-      (n) =>
-        n.type === "Text" && n.props.children === "Let agents set Heartbeats that check back on a Chat on a schedule. Open Chats get it after Reload chat.",
-    ),
-  );
-  find(tree, (n) => n.props?.title === title).props.onPress();
-  await settle();
-  assert.deepEqual(saves, [true]);
-  assert.equal(find(render(), (n) => n.props?.title === title).props.selected, true);
-  refuse = true;
-  find(render(), (n) => n.props?.title === title).props.onPress();
-  await settle();
-  tree = render();
-  assert.deepEqual(saves, [true, false]);
-  assert.equal(find(tree, (n) => n.props?.title === title).props.selected, true, "a refused save puts the switch back");
-  assert.match(find(tree, (n) => n.type === "ErrorNotice").props.message, /does not allow/);
-  const rejecting = load(
-    "experimental-section.tsx",
-    modules({ client: { call: async () => Promise.reject(new Error("unknown method")) } }),
-  ).ExperimentalSection;
-  react.begin();
-  rejecting();
-  for (const effect of focused.splice(0)) effect();
-  await settle();
-  react.begin();
   assert.equal(
-    find(rejecting(), (n) => n.props?.title === title),
+    find(render(), (n) => n.props?.title === "Routines"),
     undefined,
-    "an older Mac rejects the read: no switch",
   );
 });
 
@@ -11365,6 +11329,7 @@ function routinesHost({
       if (refuse && method.startsWith("routines:")) throw new Error(`${method} is not available from mobile`);
       if (confined && (method === "routines:enabled:read" || method === "routines:list")) return [];
       if (method === "routines:enabled:read") return { enabled };
+      if (method === "routines:enabled:save") return { enabled: (enabled = args[0] === true) };
       if (method === "routines:list") return { routines: list };
       if (method === "routines:update" && slowUpdates) {
         const gate = deferred();
@@ -11411,7 +11376,7 @@ function routinesHost({
     "../chat-row-store": { useActivityClock: () => Date.UTC(2026, 9, 17, 10, 30) },
     "../status-indicators": { ChatMarkIcon: "ChatMarkIcon" },
     "../icons": { Icon: "Icon" },
-    "../ui": Object.fromEntries(["ErrorNotice", "HeaderButton", "PageScroll", "PullDown", "RowSwitch"].map((name) => [name, name])),
+    "../ui": Object.fromEntries(["ErrorNotice", "HeaderButton", "PageScroll", "PillButton", "PullDown", "RowSwitch"].map((name) => [name, name])),
   });
   const render = () => {
     react.begin();
@@ -11515,14 +11480,23 @@ test("flipping a Routine's switch on the phone writes routines:update with the n
   assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowSwitch").props.selected, false);
 });
 
-test("with the Mac's Routines switch off, the phone says so and links to Experimental", async () => {
-  const host = routinesHost({ routines: [], enabled: false });
+test("a Mac that can't run Routines yet still lists them, and Allow passes this phone's permission on", async () => {
+  const [heartbeat] = routineFixtures();
+  const host = routinesHost({ routines: [heartbeat], enabled: false });
   host.render();
   await host.settle();
-  const tree = host.render();
-  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Routines are off on this Mac"));
-  find(tree, (node) => node.props?.accessibilityLabel === "Open Experimental settings").props.onPress();
-  assert.deepEqual(host.routes, ["/experimental"]);
+  let tree = host.render();
+  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Routines won't run on this Mac yet"));
+  assert.equal(host.rows(tree).length, 1, "its Routines are listed anyway");
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Allow").props.onPress();
+  await host.settle();
+  await host.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(host.calls.filter(([method]) => method === "routines:enabled:save"))), [["routines:enabled:save", [true]]]);
+  tree = host.render();
+  assert.equal(
+    allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Routines won't run on this Mac yet"),
+    false,
+  );
 });
 
 // Local times, so "Today" holds in any time zone.
@@ -11789,12 +11763,11 @@ test("the phone Routine screen opened with nothing behind it goes to the Routine
   assert.deepEqual(host.replaced, ["/routines"]);
 });
 
-test("the phone Routine screen stays while its Routine is listed, the list is loading, a read failed, or the Mac's Routines are off", () => {
+test("the phone Routine screen stays while its Routine is listed, the list is loading, or a read failed", () => {
   const cases = {
     "the Routine is listed": routineHost(),
     "the list is loading": routineHost({ id: "nope", loading: true }),
     "the Mac's switch is not read yet": routineHost({ id: "nope", enabled: null }),
-    "the Mac's Routines are off": routineHost({ id: "nope", enabled: false }),
     "the last read failed": routineHost({ id: "nope", error: "Could not read Routines." }),
   };
   for (const [name, host] of Object.entries(cases)) {

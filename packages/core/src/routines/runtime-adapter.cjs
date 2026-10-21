@@ -14,8 +14,8 @@ const { createRoutineTools } = require("./tools.cjs");
 const { createLinearPoller } = require("./linear-poller.cjs");
 const { DEFAULT_SIGNING_HEADER, hookIdOf, newHookSecret, hookUrl, verifySignature, webhookPrompt } = require("./webhook.cjs");
 
-const OFF = "Routines are off. Turn them on in Settings › Experimental.";
-const TOOLS_OFF = "Routines are turned off in Settings › Experimental.";
+const OFF = "Routines can't run on this computer until AI sharing is allowed. Open Routines and choose Allow.";
+const TOOLS_OFF = "Routines can't run on this computer until the user allows AI sharing: ask them to open Routines and choose Allow.";
 const WEBHOOK_LATER = "Webhook Routines arrive in a later update.";
 const UNLISTED = "Choose a Project Milagre lists.";
 const NO_CHAT = "That Chat is no longer in its Project.";
@@ -542,7 +542,7 @@ function createRoutines({
     projects,
     projectState,
     startCheck: (target) => {
-      if (!store.enabled()) throw new Error("Routines are off. Enable Routines after allowing AI sharing.");
+      if (!store.enabled()) throw new Error(OFF);
       return checkTarget.atStart(target);
     },
     canRun: () => store.enabled(),
@@ -771,6 +771,29 @@ function createRoutines({
     );
   }
 
+  async function save(value, consentVersion) {
+    if (value === true && consentVersion !== AI_CONSENT_VERSION)
+      throw new Error("AI sharing permission is required. Update Milagre and allow sharing before enabling Routines.");
+    const enabled = store.setEnabled(value === true);
+    if (enabled) {
+      scheduler.start();
+      poller.start();
+    } else {
+      poller.stop();
+      // Off: one tick turns the routines' keep-awake off now, and the timer stops until the switch is on again. A comment
+      // already on its way goes back to its queue; this resolves once it has.
+      await scheduler.tick();
+      scheduler.stop();
+      await settleWithin();
+    }
+    changed();
+    return { enabled };
+  }
+  /** A write from a device that allowed AI sharing (it passes the consent version) lets this computer run Routines. */
+  async function authorize(consentVersion) {
+    if (consentVersion === AI_CONSENT_VERSION && !store.enabled()) await save(true, consentVersion);
+  }
+
   return {
     enabled: () => store.enabled(),
     // A session keeps the tools it was given, so each one checks the switch when it runs. An agent's write through a
@@ -821,41 +844,34 @@ function createRoutines({
       poller.stop();
       return settleWithin();
     },
+    // `enabled` is whether this computer may run Routines: a device that allowed AI sharing said so (there is no switch
+    // any more; a Routine created, turned on or run from such a device says it too, through authorize).
     read: () => ({ enabled: store.enabled() }),
-    async save(value, consentVersion) {
-      if (value === true && consentVersion !== AI_CONSENT_VERSION)
-        throw new Error("AI sharing permission is required. Update Milagre and allow sharing before enabling Routines.");
-      const enabled = store.setEnabled(value === true);
-      if (enabled) {
-        scheduler.start();
-        poller.start();
-      } else {
-        poller.stop();
-        // Off: one tick turns the routines' keep-awake off now, and the timer stops until the switch is on again. A comment
-        // already on its way goes back to its queue; this resolves once it has.
-        await scheduler.tick();
-        scheduler.stop();
-        await settleWithin();
-      }
-      changed();
-      return { enabled };
+    save,
+    // store.list gives copies, so each takes its Runs in place. While this computer may not run Routines, none has a next
+    // Run: every surface (rows, a Routine's page, a Chat's Next check, the phone) would otherwise promise one that won't come.
+    list: () => {
+      const mayRun = store.enabled();
+      return {
+        routines: store.list().map((routine) => Object.assign(routine, { runs: store.runs(routine.id) }, mayRun ? {} : { nextRunAt: null })),
+      };
     },
-    // store.list gives copies, so each takes its Runs in place.
-    list: () => ({ routines: store.list().map((routine) => Object.assign(routine, { runs: store.runs(routine.id) })) }),
     // A Routine from the Routines form: always the user's, whatever the input says.
-    async create(input) {
+    async create(input, consentVersion) {
       if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("A Routine needs its settings.");
       const target = await checkTarget(input.target);
+      await authorize(consentVersion);
       const routine =
         input.trigger?.kind === "webhook" ? webhooks.create({ ...input, target }) : store.create({ ...input, target, createdBy: { kind: "user" } });
       if (input.trigger?.kind !== "webhook") changed();
       await keepTarget(routine);
       return routine;
     },
-    async update(id, patch) {
+    async update(id, patch, consentVersion) {
       if (typeof id !== "string" || !id) throw new Error("Choose a Routine.");
       if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("A Routine change must be an object.");
       const checked = patch.target === undefined ? patch : { ...patch, target: await checkTarget(patch.target) };
+      if (patch.enabled !== false) await authorize(consentVersion);
       const webhook = store.get(id)?.trigger.kind === "webhook";
       const routine = webhook ? webhooks.update(id, checked) : store.update(id, checked);
       if (!webhook) changed();
@@ -875,9 +891,10 @@ function createRoutines({
     receiveHooks: (deliveries) => webhooks.receive(deliveries),
     hooksRefused: (ids) => webhooks.refused(ids),
     hookOwners: (ids) => webhooks.owners(ids),
-    async runNow(id) {
-      if (!store.enabled()) throw new Error(OFF);
+    async runNow(id, consentVersion) {
       if (typeof id !== "string" || !id) throw new Error("Choose a Routine.");
+      await authorize(consentVersion);
+      if (!store.enabled()) throw new Error(OFF);
       return scheduler.runNow(id);
     },
   };

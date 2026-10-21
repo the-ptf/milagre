@@ -19,14 +19,13 @@ const NOT_REMOTE = "Not available on a remote computer";
 
 /**
  * Why another computer's Routines aren't listed or current, or null when they are. An older Milagre there refuses them
- * outright; an offline one is shown from the last copy it sent, which can't be changed until it is back; one with its
- * switch off lists none, which would otherwise read as having none.
+ * outright; an offline one is shown from the last copy it sent, which can't be changed until it is back. (One that can't
+ * run Routines yet gets the Allow notice instead.)
  */
-function computerRoutinesProblem(view: ComputerView, error: string | null, enabled: boolean | null): string | null {
+function computerRoutinesProblem(view: ComputerView, error: string | null): string | null {
   if (error?.includes(NOT_REMOTE)) return `Update Milagre on ${view.name} to see its Routines.`;
   if (isDimmed(view)) return `${view.name} is offline. Its Routines are the last copy it sent; you can change them once it's back.`;
   if (error) return `Couldn't read ${view.name}'s Routines: ${error}`;
-  if (enabled === false) return `Routines are off on ${view.name}. Turn them on there in Settings › Experimental to see its Routines here.`;
   return null;
 }
 const card = "divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface";
@@ -49,7 +48,6 @@ export function RoutinesPage({
   onOpenChat,
   onOpenRunChat,
   onCloseRunChat,
-  onOpenExperimental,
 }: {
   models: ModelOption[];
   /** The open Project, where a new Routine runs unless another is picked. */
@@ -71,18 +69,35 @@ export function RoutinesPage({
   onOpenRunChat?: (chatKey: string) => void;
   /** Closes the Run Chat beside the page: Edit and New Routine take the page over. */
   onCloseRunChat?: () => void;
-  onOpenExperimental: () => void;
 }) {
-  const { enabled, routines, error: loadError, byComputer, refresh } = useRoutines();
+  const { enabled: read, routines, error: loadError, byComputer, refresh } = useRoutines();
+  // Routines have no switch: the page shows once this Mac has answered.
+  const enabled = read !== null;
   const { thisMac, computers } = useComputers();
   // With other computers, each row says which Mac it runs on, as Chat rows do.
   const computerName = (id: string) => (id === LOCAL_COMPUTER ? thisMac : (computers.find((computer) => computer.id === id)?.name ?? "Computer"));
   const remoteProblems = computers.flatMap((computer) => {
-    const read = byComputer[computer.id];
-    const problem = computerRoutinesProblem(computer, read?.error ?? null, read?.enabled ?? null);
+    const problem = computerRoutinesProblem(computer, byComputer[computer.id]?.error ?? null);
     return problem ? [{ id: computer.id, problem }] : [];
   });
-  const onComputers = Object.keys(byComputer).filter((id) => byComputer[id]?.enabled === true);
+  const onComputers = Object.keys(byComputer).filter((id) => typeof byComputer[id]?.enabled === "boolean");
+  // Computers that answered but may not run Routines yet: nobody allowed AI sharing for them from a device. Allow (here,
+  // or creating, turning on or running a Routine there) asks this device for permission and passes it on.
+  const unauthorized = onComputers.filter(
+    (id) => byComputer[id]?.enabled === false && !(id !== LOCAL_COMPUTER && remoteProblems.some((item) => item.id === id)),
+  );
+  const [allowing, setAllowing] = useState<string | null>(null);
+  const allow = (id: string) => {
+    setError(null);
+    setAllowing(id);
+    Promise.resolve()
+      .then(() => bridgeFor(id).saveRoutinesEnabled(true))
+      .then(
+        () => refresh(id),
+        (failure) => setError(ipcErrorMessage(failure)),
+      )
+      .finally(() => setAllowing(null));
+  };
   const onKey = onComputers.join(",");
   const [filter, setFilter] = useState<Filter>("all");
   // One computer's Routines only, or every computer's ("all").
@@ -305,22 +320,28 @@ export function RoutinesPage({
             {problem}
           </p>
         ))}
-        {enabled === false ? (
-          <div data-routines-off className="mt-8 flex flex-col items-center rounded-xl border border-line bg-surface px-6 py-10 text-center">
-            <span className="flex size-10 items-center justify-center rounded-xl bg-field text-ink-2">
-              <HugeiconsIcon icon={RepeatIcon} size={20} strokeWidth={1.8} color="currentColor" />
-            </span>
-            <p className="mt-3 text-[14px] font-medium text-ink">Routines are off</p>
-            <p className="mt-1 max-w-[420px] text-[13px] text-ink-2">
-              Turn them on in{" "}
-              <button type="button" data-routines-experimental className="font-medium text-ink underline underline-offset-2" onClick={onOpenExperimental}>
-                Settings › Experimental
-              </button>
-              .
+        {unauthorized.map((id) => (
+          <div
+            key={id}
+            data-routines-unauthorized={id}
+            className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-line bg-surface px-4 py-3"
+          >
+            <p className="min-w-0 text-[13px] text-ink-2">
+              {id === LOCAL_COMPUTER ? "Routines won't run on this Mac" : `Routines won't run on ${computerName(id)}`} until you allow sharing with AI
+              providers. Creating, turning on or running one also allows it.
             </p>
-            <p className="mt-3 max-w-[420px] text-[12px] text-ink-3">{HELP}</p>
+            <button
+              type="button"
+              data-routines-allow={id}
+              disabled={allowing !== null}
+              onClick={() => allow(id)}
+              className="h-[30px] shrink-0 rounded-full bg-ink px-3.5 text-[13px] font-medium text-surface transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              Allow
+            </button>
           </div>
-        ) : enabled ? (
+        ))}
+        {enabled ? (
           <>
             {routines.length > 0 && (
               <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
