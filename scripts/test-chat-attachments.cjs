@@ -46,6 +46,7 @@ window.milagre = new Proxy({
  getCurrentProject: async () => ({ path: '/fixture', name: 'Milagre', state }),
  listRecentProjects: async () => [], listBranches: async () => ['main'], listEditors: async () => [],
  getCachedUsage: async () => ({ providers: [] }), readUsage: async () => ({ providers: [] }), getUpdateState: async () => ({ status: 'idle' }),
+ uploadAttachment: async request => ({ file: { path: "/fixture/uploads/" + request.name } }),
  getPathForFile: file => '/fixture/files/' + file.name,
  searchProjectFiles: async (root, query) => { window.searches.push({root,query}); return ['src/my app.ts', 'src/model.ts', 'media/photo.png', 'media/clip.mp4'].filter(p => p.includes(query)); },
  // The main process saves the message, then starts the turn (see ChatHost.send).
@@ -373,8 +374,8 @@ async function browserChecks() {
     await evaluate(
       `(() => { const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array(6 * 1024 * 1024)], 'photo.png', {type:'image/png'})); document.querySelector('[data-prompt-editor]').dispatchEvent(new DragEvent('drop', { bubbles:true, cancelable:true, dataTransfer:dt })); })()`,
     );
-    await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.src.startsWith('milagre-media:')`);
-    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "", "Large-image drops remain attachments");
+    await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.src.startsWith('data:image/png')`);
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "[Image #1] ", "Images above the old limit remain image attachments");
     await click('[data-promptbar] [aria-label="Remove photo.png"]');
     await evaluate(
       `(() => { const dt = new DataTransfer(); dt.items.add(new File([Uint8Array.from(atob(window.imageBytes), c=>c.charCodeAt(0))], 'pasted.png', {type:'image/png'})); document.querySelector('[data-prompt-editor]').dispatchEvent(new ClipboardEvent('paste', { bubbles:true, cancelable:true, clipboardData:dt })); })()`,

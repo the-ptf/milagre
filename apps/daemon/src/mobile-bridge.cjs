@@ -765,11 +765,13 @@ async function startMobileBridge({
             throw failure(400, "Invalid JSON");
           }
           if (target.pathname === "/attachments") {
-            const { projectPath, name, base64, reuse } = request || {};
+            const { projectPath, name, base64, reuse, transferId, offset, totalBytes } = request || {};
             if (typeof projectPath !== "string") throw failure(400, "Invalid attachment");
             await confine?.check(projectPath);
             await scopeRoots(projectPath);
-            const outcome = await client.call("attachment:upload", [{ projectPath, name, base64, reuse, ...(confine ? { quota: attachmentQuota } : {}) }]);
+            const outcome = await client.call("attachment:upload", [
+              { projectPath, name, base64, reuse, transferId, offset, totalBytes, ...(confine ? { quota: attachmentQuota } : {}) },
+            ]);
             if (outcome.error) throw failure(outcome.error.status, outcome.error.message);
             result = outcome.file;
           } else {

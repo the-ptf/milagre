@@ -598,7 +598,7 @@ test("mobile uploads are private, bounded and scoped to an open Project", async 
   assert.equal(await fs.readFile(file.path, "utf8"), "Review this document");
   assert.equal((await fs.stat(file.path)).mode & 0o777, 0o600);
   assert.equal((await upload({ ...payload, base64: "invalid!" })).status, 400);
-  assert.equal((await upload({ ...payload, base64: Buffer.alloc(5 * 1024 * 1024 + 1).toString("base64") })).status, 413);
+  assert.equal((await upload({ ...payload, base64: Buffer.alloc(50 * 1024 * 1024 + 1).toString("base64") })).status, 413);
   const next = (await (await upload(payload)).json()).result;
   assert.equal(next.path, file.path, "identical uploads reuse the completed file");
 });
@@ -682,9 +682,9 @@ test("mobile media serves images only from the Project Worktrees and Milagre ima
   await fs.mkdir(path.join(worktree, "folder.png"));
   assert.equal((await media(path.join(worktree, "folder.png"))).status, 403);
 
-  // 15 MiB cap.
+  // 50 MiB cap.
   const big = path.join(worktree, "big.png");
-  await fs.writeFile(big, Buffer.concat([png, Buffer.alloc(15 * 1024 * 1024)]));
+  await fs.writeFile(big, Buffer.concat([png, Buffer.alloc(50 * 1024 * 1024)]));
   assert.equal((await media(big)).status, 413);
 
   // Same token and host rules as every other route.
@@ -1700,4 +1700,33 @@ test("completed usage reads notify Project and Project-less phone views", async 
   assert.equal((await rpc("usage:cached", [project])).status, 200);
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(projectPhone.messages.filter((type) => type === "usage").length, 1);
+});
+
+test("phone uploads above 5 MiB fit the HTTP and daemon carriers and sends use image references", async (t) => {
+  const { project, request, rpc } = await fixture(t);
+  await rpc("project:open", [project]);
+  const { uploadAttachment } = require("@milagre/shared/attachment-upload");
+  const bytes = Buffer.alloc(6 * 1024 * 1024, 0);
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(bytes);
+  const file = await uploadAttachment(
+    async (part) => {
+      const response = await request("/attachments", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(part) });
+      assert.equal(response.status, 200);
+      return (await response.json()).result;
+    },
+    { projectPath: project, name: "large.png", base64: bytes.toString("base64") },
+  );
+  assert.deepEqual(await fs.readFile(file.path), bytes);
+  const sent = await rpc("chat:send", [
+    {
+      projectPath: project,
+      worktreeId: 1,
+      body: "Review images",
+      images: Array.from({ length: 6 }, (_, i) => ({ id: String(i), name: "large.png", path: file.path })),
+      files: [],
+      provider: "claude",
+      model: "test",
+    },
+  ]);
+  assert.equal(sent.status, 200, await sent.text());
 });

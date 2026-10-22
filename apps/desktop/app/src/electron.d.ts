@@ -267,6 +267,15 @@ export type MilagreBridge = {
   restartHost: () => Promise<void>;
   onRuntimeConnection: (callback: (state: RuntimeConnection) => void) => () => void;
   onRuntimeSnapshot: (callback: (snapshot: RuntimeSnapshot) => void) => () => void;
+  uploadAttachment: (request: {
+    projectPath: string;
+    name?: string;
+    base64?: string;
+    reuse?: string;
+    transferId?: string;
+    offset?: number;
+    totalBytes?: number;
+  }) => Promise<{ file?: { id: string; path: string } | null; error?: { status: number; message: string } }>;
   getPathForFile: (file: File) => string;
   readAttachment: (file: string) => Promise<{ text: string; binary: boolean; truncated: boolean }>;
   searchProjectFiles: (root: string, query: string) => Promise<string[]>;

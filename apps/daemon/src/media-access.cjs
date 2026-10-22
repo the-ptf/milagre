@@ -3,7 +3,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { isLinkScopeKey, scopeFromKey } = require("@milagre/shared/chat-scopes");
 
-const MAX_MEDIA = 15 * 1024 * 1024;
+const { MAX_ATTACHMENT_BYTES: MAX_MEDIA } = require("@milagre/shared/limits");
 const MEDIA_TYPES = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -97,7 +97,7 @@ async function openMedia({ scope, requested }, { dataDir, scopeRoots, chatImage,
   try {
     const info = await handle.stat();
     if (!info.isFile()) throw failure(403, PHONE_REFUSAL);
-    if (info.size > MAX_MEDIA) throw failure(413, "Images must be 15 MiB or smaller");
+    if (info.size > MAX_MEDIA) throw failure(413, "Images must be 50 MiB or smaller");
     const head = Buffer.alloc(12);
     const { bytesRead } = await handle.read(head, 0, 12, 0);
     if (!sniffsAs(type, head.subarray(0, bytesRead))) throw failure(415, "The file is not a supported image");

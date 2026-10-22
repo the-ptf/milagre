@@ -89,6 +89,23 @@ test("a new computer waits for Allow, then drives the Mac over the relay and mov
   // The window opens the project on the computer, as it would; the Mac's own window opens it too.
   await within(computers.invoke(added.id, "project:open", [mac.project]), "project:open on the computer");
   const opened = await within(mac.client.call("project:open", [mac.project]), "project:open");
+  // A maximum-size image crosses the paired transport in bounded chunks, then comes back in result pages.
+  const { uploadAttachment } = require("@milagre/shared/attachment-upload");
+  const bytes = Buffer.alloc(50 * 1024 * 1024, 42);
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(bytes);
+  const uploadRequest = { projectPath: mac.project, name: "photo.png", base64: bytes.toString("base64") };
+  const upload = () =>
+    uploadAttachment(async (part) => {
+      const result = await computers.invoke(added.id, "attachment:upload", [part]);
+      if (result.error) throw new Error(result.error.message);
+      return result.file;
+    }, uploadRequest);
+  const uploaded = await within(upload(), "50 MiB attachment upload", 60000);
+  assert.ok(uploaded.path.startsWith(mac.dataDir));
+  assert.deepEqual(await fs.readFile(uploaded.path), bytes);
+  assert.equal((await within(upload(), "repeated upload", 60000)).path, uploaded.path);
+  const media = await within(computers.invoke(added.id, "media:read", [{ scope: mac.project, path: uploaded.path }]), "50 MiB image preview", 60000);
+  assert.equal(media.base64, uploadRequest.base64);
   const chatId = Object.values(opened.state.sessions)[0].id;
   // A host sends a scope's first state as `resync` (read it with project:snapshot) and every later change as a patch on
   // it, so one patch sets the baseline and the next one is the change that must arrive.

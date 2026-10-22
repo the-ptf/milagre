@@ -1,3 +1,4 @@
+import { prepareImageUploads } from "../../lib/attachment-uploads";
 import { useCallback, useLayoutEffect, useMemo, useState, type ComponentProps } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { PauseIcon, PlayIcon, SidebarRight01Icon } from "@hugeicons/core-free-icons";
@@ -91,7 +92,7 @@ export function BotThread({
         worktreeId: bot.homeWorktreeId,
         body,
         prompt: attachmentPrompt(body, imageDraft.files),
-        images: imageDraft.images,
+        images: await prepareImageUploads(bot.homePath, imageDraft.images),
         files: imageDraft.files,
         provider: model.provider,
         model: model.id,
