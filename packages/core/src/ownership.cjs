@@ -105,6 +105,7 @@ function acquireOwnership(lockPath) {
     if (!clearStale(lockPath))
       throw new Error(
         `Milagre state is already owned. Close its other runtime. If it crashed, verify the process in ${path.join(lockPath, "owner.json")} has exited before removing ${lockPath}.`,
+        { cause: error },
       );
     return acquireOwnership(lockPath);
   }

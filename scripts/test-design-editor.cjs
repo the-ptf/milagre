@@ -658,6 +658,9 @@ async function browserChecks() {
     };
     await click('[data-node-id="date"]');
     const footerPoint = await previewPoint("footer");
+    // Route the pointer into the sandbox before pressing, as dragLayer does.
+    await pointer("mouseMoved", footerPoint, 8, false);
+    await delay(80);
     await pointer("mousePressed", footerPoint, 8);
     await pointer("mouseReleased", footerPoint, 8);
     await waitFor(
