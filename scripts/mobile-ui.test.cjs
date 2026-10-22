@@ -8480,7 +8480,7 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
   const { GeneralSection } = load("general-section.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/main-sync": { MAIN_SYNC_TITLE: "Sync main branch before new Worktrees", MAIN_SYNC_HINT: "" },
+    "@milagre/shared/main-sync": require("@milagre/shared/main-sync"),
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { router: { push: (path) => pushed.push(path) }, useFocusEffect: (fn) => focused.push(fn) },
     "@hugeicons/core-free-icons": {},
@@ -8493,7 +8493,7 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
     return GeneralSection();
   };
   const settle = () => new Promise((resolve) => setImmediate(resolve));
-  const toggle = () => find(render(), (n) => n.props?.title === "Sync main branch before new Worktrees");
+  const toggle = () => find(render(), (n) => n.props?.title === "Sync source branch before new Worktrees");
   find(render(), (n) => n.type === "ListRow" && n.props.title === "Plan usage").props.onPress();
   assert.deepEqual(pushed, ["/usage"]);
   focused.at(-1)();

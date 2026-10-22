@@ -51,14 +51,14 @@ async function browserChecks() {
   };
   try {
     await window.loadURL(process.argv[2]);
-    const toggle = `document.querySelector('[role="switch"][aria-label="Sync main branch before new Worktrees"]')`;
+    const toggle = `document.querySelector('[role="switch"][aria-label="Sync source branch before new Worktrees"]')`;
     const row = `document.querySelector('[data-main-sync]')`;
     await waitFor(`!!${toggle} && ${row}?.textContent.includes('Skipped 3 min ago: The main checkout has uncommitted changes')`);
     assert.equal(await evaluate(`${toggle}.getAttribute('aria-checked')`), "false", "Off by default");
     await screenshot("default-off");
     await evaluate(`${toggle}.click()`);
     await waitFor(`window.__mainSync.state.defaultValue === true && ${toggle}.getAttribute('aria-checked') === 'true'`);
-    await evaluate(`document.querySelector('button[aria-label="Sync main before new Worktrees"]').click()`);
+    await evaluate(`document.querySelector('[data-main-sync] button[aria-label="Sync source branch before new Worktrees"]').click()`);
     await waitFor(`[...document.querySelectorAll('[role="option"]')].some(o => o.textContent.trim() === 'Off')`);
     await evaluate(`[...document.querySelectorAll('[role="option"]')].find(o => o.textContent.trim() === 'Off').click()`);
     await waitFor(`window.__mainSync.state.override === false`);

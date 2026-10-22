@@ -959,6 +959,39 @@ test("worktree:create syncs main first only when main sync is on, and survives a
   assert.equal(last.message, "Could not reach origin");
 });
 
+test("worktree:create syncs the selected source branch and leaves main alone", async (t) => {
+  const { project, events, make } = await fixture(t);
+  const { clone, git, behind, ahead } = await trailingClone(project);
+  git("switch", "-q", "-c", "release/v2", "--track", "origin/main");
+  const runtime = make({ cwd: clone, worktreeRoot: path.join(path.dirname(project), "worktrees") });
+  await runtime.openProject(clone);
+  await runtime.invoke("main-sync:save", [clone, true]);
+  await runtime.invoke("worktree:create", [{ projectPath: clone, baseBranch: "release/v2", prompt: "" }]);
+  assert.equal(git("rev-parse", "release/v2"), ahead);
+  assert.equal(git("rev-parse", "main"), behind);
+  assert.equal(await fs.readFile(path.join(clone, "NEWS.md"), "utf8"), "shipped\n");
+  assert.equal(events.find(({ channel }) => channel === "main-sync:status").payload.last.branch, "release/v2");
+});
+
+test("concurrent Worktrees from different branches each sync their source", async (t) => {
+  const { project, events, make } = await fixture(t);
+  const { clone, git, ahead } = await trailingClone(project);
+  git("branch", "--track", "release/v2", "origin/main");
+  const runtime = make({ cwd: clone, worktreeRoot: path.join(path.dirname(project), "worktrees") });
+  await runtime.openProject(clone);
+  await runtime.invoke("main-sync:save", [clone, true]);
+  await Promise.all(["main", "release/v2"].map((baseBranch) => runtime.invoke("worktree:create", [{ projectPath: clone, baseBranch, prompt: "" }])));
+  assert.equal(git("rev-parse", "main"), ahead);
+  assert.equal(git("rev-parse", "release/v2"), ahead);
+  assert.deepEqual(
+    events
+      .filter(({ channel }) => channel === "main-sync:status")
+      .map(({ payload }) => payload.last.branch)
+      .sort(),
+    ["main", "release/v2"],
+  );
+});
+
 test("two worktree:create calls share one sync", async (t) => {
   const { project, events, make } = await fixture(t);
   const { clone } = await trailingClone(project);

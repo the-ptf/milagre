@@ -105,7 +105,7 @@ import { WorkspaceIcon } from "./WorkspaceIcon";
 import { RECENT_PROJECTS_CHANGED, projectInitial, projectRows } from "../lib/project-list";
 import type { RecentProject } from "../lib/project-list";
 import { setProjectImage, useProjectImages } from "../lib/project-images";
-import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE, choiceOf, mainSyncChoices, mainSyncProjectTitle, mainSyncStatusLine, overrideOf } from "@milagre/shared/main-sync";
+import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE, choiceOf, mainSyncChoices, mainSyncStatusLine, overrideOf } from "@milagre/shared/main-sync";
 import type { MainSyncChoice, MainSyncSettings } from "@milagre/shared/main-sync";
 
 type IconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
@@ -1921,7 +1921,7 @@ function ShowInSidebarSetting({ project }: { project: SettingsProject }) {
   );
 }
 
-// The global default for main branch sync; each Project can override it. Kept by the daemon, which runs the sync.
+// The global default for source branch sync; each Project can override it. Kept by the daemon, which runs the sync.
 export function MainSyncDefaultSetting() {
   const [syncMain, setSyncMain] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -2175,7 +2175,7 @@ export function MainSyncSetting({ projectPath }: { projectPath: string }) {
       setError(ipcErrorMessage(failure));
     }
   }
-  const title = mainSyncProjectTitle(sync?.branch ?? "main");
+  const title = MAIN_SYNC_TITLE;
   return (
     <div data-main-sync>
       <Row label={title} description={sync ? mainSyncStatusLine(sync.last, now) : undefined}>
@@ -2202,7 +2202,7 @@ function ProjectSettings({ project, onManageAccounts }: { project: SettingsProje
       </Group>
       {/* Accounts belong to the computer that runs the Project; only that Mac chooses them. */}
       {!isRemoteKey(project.path) && <ProjectAccountsGroup projectPath={project.path} onManageAccounts={onManageAccounts} />}
-      <Group title="Main branch">
+      <Group title="Worktrees">
         <MainSyncSetting projectPath={project.path} />
       </Group>
       <Group title="New worktrees">
