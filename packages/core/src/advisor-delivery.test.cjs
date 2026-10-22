@@ -139,7 +139,7 @@ test("adding roots cannot deliver across a removed root, replaced directory, or 
     assert.equal((await f.store.read("chat"))[0].completions[0].delivery, "pending");
   }
 });
-test("failed durable sending boundary never calls the provider", async (t) => {
+test("failed durable sending boundary never calls the provider", async () => {
   let sent = 0;
   const delivery = createAdvisorDelivery({
     store: {

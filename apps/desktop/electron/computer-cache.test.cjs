@@ -52,7 +52,7 @@ test("an id that isn't a computer's is refused, so no path leaves the cache fold
 });
 
 test("after close() a late put or get is a no-op and opens nothing", async (t) => {
-  const { dir, caches } = await setup(t);
+  const { caches } = await setup(t);
   caches.put(ID, "recent", "", [1]);
   caches.close();
   caches.put(ID, "recent", "", [2]);

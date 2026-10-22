@@ -136,7 +136,6 @@ async function browserChecks() {
     window.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
   };
   const count = () => evaluate('document.querySelector("[data-find-count]")?.textContent ?? null');
-  const activeTop = () => evaluate('(() => { const r = [...CSS.highlights.get("find-active")][0].getBoundingClientRect(); return Math.round(r.top); })()');
   const activeOffset = () =>
     evaluate(
       '(() => { const range = [...CSS.highlights.get("find-active")][0]; return range.startContainer.data.slice(0, range.startOffset).length + range.startContainer.data.length * 1000; })()',
@@ -151,7 +150,6 @@ async function browserChecks() {
     await window.loadURL(process.argv[3]);
     await waitFor('!!document.querySelector("[aria-label=\\"New chat\\"]") && !!document.querySelector("[aria-label=Conversation]")');
     const bar = '!!document.querySelector("[data-find-bar]")';
-    const text = () => evaluate('document.querySelector("[aria-label=Conversation]").textContent');
     // Open chat 1 (has messages).
     await evaluate('window.openChatWith("Chat one needle")');
     await waitFor('document.querySelector("[aria-label=Conversation]").textContent.includes("Chat one needle")');

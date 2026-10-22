@@ -30,9 +30,9 @@ const { ClaudeSession } = require("./agents/claude-provider.cjs");
 const { CodexSession, recoverCodexSubagents } = require("./agents/codex-provider.cjs");
 const { AcpSession } = require("./agents/acp-session.cjs");
 const { antigravityAcp, sweepTempDirs } = require("./agents/antigravity-acp.cjs");
-const { createCliCache, inspectCli } = require("./agents/cli.cjs");
+const { createCliCache } = require("./agents/cli.cjs");
 const { createProviderUpdates, releaseVersion } = require("./agents/provider-updates.cjs");
-const { runCliUpdate, linkNewestClaudeVersion } = require("./agents/cli-update.cjs");
+const { runCliUpdate } = require("./agents/cli-update.cjs");
 const { createAntigravity } = require("./agents/antigravity-install.cjs");
 const { recoverAntigravitySubagents } = require("./agents/antigravity-subagents.cjs");
 const { loadLoginEnvironment, refreshInstallPath } = require("./agents/environment.cjs");
@@ -2098,7 +2098,7 @@ function createRuntime(options) {
   commands.handle("project:registry", async () => withoutHomes(await projectRegistry().list()));
   commands.handle("project:position", (_event, id, position) => projectRegistry().setPosition(id, position));
   commands.handle("canvas:snapshot", async () => {
-    const projects = await projectRegistry().list();
+    await projectRegistry().list();
     await pruneLinks(await canvasActiveWorktrees());
     const registry = await projectRegistry().snapshot();
     const recent = await withHidden(await recentProjects().list());

@@ -47,7 +47,7 @@ const LIMIT_PROMPT =
 // folded into the runs is numbered, so a window that loads mid-turn takes the runs (see `snapshot`)
 // and skips the events they already hold.
 // A message the user sends replaces the brief waiting as a draft and any resume a quit left.
-const withoutDraft = ({ handoverDraft, resumeTurn, ...rest }) => rest;
+const withoutDraft = ({ handoverDraft: _handoverDraft, resumeTurn: _resumeTurn, ...rest }) => rest;
 
 const withLead = (lead, prompt) => [lead, prompt].filter((part) => part?.trim()).join("\n\n");
 

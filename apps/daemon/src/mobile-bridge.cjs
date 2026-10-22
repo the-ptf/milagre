@@ -299,7 +299,7 @@ function forChatList(project, runs) {
   }
   const sessions = Object.fromEntries(
     Object.entries(project.state.sessions).map(([id, session]) => {
-      const { subagents, ...metadata } = session;
+      const { subagents: _subagents, ...metadata } = session;
       return [id, metadata];
     }),
   );
