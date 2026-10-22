@@ -94,8 +94,11 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
   // Onboarding reads agent history from these: a fake Claude Code history names one folder without Git.
   if (onboarding) Object.assign(env, { CLAUDE_CONFIG_DIR: onboarding.claudeHome, CODEX_HOME: onboarding.codexHome, MILAGRE_ONBOARDING_TEMP_FOLDERS: "1" });
   env.MILAGRE_DEV_SERVER_URL = pathToFileURL(path.join(root, "apps/desktop/dist/index.html")).href;
-  // The packaged app's updater must not download/install a newer release during this check.
-  const child = spawn(executable, [...args, `--user-data-dir=${profile}`, "--remote-debugging-port=0", "--proxy-server=http://127.0.0.1:9"], {
+  // The packaged app's updater must not download/install a newer release during this check. On macOS the app seals
+  // its computer vault key with safeStorage at launch; the source and packaged apps share this profile but not a code
+  // signature, so the real keychain would ask for access and block the main process. A mock keychain never asks.
+  const keychain = process.platform === "darwin" ? ["--use-mock-keychain"] : [];
+  const child = spawn(executable, [...args, `--user-data-dir=${profile}`, "--remote-debugging-port=0", "--proxy-server=http://127.0.0.1:9", ...keychain], {
     cwd: project,
     env,
     stdio: ["ignore", "pipe", "pipe"],
