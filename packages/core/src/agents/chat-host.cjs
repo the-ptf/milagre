@@ -720,7 +720,7 @@ class ChatHost {
     const key = JSON.stringify([projectPath, clientMessageId]);
     // A staged message can still roll back if its flush fails. Only settled sends are receipts.
     for (;;) {
-      while (this.pendingSends.has(key)) await Promise.allSettled([...this.pendingSends.get(key)]);
+      while (this.pendingSends.has(key)) await Promise.allSettled(this.pendingSends.get(key));
       const message = await this.states.findMessage(projectPath, "clientMessageId", clientMessageId);
       const state = message ? null : await this.states.get(projectPath);
       // A send can start while the asynchronous reads above are in flight.

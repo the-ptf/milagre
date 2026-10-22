@@ -131,7 +131,8 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
     timers.clearTimeout(c.silence);
     const pending = [...c.pending.values()];
     c.pending.clear();
-    for (const live of [...c.lives.values()]) down(live, c, true);
+    // A copy: down notifies subscribers that may close or open live streams.
+    for (const live of Array.from(c.lives.values())) down(live, c, true);
     for (const request of pending) request.reject(error);
   }
 

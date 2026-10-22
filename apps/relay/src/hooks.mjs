@@ -268,7 +268,8 @@ export function createHookRoom({ storage, directory, roomId, now = Date.now, ran
     const roomNow = room();
     for (const id of removed) unreleased.add(id);
     // Releases that failed before are tried again on every set; a hook wanted again is still this room's.
-    for (const id of [...unreleased]) {
+    // A copy: release awaits storage and directory work that can update the set.
+    for (const id of Array.from(unreleased)) {
       if (desired.has(id)) unreleased.delete(id);
       else await release(id, roomNow);
     }

@@ -255,7 +255,7 @@ function createMobilePush({ dataDir, send, context, isChatFocused = () => false,
       });
     },
     async settled() {
-      while (work.size) await Promise.all([...work]);
+      while (work.size) await Promise.all(work);
       await writes;
     },
     async close() {

@@ -281,7 +281,7 @@ function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(ra
       const read = reader.read(message);
       if (!read) return;
       frames.push(read.frame);
-      for (const watcher of [...watchers]) watcher(read.frame);
+      for (const watcher of Array.from(watchers)) watcher(read.frame);
     } catch (error) {
       desktop.error ??= error;
       ws.terminate();

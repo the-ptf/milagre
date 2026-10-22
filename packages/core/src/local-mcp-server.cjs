@@ -149,7 +149,7 @@ function createLocalMcpServer({ authenticate, toolsFor, internalConnection }) {
       closing = true;
       if (!listening) return;
       await listening.catch(() => {});
-      await Promise.allSettled([...active]);
+      await Promise.allSettled(active);
       server.closeAllConnections();
       await new Promise((resolve) => server.close(resolve));
     },

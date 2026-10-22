@@ -28,7 +28,7 @@
     "react/set-state-in-effect": "warn",
     "eslint/no-unused-vars": "error",
     "oxc/no-async-endpoint-handlers": "warn",
-    "unicorn/no-useless-spread": "warn",
+    "unicorn/no-useless-spread": "error",
     "unicorn/no-array-reverse": "error",
     "oxc/no-accumulating-spread": "error",
     "react/memo-dependencies": "warn",

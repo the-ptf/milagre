@@ -55,11 +55,11 @@ function createAdvisorStore({ dataDir }) {
       return work;
     },
     async flush() {
-      await Promise.all([...queues.values()]);
+      await Promise.all(queues.values());
     },
     async close() {
       closed = true;
-      await Promise.all([...queues.values()]);
+      await Promise.all(queues.values());
     },
   };
 }

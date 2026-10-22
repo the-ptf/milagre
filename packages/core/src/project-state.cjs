@@ -22,7 +22,7 @@ function reconcileState(rawState, projectName, discoveredWorktrees, options = {}
   const state = rawState ?? emptyState(projectName);
   const existingWorktrees = Object.values(state.worktrees ?? {});
   const existingSessions = Object.values(state.sessions ?? {});
-  let nextId = Math.max(state.next_id ?? 1, ...[...existingWorktrees.map((item) => item.id), ...existingSessions.map((item) => item.id)]) || 1;
+  let nextId = Math.max(state.next_id ?? 1, ...existingWorktrees.map((item) => item.id), ...existingSessions.map((item) => item.id)) || 1;
   const allocateId = () => nextId++;
   // Resolve older Windows spellings using filesystem identity. Case-sensitive
   // directories stay distinct; a removed worktree still has its lexical path.
