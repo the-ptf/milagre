@@ -23,7 +23,7 @@ function eventTarget() {
       listeners.get(type)?.delete(listener);
     },
     emit(type, event) {
-      for (const listener of [...(listeners.get(type) || [])]) listener(event);
+      for (const listener of Array.from(listeners.get(type) || [])) listener(event);
     },
     listenerCount(type) {
       return listeners.get(type)?.size || 0;
