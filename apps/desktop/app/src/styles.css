@@ -761,9 +761,15 @@ a {
 
 /* Chips in the prompt take exactly one line: their content uses the field's line height, and the border sits in
    negative margins, so a chip never makes its line taller (the compact composer expands when a line grows). */
-[data-prompt-editor] [data-chip] > [data-chip] {
+[data-prompt-editor] [data-chip] > [data-chip],
+[data-prompt-editor] [data-chip] > * > [data-chip] {
   line-height: inherit;
   margin-block: -1px;
+  vertical-align: top;
+}
+/* A skill chip with a description sits in its tooltip's trigger. */
+[data-prompt-editor] [data-chip] > :not([data-chip]) {
+  line-height: inherit;
   vertical-align: top;
 }
 

@@ -1,5 +1,5 @@
 import { Pressable, Text, View } from "react-native";
-import { File01Icon, Folder01Icon, Image01Icon, ReactIcon } from "@hugeicons/core-free-icons";
+import { File01Icon, Folder01Icon, Image01Icon, MagicWand01Icon, ReactIcon } from "@hugeicons/core-free-icons";
 import { fileKind } from "@milagre/shared/file-kinds";
 import { imageLabel, skillLabel } from "@milagre/shared/prompt-parts";
 import { withAlpha } from "@milagre/shared/themes";
@@ -45,11 +45,12 @@ function Box({
   return <View style={style}>{children}</View>;
 }
 
-/** A skill in a sent prompt: its name title-cased, no icon. */
+/** A skill in a sent prompt: a wand and its name title-cased. */
 export function SkillChip({ name }: { name: string }) {
   const { colors, textPx } = useTheme();
   return (
     <Box px={textPx} color={withAlpha(colors.accent, 0.4)} fill={colors.accentTint}>
+      <Icon icon={MagicWand01Icon} size={Math.round(textPx * 0.95)} color={colors.accentInk} />
       <Text numberOfLines={1} style={{ color: colors.accentInk, fontSize: textPx, lineHeight: Math.round(textPx * 1.2) }}>
         {skillLabel(name)}
       </Text>
