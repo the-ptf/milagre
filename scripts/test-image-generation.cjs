@@ -89,7 +89,7 @@ async function browserChecks() {
     const done = await evaluate(`({ text: ${surface}.textContent, loaded: ${surface}.querySelector("img").naturalWidth > 0 })`);
     assert.ok(done.loaded, "the saved image loads through milagre-media");
     assert.doesNotMatch(done.text, /Image ready|Generating image/, "no status line under the image");
-    assert.match(done.text, /\d+ × \d+/, "shows the image's real resolution");
+    assert.doesNotMatch(done.text, /\d+ × \d+/, "no resolution badge over the image");
     assert.doesNotMatch(done.text, /mountain landscape/, "the prompt isn't repeated under the image");
     assert.match(await evaluate(`${surface}.querySelector("[role=img]").getAttribute("aria-label")`), /mountain landscape/, "the prompt is the image's label");
     await screenshot("complete");
@@ -135,7 +135,7 @@ async function browserChecks() {
     );
     await screenshot("failed");
     console.log(
-      "PASS: a generated image shows outside the activity, generating, then complete with its resolution, copy and download buttons and a right-click menu, a full-size preview on click (the prompt only as its label), or a failed step row with the reason and no image surface",
+      "PASS: a generated image shows outside the activity, generating, then complete with copy and download buttons and a right-click menu, a full-size preview on click (the prompt only as its label), or a failed step row with the reason and no image surface",
     );
     app.exit(0);
   } catch (error) {

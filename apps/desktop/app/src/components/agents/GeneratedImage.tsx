@@ -90,7 +90,6 @@ export const GeneratedImage = memo(function GeneratedImage({ step }: { step: Cha
         // The dither field already says it is working and the image says it is ready; the prompt is only its label.
         showStatus={false}
         label={step.detail ? `Generated image: ${step.detail}` : "Generated image"}
-        resolution={size ? `${size.width} × ${size.height}` : ""}
         aspectRatio={size ? `${size.width} / ${size.height}` : "1 / 1"}
         actions={
           canCopy ? (
