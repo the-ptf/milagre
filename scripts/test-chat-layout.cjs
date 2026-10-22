@@ -11,6 +11,7 @@ import { flushSync } from "react-dom";
 import { PersistenceNotices } from "/src/components/PersistenceNotice";
 import { ChatComposer } from "/src/components/ChatComposer";
 import { MessageScroller } from "/src/components/agents/message-scroller";
+import { Markdown, StreamingMarkdown } from "/src/components/markdown/Markdown";
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
 window.milagre = Object.freeze({ listEditors: async () => [], retrySave: () => new Promise(resolve => { window.finishSave = resolve; }) });
@@ -35,6 +36,9 @@ function Fixture() {
   const [sending, setSending] = useState(false);
   const [extra, setExtra] = useState([]);
   window.setExtraMessages = setExtra;
+  const [markdownExample, setMarkdownExample] = useState(null);
+  window.setMarkdownExample = setMarkdownExample;
+  if (markdownExample) return <div data-markdown-example><Markdown text={markdownExample} /><StreamingMarkdown text={markdownExample} /></div>;
   window.setPrAction = setPrAction;
   window.setSending = setSending;
   window.resolveClicks ??= 0;
@@ -161,6 +165,29 @@ async function browserChecks() {
       "Desktop replies detect bare URLs without trailing punctuation, preserve labeled links and keep code inert",
     );
     await delay(250);
+    // Markdown documents inside fences use the same renderer, including while streaming.
+    for (const language of ["markdown", "md", "Markdown"]) {
+      const example =
+        "~~~~" +
+        language +
+        "\n## Description\n\nA **change** with [a link](https://example.org).\n\n- First\n\n| File | State |\n| --- | --- |\n| Chat | Ready |\n\n```ts\nconst value = 1;\n```\n~~~~";
+      await evaluate(`window.setMarkdownExample(${JSON.stringify(example)})`);
+      await waitFor(`document.querySelectorAll('[data-markdown-example] h2').length === 2`);
+      for (const tag of ["strong", "li", "table", 'a[href="https://example.org"]']) {
+        assert.equal(await evaluate(`document.querySelectorAll(${JSON.stringify("[data-markdown-example] " + tag)}).length`), 2);
+      }
+      assert.equal(await evaluate(`document.querySelectorAll('[data-markdown-example] pre').length`), 2, "Only nested TypeScript uses a code block");
+    }
+    if (process.env.MILAGRE_SCREENSHOT_DIR)
+      require("node:fs").writeFileSync(
+        path.join(process.env.MILAGRE_SCREENSHOT_DIR, "rendered-markdown.png"),
+        (await window.webContents.capturePage()).toPNG(),
+      );
+    await evaluate(`window.setMarkdownExample("\x60\x60\x60markdown\\nA **live answer")`);
+    await waitFor(`document.querySelector('[data-markdown-example] strong')?.textContent === 'live answer'`);
+    await evaluate(`window.setMarkdownExample(null)`);
+    await waitFor(`!!document.querySelector('[data-prompt-editor]')`);
+    console.log("PASS: Markdown fences render headings, lists, links, tables and streamed emphasis; nested code remains code");
     if (process.env.MILAGRE_SCREENSHOT_DIR)
       await window.webContents
         .capturePage()

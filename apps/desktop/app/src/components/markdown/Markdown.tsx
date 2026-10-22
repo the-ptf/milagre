@@ -12,6 +12,7 @@ import { useFileOpener, useFilesRoot } from "../editor-links";
 import { lazyView } from "../../lib/lazy-view";
 import { closeOpenMarkdown } from "../../lib/streaming-markdown";
 import { isMermaidFence } from "@milagre/shared/diagram";
+import { isMarkdownFence } from "@milagre/shared/markdown-fence";
 import { CodeBlock } from "./CodeBlock";
 import { MermaidBlock } from "./MermaidBlock";
 import { GenerativeUI, MarkdownStreamingContext } from "../genui/GenerativeUI";
@@ -123,16 +124,20 @@ function Link({ href, children }: { href?: string; children?: ReactNode }) {
   );
 }
 
+function MarkdownPre({ children }: { children?: ReactNode }) {
+  const streaming = useContext(MarkdownStreamingContext);
+  const code = Children.toArray(children).find(isValidElement) as { props: { className?: string; children?: ReactNode } } | undefined;
+  const text = String(code?.props.children ?? "").replace(/\n$/, "");
+  const fence = codeLanguageFromClassName(code?.props.className);
+  if (isMarkdownFence(fence)) return <MarkdownBody text={streaming ? closeOpenMarkdown(text) : text} />;
+  if (isMermaidFence(fence)) return <MermaidBlock code={text} />;
+  const plain = <CodeBlock code={text} fence={fence} />;
+  return isGenuiFence(fence) ? <GenerativeUI code={text} fallback={plain} /> : plain;
+}
+
 // Raw HTML in a reply is shown as text (react-markdown's default), and unsafe link protocols are dropped.
 const components: Components = {
-  pre({ children }) {
-    const code = Children.toArray(children).find(isValidElement) as { props: { className?: string; children?: ReactNode } } | undefined;
-    const text = String(code?.props.children ?? "").replace(/\n$/, "");
-    const fence = codeLanguageFromClassName(code?.props.className);
-    if (isMermaidFence(fence)) return <MermaidBlock code={text} />;
-    const plain = <CodeBlock code={text} fence={fence} />;
-    return isGenuiFence(fence) ? <GenerativeUI code={text} fallback={plain} /> : plain;
-  },
+  pre: MarkdownPre,
   code: InlineCode,
   a({ href, children }) {
     return <Link href={href}>{children}</Link>;
