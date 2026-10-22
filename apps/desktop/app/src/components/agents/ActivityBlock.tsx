@@ -9,6 +9,8 @@ import { useSettings } from "../../lib/settings";
 import { Markdown } from "../markdown/Markdown";
 import { StepRow } from "./StepRow";
 
+const NO_WAITING_STEPS: string[] = [];
+
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
 function Icon({ icon, size = 14 }: { icon: IconData; size?: number }) {
@@ -42,7 +44,7 @@ function Title({ title, shimmer }: { title: string; shimmer: boolean }) {
 export function ActivityBlock({
   entries,
   streaming = false,
-  waitingStepIds = [],
+  waitingStepIds = NO_WAITING_STEPS,
 }: {
   entries: ActivityEntry[];
   streaming?: boolean;

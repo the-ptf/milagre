@@ -103,6 +103,8 @@ import { CodeBlock } from "./markdown/CodeBlock";
 import { useDismiss } from "../lib/use-dismiss";
 import { useSettings } from "../lib/settings";
 
+const NO_WAITING_STEPS: string[] = [];
+
 const AttachmentPreview = lazyView(() => import("./AttachmentPreview").then((module) => module.AttachmentPreview));
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
@@ -262,7 +264,7 @@ const MessageSection = memo(function MessageSection({
   cliStatus,
   streaming = false,
   asking = false,
-  waitingStepIds = [],
+  waitingStepIds = NO_WAITING_STEPS,
   animate = false,
   onOpenChat,
   limitInteractive = false,

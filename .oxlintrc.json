@@ -31,6 +31,7 @@
     "unicorn/no-useless-spread": "warn",
     "unicorn/no-array-reverse": "warn",
     "react/memo-dependencies": "warn",
+    "react/no-object-type-as-default-prop": "error",
     "eslint/preserve-caught-error": "warn",
     "no-await-in-loop": "off"
   },
