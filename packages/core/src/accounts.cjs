@@ -101,6 +101,7 @@ function createAccounts({
     if (error.code !== "ENOENT") throw new Error("Could not read saved accounts. Restore accounts/accounts.json before switching accounts.", { cause: error });
   }
   const identities = new Map();
+  const installed = new Map();
   const logins = new Map();
   let checking = null;
   let closed = false;
@@ -186,6 +187,7 @@ function createAccounts({
       providers: PROVIDERS.map((provider) => ({
         provider,
         selectedId: saved.selected[provider],
+        ...(installed.has(provider) ? { installed: installed.get(provider) } : {}),
         accounts: [account(provider, "default"), ...saved.accounts.filter((a) => a.provider === provider)].map((a) => ({
           ...a,
           ...(identities.get(key(provider, a.id)) || { state: "unknown" }),
@@ -206,9 +208,20 @@ function createAccounts({
   }
   async function list(refresh = false) {
     await ready();
+    // Installation is independent of cached sign-in state. Keep saved profiles on disk,
+    // but expose account controls only while the provider exists on this computer.
+    await Promise.all(
+      PROVIDERS.map(async (provider) => {
+        const available = Boolean((await cli(provider)).command);
+        if (installed.get(provider) === false && available) refresh = true;
+        installed.set(provider, available);
+      }),
+    );
+    // A batch started before installation did not include the newly available provider.
+    if (refresh && checking) await checking;
     if (refresh || !identities.size) {
       checking ??= Promise.all(
-        PROVIDERS.flatMap((provider) =>
+        PROVIDERS.filter((provider) => installed.get(provider)).flatMap((provider) =>
           [account(provider, "default"), ...saved.accounts.filter((a) => a.provider === provider)]
             .filter((a) => !logins.has(key(provider, a.id)))
             .map((a) => check(provider, a.id)),
@@ -228,21 +241,23 @@ function createAccounts({
     validScope(scope);
     return {
       scopeKey: scope,
-      providers: snapshot().providers.map((group) => {
-        const accountId = saved.scopes[scope]?.[group.provider] ?? null;
-        const effectiveId = selected(group.provider, scope);
-        const entries = [...group.accounts];
-        if (!entries.some((a) => a.id === effectiveId))
-          entries.push({
-            id: effectiveId,
-            provider: group.provider,
-            label: "Removed account",
-            state: "error",
-            missing: true,
-            message: "This assigned account was removed. Choose another account or use the computer default.",
-          });
-        return { provider: group.provider, accountId, effectiveId, defaultId: group.selectedId, accounts: entries };
-      }),
+      providers: snapshot()
+        .providers.filter((group) => group.installed !== false)
+        .map((group) => {
+          const accountId = saved.scopes[scope]?.[group.provider] ?? null;
+          const effectiveId = selected(group.provider, scope);
+          const entries = [...group.accounts];
+          if (!entries.some((a) => a.id === effectiveId))
+            entries.push({
+              id: effectiveId,
+              provider: group.provider,
+              label: "Removed account",
+              state: "error",
+              missing: true,
+              message: "This assigned account was removed. Choose another account or use the computer default.",
+            });
+          return { provider: group.provider, accountId, effectiveId, defaultId: group.selectedId, accounts: entries };
+        }),
     };
   }
   async function scope(key, refresh = false) {

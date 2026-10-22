@@ -6206,6 +6206,7 @@ for (const provider of ["claude", "codex"])
     const calls = [];
     const accounts = {
       providers: [
+        { provider: "antigravity", installed: false, selectedId: "default", accounts: [{ id: "default", label: "Default account", state: "unknown" }] },
         {
           provider,
           selectedId: "default",
@@ -6236,7 +6237,7 @@ for (const provider of ["claude", "codex"])
       client: {
         call: async (method, args = []) => {
           calls.push([method, ...args]);
-          const group = accounts.providers[0];
+          const group = accounts.providers.find((group) => group.provider === provider);
           if (method === "accounts:select") group.selectedId = args[1];
           if (method === "accounts:login") group.accounts.find((a) => a.id === args[1]).state = "signing-in";
           if (method === "accounts:cancel") group.accounts.find((a) => a.id === args[1]).state = "signed-out";
@@ -6274,6 +6275,11 @@ for (const provider of ["claude", "codex"])
     try {
       render();
       await settle();
+      assert.equal(
+        find(render(), (n) => n.type === "ProviderLogo" && n.props.provider === "antigravity"),
+        undefined,
+        "Uninstalled providers have no account group",
+      );
       const row = find(render(), (n) => n.type === "Pressable" && n.props.accessibilityRole === "radio" && n.props.accessibilityLabel === "work@example.test");
       assert.ok(row, "The account row is a directly selectable control");
       assert.match(row.props.accessibilityHint, /^Business account\./);
