@@ -56,6 +56,7 @@ export function AccountsForComputer() {
       setBusy(false);
     }
   };
+  const providers = snapshot?.providers.filter((group) => group.installed !== false);
   if (!client) return <Text style={styles.muted}>Connect to a computer to manage its accounts.</Text>;
   return (
     <View style={{ gap: 16 }}>
@@ -78,7 +79,7 @@ export function AccountsForComputer() {
         </Text>
       ) : null}
       {!snapshot && !error ? <Text style={styles.muted}>Checking accounts...</Text> : null}
-      {snapshot?.providers.map((group) => (
+      {providers?.map((group) => (
         <View key={group.provider} style={{ gap: 8 }}>
           <View
             style={{
