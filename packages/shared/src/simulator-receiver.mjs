@@ -399,6 +399,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
     queue = null;
     pointers.clear();
   };
+  let clearPeerListeners = () => {};
   const stop = (reportConnection = true) => {
     epoch++;
     active = false;
@@ -410,8 +411,9 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
     clearTimeout(disconnected);
     clearTimeout(rotationTimer);
     heartbeat = deadline = disconnected = rotationTimer = rotatingGeneration = null;
+    clearPeerListeners();
+    clearPeerListeners = () => {};
     if (peer) {
-      peer.ontrack = peer.onconnectionstatechange = peer.oniceconnectionstatechange = null;
       peer.close();
       peer = null;
     }
@@ -496,11 +498,11 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
       }
     }
   };
-  control.onclick = () => {
+  control.addEventListener("click", () => {
     void claim(true);
-  };
+  });
   // Restarting the simulator's input closes its apps, so the first tap only says so.
-  repair.onclick = async () => {
+  repair.addEventListener("click", async () => {
     if (repairing || !viewerId) return;
     if (!confirmRepair) {
       blockedText.textContent = "Fixing restarts the simulator's home screen and closes its apps.";
@@ -525,10 +527,10 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
       repairing = false;
       resetRepair();
     }
-  };
-  back.onclick = () => queue?.push({ kind: "button", button: "back" });
-  home.onclick = () => queue?.push({ kind: "button", button: "home" });
-  rotate.onclick = () => {
+  });
+  back.addEventListener("click", () => queue?.push({ kind: "button", button: "back" }));
+  home.addEventListener("click", () => queue?.push({ kind: "button", button: "home" }));
+  rotate.addEventListener("click", () => {
     if (!queue || pointers.size) return;
     // iPhones do not support upside-down portrait. A two-way toggle always offers a usable next orientation.
     const orientation = status.orientation.startsWith("landscape") ? "portrait" : "landscape-left";
@@ -542,7 +544,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
     back.disabled = home.disabled = rotate.disabled = true;
     status.ready = false;
     render();
-  };
+  });
   const sendTouch = (phase) => {
     if (pointers.size && queue)
       queue.push({
@@ -551,7 +553,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
         points: Array.from(pointers.values()),
       });
   };
-  stage.onpointerdown = (event) => {
+  stage.addEventListener("pointerdown", (event) => {
     if (!active || !frames || !status?.controlling || !status.ready || pointers.size >= 2 || event.button > 0) return;
     const rect = stage.getBoundingClientRect();
     const g = geometry();
@@ -564,8 +566,8 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
     if (pointers.size) sendTouch("end");
     pointers.set(event.pointerId, point);
     sendTouch("begin");
-  };
-  stage.onpointermove = (event) => {
+  });
+  stage.addEventListener("pointermove", (event) => {
     if (!pointers.has(event.pointerId)) return;
     event.preventDefault();
     const rect = stage.getBoundingClientRect();
@@ -574,7 +576,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
       pointers.set(event.pointerId, point);
       sendTouch("move");
     }
-  };
+  });
   const release = (event) => {
     if (!pointers.has(event.pointerId)) return;
     event.preventDefault();
@@ -586,16 +588,16 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
     sendTouch("end");
     pointers.clear();
   };
-  stage.onpointerup = release;
-  stage.onpointercancel = cancelTouches;
-  stage.onlostpointercapture = (event) => {
+  stage.addEventListener("pointerup", release);
+  stage.addEventListener("pointercancel", cancelTouches);
+  stage.addEventListener("lostpointercapture", (event) => {
     if (pointers.has(event.pointerId)) cancelTouches();
-  };
+  });
   window.addEventListener("blur", () => {
     sendTouch("end");
     pointers.clear();
   });
-  stage.oncontextmenu = (event) => event.preventDefault();
+  stage.addEventListener("contextmenu", (event) => event.preventDefault());
   const start = async () => {
     const closing = stop(false);
     stopped = false;
@@ -626,17 +628,20 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
       });
       peer = connection;
       connection.addTransceiver("video", { direction: "recvonly" });
-      connection.ontrack = (event) => {
+      const endedTracks = new Set();
+      const trackEnded = () => {
+        if (currentEpoch === epoch) fail(new Error("The simulator video stopped. Retry to reconnect."));
+      };
+      const receiveTrack = (event) => {
         if (currentEpoch !== epoch) return;
         video.srcObject = event.streams[0] || new MediaStream([event.track]);
-        event.track.onended = () => {
-          if (currentEpoch === epoch) fail(new Error("The simulator video stopped. Retry to reconnect."));
-        };
+        endedTracks.add(event.track);
+        event.track.addEventListener("ended", trackEnded);
         void video.play().catch((error) => {
           if (currentEpoch === epoch) fail(error);
         });
       };
-      video.onplaying = () => {
+      const playing = () => {
         if (currentEpoch === epoch) {
           frames = true;
           render();
@@ -654,7 +659,17 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
           disconnected = null;
         }
       };
-      connection.onconnectionstatechange = connection.oniceconnectionstatechange = checkConnection;
+      connection.addEventListener("track", receiveTrack);
+      video.addEventListener("playing", playing);
+      connection.addEventListener("connectionstatechange", checkConnection);
+      connection.addEventListener("iceconnectionstatechange", checkConnection);
+      clearPeerListeners = () => {
+        connection.removeEventListener("track", receiveTrack);
+        video.removeEventListener("playing", playing);
+        connection.removeEventListener("connectionstatechange", checkConnection);
+        connection.removeEventListener("iceconnectionstatechange", checkConnection);
+        for (const track of endedTracks) track.removeEventListener("ended", trackEnded);
+      };
       await connection.setLocalDescription(await connection.createOffer());
       await new Promise((resolve, reject) => {
         if (connection.iceGatheringState === "complete") {
@@ -709,10 +724,10 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
   };
   // Video pauses while hidden and reconnects on its own when shown again, unless it had already failed.
   let resumeOnShow = false;
-  retry.onclick = () => {
+  retry.addEventListener("click", () => {
     resumeOnShow = false;
     void start();
-  };
+  });
   window.simulatorDispose = stop;
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {

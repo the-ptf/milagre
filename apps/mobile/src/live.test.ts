@@ -28,17 +28,18 @@ function clock() {
   };
   return { timers, run, queue };
 }
-type Fake = LiveSocket & { url: string; headers: Record<string, string>; closed?: number };
+type Fake = LiveSocket & { url: string; headers: Record<string, string>; closed?: number; emit(type: string, event?: object): void };
 function sockets() {
   const made: Fake[] = [];
   const create = (url: string, headers: Record<string, string>) => {
+    const target = new EventTarget();
     const socket: Fake = {
       url,
       headers,
-      onopen: null,
-      onmessage: null,
-      onerror: null,
-      onclose: null,
+      addEventListener: target.addEventListener.bind(target) as LiveSocket["addEventListener"],
+      emit(type, event = {}) {
+        target.dispatchEvent(Object.assign(new Event(type), event));
+      },
       close(code) {
         socket.closed = code ?? 1005;
       },
@@ -59,16 +60,16 @@ test("the live socket reconnects with growing waits until it opens, then starts 
   const waits = [];
   for (let i = 0; i < 6; i++) {
     // React Native reports a failed connect as an error and then a close; that is one failure.
-    made.at(-1)!.onerror!({ message: "Connection refused" });
-    made.at(-1)!.onclose!();
+    made.at(-1)!.emit("error", { message: "Connection refused" });
+    made.at(-1)!.emit("close");
     waits.push(run());
   }
   assert.deepEqual(waits, [1000, 2000, 5000, 10000, 30000, 30000]);
   assert.equal(made.length, 7);
   assert.deepEqual(status, [], "a socket that never opened changes nothing for the session");
   assert.ok(made[6] !== undefined);
-  made[6].onopen!();
-  made[6].onclose!();
+  made[6].emit("open");
+  made[6].emit("close");
   assert.deepEqual(status, [true, false]);
   assert.equal(run(), 1000, "an open socket resets the backoff");
 });
@@ -84,8 +85,8 @@ test("signals pass through, pings only keep the socket alive, and a silent socke
     { onSignal: (signal) => signals.push(signal), onStatus: (open) => status.push(open), create, timers, random: () => 0.5 },
   );
   assert.ok(made[0] !== undefined);
-  made[0].onopen!();
-  for (const data of ['{"type":"runs"}', '{"type":"ping"}', "not json", '{"type":"project"}', '{"type":"state","state":{}}']) made[0].onmessage!({ data });
+  made[0].emit("open");
+  for (const data of ['{"type":"runs"}', '{"type":"ping"}', "not json", '{"type":"project"}', '{"type":"state","state":{}}']) made[0].emit("message", { data });
   assert.deepEqual(signals, ["runs", "project"]);
   assert.deepEqual(
     queue.map((timer) => timer.ms),
@@ -96,7 +97,7 @@ test("signals pass through, pings only keep the socket alive, and a silent socke
   assert.deepEqual(status, [true, false]);
   run(1000);
   assert.equal(made.length, 2);
-  made[0].onmessage!({ data: '{"type":"runs"}' });
+  made[0].emit("message", { data: '{"type":"runs"}' });
   assert.deepEqual(signals, ["runs", "project"], "a replaced socket is ignored");
 });
 
@@ -105,13 +106,13 @@ test("an older bridge refusing the upgrade is asked again only after minutes, an
   const { made, create } = sockets();
   const live = openLive("ws://127.0.0.1:1/live", {}, { onSignal() {}, onStatus() {}, create, timers, random: () => 0.5 });
   assert.ok(made[0] !== undefined);
-  made[0].onerror!({ message: "Expected HTTP 101 response but was '404 Not Found'" });
+  made[0].emit("error", { message: "Expected HTTP 101 response but was '404 Not Found'" });
   assert.equal(run(), 300000);
   assert.ok(made[1] !== undefined);
-  made[1].onopen!();
+  made[1].emit("open");
   live.close();
   assert.equal(made[1].closed, 1000);
-  made[1].onclose!();
+  made[1].emit("close");
   assert.deepEqual(queue, [], "nothing reconnects after close");
 });
 
@@ -197,7 +198,7 @@ test("account changes pass through the socket and refresh account state without 
     timers,
   });
   assert.ok(made[0] !== undefined);
-  made[0].onmessage!({ data: '{"type":"accounts"}' });
+  made[0].emit("message", { data: '{"type":"accounts"}' });
   assert.equal(accountChanges, 1);
   stop();
 });
@@ -224,12 +225,12 @@ test("a Link change passes through the socket and rereads the Links without fetc
     timers,
   });
   assert.ok(made[0] !== undefined);
-  made[0].onopen!();
+  made[0].emit("open");
   assert.equal(linkChanges, 1, "opening the socket catches up on Links changed while it was down");
-  made[0].onmessage!({ data: '{"type":"links"}' });
+  made[0].emit("message", { data: '{"type":"links"}' });
   assert.equal(linkChanges, 2);
   // A signal a newer bridge adds later is ignored.
-  made[0].onmessage!({ data: '{"type":"something-new"}' });
+  made[0].emit("message", { data: '{"type":"something-new"}' });
   assert.equal(linkChanges, 2);
   stop();
 });
@@ -262,13 +263,13 @@ test("Designs changes and connection status use the existing Project socket with
   });
   await new Promise((resolve) => setImmediate(resolve));
   assert.ok(made[0] !== undefined);
-  made[0].onopen!();
+  made[0].emit("open");
   await new Promise((resolve) => setImmediate(resolve));
   const beforeSignal = snapshots;
-  made[0].onmessage!({ data: '{"type":"designs"}' });
+  made[0].emit("message", { data: '{"type":"designs"}' });
   assert.equal(designs, 1);
   assert.equal(snapshots, beforeSignal);
-  made[0].onclose!();
+  made[0].emit("close");
   assert.deepEqual(statuses, [true, false]);
   stop();
 });
@@ -309,10 +310,10 @@ test("a Routines change passes through the socket without fetching the Project o
   });
   await new Promise((resolve) => setImmediate(resolve));
   assert.ok(made[0] !== undefined);
-  made[0].onopen!();
+  made[0].emit("open");
   await new Promise((resolve) => setImmediate(resolve));
   const before = snapshots;
-  made[0].onmessage!({ data: '{"type":"routines"}' });
+  made[0].emit("message", { data: '{"type":"routines"}' });
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(signals, ["routines"], "the app knows the routines signal");
   assert.equal(snapshots, before);
@@ -324,7 +325,7 @@ test("a usage signal reaches subscribers without fetching Project state", () => 
   const { made, create } = sockets();
   const signals: string[] = [];
   const live = openLive("ws://mac/live", {}, { onSignal: (signal) => signals.push(signal), onStatus() {}, create, timers });
-  made[0]!.onmessage!({ data: '{"type":"usage"}' });
+  made[0]!.emit("message", { data: '{"type":"usage"}' });
   assert.deepEqual(signals, ["usage"]);
   live.close();
 });

@@ -1,12 +1,10 @@
 import { fromB64url, phoneFinish, phoneHello, type Channel, type KeyPair } from "@milagre/shared/relay-crypto";
 import { createAssembler, splitBody, type RelayMessage, type RelayRequest } from "@milagre/shared/relay-rpc";
 
+type RelayEvents = { open: unknown; message: { data?: unknown }; error: unknown; close: { code?: number } };
 export type RelaySocket = {
   binaryType: string;
-  onopen: (() => void) | null;
-  onmessage: ((event: { data?: unknown }) => void) | null;
-  onerror: ((event: unknown) => void) | null;
-  onclose: ((event: { code?: number }) => void) | null;
+  addEventListener<K extends keyof RelayEvents>(type: K, listener: (event: RelayEvents[K]) => void): void;
   send(data: Uint8Array): void;
   close(code?: number, reason?: string): void;
 };
@@ -227,7 +225,7 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
       };
       abortConnect = end;
       handshake = timers.setTimeout(() => end(fail("lost")), HANDSHAKE);
-      socket.onopen = () => {
+      socket.addEventListener("open", () => {
         if (!over) {
           try {
             socket.send(hello.message);
@@ -235,11 +233,11 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
             end(fail("lost"));
           }
         }
-      };
+      });
       // A failed socket always closes afterwards, with the code that says why.
-      socket.onerror = () => {};
-      socket.onclose = (event) => end(fail(event?.code === CLOSE_HOST_OFFLINE ? "host-offline" : "lost"));
-      socket.onmessage = (event) => {
+      socket.addEventListener("error", () => {});
+      socket.addEventListener("close", (event) => end(fail(event?.code === CLOSE_HOST_OFFLINE ? "host-offline" : "lost")));
+      socket.addEventListener("message", (event) => {
         if (over) return;
         const bytes = toBytes(event.data);
         if (!bytes || !bytes.length) return end(fail("lost"));
@@ -295,7 +293,7 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
         };
         next.ping = timers.setTimeout(tick, PING);
         resolve(next);
-      };
+      });
     });
   }
 

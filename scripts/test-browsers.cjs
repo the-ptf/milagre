@@ -100,12 +100,12 @@ async function browserChecks(url) {
         if (!page.title.includes(title)) continue;
         const socket = new WebSocket(`ws://127.0.0.1:${browser.port}/devtools/page/${page.id}`);
         await new Promise((resolve, reject) => {
-          socket.onopen = resolve;
-          socket.onerror = reject;
+          socket.addEventListener("open", resolve);
+          socket.addEventListener("error", reject);
         });
         socket.send(JSON.stringify({ id: 1, method: "Runtime.evaluate", params: { expression, returnByValue: true } }));
         const value = await new Promise((resolve) => {
-          socket.onmessage = ({ data }) => resolve(JSON.parse(data).result?.result?.value);
+          socket.addEventListener("message", ({ data }) => resolve(JSON.parse(data).result?.result?.value));
         });
         socket.close();
         return value;

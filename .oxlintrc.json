@@ -22,7 +22,7 @@
     "unicorn/consistent-function-scoping": "warn",
     "promise/always-return": "warn",
     "unicorn/no-array-sort": "warn",
-    "unicorn/prefer-add-event-listener": "warn",
+    "unicorn/prefer-add-event-listener": "error",
     "react/exhaustive-effect-dependencies": "warn",
     "react/refs": "warn",
     "react/set-state-in-effect": "warn",

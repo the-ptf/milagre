@@ -526,7 +526,7 @@ test("a Cloudflare computer's live stream follows the LAN: the old stream closes
   const { view, listeners } = lanView(null);
   const sockets: { url: string; closed: boolean }[] = [];
   const create = (url: string) => {
-    const socket = { url, closed: false, onopen: null, onmessage: null, onerror: null, onclose: null, close: () => void (socket.closed = true) };
+    const socket = { url, closed: false, addEventListener() {}, close: () => void (socket.closed = true) };
     sockets.push(socket);
     return socket;
   };
