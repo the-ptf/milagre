@@ -213,10 +213,10 @@ function harness(call) {
       },
       async decode() {},
       addEventListener(name, fn) {
-        handlers[name] = fn;
+        (handlers[name] ||= new Set()).add(fn);
       },
-      fire(name, event) {
-        handlers[name]?.(event);
+      emit(name, event) {
+        for (const handler of handlers[name] || []) handler(event);
       },
     };
   };
@@ -324,8 +324,8 @@ test("the receiver shows frames, reports the page and maps a mouse click to page
   );
   assert.equal(h.elements.back.disabled, false);
   assert.equal(h.elements.forward.disabled, true);
-  h.elements.stage.onpointerdown(pointer("mouse"));
-  h.elements.stage.onpointerup(pointer("mouse"));
+  h.elements.stage.emit("pointerdown", pointer("mouse"));
+  h.elements.stage.emit("pointerup", pointer("mouse"));
   await h.flush();
   assert.deepEqual(inputs(calls), [
     { kind: "mouse", phase: "down", x: 0.25, y: 0.25, button: "left", clickCount: 1 },
@@ -341,15 +341,15 @@ test("typing sends keys, inserted text and line breaks; Escape closes only when 
     h = harness(host(calls));
   await h.flush();
   const key = (key, code, extra = {}) => ({ key, code, preventDefault() {}, ...extra });
-  h.elements.keys.onkeydown(key("h", "KeyH"));
-  h.elements.keys.onkeyup(key("h", "KeyH"));
-  h.elements.keys.fire("beforeinput", { inputType: "insertText", data: "olá", preventDefault() {} });
-  h.elements.keys.fire("beforeinput", { inputType: "insertParagraph", data: null, preventDefault() {} });
-  h.elements.keys.fire("compositionstart", {});
+  h.elements.keys.emit("keydown", key("h", "KeyH"));
+  h.elements.keys.emit("keyup", key("h", "KeyH"));
+  h.elements.keys.emit("beforeinput", { inputType: "insertText", data: "olá", preventDefault() {} });
+  h.elements.keys.emit("beforeinput", { inputType: "insertParagraph", data: null, preventDefault() {} });
+  h.elements.keys.emit("compositionstart", {});
   h.elements.keys.value = "に";
-  h.elements.keys.fire("input", {});
-  h.elements.keys.fire("compositionend", { data: "日本" });
-  h.elements.keys.onkeydown(key("Escape", "Escape"));
+  h.elements.keys.emit("input", {});
+  h.elements.keys.emit("compositionend", { data: "日本" });
+  h.elements.keys.emit("keydown", key("Escape", "Escape"));
   await h.flush();
   assert.deepEqual(
     inputs(calls).map((event) => (event.kind === "text" ? event.text : `${event.phase}:${event.key}`)),
@@ -371,11 +371,11 @@ test("view-only viewers send no input until they take control", async () => {
   assert.equal(h.elements.control.hidden, false);
   assert.equal(h.elements.reload.disabled, true);
   assert.equal(h.elements.live.textContent, "View only. Take control to interact.");
-  h.elements.stage.onpointerdown(pointer("mouse"));
-  h.elements.reload.onclick();
+  h.elements.stage.emit("pointerdown", pointer("mouse"));
+  h.elements.reload.emit("click");
   await h.flush();
   assert.equal(inputs(calls).length, 0);
-  h.elements.control.onclick();
+  h.elements.control.emit("click");
   await h.flush();
   assert.deepEqual(
     calls.filter(([method]) => method === "control").map(([, args]) => args.takeOver),
@@ -388,13 +388,13 @@ test("touch scrolls the page and a held press is released when focus leaves", as
   const calls = [],
     h = harness(host(calls));
   await h.flush();
-  h.elements.stage.onpointerdown(pointer("touch", 100, 300));
-  h.elements.stage.onpointermove(pointer("touch", 100, 250));
-  h.elements.stage.onpointerup(pointer("touch", 100, 250));
+  h.elements.stage.emit("pointerdown", pointer("touch", 100, 300));
+  h.elements.stage.emit("pointermove", pointer("touch", 100, 250));
+  h.elements.stage.emit("pointerup", pointer("touch", 100, 250));
   await h.flush();
   assert.deepEqual(inputs(calls), [{ kind: "wheel", x: 0.25, y: 0.75, deltaX: 0, deltaY: 100 }], "a 50px swipe at half scale scrolls 100 page pixels");
   calls.length = 0;
-  h.elements.stage.onpointerdown(pointer("mouse"));
+  h.elements.stage.emit("pointerdown", pointer("mouse"));
   h.listeners["window:blur"]();
   await h.flush();
   assert.deepEqual(
