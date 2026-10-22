@@ -1,3 +1,4 @@
+import { useScreenActive } from "../display-clock";
 import { memo, useMemo, useState } from "react";
 import { FlatList, Text, View } from "react-native";
 import { Redirect, Stack, useLocalSearchParams } from "expo-router";
@@ -51,11 +52,17 @@ export function DiffView({ target }: { target: DiffTarget }) {
   const [forced, setForced] = useState(false);
   const large = added + removed > LARGE_DIFF_LINES && !forced;
   const skip = !worktree || large || target.binary === "1";
+  const active = useScreenActive();
   const {
     data: result,
     error,
     refresh,
-  } = useRpc<DiffFileResult>(skip ? null : session.client, "git:diff-file", [{ cwd: worktree?.path, path, oldPath, untracked: untracked === "1", mode, base }]);
+  } = useRpc<DiffFileResult>(
+    skip ? null : session.client,
+    "git:diff-file",
+    [{ cwd: worktree?.path, path, oldPath, untracked: untracked === "1", mode, base }],
+    active,
+  );
   const patch = result?.patch;
   const rows = useMemo(() => (patch ? diffRows(patch) : []), [patch]);
   if (!worktree) return null;
