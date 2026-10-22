@@ -115,6 +115,38 @@ const chatMessages = (state, sessionId) =>
 const framed = (brief) =>
   `<handoff_brief>\nMilagre wrote this summary of the earlier chat; it is context, not a message from the user.\n\n${brief}\n</handoff_brief>`;
 
+test("send receipts wait for persistence and never acknowledge a rolled-back message", async (t) => {
+  const { host, manager } = harness();
+  t.after(() => manager.closeAll());
+  const flush = host.states.flush.bind(host.states);
+  let release;
+  let flushing = false;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  host.states.flush = async () => {
+    flushing = true;
+    await gate;
+    throw new Error("disk full");
+  };
+  const sending = host.send(message(ALPHA, "keep my draft", { clientMessageId: "receipt-test" }));
+  const failed = assert.rejects(sending, /disk full/);
+  await waitUntil(() => flushing);
+  let settled = false;
+  const receipt = host.sendStatus(ALPHA, "receipt-test").then((value) => {
+    settled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(settled, false, "staged state is not a delivery receipt");
+  release();
+  await failed;
+  assert.equal(await receipt, null);
+  host.states.flush = flush;
+  const sent = await host.send(message(ALPHA, "saved", { clientMessageId: "saved-receipt" }));
+  assert.deepEqual(await host.sendStatus(ALPHA, "saved-receipt"), { sessionId: sent.sessionId });
+});
+
 test("turns in two projects run side by side and each is saved in its own project", async (t) => {
   const { host, manager, saved, session } = harness();
   t.after(() => manager.closeAll());

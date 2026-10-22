@@ -347,6 +347,8 @@ export type AdvisorResultContext = {
   title: string;
   provider: ModelProvider;
   outcome: "completed" | "failed" | "cancelled";
+  mode?: "analysis" | "execution";
+  images?: ImageAttachment[];
 };
 
 /** Something on GitHub that stops an open PR from merging and that the agent can fix. */
@@ -714,6 +716,7 @@ export type QuestionOutcome = "answered" | "dismissed" | "cancelled";
 export interface Subagent {
   id: string;
   source?: "milagre-advisor";
+  mode?: "analysis" | "execution";
   provider?: ModelProvider;
   model?: string;
   retryable?: boolean;

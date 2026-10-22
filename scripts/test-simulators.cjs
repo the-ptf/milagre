@@ -123,7 +123,7 @@ async function browserChecks() {
   app.setPath("userData", fs.mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-simulator-ui-")));
   await app.whenReady();
   console.log("Electron ready");
-  const watchdog = setTimeout(() => {
+  setTimeout(() => {
     console.error("Electron UI check timed out");
     app.exit(1);
   }, 60000);

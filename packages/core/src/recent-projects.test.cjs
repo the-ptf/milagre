@@ -77,7 +77,7 @@ test("the list keeps the 10 most recent projects", async (t) => {
   assert.equal(MAX_RECENT, 10);
   assert.deepEqual(
     list.map((entry) => entry.name),
-    names.slice(2).reverse(),
+    names.slice(2).toReversed(),
   );
 });
 
@@ -160,7 +160,7 @@ test("writes are atomic: saves run one at a time and leave no temporary files", 
   assert.deepEqual(await fs.readdir(data), ["recent-projects.json"]);
   assert.deepEqual(
     (await recent.list()).map((entry) => entry.name),
-    [...names].reverse(),
+    names.toReversed(),
   );
 });
 
@@ -247,7 +247,7 @@ test("a project is remembered under its checkout's top folder, and a folder outs
 
 test("project:switch opens only a listed project whose real path is a checkout's top folder or a folder outside Git", async (t) => {
   const base = await tempDir(t);
-  const [repo, other, plain] = await folders(base, "repo", "other", "plain");
+  const [repo, other] = await folders(base, "repo", "other", "plain");
   gitRepo(repo);
   gitRepo(other);
   const file = path.join(base, "recent-projects.json");

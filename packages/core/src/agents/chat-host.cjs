@@ -47,7 +47,7 @@ const LIMIT_PROMPT =
 // folded into the runs is numbered, so a window that loads mid-turn takes the runs (see `snapshot`)
 // and skips the events they already hold.
 // A message the user sends replaces the brief waiting as a draft and any resume a quit left.
-const withoutDraft = ({ handoverDraft, resumeTurn, ...rest }) => rest;
+const withoutDraft = ({ handoverDraft: _handoverDraft, resumeTurn: _resumeTurn, ...rest }) => rest;
 
 const withLead = (lead, prompt) => [lead, prompt].filter((part) => part?.trim()).join("\n\n");
 
@@ -181,6 +181,7 @@ class ChatHost {
     // Chats whose handoff is staged or its brief being written, by chat key: { controller, done, settle, ... }.
     // Stop and quit abort it (see cancelHandoff); a send meanwhile waits on `done` (see send).
     this.preparing = new Map();
+    this.pendingSends = new Map();
     this.subagentRecoveries = new Map();
     this.runs = {};
     this.images = new ChatImages({ states, runs: () => this.runs, broadcast });
@@ -715,7 +716,36 @@ class ChatHost {
    * saved, and with `started`: the turn starts in the background, and `started` resolves with what started it
    * ({ turnId, steered }), or null when it couldn't start (that fails in the chat).
    */
+  async sendStatus(projectPath, clientMessageId) {
+    const key = JSON.stringify([projectPath, clientMessageId]);
+    // A staged message can still roll back if its flush fails. Only settled sends are receipts.
+    for (;;) {
+      while (this.pendingSends.has(key)) await Promise.allSettled([...this.pendingSends.get(key)]);
+      const message = await this.states.findMessage(projectPath, "clientMessageId", clientMessageId);
+      const state = message ? null : await this.states.get(projectPath);
+      // A send can start while the asynchronous reads above are in flight.
+      if (this.pendingSends.has(key)) continue;
+      if (message) return { sessionId: message.session_id };
+      const queued = Object.values(state.sessions).find((session) => session.queued?.some((entry) => entry.clientMessageId === clientMessageId));
+      return queued ? { sessionId: queued.id } : null;
+    }
+  }
+
   async send(request) {
+    const key = JSON.stringify([request.projectPath, request.clientMessageId]);
+    const pending = this.pendingSends.get(key) ?? new Set();
+    const turn = this.sendMessage(request);
+    pending.add(turn);
+    this.pendingSends.set(key, pending);
+    try {
+      return await turn;
+    } finally {
+      pending.delete(turn);
+      if (!pending.size) this.pendingSends.delete(key);
+    }
+  }
+
+  async sendMessage(request) {
     await this.beforeSend(request);
     if (request.canStart && !request.canStart()) throw new Error("Advisor delivery is deferred.");
     const { projectPath, body, images = [], files = [], model } = request;

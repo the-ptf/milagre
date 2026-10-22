@@ -112,7 +112,7 @@ export function BotThread({
     setAnswering((current) => ({ ...current, [key]: choice }));
     bridge.answerBotGate(chatKey, requestId, choice).catch((cause) => {
       setError(ipcErrorMessage(cause));
-      setAnswering(({ [key]: _, ...rest }) => rest);
+      setAnswering(({ [key]: _answer, ...rest }) => rest);
     });
   }
   async function togglePause() {

@@ -56,6 +56,7 @@ async function fixture(t, provider = "claude") {
           options.emit({ type: "turn-cancelled" });
         },
         close: async () => {},
+        setPermissionMode: async () => {},
         finish: (text = "Review result") => {
           session.turnActive = false;
           options.emit({ type: "text-delta", messageId: "reply", text });
@@ -108,6 +109,43 @@ test("parent Stop cancels owned advisors and late completion cannot resume the p
   assert.equal(f.sessions[0].turns.length, 1);
   const current = await f.runtime.openProject(f.project);
   assert.equal(current.state.sessions[f.id].subagents[0].status, "cancelled");
+});
+test("execution advisors keep the parent provider and stop when Full permissions are revoked", async (t) => {
+  const f = await fixture(t);
+  const reply = await runTool(f.tool("create_advisor"), { title: "Run the app", prompt: "Run checks", mode: "execution" });
+  assert.equal(reply.isError, false, reply.text);
+  await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1);
+  const execution = f.sessions[1];
+  assert.equal(execution.provider, "codex");
+  assert.equal(execution.options.analysisOnly, false);
+  assert.equal(execution.options.executionAdvisor, true);
+  assert.equal(execution.turns[0].permissionMode, "full");
+  assert.ok(execution.options.linked.tools.some((tool) => tool.name === "browser_attach"));
+  await f.runtime.invoke("agent:set-permission-mode", [{ chatId: f.chatId, mode: "auto" }]);
+  const current = await f.runtime.openProject(f.project);
+  assert.equal(current.state.sessions[f.id].provider, "claude");
+  assert.equal(current.state.sessions[f.id].subagents[0].status, "cancelled");
+  assert.equal((await runTool(f.tool("create_advisor"), { title: "Run", prompt: "Run", mode: "execution" })).isError, true);
+});
+test("execution screenshots are saved before delivery and survive deleting the original", async (t) => {
+  const f = await fixture(t);
+  const file = path.join(f.dir, "evidence.png");
+  await fs.writeFile(file, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6l8AAAAASUVORK5CYII=", "base64"));
+  const reply = await runTool(f.tool("create_advisor"), { title: "Evidence", prompt: "Run checks", mode: "execution" });
+  assert.equal(reply.isError, false, reply.text);
+  await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1);
+  const body = `Passed. Command: \`cat ${file}\`.\n\n![Evidence](../evidence.png)`;
+  f.sessions[1].finish(body);
+  await waitUntil(() => f.sessions[0].turns.length === 2);
+  const state = (await f.runtime.openProject(f.project)).state;
+  const message = state.messages.find((item) => item.context?.kind === "advisor-result");
+  assert.equal(message.context.mode, "execution");
+  assert.match(f.sessions[0].turns[1].prompt, /execution report/);
+  assert.equal(message.body, body);
+  const saved = message.context.images[0].path;
+  assert.notEqual(saved, file);
+  await fs.rm(file);
+  assert.ok((await fs.stat(saved)).size > 0);
 });
 test("new advisors inherit the current host Designs availability", async (t) => {
   const f = await fixture(t);
