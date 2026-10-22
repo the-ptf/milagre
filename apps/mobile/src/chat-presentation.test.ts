@@ -26,3 +26,20 @@ test("markdown splits into top-level blocks, never inside a code fence or an ind
   assert.deepEqual(markdownChunks("1. step\n\n    indented code in the item\n\n2. next"), ["1. step\n\n    indented code in the item\n", "2. next"]);
   assert.equal(markdownChunks("a\n\nb\n\n```\nopen fence").join("\n"), "a\n\nb\n\n```\nopen fence");
 });
+
+test("Markdown fences format documents, including nested code and streamed emphasis", () => {
+  for (const info of ["markdown", "md", "Markdown", "MD title=proposal"]) {
+    const tokens = markdownTokens(
+      `~~~~${info}\n## Description\n\nA **change** with [a link](https://example.org).\n\n- First\n\n\`\`\`ts\nconst value = 1;\n\`\`\`\n~~~~`,
+    );
+    assert.ok(tokens.some((token) => token.type === "heading_open"));
+    assert.ok(tokens.some((token) => token.type === "bullet_list_open"));
+    assert.ok(tokens.some((token) => token.children?.some((child) => child.type === "link_open")));
+    assert.equal(tokens.find((token) => token.type === "fence")?.info, "ts");
+  }
+  const partial = markdownTokens("```markdown\nA **live answer", true);
+  assert.ok(partial.some((token) => token.children?.some((child) => child.type === "strong_open")));
+  for (const info of ["text", "typescript", "", "markdownish"]) {
+    assert.equal(markdownTokens(`\`\`\`${info}\n## Literal\n\`\`\``)[0]?.type, "fence");
+  }
+});

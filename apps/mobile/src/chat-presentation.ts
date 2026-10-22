@@ -1,5 +1,6 @@
 import MarkdownIt from "markdown-it";
 import { closeOpenMarkdown } from "@milagre/shared/streaming-markdown";
+import { isMarkdownFence } from "@milagre/shared/markdown-fence";
 
 // Match desktop's GFM autolinks for plain web addresses and email in replies.
 const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true });
@@ -7,8 +8,10 @@ markdown.linkify.set({ fuzzyLink: true });
 const validateLink = markdown.validateLink.bind(markdown);
 // A file URI in an image is resolved through the paired computer, never opened on the phone.
 markdown.validateLink = (url) => /^file:/i.test(url) || validateLink(url);
-export function markdownTokens(text: string, streaming = false) {
-  return markdown.parse(streaming ? closeOpenMarkdown(text) : text, {});
+export function markdownTokens(text: string, streaming = false): ReturnType<typeof markdown.parse> {
+  return markdown
+    .parse(streaming ? closeOpenMarkdown(text) : text, {})
+    .flatMap((token) => (token.type === "fence" && isMarkdownFence(token.info) ? markdownTokens(token.content, streaming) : [token]));
 }
 /**
  * Splits a reply into top-level Markdown blocks so each is parsed on its own: while a reply streams, only the last

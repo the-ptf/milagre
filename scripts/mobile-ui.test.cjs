@@ -1382,6 +1382,22 @@ function markdownHost({ media, basePath } = {}) {
   };
 }
 
+test("Markdown fences render native headings and links with nested code kept literal", async () => {
+  for (const streaming of [false, true]) {
+    const screen = markdownHost();
+    const rendered = screen.render("~~~~markdown\n## Description\n\n[Read more](https://example.org)\n\n```ts\nconst value = 1;\n```\n~~~~", streaming);
+    assert.ok(find(rendered, (node) => node.props?.accessibilityRole === "header"));
+    const link = find(rendered, (node) => node.props?.accessibilityRole === "link");
+    assert.ok(link);
+    await link.props.onPress();
+    assert.deepEqual(screen.links, ["https://example.org"]);
+    assert.ok(
+      find(rendered, (node) => node.type === "PageScroll"),
+      "Nested TypeScript stays a code block",
+    );
+  }
+});
+
 test("plain URLs in mobile replies render as links and open the exact address", async () => {
   for (const streaming of [false, true]) {
     for (const [text, url] of [
