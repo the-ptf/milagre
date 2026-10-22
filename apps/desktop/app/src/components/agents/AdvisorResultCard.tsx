@@ -1,9 +1,8 @@
 import { useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowExpand01Icon, ArrowShrink01Icon } from "@hugeicons/core-free-icons";
-import { advisorResultLabel } from "@milagre/shared/advisor-result";
+import { advisorResultLabel, advisorResultRole } from "@milagre/shared/advisor-result";
 import type { AdvisorResultContext } from "@milagre/shared/model";
-import { providerName } from "@milagre/shared/providers";
 import { ProviderLogo } from "../ProviderLogo";
 import { Markdown } from "../markdown/Markdown";
 import { ScrollArea } from "../primitives/ScrollArea";
@@ -11,7 +10,8 @@ import { ScrollArea } from "../primitives/ScrollArea";
 export function AdvisorResultCard({ context, body }: { context: AdvisorResultContext; body: string }) {
   // Collapsed, the card keeps a fixed height and scrolls; expanded, it grows to show the whole result.
   const [expanded, setExpanded] = useState(false);
-  const toggleLabel = expanded ? "Collapse advisor result" : "Expand advisor result";
+  const resultLabel = context.mode === "execution" ? "execution result" : "advisor result";
+  const toggleLabel = `${expanded ? "Collapse" : "Expand"} ${resultLabel}`;
   return (
     <section
       data-advisor-result
@@ -22,7 +22,7 @@ export function AdvisorResultCard({ context, body }: { context: AdvisorResultCon
       <header className="shrink-0 px-5 pt-4 pb-3">
         <div className="flex items-center gap-2 text-xs font-medium text-ink-2">
           <ProviderLogo provider={context.provider} size={18} />
-          <span>{providerName(context.provider)} advisor</span>
+          <span>{advisorResultRole(context)}</span>
           {context.outcome !== "completed" && (
             <span className={`ml-auto ${context.outcome === "failed" ? "text-red" : "text-ink-2"}`}>{context.outcome === "failed" ? "Failed" : "Stopped"}</span>
           )}
@@ -42,18 +42,18 @@ export function AdvisorResultCard({ context, body }: { context: AdvisorResultCon
         </h3>
       </header>
       {expanded ? (
-        <div role="region" aria-label="Advisor result" className="mx-1 mb-2 px-4 pt-1 pb-3">
-          <Markdown text={body} />
+        <div role="region" aria-label={context.mode === "execution" ? advisorResultLabel(context) : "Advisor result"} className="mx-1 mb-2 px-4 pt-1 pb-3">
+          <Markdown text={body} images={context.images} />
         </div>
       ) : (
         <ScrollArea
           chainScroll
           role="region"
-          aria-label="Advisor result"
+          aria-label={context.mode === "execution" ? advisorResultLabel(context) : "Advisor result"}
           tabIndex={0}
           className="mx-1 mb-2 flex-1 rounded-lg px-4 pt-1 pb-3 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
         >
-          <Markdown text={body} />
+          <Markdown text={body} images={context.images} />
         </ScrollArea>
       )}
     </section>

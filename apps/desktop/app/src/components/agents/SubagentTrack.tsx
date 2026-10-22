@@ -264,7 +264,7 @@ export const SubagentDetail = memo(function SubagentDetail({
   const tool = running && latest ? plainTitle(latest) : undefined;
   // Its final answer; else the last activity a finished provider reported, when it is more than a phase.
   const result =
-    [...transcript].reverse().find((entry) => entry.kind === "message" && (entry.id === "result" || entry.id === "summary"))?.text ??
+    transcript.findLast((entry) => entry.kind === "message" && (entry.id === "result" || entry.id === "summary"))?.text ??
     (agent.latestActivity && !PHASES.has(agent.latestActivity) ? agent.latestActivity : undefined);
   const plan = agent.tasks?.length ? agent.tasks : undefined;
   const totals = toolSummary(agent.progress?.tools);

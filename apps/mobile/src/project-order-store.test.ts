@@ -75,7 +75,7 @@ test("a saved value stays under the size SecureStore is safe with, however many 
   assert.ok(kept.length > 10 && kept.length < many.length);
   assert.deepEqual(kept, many.slice(0, kept.length), "the first Projects are the ones kept");
   // The rest come back as new, on top, next launch.
-  const shown = paths(await store.apply("https://mac", many.map((path) => ({ path })).reverse()));
+  const shown = paths(await store.apply("https://mac", many.map((path) => ({ path })).toReversed()));
   assert.deepEqual(shown.slice(-kept.length), kept);
   assert.equal(boundedOrder("x", ["/é".repeat(2000)]).length, 0, "one huge path never exceeds the bound");
 });

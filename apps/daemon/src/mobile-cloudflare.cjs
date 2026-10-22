@@ -11,7 +11,7 @@ async function readCloudflare(dataDir) {
     config = JSON.parse(await fs.readFile(file, "utf8"));
   } catch (error) {
     if (error.code === "ENOENT")
-      throw new Error("No Cloudflare tunnel is set up for this profile. Run `npm run mobile:cloudflare -- --domain your.domain` first.");
+      throw new Error("No Cloudflare tunnel is set up for this profile. Run `npm run mobile:cloudflare -- --domain your.domain` first.", { cause: error });
     throw error;
   }
   const info = await fs.stat(file);

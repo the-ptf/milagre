@@ -464,7 +464,7 @@ export function DesignDocumentEditor({
       if (isDesignVersionConflict(message)) {
         try {
           const latest = await bridgeForKey(chatId).artifacts.get({ chatId, id: base.id });
-          if (latest.format !== "design") throw new Error("This page is no longer an editable design.");
+          if (latest.format !== "design") throw new Error("This page is no longer an editable design.", { cause });
           // Only disjoint fields can merge automatically. A new Save is still required.
           if (replace || !stageMerge(latest)) {
             setIncoming(latest);

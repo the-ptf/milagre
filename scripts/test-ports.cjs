@@ -166,7 +166,7 @@ async function browserChecks() {
     try {
       return await window.webContents.executeJavaScript(source);
     } catch (error) {
-      throw new Error(`${source}: ${error.message}`);
+      throw new Error(`${source}: ${error.message}`, { cause: error });
     }
   };
   const screenshotDir = process.env.MILAGRE_SCREENSHOT_DIR;

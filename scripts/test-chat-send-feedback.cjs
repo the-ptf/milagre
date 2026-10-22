@@ -11,14 +11,30 @@ async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
   app.setPath("userData", fs.mkdtempSync(path.join(os.tmpdir(), "milagre-chat-send-feedback-")));
   await app.whenReady();
-  const window = new BrowserWindow({ width: 1100, height: 760, useContentSize: true, show: false, webPreferences: { backgroundThrottling: false } });
+  let window;
   const consoleErrors = [];
-  window.webContents.on("console-message", (event) => {
-    if (event.level === "error") {
-      consoleErrors.push(event.message);
-      console.error(event.message);
-    }
-  });
+  async function loadFixture(url) {
+    // These loads start independent scenarios. Release the previous full App's
+    // renderer resources; keep the same profile and errors across the whole check.
+    const previous = window;
+    // Layout settlement needs compositor frames, which hidden Xvfb windows can starve.
+    window = new BrowserWindow({ width: 1100, height: 760, useContentSize: true, show: true, webPreferences: { backgroundThrottling: false } });
+    const contents = window.webContents;
+    contents.on("render-process-gone", (_event, details) => {
+      if (contents !== window.webContents) return;
+      console.error(`Send feedback renderer exited: ${details.reason}`);
+      app.exit(1);
+    });
+    window.webContents.on("console-message", (event) => {
+      if (event.level === "error") {
+        consoleErrors.push(event.message);
+        console.error(event.message);
+      }
+    });
+    // Keep one window alive while replacing it, so Electron doesn't quit between scenarios.
+    previous?.destroy();
+    await window.loadURL(url);
+  }
   const evaluate = (source) => window.webContents.executeJavaScript(source);
   async function waitFor(source, tries = 200) {
     for (let i = 0; i < tries; i++) {
@@ -80,7 +96,7 @@ async function browserChecks() {
   }
   const occurrences = (body) => evaluate(`(${transcript}?.textContent.match(new RegExp(${JSON.stringify(body)}, 'g')) ?? []).length`);
   try {
-    await window.loadURL(process.argv[2] + "?link=1");
+    await loadFixture(process.argv[2] + "?link=1");
     await waitFor(`!!document.querySelector(${JSON.stringify(prompt)})`, 1200);
     await send("Retry a shared Chat");
     await waitFor("window.calls.sent.length === 2");
@@ -90,7 +106,7 @@ async function browserChecks() {
     assert.equal(await evaluate("document.body.textContent.includes('Your command was not sent')"), false);
 
     // A chat on an agent that can't steer: its held queue sits above the composer, each message with Send now and Remove.
-    await window.loadURL(process.argv[2] + "?queue=1");
+    await loadFixture(process.argv[2] + "?queue=1");
     // The first page of the run waits on Vite's cold transforms.
     await waitFor(`[...document.querySelectorAll('aside [data-row]')].some(row => row.textContent.includes('Previous chat'))`, 1200);
     await evaluate(`[...document.querySelectorAll('aside [data-row]')].find(row => row.textContent.includes('Previous chat')).click()`);
@@ -111,7 +127,7 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-queued-remove="q2"]').click()`);
     await waitFor(`document.querySelectorAll('[data-queued-message]').length === 1`);
     assert.deepEqual(await evaluate("window.calls.queueRemoved"), [["/fixture#2", "q2"]]);
-    await window.loadURL(process.argv[2]);
+    await loadFixture(process.argv[2]);
     await waitFor(`!!document.querySelector('[aria-label="New chat"]')`);
     await newChat("New worktree");
     await type("Add a checkout page");
@@ -362,7 +378,7 @@ async function browserChecks() {
     assert.equal(await rows("Reply before state"), 1);
     assert.equal(await occurrences("Reply before state"), 1, "the saved message replaces the preview");
     // A Chat summary can arrive before its first message page, including before the send acknowledgement.
-    await window.loadURL(process.argv[2] + "?lean=1");
+    await loadFixture(process.argv[2] + "?lean=1");
     await waitFor(`!!document.querySelector('[aria-label="New chat"]')`);
     await newChat("Local");
     await send("Keep the first message visible");
@@ -408,7 +424,7 @@ async function browserChecks() {
     await waitFor(acknowledged);
 
     // A host that keeps messages by Chat: the newest turns come as a page, and Show earlier reads the next one.
-    await window.loadURL(process.argv[2] + "?long=1&lean=1");
+    await loadFixture(process.argv[2] + "?long=1&lean=1");
     await waitFor(`document.querySelectorAll('[data-slot="message"]').length === 40`);
     assert.equal(await evaluate("window.calls.pages"), 1, "the open Chat reads one page");
     await delay(400);
@@ -426,7 +442,7 @@ async function browserChecks() {
     );
     await screenshot("lean-history");
     for (const busy of [false, true]) {
-      await window.loadURL(process.argv[2] + "?long=1");
+      await loadFixture(process.argv[2] + "?long=1");
       await waitFor(`!!document.querySelector('[data-slot="message"]')`);
       assert.equal(await evaluate(`document.querySelectorAll('[data-slot="message"]').length`), 40, "long chats initially mount only the newest page");
       await delay(400);
@@ -445,28 +461,47 @@ async function browserChecks() {
         await waitFor(`document.querySelector('[data-streaming]')?.textContent.includes('continues')`);
         assert.equal(await evaluate("window.renderedMessageIds.filter(id => id > 0).length"), 0, "streaming leaves the loaded saved message cards memoized");
       }
-      await evaluate(`window.emitAgent(99, { type: 'turn-started' }); window.emitAgent(99, { type: 'text-delta', text: 'Other chat' })`);
       // The open chat's own streamed text schedules a trailing 250 ms rail refresh; let it land before counting.
+      await evaluate("document.fonts.ready.then(() => true)");
+      await waitFor(`document.querySelectorAll('[data-slot="preview-rail-item"]').length === 15`);
+      assert.ok(await evaluate("window.railItemsRendered > 0"), "navigation instrumentation observed the loaded Chat");
+      const railState = () =>
+        evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+        const viewport = document.querySelector('[aria-label="Conversation"]');
+        resolve(JSON.stringify({ renders: window.railItemsRendered, top: viewport.scrollTop, height: viewport.scrollHeight,
+          active: document.querySelector('[data-slot="preview-rail-item"][aria-current]')?.getAttribute('aria-label') }));
+      })))`);
+      const railDeadline = Date.now() + 10_000;
+      let railSeen = await railState();
       let railStableSince = Date.now();
-      let railSeen = await evaluate("window.railItemsRendered");
-      while (Date.now() - railStableSince < 500) {
+      let stableSamples = 0;
+      while (stableSamples < 10 || Date.now() - railStableSince < 500) {
+        assert.ok(Date.now() < railDeadline, `navigation did not settle in the ${busy ? "working" : "idle"} Chat: ${railSeen}`);
         await delay(50);
-        const now = await evaluate("window.railItemsRendered");
+        const now = await railState();
+        assert.ok(Date.now() < railDeadline, `navigation exceeded its settlement deadline: ${now}`);
         if (now !== railSeen) {
           railSeen = now;
           railStableSince = Date.now();
-        }
+          stableSamples = 0;
+        } else stableSamples++;
       }
       await evaluate("window.transcriptRenders = 0; window.railItemsRendered = 0");
+      await evaluate(`window.emitAgent(99, { type: 'turn-started' }); window.emitAgent(99, { type: 'text-delta', text: 'Other chat' })`);
       for (let update = 0; update < 5; update++) {
         await evaluate(`window.emitAgent(99, { type: 'text-delta', text: ' background output' })`);
         await delay(50);
       }
+      await waitFor(`window.committedRuns['/fixture#99']?.text === 'Other chat' + ' background output'.repeat(5)`);
+      // Include the last delta's trailing refresh in the measurement, without resetting either counter.
+      await delay(500);
+      await railState();
       assert.equal(await evaluate("window.transcriptRenders"), 0, "another running chat does not rebuild the open transcript");
       assert.equal(await evaluate("window.railItemsRendered"), 0, "another running chat does not rebuild the message navigation");
       await evaluate("window.renderedMessageIds = []");
       await send("Follow-up in a long chat");
       await immediate("Follow-up in a long chat");
+      await waitFor("window.railItemsRendered > 0");
       assert.equal(await evaluate("window.calls.sent.length"), 1, "long-chat preview appears with persistence still pending");
       // Starting a turn disables account switching on the last reply; only that card needs new props.
       assert.deepEqual(
@@ -512,6 +547,12 @@ async function main() {
         name: "chat-send-feedback-fixture",
         enforce: "pre",
         transform(code, id) {
+          if (id.split("?")[0].endsWith("/components/useAgentRuns.ts")) {
+            // A passive effect observes committed React state, not just receipt of an event.
+            const committed = "const runsRef = useRef(runs);";
+            assert.ok(code.includes(committed));
+            return code.replace(committed, "useEffect(() => { window.committedRuns = runs; }, [runs]); " + committed);
+          }
           if (id.split("?")[0].endsWith("/motion/PreviewRail.tsx")) {
             assert.ok(code.includes("const scale = highlighted"));
             return code.replace("const scale = highlighted", "window.railItemsRendered++; const scale = highlighted");
@@ -545,17 +586,29 @@ async function main() {
       },
     ],
   });
+  let watchdog;
   try {
     await server.listen();
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
     const child = spawn(require("electron"), [path.resolve(__filename), `${server.resolvedUrls.local[0]}__chat_send_feedback__`], { env, stdio: "inherit" });
     process.exitCode = await new Promise((resolve, reject) => {
-      child.on("error", reject);
-      child.on("exit", (code) => resolve(code ?? 1));
+      watchdog = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+        // Vite can itself be waiting on the stalled renderer's imports. The
+        // watchdog must terminate even when its normal close cannot finish.
+        console.error("Send feedback check exceeded 180 seconds");
+        process.exit(1);
+      }, 180000);
+      child.once("error", reject);
+      child.once("exit", (code) => resolve(code ?? 1));
     });
   } finally {
-    await server.close();
+    try {
+      await server.close();
+    } finally {
+      clearTimeout(watchdog);
+    }
   }
 }
 

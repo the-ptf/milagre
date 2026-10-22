@@ -1,0 +1,9 @@
+# Routine improvements from issue #235
+
+Keep `pick-issue-start-working.md` as the original prompt. Proposed additions for future runs:
+
+1. Inspect open and closed PRs before selecting an issue. Treat unmerged attempts as proposals to reassess against current source; never reuse their test results as evidence for a new branch.
+2. Repair stale fixture contracts before diagnosing the original failure. Make performance checks non-vacuous: require populated UI, a committed state change, frame-based settlement and a positive local control. Preserve exact assertions and measure delayed work without resetting counters.
+3. Reproduce on the affected OS with a clean install. On Linux, record distribution, architecture, Node, Electron, sandbox and display settings. Use shown windows when assertions depend on compositor frames, and release independent full-App scenarios instead of accumulating renderer resources. Test screenshots on and off, cold startup and constrained CPUs, with no automatic retries. Keep the watchdog active through teardown; verify regression, renderer-crash, hung-child and stalled-cleanup failure paths with temporary probes outside committed code.
+4. Use `systematic-debugging`, `test-milagre-app`, `verification-before-completion`, Milagre Tasks/phases/advisors, `gh`, OrbStack or Docker/Xvfb, and CDP. Ask available models for correctness and release perspectives; record the actual models. Existing tools suffice, so no new MCP installation is proposed.
+5. Capture real-provider app states in a disposable Project and profile. Put images only on the screenshots branch, embed them in the responsive public Artifact, verify the anonymous page at desktop and phone widths, then put its URL first in the PR. A desktop-only CI issue needs no unrelated mobile change or native build.

@@ -66,6 +66,21 @@ test("an advisor that did not finish says so and asks for a retry, not a synthes
   assert.match(prompt, /Ran out of time while reading\n<\/advisor_result>\nTell the user the advisor did not finish and offer to retry it/);
   assert.doesNotMatch(prompt, /synthesize/);
 });
+test("failure evidence includes durable screenshots in the parent's input without rewriting the report", async (t) => {
+  const f = await fixture(t);
+  Object.assign(f.result, {
+    outcome: "failed",
+    mode: "execution",
+    output: "Command: cat /tmp/result.png",
+    images: [{ sourcePath: "/tmp/result.png", path: "/project/.milagre/images/saved.png" }],
+  });
+  await f.store.update("chat", () => [{ id: "advisor:a", scopeIdentity: "scope", completions: [f.result] }]);
+  await f.delivery.drain("chat");
+  const { prompt, body, context } = f.sent[0].message;
+  assert.equal(body, "Command: cat /tmp/result.png");
+  assert.match(prompt, /\/project\/\.milagre\/images\/saved.png/);
+  assert.equal(context.images[0].sourcePath, "/tmp/result.png");
+});
 
 test("an advisor's output can't close its result block", async (t) => {
   const f = await fixture(t);
