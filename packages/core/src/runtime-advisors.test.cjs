@@ -122,6 +122,9 @@ test("execution advisors keep the parent provider and stop when Full permissions
   assert.equal(execution.turns[0].permissionMode, "full");
   assert.ok(execution.options.linked.tools.some((tool) => tool.name === "browser_attach"));
   await f.runtime.invoke("agent:set-permission-mode", [{ chatId: f.chatId, mode: "auto" }]);
+  assert.equal(execution.turnActive, false, "revoking Full stops the live execution before returning");
+  // Cancellation is published asynchronously so slow admission/storage cannot delay stopping the process.
+  await waitUntil(() => f.runtime.snapshot().projects[0].state.sessions[f.id].subagents[0]?.status === "cancelled");
   const current = await f.runtime.openProject(f.project);
   assert.equal(current.state.sessions[f.id].provider, "claude");
   assert.equal(current.state.sessions[f.id].subagents[0].status, "cancelled");
