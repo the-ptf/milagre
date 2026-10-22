@@ -127,6 +127,7 @@ class ClaudeSession {
     designsEnabled = true,
     sharedLink = false,
     analysisOnly = false,
+    executionAdvisor = false,
     linked = null,
     mcpExtras = null,
     loadSdk = () => import("@anthropic-ai/claude-agent-sdk"),
@@ -147,6 +148,7 @@ class ClaudeSession {
       designsEnabled,
       sharedLink,
       analysisOnly,
+      executionAdvisor,
       linked,
       mcpExtras,
       loadSdk,
@@ -331,7 +333,7 @@ class ClaudeSession {
     const hooks = {};
     // Subagents don't get the system prompt above: they are told to keep a to-do list for the Subagents panel, and to
     // design on the Chat's canvas when they have Milagre's tools.
-    if (!this.analysisOnly)
+    if (!this.analysisOnly && !this.executionAdvisor)
       hooks.SubagentStart = [
         {
           hooks: [
@@ -379,6 +381,7 @@ class ClaudeSession {
         canUseTool: (toolName, input, options) =>
           toolName === "AskUserQuestion" ? this.askQuestion(input, options) : this.askPermission(toolName, input, options),
         ...(this.analysisOnly ? advisorPolicy("claude", this.linked?.tools ?? []) : {}),
+        ...(this.executionAdvisor ? { disallowedTools: ["AskUserQuestion", "Agent", "Task"] } : {}),
         ...(this.resumeId ? { resume: this.resumeId } : {}),
         // Own the process so close() can stop Claude Code and everything it started.
         spawnClaudeCodeProcess: ({ command, args, cwd, env, signal }) => {
@@ -470,6 +473,8 @@ class ClaudeSession {
   // until the user answers or dismisses the card, a steering message dismisses it, the turn stops, or
   // the SDK aborts the request.
   askQuestion(input, options = {}) {
+    if (this.executionAdvisor)
+      return Promise.resolve({ behavior: "deny", message: "Report questions or blockers to the parent Chat; execution agents cannot ask the human." });
     if (!this.turnActive || this.cancelRequested || this.closed) return Promise.resolve(claudeQuestionResult("cancelled", input));
     const request = claudeQuestionRequest(input, options);
     if (!request) return Promise.resolve(claudeQuestionResult("unshown", input));
