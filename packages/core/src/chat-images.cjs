@@ -3,7 +3,7 @@ const path = require("node:path");
 const { fileURLToPath } = require("node:url");
 const { createHash } = require("node:crypto");
 const MarkdownIt = require("markdown-it");
-const { MAX_IMAGE_BYTES, IMAGE_ERRORS } = require("@milagre/shared/limits");
+const { MAX_ATTACHMENT_BYTES, IMAGE_ERRORS } = require("@milagre/shared/limits");
 const { chatInProject, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { storeImages } = require("./project-content.cjs");
 const markdown = new MarkdownIt({ html: false });
@@ -61,7 +61,7 @@ class ChatImages {
       try {
         const info = await handle.stat();
         if (!info.isFile()) throw new Error("Not an image file.");
-        if (info.size > MAX_IMAGE_BYTES) throw new Error(IMAGE_ERRORS.size);
+        if (info.size > MAX_ATTACHMENT_BYTES) throw new Error(IMAGE_ERRORS.size);
         // Bounded even if the file grows after stat.
         const buffer = Buffer.alloc(info.size + 1);
         const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);

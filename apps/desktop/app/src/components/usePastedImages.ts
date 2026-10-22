@@ -1,4 +1,4 @@
-import { MAX_ATTACHMENT_BYTES, MAX_IMAGE_BYTES, IMAGE_TYPES, IMAGE_ERRORS } from "@milagre/shared/limits";
+import { MAX_ATTACHMENT_BYTES, IMAGE_TYPES, IMAGE_ERRORS } from "@milagre/shared/limits";
 import { useEffect, useRef, useState } from "react";
 import type { ClipboardEvent } from "react";
 import type { ImageAttachment } from "../model";
@@ -9,7 +9,7 @@ import { remapImageMentions } from "@milagre/shared/prompt-mentions";
 const TYPES = new Set(IMAGE_TYPES);
 
 function isAttachableImage(file: File): boolean {
-  return TYPES.has(file.type) && file.size <= MAX_IMAGE_BYTES;
+  return TYPES.has(file.type) && file.size <= MAX_ATTACHMENT_BYTES;
 }
 
 function readImage(file: File): Promise<ImageAttachment> {
@@ -66,7 +66,7 @@ export function usePastedImages(scope: string, owner?: string) {
       setError(IMAGE_ERRORS.type);
       return [];
     }
-    if (files.some((file) => file.size > MAX_IMAGE_BYTES)) {
+    if (files.some((file) => file.size > MAX_ATTACHMENT_BYTES)) {
       setError(IMAGE_ERRORS.size);
       return [];
     }
