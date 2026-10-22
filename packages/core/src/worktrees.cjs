@@ -14,7 +14,7 @@ const DEFAULT_WORKTREE_ROOT = path.join(os.homedir(), ".milagre", "worktrees");
 // The commit a new worktree starts from. A local branch that only trails its upstream (a `main` behind
 // `origin/main`) starts from the freshly fetched upstream; one with commits of its own, one without an
 // upstream, or one whose remote can't be reached starts from itself. `fetched` says the upstream was just fetched
-// (a main branch sync ran), so the Worktree doesn't wait on the network a second time.
+// (a source branch sync ran), so the Worktree doesn't wait on the network a second time.
 async function resolveStartRef(projectPath, baseBranch, { fetched = false } = {}) {
   let upstream = [];
   try {

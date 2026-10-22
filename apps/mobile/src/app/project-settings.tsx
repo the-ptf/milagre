@@ -3,7 +3,7 @@ import { Text, View } from "react-native";
 import { Redirect, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
-import { choiceOf, mainSyncChoices, mainSyncProjectTitle, mainSyncStatusLine, overrideOf } from "@milagre/shared/main-sync";
+import { MAIN_SYNC_TITLE, choiceOf, mainSyncChoices, mainSyncStatusLine, overrideOf } from "@milagre/shared/main-sync";
 import type { MainSyncChoice, MainSyncSettings } from "@milagre/shared/main-sync";
 import { useSession } from "../session";
 import { ProjectIcon, setProjectImage } from "../project-icon";
@@ -106,11 +106,11 @@ export default function ProjectSettingsScreen() {
         </View>
         {sync && (
           <>
-            <Text style={[styles.label, { marginTop: 16 }]}>Main branch</Text>
+            <Text style={[styles.label, { marginTop: 16 }]}>Worktrees</Text>
             <View style={[styles.card, { gap: 8 }]}>
-              <Text style={styles.caption}>{mainSyncProjectTitle(sync.branch)}</Text>
+              <Text style={styles.caption}>{MAIN_SYNC_TITLE}</Text>
               <Segmented
-                label={mainSyncProjectTitle(sync.branch)}
+                label={MAIN_SYNC_TITLE}
                 value={choiceOf(sync.override)}
                 options={mainSyncChoices(sync.defaultValue)}
                 onChange={(value) => void changeSync(value as MainSyncChoice)}

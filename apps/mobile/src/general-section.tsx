@@ -11,7 +11,7 @@ import { ErrorNotice, ListRow, Toggle, useStyles } from "./ui";
 export function GeneralSection() {
   const styles = useStyles();
   const session = useSession();
-  // The computer's global default for main branch sync; null until it answers (an older Mac never does). Re-read on
+  // The computer's global default for source branch sync; null until it answers (an older Mac never does). Re-read on
   // focus: it may have changed on the Mac while the phone was on another screen.
   const [syncMain, setSyncMain] = useState<boolean | null>(null);
   const [syncMainError, setSyncMainError] = useState("");
