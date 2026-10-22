@@ -96,7 +96,11 @@ async function browserChecks() {
     await waitFor(`${editor}.querySelector('[data-chip="skill"]')?.textContent === 'Tldr'`);
     await escape();
     assert.deepEqual(await highlighted(), ["/tldr"], "The chip survives dismissal of the skill menu");
-    assert.equal(await evaluate(`${editor}.querySelector('[data-chip="skill"]').title`), "Rewrite for a skimming reader", "Hover gives the description");
+    assert.equal(await evaluate(`${editor}.querySelector('[data-chip="skill"]').getAttribute('aria-description')`), "Rewrite for a skimming reader");
+    window.webContents.sendInputEvent({ type: "mouseMove", ...(await chipPoint(0)) });
+    await waitFor(`document.querySelector('[role="tooltip"]')?.textContent === 'Rewrite for a skimming reader'`, "Hover gives the description");
+    window.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 });
+    await waitFor(`!document.querySelector('[role="tooltip"]')`, "Leaving the chip hides the description");
     assert.equal(await evaluate(`${editor}.value`), "run /tldr", "The draft keeps the command text");
     await screenshot("skill-chip-light");
     for (const dark of [false, true]) {
@@ -121,7 +125,7 @@ async function browserChecks() {
       "Review Code",
       "A plugin prefix is dropped from the label",
     );
-    assert.equal(await evaluate(`${editor}.querySelectorAll('[data-chip="skill"]')[1].title`), "Review code");
+    assert.equal(await evaluate(`${editor}.querySelectorAll('[data-chip="skill"]')[1].getAttribute('aria-description')`), "Review code");
     await screenshot("skill-chips-dark");
     // A press on a chip lands in the field.
     const point = await chipPoint(1);

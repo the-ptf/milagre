@@ -160,7 +160,11 @@ async function browserChecks() {
     await keydown("Enter");
     await draftIs("use /tldr ");
     assert.deepEqual(await chips("skill"), ["Tldr"]);
-    assert.equal(await evaluate(`${editor}.querySelector('[data-chip="skill"]').title`), "Rewrite for a skimming reader", "hover shows the description");
+    assert.equal(
+      await evaluate(`${editor}.querySelector('[data-chip="skill"]').getAttribute('aria-description')`),
+      "Rewrite for a skimming reader",
+      "hover shows the description",
+    );
     assert.equal(await evaluate(`${editor}.querySelector('[data-chip][data-text]').getAttribute('contenteditable')`), "false", "a chip is atomic");
     assert.equal(await caret(), "use /tldr ".length, "the caret lands after the pick");
     console.log("PASS: typing and a / pick make one skill chip");
@@ -176,7 +180,7 @@ async function browserChecks() {
     await delay(150);
     assert.equal(await evaluate(`!!${tile("my app.ts")}`), false, "a chip's file has no tile");
     await assertAligned(editor, "composer");
-    assert.equal(await evaluate(`${editor}.querySelector('[data-chip="skill"] svg')`), null, "a skill chip has no icon");
+    assert.equal(await evaluate(`!!${editor}.querySelector('[data-chip="skill"] svg')`), true, "a skill chip has its icon");
     await screenshot("composer-chips");
     console.log("PASS: an @ pick makes a file chip, writes the mention and attaches the file once");
 
