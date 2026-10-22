@@ -1,7 +1,9 @@
+import { useEffect, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { File01Icon, Folder01Icon, Image01Icon, ReactIcon } from "@hugeicons/core-free-icons";
+import { File01Icon, Folder01Icon, Image01Icon, MagicWand01Icon, ReactIcon } from "@hugeicons/core-free-icons";
 import { fileKind } from "@milagre/shared/file-kinds";
 import { imageLabel, skillLabel } from "@milagre/shared/prompt-parts";
+import { TOOLTIP_SHOW_DELAY, TooltipBubble } from "./primitives/Tooltip";
 
 // One box for every chip: the same height, padding and line height. The label alone sets the chip's baseline
 // (`LABEL`), so every chip's text sits on the line's baseline and the chip is centred on the line whatever comes first
@@ -29,11 +31,32 @@ export function FileKindIcon({ path }: { path: string }) {
   return <HugeiconsIcon icon={icon} size={ICON_SIZE} strokeWidth={1.8} color={kind.color} aria-hidden className="shrink-0" />;
 }
 
-/** A skill in a prompt: the name title-cased (no icon), the skill's description on hover. */
+/** A skill in a prompt: a wand and the name title-cased, the skill's description in a tooltip on hover. The chip is its
+ * own trigger (no wrapper), so it stays the direct child of its host in the prompt field. */
 export function SkillChip({ name, description }: { name: string; description?: string }) {
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  const hide = () => {
+    window.clearTimeout(timer.current);
+    setRect(null);
+  };
+  useEffect(() => () => window.clearTimeout(timer.current), []);
   return (
-    <span data-chip="skill" title={description || undefined} className={`${CHIP} border-accent/40 bg-accent-tint text-accent-ink`}>
+    <span
+      data-chip="skill"
+      aria-description={description || undefined}
+      onPointerEnter={(event) => {
+        if (!description) return;
+        const chip = event.currentTarget;
+        timer.current = window.setTimeout(() => setRect(chip.getBoundingClientRect()), TOOLTIP_SHOW_DELAY);
+      }}
+      onPointerLeave={hide}
+      onPointerDown={hide}
+      className={`${CHIP} border-accent/40 bg-accent-tint text-accent-ink`}
+    >
+      <HugeiconsIcon icon={MagicWand01Icon} size={ICON_SIZE} strokeWidth={1.8} color="currentColor" aria-hidden className="shrink-0" />
       <span className={LABEL}>{skillLabel(name)}</span>
+      {rect && description && <TooltipBubble label={description} rect={rect} wrap />}
     </span>
   );
 }

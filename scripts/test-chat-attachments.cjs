@@ -154,7 +154,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector('article [data-chip="file"] [data-file-badge]').textContent`), "TS");
     assert.equal(await evaluate(`document.querySelector('article [data-chip="file"]').title`), "src/greeting.ts");
     assert.equal(await evaluate(`document.querySelector('article [data-chip="skill"]').textContent`), "Frontend Design");
-    assert.equal(await evaluate(`document.querySelector('article [data-chip="skill"]').title`), "Build polished interfaces");
+    assert.equal(await evaluate(`document.querySelector('article [data-chip="skill"]').getAttribute('aria-description')`), "Build polished interfaces");
     assert.equal(await evaluate(`!!document.querySelector('article [aria-label="Preview greeting.ts"]')`), false, "A mentioned file is not shown twice");
     assert.equal(await evaluate(`!!document.querySelector('article [aria-label="Preview extra.txt"]')`), true, "An unmentioned file keeps its tile");
     await screenshot("sent-message-chips");

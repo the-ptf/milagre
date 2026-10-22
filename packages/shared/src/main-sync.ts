@@ -1,4 +1,4 @@
-// Main branch sync copy, shared by desktop and phone (see docs/superpowers/specs/2026-10-08-main-branch-sync-design.md).
+// Source branch sync copy, shared by desktop and phone (see docs/superpowers/specs/2026-10-08-main-branch-sync-design.md).
 
 export type MainSyncOutcome = "updated" | "up-to-date" | "skipped" | "failed";
 export type MainSyncResult = { at: number; outcome: MainSyncOutcome; branch: string; commit?: string; message?: string };
@@ -6,12 +6,8 @@ export type MainSyncSettings = { branch: string; override: boolean | null; defau
 export type MainSyncStatus = { projectPath: string; last: MainSyncResult };
 export type MainSyncChoice = "default" | "on" | "off";
 
-export const MAIN_SYNC_TITLE = "Sync main branch before new Worktrees";
-export const MAIN_SYNC_HINT = "Fast-forwards main from its remote. Skipped when main has local changes or commits.";
-
-export function mainSyncProjectTitle(branch: string): string {
-  return `Sync ${branch} before new Worktrees`;
-}
+export const MAIN_SYNC_TITLE = "Sync source branch before new Worktrees";
+export const MAIN_SYNC_HINT = "Fast-forwards the source branch from its remote. Skipped when it has local changes or commits.";
 
 export function choiceOf(override: boolean | null): MainSyncChoice {
   return override === null ? "default" : override ? "on" : "off";

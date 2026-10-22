@@ -44,18 +44,20 @@ const FILES = {
 };
 const entries = Object.entries(FILES).map(([path, f]) => ({ path, status: f.status, added: f.added, removed: f.removed, binary: Boolean(f.binary) }));
 window.listCalls = [];
+window.externalCommit = false;
+window.externalEdit = false;
 window.fileCalls = [];
 window.milagre = {
   git: {
     diffFiles: async request => {
       window.listCalls.push(request.mode);
       if (request.mode === "committed") return { isRepo: true, base: "main", files: entries.filter(entry => entry.path === "packages/app/src/index.ts") };
-      return { isRepo: true, base: null, files: entries };
+      return { isRepo: true, base: null, files: window.externalCommit ? [] : entries };
     },
     diffFile: async request => {
       window.fileCalls.push(request.mode + ":" + request.path);
       const file = FILES[request.path];
-      return { patch: file.patch, binary: Boolean(file.binary), tooLarge: false };
+      return { patch: window.externalEdit ? file.patch.replace("No events scheduled", "External edit") : file.patch, binary: Boolean(file.binary), tooLarge: false };
     },
   },
   onAgentEvent: listener => { listeners.add(listener); return () => listeners.delete(listener); },
@@ -266,7 +268,17 @@ async function browserChecks() {
     // The turn ending re-reads the list.
     const before = await evaluate("window.listCalls.length");
     await evaluate("window.endTurn()");
-    await waitFor(`window.listCalls.length === ${before + 1}`);
+    await waitFor(`window.listCalls.length >= ${before + 1}`);
+
+    // Content can change while the file's added/removed totals stay identical.
+    await evaluate("window.externalEdit = true");
+    await waitFor(`document.querySelector('${file(CAL)}').textContent.includes("External edit")`);
+
+    // An external commit has no agent event: periodic reads must clear the tree by themselves.
+    await evaluate("window.externalCommit = true");
+    await waitFor('document.querySelectorAll("[data-diff-tree-file]").length === 0');
+    await evaluate("window.externalCommit = false");
+    await waitFor('document.querySelectorAll("[data-diff-tree-file]").length > 0');
 
     // Mode switch refetches and shows the base.
     await evaluate("document.querySelector(\"[aria-label='Changes mode']\").click()");
@@ -291,7 +303,7 @@ async function browserChecks() {
     await waitFor('!document.querySelector("[data-changes-panel]") && !document.querySelector("[data-diff-view]")');
     assert.equal(await evaluate('document.querySelector("[data-chat-stub]").classList.contains("hidden")'), false);
     console.log(
-      "PASS: panel tree with merged folders and counts, file click opens the diff, Back slides it out, unified gutters and word tint, split pairing, large and binary files, mode switch, turn-end refresh",
+      "PASS: panel tree with merged folders and counts, file click opens the diff, Back slides it out, unified gutters and word tint, split pairing, large and binary files, mode switch, turn-end and external-change refresh",
     );
     app.exit(0);
   } catch (error) {

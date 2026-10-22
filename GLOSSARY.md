@@ -27,7 +27,7 @@ A git working directory of a **Project**, the main checkout included. A **Worktr
 _Avoid_: branch (a **Worktree** has a branch, it isn't one)
 
 **Main branch**:
-The branch a **Project**'s remote names as its default (`origin/HEAD`), else `main`, else `master`. Main branch sync fast-forwards it from the remote before a new **Worktree** is made, together with the **Worktree** that has it checked out when that one is clean.
+The branch a **Project**'s remote names as its default (`origin/HEAD`), else `main`, else `master`. Source branch sync fast-forwards the branch selected for a new **Worktree** from its remote, together with the **Worktree** that has it checked out when that one is clean.
 _Avoid_: base (the base is whatever branch a **Worktree** started from, which may not be the main branch)
 
 **Linear issue**:

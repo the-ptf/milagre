@@ -1041,7 +1041,7 @@ export type ProviderAccount = {
   /** When the account hit its plan's usage limit in a Chat: the time it can be used again (ISO). Project accounts only. */
   limitedUntil?: string;
 };
-export type AccountsSnapshot = { providers: { provider: ModelProvider; selectedId: string; accounts: ProviderAccount[] }[] };
+export type AccountsSnapshot = { providers: { provider: ModelProvider; installed?: boolean; selectedId: string; accounts: ProviderAccount[] }[] };
 export interface TranscriptState {
   next_id: number;
   sessions: Record<string, AgentSession | LinkChatSession>;

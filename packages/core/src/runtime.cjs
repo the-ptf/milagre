@@ -726,16 +726,21 @@ function createRuntime(options) {
     await projectSettings().setSetupCommand(projectPath, typeof command === "string" ? command : "");
     return readSetupCommand(projectPath);
   });
-  // Main branch sync (see main-sync.cjs): the setting, and one sync at a time per Project.
+  // Source branch sync: the setting, and one sync at a time per Project and branch.
   async function readMainSync(projectPath) {
     const [settings, base] = await Promise.all([projectSettings().getMainSync(projectPath), git.resolveBase(projectPath).catch(() => ({ name: "main" }))]);
     return { branch: base.name, ...settings };
   }
   const mainSyncs = new Map();
-  function syncMain(projectPath) {
-    let running = mainSyncs.get(projectPath);
+  const mainSyncTails = new Map();
+  function syncMain(projectPath, branch) {
+    const key = JSON.stringify([projectPath, branch]);
+    let running = mainSyncs.get(key);
     if (!running) {
-      running = syncMainBranch(projectPath)
+      // Different branches can share upstream refs and FETCH_HEAD, so fetch them in order.
+      running = (mainSyncTails.get(projectPath) ?? Promise.resolve())
+        .catch(() => {})
+        .then(() => syncMainBranch(projectPath, { branch }))
         .then(async (last) => {
           await projectSettings()
             .recordMainSync(projectPath, last)
@@ -743,8 +748,12 @@ function createRuntime(options) {
           emit("main-sync:status", { projectPath, last });
           return last;
         })
-        .finally(() => mainSyncs.delete(projectPath));
-      mainSyncs.set(projectPath, running);
+        .finally(() => {
+          mainSyncs.delete(key);
+          if (mainSyncTails.get(projectPath) === running) mainSyncTails.delete(projectPath);
+        });
+      mainSyncs.set(key, running);
+      mainSyncTails.set(projectPath, running);
     }
     return running;
   }
@@ -797,9 +806,8 @@ function createRuntime(options) {
     const suffix = newSuffix();
     const branch = issue ? await issueBranch({ projectPath, issue, suffix }) : undefined;
     const settings = await projectSettings().get(projectPath);
-    // Brings main up to its remote first, when the user asked for it. Never throws: a skipped or failed sync
-    // leaves main as it was and the Worktree starts from it as before.
-    const synced = (await projectSettings().getMainSync(projectPath)).enabled ? await syncMain(projectPath) : null;
+    // Sync the selected source branch first. A skipped or failed sync never blocks creation.
+    const synced = (await projectSettings().getMainSync(projectPath)).enabled ? await syncMain(projectPath, baseBranch) : null;
     // The files are copied into the folder git just made; the rename that follows only changes the branch, so the path holds.
     const created = await createWorktree({
       ...request,
@@ -807,7 +815,7 @@ function createRuntime(options) {
       suffix,
       root: worktreeRoot(),
       copyPatterns: settings.filesToCopy,
-      // The sync already fetched main's upstream (or timed out trying): don't wait on it a second time.
+      // The sync already fetched the source's upstream (or timed out trying): don't wait on it a second time.
       fetched: synced?.branch === baseBranch,
       beforeCreate: event?.localMcp?.assertActive,
     });

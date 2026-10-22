@@ -12,7 +12,7 @@ const button =
 const MB = 1024 * 1024;
 
 /** The Antigravity install row in its account group: Milagre downloads it itself, so Settings is where it is installed and updated. */
-function AntigravityRow() {
+function AntigravityRow({ onInstalled }: { onInstalled: () => void }) {
   const [status, setStatus] = useState<CliStatus | null>(null);
   const [progress, setProgress] = useState<CliProgress | null>(null);
   const [error, setError] = useState("");
@@ -36,6 +36,7 @@ function AntigravityRow() {
     try {
       const result = await window.milagre.updateCli("antigravity");
       if (!result.ok) setError(result.error ?? "Antigravity could not be installed. Try again.");
+      else onInstalled();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Antigravity could not be installed. Try again.");
     } finally {
@@ -159,111 +160,115 @@ export function AccountsSettings() {
         </p>
       )}
       {snapshot?.providers.map((group) => (
-        <section key={group.provider} className="overflow-hidden rounded-[12px] bg-surface shadow-card">
+        <section key={group.provider} className={`overflow-hidden rounded-[12px] bg-surface shadow-card ${group.installed === false ? "pb-3" : ""}`}>
           <div className="flex items-center justify-between border-b border-line px-4 py-4">
             <h2 className="flex items-center gap-2.5 text-[14px] font-medium">
               <ProviderLogo provider={group.provider} size={20} />
               {providerName(group.provider)}
             </h2>
-            <button
-              className={button}
-              disabled={busy || signingIn}
-              onClick={() => {
-                setAdding(group.provider);
-                setLabel("");
-              }}
-            >
-              Add account
-            </button>
+            {group.installed !== false && (
+              <button
+                className={button}
+                disabled={busy || signingIn}
+                onClick={() => {
+                  setAdding(group.provider);
+                  setLabel("");
+                }}
+              >
+                Add account
+              </button>
+            )}
           </div>
-          {group.provider === "antigravity" && <AntigravityRow />}
-          <div className="grid gap-2 p-3" role="group" aria-label={`${providerName(group.provider)} accounts`}>
-            {group.accounts.map((account) => {
-              const selected = group.selectedId === account.id;
-              const type = accountType(account.plan);
-              const typeIcon = type === "Business" ? Briefcase01Icon : type === "Team" ? UserMultipleIcon : UserIcon;
-              return (
-                <div
-                  key={account.id}
-                  className={`flex items-center gap-2 rounded-lg border pr-3 transition-colors ${selected ? "border-line-strong bg-hover" : "border-line hover:bg-hover"}`}
-                >
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    aria-label={account.email || account.label}
-                    disabled={busy || account.state !== "ready"}
-                    onClick={() => {
-                      if (!selected) void act("select", group.provider, account.id);
-                    }}
-                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-3 py-3.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-2 disabled:cursor-default"
+          {group.provider === "antigravity" && <AntigravityRow onInstalled={() => void load(true)} />}
+          {group.installed !== false && (
+            <div className="grid gap-2 p-3" role="group" aria-label={`${providerName(group.provider)} accounts`}>
+              {group.accounts.map((account) => {
+                const selected = group.selectedId === account.id;
+                const type = accountType(account.plan);
+                const typeIcon = type === "Business" ? Briefcase01Icon : type === "Team" ? UserMultipleIcon : UserIcon;
+                return (
+                  <div
+                    key={account.id}
+                    className={`flex items-center gap-2 rounded-lg border pr-3 transition-colors ${selected ? "border-line-strong bg-hover" : "border-line hover:bg-hover"}`}
                   >
-                    <HugeiconsIcon
-                      icon={selected ? CheckmarkCircle02Icon : CircleIcon}
-                      size={18}
-                      strokeWidth={1.8}
-                      className={`shrink-0 ${selected ? "text-ink" : "text-ink-3"}`}
-                    />
-                    <span className="min-w-0 space-y-1">
-                      <span className="flex items-center gap-2">
-                        <span className="truncate text-[13.5px] font-medium">{account.email || account.label}</span>
-                        {type && (
-                          <span title={`${type} account`} role="img" aria-label={`${type} account`} className="flex shrink-0 text-ink-3">
-                            <HugeiconsIcon icon={typeIcon} size={15} aria-hidden="true" />
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      aria-label={account.email || account.label}
+                      disabled={busy || account.state !== "ready"}
+                      onClick={() => {
+                        if (!selected) void act("select", group.provider, account.id);
+                      }}
+                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-3 py-3.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-2 disabled:cursor-default"
+                    >
+                      <HugeiconsIcon
+                        icon={selected ? CheckmarkCircle02Icon : CircleIcon}
+                        size={18}
+                        strokeWidth={1.8}
+                        className={`shrink-0 ${selected ? "text-ink" : "text-ink-3"}`}
+                      />
+                      <span className="min-w-0 space-y-1">
+                        <span className="flex items-center gap-2">
+                          <span className="truncate text-[13.5px] font-medium">{account.email || account.label}</span>
+                          {type && (
+                            <span title={`${type} account`} role="img" aria-label={`${type} account`} className="flex shrink-0 text-ink-3">
+                              <HugeiconsIcon icon={typeIcon} size={15} aria-hidden="true" />
+                            </span>
+                          )}
+                          {selected && <span className="shrink-0 text-[11px] text-ink-2">Default</span>}
+                        </span>
+                        <span className="block text-[12px] text-ink-3">
+                          {[
+                            account.email && account.label !== account.email ? account.label : null,
+                            account.state === "signed-out" ? "Not signed in" : account.state === "unknown" ? "Not checked" : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                        {account.message && (
+                          <span role={account.state === "error" ? "alert" : "status"} className="block max-w-[390px] text-[12px] leading-5 text-ink-3">
+                            {account.message}
                           </span>
                         )}
-                        {selected && <span className="shrink-0 text-[11px] text-ink-2">Default</span>}
                       </span>
-                      <span className="block text-[12px] text-ink-3">
-                        {[
-                          account.email && account.label !== account.email ? account.label : null,
-                          account.state === "signed-out" ? "Not signed in" : account.state === "unknown" ? "Not checked" : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </span>
-                      {account.message && (
-                        <span role={account.state === "error" ? "alert" : "status"} className="block max-w-[390px] text-[12px] leading-5 text-ink-3">
-                          {account.message}
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                  {(account.id !== "default" || group.provider === "antigravity") && (
-                    <div className="flex shrink-0 gap-2">
-                      {account.state === "signing-in" ? (
-                        <button className={button} disabled={busy} onClick={() => void act("cancel", group.provider, account.id)}>
-                          Cancel
-                        </button>
-                      ) : (
-                        <button
-                          className={`${button} flex items-center gap-1.5 border-transparent`}
-                          disabled={busy || signingIn}
-                          title="Sign in again in this computer's browser"
-                          onClick={() => void act("login", group.provider, account.id)}
-                        >
-                          <HugeiconsIcon icon={RefreshIcon} size={14} />
-                          Re-authenticate
-                        </button>
-                      )}
-                      {account.id !== "default" && (
-                        <button
-                          className={`${button} flex items-center gap-1.5 border-transparent`}
-                          disabled={busy}
-                          title="Remove from Milagre. The local profile remains. Removing the active account selects the connected CLI account."
-                          onClick={() => void act("remove", group.provider, account.id)}
-                        >
-                          <HugeiconsIcon icon={Delete02Icon} size={14} />
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {adding === group.provider && (
+                    </button>
+                    {(account.id !== "default" || group.provider === "antigravity") && (
+                      <div className="flex shrink-0 gap-2">
+                        {account.state === "signing-in" ? (
+                          <button className={button} disabled={busy} onClick={() => void act("cancel", group.provider, account.id)}>
+                            Cancel
+                          </button>
+                        ) : (
+                          <button
+                            className={`${button} flex items-center gap-1.5 border-transparent`}
+                            disabled={busy || signingIn}
+                            title="Sign in again in this computer's browser"
+                            onClick={() => void act("login", group.provider, account.id)}
+                          >
+                            <HugeiconsIcon icon={RefreshIcon} size={14} />
+                            Re-authenticate
+                          </button>
+                        )}
+                        {account.id !== "default" && (
+                          <button
+                            className={`${button} flex items-center gap-1.5 border-transparent`}
+                            disabled={busy}
+                            title="Remove from Milagre. The local profile remains. Removing the active account selects the connected CLI account."
+                            onClick={() => void act("remove", group.provider, account.id)}
+                          >
+                            <HugeiconsIcon icon={Delete02Icon} size={14} />
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {group.installed !== false && adding === group.provider && (
             <form
               className="grid gap-3 border-t border-line px-4 py-4"
               onSubmit={(event) => {

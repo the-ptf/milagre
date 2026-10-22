@@ -160,7 +160,10 @@ function load(file, modules, extra = "", cache = new Map()) {
       }
       // A Chat's activity (chat-activity.mjs) is a pure derivation many screens read; tests get the real one.
       if (id === "@milagre/shared/chat-activity" && !(id in modules)) return require("@milagre/shared/chat-activity");
-      if (["@milagre/shared/chat-history", "@milagre/shared/chat-window-cache", "@milagre/shared/display-clock"].includes(id) && !(id in modules))
+      if (
+        ["@milagre/shared/chat-history", "@milagre/shared/chat-window-cache", "@milagre/shared/display-clock", "@milagre/shared/refresh-loop"].includes(id) &&
+        !(id in modules)
+      )
         return require(id);
       if (relative === "display-clock" && !(id in modules)) return load("display-clock.ts", modules, "", cache);
       assert.ok(id in modules, `Unexpected import: ${id}`);
@@ -6209,6 +6212,7 @@ for (const provider of ["claude", "codex"])
     const calls = [];
     const accounts = {
       providers: [
+        { provider: "antigravity", installed: false, selectedId: "default", accounts: [{ id: "default", label: "Default account", state: "unknown" }] },
         {
           provider,
           selectedId: "default",
@@ -6239,7 +6243,7 @@ for (const provider of ["claude", "codex"])
       client: {
         call: async (method, args = []) => {
           calls.push([method, ...args]);
-          const group = accounts.providers[0];
+          const group = accounts.providers.find((group) => group.provider === provider);
           if (method === "accounts:select") group.selectedId = args[1];
           if (method === "accounts:login") group.accounts.find((a) => a.id === args[1]).state = "signing-in";
           if (method === "accounts:cancel") group.accounts.find((a) => a.id === args[1]).state = "signed-out";
@@ -6277,6 +6281,11 @@ for (const provider of ["claude", "codex"])
     try {
       render();
       await settle();
+      assert.equal(
+        find(render(), (n) => n.type === "ProviderLogo" && n.props.provider === "antigravity"),
+        undefined,
+        "Uninstalled providers have no account group",
+      );
       const row = find(render(), (n) => n.type === "Pressable" && n.props.accessibilityRole === "radio" && n.props.accessibilityLabel === "work@example.test");
       assert.ok(row, "The account row is a directly selectable control");
       assert.match(row.props.accessibilityHint, /^Business account\./);
@@ -8483,7 +8492,7 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
   const { GeneralSection } = load("general-section.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "@milagre/shared/main-sync": { MAIN_SYNC_TITLE: "Sync main branch before new Worktrees", MAIN_SYNC_HINT: "" },
+    "@milagre/shared/main-sync": require("@milagre/shared/main-sync"),
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { router: { push: (path) => pushed.push(path) }, useFocusEffect: (fn) => focused.push(fn) },
     "@hugeicons/core-free-icons": {},
@@ -8496,7 +8505,7 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
     return GeneralSection();
   };
   const settle = () => new Promise((resolve) => setImmediate(resolve));
-  const toggle = () => find(render(), (n) => n.props?.title === "Sync main branch before new Worktrees");
+  const toggle = () => find(render(), (n) => n.props?.title === "Sync source branch before new Worktrees");
   find(render(), (n) => n.type === "ListRow" && n.props.title === "Plan usage").props.onPress();
   assert.deepEqual(pushed, ["/usage"]);
   focused.at(-1)();
@@ -12657,4 +12666,66 @@ test("phone notification schedule controls save days, overnight hours, timezone 
   assert.match(textOf(render()), /Ends the next day/);
   toggle("Notification schedule").props.onPress();
   assert.equal(saved.at(-1).schedule, null);
+});
+
+test("Git polling on the phone keeps the current list during reads and pauses off-screen", async () => {
+  const react = hookHost({ effects: true });
+  const timers = new Map();
+  let next = 0,
+    calls = 0,
+    finish;
+  const client = {
+    call: () => {
+      calls++;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  };
+  const { startRefreshLoop } = require("@milagre/shared/refresh-loop");
+  const { useRpc } = load("use-rpc.ts", {
+    react,
+    "@milagre/shared/refresh-loop": {
+      startRefreshLoop: (options) =>
+        startRefreshLoop({
+          ...options,
+          schedule(fn) {
+            timers.set(++next, fn);
+            return next;
+          },
+          cancel(timer) {
+            timers.delete(timer);
+          },
+        }),
+    },
+  });
+  let active = true;
+  const render = () => {
+    react.begin();
+    const result = useRpc(client, "git:diff-files", [{ cwd: "/project", mode: "uncommitted" }], active);
+    react.flush();
+    return result;
+  };
+  assert.equal(render().loading, true);
+  finish({ files: ["edited.ts"] });
+  await settle();
+  assert.deepEqual(render().data.files, ["edited.ts"]);
+  const [id, tick] = timers.entries().next().value;
+  timers.delete(id);
+  const reading = tick();
+  assert.deepEqual(render().data.files, ["edited.ts"], "the list stays visible during a background read");
+  finish({ files: [] });
+  await reading;
+  assert.deepEqual(render().data.files, [], "an external commit clears the list without a user action");
+  active = false;
+  render();
+  assert.equal(timers.size, 0);
+  const before = calls;
+  active = true;
+  render();
+  assert.equal(calls, before + 1, "returning to the screen reads immediately");
+  react.unmount();
+  finish({ files: ["late.ts"] });
+  await settle();
+  assert.equal(timers.size, 0);
 });

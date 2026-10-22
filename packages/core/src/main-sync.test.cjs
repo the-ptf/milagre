@@ -56,6 +56,27 @@ test("a clean main checkout fast-forwards its files", async (t) => {
   assert.equal(await fs.readFile(path.join(project, "NEWS.md"), "utf8"), "shipped\n");
 });
 
+test("a selected source branch with local commits is skipped", async (t) => {
+  const { project, git, behind } = await fixture(t);
+  git("switch", "-q", "-c", "release/v2", "--track", "origin/main");
+  await fs.writeFile(path.join(project, "LOCAL.md"), "mine\n");
+  git("add", ".");
+  git("commit", "-qm", "local");
+  const before = git("rev-parse", "release/v2");
+  const result = await syncMainBranch(project, { branch: "release/v2" });
+  assert.equal(result.outcome, "skipped");
+  assert.equal(result.branch, "release/v2");
+  assert.equal(git("rev-parse", "release/v2"), before);
+  assert.equal(git("rev-parse", "main"), behind);
+});
+
+test("a source ref pattern cannot select another branch", async (t) => {
+  const { project, git, behind } = await fixture(t);
+  const result = await syncMainBranch(project, { branch: "*" });
+  assert.equal(result.outcome, "skipped");
+  assert.equal(git("rev-parse", "main"), behind);
+});
+
 test("a second sync reports up to date", async (t) => {
   const { project, ahead } = await fixture(t);
   await syncMainBranch(project);

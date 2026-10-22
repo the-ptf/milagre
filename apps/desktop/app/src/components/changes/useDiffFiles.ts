@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DiffFileEntry, DiffFileResult, DiffMode, MilagreBridge } from "../../electron";
+import { useGitRefresh } from "./useGitRefresh";
 import { parsePatch, type DiffHunk } from "../../lib/diff-parse";
 
 // Patches load as files scroll into view; a few at a time keeps git from competing with the agent.
@@ -34,8 +35,8 @@ function patchKey(cwd: string, mode: DiffMode, file: DiffFileEntry) {
 }
 
 /**
- * The changed files of a chat's folder and their patches. `refresh` re-reads the list and drops every cached
- * patch, since an edit can keep a file's line counts; files still on screen load theirs again. Large files
+ * The changed files of a chat's folder and their patches. `refresh` re-reads the list and revalidates loaded
+ * patches, since an edit can keep a file's line counts. Previous patches stay visible during reads. Large files
  * the user opened with "Show diff" stay opened until the folder or mode changes.
  */
 export function useDiffFiles({ cwd, base, mode, active, bridge }: { cwd: string; base?: string; mode: DiffMode; active: boolean; bridge: MilagreBridge }) {
@@ -50,6 +51,7 @@ export function useDiffFiles({ cwd, base, mode, active, bridge }: { cwd: string;
   // Bumped whenever the cache is dropped, so a patch read that started before it doesn't land in the new one.
   const epoch = useRef(0);
   const forced = useRef(new Set<string>());
+  const reload = useRef<(file: DiffFileEntry) => void>(() => {});
   const request = useRef({ cwd, base, mode, bridge });
   request.current = { cwd, base, mode, bridge };
   const bump = () => setVersion((version) => version + 1);
@@ -60,33 +62,50 @@ export function useDiffFiles({ cwd, base, mode, active, bridge }: { cwd: string;
     cache.current.clear();
   }, []);
 
-  const refresh = useCallback(async () => {
-    const { cwd, base, mode, bridge } = request.current;
-    const scope = JSON.stringify([cwd, base, mode]);
-    const current = ++generation.current;
-    setSnapshot((previous) => ({ scope, list: previous.scope === scope && previous.list.state === "ready" ? previous.list : { state: "loading" } }));
-    try {
-      const result = await bridge.git.diffFiles({ cwd, base, mode });
-      if (current === generation.current) {
-        dropPatches();
-        setSnapshot({ scope, list: { state: "ready", ...result } });
+  const refresh = useCallback(
+    async (background = false) => {
+      // Let slow patches finish before a periodic read invalidates their cache generation.
+      if (background && (inFlight.current > 0 || queue.current.length > 0)) return;
+      const { cwd, base, mode, bridge } = request.current;
+      const scope = JSON.stringify([cwd, base, mode]);
+      const current = ++generation.current;
+      setSnapshot((previous) => ({ scope, list: previous.scope === scope && previous.list.state === "ready" ? previous.list : { state: "loading" } }));
+      try {
+        const result = await bridge.git.diffFiles({ cwd, base, mode });
+        if (current === generation.current) {
+          // Keep loaded patches visible while polling revalidates them, including edits with unchanged line counts.
+          const previous = new Map(cache.current);
+          dropPatches();
+          if (result.isRepo) {
+            for (const file of result.files) {
+              const key = patchKey(cwd, mode, file);
+              const patch = previous.get(key);
+              if (patch?.status !== "ready") continue;
+              cache.current.set(key, patch);
+              reload.current(file);
+            }
+          }
+          setSnapshot({ scope, list: { state: "ready", ...result } });
+        }
+      } catch (error) {
+        if (current === generation.current)
+          setSnapshot({ scope, list: { state: "error", message: error instanceof Error ? error.message : "Couldn't read the changes" } });
       }
-    } catch (error) {
-      if (current === generation.current)
-        setSnapshot({ scope, list: { state: "error", message: error instanceof Error ? error.message : "Couldn't read the changes" } });
-    }
-  }, [dropPatches]);
+    },
+    [dropPatches],
+  );
 
   useEffect(() => {
     dropPatches();
     forced.current.clear();
     setSnapshot({ scope: JSON.stringify([cwd, base, mode]), list: { state: "idle" } });
-    if (active && cwd) void refresh();
     // Invalidates a read still running for the old folder or mode.
     return () => {
       generation.current++;
     };
   }, [active, cwd, base, mode, bridge, refresh, dropPatches]);
+
+  useGitRefresh(active && !!cwd, scope, refresh);
 
   const pump = useCallback(() => {
     while (inFlight.current < MAX_IN_FLIGHT && queue.current.length) queue.current.shift()!();
@@ -94,13 +113,13 @@ export function useDiffFiles({ cwd, base, mode, active, bridge }: { cwd: string;
 
   /** Starts loading a file's patch unless it is cached or already loading. `force` is "Show diff" on a large file. */
   const load = useCallback(
-    (file: DiffFileEntry, force = false) => {
+    (file: DiffFileEntry, force = false, revalidate = false) => {
       const { cwd, base, mode, bridge } = request.current;
       const key = patchKey(cwd, mode, file);
       if (force) forced.current.add(file.path);
-      if (cache.current.has(key) || file.binary || (isLarge(file) && !forced.current.has(file.path))) return;
+      if ((!revalidate && cache.current.has(key)) || file.binary || (isLarge(file) && !forced.current.has(file.path))) return;
       const loadEpoch = epoch.current;
-      cache.current.set(key, { status: "loading" });
+      if (!revalidate) cache.current.set(key, { status: "loading" });
       bump();
       queue.current.push(() => {
         inFlight.current++;
@@ -111,7 +130,17 @@ export function useDiffFiles({ cwd, base, mode, active, bridge }: { cwd: string;
             (error) => ({ status: "error", message: error instanceof Error ? error.message : "Couldn't read this file" }),
           )
           .then((next) => {
-            if (loadEpoch === epoch.current) cache.current.set(key, next);
+            if (loadEpoch === epoch.current) {
+              const previous = cache.current.get(key);
+              if (
+                previous?.status !== "ready" ||
+                next.status !== "ready" ||
+                previous.patch !== next.patch ||
+                previous.binary !== next.binary ||
+                previous.tooLarge !== next.tooLarge
+              )
+                cache.current.set(key, next);
+            }
             inFlight.current--;
             bump();
             pump();
@@ -121,6 +150,8 @@ export function useDiffFiles({ cwd, base, mode, active, bridge }: { cwd: string;
     },
     [pump],
   );
+
+  reload.current = (file) => load(file, false, true);
 
   const patchFor = (file: DiffFileEntry) => cache.current.get(patchKey(cwd, mode, file));
 

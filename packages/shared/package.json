@@ -136,6 +136,10 @@
       "default": "./src/chat-scopes.mjs"
     },
     "./git-diff": "./src/git-diff.ts",
+    "./refresh-loop": {
+      "types": "./src/refresh-loop.d.mts",
+      "default": "./src/refresh-loop.mjs"
+    },
     "./agent-runs": {
       "types": "./src/agent-runs.d.mts",
       "default": "./src/agent-runs.mjs"
