@@ -2,7 +2,7 @@
 // push registration (a phone's), stopping the daemon, signing in to or out of Linear (the Mac's own account, done at this Mac), and adding MCP command servers or starting an MCP sign-in (they run or open things on this Mac). Everything else is allowed, so a new desktop method works
 // remotely by default. The Unix socket, this Mac's own window, has no policy. Routines run only on this Mac, but a paired
 // Mac reads and manages them like its own (routines:changed reaches it too).
-const DENIED_PREFIXES = Object.freeze(["phone:", "devices:", "push:"]);
+const DENIED_PREFIXES = Object.freeze(["phone:", "devices:", "push:", "command:", "desktop:", "computers:"]);
 const DENIED = new Set([
   "daemon:stop",
   "project:set-hidden",

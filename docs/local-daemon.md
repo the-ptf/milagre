@@ -1,5 +1,42 @@
 # Local daemon
 
+## Headless computer
+
+The `milagre` CLI runs the same daemon without Electron. With Node 24+, start it through npm:
+
+```sh
+npx milagre serve
+```
+
+Or install the command globally:
+
+```sh
+npm install --global milagre
+milagre serve
+```
+
+The server uses `~/.milagre/server` and prints a pairing link and a terminal QR code. Paste the link into another desktop's Settings > Devices > Add computer, then run `milagre devices pending` and `milagre devices allow KEY` on the server to approve it. Phones scan the QR in Milagre. Agent CLIs and their sign-ins belong on the server computer. No desktop UI is needed there.
+
+`milagre pair` reopens the 10-minute pairing window. `milagre status`, `milagre devices list` and `milagre stop` manage the running server. `--project /path/to/project` opens a Project on startup; repeat it for several. `MILAGRE_DATA_DIR` or `--data-dir /absolute/profile` selects another profile; use the same profile for every command.
+
+`serve` stays in the foreground. Ctrl+C or SIGTERM saves and stops it. Use a service manager and `milagre serve --no-pair` for unattended restarts: known devices retain access, and it opens no new pairing window or prints credentials. No login service is installed automatically. The CLI tarball bundles Milagre's private packages; npm installs registry dependencies for the target computer. See the [CLI guide](../apps/daemon/README.md) for all commands. `npm run cli -- serve` runs it directly from source. `npm run package:cli` builds `release/cli/milagre-0.1.1.tgz`, which you can copy to another computer and install with `npm install --global ./milagre-0.1.1.tgz`.
+
+## Shared command execution
+
+The current checkout exposes the host's product commands with `milagre command list`, family help (`milagre help project`) and named operations (`milagre project registry`). Inputs and help are generated from the desktop bridge types: `milagre chat patch --project-path /project --session-id 1 --patch '{"title":"Review"}'`. Use `milagre help chat patch` for fields, or `--input JSON|@file|-` for a complete named input (legacy positional arrays still work). Help is available before the daemon starts. A parity check covers every UI action and phone RPC, including declared native desktop capabilities. Scoped commands select `--chat projectPath#id`, publish the existing MCP input schemas and run through the same dispatcher as MCP. For example, `milagre tasks read --chat '/project#1'` invokes `tasks_read` with that Chat's scope and Bot gates. MCP never receives the owner RPC transport.
+
+`milagre watch` streams a snapshot and subsequent events with a consistent watermark. `milagre session` holds one owner connection for scripts, browser controls and simulator controls. Neither transport replays mutations after disconnects. `milagre mcp serve --stdio` forwards the existing credentialed loopback MCP connection.
+
+Saved-computer management is daemon-owned. `milagre computers list/add/rename/remove/enable/disable` and `computers invoke` share the desktop's manager, remote restrictions and offline cache. Enablement survives restarts. Pairing, reconnects and LAN/relay changes run without Electron; closing the desktop leaves connections running. Paired peers and the mobile bridge cannot manage the owner's outbound connections or credential vault.
+
+`milagre computers setup-key /absolute/private/directory/computer.key` prepares unattended access. It creates or verifies a private 32-byte master key outside the profile, then saves only its path in `computer-vault-config.json`. The vault uses AES-256-GCM with a fresh nonce per write. An external `MILAGRE_COMPUTER_KEY_FILE` overrides that saved path. Key files and their parent directories must be private; keep them separate from profile backups. Missing keys or failed authentication never generate replacement identities. See the [CLI guide](../apps/daemon/README.md) for examples.
+
+An updated desktop unlocks its existing OS-sealed credentials and imports them into `computer-vault.json` through the private owner socket. The original encrypted `computer-keys.json` remains intact. Its master key is itself OS-sealed in `computer-vault-key.json`; an explicit setup-key while unlocked exports that same key for unattended restarts. There is no automatic plaintext or Linux basic_text fallback. Network connections and caches have one daemon owner; Electron's old module paths are compatibility exports of the same Node implementations.
+
+Native actions such as editor launch, clipboard and application updates still register through a local desktop capability port. The CLI's `milagre desktop <family> <action>` routes to their original native IPC handlers. A headless host returns `CAPABILITY_UNAVAILABLE` for those actions. Detailed owner-operation schemas remain migration work. These additions are in the checkout and have not been published to npm.
+
+## Desktop host and source daemon
+
 Desktop starts or connects to a persistent `@milagre/core` daemon through a private Unix socket on macOS or Linux. It uses the same Electron userData directory and existing Project files, so Chat history and provider IDs do not move. Closing desktop leaves agents running. The mobile bridge attaches to the same profile and owner. Desktop Settings > Devices manages phone access through the public encrypted relay or a configured Cloudflare tunnel; see [mobile setup](mobile-local.md).
 
 For the first upgrade from an embedded-runtime desktop, close that older app before launching the new build. Never open the same Projects through an older desktop while the new host owns them. The running app is not automatically replaced by development checks.

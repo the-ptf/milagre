@@ -420,6 +420,12 @@ async function botChatMidTurn(t) {
   await f.runtime.invoke("bots:send", ["ops", "Fix the flaky test"]);
   await waitUntil(() => f.sessions.some((item) => item.options.cwd === f.bot.homePath));
   const thread = f.sessions.find((item) => item.options.cwd === f.bot.homePath);
+  const threadId = `${f.bot.homePath}#${f.bot.threadSessionId}`;
+  const cliCommands = await f.runtime.invoke("command:list", [{ chatId: threadId }]);
+  assert.deepEqual(cliCommands.map((item) => item.name).sort(), names(thread).sort(), "CLI and MCP offer the same Bot-scoped commands");
+  const forbidden = await f.runtime.invoke("command:run", [{ chatId: threadId, name: "delegate", input: {} }]);
+  assert.equal(forbidden.isError, true);
+  assert.match(forbidden.text, /unavailable/);
   const opened = await runTool(
     thread.options.linked.tools.find((item) => item.name === "chat_open"),
     { project: "project", title: "Fix flaky terminal-perf test", prompt: "Keep working" },

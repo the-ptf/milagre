@@ -2,6 +2,16 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { peerPolicy } = require("./peer-policy.cjs");
 
+test("paired peers cannot manage the owner's outbound computers or credential vault", () => {
+  for (const method of ["computers:list", "computers:add", "computers:invoke", "computers:unlock", "computers:import-keys", "computers:setup-key"])
+    assert.equal(peerPolicy.denies(method), true);
+});
+
+test("paired peers cannot impersonate a local Chat through the owner command entrypoint", () => {
+  for (const method of ["command:list", "command:describe", "command:run", "desktop:invoke", "desktop:register", "desktop:respond"])
+    assert.equal(peerPolicy.denies(method), true);
+});
+
 test("paired Macs can't add command servers or start MCP sign-in", () => {
   for (const method of ["mcp:save", "mcp:signIn", "mcp:cancelSignIn"]) assert.equal(peerPolicy.denies(method), true, method);
   for (const method of ["mcp:saveUrl", "mcp:toggle", "mcp:remove", "mcp:definition"]) assert.equal(peerPolicy.denies(method), false, method);

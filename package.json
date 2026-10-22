@@ -31,6 +31,8 @@
     "package:managers": "node scripts/generate-package-managers.cjs",
     "package:mac:local": "npm run package:mac -- --config.mac.identity=- --config.mac.notarize=false",
     "daemon": "node apps/daemon/src/cli.cjs",
+    "cli": "node apps/daemon/src/command.cjs",
+    "package:cli": "node scripts/package-cli.cjs",
     "mobile": "npm run start --workspace @milagre/mobile",
     "mobile:demo": "node scripts/mobile-demo.cjs",
     "review:demo": "node scripts/review-demo.cjs",

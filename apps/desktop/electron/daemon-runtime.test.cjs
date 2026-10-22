@@ -351,6 +351,22 @@ async function fakeHost(t, { capabilities = ["desktop-v1", "snapshot-pages-v1", 
 }
 const row = ({ channel, payload }) => [channel, payload.event?.type ?? null, payload.state ?? null, "stateTooLarge" in payload];
 
+test("a desktop requiring daemon-owned computers marks an older host for explicit restart", async (t) => {
+  const { dataDir } = await fakeHost(t);
+  const events = [];
+  const desktop = await connectDesktopRuntime({
+    dataDir,
+    version: "test",
+    requiredCapabilities: ["computer-management-v1"],
+    outdatedMessage: "Restart for computer management",
+    emit: (channel, payload) => events.push({ channel, payload }),
+  });
+  t.after(() => desktop.close());
+  assert.ok(
+    events.some((item) => item.channel === "runtime:connection" && item.payload.hostOutdated && item.payload.message === "Restart for computer management"),
+  );
+});
+
 test("after a reconnect, hostMethods are the host's it reconnected to, even an older one with fewer", async (t) => {
   const { dataDir, host } = await fakeHost(t);
   host.methods = ["project:open", "devices:take-notices"];

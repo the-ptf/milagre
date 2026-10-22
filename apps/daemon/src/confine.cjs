@@ -9,7 +9,7 @@ const TOO_LONG = "Messages to the demo computer are limited to 64 KB.";
 // A message body, in UTF-8 bytes.
 const MAX_BODY = 64 * 1024;
 // What daemon:status says about the Mac itself, left out for a confined phone.
-const HIDDEN_STATUS = ["dataDir", "socketPath", "pid", "uid", "methods"];
+const HIDDEN_STATUS = ["dataDir", "socketPath", "pid", "uid", "methods", "commandDefinitions", "desktopCommands"];
 const failure = (status, message) => Object.assign(new Error(message), { status });
 const refused = () => failure(403, REFUSED);
 const inside = (root, target) => target === root || target.startsWith(root + path.sep);

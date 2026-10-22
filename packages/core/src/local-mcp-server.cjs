@@ -1,5 +1,6 @@
 const http = require("node:http");
-const { inputSchema, mcpContent, runTool } = require("./linked-tools.cjs");
+const { mcpContent } = require("./linked-tools.cjs");
+const { createCommandDispatcher } = require("./command-dispatcher.cjs");
 const VERSIONS = ["2025-03-26", "2025-06-18"];
 const MAX_BODY = 1024 * 1024;
 // A 1,000,000 UTF-16-unit design can encode each unit as six ASCII bytes.
@@ -7,6 +8,7 @@ const MAX_BODY = 1024 * 1024;
 const MAX_DESIGN_BODY = 6 * 1000000 + 64 * 1024;
 
 function createLocalMcpServer({ authenticate, toolsFor, internalConnection }) {
+  const commands = createCommandDispatcher({ definitions: (connection) => (connection.tools ? connection.tools() : toolsFor(connection.id)) });
   let listening;
   let endpoint;
   let closing = false;
@@ -113,17 +115,12 @@ function createLocalMcpServer({ authenticate, toolsFor, internalConnection }) {
     if (message.method === "ping") return ok({});
     if (message.method === "tools/list")
       return ok({
-        tools: tools.map((tool) => ({
-          name: tool.name,
-          description: tool.description,
-          inputSchema: inputSchema(tool),
-          annotations: { readOnlyHint: Boolean(tool.readOnly) },
-        })),
+        tools: commands.list(connection),
       });
     if (message.method === "tools/call") {
       const tool = tools.find((item) => item.name === message.params?.name);
       if (!tool) return ok({ content: [{ type: "text", text: "Tool unavailable for this connection" }], isError: true });
-      const result = await runTool({ ...tool, strict: true }, message.params?.arguments);
+      const result = await commands.run(connection, tool.name, message.params?.arguments);
       return ok({ content: mcpContent(result), isError: result.isError });
     }
     return { jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Method not found" } };
