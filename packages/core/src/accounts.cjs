@@ -451,7 +451,7 @@ function createAccounts({
     assign,
     close() {
       closed = true;
-      for (const k of [...logins.keys()]) cancel(...k.split(":"));
+      for (const k of Array.from(logins.keys())) cancel(...k.split(":"));
     },
   };
 }

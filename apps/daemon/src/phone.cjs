@@ -344,7 +344,8 @@ function createPhone({
     }
   }
   async function stopDrains() {
-    for (const [hostId, entry] of [...drains]) {
+    // A copy: a host close awaits while the drain list can change.
+    for (const [hostId, entry] of Array.from(drains)) {
       drains.delete(hostId);
       clearTimeout(entry.timer);
       await entry.host.close().catch(() => {});
@@ -401,7 +402,7 @@ function createPhone({
 
   async function teardown() {
     // Their channels close with the hosts; a request whose channel outlives this run must not be answerable.
-    for (const entry of [...pending.values()]) entry.settle("dropped");
+    for (const entry of Array.from(pending.values())) entry.settle("dropped");
     generation++;
     clearTimeout(retryTimer);
     const old = live;

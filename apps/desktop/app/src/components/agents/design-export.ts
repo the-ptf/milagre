@@ -146,7 +146,8 @@ export async function designPageExportBlob(designs: DesignExportItem[], format: 
       // SVG fragment ids share a namespace even across nested SVG roots.
       const ids = new Map([...artboard.querySelectorAll("[id]")].map((element) => [element.id, `artboard${index}-${element.id}`]));
       for (const element of [artboard, ...artboard.querySelectorAll("*")]) {
-        for (const attribute of [...element.attributes]) {
+        // A copy: setAttributeNS can change this live attribute collection.
+        for (const attribute of Array.from(element.attributes)) {
           let value = attribute.value.replace(/url\(#([^)]+)\)/g, (match, id) => (ids.has(id) ? `url(#${ids.get(id)})` : match));
           if (attribute.localName === "id") value = ids.get(value) ?? value;
           if (attribute.localName === "href" && value.startsWith("#")) value = `#${ids.get(value.slice(1)) ?? value.slice(1)}`;

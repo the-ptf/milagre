@@ -519,7 +519,8 @@ class CodexSession {
 
   async pollSubagents() {
     this.childHistory ??= new Map();
-    for (const agent of [...(this.state.subagents?.values() ?? [])]) {
+    // A copy: subagent state can change while each history read awaits.
+    for (const agent of Array.from(this.state.subagents?.values() ?? [])) {
       if (this.closed) return;
       const previous = this.childHistory.get(agent.id);
       if (!this.shouldPollSubagent(agent) && previous?.finished) continue;

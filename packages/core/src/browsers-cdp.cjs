@@ -152,7 +152,8 @@ function createBrowserAdapter(options = {}) {
         item.reject(new Error(message));
       }
       pending.clear();
-      for (const listener of [...listeners]) listener();
+      // A copy: listeners may change their subscriptions during notification.
+      for (const listener of Array.from(listeners)) listener();
       if (socket.readyState === Socket.OPEN || socket.readyState === Socket.CONNECTING) socket.close();
     };
     const call = (method, params = {}) =>
@@ -226,7 +227,8 @@ function createBrowserAdapter(options = {}) {
           if (typeof params.data !== "string" || params.data.length > MAX_FRAME || !(width > 0 && width <= 16384 && height > 0 && height <= 16384)) return;
           latest = { sequence: ++sequence, data: params.data, viewport: { width, height } };
           state = { ...state, ready: true, width, height };
-          for (const listener of [...listeners]) listener();
+          // A copy: a frame callback may resubscribe to the capture.
+          for (const listener of Array.from(listeners)) listener();
           return;
         }
         case "Page.frameNavigated":

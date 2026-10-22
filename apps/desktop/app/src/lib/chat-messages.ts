@@ -29,7 +29,7 @@ const keyOf = (scope: string, chatId: number) => `${scope}#${chatId}`;
 function set(key: string, next: ChatWindow) {
   windows.set(key, next);
   // A copy: a listener can resubscribe while it is told, and a live Set would then be walked forever.
-  for (const listener of [...(listeners.get(key) ?? [])]) listener();
+  for (const listener of Array.from(listeners.get(key) ?? [])) listener();
   // A remote chat's window is its computer's offline copy too.
   if (!next.loading && !next.error) {
     const at = key.lastIndexOf("#");
@@ -124,7 +124,7 @@ function follow() {
       if (reset || changes?.removed.length || changes?.changed.some(({ message }) => message.session_id === chatId)) stale.add(key);
     }
     // A copy: set() moves a window to the end of the Map, and walking the Map itself would reach it again.
-    for (const [key, current] of [...windows]) {
+    for (const [key, current] of Array.from(windows)) {
       if (!key.startsWith(`${scope}#`)) continue;
       const chatId = Number(key.slice(scope.length + 1));
       if (reset) void load(scope, chatId);

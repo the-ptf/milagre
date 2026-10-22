@@ -2423,7 +2423,7 @@ function createRuntime(options) {
       await Promise.all([simulators.close(), browsers.close(), artifacts.close(), terminals.dispose()]);
       // A waiting Linear sign-in is an accepted command too: end it, or the wait below lasts until its timeout.
       await linear.dispose();
-      await Promise.allSettled([...active]);
+      await Promise.allSettled(active);
       accounts.close();
       keepAwake.quit();
       ports.close();
@@ -2434,11 +2434,11 @@ function createRuntime(options) {
         // final flush retries after their cancellation events have been recorded.
         await scopeStates.flush().catch(() => {});
         await Promise.allSettled([worktreeSetups.cancelAll(), agents.closeAll()]);
-        await Promise.allSettled([...starting]);
+        await Promise.allSettled(starting);
         await agents.closeAll();
         await Promise.allSettled([...background, ...chatTitles.pending.values()]);
       }
-      while (background.size) await Promise.allSettled([...background]);
+      while (background.size) await Promise.allSettled(background);
       await states.close();
       await linkStore.close();
       await linked.close();
@@ -2506,7 +2506,7 @@ function createRuntime(options) {
     flush: async () => {
       // A waiting Linear sign-in is an accepted command, but its window is gone when this runs on quit: end it.
       await linear.dispose();
-      await Promise.allSettled([...active]);
+      await Promise.allSettled(active);
       await scopeStates.flush();
       await usageStore.idle();
     },

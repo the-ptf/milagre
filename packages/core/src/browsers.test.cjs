@@ -65,7 +65,7 @@ function fixture(t, options = {}) {
         },
         push(data = "jpeg") {
           this.latest = { sequence: (this.latest?.sequence ?? 0) + 1, data, viewport: { width: this.state.width, height: this.state.height } };
-          for (const listener of [...listeners]) listener();
+          for (const listener of Array.from(listeners)) listener();
         },
         send(event) {
           events.push(structuredClone(event));

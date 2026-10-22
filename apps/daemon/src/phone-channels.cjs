@@ -210,7 +210,7 @@ function createPhoneChannels({
 
   /** Closes every channel `key` has on this carrier, and tells the carrier to close their sockets. */
   function dropKey(current, key) {
-    for (const [conn, record] of [...current.conns]) if (record.key === key) dropConn(current, conn, true);
+    for (const [conn, record] of Array.from(current.conns)) if (record.key === key) dropConn(current, conn, true);
   }
 
   /** Sends a whole response as `res` parts. */

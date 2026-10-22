@@ -39,7 +39,7 @@ function loadPreload(controls) {
     process.argv = originalArgv;
   }
   const emit = (event) => {
-    for (const listener of [...listeners]) listener({}, event);
+    for (const listener of Array.from(listeners)) listener({}, event);
   };
   return { bridge: exposed, chrome, listeners, emit };
 }

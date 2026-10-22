@@ -93,7 +93,8 @@ export function readDesignCatalog(
         const list = await client.call<ArtifactSummary[]>("artifact:list", [{ chatId }]);
         const visible = Array.isArray(list) ? list.filter((design) => design.format === "design" || design.format === "html") : [];
         if (Array.isArray(list) && entry.enabled) for (const id of shown) if (!visible.some((item) => item.id === id)) entry.deleted.add(id);
-        for (const id of [...entry.unknownIds]) {
+        // A copy: another read can queue unknown ids while artifact:get is awaiting.
+        for (const id of Array.from(entry.unknownIds)) {
           entry.unknownIds.delete(id);
           if (visible.some((item) => item.id === id) || entry.htmlAliases.has(id)) continue;
           try {
