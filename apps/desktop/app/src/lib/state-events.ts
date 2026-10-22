@@ -71,7 +71,7 @@ async function readAgain(scope: string, first: Numbered) {
         bridgeForKey(scope).readState(scope),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("The state read took too long")), READ_TIMEOUT_MS)),
       ]);
-      let current = { epoch: read.epoch, version: read.version, state: read.state as AnyState };
+      const current = { epoch: read.epoch, version: read.version, state: read.state as AnyState };
       let gap = false;
       // What arrived during the read: older patches are in the state read; newer ones follow it in order.
       for (const payload of queue.splice(0)) {
@@ -80,7 +80,8 @@ async function readAgain(scope: string, first: Numbered) {
           gap = true;
           break;
         }
-        current = { ...current, version: payload.version!, state: applyStatePatch(current.state, payload.patch) };
+        current.state = applyStatePatch(current.state, payload.patch);
+        current.version = payload.version!;
       }
       if (gap) continue;
       held.set(scope, current);

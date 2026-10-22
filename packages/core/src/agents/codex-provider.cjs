@@ -151,6 +151,7 @@ class CodexSession {
     designsEnabled = true,
     sharedLink = false,
     analysisOnly = false,
+    executionAdvisor = false,
     linked = null,
     mcpExtras = null,
     clientVersion = "0.0.0",
@@ -171,6 +172,7 @@ class CodexSession {
       designsEnabled,
       sharedLink,
       analysisOnly,
+      executionAdvisor,
       linked,
       mcpExtras,
       clientVersion,
@@ -348,11 +350,13 @@ class CodexSession {
     // never share a name with an off entry.
     this.everywhereNames = new Set((extras?.servers ?? []).map((def) => def.name));
     const servers = { ...extraServers, ...(url ? { milagre: { url, tool_timeout_sec: 86400 } } : {}) };
-    const config = this.analysisOnly
+    let config = this.analysisOnly
       ? advisorCodexConfig(inherited, url)
       : Object.keys(servers).length
         ? { ...THREAD_CONFIG, mcp_servers: servers }
         : THREAD_CONFIG;
+    if (this.executionAdvisor)
+      config = { ...config, features: { ...config.features, default_mode_request_user_input: false, multi_agent: false, multi_agent_v2: false } };
     const threadParams = {
       cwd: this.cwd,
       model,
@@ -387,7 +391,7 @@ class CodexSession {
   // Neither call has a time limit, as in T3 Code and Paseo: Codex answers only after watching every skill folder,
   // which a busy fseventsd stretched past a minute. A Codex that exits fails the call, and Stop kills a stuck start.
   async requestThread(method, params) {
-    if (this.analysisOnly) return this.rpc.request(method, params, { timeoutMs: THREAD_TIMEOUT_MS });
+    if (this.analysisOnly || this.executionAdvisor) return this.rpc.request(method, params, { timeoutMs: THREAD_TIMEOUT_MS });
     const { mcp_servers: servers, ...rest } = params.config ?? {};
     const { config: _config, ...bare } = params;
     const withServers = (map) => ({ ...params, config: map && Object.keys(map).length ? { ...rest, mcp_servers: map } : rest });
@@ -485,7 +489,7 @@ class CodexSession {
       },
       { timeoutMs: 5000 },
     );
-    if (!previous?.cursor) return { ...thread, turns: [...newest.data].reverse(), cursor: newest.backwardsCursor };
+    if (!previous?.cursor) return { ...thread, turns: newest.data.toReversed(), cursor: newest.backwardsCursor };
     const turns = [];
     let cursor = previous.cursor;
     const seen = new Set();
@@ -581,7 +585,7 @@ class CodexSession {
       const decided = params.grantRoot ? null : this.access.answer(request, this.permissions.mode);
       if (decided) answer(decided.decision);
       else this.permissions.add(request, answer, { inWorkspace: !params.grantRoot && this.access.contains(request.files) });
-    } else if (method === "item/tool/requestUserInput" && this.analysisOnly) this.reply(id, codexQuestionResponse("dismissed"));
+    } else if (method === "item/tool/requestUserInput" && (this.analysisOnly || this.executionAdvisor)) this.reply(id, codexQuestionResponse("dismissed"));
     else if (method === "item/tool/requestUserInput") this.askQuestion(id, params);
     // Granting extra sandbox permissions is out of scope: grant none, for this turn only.
     else if (method === "item/permissions/requestApproval") this.reply(id, { permissions: {}, scope: "turn" });

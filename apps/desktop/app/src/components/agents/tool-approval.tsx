@@ -50,6 +50,8 @@ export interface ToolApprovalProps {
   className?: string;
 }
 
+const NO_PARAMETERS: ToolApprovalParameter[] = [];
+
 const STATUS_COPY: Record<ToolApprovalStatus, string> = {
   pending: "Approval required",
   approving: "Approving",
@@ -103,7 +105,7 @@ export function ToolApproval({
   tool,
   title = "Allow this tool to run?",
   description,
-  parameters = [],
+  parameters = NO_PARAMETERS,
   status = "pending",
   open,
   defaultOpen = false,

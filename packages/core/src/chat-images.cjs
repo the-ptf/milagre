@@ -112,7 +112,7 @@ class ChatImages {
     const name = path.basename(requested);
     const needles = [...new Set([JSON.stringify(name).slice(1, -1), encodeURIComponent(name), encodeURI(name)])];
     const messages = this.states.messagesContaining ? await this.states.messagesContaining(projectPath, needles) : state.messages;
-    for (const message of [...messages].reverse()) {
+    for (const message of messages.toReversed()) {
       if (message.role !== "assistant") continue;
       const stored = message.images?.find((image) => image.sourcePath === requested);
       if (stored?.path) return stored.path;
@@ -134,4 +134,4 @@ class ChatImages {
     return null;
   }
 }
-module.exports = { ChatImages };
+module.exports = { ChatImages, imagePaths };

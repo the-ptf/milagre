@@ -30,7 +30,8 @@ async function writeContent(projectPath, folder, bytes, extension, resolved) {
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
       const real = await fs.realpath(file);
-      if (!inside(directory, real) || digest(await fs.readFile(real)) !== digest(bytes)) throw new Error("Stored Project content does not match its reference");
+      if (!inside(directory, real) || digest(await fs.readFile(real)) !== digest(bytes))
+        throw new Error("Stored Project content does not match its reference", { cause: error });
     }
   } finally {
     await fs.rm(temporary, { force: true });
@@ -45,7 +46,7 @@ async function storeImages(projectPath, images = []) {
       const { bytes, mime } = decoded[index];
       const extension = mime === "image/jpeg" ? "jpg" : mime.slice("image/".length);
       const stored = await writeContent(projectPath, "images", bytes, extension);
-      const { dataUrl, path: original, ...rest } = image;
+      const { dataUrl: _dataUrl, path: original, ...rest } = image;
       return { ...rest, path: stored, ...(original ? { sourcePath: original } : {}) };
     }),
   );

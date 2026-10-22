@@ -55,7 +55,7 @@ test("named Links reject invalid and repeated membership", async (t) => {
   ])
     await assert.rejects(registry.createProjectGroup(request));
   await registry.createProjectGroup({ name: "RDFood", projectIds: projects.map((p) => p.id) });
-  await assert.rejects(registry.createProjectGroup({ name: "Again", projectIds: projects.map((p) => p.id).reverse() }), /already/i);
+  await assert.rejects(registry.createProjectGroup({ name: "Again", projectIds: projects.map((p) => p.id).toReversed() }), /already/i);
   assert.equal((await registry.listProjectGroups()).length, 1);
 });
 
@@ -120,6 +120,6 @@ test("editing a named Link renames it and changes members, keeping an unavailabl
     registry.updateProjectGroup({ id: "00000000-0000-4000-8000-000000000000", name: "X", projectIds: other.projectIds }),
     /no longer exists/,
   );
-  const renamed = await registry.updateProjectGroup({ id: group.id, name: "Food", projectIds: [projects[0].id, admin.id].reverse().concat(projects[1].id) });
+  const renamed = await registry.updateProjectGroup({ id: group.id, name: "Food", projectIds: [projects[0].id, admin.id].toReversed().concat(projects[1].id) });
   assert.deepEqual(await createProjectRegistry(file, { roots: [] }).listProjectGroups(), [{ ...group, name: "Food", projectIds: renamed.projectIds }, other]);
 });

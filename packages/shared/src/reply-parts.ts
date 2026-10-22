@@ -79,9 +79,9 @@ export function unspokenThought(body: string, steps: ChatStep[] = []): string {
     body,
     steps.filter((step) => step.kind !== "setup" && step.kind !== "image"),
   );
-  for (const part of [...parts].reverse()) {
+  for (const part of parts.toReversed()) {
     if (part.type === "text") return "";
-    const thought = [...part.steps].reverse().find((step) => step.kind === "thinking" && step.status !== "running" && step.detail?.trim());
+    const thought = part.steps.findLast((step) => step.kind === "thinking" && step.status !== "running" && step.detail?.trim());
     if (thought) return thought.detail?.trim() ?? "";
   }
   return "";

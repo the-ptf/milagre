@@ -11520,16 +11520,7 @@ test("a Mac that can't run Routines yet still lists them, and Allow passes this 
 const routineNow = new Date(2026, 9, 17, 10, 30).getTime();
 const at = (hour, minute = 0) => new Date(2026, 9, 17, hour, minute).getTime();
 
-function routineHost({
-  id = "tr",
-  routines = routineFixtures(),
-  states = {},
-  confirmed = [],
-  enabled = true,
-  loading = false,
-  error = "",
-  canGoBack = true,
-} = {}) {
+function routineHost({ id = "tr", routines = routineFixtures(), states = {}, enabled = true, loading = false, error = "", canGoBack = true } = {}) {
   const react = hookHost();
   const routes = [];
   const calls = [];
@@ -11737,7 +11728,7 @@ test("the phone Routine screen opens a Run's Chat in a Project it holds no state
 });
 
 test("the phone Routine screen says No Runs yet with the next Run", async () => {
-  const [heartbeat, trigger] = routineFixtures();
+  const [heartbeat] = routineFixtures();
   const empty = routineHost({ id: "hb", routines: [{ ...heartbeat, nextRunAt: at(10, 45) }] });
   const texts = allNodes(empty.render(), (node) => node.type === "Text").map(textOf);
   assert.ok(texts.includes("No Runs yet"));

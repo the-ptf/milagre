@@ -1,4 +1,3 @@
-const { randomUUID } = require("node:crypto");
 const { scopeKey, validLinkId } = require("@milagre/shared/chat-scopes");
 function registerLinkRuntime({ commands, registry, store, workspaces, chats, broadcast, titles }) {
   const queues = new Map();

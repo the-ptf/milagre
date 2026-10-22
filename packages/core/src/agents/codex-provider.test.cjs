@@ -29,6 +29,7 @@ function codex(
     tldrEnabled,
     designsEnabled,
     analysisOnly,
+    executionAdvisor,
     linked,
     mcpExtras,
     command = process.execPath,
@@ -44,6 +45,7 @@ function codex(
     tldrEnabled,
     designsEnabled,
     analysisOnly,
+    executionAdvisor,
     linked,
     mcpExtras,
     command,
@@ -102,6 +104,20 @@ test("analysis-only Codex never drops restrictions when a provider rejects confi
   const starts = requests.filter((message) => message.method === "thread/start");
   assert.equal(starts.length, 1);
   assert.equal(starts[0].params.config.features.shell_tool, false);
+});
+test("execution Codex has native shell access and dismisses questions without a human card", async (t) => {
+  const { session, events } = codex(t, { executionAdvisor: true, scenario: "question", linked: { tools: [], url: async () => null } });
+  await session.startTurn({ ...TURN, permissionMode: "full" });
+  await ended(events);
+  const messages = await received(session);
+  const thread = messages.find((message) => message.method === "thread/start").params;
+  assert.equal(thread.sandbox, "danger-full-access");
+  assert.notEqual(thread.config.features.shell_tool, false);
+  assert.equal(thread.config.features.default_mode_request_user_input, false);
+  assert.equal(thread.config.features.multi_agent, false);
+  assert.match(thread.developerInstructions, /execution agent/);
+  assert.ok(!events.some((event) => event.type === "question-request"));
+  assert.match(replyText(events), /answers/);
 });
 
 test("streams a reply and keeps one thread across turns", async (t) => {
@@ -1068,7 +1084,7 @@ function childSnapshotRpc(snapshot, onRead = () => {}) {
         return { thread: { ...thread, turns: [] } };
       }
       assert.equal(method, "thread/turns/list");
-      return { data: [...thread.turns].reverse(), nextCursor: null };
+      return { data: thread.turns.toReversed(), nextCursor: null };
     },
   };
 }

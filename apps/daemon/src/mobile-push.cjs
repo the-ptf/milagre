@@ -1,4 +1,4 @@
-const { preparePrivateDirectory, assertPrivate } = require("@milagre/core/private-files");
+const { preparePrivateDirectory } = require("@milagre/core/private-files");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");

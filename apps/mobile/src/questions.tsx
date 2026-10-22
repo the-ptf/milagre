@@ -16,6 +16,8 @@ export type InboxQuestionDraft = {
   typed: Record<string, string>;
 };
 
+const NO_ANSWERS: QuestionAnswers = {};
+
 const RECOMMENDED = /\s*\((recommended)\)\s*$/i;
 
 /**
@@ -25,7 +27,7 @@ const RECOMMENDED = /\s*\((recommended)\)\s*$/i;
 export function Questions({
   request,
   busy,
-  initialAnswers = {},
+  initialAnswers = NO_ANSWERS,
   confirmSingle = false,
   submit,
   variant = "card",
