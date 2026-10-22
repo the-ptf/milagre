@@ -2,6 +2,34 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { PortWatcher, chatPorts, chatProcesses, parseLsof, parsePs, parseTaskOutputs } = require("./ports.cjs");
 
+test("execution-agent listeners belong to their parent Chat alongside its main provider", () => {
+  const processes = [
+    { pid: 10, ppid: 1, pgid: 10, command: "codex" },
+    { pid: 11, ppid: 10, pgid: 11, command: "zsh" },
+    { pid: 20, ppid: 1, pgid: 20, command: "claude" },
+    { pid: 21, ppid: 20, pgid: 21, command: "zsh" },
+    { pid: 22, ppid: 21, pgid: 21, command: "node" },
+    { pid: 30, ppid: 1, pgid: 30, command: "node" },
+  ];
+  const owned = chatProcesses(processes, new Map([["parent", { pid: 10, agents: [20] }]]), new Map());
+  assert.deepEqual(
+    [...owned.get("parent")].sort((a, b) => a - b),
+    [11, 21, 22],
+  );
+  assert.deepEqual(
+    chatPorts(
+      [
+        { pid: 22, port: 5180, command: "node", address: "127.0.0.1" },
+        { pid: 30, port: 6000, command: "node", address: "127.0.0.1" },
+      ],
+      owned,
+    ),
+    {
+      parent: [{ pid: 22, port: 5180, command: "node", address: "127.0.0.1" }],
+    },
+  );
+});
+
 // The agent (100) leads group 100 with its MCP server (101); its command shells lead their own groups.
 const PS = `
     1     0     1 /sbin/launchd

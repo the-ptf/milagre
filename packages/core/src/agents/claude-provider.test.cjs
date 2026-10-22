@@ -258,7 +258,17 @@ function fakeSdk(script) {
 
 function claude(
   t,
-  { script = scripts.reply, resumeId, tldrEnabled, designsEnabled, analysisOnly, command = "/usr/local/bin/claude", interruptGraceMs, permissionPolicy } = {},
+  {
+    script = scripts.reply,
+    resumeId,
+    tldrEnabled,
+    designsEnabled,
+    analysisOnly,
+    executionAdvisor,
+    command = "/usr/local/bin/claude",
+    interruptGraceMs,
+    permissionPolicy,
+  } = {},
 ) {
   const sdk = fakeSdk(script);
   const events = [];
@@ -268,6 +278,7 @@ function claude(
     tldrEnabled,
     designsEnabled,
     analysisOnly,
+    executionAdvisor,
     command,
     emit: (event) => events.push(event),
     loadSdk: sdk.loadSdk,
@@ -300,6 +311,24 @@ test("analysis-only Claude denies shell tools and cannot switch to Full", async 
   await session.startTurn({ ...TURN, permissionMode: "full" });
   await ended(events, 2);
   assert.equal(calls.modes.includes("bypassPermissions"), false);
+});
+test("execution Claude has native tools and reports questions to its parent", async (t) => {
+  const { session, events, calls } = claude(t, { executionAdvisor: true, script: scripts.questions });
+  await session.startTurn({ ...TURN, permissionMode: "full" });
+  await ended(events);
+  assert.equal(calls.options.permissionMode, "bypassPermissions");
+  assert.notDeepEqual(calls.options.tools, []);
+  assert.ok(calls.options.disallowedTools.includes("AskUserQuestion"));
+  assert.ok(calls.options.disallowedTools.includes("Agent"));
+  assert.match(calls.options.systemPrompt.append, /execution agent/);
+  assert.ok(!events.some((event) => event.type === "question-request"));
+  assert.match(
+    events
+      .filter((event) => event.type === "text-delta")
+      .map((event) => event.text)
+      .join(""),
+    /parent Chat/,
+  );
 });
 
 test("reads the end of a background command's output from Claude Code, until the session closes", async (t) => {

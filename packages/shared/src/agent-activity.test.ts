@@ -33,6 +33,7 @@ test("advisor controls identify ownership and expose Stop or Retry only in valid
   const { advisorAction, subagentRoleLabel } = await import("./agent-activity.ts");
   const base = { source: "milagre-advisor" as const, provider: "codex" as const };
   assert.equal(subagentRoleLabel(base), "Codex advisor");
+  assert.equal(subagentRoleLabel({ ...base, mode: "execution" }), "Codex execution agent");
   for (const status of ["initializing", "running", "waiting"] as const) assert.equal(advisorAction({ ...base, status }), "stop");
   for (const status of ["failed", "cancelled", "unknown"] as const) assert.equal(advisorAction({ ...base, status, retryable: true }), "retry");
   assert.equal(advisorAction({ ...base, status: "completed" }), null);

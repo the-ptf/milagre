@@ -1,9 +1,11 @@
 import { providerName } from "./providers.mjs";
 import type { AdvisorResultContext } from "./model.ts";
 export function advisorResultLabel(context: AdvisorResultContext): string {
-  const provider = providerName(context.provider);
   const outcome = context.outcome === "completed" ? "result" : context.outcome === "failed" ? "failed" : "stopped";
-  return `${provider} advisor ${outcome}: ${context.title}`;
+  return `${advisorResultRole(context)} ${outcome}: ${context.title}`;
+}
+export function advisorResultRole(context: Pick<AdvisorResultContext, "provider" | "mode">): string {
+  return `${providerName(context.provider)} ${context.mode === "execution" ? "execution agent" : "advisor"}`;
 }
 
 /** Provider input roles remain user/assistant; clients identify host context as app-owned. */
