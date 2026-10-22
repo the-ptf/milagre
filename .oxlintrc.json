@@ -30,6 +30,7 @@
     "oxc/no-async-endpoint-handlers": "warn",
     "unicorn/no-useless-spread": "warn",
     "unicorn/no-array-reverse": "warn",
+    "oxc/no-accumulating-spread": "error",
     "react/memo-dependencies": "warn",
     "eslint/preserve-caught-error": "warn",
     "no-await-in-loop": "off"

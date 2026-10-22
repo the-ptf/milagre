@@ -963,6 +963,46 @@ test("a quit saves each running chat to resume and preserves its partial reply",
   assert.equal(saved.get(BETA).sessions[idle.sessionId].resumeTurn, undefined);
 });
 
+test("suspending two Chats in one Project preserves the earlier session snapshot", async (t) => {
+  const { host, manager, states, created } = harness();
+  t.after(() => manager.closeAll());
+  const first = await host.send(message(ALPHA, "first turn"));
+  const second = await host.send(message(ALPHA, "second turn"));
+  await waitUntil(() => created.length === 2 && created.every((item) => item.turns.length));
+  await states.flush();
+  const before = await states.get(ALPHA);
+  await host.suspendRunning();
+  const after = await states.get(ALPHA);
+  assert.equal(before.sessions[first.sessionId].resumeTurn, undefined);
+  assert.equal(before.sessions[second.sessionId].resumeTurn, undefined);
+  assert.notEqual(after.sessions, before.sessions);
+  assert.equal(after.sessions[first.sessionId].resumeTurn.prompt, "first turn");
+  assert.equal(after.sessions[second.sessionId].resumeTurn.prompt, "second turn");
+});
+
+test("recovering multiple legacy handoffs preserves old and untouched sessions", async (t) => {
+  const { host, manager, states } = harness();
+  t.after(() => manager.closeAll());
+  await states.update(ALPHA, (state) => ({
+    ...state,
+    sessions: {
+      7: { id: 7, worktree_id: 1, provider: "claude", handoverPending: true },
+      8: { id: 8, worktree_id: 1, provider: "codex", handoverPending: true },
+      9: { id: 9, worktree_id: 1, provider: "claude" },
+    },
+  }));
+  const before = await states.get(ALPHA);
+  await host.recoverHandoffs(ALPHA, before);
+  const after = await states.get(ALPHA);
+  assert.equal(before.sessions[7].handoverPending, true);
+  assert.equal(before.sessions[8].handoverPending, true);
+  assert.equal("handoverPending" in after.sessions[7], false);
+  assert.equal("handoverPending" in after.sessions[8], false);
+  assert.equal(after.sessions[9], before.sessions[9]);
+  await host.recoverHandoffs(ALPHA, after);
+  assert.equal(await states.get(ALPHA), after, "recovery without changes keeps the snapshot");
+});
+
 test("a quit saves no resume for a Routine's turn, which the scheduler owns; a user's turn still resumes", async (t) => {
   const { host, manager, saved, session } = harness();
   t.after(() => manager.closeAll());

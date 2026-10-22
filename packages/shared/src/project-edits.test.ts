@@ -88,3 +88,17 @@ test("withDiffStats stores new stats and skips missing or unchanged ones", () =>
   assert.deepEqual(next.worktrees[1].diff, { added: 10, removed: 2 });
   assert.equal(next.worktrees[2], initial.worktrees[2]);
 });
+
+test("a batch of diff stats preserves the old snapshot and unchanged worktrees", () => {
+  const initial = state();
+  initial.worktrees[3] = { id: 3, project_id: 1, path: "/work/untouched", name: "untouched" };
+  const before = structuredClone(initial);
+  const stats = { 1: { added: 10, removed: 2 }, 2: { added: 4, removed: 3 } };
+  const next = withDiffStats(initial, stats);
+  assert.deepEqual(initial, before);
+  assert.notEqual(next.worktrees, initial.worktrees);
+  assert.deepEqual(next.worktrees[1].diff, stats[1]);
+  assert.deepEqual(next.worktrees[2].diff, stats[2]);
+  assert.equal(next.worktrees[3], initial.worktrees[3]);
+  assert.equal(withDiffStats(next, stats), next);
+});
