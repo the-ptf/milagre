@@ -1,7 +1,6 @@
 const http = require("node:http");
 const { once } = require("node:events");
 const { timingSafeEqual } = require("node:crypto");
-const fs = require("node:fs/promises");
 const path = require("node:path");
 const { pipeline } = require("node:stream/promises");
 const { randomUUID, createHash } = require("node:crypto");
