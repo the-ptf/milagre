@@ -69,10 +69,10 @@ export interface AppSettings {
 
 const STORAGE_KEY = "milagre-settings";
 const LEGACY_THEME_KEY = "milagre-theme";
-const THEMES: ThemePreference[] = ["system", "light", "dark"];
-const USAGE_DISPLAYS: UsageDisplay[] = ["used", "remaining"];
-const CLAUDE_REPLIES: ClaudeReplies[] = ["concise", "normal"];
-const CHAT_ORDERS: ChatOrder[] = ["created", "recent"];
+const THEMES = new Set<ThemePreference>(["system", "light", "dark"]);
+const USAGE_DISPLAYS = new Set<UsageDisplay>(["used", "remaining"]);
+const CLAUDE_REPLIES = new Set<ClaudeReplies>(["concise", "normal"]);
+const CHAT_ORDERS = new Set<ChatOrder>(["created", "recent"]);
 const DEFAULTS: AppSettings = {
   theme: "system",
   colorTheme: DEFAULT_THEME_ID,
@@ -110,7 +110,7 @@ function load(): AppSettings {
     const theme = saved.theme ?? legacyTheme;
     const customTheme = parseCustomTheme(saved.customTheme);
     return {
-      theme: THEMES.includes(theme as ThemePreference) ? (theme as ThemePreference) : DEFAULTS.theme,
+      theme: THEMES.has(theme as ThemePreference) ? (theme as ThemePreference) : DEFAULTS.theme,
       // Any saved id is kept: the agents report models the maintained list lacks, and App falls back
       // to a provider's recommended model when the saved one isn't offered.
       customThemeEnabled: typeof saved.customThemeEnabled === "boolean" ? saved.customThemeEnabled : DEFAULTS.customThemeEnabled,
@@ -120,7 +120,7 @@ function load(): AppSettings {
       defaultPermissionMode: PERMISSION_MODES.some((mode) => mode.id === saved.defaultPermissionMode)
         ? saved.defaultPermissionMode!
         : DEFAULTS.defaultPermissionMode,
-      usageDisplay: USAGE_DISPLAYS.includes(saved.usageDisplay as UsageDisplay) ? saved.usageDisplay! : DEFAULTS.usageDisplay,
+      usageDisplay: USAGE_DISPLAYS.has(saved.usageDisplay as UsageDisplay) ? saved.usageDisplay! : DEFAULTS.usageDisplay,
       showUsageInSidebar: typeof saved.showUsageInSidebar === "boolean" ? saved.showUsageInSidebar : DEFAULTS.showUsageInSidebar,
       notifyWhenWaiting: typeof saved.notifyWhenWaiting === "boolean" ? saved.notifyWhenWaiting : DEFAULTS.notifyWhenWaiting,
       notifyOnCompletion: typeof saved.notifyOnCompletion === "boolean" ? saved.notifyOnCompletion : DEFAULTS.notifyOnCompletion,
@@ -131,8 +131,8 @@ function load(): AppSettings {
       keepAwake: typeof saved.keepAwake === "boolean" ? saved.keepAwake : DEFAULTS.keepAwake,
       editorId: typeof saved.editorId === "string" ? saved.editorId : DEFAULTS.editorId,
       tldrEnabled: typeof saved.tldrEnabled === "boolean" ? saved.tldrEnabled : DEFAULTS.tldrEnabled,
-      claudeReplies: CLAUDE_REPLIES.includes(saved.claudeReplies as ClaudeReplies) ? saved.claudeReplies! : DEFAULTS.claudeReplies,
-      chatOrder: CHAT_ORDERS.includes(saved.chatOrder as ChatOrder) ? saved.chatOrder! : DEFAULTS.chatOrder,
+      claudeReplies: CLAUDE_REPLIES.has(saved.claudeReplies as ClaudeReplies) ? saved.claudeReplies! : DEFAULTS.claudeReplies,
+      chatOrder: CHAT_ORDERS.has(saved.chatOrder as ChatOrder) ? saved.chatOrder! : DEFAULTS.chatOrder,
       chatRowShow: parseChatRowShow(saved.chatRowShow, DEFAULTS.chatRowShow),
       toolCallDisplay: parseToolCallDisplay(saved.toolCallDisplay, saved.muriloMode),
       expandReasoning: typeof saved.expandReasoning === "boolean" ? saved.expandReasoning : DEFAULTS.expandReasoning,

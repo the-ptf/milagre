@@ -11733,9 +11733,9 @@ test("the phone Routine screen opens a Run's Chat in a Project it holds no state
 test("the phone Routine screen says No Runs yet with the next Run", async () => {
   const [heartbeat, trigger] = routineFixtures();
   const empty = routineHost({ id: "hb", routines: [{ ...heartbeat, nextRunAt: at(10, 45) }] });
-  const texts = allNodes(empty.render(), (node) => node.type === "Text").map(textOf);
-  assert.ok(texts.includes("No Runs yet"));
-  assert.ok(texts.includes("Next Run 10:45"));
+  const texts = new Set(allNodes(empty.render(), (node) => node.type === "Text").map(textOf));
+  assert.ok(texts.has("No Runs yet"));
+  assert.ok(texts.has("Next Run 10:45"));
   // Run now is a play button in the toolbar, beside Edit.
   const play = find(empty.render(), (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Run now");
   assert.ok(play, "a Heartbeat runs now");
@@ -12028,9 +12028,9 @@ test("on a Mac without Routines the phone screen asks to update Milagre there, w
   host.render();
   await host.settle();
   const tree = host.render();
-  const texts = allNodes(tree, (node) => node.type === "Text").map(textOf);
-  assert.ok(texts.includes("Update Milagre on this Mac to use Routines."));
-  assert.ok(!texts.includes("Routines are off on this Mac"));
+  const texts = new Set(allNodes(tree, (node) => node.type === "Text").map(textOf));
+  assert.ok(texts.has("Update Milagre on this Mac to use Routines."));
+  assert.ok(!texts.has("Routines are off on this Mac"));
   assert.equal(
     find(tree, (node) => node.type === "ErrorNotice"),
     undefined,
@@ -12042,9 +12042,9 @@ test("a confined phone is never told Routines are off, and opens no Project-less
   const host = routinesHost({ confined: true });
   host.render();
   await host.settle();
-  const texts = allNodes(host.render(), (node) => node.type === "Text").map(textOf);
-  assert.ok(!texts.includes("Routines are off on this Mac"));
-  assert.ok(texts.includes("Routines aren't available on this connection."));
+  const texts = new Set(allNodes(host.render(), (node) => node.type === "Text").map(textOf));
+  assert.ok(!texts.has("Routines are off on this Mac"));
+  assert.ok(texts.has("Routines aren't available on this connection."));
   assert.deepEqual(host.sockets, []);
 });
 
@@ -12225,11 +12225,11 @@ test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card
   const card = find(tree, (node) => node.type === "HeartbeatCard");
   assert.ok(card, "the card shows");
   assert.equal(card.props.step.routine.id, "hb1");
-  const rows = allNodes(tree, (node) => node.type === "ToolRow").map((node) => node.props.step.id);
-  assert.ok(!rows.includes("s2"), "the heartbeat step isn't an activity row too");
+  const rows = new Set(allNodes(tree, (node) => node.type === "ToolRow").map((node) => node.props.step.id));
+  assert.ok(!rows.has("s2"), "the heartbeat step isn't an activity row too");
   const order = allNodes(tree, (node) => node.type === "HeartbeatCard" || node.type === "Markdown").map((node) => node.type);
   assert.deepEqual(order.slice(-2), ["Markdown", "HeartbeatCard"], "the reply text comes first, then the card");
-  assert.ok(rows.includes("s1"));
+  assert.ok(rows.has("s1"));
 });
 
 function heartbeatCardHost(routines, { fail } = {}) {
@@ -12435,8 +12435,8 @@ test("creating a webhook Routine on the phone keeps the sheet open on its URL, w
   tree = host.render();
   assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "https://relay.milagre.cloud/hook/abc"));
   assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Webhook Routine"));
-  const buttons = allNodes(tree, (node) => node.type === "PillButton").map((node) => node.props.title);
-  assert.ok(buttons.includes("Copy") && buttons.includes("Rotate"));
+  const buttons = new Set(allNodes(tree, (node) => node.type === "PillButton").map((node) => node.props.title));
+  assert.ok(buttons.has("Copy") && buttons.has("Rotate"));
   assert.equal(find(tree, (node) => node.type === "PillButton" && node.props.title === "Save").props.title, "Save");
   find(tree, (node) => node.type === "PillButton" && node.props.title === "Rotate").props.onPress();
   await new Promise((resolve) => setImmediate(resolve));

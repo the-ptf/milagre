@@ -101,7 +101,7 @@ const FIELD_SYMBOLS: Record<string, string> = {
   diff: "plusminus",
   lastActivity: "clock",
 };
-const NEEDS: ChatMark[] = ["question", "waiting", "interrupted", "failed", "unread"];
+const NEEDS = new Set<ChatMark>(["question", "waiting", "interrupted", "failed", "unread"]);
 const labels: Record<ChatMark, string> = {
   idle: "",
   running: "Running",
@@ -309,7 +309,7 @@ function ProjectNavigationContent({ onNavigate, onClose, activeChatId }: Navigat
             (show === "archived") === (!!chat.archived && !archives.chats.has(`${copy?.project.path}#${chat.id}`)) &&
             shownChat(chat, run, chatSummary(chat, byChat.get(chat.id)).count, { archived: show === "archived" }),
         )
-        .filter(({ mark }) => show !== "needs" || NEEDS.includes(mark))
+        .filter(({ mark }) => show !== "needs" || NEEDS.has(mark))
         .filter(({ mark }) => show !== "running" || mark === "running" || mark === "background");
       if (needle && copy)
         searchable.push({

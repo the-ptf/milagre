@@ -2283,8 +2283,8 @@ test("a flood of bad signatures takes no place in the seen ledger and keeps the 
   // The newest 50 rejections stay listed, with how many there were.
   const rejected = store.runs(hook.id).filter((run) => run.error === "signature mismatch");
   assert.equal(rejected.length, 50);
-  const keys = rejected.map((run) => run.event.key);
-  assert.ok(keys.includes("hook:6000") && keys.includes("hook:5951") && !keys.includes("hook:5950"));
+  const keys = new Set(rejected.map((run) => run.event.key));
+  assert.ok(keys.has("hook:6000") && keys.has("hook:5951") && !keys.has("hook:5950"));
   assert.equal(store.rejections(hook.id), 6000);
   assert.ok(fs.statSync(file).size < 64 * 1024, `routines.json is ${fs.statSync(file).size} bytes`);
   // A redelivery of a recent rejection is still answered once.
