@@ -55,7 +55,8 @@ async function fetchRaster(source, { lookup = dns.lookup, request = https.reques
       url,
       {
         signal,
-        headers: { accept: "image/png,image/jpeg,image/gif,image/webp" },
+        // CDN bot rules (CloudFront, Cloudflare) answer 403 to requests without a User-Agent.
+        headers: { accept: "image/png,image/jpeg,image/gif,image/webp", "user-agent": "Milagre (+https://milagre.cloud)" },
         lookup: (_hostname, options, callback) => (options.all ? callback(null, addresses) : callback(null, addresses[0].address, addresses[0].family)),
       },
       (response) => {
@@ -72,7 +73,9 @@ async function fetchRaster(source, { lookup = dns.lookup, request = https.reques
         }
         if (response.statusCode !== 200) {
           response.destroy();
-          return reject(Error("A design image could not be downloaded. Replace it before sharing this page."));
+          return reject(
+            Error(`A design image from ${url.hostname} could not be downloaded (HTTP ${response.statusCode}). Replace it before sharing this page.`),
+          );
         }
         const type = String(response.headers["content-type"] ?? "")
           .split(";")[0]

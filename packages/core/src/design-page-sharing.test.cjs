@@ -447,6 +447,23 @@ test("malformed asynchronous image redirects reject publication without crashing
   await assert.rejects(fetchRaster("https://example.com/image", { lookup: async () => [{ address: "8.8.8.8", family: 4 }], request }), /invalid redirect/);
 });
 
+test("image downloads identify themselves and name the failing host", async () => {
+  const { EventEmitter } = require("node:events");
+  let headers;
+  const request = (_url, options, callback) => {
+    headers = options.headers;
+    const req = new EventEmitter();
+    req.setTimeout = () => {};
+    req.end = () => queueMicrotask(() => callback({ statusCode: 403, headers: {}, destroy() {} }));
+    return req;
+  };
+  await assert.rejects(
+    fetchRaster("https://cdn.example.com/logo.png", { lookup: async () => [{ address: "8.8.8.8", family: 4 }], request }),
+    /cdn\.example\.com could not be downloaded \(HTTP 403\)/,
+  );
+  assert.match(headers["user-agent"], /^Milagre/, "CDN bot rules reject requests without a User-Agent");
+});
+
 test("the snapshot image deadline also bounds DNS lookup", async () => {
   const controller = new AbortController();
   const pending = fetchRaster("https://example.com/image", {
