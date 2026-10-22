@@ -10,11 +10,9 @@ export const isLiveSignal = (type: unknown): type is LiveSignal =>
   type === "mcp" ||
   type === "routines" ||
   type === "usage";
+type LiveEvents = { open: unknown; message: { data?: unknown }; error: { message?: string }; close: unknown };
 export type LiveSocket = {
-  onopen: (() => void) | null;
-  onmessage: ((event: { data?: unknown }) => void) | null;
-  onerror: ((event: { message?: string }) => void) | null;
-  onclose: (() => void) | null;
+  addEventListener<K extends keyof LiveEvents>(type: K, listener: (event: LiveEvents[K]) => void): void;
   close(code?: number, reason?: string): void;
 };
 export type Timers = { setTimeout: (fn: () => void, ms: number) => unknown; clearTimeout: (id: unknown) => void };
@@ -88,14 +86,14 @@ export function openLive(
       return;
     }
     socket = next;
-    next.onopen = () => {
+    next.addEventListener("open", () => {
       if (next !== socket) return;
       failures = 0;
       up = true;
       quiet();
       onStatus(true);
-    };
-    next.onmessage = (event) => {
+    });
+    next.addEventListener("message", (event) => {
       if (next !== socket) return;
       quiet();
       let type: unknown;
@@ -105,13 +103,13 @@ export function openLive(
         return;
       }
       if (isLiveSignal(type)) onSignal(type);
-    };
+    });
     // Both platforms put the refused upgrade's status in the message ("…101… but was '404 Not Found'").
-    next.onerror = (event) => {
+    next.addEventListener("error", (event) => {
       if (/\b404\b/.test(event?.message ?? "")) unsupported = true;
       lost(next);
-    };
-    next.onclose = () => lost(next);
+    });
+    next.addEventListener("close", () => lost(next));
   }
   connect();
   return {

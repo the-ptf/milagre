@@ -274,7 +274,8 @@ export function PromptComposer({
       mentionScope.current = imageDraft.scope;
       mentionAttached.current.clear();
     }
-    for (const path of [...mentionAttached.current]) {
+    // A copy: removing a file can update the attachment draft.
+    for (const path of Array.from(mentionAttached.current)) {
       if (chipPaths.includes(path)) continue;
       mentionAttached.current.delete(path);
       if (imageDraft.files.includes(path)) imageDraft.removeFile(path);

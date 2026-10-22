@@ -224,7 +224,8 @@ function untrack(computerId: string) {
 function followComputers(next: ComputersSnapshot | null | undefined) {
   if (!next || !Array.isArray(next.computers)) return;
   const on = new Map(next.computers.filter((computer) => computer.state !== "off").map((computer) => [computer.id, computer.state] as const));
-  for (const id of [...tracked.keys()]) if (id !== LOCAL_COMPUTER && !on.has(id)) untrack(id);
+  // A copy: untracking calls subscriptions that can change the tracked computers.
+  for (const id of Array.from(tracked.keys())) if (id !== LOCAL_COMPUTER && !on.has(id)) untrack(id);
   for (const [id, state] of on) track(id, state);
 }
 
@@ -245,7 +246,8 @@ export function subscribeRoutines(listener: () => void) {
     // Nothing shows Routines now: drop any read in flight and stop listening.
     stopComputers?.();
     stopComputers = undefined;
-    for (const id of [...tracked.keys()]) {
+    // A copy: stopping a subscription may reenter the tracker.
+    for (const id of Array.from(tracked.keys())) {
       tracked.delete(id);
       latestRead.set(id, (latestRead.get(id) ?? 0) + 1);
       stopListening.get(id)?.();

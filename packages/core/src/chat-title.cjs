@@ -106,7 +106,7 @@ class ChatTitles {
       (latest) => {
         const current = latest.sessions[sessionId];
         if (!current?.titlePending) return latest;
-        const { titlePending, ...rest } = current;
+        const { titlePending: _titlePending, ...rest } = current;
         return {
           ...latest,
           sessions: {

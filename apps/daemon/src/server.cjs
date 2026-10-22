@@ -136,7 +136,7 @@ function createResultPages(maxFrameBytes, { ttlMs = PAGES_TTL_MS, budgetChars = 
     usage: () => ({ slots, chars: held }),
     clear() {
       closed = true;
-      for (const id of [...captures.keys()]) release(id);
+      for (const id of captures.keys()) release(id);
       admit();
     },
   };

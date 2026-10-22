@@ -456,7 +456,7 @@ function createTerminals(options = {}) {
     },
     /** Ends every Terminal of a Chat, when it is archived. */
     closeChat(chatId) {
-      for (const terminal of [...terminals.values()]) if (terminal.chatId === chatId) kill(terminal);
+      for (const terminal of Array.from(terminals.values())) if (terminal.chatId === chatId) kill(terminal);
     },
     /** Each Chat's running shell pids, so ports their commands open count as the Chat's. */
     shells() {
@@ -473,7 +473,7 @@ function createTerminals(options = {}) {
     },
     async dispose() {
       if (closed) return;
-      for (const terminal of [...terminals.values()]) kill(terminal);
+      for (const terminal of Array.from(terminals.values())) kill(terminal);
       closed = true;
       clearTimeout(titleTimer);
       titleTimer = null;

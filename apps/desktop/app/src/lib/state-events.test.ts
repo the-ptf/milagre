@@ -74,11 +74,15 @@ test("a missed patch reads the state again, and patches that arrive during the r
   const reads = host.reads;
   // The read answered with the state above; this one comes while it's on its way.
   change({ ...host.state, sessions: { 1: { id: 1, title: "During the read" } } });
+  change({ ...host.state, sessions: { 1: { id: 1, title: "Second queued patch" } } });
   host.hold = null;
   release();
   await tick();
   assert.equal(host.reads, reads);
-  assert.equal(states.at(-1).sessions[1].title, "During the read");
+  assert.equal(states.at(-1).sessions[1].title, "Second queued patch");
+  change({ ...host.state, sessions: { 1: { id: 1, title: "After replay" } } });
+  assert.equal(states.at(-1).sessions[1].title, "After replay");
+  assert.equal(host.reads, reads, "the replay advanced to the last queued version");
 });
 
 test("a new host, or resync, reads the state again", async () => {

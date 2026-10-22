@@ -442,16 +442,16 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
     const rect = stage.getBoundingClientRect();
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   };
-  control.onclick = () => {
+  control.addEventListener("click", () => {
     void claim(true);
-  };
-  back.onclick = () => push({ kind: "navigate", action: "back" });
-  forward.onclick = () => push({ kind: "navigate", action: "forward" });
-  reload.onclick = () => push({ kind: "navigate", action: "reload" });
-  keyboard.onclick = () => {
+  });
+  back.addEventListener("click", () => push({ kind: "navigate", action: "back" }));
+  forward.addEventListener("click", () => push({ kind: "navigate", action: "forward" }));
+  reload.addEventListener("click", () => push({ kind: "navigate", action: "reload" }));
+  keyboard.addEventListener("click", () => {
     if (document.activeElement === keys) keys.blur();
     else keys.focus({ preventScroll: true });
-  };
+  });
   const gesture = touchGesture(
     {
       tap: (point) => {
@@ -484,7 +484,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
     { setTimeout, clearTimeout },
   );
   const buttons = ["left", "middle", "right"];
-  stage.onpointerdown = (event) => {
+  stage.addEventListener("pointerdown", (event) => {
     if (!canInput() || event.button > 2) return;
     const point = pointFor(local(event), geometry());
     if (!point) return;
@@ -502,8 +502,8 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
       };
       queue.push({ kind: "mouse", phase: "down", ...mouse });
     } else gesture.begin(event.pointerId, local(event), point);
-  };
-  stage.onpointermove = (event) => {
+  });
+  stage.addEventListener("pointermove", (event) => {
     if (event.pointerType === "mouse") {
       if (!canInput()) return;
       const point = pointFor(local(event), geometry(), !!mouse);
@@ -511,38 +511,43 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
       if (mouse) mouse = { ...mouse, ...point };
       queue.push({ kind: "mouse", phase: "move", ...point, button: "none" });
     } else gesture.move(event.pointerId, local(event), pointFor(local(event), geometry(), true));
-  };
-  stage.onpointerup = (event) => {
+  });
+  stage.addEventListener("pointerup", (event) => {
     if (event.pointerType === "mouse") {
       if (!mouse) return;
       const point = pointFor(local(event), geometry(), true) || mouse;
       push({ kind: "mouse", phase: "up", ...mouse, x: point.x, y: point.y });
       mouse = null;
     } else gesture.end(event.pointerId, pointFor(local(event), geometry(), true));
-  };
-  stage.onpointercancel = () => {
+  });
+  const cancelPointer = () => {
     if (mouse && !gesture.active) {
       push({ kind: "mouse", phase: "up", ...mouse });
       mouse = null;
     }
     gesture.cancel();
   };
-  stage.onlostpointercapture = stage.onpointercancel;
-  stage.onwheel = (event) => {
-    event.preventDefault();
-    const point = pointFor(local(event), geometry());
-    if (!point) return;
-    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.clientHeight : 1;
-    const clamp = (value) => Math.max(-10000, Math.min(10000, value * unit));
-    push({ kind: "wheel", ...point, deltaX: clamp(event.deltaX), deltaY: clamp(event.deltaY), ...(modifiers(event) ? { modifiers: modifiers(event) } : {}) });
-  };
-  stage.oncontextmenu = (event) => event.preventDefault();
+  stage.addEventListener("pointercancel", cancelPointer);
+  stage.addEventListener("lostpointercapture", cancelPointer);
+  stage.addEventListener(
+    "wheel",
+    (event) => {
+      event.preventDefault();
+      const point = pointFor(local(event), geometry());
+      if (!point) return;
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.clientHeight : 1;
+      const clamp = (value) => Math.max(-10000, Math.min(10000, value * unit));
+      push({ kind: "wheel", ...point, deltaX: clamp(event.deltaX), deltaY: clamp(event.deltaY), ...(modifiers(event) ? { modifiers: modifiers(event) } : {}) });
+    },
+    { passive: false },
+  );
+  stage.addEventListener("contextmenu", (event) => event.preventDefault());
   // A hidden field receives the keyboard: real key events for keys, inserted text for IME, dictation and predictions.
   const sendKey = (key) => {
     push({ kind: "key", phase: "down", ...key });
     push({ kind: "key", phase: "up", key: key.key, code: key.code, keyCode: key.keyCode });
   };
-  keys.onkeydown = (event) => {
+  keys.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !canInput()) {
       post({ channel: "milagre-browser", event: "close" });
       return;
@@ -558,13 +563,13 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
     }
     heldKeys.add(held);
     push({ kind: "key", phase: "down", ...key });
-  };
-  keys.onkeyup = (event) => {
+  });
+  keys.addEventListener("keyup", (event) => {
     const key = keyFor(event);
     if (!key) return;
     const held = JSON.stringify({ key: key.key, code: key.code, keyCode: key.keyCode });
     if (heldKeys.delete(held)) push({ kind: "key", phase: "up", ...JSON.parse(held) });
-  };
+  });
   keys.addEventListener("beforeinput", (event) => {
     if (!canInput() || event.inputType === "insertCompositionText") return;
     const text = event.data ?? event.dataTransfer?.getData?.("text/plain") ?? "";
@@ -593,7 +598,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
     push({ kind: "text", text: keys.value.slice(0, 1024) });
     keys.value = "";
   });
-  keys.onblur = releaseInput;
+  keys.addEventListener("blur", releaseInput);
   window.addEventListener("blur", releaseInput);
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && event.target !== keys) post({ channel: "milagre-browser", event: "close" });
@@ -667,9 +672,9 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
       if (currentEpoch === epoch) fail(error);
     }
   };
-  retry.onclick = () => {
+  retry.addEventListener("click", () => {
     void start();
-  };
+  });
   window.browserDispose = stop;
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {

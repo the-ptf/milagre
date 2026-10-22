@@ -149,11 +149,13 @@ class PendingQuestions {
   }
 
   dismissAll() {
-    for (const requestId of [...this.open.keys()]) this.settle(requestId, "dismissed");
+    // A copy: settling calls the provider and emits events that may add questions.
+    for (const requestId of Array.from(this.open.keys())) this.settle(requestId, "dismissed");
   }
 
   cancelAll() {
-    for (const requestId of [...this.open.keys()]) this.settle(requestId, "cancelled");
+    // A copy: cancellation callbacks can add questions for a later pass.
+    for (const requestId of Array.from(this.open.keys())) this.settle(requestId, "cancelled");
   }
 }
 

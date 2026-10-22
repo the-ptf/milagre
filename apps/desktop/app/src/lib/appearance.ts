@@ -13,11 +13,11 @@ import {
 } from "@milagre/shared/appearance";
 
 /** The bundled fontsource families are registered with a "Variable" suffix; try that name first. */
-const BUNDLED_FAMILIES = [...UI_FONTS, ...MONO_FONTS].filter((f) => f.bundled && f.id !== "system").map((f) => f.label);
+const BUNDLED_FAMILIES = new Set([...UI_FONTS, ...MONO_FONTS].filter((f) => f.bundled && f.id !== "system").map((f) => f.label));
 
 export function withBundledNames(stack: string) {
   const first = /^"([^"]+)"/.exec(stack)?.[1];
-  return first && BUNDLED_FAMILIES.includes(first) ? `"${first} Variable", ${stack}` : stack;
+  return first && BUNDLED_FAMILIES.has(first) ? `"${first} Variable", ${stack}` : stack;
 }
 
 const tint = (color: string, percent: number) => `color-mix(in srgb, ${color} ${percent}%, transparent)`;

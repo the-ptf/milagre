@@ -147,7 +147,7 @@ const RESOLVE = `${REVISE}${RESOLVE_SUFFIX}`;
 const LEGACY_REVISE = "Revise them with artifact_show and keep their ids.";
 const LEGACY_REVISE_LAYERS =
   "Read the latest editable design with design_read, then revise its layers with design_apply and expectedVersion. Keep its id. Use artifact_read and artifact_show for HTML designs.";
-const FEEDBACK_ENDINGS = [
+const FEEDBACK_ENDINGS = new Set([
   REVISE,
   RESOLVE,
   REVISE_ARTIFACT,
@@ -159,7 +159,7 @@ const FEEDBACK_ENDINGS = [
   ...[LEGACY_REVISE, LEGACY_REVISE_LAYERS].map(
     (text) => `${text} Once you have addressed a comment, resolve it with artifact_resolve_comment and its comment id.`,
   ),
-];
+]);
 const COMMENT =
   /^(\d+)\. (?:\(comment ([a-f0-9]{8})\) )?On the design "(.*)" \(([a-z0-9-]+), version (\d+)\)(?:, (\d+)% across and (\d+)% down)?(?:, layer "([a-zA-Z][a-zA-Z0-9_.-]{0,95})")?: (.*)$/;
 const ARTIFACT_COMMENT =
@@ -179,7 +179,7 @@ export function parseDesignFeedback(body: string): { choice: ArtifactRef | null;
   }
   if (!blocks.length) return choice ? { choice, comments: [] } : null;
   const [heading, list, closing, ...rest] = blocks;
-  if (rest.length || !/^(A comment|Comments) on the (designs|artifact|designs and artifact):$/.test(heading ?? "") || !FEEDBACK_ENDINGS.includes(closing ?? ""))
+  if (rest.length || !/^(A comment|Comments) on the (designs|artifact|designs and artifact):$/.test(heading ?? "") || !FEEDBACK_ENDINGS.has(closing ?? ""))
     return null;
   const comments: DesignComment[] = [];
   for (const line of (list ?? "").split("\n")) {
@@ -211,7 +211,7 @@ export function parseDesignFeedback(body: string): { choice: ArtifactRef | null;
 
 /** The design the user last chose in these messages, read back from the message designFeedbackMessage wrote. */
 export function chosenDesign(bodies: string[]): { id: string; version: number } | null {
-  for (const body of [...bodies].reverse()) {
+  for (const body of bodies.toReversed()) {
     const [, id, version] = CHOICE.exec(body) ?? [];
     if (id && version) return { id, version: Number(version) };
   }

@@ -47,7 +47,7 @@ const LIMIT_PROMPT =
 // folded into the runs is numbered, so a window that loads mid-turn takes the runs (see `snapshot`)
 // and skips the events they already hold.
 // A message the user sends replaces the brief waiting as a draft and any resume a quit left.
-const withoutDraft = ({ handoverDraft, resumeTurn, ...rest }) => rest;
+const withoutDraft = ({ handoverDraft: _handoverDraft, resumeTurn: _resumeTurn, ...rest }) => rest;
 
 const withLead = (lead, prompt) => [lead, prompt].filter((part) => part?.trim()).join("\n\n");
 
@@ -720,7 +720,7 @@ class ChatHost {
     const key = JSON.stringify([projectPath, clientMessageId]);
     // A staged message can still roll back if its flush fails. Only settled sends are receipts.
     for (;;) {
-      while (this.pendingSends.has(key)) await Promise.allSettled([...this.pendingSends.get(key)]);
+      while (this.pendingSends.has(key)) await Promise.allSettled(this.pendingSends.get(key));
       const message = await this.states.findMessage(projectPath, "clientMessageId", clientMessageId);
       const state = message ? null : await this.states.get(projectPath);
       // A send can start while the asynchronous reads above are in flight.
@@ -1268,7 +1268,8 @@ class ChatHost {
               for (const [sessionId, { prompt, ...turn }] of chats) {
                 const session = sessions[sessionId];
                 if (!session) continue;
-                sessions = { ...sessions, [sessionId]: { ...session, resumeTurn: { ...turn, stoppedAt, ...(session.native_session_id ? {} : { prompt }) } } };
+                if (sessions === latest.sessions) sessions = { ...latest.sessions };
+                sessions[sessionId] = { ...session, resumeTurn: { ...turn, stoppedAt, ...(session.native_session_id ? {} : { prompt }) } };
               }
               return sessions === latest.sessions ? latest : { ...latest, sessions };
             },
@@ -1370,7 +1371,8 @@ class ChatHost {
         for (const session of Object.values(latest.sessions)) {
           if (!session.handoverPending) continue;
           const { handoverPending: _pending, ...rest } = session;
-          sessions = { ...sessions, [session.id]: rest };
+          if (sessions === latest.sessions) sessions = { ...latest.sessions };
+          sessions[session.id] = rest;
         }
         let next = { ...latest, sessions };
         for (const item of latest.messages) {

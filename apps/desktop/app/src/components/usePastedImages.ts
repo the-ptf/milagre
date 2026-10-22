@@ -13,8 +13,8 @@ function isAttachableImage(file: File): boolean {
 function readImage(file: File): Promise<ImageAttachment> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve({ id: crypto.randomUUID(), name: file.name || "Pasted image", dataUrl: String(reader.result) });
-    reader.onerror = () => reject(new Error("Could not read the pasted image. Try again."));
+    reader.addEventListener("load", () => resolve({ id: crypto.randomUUID(), name: file.name || "Pasted image", dataUrl: String(reader.result) }));
+    reader.addEventListener("error", () => reject(new Error("Could not read the pasted image. Try again.")));
     reader.readAsDataURL(file);
   });
 }

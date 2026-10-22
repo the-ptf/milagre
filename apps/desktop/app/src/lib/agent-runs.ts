@@ -77,7 +77,7 @@ export function clearAnswered(runs: AgentRuns, chatId: string, requestId: string
 /** The model to use for a chat. A chat bound to a provider never runs another provider's model. */
 export function modelForChat(selected: ModelOption, provider: ModelProvider | undefined, messages: ChatMessage[], catalog: ModelOption[]): ModelOption {
   if (!provider || selected.provider === provider) return selected;
-  const lastUsed = [...messages].reverse().find((message) => catalog.some((option) => option.id === message.model && option.provider === provider));
+  const lastUsed = messages.findLast((message) => catalog.some((option) => option.id === message.model && option.provider === provider));
   return catalog.find((option) => option.id === lastUsed?.model) ?? catalog.find((option) => option.provider === provider) ?? selected;
 }
 
@@ -116,6 +116,6 @@ export function modelForOpenChat(
   fallback: ModelOption,
 ): ModelOption {
   const usable = (id: string | null | undefined) => catalog.find((option) => option.id === id && (!provider || option.provider === provider));
-  const lastUsed = [...messages].reverse().find((message) => usable(message.model));
+  const lastUsed = messages.findLast((message) => usable(message.model));
   return usable(picked) ?? usable(lastUsed?.model) ?? modelForChat(fallback, provider, [], catalog);
 }

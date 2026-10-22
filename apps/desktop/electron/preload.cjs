@@ -6,7 +6,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 // notifications, updates, its own host, devices and accounts. A paired computer's bridge refuses them before any IPC,
 // and main refuses them again (computer-routing.cjs keeps the same lists; computer-routing.test.cjs compares them).
 const NOT_REMOTE = "Not available on a remote computer";
-const LOCAL_ONLY = [
+const LOCAL_ONLY = new Set([
   "project:open",
   "project:reveal",
   "project:set-hidden",
@@ -30,7 +30,7 @@ const LOCAL_ONLY = [
   "mcp:save",
   "mcp:signIn",
   "mcp:cancelSignIn",
-];
+]);
 const LOCAL_ONLY_PREFIXES = [
   "app:",
   "artifact-preview:",
@@ -48,7 +48,7 @@ const LOCAL_ONLY_PREFIXES = [
   "update:",
 ];
 /** @param {string} channel */
-const isLocalOnly = (channel) => LOCAL_ONLY.includes(channel) || LOCAL_ONLY_PREFIXES.some((prefix) => channel.startsWith(prefix));
+const isLocalOnly = (channel) => LOCAL_ONLY.has(channel) || LOCAL_ONLY_PREFIXES.some((prefix) => channel.startsWith(prefix));
 
 /**
  * Every call and event the window has, over whatever carries them: this Mac's IPC, or a paired computer's through main.
@@ -386,9 +386,10 @@ const computerSubscribers = new Map();
 const anyComputerSubscribers = new Set();
 /** @param {unknown} _event @param {any} event */
 function dispatchComputerEvent(_event, event) {
-  for (const callback of [...anyComputerSubscribers]) callback(event);
+  // Copies: callbacks can unsubscribe and resubscribe during dispatch.
+  for (const callback of Array.from(anyComputerSubscribers)) callback(event);
   const set = computerSubscribers.get(`${event?.computerId}|${event?.channel}`);
-  if (set) for (const callback of [...set]) callback(event.payload);
+  if (set) for (const callback of Array.from(set)) callback(event.payload);
 }
 /** One ipcRenderer listener serves every computer subscription (many would pass EventEmitter's MaxListeners). */
 function syncComputerListener() {
@@ -451,7 +452,7 @@ function remote(computerId) {
 // A forgotten computer's bridge goes with it, so pairing it again starts clean.
 ipcRenderer.on("computers:changed", (_event, snapshot) => {
   const known = new Set((snapshot?.computers ?? []).map((/** @type {{ id: string }} */ computer) => computer.id));
-  for (const id of [...remotes.keys()]) if (!known.has(id)) remotes.delete(id);
+  for (const id of remotes.keys()) if (!known.has(id)) remotes.delete(id);
 });
 
 /** @type {Window["milagre"]} */

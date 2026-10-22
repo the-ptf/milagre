@@ -84,10 +84,22 @@ function advisorInstructions(tldrEnabled = true, tools = []) {
 }
 
 // What a provider session appends to its system prompt, from the options it was made with.
-const sessionInstructions = ({ analysisOnly, tldrEnabled, workspaceInstructions, designsEnabled, sharedLink, linked }) =>
+function executionAdvisorInstructions(tldrEnabled = true, workspaceInstructions = "") {
+  return [
+    INTRO_INSTRUCTIONS,
+    writingInstructions(tldrEnabled),
+    "You are an execution agent owned by the parent Milagre Chat. Complete only its assigned task using your native tools. Work in the Chat's prepared Worktrees; pending Project checkouts and canvas-linked Worktrees are read-only. Full permissions match the parent and do not confine filesystem access. Coordinate edits with the parent. Do not launch other agents or delegate. Do not ask the human questions or request permissions: report blockers to the parent. Keep your own plan, never change the parent's task list. Keep browsers in your process tree with a loopback DevTools port so the parent can view them, or use browser_list and browser_attach. Stop processes you start when the task is done. Return a concise report of commands, results, changes and failures. Include screenshots as Markdown images using absolute local paths so Milagre can preserve them. On Retry, inspect prior side effects before repeating actions.",
+    workspaceInstructions,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+const sessionInstructions = ({ analysisOnly, executionAdvisor, tldrEnabled, workspaceInstructions, designsEnabled, sharedLink, linked }) =>
   analysisOnly
     ? advisorInstructions(tldrEnabled, linked?.tools ?? [])
-    : milagreInstructions(tldrEnabled, workspaceInstructions, designsEnabled, { sharedLink });
+    : executionAdvisor
+      ? executionAdvisorInstructions(tldrEnabled, workspaceInstructions)
+      : milagreInstructions(tldrEnabled, workspaceInstructions, designsEnabled, { sharedLink });
 const RESUME_FAILED_MESSAGE =
   "Couldn't resume this chat's earlier agent session; it may have been deleted. Send your message again to continue in a fresh session.";
 
@@ -476,6 +488,7 @@ module.exports = {
   SUBAGENT_DESIGN_INSTRUCTIONS,
   SUBAGENT_PLAN_INSTRUCTIONS,
   advisorInstructions,
+  executionAdvisorInstructions,
   milagreInstructions,
   sessionInstructions,
   RESUME_FAILED_MESSAGE,

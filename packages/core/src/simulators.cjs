@@ -179,7 +179,8 @@ function createSimulators(options = {}) {
         if (!found) throw new Error("Unknown or stopped simulator device.");
         let device = devices.get(found.id);
         if (device?.channel.status().error) {
-          for (const id of [...device.viewers]) await remove(viewers.get(id));
+          // A copy: channel cleanup awaits while the viewer set can change.
+          for (const id of Array.from(device.viewers)) await remove(viewers.get(id));
           device = null;
         }
         if (!device) {
@@ -308,7 +309,8 @@ function createSimulators(options = {}) {
         if (device.platform !== "ios") throw new Error("Input repair is available only on iOS simulators.");
         await adapter.repairInput(device.id);
         // backboardd restarted under the open channel; every viewer reopens on a fresh one.
-        for (const id of [...device.viewers]) await remove(viewers.get(id));
+        // A copy: repair closes only viewers of the old channel.
+        for (const id of Array.from(device.viewers)) await remove(viewers.get(id));
         return null;
       });
     },

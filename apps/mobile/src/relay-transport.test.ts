@@ -54,10 +54,11 @@ function relay(answer: (seen: Seen) => Answer = () => ({ body: '{"v":1,"result":
   const state = { mode: "host" as Mode, ping: 0, names: [] as (string | null)[] };
   class FakeSocket implements RelaySocket {
     binaryType = "blob";
-    onopen: (() => void) | null = null;
-    onmessage: ((event: { data?: unknown }) => void) | null = null;
-    onerror: ((event: unknown) => void) | null = null;
-    onclose: ((event: { code?: number }) => void) | null = null;
+    target = new EventTarget();
+    addEventListener = this.target.addEventListener.bind(this.target) as RelaySocket["addEventListener"];
+    emit(type: string, event = {}) {
+      this.target.dispatchEvent(Object.assign(new Event(type), event));
+    }
     open = true;
     closedByPhone?: number;
     channel?: Channel;
@@ -67,7 +68,7 @@ function relay(answer: (seen: Seen) => Answer = () => ({ body: '{"v":1,"result":
     constructor() {
       queueMicrotask(() => {
         if (state.mode === "offline") return this.drop(4404);
-        this.onopen?.();
+        this.emit("open");
       });
     }
     // Frames leaving the phone.
@@ -87,12 +88,12 @@ function relay(answer: (seen: Seen) => Answer = () => ({ body: '{"v":1,"result":
     drop(code: number) {
       if (!this.open) return;
       this.open = false;
-      queueMicrotask(() => this.onclose?.({ code }));
+      queueMicrotask(() => this.emit("close", { code }));
     }
     toPhone(bytes: Uint8Array) {
       if (!this.open) return;
       const copy = bytes.slice().buffer; // React Native hands the app an ArrayBuffer
-      queueMicrotask(() => this.onmessage?.({ data: copy }));
+      queueMicrotask(() => this.emit("message", { data: copy }));
     }
     say(message: RelayMessage) {
       this.toPhone(this.channel!.seal(message));

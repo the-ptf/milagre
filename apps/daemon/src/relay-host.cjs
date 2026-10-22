@@ -246,7 +246,7 @@ function startRelayHost({
       clearTimeout(current.readyTimer);
       clearTimeout(current.stableTimer);
       clearTimeout(current.hookRetry);
-      if (channels) for (const conn of [...current.conns.keys()]) channels.dropConn(current, conn, false);
+      if (channels) for (const conn of Array.from(current.conns.keys())) channels.dropConn(current, conn, false);
       if (session === current) session = null;
       if (closed) {
         setStatus("offline");
@@ -348,7 +348,7 @@ function startRelayHost({
         return;
       }
       const ended = new Promise((resolve) => current.socket.once("close", resolve));
-      if (channels) for (const conn of [...current.conns.keys()]) channels.dropConn(current, conn, false);
+      if (channels) for (const conn of Array.from(current.conns.keys())) channels.dropConn(current, conn, false);
       if (current.socket.readyState === WebSocket.CONNECTING) current.socket.terminate();
       else current.socket.close(1000);
       const timer = setTimeout(() => current.socket.terminate(), 2000);

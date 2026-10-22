@@ -149,7 +149,7 @@ function createBrowsers(options = {}) {
       try {
         const world = await adapter.discover();
         const parents = new Map(world.processes.map((row) => [row.pid, row.ppid]));
-        const agents = new Map([...roots()].map(([chatId, root]) => [root.pid, chatId]));
+        const agents = new Map([...roots()].flatMap(([chatId, root]) => [root.pid, ...(root.agents ?? [])].filter(Boolean).map((pid) => [pid, chatId])));
         const present = new Map(world.browsers.map((browser) => [browser.id, browser]));
         for (const [id, known] of lineage) if (present.get(id)?.pid !== known.pid) lineage.delete(id);
         for (const [chatId, set] of attachments) {
@@ -313,7 +313,8 @@ function createBrowsers(options = {}) {
       set.delete(browserId);
       if (!set.size) attachments.delete(chatId);
       await serial(async () => {
-        for (const v of [...viewers.values()]) if (v.chatId === chatId && v.capture.key.startsWith(`${browserId}:`)) await remove(v);
+        // A copy: removing a viewer awaits channel cleanup.
+        for (const v of Array.from(viewers.values())) if (v.chatId === chatId && v.capture.key.startsWith(`${browserId}:`)) await remove(v);
       });
       return view(await snapshot(), chatId);
     },
@@ -333,7 +334,8 @@ function createBrowsers(options = {}) {
         if (!target || !browser) throw new Error("This page is not available in this Chat. Choose another page.");
         let capture = captures.get(target.id);
         if (capture && metadata(capture).error) {
-          for (const id of [...capture.viewers]) await remove(viewers.get(id));
+          // A copy: cleanup must finish the viewers present when repair started.
+          for (const id of Array.from(capture.viewers)) await remove(viewers.get(id));
           capture = null;
         }
         if (!capture) {

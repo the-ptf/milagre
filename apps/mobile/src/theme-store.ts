@@ -44,7 +44,7 @@ function oneOf<T extends string>(list: readonly T[], value: unknown, fallback: T
   return list.includes(value as T) ? (value as T) : fallback;
 }
 
-const MODES: readonly PhoneThemeSettings["mode"][] = ["system", "light", "dark"];
+const MODES = new Set<PhoneThemeSettings["mode"]>(["system", "light", "dark"]);
 
 export function parsePhoneThemeSettings(raw: string | null): PhoneThemeSettings {
   if (!raw) return DEFAULT_PHONE_THEME;
@@ -59,7 +59,7 @@ export function parsePhoneThemeSettings(raw: string | null): PhoneThemeSettings 
   const customTheme = parseCustomTheme(saved.customTheme);
   const customThemeEnabled = typeof saved.customThemeEnabled === "boolean" ? saved.customThemeEnabled : false;
   return {
-    mode: MODES.includes(saved.mode as PhoneThemeSettings["mode"]) ? (saved.mode as PhoneThemeSettings["mode"]) : "system",
+    mode: MODES.has(saved.mode as PhoneThemeSettings["mode"]) ? (saved.mode as PhoneThemeSettings["mode"]) : "system",
     colorTheme: resolveThemeSettings({ colorTheme: saved.colorTheme, customThemeEnabled, customTheme }),
     customThemeEnabled,
     customTheme,

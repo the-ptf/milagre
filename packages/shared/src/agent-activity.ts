@@ -44,6 +44,8 @@ export function advisorAction(agent: Pick<Subagent, "status" | "source" | "retry
   if (["initializing", "running", "waiting"].includes(agent.status)) return "stop";
   return agent.retryable ? "retry" : null;
 }
-export function subagentRoleLabel(agent: Pick<Subagent, "source" | "provider">): string | undefined {
-  return agent.source === "milagre-advisor" ? `${providerName(agent.provider ?? "claude")} advisor` : undefined;
+export function subagentRoleLabel(agent: Pick<Subagent, "source" | "provider" | "mode">): string | undefined {
+  return agent.source === "milagre-advisor"
+    ? `${providerName(agent.provider ?? "claude")} ${agent.mode === "execution" ? "execution agent" : "advisor"}`
+    : undefined;
 }

@@ -41,12 +41,12 @@ export const savedChatDefaults = createChatDefaultsStore({
 });
 
 const permissionKey = "milagre.permission.v1";
-const MODES = ["ask", "auto", "full"];
+const MODES = new Set(["ask", "auto", "full"]);
 /** The default permission mode for new Chats on this phone. */
 export async function readPermission(): Promise<"ask" | "auto" | "full" | null> {
   try {
     const value = await SecureStore.getItemAsync(permissionKey);
-    return value && MODES.includes(value) ? (value as "ask" | "auto" | "full") : null;
+    return value && MODES.has(value) ? (value as "ask" | "auto" | "full") : null;
   } catch {
     return null;
   }

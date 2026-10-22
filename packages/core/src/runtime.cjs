@@ -30,9 +30,9 @@ const { ClaudeSession } = require("./agents/claude-provider.cjs");
 const { CodexSession, recoverCodexSubagents } = require("./agents/codex-provider.cjs");
 const { AcpSession } = require("./agents/acp-session.cjs");
 const { antigravityAcp, sweepTempDirs } = require("./agents/antigravity-acp.cjs");
-const { createCliCache, inspectCli } = require("./agents/cli.cjs");
+const { createCliCache } = require("./agents/cli.cjs");
 const { createProviderUpdates, releaseVersion } = require("./agents/provider-updates.cjs");
-const { runCliUpdate, linkNewestClaudeVersion } = require("./agents/cli-update.cjs");
+const { runCliUpdate } = require("./agents/cli-update.cjs");
 const { createAntigravity } = require("./agents/antigravity-install.cjs");
 const { recoverAntigravitySubagents } = require("./agents/antigravity-subagents.cjs");
 const { loadLoginEnvironment, refreshInstallPath } = require("./agents/environment.cjs");
@@ -225,7 +225,14 @@ function createRuntime(options) {
     });
   }
   // `agents` is created below; ownership roots are read only once the service polls.
-  const browsers = options.browsers ?? require("./browsers.cjs").createBrowsers({ roots: () => agents.processes() });
+  function agentProcesses() {
+    const roots = agents.processes();
+    for (const [chatId, children] of advisors?.processes() ?? []) {
+      roots.set(chatId, { cwd: children[0].cwd, ...roots.get(chatId), agents: children.map((child) => child.pid) });
+    }
+    return roots;
+  }
+  const browsers = options.browsers ?? require("./browsers.cjs").createBrowsers({ roots: agentProcesses });
   commands.handle("browser:list", (_context, request) => browsers.list(request));
   commands.handle("browser:attach", (_context, request) => browsers.attach(request));
   commands.handle("browser:detach", (_context, request) => browsers.detach(request));
@@ -981,10 +988,10 @@ function createRuntime(options) {
 
   // The ports each chat's commands listen on, polled while any agent runs or anything it started still does.
   const ports = new PortWatcher({
-    isRunning: () => terminals.size > 0 || [...agents.sessions.values()].some((entry) => entry.session.turnActive),
+    isRunning: () => terminals.size > 0 || [...agents.sessions.values()].some((entry) => entry.session.turnActive) || Boolean(advisors?.processes().size),
     roots: () => {
       // A Terminal's shell is a root too: what its commands listen on is the Chat's, like the agent's commands.
-      const roots = agents.processes();
+      const roots = agentProcesses();
       for (const [chatId, shells] of terminals.shells()) roots.set(chatId, { ...roots.get(chatId), shells });
       return roots;
     },
@@ -1008,6 +1015,9 @@ function createRuntime(options) {
   const agentNotes = new Map();
   async function startAgentTurn(request) {
     if (closing) return { turnId: null, steered: false, cancelled: true };
+    const permissionMode = request.permissionMode ?? agents.permissionMode(request.chatId, "ask");
+    if (permissionMode !== "full") await advisors?.stopExecution(request.chatId);
+    else advisors?.resumeExecution(request.chatId);
     // The linked summary is read while the turn gets ready, so a Chat with Links starts no later than one without.
     const linkedContext = agents.isTurnActive(request.chatId) ? Promise.resolve("") : linked.context(request.chatId);
     const images = decodeImages(request.images);
@@ -1693,7 +1703,10 @@ function createRuntime(options) {
     if (owned?.role === "thread") throw new Error(`${owned.bot.name}'s thread always runs in Bot rules.`);
     if (owned && !byUser) throw new Error(`${owned.bot.name} runs this Chat; open it in Milagre to take it over.`);
     if (owned) await bots.takeOver(chatId);
-    return chats.setPermissionMode(chatId, mode, (id, picked) => agents.setPermissionMode(id, picked));
+    if (mode !== "full") await advisors?.stopExecution(chatId);
+    const result = await chats.setPermissionMode(chatId, mode, (id, picked) => agents.setPermissionMode(id, picked));
+    if (mode === "full") advisors?.resumeExecution(chatId);
+    return result;
   }
   commands.handle("agent:set-permission-mode", (_event, { chatId, mode }) => setPermissionMode(chatId, mode, { byUser: true }));
 
@@ -1887,6 +1900,7 @@ function createRuntime(options) {
       provider,
       model: chats.runs[chatId]?.model || require("@milagre/shared/agent-runs").lastUserModel(state, id) || settings.model,
       settings: { ...settings, provider },
+      permissionMode: agents.permissionMode(chatId, settings.permissionMode ?? session.permissionMode ?? "ask"),
       scope,
       sessionId: id,
     };
@@ -1940,11 +1954,24 @@ function createRuntime(options) {
     contextFor: advisorContext,
     providersFor: advisorProviders,
     publish: async (chatId, agent) => {
-      if (["initializing", "running", "waiting"].includes(agent.status)) keepAwake.turnStarted(agent.id);
-      else keepAwake.turnEnded(agent.id);
+      if (["initializing", "running", "waiting"].includes(agent.status)) {
+        keepAwake.turnStarted(agent.id);
+        ports.wake();
+      } else keepAwake.turnEnded(agent.id);
       await chats.receive(chatId, { type: "subagent-update", agent });
     },
     completed: (chatId, result) => advisorDelivery.enqueue(chatId, result),
+    captureOutput: async (record, output, files) => {
+      if (record.mode !== "execution") return output;
+      const scope = projectOfKey(record.chatId);
+      const sessionId = sessionIdFromKey(record.chatId);
+      const state = await scopeStates.load(scope, [sessionId]);
+      const cwd = chats.images.cwd(state, { session_id: sessionId }, scope);
+      const existing = require("./chat-images.cjs").imagePaths({ body: output }, cwd);
+      const body = [output, ...files.filter((file) => !existing.has(path.resolve(cwd, file))).map((file) => `![Screenshot](<${file}>)`)].join("\n\n");
+      const captured = await chats.images.capture(scope, state, { role: "assistant", session_id: sessionId, body });
+      return { output: body, images: captured.images ?? [] };
+    },
     launch: async ({ record, context, provider, emit: send }) => {
       const { skills } = await discoverSkills(context.cwd, { designsEnabled: artifacts.enabled() });
       const referenceRoots = [...new Set(skills.map((skill) => path.dirname(skill.path)))];
@@ -1952,18 +1979,26 @@ function createRuntime(options) {
         .forChat(record.chatId)
         .tools.filter((tool) => ["linked_overview", "read_linked_chat", "linked_git", "read_linked_file", "search_linked_files"].includes(tool.name));
       const tools = [...require("./advisor-reads.cjs").createAdvisorReads({ roots: context.roots, referenceRoots }), ...canvasReads];
+      const executionAdvisor = record.mode === "execution";
+      if (executionAdvisor)
+        tools.push(...require("./chat-browsers.cjs").browserToolDefinitions(record.chatId, browsers), ...simulatorToolDefinitions(record.chatId, simulators));
       advisorTransports.set(record.id, tools);
       const sessionOptions = {
         cwd: context.cwd,
         workspaceRoots: context.workspaceRoots,
+        readOnlyRoots: context.readOnlyRoots,
+        workspaceInstructions: context.workspaceInstructions,
+        sharedLink: context.sharedLink,
         // Its system prompt is the advisor's own (events.cjs advisorInstructions): the Chat's writing setting, its read tools.
         tldrEnabled: context.settings?.tldrEnabled !== false,
         designsEnabled: artifacts.enabled(),
-        analysisOnly: true,
+        analysisOnly: !executionAdvisor,
+        executionAdvisor,
+        ...(executionAdvisor ? { mcpExtras: () => mcp.forSession(record.provider, record.launchIdentity.accountId ?? "default") } : {}),
         resumeId: record.nativeId,
         command: provider.command,
         env: provider.env,
-        linked: { tools, url: () => advisorMcp.url(record.id) },
+        linked: { tools, url: () => advisorMcp.url(record.id), toolsAvailable: () => {} },
         emit: send,
       };
       const session = options.createSession
@@ -2120,7 +2155,7 @@ function createRuntime(options) {
   commands.handle("project:registry", async () => withoutHomes(await projectRegistry().list()));
   commands.handle("project:position", (_event, id, position) => projectRegistry().setPosition(id, position));
   commands.handle("canvas:snapshot", async () => {
-    const projects = await projectRegistry().list();
+    await projectRegistry().list();
     await pruneLinks(await canvasActiveWorktrees());
     const registry = await projectRegistry().snapshot();
     const recent = await withHidden(await recentProjects().list());
@@ -2451,7 +2486,7 @@ function createRuntime(options) {
       await Promise.all([simulators.close(), browsers.close(), artifacts.close(), terminals.dispose()]);
       // A waiting Linear sign-in is an accepted command too: end it, or the wait below lasts until its timeout.
       await linear.dispose();
-      await Promise.allSettled([...active]);
+      await Promise.allSettled(active);
       accounts.close();
       keepAwake.quit();
       ports.close();
@@ -2462,11 +2497,11 @@ function createRuntime(options) {
         // final flush retries after their cancellation events have been recorded.
         await scopeStates.flush().catch(() => {});
         await Promise.allSettled([worktreeSetups.cancelAll(), agents.closeAll()]);
-        await Promise.allSettled([...starting]);
+        await Promise.allSettled(starting);
         await agents.closeAll();
         await Promise.allSettled([...background, ...chatTitles.pending.values()]);
       }
-      while (background.size) await Promise.allSettled([...background]);
+      while (background.size) await Promise.allSettled(background);
       await states.close();
       await linkStore.close();
       await linked.close();
@@ -2533,7 +2568,7 @@ function createRuntime(options) {
     flush: async () => {
       // A waiting Linear sign-in is an accepted command, but its window is gone when this runs on quit: end it.
       await linear.dispose();
-      await Promise.allSettled([...active]);
+      await Promise.allSettled(active);
       await scopeStates.flush();
       await usageStore.idle();
     },
