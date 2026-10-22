@@ -16,7 +16,6 @@ export interface ImageGenerationProps {
   /** Accessible description. Defaults to one derived from the prompt. */
   label?: string;
   prompt?: string;
-  resolution?: string;
   /** CSS aspect ratio reserved before the generated media is available. */
   aspectRatio?: CSSProperties["aspectRatio"];
   size?: "compact" | "fluid";
@@ -206,7 +205,6 @@ export function ImageGeneration({
   status = "generating",
   label,
   prompt,
-  resolution = "1024 × 1024",
   aspectRatio = "1 / 1",
   size = "compact",
   interactive = true,
@@ -258,12 +256,6 @@ export function ImageGeneration({
             <div className="absolute right-2 bottom-2 z-10 flex gap-1 opacity-0 transition-opacity duration-150 group-hover/media:opacity-100 focus-within:opacity-100">
               {actions}
             </div>
-          ) : null}
-
-          {resolution ? (
-            <span className="absolute top-2 right-2 z-10 rounded-full bg-surface/75 px-2 py-0.5 font-mono text-[10px] tabular-nums text-ink-2">
-              {resolution}
-            </span>
           ) : null}
         </div>
 

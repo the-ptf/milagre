@@ -2,7 +2,7 @@ import { memo, useCallback, useMemo, useEffect, useRef, useState } from "react";
 import { Image, Pressable, Text, View, type ImageSourcePropType, type ViewInstance } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { router } from "expo-router";
-import { Alert02Icon, ArrowRight01Icon, Link04Icon, Maximize01Icon } from "@hugeicons/core-free-icons";
+import { Alert02Icon, ArrowRight01Icon, Link04Icon } from "@hugeicons/core-free-icons";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { ChatMessage, ChatStep, LinkedContext } from "@milagre/shared/model";
 import { linkedContext, linkedHeading } from "@milagre/shared/linked-message";
@@ -132,7 +132,7 @@ function Thumbnail({ source, size }: { source: MediaValue; size: number }) {
   const style = { width: size, height: size, borderRadius: 14, backgroundColor: colors.canvas };
   return ready ? <Image source={ready} resizeMode="cover" style={style} /> : <View style={style} />;
 }
-/** An image the agent generated, under its step, at most 240 wide; tap or expand for full screen. */
+/** An image the agent generated, under its step, at most 240 wide; tap for full screen. */
 function GeneratedImage({ step, media }: { step: ChatStep; media: MediaSource }) {
   const { colors } = useTheme();
   const [ratio, setRatio] = useState(4 / 5);
@@ -162,21 +162,6 @@ function GeneratedImage({ step, media }: { step: ChatStep; media: MediaSource })
       ) : (
         <View style={{ width: 240, aspectRatio: ratio, borderRadius: 16, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.canvas }} />
       )}
-      <View
-        style={{
-          position: "absolute",
-          right: 8,
-          top: 8,
-          width: 30,
-          height: 30,
-          borderRadius: 10,
-          backgroundColor: "#ffffffcc",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Icon icon={Maximize01Icon} tone="ink" size={15} />
-      </View>
     </Pressable>
   );
 }
