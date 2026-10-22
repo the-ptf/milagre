@@ -69,7 +69,7 @@ export function ActivityBlock({
   if (entries.length === 1 && first?.type === "step") return <StepRow step={first.step} waiting={waitingStepIds.includes(first.step.id)} />;
 
   const steps = entries.flatMap((entry): ChatStep[] => (entry.type === "step" ? [entry.step] : []));
-  const current = streaming ? [...steps].reverse().find((step) => step.status === "running") : undefined;
+  const current = streaming ? steps.findLast((step) => step.status === "running") : undefined;
   const waiting = current ? waitingStepIds.includes(current.id) : false;
   const summary = activitySummary(steps);
 

@@ -29,7 +29,7 @@
     "eslint/no-unused-vars": "warn",
     "oxc/no-async-endpoint-handlers": "warn",
     "unicorn/no-useless-spread": "warn",
-    "unicorn/no-array-reverse": "warn",
+    "unicorn/no-array-reverse": "error",
     "react/memo-dependencies": "warn",
     "eslint/preserve-caught-error": "error",
     "no-await-in-loop": "off"

@@ -88,7 +88,7 @@ test("diffs keep ordinary edits small and preserve structural changes", () => {
   assert.deepEqual(diffDesignDocuments(after, after), []);
   const inserted = applyDesignOperations(after, [{ op: "insert", index: 1, node: { id: "image", type: "image", width: 20, height: 20 } }]);
   assert.deepEqual(applyDesignOperations(after, diffDesignDocuments(after, inserted)), inserted);
-  const reordered = { ...inserted, nodes: [...inserted.nodes].reverse() };
+  const reordered = { ...inserted, nodes: inserted.nodes.toReversed() };
   assert.deepEqual(applyDesignOperations(inserted, diffDesignDocuments(inserted, reordered)), reordered);
   const removed = applyDesignOperations(original, [{ op: "delete", id: "frame" }]);
   assert.deepEqual(applyDesignOperations(original, diffDesignDocuments(original, removed)), removed);

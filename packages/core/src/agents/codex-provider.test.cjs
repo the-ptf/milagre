@@ -1084,7 +1084,7 @@ function childSnapshotRpc(snapshot, onRead = () => {}) {
         return { thread: { ...thread, turns: [] } };
       }
       assert.equal(method, "thread/turns/list");
-      return { data: [...thread.turns].reverse(), nextCursor: null };
+      return { data: thread.turns.toReversed(), nextCursor: null };
     },
   };
 }
