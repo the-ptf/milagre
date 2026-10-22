@@ -167,7 +167,7 @@ function createLinkWorkspaces({
             (await git.read.commitOf(member.worktreePath, "HEAD")) !== member.initialCommit ||
             (await git.read.text(member.worktreePath, ["status", "--porcelain", "--untracked-files=all", "--ignored"])).trim()
           )
-            throw new Error("Modified or unverified");
+            throw new Error("Modified or unverified", { cause: error });
           await git.write.checked(member.projectPath, ["worktree", "remove", "--", member.worktreePath]);
           await git.write.checked(member.projectPath, ["branch", "-d", "--", member.branch]);
         } catch {
@@ -178,7 +178,7 @@ function createLinkWorkspaces({
       if (retained) Object.assign(member, { setupDone: false, setupDeferred: false, retained: true, error: message });
       else prep.members = prep.members.filter((item) => item !== member);
       await save(link.id, prep);
-      throw new Error(message);
+      throw new Error(message, { cause: error });
     }
   }
   // Members reserved but not finished: a quit interrupted them, or the preparation was saved before Worktrees were made

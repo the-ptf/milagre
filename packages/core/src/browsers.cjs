@@ -149,7 +149,7 @@ function createBrowsers(options = {}) {
       try {
         const world = await adapter.discover();
         const parents = new Map(world.processes.map((row) => [row.pid, row.ppid]));
-        const agents = new Map([...roots()].map(([chatId, root]) => [root.pid, chatId]));
+        const agents = new Map([...roots()].flatMap(([chatId, root]) => [root.pid, ...(root.agents ?? [])].filter(Boolean).map((pid) => [pid, chatId])));
         const present = new Map(world.browsers.map((browser) => [browser.id, browser]));
         for (const [id, known] of lineage) if (present.get(id)?.pid !== known.pid) lineage.delete(id);
         for (const [chatId, set] of attachments) {

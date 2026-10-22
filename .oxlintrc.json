@@ -29,10 +29,10 @@
     "eslint/no-unused-vars": "warn",
     "oxc/no-async-endpoint-handlers": "warn",
     "unicorn/no-useless-spread": "warn",
-    "unicorn/no-array-reverse": "warn",
+    "unicorn/no-array-reverse": "error",
     "react/memo-dependencies": "warn",
     "react/no-object-type-as-default-prop": "error",
-    "eslint/preserve-caught-error": "warn",
+    "eslint/preserve-caught-error": "error",
     "no-await-in-loop": "off"
   },
   "ignorePatterns": [

@@ -98,15 +98,15 @@ function chatProcesses(processes, roots, groups) {
         stack.push(...(children.get(next.pid) ?? []));
       }
     };
-    const root = byPid.get(roots.get(chatId)?.pid);
-    if (root) {
+    const agents = [roots.get(chatId)?.pid, ...(roots.get(chatId)?.agents ?? [])].map((pid) => byPid.get(pid)).filter(Boolean);
+    for (const root of agents) {
       for (const child of children.get(root.pid) ?? []) {
         if (SHELLS.has(basename(child.command)) || child.pgid !== root.pgid) add(child);
       }
     }
     // A Terminal's shell and everything it started belong to its Chat.
     for (const pid of roots.get(chatId)?.shells ?? []) if (byPid.has(pid)) add(byPid.get(pid));
-    for (const row of processes) if (known.has(row.pgid) && row.pgid !== root?.pgid) add(row);
+    for (const row of processes) if (known.has(row.pgid) && !agents.some((root) => root.pgid === row.pgid)) add(row);
     const live = new Set();
     for (const pid of pids) live.add(byPid.get(pid).pgid);
     // A group is forgotten once nothing in it runs.

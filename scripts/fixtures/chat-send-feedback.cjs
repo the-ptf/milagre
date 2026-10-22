@@ -43,6 +43,7 @@ function leanState() {
 window.renderedMessageIds = [];
 window.transcriptRenders = 0;
 window.railItemsRendered = 0;
+window.committedRuns = {};
 const listeners = new Set();
 window.emitAgent = (sessionId, event) => listeners.forEach(listener => listener({ chatId: "/fixture#" + sessionId, event }));
 // Read messages independently of a stale summary, as a reconnect can do while a send is pending.
