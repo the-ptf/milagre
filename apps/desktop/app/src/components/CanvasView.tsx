@@ -99,11 +99,11 @@ const nodeTypes = { project: SectionNode, worktree: WorktreeCard };
 const edgeTypes = { link: LinkEdge, membership: MembershipEdge };
 
 // Sections take one of the theme's quiet hues by Project, so neighbours read apart; orange stays for "waiting for you".
-const SECTION_TONES = ["var(--accent)", "var(--green)", "var(--purple, var(--accent))"];
+const SECTION_TONES: [string, ...string[]] = ["var(--accent)", "var(--green)", "var(--purple, var(--accent))"];
 function sectionTone(id: string) {
   let hash = 0;
   for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) | 0;
-  return SECTION_TONES[Math.abs(hash) % SECTION_TONES.length];
+  return SECTION_TONES[Math.abs(hash) % SECTION_TONES.length] ?? SECTION_TONES[0];
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -146,7 +146,7 @@ function linkActivity(work: LinkedWork, linkId: string): LinkActivity | undefine
   if (negotiation) return { label: `Negotiation · round ${negotiation.round} of ${NEGOTIATION_ROUNDS}`, negotiationId: negotiation.id };
   const open = work.delegations.filter((item) => item.link_id === linkId);
   if (!open.length) return undefined;
-  return { label: open.length === 1 ? `Delegation ${open[0].status}` : `${open.length} Delegations` };
+  return { label: open.length === 1 && open[0] ? `Delegation ${open[0].status}` : `${open.length} Delegations` };
 }
 
 function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, data }: EdgeProps<Edge<LinkEdgeData>>) {
@@ -347,13 +347,14 @@ const rowsOf = (worktree: CanvasWorktree): CardRow[] =>
     : worktree.chats;
 
 /** Two columns once a Project has two or more Worktrees, each card under the shorter column. */
-function defaultCardPositions(heights: number[]) {
-  const columns = heights.length > 1 ? [SECTION_HEADER, SECTION_HEADER] : [SECTION_HEADER];
-  return heights.map((height) => {
-    const column = columns.indexOf(Math.min(...columns));
+function defaultCardPositions(worktrees: CanvasWorktree[]) {
+  const columns: [number, number] = [SECTION_HEADER, SECTION_HEADER];
+  return worktrees.map((worktree) => {
+    const height = cardHeight(rowsOf(worktree).length);
+    const column = columns[0] <= columns[1] ? 0 : 1;
     const position = { x: SECTION_PADDING + column * (CARD_WIDTH + SECTION_PADDING), y: columns[column] };
     columns[column] += height + CARD_GAP;
-    return position;
+    return { worktree, height, position };
   });
 }
 
@@ -405,12 +406,9 @@ function buildNodes(
     const receiveOnly = new Set(
       worktrees.flatMap((worktree) => worktree.chats.filter((chat) => work.receiveOnly.includes(chatKey(project.path, chat.id))).map((chat) => chat.id)),
     );
-    const heights = worktrees.map((worktree) => cardHeight(rowsOf(worktree).length));
-    const defaults = defaultCardPositions(heights);
-    const cards = worktrees.map((worktree, index) => ({
-      worktree,
-      height: heights[index],
-      position: snapshot.worktreePositions[project.id]?.[worktree.path] ?? defaults[index],
+    const cards = defaultCardPositions(worktrees).map((card) => ({
+      ...card,
+      position: snapshot.worktreePositions[project.id]?.[card.worktree.path] ?? card.position,
     }));
     const size = sectionSize(cards);
     let position = project.position;
@@ -651,12 +649,14 @@ export function CanvasView({
     const groups = focusLink ? [focusLink] : (visible?.projectGroups ?? []);
     const memberships = groups.flatMap((group) => {
       const members = group.projectIds.map(projectNodeId).filter((id) => nodeById.has(id));
-      return members.slice(1).map((target) => ({
+      const [source, ...targets] = members;
+      if (!source) return [];
+      return targets.map((target) => ({
         id: `membership:${group.id}:${target}`,
-        source: members[0],
+        source,
         target,
         type: "membership",
-        ...sides(members[0], target),
+        ...sides(source, target),
         selectable: false,
         deletable: false,
         data: { name: group.name, linkId: group.id },

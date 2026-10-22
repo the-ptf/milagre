@@ -118,7 +118,7 @@ async function browserChecks() {
     try {
       return await window.webContents.executeJavaScript(source);
     } catch (error) {
-      throw new Error(`${source}: ${error.message}`);
+      throw new Error(`${source}: ${error.message}`, { cause: error });
     }
   };
   const clickLabel = (label) =>
@@ -136,6 +136,14 @@ async function browserChecks() {
       await delay(25);
     }
     throw new Error(`Timed out: ${source}`);
+  }
+  async function resize(width, height) {
+    window.setContentSize(width, height);
+    await waitFor(`innerWidth === ${width} && innerHeight === ${height}`);
+    // Native resize, React's fit and the surface's 300 ms CSS morph settle separately.
+    // Measure the finished surface instead of racing it with a fixed 200 ms sleep.
+    await evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))");
+    await waitFor(`!document.querySelector('[data-slot="subagent-surface"]').getAnimations().some(animation => animation.playState === 'running')`);
   }
   const assertMainGutters = async () => {
     const bounds = await evaluate(
@@ -174,15 +182,16 @@ async function browserChecks() {
       [800, 600],
       [390, 500],
     ]) {
-      window.setContentSize(width, height);
-      await delay(200);
+      await resize(width, height);
       const bounds = await evaluate(
         '(() => {const r=document.querySelector("[data-slot=subagent-popover]").getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:innerWidth,height:innerHeight}})()',
       );
-      assert.ok(bounds.left >= 0 && bounds.right <= bounds.width && bounds.top >= 0 && bounds.bottom <= bounds.height, "Subagent popover escapes viewport");
+      assert.ok(
+        bounds.left >= 0 && bounds.right <= bounds.width && bounds.top >= 0 && bounds.bottom <= bounds.height,
+        `Subagent popover escapes viewport: ${JSON.stringify(bounds)}`,
+      );
     }
-    window.setContentSize(800, 600);
-    await delay(200);
+    await resize(800, 600);
     await screenshot("subagent-transcript");
     // A subagent with its own to-do list: the detail is its plan, the current item carrying what it says and runs now.
     await evaluate(`window.setChildren(items => (window.savedChildren = items, items.map(item => item.id === "review" ? {

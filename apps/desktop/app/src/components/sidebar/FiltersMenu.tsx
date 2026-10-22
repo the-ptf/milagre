@@ -84,16 +84,18 @@ export function FiltersButton({
   const panelRef = useRef<HTMLDivElement>(null);
   const subRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [position, setPosition] = useState({ bottom: 0, left: 0 });
   const [sub, setSub] = useState<{ which: Sub; top: number; focus: boolean } | null>(null);
   const hiddenCount = projects?.filter((project) => !project.shown).length ?? 0;
   const fields = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer" || offerComputer);
 
-  // Below the button, at the top of the sidebar; collapsed, beside the rail.
+  // Above the button, at the foot of the sidebar; collapsed, beside the rail.
   const place = () => {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return false;
-    setPosition(collapsed ? { top: rect.top, left: rect.right + 8 } : { top: rect.bottom + 6, left: rect.left });
+    setPosition(
+      collapsed ? { bottom: window.innerHeight - rect.bottom, left: rect.right + 8 } : { bottom: window.innerHeight - rect.top + 6, left: rect.left },
+    );
     return true;
   };
   const close = () => {
@@ -220,7 +222,12 @@ export function FiltersButton({
               onKeyDown={mainKeys}
               data-filters-panel
               className={`${PANEL} w-52 p-1.5`}
-              style={{ top: position.top, left: position.left, animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "top left" }}
+              style={{
+                bottom: position.bottom,
+                left: position.left,
+                animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both",
+                transformOrigin: "bottom left",
+              }}
             >
               <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-[8px] bg-hover-2">
                 {projects && subRow("projects", <HugeIcon icon={Folder01Icon} />, "Projects", hiddenCount ? `${hiddenCount} hidden` : undefined)}

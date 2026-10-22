@@ -7,7 +7,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --window-chrome-height: 60px;
+  --window-chrome-height: 44px;
   --window-chrome-top: calc((var(--window-chrome-height) - 32px) / 2);
 
   /* Settings > Appearance; applyAppearance (lib/appearance.ts) overrides these inline. Defaults are today's values. */
@@ -999,31 +999,29 @@ a:focus-visible .animated-underline::after {
   --chat-bg: var(--surface);
 }
 
-/* The top of a scrolled chat, under the window-drag strip. Blur and tint build across the whole overlay, so the
- * text softens gradually and is fully blurred only at the window edge. */
+/* The top of a scrolled chat, under the window-drag strip: the text fades into the background toward the window edge. */
 .chat-top-blur {
   --blur-dir: to top;
   --blur-start: 0%;
   --blur-end: 100%;
 }
 .chat-top-blur > :last-child {
-  background: linear-gradient(to bottom, color-mix(in oklab, var(--chat-bg, var(--page)) 35%, transparent), transparent);
-}
-.chat-top-blur[data-busy] > :last-child {
-  background: linear-gradient(to bottom, color-mix(in oklab, var(--chat-bg, var(--page)) 50%, transparent), transparent);
+  background: linear-gradient(to bottom, var(--chat-bg, var(--page)), transparent);
 }
 
-/* The bottom mirrors the top: blur and tint grow gradually toward the composer. */
+/* The bottom mirrors the top: the text fades toward the composer. */
 .chat-bottom-blur {
   --blur-dir: to bottom;
   --blur-start: 0%;
   --blur-end: 100%;
 }
 .chat-bottom-blur > :last-child {
-  background: linear-gradient(to top, color-mix(in oklab, var(--chat-bg, var(--page)) 35%, transparent), transparent);
+  background: linear-gradient(to top, var(--chat-bg, var(--page)), transparent);
 }
-.chat-bottom-blur[data-busy] > :last-child {
-  background: linear-gradient(to top, color-mix(in oklab, var(--chat-bg, var(--page)) 50%, transparent), transparent);
+/* The chat's edges fade into the background without blurring the text: only the tint layer draws. */
+.chat-top-blur > :not(:last-child),
+.chat-bottom-blur > :not(:last-child) {
+  display: none;
 }
 
 /* Messages far off screen skip layout and paint; the size of the last render stands in, so scrolling stays steady.
@@ -1228,28 +1226,49 @@ a:focus-visible .animated-underline::after {
   opacity: 1;
 }
 
-/* Usage rows: the rail shows only the provider mark and its fullest window. */
+/* Usage rows: the rail (or compact mode) shows only the provider mark and its fullest window. */
 .sidebar-usage-rail {
   display: none;
 }
 
-[data-sidebar-collapsed="true"] .sidebar-usage {
-  flex-direction: column;
+.sidebar-usage[data-usage-compact="true"] {
+  flex-direction: row;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
 }
 
-[data-sidebar-collapsed="true"] .sidebar-usage-row {
-  width: 100%;
+.sidebar-usage[data-usage-compact="true"] .sidebar-usage-row {
+  flex: none;
+  width: 32px;
   justify-content: center;
   padding-left: 0;
   padding-right: 0;
 }
 
+.sidebar-usage[data-usage-compact="true"] .sidebar-usage-row > .sidebar-copy,
 [data-sidebar-collapsed="true"] .sidebar-usage-row > .sidebar-copy {
   display: none;
 }
 
+.sidebar-usage[data-usage-compact="true"] .sidebar-usage-rail,
 [data-sidebar-collapsed="true"] .sidebar-usage-rail {
   display: block;
+}
+
+[data-sidebar-collapsed="true"] .sidebar-usage {
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+}
+
+[data-sidebar-collapsed="true"] .sidebar-usage .sidebar-usage-row {
+  flex: none;
+  width: 100%;
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 [data-sidebar-collapsed="true"] .sidebar-glide-highlight {

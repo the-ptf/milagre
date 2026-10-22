@@ -63,9 +63,7 @@ macOS (`build-macos.yml`) and Linux always build. Windows builds only when the `
 
 Installs set to Beta in Settings read `beta-mac.yml` (`beta-linux.yml`, `beta.yml` on Windows); Stable installs read the `latest*` feeds and never see a beta. A beta takes the draft candidate (`vX.Y.Z`), builds and signs it on the beta channel, and publishes `vX.Y.Z-beta.N`, where N counts up from that candidate's highest existing beta. It skips the run when a beta for the same commit already exists. Ship one by hand with `gh workflow run publish.yml`, optionally `-f tag=vX.Y.Z` to pick a specific draft. A platform whose beta build fails is left out of that beta with a warning.
 
-Promotion publishes the untouched draft as stable. A stable release uploads both the `latest*` and the `beta*` feeds (same installers): electron-builder writes only the current channel's feed, so each stable build copies its `latest` feed to `beta` before the feeds are refreshed. Beta installs move to the stable build once it ships.
-
-electron-updater reads the newest release from `releases.atom` and takes the first stable-or-beta entry; on the first stable release after a beta, confirm a beta install updates to it. If it does not, delete the superseded `vX.Y.Z-beta.*` prereleases (`gh release delete <tag> --cleanup-tag --yes`) once stable X.Y.Z is published.
+A stable release carries only the `latest*` feeds. It rebuilds the newest beta's commit, so beta installs already run its code: they read their feed from the newest `vX.Y.Z-beta.N` release only (`resolveBetaFeed` in `apps/desktop/electron/release-channel.cjs`) and move on with the next beta, whose version is past the stable. `finalize-update-feeds.cjs` fails a stable that carries a `beta*` feed. Stables before v0.230 still carry a mirrored beta feed; beta installs older than that fix read it and get offered the stable once.
 
 If `gh release create` succeeded but the asset upload failed, the next run sees a beta for that commit and skips it. Delete the broken prerelease and its tag with `gh release delete <betaTag> --cleanup-tag --yes`, then rerun the workflow. With no draft candidate, a scheduled run does nothing.
 

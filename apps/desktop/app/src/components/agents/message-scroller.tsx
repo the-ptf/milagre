@@ -145,10 +145,15 @@ export function MessageScroller({
     if (navigation !== "rail") return;
     const viewport = viewportRef.current;
     const targets = [...railTargetsRef.current.entries()];
-    if (!viewport || targets.length === 0) return;
+    const first = targets[0];
+    if (!viewport) return;
+    if (!first) {
+      setActiveRailId("");
+      return;
+    }
 
     if (viewport.scrollTop <= followThreshold) {
-      setActiveRailId((current) => (current === targets[0][0] ? current : targets[0][0]));
+      setActiveRailId((current) => (current === first[0] ? current : first[0]));
       return;
     }
 
@@ -162,19 +167,28 @@ export function MessageScroller({
     // Messages sit in document order, so their centres only grow: binary-search the first one past the viewport centre.
     const viewportCenter = viewport.getBoundingClientRect().top + viewport.clientHeight / 2;
     const centerOf = (index: number) => {
-      const rect = targets[index][1].getBoundingClientRect();
+      const target = targets[index];
+      if (!target) return undefined;
+      const rect = target[1].getBoundingClientRect();
       return rect.top + rect.height / 2;
     };
     let low = 0;
     let high = targets.length - 1;
     while (low < high) {
       const mid = (low + high) >> 1;
-      if (centerOf(mid) < viewportCenter) low = mid + 1;
+      const center = centerOf(mid);
+      if (center === undefined) return;
+      if (center < viewportCenter) low = mid + 1;
       else high = mid;
     }
     const previous = low > 0 ? low - 1 : low;
-    const nearest = Math.abs(centerOf(previous) - viewportCenter) <= Math.abs(centerOf(low) - viewportCenter) ? previous : low;
-    const nearestId = targets[nearest][0];
+    const previousCenter = centerOf(previous);
+    const lowCenter = centerOf(low);
+    if (previousCenter === undefined || lowCenter === undefined) return;
+    const nearest = Math.abs(previousCenter - viewportCenter) <= Math.abs(lowCenter - viewportCenter) ? previous : low;
+    const target = targets[nearest];
+    if (!target) return;
+    const nearestId = target[0];
 
     setActiveRailId((current) => (current === nearestId ? current : nearestId));
   }, [followThreshold, navigation]);
@@ -192,13 +206,15 @@ export function MessageScroller({
     let nextAssistant: HTMLElement | undefined;
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       responses[index] = nextAssistant;
-      if (messages[index].dataset.from === "assistant") nextAssistant = messages[index];
+      const message = messages[index];
+      if (message?.dataset.from === "assistant") nextAssistant = message;
     }
     const cache = previewCacheRef.current;
     const targets = new Map<string, HTMLElement>();
     // Sample the whole Chat, including both ends, rather than growing a tick per message.
-    const nextItems = messageNavigationIndices(messages.length).map((index) => {
+    const nextItems = messageNavigationIndices(messages.length).flatMap((index) => {
       const message = messages[index];
+      if (!message) return [];
       let id = railIdRef.current.get(message);
       if (!id) {
         railIdCounterRef.current += 1;
@@ -213,12 +229,14 @@ export function MessageScroller({
         if (index < messages.length - LIVE_TAIL) cache.set(message, preview);
       }
 
-      return {
-        id,
-        label: preview.label,
-        description: preview.description,
-        ariaLabel: `Go to ${sender} message ${index + 1} of ${messages.length}`,
-      };
+      return [
+        {
+          id,
+          label: preview.label,
+          description: preview.description,
+          ariaLabel: `Go to ${sender} message ${index + 1} of ${messages.length}`,
+        },
+      ];
     });
     railMessageCountRef.current = messages.length;
 
@@ -418,7 +436,7 @@ export function MessageScroller({
     (item: PreviewRailItem) => {
       const viewport = viewportRef.current;
       const target = railTargetsRef.current.get(item.id);
-      if (!viewport || !target) return;
+      if (!viewport || !target || !contentRef.current?.contains(target)) return;
 
       const lastItem = railItems.at(-1)?.id === item.id;
       setActiveRailId(item.id);

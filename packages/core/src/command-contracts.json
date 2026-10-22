@@ -2859,6 +2859,24 @@
         }
       ]
     },
+    "settings:notification-schedule": {
+      "parameters": [
+        {
+          "name": "schedule",
+          "optional": false,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/T124"
+              }
+            ]
+          }
+        }
+      ]
+    },
     "settings:window-background": {
       "parameters": [
         {
@@ -2876,7 +2894,7 @@
           "name": "state",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T124"
+            "$ref": "#/$defs/T125"
           }
         }
       ]
@@ -3044,7 +3062,7 @@
           "name": "notice",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T125"
+            "$ref": "#/$defs/T126"
           }
         }
       ]
@@ -3102,7 +3120,7 @@
           "name": "options",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T126"
+            "$ref": "#/$defs/T127"
           }
         }
       ]
@@ -3165,10 +3183,10 @@
           "schema": {
             "anyOf": [
               {
-                "$ref": "#/$defs/T127"
+                "$ref": "#/$defs/T128"
               },
               {
-                "$ref": "#/$defs/T128"
+                "$ref": "#/$defs/T129"
               }
             ]
           }
@@ -3213,6 +3231,7 @@
     "runtime:restart-host",
     "settings:floating-inbox",
     "settings:notification-chime",
+    "settings:notification-schedule",
     "settings:notify-when-waiting",
     "settings:window-background",
     "skills:open",
@@ -5720,6 +5739,28 @@
     "T124": {
       "type": "object",
       "properties": {
+        "days": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "start": {
+          "type": "string"
+        },
+        "end": {
+          "type": "string"
+        },
+        "timeZone": {
+          "type": "string"
+        }
+      },
+      "required": ["days", "start", "end", "timeZone"],
+      "additionalProperties": false
+    },
+    "T125": {
+      "type": "object",
+      "properties": {
         "projectPath": {
           "type": "string"
         },
@@ -5749,7 +5790,7 @@
       "required": ["projectPath", "activeChatId", "unread", "notifyOnCompletion", "showDockBadge"],
       "additionalProperties": false
     },
-    "T125": {
+    "T126": {
       "type": "object",
       "properties": {
         "chatId": {
@@ -5762,7 +5803,7 @@
       "required": ["chatId", "title"],
       "additionalProperties": false
     },
-    "T126": {
+    "T127": {
       "type": "object",
       "properties": {
         "name": {
@@ -5771,7 +5812,7 @@
       },
       "additionalProperties": false
     },
-    "T127": {
+    "T128": {
       "type": "object",
       "properties": {
         "kind": {
@@ -5785,7 +5826,7 @@
       "required": ["kind", "scope", "state"],
       "additionalProperties": false
     },
-    "T128": {
+    "T129": {
       "type": "object",
       "properties": {
         "kind": {
@@ -5798,13 +5839,13 @@
           "type": "number"
         },
         "window": {
-          "$ref": "#/$defs/T129"
+          "$ref": "#/$defs/T130"
         }
       },
       "required": ["kind", "scope", "chatId", "window"],
       "additionalProperties": false
     },
-    "T129": {
+    "T130": {
       "type": "object",
       "properties": {
         "messages": {

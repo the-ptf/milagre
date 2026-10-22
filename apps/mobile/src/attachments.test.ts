@@ -84,6 +84,43 @@ test("a mentioned file attaches by its absolute path and never leaves the projec
   assert.throws(() => mentionAttachment("/w", "../x"), /inside the project/);
   assert.throws(() => mentionAttachment("/w", "/etc/passwd"), /inside the project/);
 });
+
+test("a partial multi-file retry revalidates completed uploads without transferring their bytes again", async () => {
+  const sent: string[] = [];
+  const checked: string[] = [];
+  let fail = true;
+  let present = true;
+  const client = {
+    upload: async (_project: string, name: string) => {
+      sent.push(name);
+      if (name === "b.txt" && fail) throw new Error("offline");
+      return { id: name, path: `/host/${name}`, name };
+    },
+    reuseUpload: async (_project: string, id: string) => {
+      checked.push(id);
+      return present ? { id, path: `/host/${id}`, name: id } : null;
+    },
+  } as unknown as Client;
+  const files: Attachment[] = [
+    { id: "a", name: "a.txt", uri: "file:///a", base64: "aGk=" },
+    { id: "b", name: "b.txt", uri: "file:///b", base64: "aGk=" },
+  ];
+  await assert.rejects(prepareAttachments(client, "/p", files), /offline/);
+  fail = false;
+  assert.deepEqual((await prepareAttachments(client, "/p", files)).files, ["/host/a.txt", "/host/b.txt"]);
+  assert.deepEqual(sent, ["a.txt", "b.txt", "b.txt"]);
+  assert.deepEqual(checked, ["a.txt"]);
+  await prepareAttachments(client, "/p", files);
+  assert.equal(sent.length, 3, "delivery failure after all uploads needs no bytes on retry");
+  present = false;
+  await prepareAttachments(client, "/p", files.slice(0, 1));
+  assert.equal(sent.length, 4, "a deleted remote file uploads again");
+  files[0]!.base64 = "bmV3";
+  await prepareAttachments(client, "/p", files.slice(0, 1));
+  await prepareAttachments(client, "/other", files.slice(0, 1));
+  await prepareAttachments({ ...client } as Client, "/other", files.slice(0, 1));
+  assert.equal(sent.length, 7, "new content, Project and client each invalidate the receipt");
+});
 test("a mention with a ./ segment is refused too", () => {
   assert.throws(() => mentionAttachment("/w", "./a.ts"), /inside the project/);
   assert.throws(() => mentionAttachment("/w", "a/./b.ts"), /inside the project/);
@@ -124,4 +161,11 @@ test("the limit error goes once there is room again or the draft is cleared, and
   assert.equal(settleLimitError(limit, 4, "  \n"), "", "a blank draft counts as cleared");
   assert.equal(settleLimitError("Offline", 0, ""), "Offline", "an unrelated error is not this helper's to clear");
   assert.equal(settleLimitError("", 0, ""), "");
+});
+test("appendImageMentions appends 1-based [Image #N] tokens for newly added image attachments", async () => {
+  const { appendImageMentions } = await import("./attachments.ts");
+  assert.equal(appendImageMentions("", 0, 1), "[Image #1] ");
+  assert.equal(appendImageMentions("Compare this", 0, 2), "Compare this [Image #1] [Image #2] ");
+  assert.equal(appendImageMentions("Compare [Image #1] ", 1, 1), "Compare [Image #1] [Image #2] ");
+  assert.equal(appendImageMentions("Compare ", 1, 0), "Compare ");
 });

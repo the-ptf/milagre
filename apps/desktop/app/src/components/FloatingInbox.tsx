@@ -499,7 +499,7 @@ export function InboxPanel({
     window.addEventListener("keydown", handle, true);
     return () => window.removeEventListener("keydown", handle, true);
   }, []);
-  const shortcutOptions = selected?.question?.questions.length === 1 ? selected.question.questions[0].options.slice(0, 9) : [];
+  const shortcutOptions = selected?.question?.questions.length === 1 ? (selected.question.questions[0]?.options.slice(0, 9) ?? []) : [];
   return (
     <div data-inbox-panel aria-label="Inbox" className="floating-inbox-panel m-3 flex h-[calc(100vh-24px)] flex-col gap-2 text-ink">
       <AiConsentDialog />
@@ -595,7 +595,7 @@ export function InboxPanel({
               <p role="status" className="py-10 text-center text-xs text-ink-3">
                 Loading inbox…
               </p>
-            ) : shown.length === 0 ? (
+            ) : !selected ? (
               <div data-inbox-empty className="px-3 py-12 text-center">
                 <p className="text-[15px] font-medium">All caught up</p>
                 <p className="mt-2 text-xs leading-5 text-ink-3">Questions and finished work will appear here.</p>
@@ -644,7 +644,7 @@ export function InboxPanel({
                     <kbd className="rounded bg-hover-2 px-1 py-0.5 font-sans">{optionIndex + 1}</kbd>
                   </span>
                 ))}{" "}
-                {selected?.question?.questions[0].multiSelect ? "to select · Enter to send" : "to answer"}
+                {selected?.question?.questions[0]?.multiSelect ? "to select · Enter to send" : "to answer"}
               </>
             )}
             {shown.length > 1 && (
@@ -860,8 +860,8 @@ function InboxQuestion({
         send(answers);
       } else if (request.questions.length === 1 && /^[1-9]$/.test(event.key)) {
         const question = request.questions[0],
-          option = question.options[Number(event.key) - 1];
-        if (option) {
+          option = question?.options[Number(event.key) - 1];
+        if (question && option) {
           event.preventDefault();
           setDrafts(pickOption(drafts, question, option.label));
           if (!question.multiSelect) send({ [question.id]: [option.label] });

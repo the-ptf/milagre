@@ -702,6 +702,7 @@ function App() {
     showDockBadge,
     notifyWhenWaiting,
     notificationChime,
+    notificationSchedule,
     showAttentionButton,
     floatingInbox,
   } = useSettings();
@@ -791,10 +792,11 @@ function App() {
       return;
     }
     if (!("worktrees" in next)) return;
-    statesRef.current = { ...statesRef.current, [projectPath]: reconcileState(statesRef.current[projectPath], next) };
+    const reconciled = reconcileState(statesRef.current[projectPath], next);
+    statesRef.current = { ...statesRef.current, [projectPath]: reconciled };
     setStates(statesRef.current);
     const seen = projectsSeen.current.get(projectPath);
-    if (seen) rememberProjectCopy({ ...seen, state: statesRef.current[projectPath] });
+    if (seen) rememberProjectCopy({ ...seen, state: reconciled });
   }
 
   useEffect(() => stateEvents.onProjectState(({ path, state: next }) => receiveState(path, next)), []);
@@ -1219,6 +1221,9 @@ function App() {
     void window.milagre.setNotificationChime?.(notificationChime).catch(() => {});
   }, [notificationChime]);
   useEffect(() => window.milagre.onPlayChime?.(playNotificationChime), []);
+  useEffect(() => {
+    void window.milagre.setNotificationSchedule?.(notificationSchedule).catch(() => {});
+  }, [notificationSchedule]);
 
   // A turn that ends in the open project while Milagre is in the background gets a completion alert, unless a bot runs it.
   useEffect(
@@ -1628,8 +1633,8 @@ function App() {
         setNewChatError(message);
         if (!preserveComposer) {
           const nextDraft = draftStore.get();
-          setDraft([restoredDraft(body, submittedDraft, issue !== undefined), nextDraft].filter(Boolean).join("\n\n"));
-          imageDraft.restore(images, files);
+          const remapped = imageDraft.restore(images, files, nextDraft);
+          setDraft([restoredDraft(body, submittedDraft, issue !== undefined), remapped].filter(Boolean).join("\n\n"));
         }
       } else {
         if (!preserveComposer)
@@ -1804,7 +1809,8 @@ function App() {
         if (!step || tiles.length < 2 || event.shiftKey) return;
         event.preventDefault();
         const at = tiles.indexOf(focusedChatKeyRef.current ?? "");
-        openLinkedChat(tiles[(at + step + tiles.length) % tiles.length]);
+        const next = tiles[(at + step + tiles.length) % tiles.length];
+        if (next) openLinkedChat(next);
         return;
       }
       if (event.shiftKey) {
@@ -2206,17 +2212,21 @@ function App() {
     return (
       <DotBackground>
         {saveNotices}
-        <div className="flex h-screen gap-3 p-3 pt-10">
-          <SettingsNav
-            showProjectSettings={false}
-            section={settingsSection}
-            onSelectProject={() => {}}
-            onSelect={setSettingsSection}
-            computerId={settingsComputer ?? undefined}
-            onSelectComputer={selectSettingsComputer}
-            onBack={() => setView("chat")}
-          />
-          <main className="min-w-0 flex-1">
+        <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
+        {/* The same frame as Settings beside a Project: the nav under the top bar, the page from the window's top. */}
+        <div className="flex h-screen gap-3 pr-3">
+          <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
+            <SettingsNav
+              showProjectSettings={false}
+              section={settingsSection}
+              onSelectProject={() => {}}
+              onSelect={setSettingsSection}
+              computerId={settingsComputer ?? undefined}
+              onSelectComputer={selectSettingsComputer}
+              onBack={() => setView("chat")}
+            />
+          </div>
+          <main className="min-w-0 flex-1 pb-3">
             <SettingsPanel
               section={settingsSection}
               computerId={settingsComputer ?? undefined}
@@ -2625,7 +2635,7 @@ function App() {
               />
             </div>
             {view === "settings" && (
-              <div className="flex shrink-0 py-3 pl-3">
+              <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
                 <SettingsNav
                   section={settingsSection}
                   project={settingsProject ?? project}

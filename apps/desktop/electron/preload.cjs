@@ -46,7 +46,6 @@ const LOCAL_ONLY_PREFIXES = [
   "phone:",
   "settings:",
   "update:",
-  "usage:",
 ];
 /** @param {string} channel */
 const isLocalOnly = (channel) => LOCAL_ONLY.includes(channel) || LOCAL_ONLY_PREFIXES.some((prefix) => channel.startsWith(prefix));
@@ -332,11 +331,13 @@ function makeBridge(invoke, listen, send) {
     listAccounts: (refresh = false) => invoke("accounts:list", refresh),
     accountAction: (action, provider, value) => invoke(`accounts:${action}`, provider, value),
     onAccountsChanged: (callback) => listen("accounts:changed", () => callback()),
+    onUsageChanged: (callback) => listen("usage:changed", callback),
     readUsage: (scopeKey) => invoke("usage:read", scopeKey),
     setKeepAwake: (enabled) => invoke("app:set-keep-awake", enabled),
     getCachedUsage: (scopeKey) => invoke("usage:cached", scopeKey),
     setNotifyWhenWaiting: (on) => invoke("settings:notify-when-waiting", on),
     setNotificationChime: (chime) => invoke("settings:notification-chime", chime),
+    setNotificationSchedule: (schedule) => invoke("settings:notification-schedule", schedule),
     onPlayChime: (callback) => listen("notification:play-chime", callback),
     setWindowBackground: (background) => invoke("settings:window-background", background),
     syncNotifications: (state) => invoke("notification:state", state),

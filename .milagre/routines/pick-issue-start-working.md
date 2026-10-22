@@ -4,7 +4,7 @@ Pick one issue from the issues list on github, start working on it until its fin
 - Decision free - decisions taht would need an human can be passed to different models with personas and perpectives so together they decide (like Claude Opus, GPT 6 Astra and Antigravity Argon)
 - Errors shouldnt stop an execution - the end goal is to have the work done, so any error MUST be fixed and the agent should get around things that are limitant for them
 - Design pattern - follow all the design patterns from the current Milagre codebase
-- Ready - when finishes, an artifact must be published with a public link placed on the top of the pr alongside with a PR with screenshots so the human can review later when he can or he needs. The screenshots should be images IN the artifact (not links to an image).
+- Ready - when finishes, open a PR with screenshots so the human can review later when he can or he needs. Do not publish or share an artifact or any public link.
 - Responsive - works that are done should be ready for both Desktop AND mobile, unless the issue specifies one platform only.
 
 More important, the work should be tested throughfully, making sure that edge cases are covered. and here i don't mean to write unit or end to end tests, but I mean running the work you've done locally.

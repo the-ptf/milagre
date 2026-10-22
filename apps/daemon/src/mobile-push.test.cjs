@@ -493,3 +493,62 @@ test("a quiet failed turn sends no push; a failed turn without quiet sends one",
   await push.settled();
   assert.equal(messages.length, 1);
 });
+
+test("a saved phone schedule suppresses quiet hours, permits work hours, and survives reload", async (t) => {
+  let clock = Date.parse("2026-10-21T12:59Z");
+  const { push, messages, dataDir } = await fixture(t, { now: () => clock });
+  const schedule = { days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", timeZone: "America/Toronto" };
+  assert.equal((await push.register(registration({ schedule }))).registered, true);
+  await push.load();
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(dataDir, "mobile-push.json"), "utf8"))[0].schedule, schedule);
+  push.observe(chatId, { type: "turn-started" });
+  push.observe(chatId, approval);
+  await push.settled();
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages.length, 0);
+  clock = Date.parse("2026-10-21T13:00Z");
+  await push.settled();
+  assert.equal(messages.length, 0, "quiet notifications are never replayed");
+  push.observe(chatId, { type: "turn-started" });
+  push.observe(chatId, approval);
+  await push.settled();
+  push.observe(chatId, { type: "turn-completed" });
+  await push.settled();
+  assert.equal(messages.length, 2);
+});
+
+test("a queued phone push rechecks the window before network delivery", async (t) => {
+  let clock = Date.parse("2026-10-21T20:59Z");
+  let eligible;
+  const { push } = await fixture(t, {
+    now: () => clock,
+    send: async (_message, current) => {
+      eligible = current;
+    },
+  });
+  await push.register(registration({ schedule: { days: [3], start: "09:00", end: "17:00", timeZone: "America/Toronto" } }));
+  push.observe(chatId, { type: "turn-started" });
+  push.observe(chatId, approval);
+  await push.settled();
+  assert.equal(eligible(), true);
+  clock = Date.parse("2026-10-21T21:00Z");
+  assert.equal(eligible(), false);
+  await assert.rejects(push.register(registration({ schedule: { days: [] } })), /Invalid notification schedule/);
+});
+
+test("quiet-hour events stay quiet if metadata resolves after the window opens", async (t) => {
+  let clock = Date.parse("2026-10-21T12:59Z");
+  let release;
+  const metadata = new Promise((resolve) => {
+    release = resolve;
+  });
+  const { push, messages } = await fixture(t, { now: () => clock, context: () => metadata });
+  await push.register(registration({ schedule: { days: [3], start: "09:00", end: "17:00", timeZone: "America/Toronto" } }));
+  push.observe(chatId, { type: "turn-started" });
+  push.observe(chatId, approval);
+  clock = Date.parse("2026-10-21T13:00Z");
+  release({ chatTitle: "Login", provider: "codex" });
+  await push.settled();
+  assert.equal(messages.length, 0);
+});

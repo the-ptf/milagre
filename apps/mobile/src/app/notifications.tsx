@@ -8,6 +8,7 @@ import { usePush } from "../push";
 import { useSession } from "../session";
 import { Icon } from "../icons";
 import { ErrorNotice, ListRow, PageScroll, PillButton, PullDown, Toggle, useStyles } from "../ui";
+import { NotificationScheduleSetting } from "../notification-schedule-setting";
 import { useTheme } from "../theme";
 
 export default function NotificationsScreen() {
@@ -74,6 +75,7 @@ export function NotificationsView() {
         <Toggle title="Attention button" selected={attentionButton} onPress={() => setAttentionButton(!attentionButton)} />
         <Text style={styles.muted}>When a Chat in another Project needs an approval or an answer.</Text>
       </View>
+      <NotificationScheduleSetting />
       <View style={[styles.card, { gap: 4 }]}>
         <ListRow
           title="Notification chime"

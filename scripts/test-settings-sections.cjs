@@ -50,8 +50,10 @@ function Fixture() {
   useApplyTheme();
   useApplyOtherComputers();
   return (
-    <div style={{ display: 'flex', gap: 12, height: '100vh', padding: 12 }}>
-      <SettingsNav section={section} onSelect={setSection} onSelectProject={() => {}} onBack={() => {}} showProjectSettings={false} />
+    <div style={{ display: 'flex', gap: 12, height: '100vh', padding: '0 12px 0 0' }}>
+      <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
+        <SettingsNav section={section} onSelect={setSection} onSelectProject={() => {}} onBack={() => {}} showProjectSettings={false} />
+      </div>
       <main style={{ flex: 1, minWidth: 0 }}><SettingsPanel section={section} models={[]} update={null} /></main>
     </div>
   );
@@ -94,16 +96,18 @@ async function browserChecks() {
     // Appearance: every control is a menu; picking a size saves it and the preview follows; fonts draw in their own face.
     // The mini window preview shows where each row applies: hovering a row highlights its region.
     await waitFor(`!!document.querySelector('[data-preview-area="sidebar"]')`);
-    // Only leading window controls need room above Settings. The Back button must
-    // remain above the app's drag strip when Windows places it in that top row.
+    // Back sits in the top bar on every decoration, after the window controls when they lead, and stays
+    // above the app's drag strip.
     await evaluate(`Object.defineProperty(navigator, 'windowControlsOverlay', { configurable: true, value: undefined })`);
-    for (const [controls, expectedTop] of [
-      ["leading", 64],
-      ["overlay", 24],
-      ["external", 24],
+    for (const [controls, expectedLeft] of [
+      ["leading", 92],
+      ["overlay", 12],
+      ["external", 12],
     ]) {
       await evaluate(`window.milagreWindowChrome = { controls: ${JSON.stringify(controls)} }; window.dispatchEvent(new Event('resize'))`);
-      await waitFor(`document.querySelector('button[aria-label="Back"]').getBoundingClientRect().top === ${expectedTop}`);
+      await waitFor(
+        `(() => { const r = document.querySelector('button[aria-label="Back"]').getBoundingClientRect(); return r.top === 6 && r.left === ${expectedLeft}; })()`,
+      );
     }
     assert.equal(await evaluate(`getComputedStyle(document.querySelector('button[aria-label="Back"]')).webkitAppRegion`), "no-drag");
     const region = (area) => `document.querySelector('[data-preview-area=${JSON.stringify(area)}]')`;
@@ -219,6 +223,25 @@ async function browserChecks() {
     await openMenu("Chat width");
     await pick("Full");
     await waitFor(`${region("width")}.textContent.includes("Full")`);
+    await openMenu("Provider icons");
+    await pick("Simplified");
+    await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.providerIcons === "simplified"`);
+    await waitFor(
+      `(() => { const logos = [...document.querySelectorAll("[data-provider-logo]")]; return logos.length >= 3 && logos.every(svg => svg.children.length === 1 && svg.firstElementChild.getAttribute("fill") === "currentColor"); })()`,
+    );
+    await openMenu("Provider icons");
+    await pick("Original");
+    await waitFor(`!!document.querySelector("[data-provider-logo=codex] linearGradient")`);
+    // Sidebar usage: switches between Expanded and Compact in the preview and saves to appearance.sidebarUsage.
+    assert.equal(await evaluate(`${region("usage")}.dataset.previewUsage`), "expanded");
+    await openMenu("Sidebar usage");
+    await pick("Compact");
+    await waitFor(`JSON.parse(localStorage.getItem("milagre-settings")).appearance?.sidebarUsage === "compact"`);
+    await waitFor(`${region("usage")}.dataset.previewUsage === "compact"`);
+    assert.equal(await evaluate(`${region("usage")}.hasAttribute("data-highlighted")`), true, "changing Sidebar usage highlights the usage area");
+    await openMenu("Sidebar usage");
+    await pick("Expanded");
+    await waitFor(`${region("usage")}.dataset.previewUsage === "expanded"`);
     await openSection("Experimental");
     await waitFor(`!!document.querySelector("[data-slot=designs-setting]")`);
     await waitFor(`!!document.querySelector('main [role="switch"][aria-label="Bots"]')`);
@@ -300,6 +323,35 @@ async function browserChecks() {
       ["Notify when finished", "Dock badge", "Notify when waiting", "Attention button"],
       "Notifications lists the four alerts, then the chime picker",
     );
+    const scheduleTrigger = `document.querySelector('button[aria-label="Notification schedule"]')`;
+    assert.equal(await evaluate(`${scheduleTrigger}.textContent.trim()`), "Anytime");
+    await evaluate(`${scheduleTrigger}.scrollIntoView({ block: "center" }); ${scheduleTrigger}.click()`);
+    const scheduleOption = (label) =>
+      `[...document.querySelectorAll('[role="listbox"][aria-label="Notification schedule"] [role="option"]')].find(o => o.textContent.trim() === ${JSON.stringify(label)})`;
+    await waitFor(`!!${scheduleOption("Weekdays, 9 AM to 5 PM")}`);
+    await evaluate(`${scheduleOption("Weekdays, 9 AM to 5 PM")}.click()`);
+    await waitFor(`document.querySelector('button[aria-label="Notification start time"]')?.textContent.trim() === "9:00 AM"`);
+    assert.deepEqual(await evaluate(`[...document.querySelectorAll('[aria-label="Notification days"] [aria-pressed="true"]')].map(b => b.textContent)`), [
+      "Mon",
+      "Tue",
+      "Wed",
+      "Thu",
+      "Fri",
+    ]);
+    await evaluate(`document.querySelector('[aria-label="Notification days"] button[aria-label="Sat"]').click()`);
+    await waitFor(`${scheduleTrigger}.textContent.trim() === "Custom hours"`);
+    await screenshot("notification-schedule-custom");
+    await openSection("Appearance");
+    await openSection("Notifications");
+    assert.equal(
+      await evaluate(`document.querySelector('[aria-label="Notification days"] button[aria-label="Sat"]').getAttribute('aria-pressed')`),
+      "true",
+      "custom days persist across navigation",
+    );
+    await evaluate(`${scheduleTrigger}.scrollIntoView({ block: "center" }); ${scheduleTrigger}.click()`);
+    await waitFor(`!!${scheduleOption("Anytime")}`);
+    await evaluate(`${scheduleOption("Anytime")}.click()`);
+    await waitFor(`!document.querySelector('button[aria-label="Notification start time"]')`);
     const chimeTrigger = `document.querySelector('button[aria-label="Notification chime"]')`;
     assert.equal(await evaluate(`${chimeTrigger}.textContent.trim()`), "System default", "the system sound by default");
     assert.equal(await evaluate(`!!document.querySelector("[data-chime-play]")`), false, "nothing to replay for the system sound");

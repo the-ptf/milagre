@@ -108,6 +108,14 @@ export function createPushController({ store, hosts, forgetHost = async () => {}
       await store.registered(host);
       if (current !== version) return;
       try {
+        if (state.schedule) {
+          const status = (await call(host, "daemon:status", [])) as { capabilities?: string[] } | null;
+          if (!status?.capabilities?.includes("mobile-push-schedule-v1")) {
+            await call(host, "push:unregister", [{ deviceId: state.deviceId }]);
+            onError(`Update Milagre on ${host.name} to use notification schedules. Notifications from it are paused until it supports your schedule.`);
+            continue;
+          }
+        }
         await call(host, "push:register", [
           {
             deviceId: state.deviceId,
@@ -116,6 +124,7 @@ export function createPushController({ store, hosts, forgetHost = async () => {}
             notifyWhenWaiting: state.notifyWhenWaiting,
             notifyOnCompletion: state.notifyOnCompletion,
             chime: parseNotificationChime(state.chime),
+            schedule: state.schedule ?? null,
           },
         ]);
       } catch {

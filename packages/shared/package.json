@@ -339,6 +339,10 @@
     "./notification-chimes": {
       "types": "./src/notification-chimes.d.mts",
       "default": "./src/notification-chimes.mjs"
+    },
+    "./notification-schedule": {
+      "types": "./src/notification-schedule.d.mts",
+      "default": "./src/notification-schedule.mjs"
     }
   },
   "scripts": {

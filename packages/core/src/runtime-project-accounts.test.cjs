@@ -417,3 +417,30 @@ test("a usage-limited Chat with background work can hand off to another provider
   assert.equal(state.sessions[sessionId].backgroundTasks, undefined);
   assert.equal(state.messages.find((message) => message.context?.kind === "handoff").context.status, "done");
 });
+
+test("a completed usage read signals its scope so other views can fetch the saved numbers", async (t) => {
+  const { make, projects, events } = await fixture(t);
+  const runtime = make({
+    usageReaders: {
+      claude: async () => ({
+        provider: "claude",
+        status: "ok",
+        updatedAt: new Date().toISOString(),
+        windows: [{ id: "weekly", label: "Weekly", shortLabel: "wk", usedPercent: 37, resetsAt: null }],
+      }),
+      codex: async () => ({ provider: "codex", status: "unavailable", windows: [] }),
+      antigravity: async () => ({ provider: "antigravity", status: "unavailable", windows: [] }),
+    },
+  });
+  await runtime.openProject(projects[0]);
+  const result = await runtime.invoke("usage:read", [projects[0]]);
+  assert.deepEqual(
+    events.filter((event) => event.channel === "usage:changed").map((event) => event.payload),
+    [{ scopeKey: projects[0] }],
+  );
+  const cached = await runtime.invoke("usage:cached", [projects[0]]);
+  assert.equal(cached.accountKey, result.accountKey);
+  assert.deepEqual(cached.providers[0].windows, result.providers[0].windows);
+  assert.equal(cached.providers[0].windows[0].usedPercent, 37);
+  assert.equal(events.filter((event) => event.channel === "usage:changed").length, 1, "cache reads must not signal another read");
+});

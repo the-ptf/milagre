@@ -19,7 +19,7 @@ function createComputerUnlock({ dataDir, safeStorage, invoke }) {
       } catch (error) {
         if (/** @type {any} */ (error)?.code !== "ENOENT") throw error;
         // Never replace a missing wrapper for an existing vault with a different key.
-        if (status.hasVault) throw new Error("The desktop key for existing computer credentials is missing.");
+        if (status.hasVault) throw new Error("The desktop key for existing computer credentials is missing.", { cause: error });
         const encoded = randomBytes(32).toString("base64");
         const sealed = safeStorage.encryptString(encoded).toString("base64");
         try {

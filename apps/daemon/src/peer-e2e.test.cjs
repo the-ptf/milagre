@@ -251,3 +251,25 @@ test("a paired desktop reads and manages this Mac's Routines, and hears them cha
   assert.deepEqual(await mac.client.call("routines:enabled:read"), { enabled: false });
   assert.equal(desktop.error, null);
 });
+
+test("a paired desktop receives live usage while provider account changes are refused", async (t) => {
+  const unavailable = (provider) => async () => ({ provider, status: "unavailable", windows: [] });
+  const mac = await startTestMac(t, {
+    runtime: {
+      agentCli: async () => ({ problem: "Provider CLI unavailable in this fixture" }),
+      usageReaders: { claude: unavailable("claude"), codex: unavailable("codex"), antigravity: unavailable("antigravity") },
+    },
+  });
+  const desktop = mac.dial(connectDesktop, { name: "Usage viewer" });
+  await desktop.hello();
+  await mac.client.call("project:open", [mac.project]);
+  const changed = desktop.event("usage:changed", (payload) => payload.scopeKey === mac.project);
+  const fresh = await desktop.call("usage:read", [mac.project]);
+  assert.equal(fresh.error, undefined);
+  assert.ok(fresh.result.accountKey);
+  await within(changed, "remote usage signal");
+  const cached = await desktop.call("usage:cached", [mac.project]);
+  assert.equal(cached.result.accountKey, fresh.result.accountKey);
+  for (const method of ["accounts:add", "accounts:select", "accounts:login", "accounts:cancel", "accounts:remove", "accounts:assign", "chat:limit-switch"])
+    assert.equal((await desktop.call(method, [mac.project, "claude", "default"])).error?.code, "NOT_AVAILABLE_REMOTELY", method);
+});

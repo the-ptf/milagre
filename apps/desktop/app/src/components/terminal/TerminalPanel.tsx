@@ -271,6 +271,7 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
               {profiles && (
                 <Select
                   label="Shell for new Terminals"
+                  compact
                   value={profiles.selectedShell ?? ""}
                   disabled={savingShell}
                   width={320}

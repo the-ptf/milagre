@@ -134,7 +134,7 @@ export default function ModelSheet() {
                     opacity: pressed ? 0.7 : 1,
                   })}
                 >
-                  <ProviderLogo provider={provider} size={14} />
+                  <ProviderLogo provider={provider} size={14} inverted={on} />
                   <Text style={{ color: on ? colors.page : colors.ink2, fontSize: 14, fontWeight: "500" }}>{providerName(provider)}</Text>
                   {problem && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.orange }} />}
                 </Pressable>

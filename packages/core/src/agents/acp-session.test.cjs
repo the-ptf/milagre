@@ -109,12 +109,24 @@ test("Designs can be disabled when starting or resuming an ACP session", async (
   }
 });
 
-test("sends images as image blocks", async (t) => {
+test("sends images as image blocks and interleaves [Image #N] tokens in reading order", async (t) => {
   const { session, events } = antigravity(t);
-  await session.startTurn({ ...TURN, images: [{ mime: "image/png", bytes: Buffer.from("png"), base64: Buffer.from("png").toString("base64") }] });
+  await session.startTurn({
+    ...TURN,
+    prompt: "First [Image #2] then [Image #1]",
+    images: [
+      { mime: "image/png", bytes: Buffer.from("one"), base64: Buffer.from("one").toString("base64") },
+      { mime: "image/jpeg", bytes: Buffer.from("two"), base64: Buffer.from("two").toString("base64") },
+    ],
+  });
   await ended(events);
   const [prompt] = await sent(session, "session/prompt");
-  assert.deepEqual(prompt.prompt.at(-1), { type: "image", mimeType: "image/png", data: "cG5n" });
+  assert.deepEqual(prompt.prompt.slice(-4), [
+    { type: "text", text: "First " },
+    { type: "image", mimeType: "image/jpeg", data: Buffer.from("two").toString("base64") },
+    { type: "text", text: " then " },
+    { type: "image", mimeType: "image/png", data: Buffer.from("one").toString("base64") },
+  ]);
 });
 
 test("runs the agent with its profile, a private temporary directory and no ambient Google credentials", async (t) => {

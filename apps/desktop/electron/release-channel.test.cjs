@@ -66,7 +66,7 @@ const answer =
   };
 answer.calls = [];
 
-test("the beta feed is the newest published release that carries this platform's beta file, never an empty candidate", async () => {
+test("the beta feed is the newest published beta that carries this platform's beta file, never a stable or an empty candidate", async () => {
   // Draft releases have no files; the atom feed lists the tags of the old per-merge draft candidates first.
   const releases = [
     release("v0.105.1", [], { draft: true }),
@@ -76,15 +76,17 @@ test("the beta feed is the newest published release that carries this platform's
     release("v0.104.1-beta.10", ["beta-mac.yml"]),
     release("v0.103.0", ["beta-mac.yml"]),
   ];
-  assert.equal(await resolveBetaFeed({ fetch: answer(releases), platform: "darwin" }), "https://github.com/the-ptf/milagre-ade/releases/download/v0.104.1");
-  assert.match(answer.calls.at(-1).url, /^https:\/\/api\.github\.com\/repos\/the-ptf\/milagre-ade\/releases\?per_page=\d+$/);
-  // Among betas of one version, the higher build number wins, compared as a number.
+  // v0.104.1 is a stable that still carries a copy of the beta feed (as stables did before v0.230): beta installs
+  // skip it, since it rebuilds a beta they already run. Among betas of one version, the higher build number wins,
+  // compared as a number.
   assert.equal(
-    await resolveBetaFeed({ fetch: answer(releases.filter((item) => item.tag_name !== "v0.104.1")), platform: "darwin" }),
+    await resolveBetaFeed({ fetch: answer(releases), platform: "darwin" }),
     "https://github.com/the-ptf/milagre-ade/releases/download/v0.104.1-beta.10",
   );
-  // Linux reads beta-linux.yml, which only stable releases carry today.
+  assert.match(answer.calls.at(-1).url, /^https:\/\/api\.github\.com\/repos\/the-ptf\/milagre-ade\/releases\?per_page=\d+$/);
+  // Linux reads beta-linux.yml; a stable alone is never a beta feed.
   assert.equal(await resolveBetaFeed({ fetch: answer([release("v0.104.1-beta.3", ["beta-mac.yml"])]), platform: "linux" }), null);
+  assert.equal(await resolveBetaFeed({ fetch: answer([release("v0.104.1", ["latest-mac.yml", "beta-mac.yml"])]), platform: "darwin" }), null);
 });
 
 test("a GitHub API failure is an error the caller can fall back from", async () => {
@@ -93,8 +95,8 @@ test("a GitHub API failure is an error the caller can fall back from", async () 
 
 test("prepareUpdater resolves the beta feed, and falls back to GitHub's lookup when that fails", async () => {
   const updater = fakeUpdater();
-  await prepareUpdater(updater, "beta", { fetch: answer([release("v0.104.1", ["beta-mac.yml"])]), platform: "darwin" });
-  assert.equal(updater.feeds.at(-1).url, "https://github.com/the-ptf/milagre-ade/releases/download/v0.104.1");
+  await prepareUpdater(updater, "beta", { fetch: answer([release("v0.104.1-beta.3", ["beta-mac.yml"])]), platform: "darwin" });
+  assert.equal(updater.feeds.at(-1).url, "https://github.com/the-ptf/milagre-ade/releases/download/v0.104.1-beta.3");
   await prepareUpdater(updater, "beta", {
     fetch: async () => {
       throw new Error("offline");

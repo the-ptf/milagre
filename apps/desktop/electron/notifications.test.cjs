@@ -433,3 +433,32 @@ test("a quiet failed turn (a heartbeat failing again) leaves no alert", () => {
   assert.equal(notifier.notifyCompletion({ chatId: "/shop#2", title: "Fix login" }), true);
   assert.equal(shown.length, 1);
 });
+
+test("notification schedules silence waiting and completion alerts while retaining unread badges", () => {
+  let clock = Date.parse("2026-10-21T12:59Z");
+  const shown = [];
+  const badges = [];
+  const notifier = new AttentionNotifier({
+    now: () => clock,
+    createNotification: () => {
+      shown.push(true);
+      return Object.assign(new EventEmitter(), { show() {}, close() {} });
+    },
+    isAppFocused: () => false,
+    openChat() {},
+    setBadge: (value) => badges.push(value),
+  });
+  notifier.setSchedule({ days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00", timeZone: "America/Toronto" });
+  notifier.observe("/shop#2", question);
+  assert.equal(notifier.notify(notice), false);
+  notifier.observe("/shop#3", { type: "turn-started" });
+  notifier.observe("/shop#3", { type: "turn-completed" });
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#3", title: "Finished" }), false);
+  assert.equal(badges.at(-1), "1");
+  assert.equal(shown.length, 0);
+  clock = Date.parse("2026-10-21T13:00Z");
+  assert.equal(notifier.notifyCompletion({ chatId: "/shop#3", title: "Finished" }), false, "no delayed completion backlog");
+  notifier.observe("/shop#4", question);
+  assert.equal(notifier.notify({ ...notice, chatId: "/shop#4" }), true);
+  assert.equal(shown.length, 1);
+});

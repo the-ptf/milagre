@@ -600,6 +600,7 @@ export type MilagreBridge = {
     value: string,
   ) => Promise<import("@milagre/shared/model").AccountsSnapshot>;
   onAccountsChanged: (callback: () => void) => () => void;
+  onUsageChanged: (callback: (payload: { scopeKey?: string }) => void) => () => void;
   readUsage: (scopeKey?: string) => Promise<UsageSnapshot>;
   /** Whether the Mac stays awake while an agent works (the screen can still sleep). */
   setKeepAwake: (enabled: boolean) => Promise<void>;
@@ -608,6 +609,7 @@ export type MilagreBridge = {
   setNotifyWhenWaiting: (on: boolean) => Promise<void>;
   /** The notification chime (Settings › Notifications): a chat's notification goes silent and the window plays it (onPlayChime). */
   setNotificationChime: (chime: import("@milagre/shared/notification-chimes").NotificationChime) => Promise<void>;
+  setNotificationSchedule: (schedule: import("@milagre/shared/notification-schedule").NotificationSchedule | null) => Promise<void>;
   onPlayChime: (callback: (chime: string) => void) => () => void;
   /** Whether the window lets the blurred desktop show through (macOS). `theme` picks the blur material. */
   setWindowBackground: (background: string) => Promise<void>;

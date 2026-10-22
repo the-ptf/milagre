@@ -3,6 +3,7 @@ import { Text, View } from "react-native";
 import Animated, { Easing, FadeInDown, ReduceMotion } from "react-native-reanimated";
 import type { SkillCatalog } from "@milagre/shared/model";
 import { formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
+import { editImageMentions } from "@milagre/shared/prompt-mentions";
 import { withAlpha } from "@milagre/shared/themes";
 import { promptSkillAtSelection, promptSkillParts, promptSkillQuery } from "@milagre/shared/prompt-skills";
 import type { Client } from "./client";
@@ -32,6 +33,7 @@ export function PromptField({
   onImagePaste,
   commands,
   known,
+  images = 0,
   onMention,
   placeholder = "Message the agent",
 }: {
@@ -44,6 +46,8 @@ export function PromptField({
   commands?: { name: string; description: string }[];
   /** Which typed `@path`s name a Project file (asked of the Mac as they are typed): those are tinted like skills. */
   known?: KnownFiles;
+  /** Number of attached images, so `[Image #N]` tokens tint inline like file mentions. */
+  images?: number;
   /** Called with a picked file's path relative to the Project; the screen attaches it. */
   onMention?: (path: string) => void;
   placeholder?: string;
@@ -70,8 +74,8 @@ export function PromptField({
   const typing = onMention && focused ? fileQueryAt(draft, selection.start)?.query : undefined;
   const lookups = useMentionLookups(client, projectPath, draft, known, typing);
   const marks = useMemo(
-    () => promptParts(draft, { skills: (skills ?? []).map((item) => item.name), files: (path) => !!known?.has(projectPath, path) }),
-    [draft, skills, known, projectPath, lookups],
+    () => promptParts(draft, { skills: (skills ?? []).map((item) => item.name), files: (path) => !!known?.has(projectPath, path), images }),
+    [draft, skills, known, projectPath, lookups, images],
   );
   const [requested, setRequested] = useState<{ draft: string; selection: typeof selection } | null>(null);
   const [rendered, setRendered] = useState({ draft, parts: marks, restore: undefined as typeof selection | undefined });
@@ -181,8 +185,11 @@ export function PromptField({
         spellCheck
         autoCapitalize="sentences"
         onChangeText={(value) => {
-          setRequested(null);
-          onChangeText(value);
+          const edit = editImageMentions(draft, value, images, selection);
+          const caret = edit.caret === null ? null : { start: edit.caret, end: edit.caret };
+          setRequested(caret ? { draft: edit.value, selection: caret } : null);
+          if (caret) setSelection(caret);
+          onChangeText(edit.value);
         }}
         onSelectionChange={(event) => {
           setSelection(event.nativeEvent.selection);
@@ -204,7 +211,10 @@ export function PromptField({
               style={
                 part.kind === "text"
                   ? { color: colors.ink }
-                  : { color: colors.accentInk, backgroundColor: part.kind === "file" ? withAlpha(colors.accent, 0.14) : colors.accentTint }
+                  : {
+                      color: colors.accentInk,
+                      backgroundColor: part.kind === "file" || part.kind === "image" ? withAlpha(colors.accent, 0.14) : colors.accentTint,
+                    }
               }
             >
               {part.text}

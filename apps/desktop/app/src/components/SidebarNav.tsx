@@ -1,6 +1,6 @@
 import type { NamedProjectLink } from "@milagre/shared/model";
 import { ProjectAvatarStack } from "./ProjectAvatarStack";
-import { useWindowChrome } from "../lib/window-chrome";
+import { setBarControlsWidth, useWindowChrome } from "../lib/window-chrome";
 import { ResizeHandle } from "./primitives/ResizeHandle";
 import { useProjectImages } from "../lib/project-images";
 
@@ -27,7 +27,7 @@ import {
   Copy01Icon,
   FolderAddIcon,
   FolderOpenIcon,
-  GitMergeIcon,
+  FrameIcon,
   Link04Icon,
   MoreVerticalIcon,
   PencilEdit02Icon,
@@ -687,7 +687,11 @@ export default memo(function SidebarNav({
       )
     : localScopes;
   // Every Project, hidden ones too, since the project chooser lists them all.
-  const scopeImage = useProjectImages([...projects.map((row) => row.path), ...remote.scopes.filter((scope) => !scope.link).map((scope) => scope.key)]);
+  const scopeImage = useProjectImages([
+    ...projects.map((row) => row.path),
+    ...registeredProjects.map((project) => project.path),
+    ...remote.scopes.filter((scope) => !scope.link).map((scope) => scope.key),
+  ]);
   const showAll = !collapsed;
   const {
     states: scopeStates,
@@ -793,16 +797,32 @@ export default memo(function SidebarNav({
       })
     : [];
   // Collapsed with two or more scopes: one icon per scope instead of the open one's chat initials.
-  const scopeIcon = (scope: (typeof scopes)[number], current: boolean) =>
-    scope.link ? (
-      <ProjectAvatarStack
-        projects={scope.link.projectIds.map((id) => registeredProjects.find((project) => project.id === id) ?? { path: "", name: "Project" })}
-      />
-    ) : (
+  const scopeIcon = (scope: (typeof scopes)[number], current: boolean) => {
+    if (scope.link) {
+      const firstId = scope.link.projectIds[0];
+      const first = (firstId ? registeredProjects.find((project) => project.id === firstId) : undefined) ??
+        (current ? selectedLink?.projects[0] : undefined) ?? { path: "", name: scope.name || "Project" };
+      const fallback = (first.name.trim().slice(0, 1) || scope.name.trim().slice(0, 1) || "P").toUpperCase();
+      return (
+        <span
+          data-rail-link-icon
+          className="relative flex size-6 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface"
+        >
+          <span className="flex size-full items-center justify-center opacity-35">
+            <WorkspaceIcon src={scopeImage(first.path)} fallback={fallback} />
+          </span>
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-surface drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
+            <HugeIcon icon={Link04Icon} size={13} />
+          </span>
+        </span>
+      );
+    }
+    return (
       <span className="flex size-6 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
         <WorkspaceIcon src={current && !selectedLink ? workspace.image : scopeImage(scope.key)} fallback={scope.initial} />
       </span>
     );
+  };
   const railScopes: RailScope[] | null =
     collapsed && scopes.length > 1
       ? scopes.map((scope) => {
@@ -996,26 +1016,103 @@ export default memo(function SidebarNav({
   };
 
   const chrome = useWindowChrome();
+  // The bar's controls end where they end; a diff's Back and a bot's header start after them.
+  const bar = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const node = bar.current;
+    if (!node) return;
+    const report = () => setBarControlsWidth(node.offsetWidth);
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      setBarControlsWidth(0);
+    };
+  }, []);
   return (
     <div className={`relative flex min-h-0 shrink-0 flex-col ${fill ? "h-full" : "h-[600px]"} ${className}`}>
+      {/* The window's top bar, beside its controls: the sidebar toggle, then Canvas, Search, Routines and Link projects.
+          A scrolled chat runs under it, so the group sits on a solid pill. */}
       <div
-        data-sidebar-toggle
-        className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60]"
+        ref={bar}
+        data-sidebar-bar
+        className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60] flex items-center gap-1 rounded-[10px] bg-page"
         style={{ left: chrome.sidebarLeft - 12 }}
       >
-        <Tooltip label={collapsed ? "Expand sidebar" : "Collapse sidebar"} shortcut="⌘B" side="bottom">
-          <button
-            type="button"
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-expanded={!collapsed}
-            onClick={toggle}
-            className="flex size-8 items-center justify-center rounded-[8px] text-ink-3 transition-colors hover:bg-hover-2 hover:text-ink [-webkit-app-region:no-drag]"
-          >
-            <span className="pointer-events-none flex items-center justify-center">
-              <HugeIcon icon={collapsed ? SidebarRight01Icon : SidebarLeft01Icon} size={18} />
-            </span>
-          </button>
-        </Tooltip>
+        <div data-sidebar-toggle>
+          <Tooltip label={collapsed ? "Expand sidebar" : "Collapse sidebar"} shortcut="⌘B" side="bottom">
+            <button
+              type="button"
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!collapsed}
+              onClick={toggle}
+              className="flex size-8 items-center justify-center rounded-[8px] text-ink-3 transition-colors hover:bg-hover-2 hover:text-ink [-webkit-app-region:no-drag]"
+            >
+              <span className="pointer-events-none flex items-center justify-center">
+                <HugeIcon icon={collapsed ? SidebarRight01Icon : SidebarLeft01Icon} size={18} />
+              </span>
+            </button>
+          </Tooltip>
+        </div>
+        {!botsMode && (
+          <div data-sidebar-tools className="flex items-center gap-1 [-webkit-app-region:no-drag]">
+            {onOpenCanvas && (
+              <Tooltip label="Canvas" side="bottom">
+                <button
+                  type="button"
+                  aria-label="Canvas"
+                  aria-pressed={canvasActive}
+                  onClick={onOpenCanvas}
+                  className={`${TOOL_BUTTON} size-8 ${canvasActive ? "bg-hover-2 text-ink" : ""}`}
+                >
+                  <HugeIcon icon={FrameIcon} size={16} />
+                </button>
+              </Tooltip>
+            )}
+            {onOpenCommands && (
+              <Tooltip label="Search commands, chats, and projects" side="bottom" shortcut={`${shortcutModifier}K`}>
+                <button
+                  type="button"
+                  aria-label="Command palette"
+                  aria-keyshortcuts={IS_MAC ? "Meta+K" : "Control+K"}
+                  onClick={onOpenCommands}
+                  className={`${TOOL_BUTTON} size-8`}
+                >
+                  <IconMagnifyingGlass size={16} />
+                </button>
+              </Tooltip>
+            )}
+            {onOpenRoutines && (
+              <Tooltip label="Routines" side="bottom">
+                <button
+                  type="button"
+                  // The dot is drawn only; the label says it, as the phone's dock button does.
+                  aria-label={routinesUnread ? "Routines, unread Runs" : "Routines"}
+                  aria-pressed={routinesActive}
+                  data-sidebar-routines
+                  onClick={onOpenRoutines}
+                  className={`${TOOL_BUTTON} relative size-8 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
+                >
+                  {/* The dot sits on the icon's top-right corner, cut out of it by its ring. */}
+                  <span className="relative flex">
+                    <HugeIcon icon={RepeatIcon} size={16} />
+                    {routinesUnread && (
+                      <span aria-hidden data-routines-unread className="absolute -top-1 -right-1 size-2 rounded-full bg-accent ring-2 ring-canvas" />
+                    )}
+                  </span>
+                </button>
+              </Tooltip>
+            )}
+            {onLinkProject && (
+              <Tooltip label="Link projects" side="bottom">
+                <button type="button" aria-label="Link projects" data-link-projects onClick={onLinkProject} className={`${TOOL_BUTTON} size-8`}>
+                  <HugeIcon icon={Link04Icon} size={16} />
+                </button>
+              </Tooltip>
+            )}
+          </div>
+        )}
       </div>
       <aside
         data-sidebar-collapsed={collapsed}
@@ -1045,75 +1142,6 @@ export default memo(function SidebarNav({
               <BotList snapshot={bots.snapshot} selectedBotId={selectedBotId} onPickBot={(id) => onPickBot?.(id)} collapsed={collapsed} />
             ) : (
               <BotMarksContext.Provider value={botMarks}>
-                {/* Canvas, Search, Routines and Filters in one row; collapsed, a column on the rail. */}
-                <div
-                  data-sidebar-tools
-                  className={`mb-3 flex gap-1 ${collapsed ? "mx-auto w-8 flex-col items-center" : "mx-2 w-[calc(100%-16px)] items-center"}`}
-                >
-                  {onOpenCanvas && (
-                    <Tooltip label="Canvas" side="bottom" className={collapsed ? "" : "min-w-0 flex-1"}>
-                      <button
-                        type="button"
-                        aria-label="Canvas"
-                        aria-pressed={canvasActive}
-                        onClick={onOpenCanvas}
-                        className={`${TOOL_BUTTON} ${collapsed ? "size-8" : "w-full"} ${canvasActive ? "bg-hover-2 text-ink" : ""}`}
-                      >
-                        <HugeIcon icon={GitMergeIcon} size={16} />
-                        {!collapsed && <span className="sidebar-copy min-w-0 truncate">Canvas</span>}
-                      </button>
-                    </Tooltip>
-                  )}
-                  {onOpenCommands && (
-                    <Tooltip
-                      label="Search commands, chats, and projects"
-                      side="bottom"
-                      shortcut={`${shortcutModifier}K`}
-                      className={collapsed ? "" : "min-w-0 flex-1"}
-                    >
-                      <button
-                        type="button"
-                        aria-label="Command palette"
-                        aria-keyshortcuts={IS_MAC ? "Meta+K" : "Control+K"}
-                        onClick={onOpenCommands}
-                        className={`${TOOL_BUTTON} ${collapsed ? "size-8" : "w-full"}`}
-                      >
-                        <IconMagnifyingGlass size={16} />
-                        {!collapsed && <span className="sidebar-copy min-w-0 truncate">Search</span>}
-                      </button>
-                    </Tooltip>
-                  )}
-                  {onOpenRoutines && (
-                    <Tooltip label="Routines" side="bottom">
-                      <button
-                        type="button"
-                        // The dot is drawn only; the label says it, as the phone's dock button does.
-                        aria-label={routinesUnread ? "Routines, unread Runs" : "Routines"}
-                        aria-pressed={routinesActive}
-                        data-sidebar-routines
-                        onClick={onOpenRoutines}
-                        className={`${TOOL_BUTTON} relative size-8 shrink-0 ${routinesActive ? "bg-hover-2 text-ink" : ""}`}
-                      >
-                        <HugeIcon icon={RepeatIcon} size={16} />
-                        {routinesUnread && (
-                          <span aria-hidden data-routines-unread className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-accent ring-2 ring-surface" />
-                        )}
-                      </button>
-                    </Tooltip>
-                  )}
-                  <FiltersButton
-                    projects={pickerProjects}
-                    computers={multi ? computerSections(thisMac, computers) : null}
-                    imageOf={scopeImage}
-                    currentImage={selectedLink ? undefined : workspace.image}
-                    onShowProject={showProject}
-                    show={chatRowShow}
-                    offerComputer={multi}
-                    onShowField={(field, on) => updateSettings({ chatRowShow: { ...chatRowShow, [field]: on } })}
-                    collapsed={collapsed}
-                    className={`${TOOL_BUTTON} size-8 shrink-0`}
-                  />
-                </div>
                 <SidebarLinksProvider scopes={linkScopes} projects={registeredProjects} onAskChat={onAskChat}>
                   {showAll ? (
                     <>
@@ -1282,19 +1310,18 @@ export default memo(function SidebarNav({
                   <IconFolderAdd size={17} />
                 </button>
               </Tooltip>
-              {onLinkProject && (
-                <Tooltip label="Link projects">
-                  <button
-                    type="button"
-                    aria-label="Link projects"
-                    data-link-projects
-                    onClick={onLinkProject}
-                    className={`${BOTTOM_BAR_BUTTON} ${collapsed ? "size-8" : "size-9"}`}
-                  >
-                    <HugeIcon icon={Link04Icon} size={17} />
-                  </button>
-                </Tooltip>
-              )}
+              <FiltersButton
+                projects={pickerProjects}
+                computers={multi ? computerSections(thisMac, computers) : null}
+                imageOf={scopeImage}
+                currentImage={selectedLink ? undefined : workspace.image}
+                onShowProject={showProject}
+                show={chatRowShow}
+                offerComputer={multi}
+                onShowField={(field, on) => updateSettings({ chatRowShow: { ...chatRowShow, [field]: on } })}
+                collapsed={collapsed}
+                className={`${BOTTOM_BAR_BUTTON} ${collapsed ? "size-8" : "size-9"}`}
+              />
               {onAddComputer && onOpenComputerSettings && (
                 <ComputersButton
                   collapsed={collapsed}
@@ -1725,7 +1752,7 @@ function ChatList({
       if (!all.length) return;
       const step = event.key === "ArrowDown" ? 1 : -1;
       const index = all.findIndex((slot) => sameTarget(slot, current.target));
-      over(all[index === -1 ? (step > 0 ? 0 : all.length - 1) : Math.min(all.length - 1, Math.max(0, index + step))]);
+      over(all[index === -1 ? (step > 0 ? 0 : all.length - 1) : Math.min(all.length - 1, Math.max(0, index + step))] ?? null);
     } else if (event.key === " ") {
       event.preventDefault();
       drop();

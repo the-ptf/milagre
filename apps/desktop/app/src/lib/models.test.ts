@@ -155,3 +155,12 @@ test("Antigravity's picker shows one row per model family, with the family's thi
     "gemini-3.1-pro": { efforts: ["low", "high"], defaultEffort: "low", ultracode: false, fastMode: false },
   });
 });
+
+test("an empty refresh preserves the current selection and direct resolution has a maintained fallback", () => {
+  const current = MODEL_CATALOG[1];
+  assert.ok(current);
+  assert.equal(nextSelection([], current, { defaultId: MODEL_CATALOG[0].id, applyDefault: true }), current);
+  assert.equal(resolveModel([], undefined, "codex"), MODEL_CATALOG[0]);
+  assert.equal(resolveModel([], undefined, "claude").provider, "claude");
+  assert.equal(resolveModel([], undefined, "antigravity").provider, "antigravity");
+});

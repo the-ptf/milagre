@@ -11,6 +11,7 @@ interface Env {
   MAX_TOTAL_PAGES?: string;
   MAX_DAILY_PAGES?: string;
   MAX_DAILY_IP_PAGES?: string;
+  MAX_DAILY_IP_UPDATES?: string;
 }
 
 function adapter(storage: DurableObjectStorage): Storage {
@@ -51,17 +52,17 @@ export class DesignPage implements DurableObject {
       storage: adapter(state.storage),
       validate: validateDesignPageSnapshot,
       render: renderDesignPage,
-      admit: async (ip) => {
+      admit: async (ip, replacement) => {
         const result = await env.QUOTA.get(env.QUOTA.idFromName("global-v1")).fetch(
-          new Request("https://quota/admit", { method: "POST", body: JSON.stringify({ ip }), headers: { "Content-Type": "application/json" } }),
+          new Request("https://quota/admit", { method: "POST", body: JSON.stringify({ ip, replacement }), headers: { "Content-Type": "application/json" } }),
         );
         return result.status === 204;
       },
-      reserve: async (ip, bytes) => {
+      reserve: async (ip, bytes, replacement) => {
         const result = await env.QUOTA.get(env.QUOTA.idFromName("global-v1")).fetch(
           new Request("https://quota/reserve", {
             method: "POST",
-            body: JSON.stringify({ ip, bytes }),
+            body: JSON.stringify({ ip, bytes, replacement }),
             headers: { "Content-Type": "application/json" },
           }),
         );
@@ -86,6 +87,7 @@ export class PublishQuota implements DurableObject {
         MAX_TOTAL_PAGES: env.MAX_TOTAL_PAGES,
         MAX_DAILY_PAGES: env.MAX_DAILY_PAGES,
         MAX_DAILY_IP_PAGES: env.MAX_DAILY_IP_PAGES,
+        MAX_DAILY_IP_UPDATES: env.MAX_DAILY_IP_UPDATES,
       }),
     });
   }
@@ -94,8 +96,8 @@ export class PublishQuota implements DurableObject {
     const path = new URL(request.url).pathname;
     if (request.method !== "POST" || !["/reserve", "/admit"].includes(path)) return response("Not found", 404);
     try {
-      const { ip, bytes } = await request.json<{ ip: string; bytes: number }>();
-      return response(null, (await (path === "/admit" ? this.service.admit(ip) : this.service.reserve(ip, bytes))) ? 204 : 429);
+      const { ip, bytes, replacement } = await request.json<{ ip: string; bytes: number; replacement?: boolean }>();
+      return response(null, (await (path === "/admit" ? this.service.admit(ip, replacement) : this.service.reserve(ip, bytes, replacement))) ? 204 : 429);
     } catch {
       return response("Invalid reservation", 400);
     }

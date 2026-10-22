@@ -30,7 +30,8 @@ async function writeContent(projectPath, folder, bytes, extension, resolved) {
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
       const real = await fs.realpath(file);
-      if (!inside(directory, real) || digest(await fs.readFile(real)) !== digest(bytes)) throw new Error("Stored Project content does not match its reference");
+      if (!inside(directory, real) || digest(await fs.readFile(real)) !== digest(bytes))
+        throw new Error("Stored Project content does not match its reference", { cause: error });
     }
   } finally {
     await fs.rm(temporary, { force: true });

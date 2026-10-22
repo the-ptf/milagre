@@ -23,7 +23,8 @@ function peakPercent(windows: { usedPercent: number }[]) {
 /** Plan usage rows for the sidebar footer; the card opens beside the sidebar, expanded or collapsed. */
 export function SidebarUsage({ usage, scope }: { usage: UsageState; scope?: string }) {
   const [openCard, setOpenCard] = useState<OpenCard | null>(null);
-  const { usageDisplay } = useSettings();
+  const { usageDisplay, appearance } = useSettings();
+  const compact = appearance.sidebarUsage === "compact";
   const openTimer = useRef<number | null>(null);
   const closeTimer = useRef<number | null>(null);
   const segments = useRef(new Map<ModelProvider, HTMLButtonElement>());
@@ -106,7 +107,7 @@ export function SidebarUsage({ usage, scope }: { usage: UsageState; scope?: stri
   if (providers.length === 0) return null;
 
   return (
-    <div className="sidebar-usage flex flex-col gap-0.5">
+    <div data-usage-compact={compact || undefined} className="sidebar-usage flex flex-col gap-0.5">
       {providers.map((item) => {
         const expanded = openCard?.provider === item.provider && Boolean(openUsage);
         return (

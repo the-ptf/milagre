@@ -240,7 +240,7 @@ export interface GitRunResult {
   pr?: { url: string; number: number | null; created: boolean };
 }
 
-const capitalize = (text: string) => `${text[0].toUpperCase()}${text.slice(1)}`;
+const capitalize = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
 /** The line saved in the chat after the dialog's steps, e.g. "Committed abc1234 and opened PR #12: <link>". Null when nothing happened. */
 export function gitRunNote({ shortSha, pushedBranch, pr }: GitRunResult): string | null {
@@ -249,8 +249,9 @@ export function gitRunNote({ shortSha, pushedBranch, pr }: GitRunResult): string
   if (shortSha) done.push(`committed ${shortSha}`);
   if (pushedBranch) done.push(`pushed ${pushedBranch}`);
   if (pr?.created) done.push(`opened ${prName}`);
-  if (!done.length) return null;
-  const list = done.length > 1 ? `${done.slice(0, -1).join(", ")} and ${done.at(-1)}` : done[0];
+  const first = done[0];
+  if (first === undefined) return null;
+  const list = done.length > 1 ? `${done.slice(0, -1).join(", ")} and ${done.at(-1)}` : first;
   if (pr?.created) return `${capitalize(list)}: ${pr.url}`;
   // A push to a branch with an open PR updates it.
   if (pr && pushedBranch) return `${capitalize(list)}. ${capitalize(prName)} is updated: ${pr.url}`;

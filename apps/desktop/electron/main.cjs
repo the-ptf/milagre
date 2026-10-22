@@ -260,6 +260,7 @@ async function startDesktop() {
 
   // The window reports the notification chime too, and plays it when a chat's notification asks.
   ipcMain.handle("settings:notification-chime", (_event, chime) => notifier.setChime(chime));
+  ipcMain.handle("settings:notification-schedule", (_event, schedule) => notifier.setSchedule(schedule));
 
   ipcMain.handle("notification:state", (_event, state) => notifier.sync(state));
   ipcMain.handle("notification:completed", (_event, notice) => (Notification.isSupported() ? notifier.notifyCompletion(notice) : false));

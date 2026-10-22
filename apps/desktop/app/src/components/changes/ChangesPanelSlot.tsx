@@ -30,7 +30,7 @@ export function ChangesPanelSlot({ open, children }: { open: boolean; children: 
           transition={scaledSpring(SPRING_LAYOUT, scale)}
         >
           <motion.div
-            className="relative flex min-h-0 pt-[60px] pr-3 pb-3"
+            className="relative flex min-h-0 pt-[var(--window-chrome-height)] pr-3 pb-3"
             style={{ "--changes-panel-width": `${resize.width}px` } as React.CSSProperties}
             initial={{ opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
@@ -38,7 +38,7 @@ export function ChangesPanelSlot({ open, children }: { open: boolean; children: 
             transition={{ duration: scaled(0.24, scale), ease: EASE_OUT }}
           >
             {/* Beside the panel's card only, not the window's top strip above it. */}
-            <div className="absolute top-[60px] bottom-3 left-0">
+            <div className="absolute top-[var(--window-chrome-height)] bottom-3 left-0">
               <ResizeHandle
                 label="Resize changes panel"
                 side="left"

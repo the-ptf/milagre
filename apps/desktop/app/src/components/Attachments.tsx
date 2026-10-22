@@ -40,8 +40,9 @@ export function Attachments({
   ]);
   const sourceOf = (path: string) => (remote ? (remoteSources[path] ?? "") : mediaUrl(path));
   const items = [
-    ...images.map((image) => ({
+    ...images.map((image, index) => ({
       id: image.id,
+      index: index + 1,
       path: image.dataUrl ? undefined : image.path,
       name: image.name,
       src: image.dataUrl ?? sourceOf(image.path ?? ""),
@@ -53,6 +54,7 @@ export function Attachments({
       .filter((path) => !images.some((image) => (image.sourcePath ?? image.path) === path))
       .map((path) => ({
         id: path,
+        index: undefined,
         path,
         name: path.split("/").at(-1) || path,
         src: sourceOf(path),
@@ -108,6 +110,14 @@ export function Attachments({
             </button>
           ) : (
             <FileTile path={item.id} name={item.name} file={localFiles?.get(item.id)} />
+          )}
+          {item.index !== undefined && (
+            <span
+              data-image-badge={item.index}
+              className="pointer-events-none absolute top-1.5 left-1.5 rounded bg-surface/90 px-1 py-px text-[10px] font-semibold leading-tight text-ink shadow-xs"
+            >
+              #{item.index}
+            </span>
           )}
           {item.remove && (
             <button

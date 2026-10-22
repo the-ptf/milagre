@@ -36,9 +36,9 @@ export function appearanceVars(a: Appearance, dark: boolean, installed: (family:
   };
   // The system font (or one that isn't installed) emits nothing, so styles.css's own fallback chain applies as today.
   const ui = fontStack(UI_FONTS, a.uiFont, installed);
-  if (ui !== UI_FONTS[0].stack) vars["--ui-font"] = withBundledNames(ui);
+  if (ui !== UI_FONTS[0]?.stack) vars["--ui-font"] = withBundledNames(ui);
   const mono = fontStack(MONO_FONTS, a.monoFont, installed);
-  if (mono !== MONO_FONTS[0].stack) vars["--mono-font"] = withBundledNames(mono);
+  if (mono !== MONO_FONTS[0]?.stack) vars["--mono-font"] = withBundledNames(mono);
   const colors = DIFF_PAIRS.find((p) => p.id === a.diffColors)?.[dark ? "dark" : "light"];
   if (colors) {
     vars["--diff-add-color"] = colors.add;

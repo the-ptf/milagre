@@ -276,15 +276,13 @@ test("every platform builds the planned commit, and the release tag exists only 
   assert.doesNotMatch(JSON.stringify(buildWorkflow), /gh release/);
 });
 
-test("a stable build mirrors its feed to the beta channel before the feeds are refreshed", () => {
-  const steps = buildWorkflow.jobs["package-macos"].steps;
-  const names = steps.map((step) => step.name);
-  const mirror = steps.find((step) => step.name === "Mirror the stable feed to the beta channel");
-  assert.equal(mirror.if, "inputs.channel == 'latest'");
-  assert.match(mirror.run, /cp release\/latest-mac\.yml release\/beta-mac\.yml/);
-  assert.match(mirror.run, /exit 1/, "a missing stable feed fails the build");
-  assert.ok(names.indexOf("Build macOS installers") < names.indexOf("Mirror the stable feed to the beta channel"));
-  assert.ok(names.indexOf("Mirror the stable feed to the beta channel") < names.indexOf("Refresh feeds after DMG notarization"));
+test("no build mirrors the stable feed to the beta channel", () => {
+  // Stable rebuilds the newest beta's commit, so beta installs must not be offered it.
+  for (const [name, workflow] of [
+    ["build-macos.yml", buildWorkflow],
+    ["publish.yml", publishWorkflow],
+  ])
+    assert.doesNotMatch(JSON.stringify(workflow), /Mirror the stable feed|cp release\/latest[^ ]*\.yml release\/beta/, name);
 });
 
 test("reusable workflows take their secrets by name, never inherited", () => {
@@ -330,7 +328,6 @@ test("Linux builds on the requested channel and only a stable release signs and 
   assert.match(steps.find((step) => step.name === "Build Linux installers").run, /--config\.publish\.channel="\$\{FEED_CHANNEL\}"/);
   for (const name of [
     "Require Linux signing credentials",
-    "Mirror the stable feed to the beta channel",
     "Import repository signing key",
     "Retain previous package downloads",
     "Sign RPM and generate signed repositories",
@@ -338,8 +335,7 @@ test("Linux builds on the requested channel and only a stable release signs and 
     "Install and exercise signed Fedora RPM",
   ])
     assert.equal(steps.find((step) => step.name === name).if, "env.CHANNEL == 'stable'", name);
-  assert.ok(names.indexOf("Build Linux installers") < names.indexOf("Mirror the stable feed to the beta channel"));
-  assert.ok(names.indexOf("Mirror the stable feed to the beta channel") < names.indexOf("Sign RPM and generate signed repositories"));
+  assert.ok(names.indexOf("Build Linux installers") < names.indexOf("Sign RPM and generate signed repositories"));
   for (const name of ["Exercise installed Linux desktop", "Exercise Linux AppImage payload"])
     assert.equal(steps.find((step) => step.name === name).if, undefined, name);
   // The candidate's own finalizer may predate Linux betas, so the feed is checked with the workflow's copy.
@@ -360,7 +356,8 @@ test("a stable release needs every platform it built; a beta needs only macOS", 
   const deploy = publishWorkflow.jobs["deploy-linux-repository"];
   assert.equal(deploy.uses, "./.github/workflows/deploy-linux-repository.yml");
   assert.deepEqual(deploy.needs, ["prepare", "publish"]);
-  assert.equal(deploy.if, "needs.prepare.outputs.channel == 'stable'");
+  // publish follows the skipped windows job; without always() the deploy would be skipped on every stable.
+  assert.equal(deploy.if, "always() && needs.publish.result == 'success' && needs.prepare.outputs.channel == 'stable'");
   assert.equal(deploy.with.tag, "${{ needs.prepare.outputs.release_tag }}");
 });
 
@@ -426,7 +423,7 @@ test("a beta with Linux ships both platforms", (t) => {
 });
 
 test("a stable release without Linux stops before touching the release", (t) => {
-  const f = publishFixture(t, [...macFiles, "latest-mac.yml", "beta-mac.yml"]);
+  const f = publishFixture(t, [...macFiles, "latest-mac.yml"]);
   const result = runStep(publishStep, f.root, { ...f.env, CHANNEL: "stable", RELEASE_TAG: "v9.9.9" });
   assert.notEqual(result.status, 0);
   assert.match(result.stdout, /Linux installers are missing/);
@@ -434,7 +431,7 @@ test("a stable release without Linux stops before touching the release", (t) => 
 });
 
 test("a stable release with Windows enabled but missing stops before touching the release", (t) => {
-  const f = publishFixture(t, [...macFiles, ...linuxFiles, "latest-mac.yml", "beta-mac.yml", "latest-linux.yml", "beta-linux.yml"]);
+  const f = publishFixture(t, [...macFiles, ...linuxFiles, "latest-mac.yml", "latest-linux.yml"]);
   const result = runStep(publishStep, f.root, { ...f.env, CHANNEL: "stable", RELEASE_TAG: "v9.9.9", WINDOWS: "true" });
   assert.notEqual(result.status, 0);
   assert.match(result.stdout, /Windows installers are missing/);
@@ -442,20 +439,20 @@ test("a stable release with Windows enabled but missing stops before touching th
 });
 
 test("a feed check failure stops publication before any upload", (t) => {
-  const f = publishFixture(t, [...macFiles, ...linuxFiles, "latest-mac.yml", "beta-mac.yml", "latest-linux.yml", "beta-linux.yml"]);
+  const f = publishFixture(t, [...macFiles, ...linuxFiles, "latest-mac.yml", "latest-linux.yml"]);
   const result = runStep(publishStep, f.root, { ...f.env, CHANNEL: "stable", RELEASE_TAG: "v9.9.9", FEED_EXIT: "1" });
   assert.notEqual(result.status, 0);
   assert.doesNotMatch(f.calls(), /gh /);
 });
 
 test("a stable release with Windows disabled ships macOS and Linux metadata as the latest release on the beta's commit", (t) => {
-  const f = publishFixture(t, [...macFiles, ...linuxFiles, "latest-mac.yml", "beta-mac.yml", "latest-linux.yml", "beta-linux.yml"]);
+  const f = publishFixture(t, [...macFiles, ...linuxFiles, "latest-mac.yml", "latest-linux.yml"]);
   const result = runStep(publishStep, f.root, { ...f.env, CHANNEL: "stable", RELEASE_TAG: "v9.9.9" });
   assert.equal(result.status, 0, result.stderr);
   const calls = f.calls();
   assert.match(calls, /node scripts\/finalize-update-feeds\.cjs --tag v9\.9\.9 --platform macos,linux --check/);
   assert.match(calls, /npm run package:managers -- --tag v9\.9\.9 --platform macos,linux/);
-  for (const asset of [...macFiles, ...linuxFiles, "latest-mac.yml", "beta-mac.yml", "latest-linux.yml", "beta-linux.yml"])
+  for (const asset of [...macFiles, ...linuxFiles, "latest-mac.yml", "latest-linux.yml"])
     assert.match(calls, new RegExp(`gh release create v9\\.9\\.9 .*release/${asset.replace(/\./g, "\\.")}`), asset);
   assert.match(calls, /release\/package-managers\/SHA256SUMS release\/package-managers\/homebrew\/milagre\.rb/);
   assert.match(calls, /gh release create v9\.9\.9 --target 0123456789abcdef0123456789abcdef01234567 --latest --title v9\.9\.9 --notes-file \S+notes\.md /);
@@ -464,7 +461,7 @@ test("a stable release with Windows disabled ships macOS and Linux metadata as t
 });
 
 test("a stable release with Windows enabled uploads the WinGet manifest with the installer", (t) => {
-  const windowsFiles = ["Milagre-Setup-9.9.9-x64.exe", "latest.yml", "beta.yml"];
+  const windowsFiles = ["Milagre-Setup-9.9.9-x64.exe", "latest.yml"];
   const f = publishFixture(t, [...macFiles, ...linuxFiles, ...windowsFiles]);
   const result = runStep(publishStep, f.root, { ...f.env, CHANNEL: "stable", RELEASE_TAG: "v9.9.9", WINDOWS: "true" });
   assert.equal(result.status, 0, result.stderr);

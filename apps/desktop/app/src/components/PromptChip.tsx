@@ -1,7 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { File01Icon, Folder01Icon, Image01Icon, ReactIcon } from "@hugeicons/core-free-icons";
 import { fileKind } from "@milagre/shared/file-kinds";
-import { skillLabel } from "@milagre/shared/prompt-parts";
+import { imageLabel, skillLabel } from "@milagre/shared/prompt-parts";
 
 // One box for every chip: the same height, padding and line height. The label alone sets the chip's baseline
 // (`LABEL`), so every chip's text sits on the line's baseline and the chip is centred on the line whatever comes first
@@ -59,6 +59,35 @@ export function FileChip({ path, onOpen }: { path: string; onOpen?: () => void }
       type="button"
       data-chip="file"
       title={path}
+      onClick={onOpen}
+      className={`${className} cursor-pointer hover:border-ink-3 focus-visible:outline-2 focus-visible:outline-accent-ink`}
+    >
+      {content}
+    </button>
+  );
+}
+
+/** An inline image position (`[Image #1]`): its 1-based label, with the image's name on hover and preview on click when `onOpen` is given. */
+export function ImageChip({ index, name, onOpen }: { index: number; name?: string; onOpen?: () => void }) {
+  const label = imageLabel(index);
+  const className = `${CHIP} border-line-strong bg-hover text-ink`;
+  const content = (
+    <>
+      <HugeiconsIcon icon={Image01Icon} size={ICON_SIZE} strokeWidth={1.8} color="#26a69a" aria-hidden className="shrink-0" />
+      <span className={LABEL}>{label}</span>
+    </>
+  );
+  if (!onOpen)
+    return (
+      <span data-chip="image" title={name || label} className={className}>
+        {content}
+      </span>
+    );
+  return (
+    <button
+      type="button"
+      data-chip="image"
+      title={name || label}
       onClick={onOpen}
       className={`${className} cursor-pointer hover:border-ink-3 focus-visible:outline-2 focus-visible:outline-accent-ink`}
     >

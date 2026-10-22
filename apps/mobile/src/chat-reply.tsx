@@ -10,7 +10,7 @@ import { activitySummary, replyActivity, unspokenThought } from "@milagre/shared
 import { FileChip } from "./file-chip";
 import { promptParts } from "@milagre/shared/prompt-parts";
 import { isMentionOfFile, mentionedFile, mentionedFiles } from "@milagre/shared/prompt-mentions";
-import { FileMentionChip, SkillChip } from "./prompt-chip";
+import { FileMentionChip, ImageMentionChip, SkillChip } from "./prompt-chip";
 import { promptAccessibilityLabel } from "./prompt-label";
 import { useSkillNames } from "./use-skill-names";
 import { Markdown } from "./markdown";
@@ -78,12 +78,17 @@ function open(images: ViewerImage[], index: number, thumbs: (ViewInstance | null
   });
 }
 
-/** Your photos above your bubble: one large, or tiles; tapping opens the full-screen viewer. */
-function Photos({ message, media }: { message: ChatMessage; media: MediaSource }) {
-  const photos: ViewerImage[] = (message.images || []).map((photo) => ({
+function viewerPhotos(message: ChatMessage, media: MediaSource): ViewerImage[] {
+  return (message.images || []).map((photo) => ({
     name: photo.name,
     source: photo.dataUrl ? { uri: photo.dataUrl } : photo.path ? media(photo.path) : { uri: "" },
   }));
+}
+
+/** Your photos above your bubble: one large, or tiles; tapping opens the full-screen viewer. */
+function Photos({ message, media }: { message: ChatMessage; media: MediaSource }) {
+  const { colors } = useTheme();
+  const photos = viewerPhotos(message, media);
   const thumbs = useRef<(ViewInstance | null)[]>([]);
   if (!photos.length) return null;
   const single = photos.length === 1;
@@ -100,6 +105,21 @@ function Photos({ message, media }: { message: ChatMessage; media: MediaSource }
           onPress={() => open(photos, index, thumbs.current)}
         >
           <Thumbnail source={photo.source} size={single ? 220 : 130} />
+          <View
+            style={{
+              position: "absolute",
+              left: 6,
+              top: 6,
+              borderRadius: 5,
+              paddingHorizontal: 5,
+              paddingVertical: 1,
+              backgroundColor: colors.surface,
+              borderWidth: 1,
+              borderColor: colors.line,
+            }}
+          >
+            <Text style={{ fontSize: 10, fontWeight: "600", color: colors.ink }}>#{index + 1}</Text>
+          </View>
         </Pressable>
       ))}
     </View>
@@ -260,9 +280,10 @@ export const ChatReply = memo(function ChatReply({
   const skillNames = useSkillNames(message?.role === "user" ? basePath : undefined);
   const userText = message?.role === "user" ? (run?.text ?? message.body ?? "") : "";
   const userFiles = message?.files;
+  const userImages = message?.images?.length ?? 0;
   const userParts = useMemo(
-    () => promptParts(userText, { skills: skillNames, files: isMentionOfFile(userFiles ?? [], basePath ?? "") }),
-    [userText, skillNames, userFiles, basePath],
+    () => promptParts(userText, { skills: skillNames, files: isMentionOfFile(userFiles ?? [], basePath ?? ""), images: userImages }),
+    [userText, skillNames, userFiles, basePath, userImages],
   );
   const [toolCallDisplay] = useToolCallDisplay();
   const savedMedia = useCallback((path: string) => media(message?.images?.find((image) => image.sourcePath === path)?.path || path), [media, message?.images]);
@@ -354,6 +375,8 @@ export const ChatReply = memo(function ChatReply({
                     <SkillChip key={index} name={part.name} />
                   ) : part.kind === "file" ? (
                     <FileMentionChip key={index} path={part.path} onOpen={() => openMention(part.path, attached, root)} />
+                  ) : part.kind === "image" ? (
+                    <ImageMentionChip key={index} index={part.index} onOpen={() => open(viewerPhotos(message, media), part.index - 1, [])} />
                   ) : (
                     part.text
                   ),

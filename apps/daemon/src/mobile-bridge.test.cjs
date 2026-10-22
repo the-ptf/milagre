@@ -600,7 +600,7 @@ test("mobile uploads are private, bounded and scoped to an open Project", async 
   assert.equal((await upload({ ...payload, base64: "invalid!" })).status, 400);
   assert.equal((await upload({ ...payload, base64: Buffer.alloc(5 * 1024 * 1024 + 1).toString("base64") })).status, 413);
   const next = (await (await upload(payload)).json()).result;
-  assert.notEqual(next.path, file.path);
+  assert.equal(next.path, file.path, "identical uploads reuse the completed file");
 });
 
 test("a chat screenshot outside the Project is served privately and retained after its temporary source is removed", async (t) => {
@@ -1684,4 +1684,20 @@ test("phone checkpoint RPCs preview and restore a task with explicit confirmatio
 
 test("a phone may read a webhook Routine's URL and rotate it", () => {
   for (const method of ["routines:hook", "routines:rotate-hook"]) assert.ok(METHODS.has(method), method);
+});
+
+test("completed usage reads notify Project and Project-less phone views", async (t) => {
+  const unavailable = (provider) => async () => ({ provider, status: "unavailable", windows: [] });
+  const { project, bridge, rpc, token } = await fixture(t, {
+    runtimeOptions: { usageReaders: { claude: unavailable("claude"), codex: unavailable("codex"), antigravity: unavailable("antigravity") } },
+  });
+  await rpc("project:open", [project]);
+  const auth = { authorization: `Bearer ${token}` };
+  const projectPhone = await openLive(bridge, project, auth);
+  const settingsPhone = await openLive(bridge, "", auth);
+  assert.equal((await rpc("usage:read", [project])).status, 200);
+  await until(() => projectPhone.messages.includes("usage") && settingsPhone.messages.includes("usage"));
+  assert.equal((await rpc("usage:cached", [project])).status, 200);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(projectPhone.messages.filter((type) => type === "usage").length, 1);
 });

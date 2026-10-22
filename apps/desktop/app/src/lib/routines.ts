@@ -148,7 +148,12 @@ function merge(): RoutinesSnapshot {
     enabled: anyOn ? true : local.enabled,
     routines: reads.flatMap((read) => read.routines),
     error: local.error,
-    byComputer: Object.fromEntries(ids.filter((id) => byComputer[id]).map((id) => [id, byComputer[id]])),
+    byComputer: Object.fromEntries(
+      ids.flatMap((id) => {
+        const read = byComputer[id];
+        return read ? [[id, read]] : [];
+      }),
+    ),
   };
 }
 

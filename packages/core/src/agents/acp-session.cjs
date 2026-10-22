@@ -22,6 +22,7 @@ const { sessionInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, lo
 const { PendingPermissions, WorkspaceAccess, capText, insideWorkspace, isAcpPlanToolPermission, unwrapShell } = require("./permissions.cjs");
 const { PendingQuestions } = require("./questions.cjs");
 const { antigravityAcp, makeTempDir } = require("./antigravity-acp.cjs");
+const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
 // A chat's session with an Agent Client Protocol agent (docs/adr/0006-antigravity-over-acp.md). The public
 // surface matches CodexSession, which SessionManager and ChatHost rely on. What is specific to one agent
@@ -269,8 +270,14 @@ class AcpSession {
         type: "text",
         text: `<milagre_instructions>\n${sessionInstructions(this)}\n\n${workspaceNote(this.cwd, this.access.roots)}\n</milagre_instructions>`,
       });
-    blocks.push({ type: "text", text: prompt });
-    for (const image of images) blocks.push({ type: "image", mimeType: image.mime, data: image.base64 ?? Buffer.from(image.bytes).toString("base64") });
+    for (const block of promptImageBlocks(prompt, images)) {
+      if (block.type === "text") {
+        blocks.push({ type: "text", text: block.text });
+      } else {
+        const image = block.image;
+        blocks.push({ type: "image", mimeType: image.mime, data: image.base64 ?? Buffer.from(image.bytes).toString("base64") });
+      }
+    }
     this.instructionsSent = true;
     this.subagents?.beginTurn();
     this.emit({ type: "turn-started", turnId });

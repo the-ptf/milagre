@@ -1285,6 +1285,7 @@ test("mobile skill input preserves edits and clears its description when the car
       client: {},
       projectPath: "/project",
       draft,
+      images: 1,
       onChangeText: (value) => {
         draft = value;
       },
@@ -1328,6 +1329,9 @@ test("mobile skill input preserves edits and clears its description when the car
   assert.deepEqual({ ...field().props.selection }, { start: 4, end: 9 }, "catalog recoloring preserves the native text selection");
   field().props.onChangeText("run /tldr please");
   assert.equal(field().props.selection, undefined, "ordinary typing keeps native caret control");
+  draft = "see [Image #1] next";
+  field().props.onChangeText("see [Image #1 next");
+  assert.equal(draft, "see  next", "Backspace removes the whole image reference");
 });
 
 function markdownHost({ media, basePath } = {}) {
@@ -6585,10 +6589,10 @@ test("the mobile paste action adds a clipboard screenshot to the draft", async (
   menu.props.onSelect("paste");
   await settle();
   assert.equal(screen.session.attachments["/p#new:1"][0].image.dataUrl, "data:image/jpeg;base64,YQ==");
-  assert.equal(screen.field().value, "first message");
+  assert.equal(screen.field().value, "first message [Image #1] ");
 });
 
-test("native image paste adds a screenshot without changing the message text", async () => {
+test("native image paste adds a screenshot and its inline reference", async () => {
   const source = { uri: "file:///native.png", width: 1170, height: 2532 };
   const image = {
     id: "paste",
@@ -6610,7 +6614,7 @@ test("native image paste adds a screenshot without changing the message text", a
   await settle();
   assert.equal(screen.session.attachments["/p#new:1"].length, 1);
   assert.equal(screen.session.attachments["/p#new:1"][0].image.dataUrl, "data:image/jpeg;base64,YQ==");
-  assert.equal(screen.field().value, "first message");
+  assert.equal(screen.field().value, "first message [Image #1] ");
 });
 
 test("the Ultracode announcer plays once and pauses when its overlay closes", async () => {
@@ -9146,6 +9150,13 @@ test("mobile Appearance Custom theme switch selects Custom on, Milagre Blue off,
   );
   textSize.props.onChange("large");
   assert.deepEqual(JSON.parse(JSON.stringify(saved.at(-1))), { textSize: "large" });
+  const providerIcons = find(render(), (n) => n.props?.label === "Provider icons");
+  assert.deepEqual(
+    providerIcons.props.options.map((option) => option.value),
+    ["original", "simplified"],
+  );
+  providerIcons.props.onChange("simplified");
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.at(-1))), { providerIcons: "simplified" });
   assert.equal(
     find(render(), (n) => n.type === "Segmented" && n.props?.label !== "Mode"),
     undefined,
@@ -12548,4 +12559,86 @@ test("provider update cards on the phone install the advertised release on the c
   const failed = ProviderUpdateNotice();
   assert.equal(find(failed, (node) => node.props?.accessibilityRole === "alert").props.children, "Permission denied");
   assert.equal(find(failed, (node) => node.type === "PillButton" && node.props.title === "Retry").props.disabled, false);
+});
+
+test("provider logos preserve their shapes and use white or black in Simplified mode", () => {
+  const react = hookHost();
+  let scheme = "dark";
+  let style = "simplified";
+  const shapes = require("../packages/shared/src/provider-logos.ts");
+  const svg = Object.fromEntries(
+    ["default", "Circle", "Defs", "FeGaussianBlur", "Filter", "G", "LinearGradient", "Mask", "Path", "Stop"].map((name) => [
+      name,
+      name === "default" ? "Svg" : name,
+    ]),
+  );
+  const { ProviderLogo } = load("icons.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": {},
+    "react-native-svg": { ...svg, __esModule: true },
+    "@milagre/shared/provider-logos": shapes,
+    "@hugeicons/react-native": {},
+    "./theme": { useTheme: () => ({ scheme, settings: { providerIcons: style } }) },
+  });
+  const render = (provider, inverted = false) => {
+    react.begin();
+    return ProviderLogo({ provider, inverted });
+  };
+  for (const provider of ["claude", "codex", "antigravity"]) {
+    let tree = render(provider);
+    const path = find(tree, (node) => node.type === "Path");
+    assert.equal(path.props.d, shapes.providerLogoPath(provider));
+    assert.equal(path.props.fill, "#fff");
+    assert.equal(
+      find(tree, (node) => node.type === "Defs"),
+      undefined,
+    );
+    scheme = "light";
+    assert.equal(find(render(provider), (node) => node.type === "Path").props.fill, "#000");
+    assert.equal(find(render(provider, true), (node) => node.type === "Path").props.fill, "#fff", "selected chips keep contrast in light mode");
+    scheme = "dark";
+    assert.equal(find(render(provider, true), (node) => node.type === "Path").props.fill, "#000", "selected chips keep contrast in dark mode");
+  }
+  style = "original";
+  assert.equal(find(render("claude"), (node) => node.type === "Path").props.fill, shapes.CLAUDE_LOGO.fill);
+  assert.ok(find(render("codex"), (node) => node.type === "LinearGradient"));
+  assert.ok(find(render("antigravity"), (node) => node.type === "Mask"));
+});
+
+test("phone notification schedule controls save days, overnight hours, timezone and anytime", () => {
+  const state = { schedule: null };
+  const saved = [];
+  const { NotificationScheduleSetting } = load("notification-schedule-setting.tsx", {
+    "react-native": { Text: "Text", View: "View" },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/notification-schedule": require("@milagre/shared/notification-schedule"),
+    "./push": {
+      usePush: () => ({
+        state,
+        busy: false,
+        preferences: (value) => {
+          saved.push(value);
+          Object.assign(state, value);
+        },
+      }),
+    },
+    "./ui": { ...uiHooks, PillButton: "PillButton", PullDown: "PullDown", Toggle: "Toggle" },
+  });
+  const render = () => NotificationScheduleSetting();
+  const toggle = (title) => find(render(), (node) => node.type === "Toggle" && node.props.title === title);
+  toggle("Notification schedule").props.onPress();
+  assert.deepEqual([...state.schedule.days], [1, 2, 3, 4, 5]);
+  toggle("Sat").props.onPress();
+  assert.deepEqual([...state.schedule.days], [1, 2, 3, 4, 5, 6]);
+  const pick = (label, value) => find(render(), (node) => node.type === "PullDown" && node.props.label === label).props.onSelect(value);
+  pick("Start time", "22:00");
+  pick("End time", "06:00");
+  pick("Timezone", "UTC");
+  assert.equal(state.schedule.start, "22:00");
+  assert.equal(state.schedule.end, "06:00");
+  assert.equal(state.schedule.timeZone, "UTC");
+  assert.match(textOf(render()), /Ends the next day/);
+  toggle("Notification schedule").props.onPress();
+  assert.equal(saved.at(-1).schedule, null);
 });

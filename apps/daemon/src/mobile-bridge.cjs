@@ -60,6 +60,7 @@ const METHODS = new Set([
   "linear:issues",
   "linear:worktree-issues",
   "chat:runs",
+  "chat:send-status",
   "chat:inbox",
   "chat:ports",
   "checkpoint:list",
@@ -374,20 +375,6 @@ const projectRuns = ({ runs, seq }, projectPath) => ({
 });
 const failure = (status, message) => Object.assign(new Error(message), { status });
 const ATTACHMENT_QUOTA = 200 * 1024 * 1024;
-/** Bytes of regular files under `folder`, symlinks not followed; 0 when it does not exist yet. */
-async function folderBytes(folder) {
-  let entries;
-  try {
-    entries = await fs.readdir(folder, { recursive: true, withFileTypes: true });
-  } catch (error) {
-    if (error.code === "ENOENT") return 0;
-    throw error;
-  }
-  let total = 0;
-  for (const entry of entries) if (entry.isFile()) total += (await fs.lstat(path.join(entry.parentPath, entry.name))).size;
-  return total;
-}
-
 // A native-client bridge behind loopback or an explicitly configured TLS proxy. All state stays in the Unix-socket
 // daemon; closing this listener must never stop that runtime or its turns.
 // `allowedRoot` (the review demo sets it): every path a request names must resolve inside that folder, or it is a 403.
@@ -407,12 +394,6 @@ async function startMobileBridge({
   const confine = allowedRoot === undefined ? null : createConfinement({ allowedRoot, uploadsDir: path.join(dataDir, "mobile-attachments") });
   if (!Number.isSafeInteger(attachmentQuota) || attachmentQuota < 0) throw new Error("Invalid attachment quota");
   await confine?.root();
-  // Confined, the paths handed back must be canonical, or the phone could not attach what it uploaded.
-  const uploads = path.join(confine ? await fs.realpath(dataDir) : dataDir, "mobile-attachments");
-  // Confined: the bytes already uploaded, read once, then counted as uploads land. Uploads take turns, so two at once
-  // cannot both fit in the room that is left for one.
-  let uploadedBytes = null;
-  let uploadTurn = Promise.resolve();
   const expected = Buffer.from(`Bearer ${token}`);
   const client = await connect({ dataDir });
   // The bridge only needs to know a state changed, so it takes patches: the host then encodes no whole state for it. A
@@ -538,6 +519,7 @@ async function startMobileBridge({
       // A snapshot carries the runs too, so "project" covers "runs".
       const types = [];
       if (entry.kinds.has("accounts")) types.push("accounts");
+      if (entry.kinds.has("usage")) types.push("usage");
       if (entry.kinds.has("mcp")) types.push("mcp");
       if (entry.kinds.has("designs")) types.push("designs");
       if (entry.kinds.has("links")) types.push("links");
@@ -588,6 +570,7 @@ async function startMobileBridge({
     followState(channel, payload);
     for (const entry of live) {
       if (channel === "accounts:changed" && !confine) signal(entry, "accounts", 0);
+      if (channel === "usage:changed" && !confine) signal(entry, "usage", 0);
       if (channel === "mcp:changed" && !confine) signal(entry, "mcp", 0);
       if (channel === "designs:enabled-changed") signal(entry, "designs", 0);
       // Every socket is told, a confined phone's Project socket included: it is the only one such a phone may open (a
@@ -783,42 +766,13 @@ async function startMobileBridge({
             throw failure(400, "Invalid JSON");
           }
           if (target.pathname === "/attachments") {
-            const { projectPath, name, base64 } = request || {};
-            if (typeof projectPath !== "string" || typeof name !== "string" || typeof base64 !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64))
-              throw failure(400, "Invalid attachment");
-            const bytes = Buffer.from(base64, "base64");
-            if (bytes.length > 5 * MAX_BODY) throw failure(413, "Each file must be 5 MiB or smaller");
-            if (!bytes.length || bytes.toString("base64") !== base64) throw failure(400, "Invalid attachment data");
+            const { projectPath, name, base64, reuse } = request || {};
+            if (typeof projectPath !== "string") throw failure(400, "Invalid attachment");
             await confine?.check(projectPath);
             await scopeRoots(projectPath);
-            const folder = path.join(uploads, randomUUID());
-            const filename = path
-              .basename(name.replaceAll("\\", "/"))
-              // oxlint-disable-next-line no-control-regex -- strips control characters from an uploaded file name
-              .replace(/[\x00-\x1f\x7f]/g, "_")
-              .slice(0, 180);
-            if (!filename || filename === "." || filename === "..") throw failure(400, "Choose a file with a name");
-            const save = async () => {
-              if (confine) {
-                uploadedBytes ??= await folderBytes(uploads);
-                if (uploadedBytes + bytes.length > attachmentQuota) throw failure(507, "This demo computer is full.");
-              }
-              await fs.mkdir(folder, { recursive: true, mode: 0o700 });
-              const destination = path.join(folder, filename);
-              try {
-                await fs.writeFile(destination, bytes, { flag: "wx", mode: 0o600 });
-              } catch (error) {
-                await fs.rm(folder, { recursive: true, force: true });
-                throw error;
-              }
-              if (confine) uploadedBytes += bytes.length;
-              return { path: destination, name: filename };
-            };
-            if (confine) {
-              const turn = uploadTurn.then(save);
-              uploadTurn = turn.catch(() => {});
-              result = await turn;
-            } else result = await save();
+            const outcome = await client.call("attachment:upload", [{ projectPath, name, base64, reuse, ...(confine ? { quota: attachmentQuota } : {}) }]);
+            if (outcome.error) throw failure(outcome.error.status, outcome.error.message);
+            result = outcome.file;
           } else {
             if (request?.v !== 1 || typeof request.method !== "string" || !Array.isArray(request.args))
               throw failure(400, "Expected version 1, method and args array");

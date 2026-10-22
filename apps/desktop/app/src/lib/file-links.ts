@@ -26,12 +26,13 @@ const PATH_CHARS = /^[\w.@+()[\]-]+(\/[\w.@+()[\]-]+)*$/;
  */
 export function fileLinkTarget(code: string): FileLinkTarget | null {
   const match = /^(.+?)(?::(\d+)(?::(\d+)|-\d+)?)?$/.exec(code);
-  if (!match) return null;
+  if (!match?.[1]) return null;
   const path = match[1];
   if (!PATH_CHARS.test(path) || path.startsWith("-") || path.endsWith("/")) return null;
   const segments = path.split("/");
   if (segments.some((segment, index) => segment === ".." || (segment === "." && index > 0))) return null;
   const name = segments[segments.length - 1];
+  if (!name) return null;
   const dot = name.lastIndexOf(".");
   if (dot === -1 || dot === name.length - 1) return null;
   const extension = name.slice(dot + 1).toLowerCase();

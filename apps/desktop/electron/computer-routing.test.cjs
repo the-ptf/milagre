@@ -8,6 +8,27 @@ const ID = "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
 const OTHER = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const LINK = "f1713d69-569d-405b-a0b2-19bfdf565a76";
 
+test("remote simulator discovery and attachment results retain the Chat's computer", () => {
+  const device = { id: "simulator-1", name: "iPhone", platform: "ios", version: "27" };
+  for (const [chatId, remoteChat] of [
+    ["/p#2", `${ID}|/p#2`],
+    [`milagre-link:${LINK}#3`, `milagre-link:${ID}|${LINK}#3`],
+  ]) {
+    for (const method of ["simulator:list", "simulator:attach", "simulator:detach"]) {
+      const response = { chatId, devices: [device], attached: [device], available: [], supported: true };
+      const result = qualifyResult(ID, method, response);
+      // SimulatorTrack rejects discovery when its returned Chat differs from the one on screen.
+      assert.equal(result.chatId, remoteChat, method);
+      assert.deepEqual(result.devices, [device]);
+      assert.deepEqual(stripComputer(ID, result), response);
+      assert.equal(response.chatId, chatId);
+    }
+  }
+  assert.equal(qualifyResult(ID, "simulator:list", null), null);
+  const viewer = { viewerId: "private-viewer", device, iceServers: [] };
+  assert.deepEqual(qualifyResult(ID, "simulator:open", viewer), viewer);
+});
+
 test("inbox actions retain the owning computer for Project and Link Chats", () => {
   const rows = [
     { key: "/p#2", projectPath: "/p", status: "question" },
@@ -190,4 +211,11 @@ test("another computer's Routines, Runs and targets come back naming it, and its
     "abcd1234",
     { target: { kind: "chat", chatId: "/p#3" } },
   ]);
+});
+
+test("remote usage is readable while every account mutation remains local", () => {
+  for (const method of ["usage:read", "usage:cached"]) assert.equal(isLocalOnly(method), false, method);
+  for (const method of ["accounts:add", "accounts:select", "accounts:login", "accounts:cancel", "accounts:remove", "accounts:assign", "chat:limit-switch"])
+    assert.equal(isLocalOnly(method), true, method);
+  assert.deepEqual(qualifyEvent(ID, "usage:changed", { scopeKey: "/p" }), { scopeKey: `${ID}|/p` });
 });

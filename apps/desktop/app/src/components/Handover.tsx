@@ -98,6 +98,7 @@ export function HandoffBriefDialog({ title, brief, onClose }: { title: string; b
     if (!focusable.length) return event.preventDefault();
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
+    if (!first || !last) return;
     const active = document.activeElement;
     if (event.shiftKey && (active === first || active === panelRef.current)) {
       event.preventDefault();

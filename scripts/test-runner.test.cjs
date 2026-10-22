@@ -63,14 +63,46 @@ test("--changed is rejected until it is implemented", () => {
   assert.throws(() => parseArgs(["--changed"]), /--changed is not implemented yet; use --only or --workspace/);
 });
 
-test("a platform skip prints the manifest reason when it has one", () => {
-  const electron = ["scripts/test-chat-layout.cjs", "scripts/test-windows-cli.cjs"];
+test("a platform skip prints the manifest reason when it has one", (t) => {
+  // Keep this assertion independent of the real regressions temporarily excluded on a platform.
+  MANIFEST["test-platform-reason.cjs"] = { platforms: ["darwin"], reason: "fixture needs macOS" };
+  t.after(() => delete MANIFEST["test-platform-reason.cjs"]);
+  const electron = ["scripts/test-platform-reason.cjs", "scripts/test-windows-cli.cjs"];
   const { skipped } = selectTests({ unit: [], electron, filters: { ...parseArgs(["--electron"]), platform: "linux", commandExists: () => true } });
   assert.deepEqual(skipped, [
-    { file: "scripts/test-chat-layout.cjs", reason: `needs darwin: ${MANIFEST["test-chat-layout.cjs"].reason}` },
+    { file: "scripts/test-platform-reason.cjs", reason: "needs darwin: fixture needs macOS" },
     { file: "scripts/test-windows-cli.cjs", reason: "needs win32" },
   ]);
-  assert.match(MANIFEST["test-chat-layout.cjs"].reason, /#\d+/);
+});
+
+for (const name of ["test-sidebar-usage", "test-command-palette", "test-prompt-skills", "test-chat-layout", "test-chat-send-feedback"]) {
+  test(`Linux runs ${name} in default, Electron-only and targeted selections and exactly one CI shard`, () => {
+    const file = `scripts/${name}.cjs`;
+    const electron = discoverElectronChecks(root);
+    const select = (args) => selectTests({ unit: [], electron, filters: { ...parseArgs(args), platform: "linux", commandExists: () => true } });
+    for (const args of [[], ["--electron"], ["--only", name]]) {
+      const selected = select(args);
+      assert.ok(selected.electron.includes(file));
+      assert.ok(!selected.skipped.some((item) => item.file === file));
+    }
+    const shards = Array.from({ length: 12 }, (_, i) => select(["--electron", "--shard", `${i + 1}/12`]));
+    assert.equal(shards.flatMap((shard) => shard.electron).filter((item) => item === file).length, 1);
+  });
+}
+
+test("Subagents runs on macOS and Linux in default, Electron-only, targeted and sharded selections", () => {
+  const file = "scripts/test-subagents.cjs";
+  const electron = discoverElectronChecks(root);
+  for (const platform of ["darwin", "linux"]) {
+    const select = (args) => selectTests({ unit: [], electron, filters: { ...parseArgs(args), platform, commandExists: () => true } });
+    for (const args of [[], ["--electron"], ["--only", "test-subagents"]]) {
+      const selected = select(args);
+      assert.ok(selected.electron.includes(file), `${platform}: ${JSON.stringify(args)}`);
+      assert.ok(!selected.skipped.some((item) => item.file === file));
+    }
+    const shards = Array.from({ length: 12 }, (_, i) => select(["--electron", "--shard", `${i + 1}/12`]));
+    assert.equal(shards.flatMap((shard) => shard.electron).filter((item) => item === file).length, 1, platform);
+  }
 });
 
 test("an Electron check is retried once, only on Linux CI", () => {

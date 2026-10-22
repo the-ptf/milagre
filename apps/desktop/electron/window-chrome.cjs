@@ -11,7 +11,7 @@ function windowChrome(platform, overlay = false) {
   if (platform === "darwin") {
     return {
       controls: "leading",
-      options: { titleBarStyle: "hidden", titleBarOverlay: { height: 60 }, trafficLightPosition: { x: 24, y: 24 } },
+      options: { titleBarStyle: "hidden", titleBarOverlay: { height: 44 }, trafficLightPosition: { x: 16, y: 16 } },
     };
   }
   if (platform === "win32" || overlay) {
@@ -19,7 +19,7 @@ function windowChrome(platform, overlay = false) {
       controls: "overlay",
       options: {
         titleBarStyle: "hidden",
-        titleBarOverlay: { height: 60, ...(platform === "win32" ? { color: "#00000000", symbolColor: "#000000" } : {}) },
+        titleBarOverlay: { height: 44, ...(platform === "win32" ? { color: "#00000000", symbolColor: "#000000" } : {}) },
         ...(platform === "win32" ? { autoHideMenuBar: true } : {}),
       },
     };

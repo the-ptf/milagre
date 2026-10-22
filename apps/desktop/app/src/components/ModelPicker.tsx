@@ -62,6 +62,8 @@ export function ModelPicker({
   onUltracodeChange: (on: boolean) => void;
 }) {
   const levels = capability.efforts;
+  const lowest = levels[0];
+  const highest = levels.at(-1);
   const hasSettings = levels.length > 0 || capability.fastMode || capability.ultracode;
   const index = Math.max(0, levels.indexOf(effort ?? ""));
   const current = levels[index];
@@ -175,7 +177,7 @@ export function ModelPicker({
           {levels.length > 0 && current && (
             <div className="flex flex-col">
               <span className="pb-2.5 text-[10.5px] font-semibold tracking-[0.02em] text-ink-3 uppercase">Thinking effort</span>
-              {levels.length > 1 ? (
+              {levels.length > 1 && lowest !== undefined && highest !== undefined ? (
                 <>
                   <RangeSlider
                     label="Thinking effort"
@@ -183,12 +185,15 @@ export function ModelPicker({
                     min={0}
                     max={levels.length - 1}
                     step={1}
-                    onValueChange={(value) => onEffortChange(levels[value])}
-                    formatValueText={(value) => effortCopy(levels[value]).name}
+                    onValueChange={(value) => {
+                      const level = levels[value];
+                      if (level !== undefined) onEffortChange(level);
+                    }}
+                    formatValueText={(value) => (levels[value] === undefined ? "" : effortCopy(levels[value]).name)}
                   />
                   <div className="flex justify-between pt-1.5 text-[10px] text-ink-3">
-                    <span>{effortCopy(levels[0]).name}</span>
-                    <span>{effortCopy(levels[levels.length - 1]).name}</span>
+                    <span>{effortCopy(lowest).name}</span>
+                    <span>{effortCopy(highest).name}</span>
                   </div>
                 </>
               ) : null}

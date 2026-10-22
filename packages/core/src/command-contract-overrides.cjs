@@ -1,4 +1,5 @@
 // Owner/transport operations without a desktop form. UI operations are generated from preload + bridge types.
+const schedule = require("./command-contracts.json").commands["settings:notification-schedule"].parameters[0].schema;
 const s = { type: "string" },
   b = { type: "boolean" },
   n = { type: "number" },
@@ -18,6 +19,8 @@ const scope = [p("scope")],
 module.exports = {
   "project:open": [p("folder"), p("options", object({ takeNotice: b }, []), true)],
   "chat:ports": [p("chatId")],
+  "chat:send-status": [p("projectPath"), p("clientMessageId")],
+  "attachment:upload": request({ projectPath: s, name: s, base64: s, reuse: s, quota: n }, ["projectPath"]),
   "chat:inbox": [],
   "link:workspace-roots": [p("requested")],
   "project:plain-root": [p("root")],
@@ -29,7 +32,7 @@ module.exports = {
   "devices:take-notices": [],
   "devices:confirm-notices": [p("claim")],
   "peer:routes": [],
-  "push:register": request({ deviceId: s, token: s, hostId: s, notifyWhenWaiting: b, notifyOnCompletion: b, chime: s }, [
+  "push:register": request({ deviceId: s, token: s, hostId: s, notifyWhenWaiting: b, notifyOnCompletion: b, chime: s, schedule }, [
     "deviceId",
     "token",
     "hostId",

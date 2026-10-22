@@ -6,6 +6,7 @@ const ts = require("typescript");
 
 function adapter({ expoGo = false, device = true, os = "ios", initial = null, permissions = { granted: true }, request = { granted: true } } = {}) {
   const calls = [];
+  let stored = null;
   let tapped, rotated, handler;
   const api = {
     DEFAULT_ACTION_IDENTIFIER: "default",
@@ -42,10 +43,16 @@ function adapter({ expoGo = false, device = true, os = "ios", initial = null, pe
     },
     "expo-device": { isDevice: device },
     "expo-crypto": { randomUUID: () => "device-id" },
-    "expo-secure-store": {},
+    "expo-secure-store": {
+      getItemAsync: async () => stored,
+      setItemAsync: async (_key, value) => {
+        stored = value;
+      },
+    },
     "react-native": { Platform: { OS: os } },
     "./push-store": require("../apps/mobile/src/push-store.ts"),
     "./push-controller": require("../apps/mobile/src/push-controller.ts"),
+    "@milagre/shared/notification-schedule": require("@milagre/shared/notification-schedule"),
     "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
     "expo-notifications": api,
   };
@@ -59,7 +66,7 @@ function adapter({ expoGo = false, device = true, os = "ios", initial = null, pe
       return modules[id];
     },
   });
-  return { native: exports.pushNative, calls, tap: (value) => tapped(value), rotate: () => rotated(), handler: () => handler };
+  return { store: exports.pushStore, native: exports.pushNative, calls, tap: (value) => tapped(value), rotate: () => rotated(), handler: () => handler };
 }
 
 test("native adapter consumes a cold-start response, running taps and token rotation", async () => {
@@ -119,4 +126,19 @@ test("Expo Go skips native listeners and unavailable runtimes explain how to ena
   stop();
   assert.deepEqual(expo.calls, []);
   assert.match(adapter({ device: false }).native.available(), /simulator/);
+});
+
+test("the foreground phone handler silences pushes arriving outside its current schedule", async () => {
+  const { native, store, handler } = adapter();
+  await native.listen(
+    () => null,
+    () => {},
+    () => {},
+  );
+  const notice = { request: { content: { data: {} } } };
+  assert.equal((await handler().handleNotification(notice)).shouldShowBanner, true);
+  await store.update({ schedule: { days: [(new Date().getUTCDay() + 1) % 7], start: "09:00", end: "17:00", timeZone: "UTC" } });
+  const result = await handler().handleNotification(notice);
+  assert.equal(result.shouldShowBanner, false);
+  assert.equal(result.shouldPlaySound, false);
 });

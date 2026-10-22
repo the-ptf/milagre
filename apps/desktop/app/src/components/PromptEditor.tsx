@@ -17,7 +17,7 @@ import {
   type EditKind,
   type EditResult,
 } from "../lib/editor-model";
-import { FileChip, SkillChip } from "./PromptChip";
+import { FileChip, ImageChip, SkillChip } from "./PromptChip";
 
 export type PromptEditorHandle = {
   focus(): void;
@@ -242,7 +242,7 @@ export function PromptEditor({
     });
     hosts.current = nextHosts;
     root.replaceChildren(...nodes);
-    setChips((current) => (current.length === nextChips.length && current.every((chip, index) => chip.host === nextChips[index].host) ? current : nextChips));
+    setChips((current) => (current.length === nextChips.length && current.every((chip, index) => chip.host === nextChips[index]?.host) ? current : nextChips));
     placeSelection(restore);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `signature` stands for `layout`.
   }, [signature, renders]);
@@ -485,6 +485,8 @@ export function PromptEditor({
         createPortal(
           chip.part.kind === "skill" ? (
             <SkillChip name={chip.part.name} description={skillDescriptions.get(chip.part.name.toLowerCase())} />
+          ) : chip.part.kind === "image" ? (
+            <ImageChip index={chip.part.index} />
           ) : (
             <FileChip path={chip.part.path} />
           ),
