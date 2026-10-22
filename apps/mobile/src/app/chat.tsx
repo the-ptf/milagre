@@ -895,7 +895,7 @@ export default function ChatScreen() {
         current[key] ? { ...current, [key]: { ...current[key], preview: { ...current[key].preview, targetSessionId: target.sessionId } } } : current,
       );
       const link = project.link;
-      const result = await retried(() =>
+      const result = await retriedUnsent(() =>
         link
           ? client.call<{ sessionId: number }>("link:send", [
               {
@@ -924,7 +924,15 @@ export default function ChatScreen() {
                 ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
               },
             ]),
-      );
+      ).catch(async (error) => {
+        if (retryKind(error) !== "unknown") throw error;
+        // Read the saved receipt before another send. An absent receipt may still be in flight, so it never triggers an automatic resend.
+        const receipt = await client
+          .call<{ sessionId: number } | null>("chat:send-status", [sendingProjectPath, preview.message.clientMessageId])
+          .catch(() => null);
+        if (receipt) return receipt;
+        throw error;
+      });
       accepted = true;
       failedSends.current.forget(key);
       if (operationId) composer.linkOperations.accepted(key, operationId);
