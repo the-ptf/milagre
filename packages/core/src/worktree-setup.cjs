@@ -1,5 +1,4 @@
 const { spawnCommand } = require("./agents/command.cjs");
-const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const fs = require("node:fs/promises");
 const { realpathSync } = require("node:fs");

@@ -120,7 +120,7 @@ export function lastSaid(steps) {
 
 /** The subagent's final answer or summary, first sentence; undefined while it has none. */
 export function subagentOutcome(transcript) {
-  const entry = [...(transcript ?? [])].reverse().find((item) => item.kind === "message" && isOutcome(item) && item.text?.trim());
+  const entry = (transcript ?? []).findLast((item) => item.kind === "message" && isOutcome(item) && item.text?.trim());
   return entry ? firstSentence(entry.text) : undefined;
 }
 

@@ -67,7 +67,7 @@ export function linkChatRows(state: LinkState) {
       unread: session.unread,
       worktreeCount: session.worktrees.length,
     }))
-    .reverse();
+    .toReversed();
 }
 export function memberWorktreeForAction(state: LinkState, sessionId: number, projectId: string) {
   const member = state.sessions[sessionId]?.worktrees.find((binding) => binding.projectId === projectId);

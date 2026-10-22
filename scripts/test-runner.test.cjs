@@ -75,7 +75,7 @@ test("a platform skip prints the manifest reason when it has one", (t) => {
   ]);
 });
 
-for (const name of ["test-sidebar-usage", "test-command-palette", "test-prompt-skills", "test-chat-layout"]) {
+for (const name of ["test-sidebar-usage", "test-command-palette", "test-prompt-skills", "test-chat-layout", "test-chat-send-feedback"]) {
   test(`Linux runs ${name} in default, Electron-only and targeted selections and exactly one CI shard`, () => {
     const file = `scripts/${name}.cjs`;
     const electron = discoverElectronChecks(root);

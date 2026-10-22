@@ -119,7 +119,7 @@ function SchedulePanel({ form }: { form: RoutineFormApi }) {
               onChange={(unit) => {
                 // A step the other unit doesn't offer becomes its nearest smaller one.
                 const steps = (unit === "h" ? form.every.hours : form.every.minutes) as readonly number[];
-                const every = steps.includes(schedule.every) ? schedule.every : ([...steps].reverse().find((step) => step <= schedule.every) ?? steps[0]!);
+                const every = steps.includes(schedule.every) ? schedule.every : (steps.findLast((step) => step <= schedule.every) ?? steps[0]!);
                 set({ unit, every });
               }}
               triggerClassName="flex-1"

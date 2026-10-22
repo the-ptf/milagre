@@ -463,7 +463,7 @@ test("comments past the request budget aren't lost: the window is read on across
     botActor: null,
     user: { name: "Victor" },
     issue: issue(),
-  })).reverse();
+  })).toReversed();
   ctx.clock.t = START + 60_000;
   ctx.poller.start();
   await ctx.poller.pollNow("a");
@@ -499,7 +499,7 @@ for (const { requestBudget, count, step } of [
       botActor: null,
       user: { name: "Victor" },
       issue: issue(),
-    })).reverse();
+    })).toReversed();
     // The store's write fails once (ENOSPC, say) on the hand-over that completes the window.
     const enqueueMany = ctx.store.enqueueMany;
     let failures = 0;

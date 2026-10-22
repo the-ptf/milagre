@@ -115,6 +115,38 @@ const chatMessages = (state, sessionId) =>
 const framed = (brief) =>
   `<handoff_brief>\nMilagre wrote this summary of the earlier chat; it is context, not a message from the user.\n\n${brief}\n</handoff_brief>`;
 
+test("send receipts wait for persistence and never acknowledge a rolled-back message", async (t) => {
+  const { host, manager } = harness();
+  t.after(() => manager.closeAll());
+  const flush = host.states.flush.bind(host.states);
+  let release;
+  let flushing = false;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  host.states.flush = async () => {
+    flushing = true;
+    await gate;
+    throw new Error("disk full");
+  };
+  const sending = host.send(message(ALPHA, "keep my draft", { clientMessageId: "receipt-test" }));
+  const failed = assert.rejects(sending, /disk full/);
+  await waitUntil(() => flushing);
+  let settled = false;
+  const receipt = host.sendStatus(ALPHA, "receipt-test").then((value) => {
+    settled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(settled, false, "staged state is not a delivery receipt");
+  release();
+  await failed;
+  assert.equal(await receipt, null);
+  host.states.flush = flush;
+  const sent = await host.send(message(ALPHA, "saved", { clientMessageId: "saved-receipt" }));
+  assert.deepEqual(await host.sendStatus(ALPHA, "saved-receipt"), { sessionId: sent.sessionId });
+});
+
 test("turns in two projects run side by side and each is saved in its own project", async (t) => {
   const { host, manager, saved, session } = harness();
   t.after(() => manager.closeAll());
@@ -961,6 +993,46 @@ test("a quit saves each running chat to resume and preserves its partial reply",
     outcome: "cancelled",
   });
   assert.equal(saved.get(BETA).sessions[idle.sessionId].resumeTurn, undefined);
+});
+
+test("suspending two Chats in one Project preserves the earlier session snapshot", async (t) => {
+  const { host, manager, states, created } = harness();
+  t.after(() => manager.closeAll());
+  const first = await host.send(message(ALPHA, "first turn"));
+  const second = await host.send(message(ALPHA, "second turn"));
+  await waitUntil(() => created.length === 2 && created.every((item) => item.turns.length));
+  await states.flush();
+  const before = await states.get(ALPHA);
+  await host.suspendRunning();
+  const after = await states.get(ALPHA);
+  assert.equal(before.sessions[first.sessionId].resumeTurn, undefined);
+  assert.equal(before.sessions[second.sessionId].resumeTurn, undefined);
+  assert.notEqual(after.sessions, before.sessions);
+  assert.equal(after.sessions[first.sessionId].resumeTurn.prompt, "first turn");
+  assert.equal(after.sessions[second.sessionId].resumeTurn.prompt, "second turn");
+});
+
+test("recovering multiple legacy handoffs preserves old and untouched sessions", async (t) => {
+  const { host, manager, states } = harness();
+  t.after(() => manager.closeAll());
+  await states.update(ALPHA, (state) => ({
+    ...state,
+    sessions: {
+      7: { id: 7, worktree_id: 1, provider: "claude", handoverPending: true },
+      8: { id: 8, worktree_id: 1, provider: "codex", handoverPending: true },
+      9: { id: 9, worktree_id: 1, provider: "claude" },
+    },
+  }));
+  const before = await states.get(ALPHA);
+  await host.recoverHandoffs(ALPHA, before);
+  const after = await states.get(ALPHA);
+  assert.equal(before.sessions[7].handoverPending, true);
+  assert.equal(before.sessions[8].handoverPending, true);
+  assert.equal("handoverPending" in after.sessions[7], false);
+  assert.equal("handoverPending" in after.sessions[8], false);
+  assert.equal(after.sessions[9], before.sessions[9]);
+  await host.recoverHandoffs(ALPHA, after);
+  assert.equal(await states.get(ALPHA), after, "recovery without changes keeps the snapshot");
 });
 
 test("a quit saves no resume for a Routine's turn, which the scheduler owns; a user's turn still resumes", async (t) => {

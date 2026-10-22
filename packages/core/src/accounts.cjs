@@ -98,7 +98,7 @@ function createAccounts({
       selected: Object.fromEntries(PROVIDERS.map((provider) => [provider, parsed.selected[provider] ?? "default"])),
     };
   } catch (error) {
-    if (error.code !== "ENOENT") throw new Error("Could not read saved accounts. Restore accounts/accounts.json before switching accounts.");
+    if (error.code !== "ENOENT") throw new Error("Could not read saved accounts. Restore accounts/accounts.json before switching accounts.", { cause: error });
   }
   const identities = new Map();
   const logins = new Map();
@@ -451,7 +451,7 @@ function createAccounts({
     assign,
     close() {
       closed = true;
-      for (const k of [...logins.keys()]) cancel(...k.split(":"));
+      for (const k of Array.from(logins.keys())) cancel(...k.split(":"));
     },
   };
 }

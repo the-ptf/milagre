@@ -231,12 +231,12 @@ test("display clocks stop off-screen and in the background, then catch up from w
     assert.equal(read(), 1000);
     assert.equal(timers.size, 1);
     AppState.currentState = "background";
-    for (const fn of [...listeners]) fn();
+    for (const fn of Array.from(listeners)) fn();
     read();
     assert.equal(timers.size, 0);
     now = 5000;
     AppState.currentState = "active";
-    for (const fn of [...listeners]) fn();
+    for (const fn of Array.from(listeners)) fn();
     assert.equal(read(), 5000);
     focused = false;
     read();
@@ -11421,9 +11421,15 @@ test("the phone Routines screen groups heartbeats and triggers, says why a trigg
   assert.equal(find(trigger, (node) => node.type === "RowSwitch").props.selected, false);
   const menu = find(trigger, (node) => node.type === "PullDown");
   // A Linear trigger only runs on its event, so it has no Run now; the heartbeat (a schedule) does.
-  assert.deepEqual([...menu.props.sections.flatMap((section) => section.items.map((item) => item.title))], ["Edit", "Open last Chat", "Delete"]);
+  // Copy VM-owned arrays into this realm for deepStrictEqual.
+  assert.deepEqual(Array.from(menu.props.sections.flatMap((section) => section.items.map((item) => item.title))), ["Edit", "Open last Chat", "Delete"]);
   const heartbeatMenu = find(heartbeat, (node) => node.type === "PullDown");
-  assert.deepEqual([...heartbeatMenu.props.sections.flatMap((section) => section.items.map((item) => item.title))], ["Edit", "Run now", "Open Chat", "Delete"]);
+  assert.deepEqual(Array.from(heartbeatMenu.props.sections.flatMap((section) => section.items.map((item) => item.title))), [
+    "Edit",
+    "Run now",
+    "Open Chat",
+    "Delete",
+  ]);
   // A tap opens the Routine's page; the actions stay on the long press.
   menu.props.onPress();
   menu.props.onSelect("open");
@@ -11514,16 +11520,7 @@ test("a Mac that can't run Routines yet still lists them, and Allow passes this 
 const routineNow = new Date(2026, 9, 17, 10, 30).getTime();
 const at = (hour, minute = 0) => new Date(2026, 9, 17, hour, minute).getTime();
 
-function routineHost({
-  id = "tr",
-  routines = routineFixtures(),
-  states = {},
-  confirmed = [],
-  enabled = true,
-  loading = false,
-  error = "",
-  canGoBack = true,
-} = {}) {
+function routineHost({ id = "tr", routines = routineFixtures(), states = {}, enabled = true, loading = false, error = "", canGoBack = true } = {}) {
   const react = hookHost();
   const routes = [];
   const calls = [];
@@ -11683,7 +11680,7 @@ test("the phone Routine screen shows On with its switch, its settings as chips, 
   );
   assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Last Run 10:15"));
   const filter = find(tree, (node) => node.type === "Segmented");
-  assert.deepEqual([...filter.props.options.map((option) => option.title)], ["All 6", "Acted 1", "Failed 1", "Unread 1"]);
+  assert.deepEqual(Array.from(filter.props.options.map((option) => option.title)), ["All 6", "Acted 1", "Failed 1", "Unread 1"]);
   filter.props.onChange("failed");
   assert.deepEqual(
     host.rows(host.runList(host.render())).map((row) => row.props.accessibilityLabel),
@@ -11731,7 +11728,7 @@ test("the phone Routine screen opens a Run's Chat in a Project it holds no state
 });
 
 test("the phone Routine screen says No Runs yet with the next Run", async () => {
-  const [heartbeat, trigger] = routineFixtures();
+  const [heartbeat] = routineFixtures();
   const empty = routineHost({ id: "hb", routines: [{ ...heartbeat, nextRunAt: at(10, 45) }] });
   const texts = allNodes(empty.render(), (node) => node.type === "Text").map(textOf);
   assert.ok(texts.includes("No Runs yet"));
@@ -11899,7 +11896,7 @@ test("the phone routine form in Linear mode shows the When, Label and Team rows 
   );
   const linear = find(tree, (node) => node.props?.accessibilityLabel === "Linear event" && node.props.accessibilityRole === "radio");
   assert.equal(linear.props.accessibilityState.checked, true);
-  const names = [...find(tree, (node) => node.type === "PlaceholderField").props.placeholders.map((item) => item.name)];
+  const names = Array.from(find(tree, (node) => node.type === "PlaceholderField").props.placeholders.map((item) => item.name));
   assert.ok(names.includes("issue.key"));
   assert.equal(find(tree, (node) => node.type === "PillButton").props.title, "Create Routine");
 });

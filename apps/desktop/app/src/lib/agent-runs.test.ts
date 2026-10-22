@@ -75,15 +75,6 @@ test("each open chat shows its own model", () => {
   assert.equal(modelForOpenChat(undefined, undefined, [], catalog, codex), codex);
 });
 
-const approval = (requestId: string): PermissionRequest => ({
-  requestId,
-  kind: "command",
-  tool: "Shell",
-  title: "Run this command?",
-  command: "ls",
-  allowForChat: true,
-});
-
 test("an answer is kept on its chat's run, and a second chat with the same request id is unaffected", () => {
   const runs: AgentRuns = { [key(1)]: startRun({}, key(1), "gpt-6-sol")[key(1)], [key(2)]: startRun({}, key(2), "claude-opus-5-5")[key(2)] };
   assert.deepEqual(runs[key(1)].answered, {});

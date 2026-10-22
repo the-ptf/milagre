@@ -65,7 +65,7 @@ function fixture(t, options = {}) {
         },
         push(data = "jpeg") {
           this.latest = { sequence: (this.latest?.sequence ?? 0) + 1, data, viewport: { width: this.state.width, height: this.state.height } };
-          for (const listener of [...listeners]) listener();
+          for (const listener of Array.from(listeners)) listener();
         },
         send(event) {
           events.push(structuredClone(event));
@@ -96,6 +96,15 @@ function fixture(t, options = {}) {
   };
 }
 const target = (id, browser = BROWSER) => `${browser}:${id}`;
+test("an execution advisor's browser belongs to its parent Chat", async (t) => {
+  const f = fixture(t);
+  f.roots.set("chat-a", { pid: 99, agents: [10] });
+  const own = await f.service.list({ chatId: "chat-a" });
+  assert.ok(own.targets.some((page) => page.id === target(PAGE) && page.source === "agent"));
+  const other = await f.service.list({ chatId: "chat-b" });
+  assert.ok(!other.targets.some((page) => page.id === target(PAGE)));
+  assert.ok(!other.others.some((browser) => browser.id === BROWSER));
+});
 async function controller(f, owner = "owner-a", chatId = "chat-a", pageId = PAGE) {
   const viewer = await f.service.open({ chatId, targetId: target(pageId) }, owner);
   const status = await f.service.control({ viewerId: viewer.viewerId, takeOver: false }, owner);

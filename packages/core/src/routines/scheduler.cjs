@@ -560,7 +560,7 @@ function createRoutineScheduler({
     idle: async ({ background: andBackground = true } = {}) => {
       await comments;
       if (!andBackground) return;
-      while (background.size) await Promise.allSettled([...background]);
+      while (background.size) await Promise.allSettled(background);
     },
     start,
     stop,

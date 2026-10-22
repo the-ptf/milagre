@@ -132,7 +132,7 @@ class AttentionNotifier {
     } else if (event.type === "permission-resolved" || event.type === "question-resolved") {
       this.close(keyOf(chatId, event.requestId));
     } else if (isTerminal(event)) {
-      for (const key of [...this.open.keys()]) if (key.startsWith(`${chatId}\n`)) this.close(key);
+      for (const key of Array.from(this.open.keys())) if (key.startsWith(`${chatId}\n`)) this.close(key);
     }
     this.updateBadge();
   }
@@ -258,20 +258,20 @@ class AttentionNotifier {
   /** A computer was removed or switched off: what it waited on, and its unread chats, leave the badge. */
   forgetComputer(computerId) {
     const mine = (chatId) => computerOfKey(chatId) === computerId;
-    for (const key of [...this.open.keys()]) if (mine(key.slice(0, key.lastIndexOf("\n")))) this.close(key);
-    for (const chatId of [...this.unread]) if (mine(chatId)) this.unread.delete(chatId);
-    for (const [chatId, notification] of [...this.completionNotifications]) {
+    for (const key of Array.from(this.open.keys())) if (mine(key.slice(0, key.lastIndexOf("\n")))) this.close(key);
+    for (const chatId of this.unread) if (mine(chatId)) this.unread.delete(chatId);
+    for (const [chatId, notification] of Array.from(this.completionNotifications)) {
       if (!mine(chatId)) continue;
       notification.close();
       this.completionNotifications.delete(chatId);
     }
-    for (const map of [this.completed, this.asked]) for (const chatId of [...map.keys()]) if (mine(chatId)) map.delete(chatId);
+    for (const map of [this.completed, this.asked]) for (const chatId of map.keys()) if (mine(chatId)) map.delete(chatId);
     this.activity.forget(mine);
     this.updateBadge();
   }
 
   closeAll() {
-    for (const key of [...this.open.keys()]) this.close(key);
+    for (const key of Array.from(this.open.keys())) this.close(key);
     for (const notification of this.completionNotifications.values()) notification.close();
     this.completionNotifications.clear();
     this.computerWaiting?.close();

@@ -91,7 +91,7 @@ test("page sharing RPCs validate the existing Chat and preserve the public confi
 });
 
 test("Node runtime preserves stored Chats and provider IDs across a restart", async (t) => {
-  const { project, options, events, make } = await fixture(t);
+  const { project, events, make } = await fixture(t);
   const first = make();
   const opened = await first.invoke("project:current");
   const session = Object.values(opened.state.sessions)[0];
@@ -143,7 +143,7 @@ test("the old handover commands are gone", async (t) => {
 });
 
 test("exclusive ownership rejects another profile owner and aliases of an open Project", async (t) => {
-  const { project, dataDir, options, make } = await fixture(t);
+  const { project, dataDir, make } = await fixture(t);
   const first = make();
   assert.throws(() => make(), /already owned/);
   await first.openProject(project);
@@ -160,7 +160,7 @@ test("exclusive ownership rejects another profile owner and aliases of an open P
 });
 
 test("close waits for a command already changing saved settings before releasing ownership", async (t) => {
-  const { project, options, make } = await fixture(t);
+  const { project, make } = await fixture(t);
   const runtime = make();
   await runtime.invoke("project:current");
   const { promise: writing, resolve: started } = Promise.withResolvers();

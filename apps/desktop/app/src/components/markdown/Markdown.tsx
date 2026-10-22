@@ -1,7 +1,8 @@
-import { Children, isValidElement, memo, useState, useEffect } from "react";
+import { Children, createContext, isValidElement, memo, useContext, useState, useEffect } from "react";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
+import type { ImageAttachment } from "@milagre/shared/model";
 import remarkGfm from "remark-gfm";
 import { codeLanguageFromClassName } from "../../lib/code-languages";
 import { fileLinkTarget } from "../../lib/file-links";
@@ -23,6 +24,15 @@ import { MediaLightbox } from "../motion/LazyMediaLightbox";
 const AttachmentPreview = lazyView(() => import("../AttachmentPreview").then((module) => module.AttachmentPreview));
 
 const CODE_CLASS = "rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink";
+const MarkdownImages = createContext<ImageAttachment[] | undefined>(undefined);
+
+function ImageLink({ src, alt }: { src?: string; alt?: string }) {
+  const images = useContext(MarkdownImages);
+  const root = useFilesRoot();
+  const file = src ? localFileLink(src, root ?? undefined) : null;
+  const saved = images?.find((image) => image.sourcePath === file?.path || image.path === file?.path);
+  return <Link href={saved?.path ?? src}>{alt || src || "image"}</Link>;
+}
 
 // Inline code that names a file of the chat's folder opens it in the editor; the click asks main, which says
 // when the file isn't there. Everything else stays plain code.
@@ -130,7 +140,7 @@ const components: Components = {
   // Remote images in a reply would load without asking; show them as links instead.
   img({ src, alt }) {
     const href = typeof src === "string" ? src : undefined;
-    return <Link href={href}>{alt || href || "image"}</Link>;
+    return <ImageLink src={href} alt={alt} />;
   },
   table({ children }) {
     return (
@@ -152,11 +162,13 @@ const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
 
 const WRAPPER = "markdown break-words [overflow-wrap:anywhere]";
 
-export const Markdown = memo(function Markdown({ text }: { text: string }) {
+export const Markdown = memo(function Markdown({ text, images }: { text: string; images?: ImageAttachment[] }) {
   return (
-    <div className={WRAPPER}>
-      <MarkdownBody text={text} />
-    </div>
+    <MarkdownImages.Provider value={images}>
+      <div className={WRAPPER}>
+        <MarkdownBody text={text} />
+      </div>
+    </MarkdownImages.Provider>
   );
 });
 
