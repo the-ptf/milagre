@@ -416,11 +416,12 @@ test("a confined phone cannot register for push, and unregister and focus never 
 test("uploads stop at the quota with a 507, and a long message is refused", async (t) => {
   const f = await fixture(t, { bridgeOptions: { attachmentQuota: 1000 } });
   await f.rpc("project:open", [f.demo]);
+  let uploadNumber = 0;
   const upload = (bytes) =>
     f.request("/attachments", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ projectPath: f.demo, name: "a.bin", base64: Buffer.alloc(bytes, 1).toString("base64") }),
+      body: JSON.stringify({ projectPath: f.demo, name: `a-${++uploadNumber}.bin`, base64: Buffer.alloc(bytes, 1).toString("base64") }),
     });
   assert.equal((await upload(600)).status, 200);
   // Two at once cannot both take the 400 bytes left.

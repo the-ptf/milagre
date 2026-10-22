@@ -521,6 +521,20 @@ function createRuntime(options) {
     return { path: projectPath, name: projectName(projectPath), git, state };
   }
 
+  const mobileUploads = require("./mobile-uploads.cjs").createMobileUploads({ dataDir: realpathSync(dataDir) });
+  commands.handle("attachment:upload", async (_event, request) => {
+    if (!scopeStates.has(request?.projectPath)) throw new Error("Open the Project or Link before uploading files.");
+    try {
+      return { file: await mobileUploads.upload(request) };
+    } catch (error) {
+      if (error.status) return { error: { status: error.status, message: error.message } };
+      throw error;
+    }
+  });
+  commands.handle("chat:send-status", async (_event, owner, clientMessageId) => {
+    if (!scopeStates.has(owner) || typeof clientMessageId !== "string" || !clientMessageId) throw new Error("Choose an open Chat and message identity.");
+    return chats.sendStatus(owner, clientMessageId);
+  });
   commands.handle("attachment:preview", async (_event, file) => {
     // An unloaded Chat's messages (see message-store.cjs) are looked at only where their saved JSON names the file.
     const needles = typeof file === "string" ? [JSON.stringify(file).slice(1, -1)] : [];
@@ -1077,6 +1091,7 @@ function createRuntime(options) {
     // Undo is a convenience: a Worktree it can't capture still runs the task, with no checkpoint.
     beforeTask: (request) => checkpoints.begin(request).catch((error) => console.warn("Checkpoint start capture failed:", error.message)),
     beforeSend: async (request) => {
+      await mobileUploads.claim(request);
       if (request.sessionId != null && request.context?.kind !== "compaction" && (!request.canStart || request.canStart())) {
         const chatId = chatKey(request.projectPath, request.sessionId);
         const accountId = accounts.selected(request.provider, request.projectPath);
@@ -2442,7 +2457,13 @@ function createRuntime(options) {
   commands.handle("bots:memory:save", (_event, id, text, base) => bots.saveMemory(String(id), String(text ?? ""), base == null ? undefined : String(base)));
   void track(() => bots.start(), background).catch((error) => console.warn("Milagre couldn't start its bots:", error.message));
 
+  const sweepUploads = () => track(() => mobileUploads.sweep(), background).catch((error) => console.warn("Attachment cleanup skipped:", error.message));
+  const uploadSweepTimer = setInterval(sweepUploads, 24 * 60 * 60 * 1000);
+  uploadSweepTimer.unref();
+  void sweepUploads();
+
   function close() {
+    clearInterval(uploadSweepTimer);
     closing = true;
     // A comment already on its way goes back to its queue before the rest closes.
     const routinesStopped = routines.stop();
