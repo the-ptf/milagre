@@ -160,7 +160,10 @@ function load(file, modules, extra = "", cache = new Map()) {
       }
       // A Chat's activity (chat-activity.mjs) is a pure derivation many screens read; tests get the real one.
       if (id === "@milagre/shared/chat-activity" && !(id in modules)) return require("@milagre/shared/chat-activity");
-      if (["@milagre/shared/chat-history", "@milagre/shared/chat-window-cache", "@milagre/shared/display-clock"].includes(id) && !(id in modules))
+      if (
+        ["@milagre/shared/chat-history", "@milagre/shared/chat-window-cache", "@milagre/shared/display-clock", "@milagre/shared/refresh-loop"].includes(id) &&
+        !(id in modules)
+      )
         return require(id);
       if (relative === "display-clock" && !(id in modules)) return load("display-clock.ts", modules, "", cache);
       assert.ok(id in modules, `Unexpected import: ${id}`);
@@ -12660,4 +12663,66 @@ test("phone notification schedule controls save days, overnight hours, timezone 
   assert.match(textOf(render()), /Ends the next day/);
   toggle("Notification schedule").props.onPress();
   assert.equal(saved.at(-1).schedule, null);
+});
+
+test("Git polling on the phone keeps the current list during reads and pauses off-screen", async () => {
+  const react = hookHost({ effects: true });
+  const timers = new Map();
+  let next = 0,
+    calls = 0,
+    finish;
+  const client = {
+    call: () => {
+      calls++;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  };
+  const { startRefreshLoop } = require("@milagre/shared/refresh-loop");
+  const { useRpc } = load("use-rpc.ts", {
+    react,
+    "@milagre/shared/refresh-loop": {
+      startRefreshLoop: (options) =>
+        startRefreshLoop({
+          ...options,
+          schedule(fn) {
+            timers.set(++next, fn);
+            return next;
+          },
+          cancel(timer) {
+            timers.delete(timer);
+          },
+        }),
+    },
+  });
+  let active = true;
+  const render = () => {
+    react.begin();
+    const result = useRpc(client, "git:diff-files", [{ cwd: "/project", mode: "uncommitted" }], active);
+    react.flush();
+    return result;
+  };
+  assert.equal(render().loading, true);
+  finish({ files: ["edited.ts"] });
+  await settle();
+  assert.deepEqual(render().data.files, ["edited.ts"]);
+  const [id, tick] = timers.entries().next().value;
+  timers.delete(id);
+  const reading = tick();
+  assert.deepEqual(render().data.files, ["edited.ts"], "the list stays visible during a background read");
+  finish({ files: [] });
+  await reading;
+  assert.deepEqual(render().data.files, [], "an external commit clears the list without a user action");
+  active = false;
+  render();
+  assert.equal(timers.size, 0);
+  const before = calls;
+  active = true;
+  render();
+  assert.equal(calls, before + 1, "returning to the screen reads immediately");
+  react.unmount();
+  finish({ files: ["late.ts"] });
+  await settle();
+  assert.equal(timers.size, 0);
 });

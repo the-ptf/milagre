@@ -1,3 +1,4 @@
+import { useScreenActive } from "../display-clock";
 import React, { useMemo, useState } from "react";
 import { RefreshControl, Text, View } from "react-native";
 import { Redirect, Stack, router, useLocalSearchParams } from "expo-router";
@@ -45,11 +46,12 @@ function ProjectChangesView({ worktreeId, header, onOpen }: { worktreeId: number
   const worktree = session.snapshot?.project.state.worktrees[worktreeId];
   const [mode, setMode] = useState<DiffMode>("uncommitted");
   const [refreshing, setRefreshing] = useState(false);
+  const active = useScreenActive();
   const {
     data: result,
     error,
     refresh,
-  } = useRpc<DiffFilesResult>(worktree ? session.client : null, "git:diff-files", [{ cwd: worktree?.path, base: worktree?.base, mode }]);
+  } = useRpc<DiffFilesResult>(worktree ? session.client : null, "git:diff-files", [{ cwd: worktree?.path, base: worktree?.base, mode }], active);
   const files = result?.isRepo ? result.files : undefined;
   const tree = useMemo(() => buildDiffTree(files ?? []), [files]);
   if (!worktree) return null;
