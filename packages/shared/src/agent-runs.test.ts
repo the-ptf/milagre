@@ -317,21 +317,6 @@ test("a turn that completes with no text after a steer split saves no reply", ()
   assert.equal(more.state.messages.at(-1)?.body, "Rest");
 });
 
-const question = (requestId: string): QuestionRequest => ({
-  requestId,
-  questions: [
-    {
-      id: "0",
-      header: "Color",
-      question: "Which color?",
-      options: [{ label: "Red" }, { label: "Green" }],
-      multiSelect: false,
-      allowOther: true,
-      secret: false,
-    },
-  ],
-});
-
 const npmTest = { id: "s1", kind: "shell" as const, title: "Ran `npm test`", detail: "$ npm test\n" };
 
 /** Folds events into one chat's run, starting from a fresh run unless `runs` is given. */

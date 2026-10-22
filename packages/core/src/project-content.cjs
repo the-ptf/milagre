@@ -46,7 +46,7 @@ async function storeImages(projectPath, images = []) {
       const { bytes, mime } = decoded[index];
       const extension = mime === "image/jpeg" ? "jpg" : mime.slice("image/".length);
       const stored = await writeContent(projectPath, "images", bytes, extension);
-      const { dataUrl, path: original, ...rest } = image;
+      const { dataUrl: _dataUrl, path: original, ...rest } = image;
       return { ...rest, path: stored, ...(original ? { sourcePath: original } : {}) };
     }),
   );

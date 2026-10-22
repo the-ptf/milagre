@@ -377,7 +377,7 @@ test("no branch, no gh and bad output are null", async () => {
 });
 
 test("readPullRequestState reports a CLOSED PR as known, and a failed lookup as unknown", async () => {
-  const closed = async (command, args) => {
+  const closed = async (command) => {
     if (command === "git") return { stdout: "milagre/login\n" };
     return { stdout: JSON.stringify([{ number: 4, url, state: "CLOSED", title }]) };
   };

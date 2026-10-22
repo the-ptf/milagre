@@ -247,7 +247,7 @@ test("a project is remembered under its checkout's top folder, and a folder outs
 
 test("project:switch opens only a listed project whose real path is a checkout's top folder or a folder outside Git", async (t) => {
   const base = await tempDir(t);
-  const [repo, other, plain] = await folders(base, "repo", "other", "plain");
+  const [repo, other] = await folders(base, "repo", "other", "plain");
   gitRepo(repo);
   gitRepo(other);
   const file = path.join(base, "recent-projects.json");

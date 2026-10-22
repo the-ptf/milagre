@@ -1,7 +1,6 @@
 const http = require("node:http");
 const { once } = require("node:events");
 const { timingSafeEqual } = require("node:crypto");
-const fs = require("node:fs/promises");
 const path = require("node:path");
 const { pipeline } = require("node:stream/promises");
 const { randomUUID, createHash } = require("node:crypto");
@@ -300,7 +299,7 @@ function forChatList(project, runs) {
   }
   const sessions = Object.fromEntries(
     Object.entries(project.state.sessions).map(([id, session]) => {
-      const { subagents, ...metadata } = session;
+      const { subagents: _subagents, ...metadata } = session;
       return [id, metadata];
     }),
   );
