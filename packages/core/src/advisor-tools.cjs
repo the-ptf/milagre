@@ -12,6 +12,7 @@ const createInput = z.strictObject({
   provider: z.enum(ADVISOR_PROVIDERS).optional(),
   model: z.string().min(1).max(200).optional(),
   effort: z.string().min(1).max(40).optional(),
+  mode: z.enum(["analysis", "execution"]).optional(),
 });
 function advisorToolDefinitions(chatId, manager) {
   const tool = (name, description, input, readOnly, run) => ({
@@ -29,7 +30,7 @@ function advisorToolDefinitions(chatId, manager) {
     ),
     tool(
       "create_advisor",
-      "Start an asynchronous analysis-only advisor. Default is the other provider. At most two active advisors per Chat. Completion returns as labeled context.",
+      "Start an asynchronous advisor. mode defaults to analysis (read-only); execution runs commands and browser work in this Chat's prepared Worktrees and requires the Chat's Full permissions. Default is the other provider. At most two active advisors per Chat. Completion returns as labeled context.",
       createInput.shape,
       false,
       (args) => manager.create(chatId, args),

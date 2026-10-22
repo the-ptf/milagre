@@ -134,4 +134,4 @@ class ChatImages {
     return null;
   }
 }
-module.exports = { ChatImages };
+module.exports = { ChatImages, imagePaths };

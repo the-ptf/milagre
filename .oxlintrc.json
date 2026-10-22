@@ -31,7 +31,7 @@
     "unicorn/no-useless-spread": "warn",
     "unicorn/no-array-reverse": "error",
     "react/memo-dependencies": "warn",
-    "eslint/preserve-caught-error": "warn",
+    "eslint/preserve-caught-error": "error",
     "no-await-in-loop": "off"
   },
   "ignorePatterns": [

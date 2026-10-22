@@ -331,7 +331,9 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       );
       return phoneSnapshot(await readSnapshot(link ? owner : (opened.path ?? owner)));
     },
-    upload: (projectPath: string, name: string, base64: string) => request<{ path: string; name: string }>("/attachments", { projectPath, name, base64 }),
+    upload: (projectPath: string, name: string, base64: string) =>
+      request<{ path: string; name: string; id?: string }>("/attachments", { projectPath, name, base64 }),
+    reuseUpload: (projectPath: string, id: string) => request<{ path: string; name: string; id: string } | null>("/attachments", { projectPath, reuse: id }),
     // Git fetches, worktree setup and removing a worktree get the same deadline as the desktop daemon client.
     call: async <T>(method: string, args: unknown[] = []) => {
       if (runtime?.beforeCall) await runtime.beforeCall(method, args);

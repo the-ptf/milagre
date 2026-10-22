@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { ArrowExpand01Icon, ArrowShrink01Icon } from "@hugeicons/core-free-icons";
-import { advisorResultLabel } from "@milagre/shared/advisor-result";
+import { advisorResultLabel, advisorResultRole } from "@milagre/shared/advisor-result";
 import type { AdvisorResultContext } from "@milagre/shared/model";
-import { providerName } from "@milagre/shared/providers";
 import { Icon, ProviderLogo } from "./icons";
 import { Markdown } from "./markdown";
 import type { MediaSource } from "./chat-reply";
@@ -26,7 +25,12 @@ export function AdvisorResultCard({
   const { colors } = useTheme();
   // Collapsed, the card keeps a fixed height and scrolls; expanded, it grows to show the whole result.
   const [expanded, setExpanded] = useState(false);
-  const markdown = <Markdown text={body} media={media} basePath={basePath} />;
+  const resultLabel = context.mode === "execution" ? "execution result" : "advisor result";
+  const resultMedia = useMemo(
+    () => (media ? (path: string) => media(context.images?.find((image) => image.sourcePath === path || image.path === path)?.path ?? path) : undefined),
+    [media, context.images],
+  );
+  const markdown = <Markdown text={body} media={resultMedia} basePath={basePath} />;
   return (
     <View
       testID="advisor-result"
@@ -43,7 +47,7 @@ export function AdvisorResultCard({
       <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12, gap: 8 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <ProviderLogo provider={context.provider} size={18} />
-          <Text style={{ color: colors.ink2, fontSize: 12, fontWeight: "500", flex: 1 }}>{providerName(context.provider)} advisor</Text>
+          <Text style={{ color: colors.ink2, fontSize: 12, fontWeight: "500", flex: 1 }}>{advisorResultRole(context)}</Text>
           {context.outcome !== "completed" && (
             <Text style={{ color: context.outcome === "failed" ? colors.red : colors.ink2, fontSize: 12 }}>
               {context.outcome === "failed" ? "Failed" : "Stopped"}
@@ -51,7 +55,7 @@ export function AdvisorResultCard({
           )}
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={expanded ? "Collapse advisor result" : "Expand advisor result"}
+            accessibilityLabel={`${expanded ? "Collapse" : "Expand"} ${resultLabel}`}
             accessibilityState={{ expanded }}
             hitSlop={10}
             onPress={() => setExpanded((open) => !open)}
