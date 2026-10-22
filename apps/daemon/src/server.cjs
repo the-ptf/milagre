@@ -62,7 +62,7 @@ const STATE_METHODS = Object.freeze(["state:read"]);
 const PAGES_TTL_MS = 30000;
 // What one connection may hold in paged responses at once, in characters. A response larger than that alone is still
 // served when nothing else is held; the rest wait for a reader to finish rather than evict a response being read.
-const PAGES_BUDGET_CHARS = 64 * 1024 * 1024;
+const PAGES_BUDGET_CHARS = 96 * 1024 * 1024;
 // Their replies are sized to fit a frame already; paging them again would never end.
 const PAGE_METHODS = new Set(["daemon:result-page", "daemon:snapshot-page"]);
 

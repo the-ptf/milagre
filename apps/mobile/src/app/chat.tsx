@@ -40,16 +40,7 @@ import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
 import { shiftImageMentions } from "@milagre/shared/prompt-mentions";
-import {
-  addMention,
-  appendAttachments,
-  appendImageMentions,
-  ATTACHMENT_LIMIT_MESSAGE,
-  attachmentPrompt,
-  mentionAttachments,
-  prepareAttachments,
-  settleLimitError,
-} from "../attachments";
+import { addMention, appendAttachments, appendImageMentions, attachmentPrompt, mentionAttachments, prepareAttachments } from "../attachments";
 import { BackgroundRing, PullRequestAction, SubagentChip } from "../status-indicators";
 import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
@@ -614,7 +605,7 @@ export default function ChatScreen() {
   const chatId = `${project.path}#${params.id ?? `new:${params.worktreeId}`}`;
   const draft = composer.drafts[chatId] || "";
   const attachments = composer.attachments[chatId] || [];
-  const attachmentDisabled = busy || picking || attachments.length >= 4;
+  const attachmentDisabled = busy || picking;
   const run = chat ? runs.runs[chatId] : undefined;
   const heartbeat =
     chat && beating
@@ -690,7 +681,7 @@ export default function ChatScreen() {
       setPicking(false);
     }
   }
-  /** The @ menu's pick: attach the file the mention names, if there is room. */
+  /** The @ menu's pick: attach the file the mention names. */
   function mentionFile(path: string) {
     const root = worktree?.path;
     if (!root) return;
@@ -704,7 +695,7 @@ export default function ChatScreen() {
   async function pasteImage(image: PastedImage) {
     if (attachmentDisabled || pickingNow.current) {
       discardPastedImage(image);
-      setError(attachments.length >= 4 ? ATTACHMENT_LIMIT_MESSAGE : "Wait for the current attachment to finish, then paste again.");
+      setError("Wait for the current attachment to finish, then paste again.");
       return;
     }
     pickingNow.current = true;
@@ -803,21 +794,13 @@ export default function ChatScreen() {
     setBusy(true);
     setError("");
     // Mentioned files attach when the message goes (a removed tile does not unmention the file). A mention not yet checked
-    // against the Project (the one just typed) is asked about now, for up to a second; a file the limit leaves out stops the send.
+    // against the Project (the one just typed) is asked about now, for up to a second.
     const mentionRoot = worktree?.path;
     // Only a mention the Mac has not answered about waits (up to a second); an ordinary send still clears the composer before its first await.
     if (withAttachments && mentionRoot && knownFiles.current.unchecked(mentionRoot, mentionPaths(body), 1).length)
       await knownFiles.current.resolve(client, mentionRoot, mentionPaths(body));
     const mentions =
-      withAttachments && mentionRoot
-        ? mentionAttachments(body, mentionRoot, attachments, (path) => knownFiles.current.has(mentionRoot, path))
-        : { added: [], dropped: false };
-    if (mentions.dropped) {
-      sendingRef.current = false;
-      setBusy(false);
-      setError(ATTACHMENT_LIMIT_MESSAGE);
-      return false;
-    }
+      withAttachments && mentionRoot ? mentionAttachments(body, mentionRoot, attachments, (path) => knownFiles.current.has(mentionRoot, path)) : { added: [] };
     const sent = body;
     const sendingProjectPath = project.path;
     const sending = withAttachments ? [...attachments, ...mentions.added] : [];
@@ -1769,7 +1752,6 @@ export default function ChatScreen() {
                                 disabled={busy || picking}
                                 onPress={() => {
                                   // Removing this tile may leave room again, which ends the limit error.
-                                  setError((current) => settleLimitError(current, attachments.filter((attachment) => attachment.id !== item.id).length, draft));
                                   composer.setAttachments((currentAttachments) => ({
                                     ...currentAttachments,
                                     [chatId]: (currentAttachments[chatId] || []).filter((attachment) => attachment.id !== item.id),
@@ -1801,7 +1783,6 @@ export default function ChatScreen() {
                       placeholder={run && !providerCapabilities(chat?.provider ?? actualProvider).steer ? "Queue a message for the next turn" : undefined}
                       onChangeText={(value) => {
                         // Clearing the composer also clears the limit error that its mentions caused.
-                        setError((current) => settleLimitError(current, attachments.length, value));
                         composer.setDrafts((current) => ({ ...current, [chatId]: value }));
                       }}
                     />

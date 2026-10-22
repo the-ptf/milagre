@@ -20,7 +20,7 @@ module.exports = {
   "project:open": [p("folder"), p("options", object({ takeNotice: b }, []), true)],
   "chat:ports": [p("chatId")],
   "chat:send-status": [p("projectPath"), p("clientMessageId")],
-  "attachment:upload": request({ projectPath: s, name: s, base64: s, reuse: s, quota: n }, ["projectPath"]),
+  "attachment:upload": request({ projectPath: s, name: s, base64: s, reuse: s, quota: n, transferId: s, offset: n, totalBytes: n }, ["projectPath"]),
   "chat:inbox": [],
   "link:workspace-roots": [p("requested")],
   "project:plain-root": [p("root")],

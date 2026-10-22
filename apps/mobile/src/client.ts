@@ -1,3 +1,5 @@
+import { uploadAttachment } from "@milagre/shared/attachment-upload";
+import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import type { ChatMessage, CoordinatorState, NamedProjectLink, OpenLink } from "@milagre/shared/model";
 import { isLinkScopeKey, scopeKey } from "@milagre/shared/chat-scopes";
 import { applyStatePatch } from "@milagre/shared/state-patch";
@@ -38,6 +40,7 @@ export type ClientHost = { address: string; token: string; access?: Access; rela
 export type RouteView = { current(): RelayTransport | null; subscribe(listener: () => void): () => void };
 /** The phone's side of the relay, injected so this file stays free of native modules. */
 export type RelayRuntime = {
+  randomUUID?(): string;
   /** Device consent runs before the network deadline starts. */
   beforeCall?(method: string, args: unknown[]): Promise<void>;
   /** The one transport for this Mac, opened on first use and shared by every client. */
@@ -332,7 +335,14 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       return phoneSnapshot(await readSnapshot(link ? owner : (opened.path ?? owner)));
     },
     upload: (projectPath: string, name: string, base64: string) =>
-      request<{ path: string; name: string; id?: string }>("/attachments", { projectPath, name, base64 }),
+      uploadAttachment(
+        (part) =>
+          retrySend(() => request<{ path: string; name: string; id?: string } | null>("/attachments", part), {
+            retryable: (error) => retryKind(error) !== null,
+          }),
+        { projectPath, name, base64 },
+        runtime?.randomUUID,
+      ),
     reuseUpload: (projectPath: string, id: string) => request<{ path: string; name: string; id: string } | null>("/attachments", { projectPath, reuse: id }),
     // Git fetches, worktree setup and removing a worktree get the same deadline as the desktop daemon client.
     call: async <T>(method: string, args: unknown[] = []) => {

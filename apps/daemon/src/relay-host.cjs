@@ -33,7 +33,7 @@ const decoder = new TextDecoder();
 const HOST_OFFLINE = encoder.encode("host-offline");
 const EMPTY_SET = JSON.stringify({ hookIds: [] });
 // Headroom for one full phone response (lan-host.cjs MAX_BUFFERED) plus a desktop's own budget.
-const RELAY_PEER_BUDGET = 64 * 1024 * 1024 + PEER_BUDGET;
+const RELAY_PEER_BUDGET = 96 * 1024 * 1024 + PEER_BUDGET;
 const defaultRandom = (n) => new Uint8Array(randomBytes(n));
 
 /**
@@ -232,7 +232,7 @@ function startRelayHost({
     };
     current.send = (bytes) => sendRaw(current, bytes);
     // Every channel shares this socket, so its buffer holds whatever phones have in flight too: a single phone response
-    // (MAX_RESPONSE, about 43 MiB on the wire) can sit there while a healthy desktop is connected. A desktop's budget
+    // (MAX_RESPONSE, about 86 MiB on the wire) can sit there while a healthy desktop is connected. A desktop's budget
     // therefore starts above that. A desktop that stalls on the relay never shows here at all (the relay forwards to each
     // peer on its own), so catching that one is the relay's job; this only bounds what the Mac itself can pile up.
     current.queued = () => current.socket.bufferedAmount;

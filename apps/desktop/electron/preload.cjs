@@ -369,6 +369,7 @@ function makeBridge(invoke, listen, send) {
     notifyCompletion: (notice) => invoke("notification:completed", notice),
     onOpenChat: (callback) => listen("notification:open-chat", callback),
     onOpenPhoneSettings: (callback) => listen("notification:open-phone-settings", () => callback()),
+    uploadAttachment: (request) => invoke("attachment:upload", request),
   };
 }
 

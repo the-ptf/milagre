@@ -1,3 +1,4 @@
+import { prepareImageUploads } from "./lib/attachment-uploads";
 import { ProviderUpdateNotice } from "./components/ProviderUpdateNotice";
 import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components/PersistenceNotice";
 import { AiConsentDialog } from "./components/AiConsent";
@@ -87,7 +88,7 @@ import { useWorktreeLinearIssues } from "./components/useWorktreeLinearIssues";
 import { issueFirstMessage, LINK_PR_HINT, restoredDraft, type LinearIssue } from "@milagre/shared/linear";
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
 import { chatPullRequests, pullRequestRefsCache } from "./lib/chat-pull-requests";
-import { REMOTE_FILES_NOTICE, usePastedImages } from "./components/usePastedImages";
+import { usePastedImages } from "./components/usePastedImages";
 import { DotBackground } from "./components/DotBackground";
 import { StartupSplash } from "./components/StartupSplash";
 import SidebarNav from "./components/SidebarNav";
@@ -602,7 +603,7 @@ function App() {
   );
   const selectedWorktree = worktrees.find((worktree) => worktree.id === (selectedSession?.worktree_id ?? selectedWorktreeId)) ?? firstWorktree;
   // Assigning a new Chat its persisted id keeps attachments for the next message; navigating away clears them.
-  const imageDraft = usePastedImages(`${project?.path ?? ""}:${chatView.current}`, isRemoteKey(project?.path));
+  const imageDraft = usePastedImages(`${project?.path ?? ""}:${chatView.current}`, project?.path);
   useEffect(() => {
     if (!restoringSend) return;
     imageDraft.restore(restoringSend.message.images ?? [], restoringSend.message.files ?? []);
@@ -1520,11 +1521,6 @@ function App() {
     issue?: LinearIssue,
   ): Promise<boolean> {
     if ((!body && !images.length && !files.length) || !state || !selectedWorktree || !project || sendInFlight.current || imageDraft.loading) return false;
-    // A file attached from this Mac is a path the other Mac can't read; pasted images travel as data and still go.
-    if (isRemoteKey(project.path) && files.length) {
-      setNotice(REMOTE_FILES_NOTICE);
-      return false;
-    }
     if (readOnly) {
       setNotice(`${openComputer?.name ?? "That computer"} is offline.`);
       return false;
@@ -1579,7 +1575,10 @@ function App() {
     };
     let target: Awaited<ReturnType<typeof resolveSendTarget>> = null;
     let sent = false;
+    let uploading = true;
     try {
+      const uploadedImages = await prepareImageUploads(project.path, images);
+      uploading = false;
       target = await resolveSendTarget(body, issue);
       if (!target) return false;
       if (firstMessage && stillHere()) preparedTarget.current = { ...target, view, projectPath: project.path };
@@ -1597,7 +1596,7 @@ function App() {
             sessionId: sendTarget.sessionId,
             worktreeId: sendTarget.worktreeId,
             body,
-            images,
+            images: uploadedImages,
             files,
             // A Mac that predates PR actions ignores prAction and sends this prompt as it is.
             prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(body, files),
@@ -1628,7 +1627,7 @@ function App() {
     } catch (error) {
       // The host may have saved the message and lost only its answer: a resend of this text carries the same id.
       failedSendIds.current.remember(resendKey, preview.message.clientMessageId!, body, resendParts);
-      const message = `${target ? "Could not send the message" : "Could not create the worktree"}: ${ipcErrorMessage(error)}`;
+      const message = `${uploading ? "Could not upload attachments" : target ? "Could not send the message" : "Could not create the worktree"}: ${ipcErrorMessage(error)}`;
       if (stillHere()) {
         setNewChatError(message);
         if (!preserveComposer) {

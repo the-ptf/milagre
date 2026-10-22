@@ -1,7 +1,7 @@
-const { MAX_IMAGES, MAX_IMAGE_BYTES, IMAGE_TYPES, IMAGE_ERRORS } = require("@milagre/shared/limits");
+const { MAX_IMAGE_BYTES, IMAGE_TYPES, IMAGE_ERRORS } = require("@milagre/shared/limits");
 
 function decodeImages(images = []) {
-  if (!Array.isArray(images) || images.length > MAX_IMAGES) throw new Error(IMAGE_ERRORS.count);
+  if (!Array.isArray(images)) throw new Error("Images must be an array.");
   return images.map((image) => {
     if (typeof image?.dataUrl !== "string" || image.dataUrl.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4 + 100) throw new Error(IMAGE_ERRORS.size);
     const match = /^data:([^;,]+);base64,([A-Za-z0-9+/]+={0,2})$/.exec(image.dataUrl);

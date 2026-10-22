@@ -16,14 +16,11 @@ test("provider names distinguish product and CLI while retaining picker order", 
   assert.equal(cliName("antigravity"), "Antigravity");
 });
 test("image limits and invalid image messages come from one contract", async () => {
-  const { MAX_IMAGES, MAX_IMAGE_BYTES, IMAGE_TYPES, IMAGE_ERRORS } = await import("./limits.mjs");
+  const { MAX_IMAGE_BYTES, IMAGE_TYPES, IMAGE_ERRORS } = await import("./limits.mjs");
   const { decodeImages } = require("../../core/src/image-input.cjs");
-  assert.equal(MAX_IMAGES, 4);
-  assert.equal(MAX_IMAGE_BYTES, 5 * 1024 * 1024);
+  assert.equal(MAX_IMAGE_BYTES, 50 * 1024 * 1024);
   assert.deepEqual(IMAGE_TYPES, ["image/png", "image/jpeg", "image/webp", "image/gif"]);
   for (const [images, expected] of [
-    // oxlint-disable-next-line unicorn/no-array-fill-with-reference-type -- the test deliberately passes the same item repeatedly to hit the count limit
-    [Array(5).fill({}), IMAGE_ERRORS.count],
     [[{ dataUrl: "data:image/svg+xml;base64,AAAA" }], IMAGE_ERRORS.type],
     [[{}], IMAGE_ERRORS.size],
   ]) {

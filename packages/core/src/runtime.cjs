@@ -517,10 +517,14 @@ function createRuntime(options) {
   }
 
   const mobileUploads = require("./mobile-uploads.cjs").createMobileUploads({ dataDir: realpathSync(dataDir) });
+  const attachmentTransfers = require("./attachment-transfers.cjs").createAttachmentTransfers({
+    dataDir: realpathSync(dataDir),
+    upload: (request) => mobileUploads.upload(request),
+  });
   commands.handle("attachment:upload", async (_event, request) => {
     if (!scopeStates.has(request?.projectPath)) throw new Error("Open the Project or Link before uploading files.");
     try {
-      return { file: await mobileUploads.upload(request) };
+      return { file: await attachmentTransfers.receive(request) };
     } catch (error) {
       if (error.status) return { error: { status: error.status, message: error.message } };
       throw error;
@@ -1086,6 +1090,7 @@ function createRuntime(options) {
     // Undo is a convenience: a Worktree it can't capture still runs the task, with no checkpoint.
     beforeTask: (request) => checkpoints.begin(request).catch((error) => console.warn("Checkpoint start capture failed:", error.message)),
     beforeSend: async (request) => {
+      request.images = await mobileUploads.resolveImages(request.projectPath, request.images);
       await mobileUploads.claim(request);
       if (request.sessionId != null && request.context?.kind !== "compaction" && (!request.canStart || request.canStart())) {
         const chatId = chatKey(request.projectPath, request.sessionId);
@@ -2464,7 +2469,11 @@ function createRuntime(options) {
   commands.handle("bots:memory:save", (_event, id, text, base) => bots.saveMemory(String(id), String(text ?? ""), base == null ? undefined : String(base)));
   void track(() => bots.start(), background).catch((error) => console.warn("Milagre couldn't start its bots:", error.message));
 
-  const sweepUploads = () => track(() => mobileUploads.sweep(), background).catch((error) => console.warn("Attachment cleanup skipped:", error.message));
+  const sweepUploads = () =>
+    track(async () => {
+      await attachmentTransfers.sweep();
+      await mobileUploads.sweep();
+    }, background).catch((error) => console.warn("Attachment cleanup skipped:", error.message));
   const uploadSweepTimer = setInterval(sweepUploads, 24 * 60 * 60 * 1000);
   uploadSweepTimer.unref();
   void sweepUploads();
@@ -2487,6 +2496,7 @@ function createRuntime(options) {
       // A waiting Linear sign-in is an accepted command too: end it, or the wait below lasts until its timeout.
       await linear.dispose();
       await Promise.allSettled(active);
+      await attachmentTransfers.close();
       accounts.close();
       keepAwake.quit();
       ports.close();
@@ -2569,6 +2579,7 @@ function createRuntime(options) {
       // A waiting Linear sign-in is an accepted command, but its window is gone when this runs on quit: end it.
       await linear.dispose();
       await Promise.allSettled(active);
+      await attachmentTransfers.close();
       await scopeStates.flush();
       await usageStore.idle();
     },

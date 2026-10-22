@@ -1884,6 +1884,7 @@ function chatHost({
   const session = {
     designs: designsOn,
     client: {
+      upload: async (_project, name) => ({ path: `/p/uploads/${name}` }),
       url: "mac",
       call: (method, args) => {
         calls.push({ method, args });
@@ -3893,9 +3894,9 @@ test("the attachment pull-down opens the selected picker and blocks a second pic
     uri: `file:///${i}.txt`,
     image: false,
   }));
-  assert.ok(menu().props.sections[0].items.every((item) => item.disabled));
+  assert.ok(menu().props.sections[0].items.every((item) => !item.disabled));
   menu().props.onSelect("files");
-  assert.deepEqual(kinds, ["photos", "camera"], "four attachments block another picker");
+  assert.deepEqual(kinds, ["photos", "camera", "files"], "four attachments do not block another picker");
 });
 
 test("text typed during the first send follows the created Chat into its composer", async () => {
@@ -4623,6 +4624,7 @@ test("attachment drafts survive a failed send and move only after a successful f
   const photo = { id: "photo", name: "photo.jpg", uri: "file:///photo", image: { id: "photo", name: "photo.jpg", dataUrl: "data:image/jpeg;base64,/9j/" } };
   screen.session.attachments["/p#new:1"] = [photo];
   screen.send();
+  await settle();
   screen.sending.reject(new Error("Connection lost"));
   await settle();
   assert.equal(screen.session.attachments["/p#new:1"][0].id, "photo");
@@ -5391,6 +5393,7 @@ test("relay transports: one per Mac, replaced by a new code, closed in the backg
   const identity = { publicKey: new Uint8Array(32), secretKey: new Uint8Array(32) };
   const phoneRandom = (n) => new Uint8Array(n);
   const { relayRuntime } = load("relay-native.ts", {
+    "expo-crypto": { randomUUID: require("node:crypto").randomUUID },
     "./ai-consent": { beforeAiCall: async () => {} },
     "react-native": {
       AppState: {

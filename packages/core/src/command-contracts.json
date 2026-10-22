@@ -3067,6 +3067,17 @@
         }
       ]
     },
+    "attachment:upload": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T127"
+          }
+        }
+      ]
+    },
     "computers:invoke": {
       "parameters": [
         {
@@ -3120,7 +3131,7 @@
           "name": "options",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T127"
+            "$ref": "#/$defs/T128"
           }
         }
       ]
@@ -3183,10 +3194,10 @@
           "schema": {
             "anyOf": [
               {
-                "$ref": "#/$defs/T128"
+                "$ref": "#/$defs/T129"
               },
               {
-                "$ref": "#/$defs/T129"
+                "$ref": "#/$defs/T130"
               }
             ]
           }
@@ -5806,13 +5817,41 @@
     "T127": {
       "type": "object",
       "properties": {
+        "projectPath": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "base64": {
+          "type": "string"
+        },
+        "reuse": {
+          "type": "string"
+        },
+        "transferId": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "number"
+        },
+        "totalBytes": {
+          "type": "number"
+        }
+      },
+      "required": ["projectPath"],
+      "additionalProperties": false
+    },
+    "T128": {
+      "type": "object",
+      "properties": {
         "name": {
           "type": "string"
         }
       },
       "additionalProperties": false
     },
-    "T128": {
+    "T129": {
       "type": "object",
       "properties": {
         "kind": {
@@ -5826,7 +5865,7 @@
       "required": ["kind", "scope", "state"],
       "additionalProperties": false
     },
-    "T129": {
+    "T130": {
       "type": "object",
       "properties": {
         "kind": {
@@ -5839,13 +5878,13 @@
           "type": "number"
         },
         "window": {
-          "$ref": "#/$defs/T130"
+          "$ref": "#/$defs/T131"
         }
       },
       "required": ["kind", "scope", "chatId", "window"],
       "additionalProperties": false
     },
-    "T130": {
+    "T131": {
       "type": "object",
       "properties": {
         "messages": {
