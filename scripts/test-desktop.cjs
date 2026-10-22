@@ -313,6 +313,16 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     const shared = await require("@milagre/daemon/client").connect({ dataDir: profile });
     try {
       assert.notEqual((await shared.call("daemon:status")).pid, child.pid, "Desktop uses a separate persistent host");
+      await waitFor(
+        async () => (await shared.call("daemon:status", [{ commands: true }])).desktopCommands?.some((command) => command.name === "desktop:app:version"),
+        "desktop command capability registration",
+      );
+      const desktopVersion = await shared.call("desktop:invoke", [{ method: "app:version", args: [] }]);
+      assert.equal(typeof desktopVersion, "string");
+      const computers = await shared.call("computers:list");
+      assert.ok(Array.isArray(computers.computers), "CLI can read the same saved computers as the native UI");
+      assert.deepEqual(await evaluate("window.milagre.computers.list()"), computers, "Desktop and CLI share the daemon-owned computer list");
+      console.log("PASS: native commands execute through the owning desktop handlers");
       await shared.call("chat:patch", [project, 2, { title: "Updated from another device" }]);
       await waitFor(
         () => evaluate('document.body?.textContent.includes("Updated from another device") && !document.body?.textContent.includes("Saved chat")'),

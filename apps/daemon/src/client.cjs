@@ -7,6 +7,11 @@ const { VERSION, MAX_PENDING, wire } = require("./protocol.cjs");
 // Commands core lets run longer than the default deadline (git/client.cjs LIMITS, gh, the CLI installers), plus a
 // margin. A shorter client deadline reported a slow pre-commit hook or push as failed while it was still running.
 const SLOW_METHODS = Object.freeze({
+  // Scoped commands may wait on the same user approval cards as their MCP calls.
+  "command:run": 30 * 60 * 1000,
+  "desktop:invoke": 130000,
+  "computers:add": 12 * 60 * 1000,
+  "computers:invoke": 30 * 60 * 1000,
   // Image preparation gets 30 s; an 8 MiB upload on a slow uplink can take up to 300 s; revoking the page's
   // older links (in parallel) up to 45 s more.
   "artifact:share-page": 420000,

@@ -49,6 +49,7 @@ export interface RuntimeOptions {
 }
 export interface Runtime {
   readonly methods: readonly string[];
+  commandDefinitions(): { name: string; command: string; inputSchema: Record<string, unknown> }[];
   invoke(method: string, args?: unknown[], context?: { clientId: string } | null): Promise<unknown>;
   /** Drop simulator and browser viewer capabilities owned by a disconnected authenticated client. */
   disconnect(clientId: string): Promise<void>;

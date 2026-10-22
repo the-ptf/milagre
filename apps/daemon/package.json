@@ -2,6 +2,15 @@
   "name": "@milagre/daemon",
   "version": "0.1.0",
   "private": true,
+  "bin": {
+    "milagre": "src/command.cjs"
+  },
+  "files": [
+    "src",
+    "!src/*.test.cjs",
+    "!src/relay-test-kit.cjs",
+    "!src/large-project-fixture.cjs"
+  ],
   "type": "commonjs",
   "exports": {
     "./*": "./src/*.cjs",
@@ -20,9 +29,11 @@
     "@milagre/shared": "0.1.0",
     "qrcode": "^1.5.4",
     "tweetnacl": "1.0.3",
-    "ws": "^8.22.0"
+    "ws": "^8.22.0",
+    "zod": "^4.6.5"
   },
   "engines": {
     "node": ">=24"
-  }
+  },
+  "cliVersion": "0.2.0"
 }

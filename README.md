@@ -49,6 +49,8 @@ Milagre uses your existing agent login. It does not provide model credentials or
 
 For the phone companion, start with [pairing and mobile setup](docs/mobile-local.md). Your Mac must be awake, online and running the host for the phone to reach its agents.
 
+To use a computer as a server without a desktop UI, run `npx milagre serve`. The [headless CLI](docs/local-daemon.md#headless-computer) provides terminal pairing and device approval. It requires Node.js 24+ and a signed-in agent CLI on that computer.
+
 ## Finish Windows and Linux publication
 
 Apple and Linux signing credentials and the Cloudflare account ID are configured. Public Windows/Linux distribution still needs these GitHub repository secrets:

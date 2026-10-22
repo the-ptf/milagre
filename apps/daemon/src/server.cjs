@@ -315,6 +315,7 @@ async function startDaemon({
   dataDir,
   version,
   runtimeOptions = {},
+  computerOptions = {},
   phoneOptions = {},
   pushOptions = {},
   homeDir = os.homedir(),
@@ -332,6 +333,7 @@ async function startDaemon({
   // Anything bigger travels in pages, or (a state in an event) is read in pages by the client.
   const inlineLimit = Math.floor(maxFrameBytes / 4);
   const clients = new Map();
+  const desktopCommands = require("./desktop-commands.cjs").createDesktopCommands();
   const views = new Map();
   let eventSeq = 0;
   // Connections that take state patches, and per scope the last state sent and its number. The numbers start again with
@@ -501,6 +503,11 @@ async function startDaemon({
     },
     ...phoneOptions,
   });
+  const computers = require("./computer-service.cjs").createComputerService({
+    dataDir,
+    ...computerOptions,
+    emit: (channel, payload) => broadcast(channel, payload),
+  });
   /**
    * One client of the daemon, whatever carries its frames: the Unix socket below, and a paired desktop's channel (peer-channel.cjs).
    * The carrier supplies `send(message, json, bytes)`, which writes one frame as wire()'s send does (it may throw
@@ -622,6 +629,12 @@ async function startDaemon({
         let result;
         if (request.method === "daemon:status")
           result = {
+            ...(request.args[0]?.commands === true
+              ? {
+                  desktopCommands: policy ? [] : desktopCommands.list(),
+                  commandDefinitions: runtime.commandDefinitions().filter((definition) => !policy?.denies(definition.name)),
+                }
+              : {}),
             pid: process.pid,
             version,
             protocolVersion: VERSION,
@@ -631,6 +644,9 @@ async function startDaemon({
             closing: runtime.isClosing(),
             // A capability tied to a method this connection may not call is not advertised to it (mobile push is push:*).
             capabilities: [
+              "command-dispatch-v1",
+              ...(policy ? [] : ["computer-management-v1"]),
+              ...(policy ? [] : ["desktop-commands-v1"]),
               "desktop-v1",
               "snapshot-pages-v1",
               "result-pages-v1",
@@ -644,6 +660,23 @@ async function startDaemon({
             ],
             methods: [
               ...runtime.methods,
+              ...(request.args[0]?.commands === true
+                ? [
+                    "project:open",
+                    "daemon:status",
+                    "daemon:snapshot",
+                    "daemon:snapshot-page",
+                    "daemon:result-page",
+                    "daemon:flush",
+                    "daemon:focus",
+                    "daemon:state-patches",
+                    "daemon:stop",
+                  ]
+                : []),
+              ...(request.args[0]?.computerManagement === true || request.args[0]?.commands === true ? computers.methods : []),
+              "desktop:register",
+              "desktop:respond",
+              "desktop:invoke",
               ...PHONE_METHODS,
               ...DEVICE_METHODS,
               ...PUSH_METHODS,
@@ -653,7 +686,20 @@ async function startDaemon({
               ...FILE_METHODS,
             ].filter((method) => !policy?.denies(method)),
           };
-        else if (request.method === "phone:status") result = phone.status();
+        else if (request.method.startsWith("computers:")) {
+          if (policy) throw Object.assign(new Error("Computer management requires a local owner connection"), { code: "NOT_AVAILABLE_REMOTELY" });
+          result = await computers.invoke(request.method, request.args, {
+            send: (channel, payload) => connection.send({ v: VERSION, event: { channel, payload } }),
+          });
+        } else if (request.method.startsWith("desktop:")) {
+          if (policy) throw Object.assign(new Error("Desktop capabilities are available only to local clients"), { code: "NOT_AVAILABLE_REMOTELY" });
+          const input = request.args[0] ?? {};
+          if (request.method === "desktop:register")
+            result = desktopCommands.register(key, input.methods, (payload) => connection.send({ v: VERSION, event: { channel: "desktop:request", payload } }));
+          else if (request.method === "desktop:respond") result = desktopCommands.respond(key, input);
+          else if (request.method === "desktop:invoke") result = await desktopCommands.invoke(input.method, input.args);
+          else throw new Error(`Unknown command: ${request.method}`);
+        } else if (request.method === "phone:status") result = phone.status();
         // Settings shows the reply, which arrives after the status events: answer with the settled status, not the
         // "starting" one a reset began from, or the window hides the new code.
         else if (request.method === "phone:set-enabled") {
@@ -733,6 +779,7 @@ async function startDaemon({
           const next = request.args[0];
           if (!next || typeof next.focused !== "boolean") throw new Error("Expected a focused boolean");
           view.focused = next.focused;
+          computers.setFocused([...views.values()].some((view) => view.focused));
           if (view.focused) await runtime.focused(view);
         } else if (request.method === "chat:set-open") {
           view.chatId = typeof request.args[0] === "string" ? request.args[0] : null;
@@ -793,7 +840,9 @@ async function startDaemon({
         clearTimeout(authenticationTimeout);
         if (!authenticated) unauthenticated--;
         clients.delete(key);
+        desktopCommands.disconnect(key);
         views.delete(key);
+        computers.setFocused([...views.values()].some((view) => view.focused));
         patchClients.delete(key);
         for (const claim of noticeClaims) phone.releaseDeviceNotices(claim);
         noticeClaims.clear();
@@ -832,6 +881,8 @@ async function startDaemon({
       await push.close();
       await sender.close();
       await runtime.close();
+      await computers.close();
+      desktopCommands.close();
       // Saved: tell every client this stop was asked for, so a desktop doesn't start the host again (a crash sends nothing).
       broadcast("daemon:stopping", {});
       const stopped = listening ? new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))) : Promise.resolve();

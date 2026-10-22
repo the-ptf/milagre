@@ -7,7 +7,7 @@ const {
   clipboard,
   ClipboardItem,
   dialog,
-  ipcMain,
+  ipcMain: electronIpcMain,
   Menu,
   nativeImage,
   Notification,
@@ -40,6 +40,27 @@ protocol.registerSchemesAsPrivileged([
 async function startDesktop() {
   /** @type {Electron.BrowserWindow | null} */
   let mainWindow = null;
+  let runtime;
+  let computerUnlock;
+  const nativeCommands = require("./desktop-commands.cjs").createDesktopCommandAdapter({
+    ipcMain: electronIpcMain,
+    runtime: () => runtime,
+    event: () => {
+      const contents = () => {
+        if (!mainWindow || mainWindow.isDestroyed()) throw new Error("Open a Milagre desktop window for this command.");
+        return mainWindow.webContents;
+      };
+      return {
+        get sender() {
+          return contents();
+        },
+        get senderFrame() {
+          return contents().mainFrame;
+        },
+      };
+    },
+  });
+  const ipcMain = nativeCommands.ipcMain;
   const indexFile = path.join(__dirname, "../dist/index.html");
   const appUrl = app.isPackaged ? pathToFileURL(indexFile).href : process.env.MILAGRE_DEV_SERVER_URL || "http://127.0.0.1:5173";
   const { createFloatingInbox } = require("./floating-inbox.cjs");
@@ -252,7 +273,6 @@ async function startDesktop() {
 
   let connectionState = { connected: true };
   ipcMain.handle("runtime:connection", () => connectionState);
-  let runtime;
   // Phones that paired while Milagre was closed are announced once it connects; the host keeps them until then.
   const deviceNotices = createDeviceNotices({
     methods: () => (runtime && Notification.isSupported() ? runtime.hostMethods() : null),
@@ -269,9 +289,20 @@ async function startDesktop() {
     runtime = await connectDesktopRuntime({
       dataDir: app.getPath("userData"),
       version: app.getVersion(),
+      requiredCapabilities: ["computer-management-v1"],
+      outdatedMessage: "Restart Milagre's background host to enable computer management.",
       cwd: process.cwd(),
       worktreeRoot: !app.isPackaged ? process.env.MILAGRE_WORKTREE_ROOT : undefined,
       emit(channel, payload) {
+        if (channel === "desktop:request") {
+          void nativeCommands.receive(payload);
+          return;
+        }
+        if (channel === "computers:event") {
+          if (payload.channel === "agent:event") notifier.observe(payload.payload.chatId, payload.payload.event);
+          if (payload.channel === "notification:waiting" && notifyWhenWaiting && Notification.isSupported()) notifier.notify(payload.payload);
+        }
+        if (channel === "computers:forgotten") notifier.forgetComputer(payload.computerId);
         if (channel === "agent:event") notifier.observe(payload.chatId, payload.event);
         if (channel === "notification:waiting" && notifyWhenWaiting && Notification.isSupported()) notifier.notify(payload);
         if (channel === "phone:paired") void deviceNotices.paired(payload);
@@ -281,6 +312,8 @@ async function startDesktop() {
           // A host started again after it went away can be newer, with more commands. (Not yet set during the first connect.)
           if (payload.connected && runtime) {
             registerHostMethods();
+            nativeCommands.publish();
+            void computerUnlock?.prepare().catch((error) => console.warn("Computer credentials:", error.message));
             void deviceNotices.connected();
           }
         }
@@ -309,7 +342,16 @@ async function startDesktop() {
     for (const method of runtime.methods) {
       if (registered.has(method)) continue;
       registered.add(method);
-      ipcMain.handle(method, (event, ...args) => {
+      electronIpcMain.handle(method, async (event, ...args) => {
+        if (method === "computers:add") {
+          try {
+            await computerUnlock.prepare();
+          } catch (error) {
+            return { ok: false, code: "keys", message: error instanceof Error ? error.message : String(error) };
+          }
+        }
+        if (method === "computers:set-enabled" && args[0] === true)
+          void computerUnlock.prepare().catch((error) => console.warn("Computer credentials:", error.message));
         if (method === "linear:connect") {
           // A newer sign-in replaces a waiting one, and its window with it.
           linearSignIn.close();
@@ -346,53 +388,25 @@ async function startDesktop() {
   registerHostMethods();
   ipcMain.handle("app:version", () => app.getVersion());
 
-  // Other Macs this window drives (Settings › Devices › Other computers): nothing connects until the window turns
-  // the switch on (computers:set-enabled), which it does at launch when it is on.
-  const { createComputers } = require("./computers.cjs");
-  const { registerComputers } = require("./computers-ipc.cjs");
-  const { readOwnHostId } = require("./own-host.cjs");
-  const { computerName } = require("@milagre/daemon/mobile-pairing");
-  /** @type {string | null} */
-  let thisMacName = null;
-  /** @type {ReturnType<typeof registerComputers> | null} */
-  let computersIpc = null;
-  const computers = createComputers({
+  computerUnlock = require("./computer-unlock.cjs").createComputerUnlock({
     dataDir: app.getPath("userData"),
     safeStorage,
-    ownHostId: () => readOwnHostId(app.getPath("userData")),
-    onChange: () => computersIpc?.changed(),
-    emit: (id, channel, payload) => computersIpc?.event(id, channel, payload),
+    invoke: (method, args) => runtime.invoke(method, args),
   });
-  const { createComputerCaches } = require("./computer-cache.cjs");
-  const computerCaches = createComputerCaches({ dir: path.join(app.getPath("userData"), "computers") });
-  computersIpc = registerComputers({
-    ipcMain,
-    computers,
-    cache: computerCaches,
-    // A computer's chats notify like this Mac's; its turns tell the notifier what completed.
-    onRemoteEvent: (_id, channel, payload) => {
-      if (channel === "agent:event") notifier.observe(payload.chatId, payload.event);
-      if (channel === "notification:waiting" && notifyWhenWaiting && Notification.isSupported()) {
-        notifier.notify(payload);
-      }
-    },
-    onForget: (id) => notifier.forgetComputer(id),
-    thisMac: () => (thisMacName ??= computerName()),
-    send: (channel, payload) => {
-      for (const window of BrowserWindow.getAllWindows())
-        if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(channel, payload);
-    },
-  });
+  void runtime
+    .invoke("computers:vault-status")
+    .then((status) => {
+      if (status.hasVault || status.needsLegacyImport) return computerUnlock.prepare();
+    })
+    .catch((error) => console.warn("Computer credentials:", error.message));
   ipcMain.handle("floating-inbox:snapshot", async () => {
     const local = await runtime.invoke("chat:inbox", []);
-    const { qualifyResult } = require("./computer-routing.cjs");
     const remote = await Promise.all(
-      computers
-        .list()
+      (await runtime.invoke("computers:list")).computers
         .filter((computer) => computer.state === "online")
         .map(async (computer) => {
           try {
-            const snapshot = qualifyResult(computer.id, "chat:inbox", await computers.invoke(computer.id, "chat:inbox", []));
+            const snapshot = await runtime.invoke("computers:invoke", [computer.id, "chat:inbox", []]);
             const label = (item) => ({ ...item, computer: computer.name });
             return { agents: snapshot.agents.map(label), items: snapshot.items.map(label) };
           } catch {
@@ -480,12 +494,10 @@ async function startDesktop() {
     app.on("browser-window-focus", (_event, window) => {
       if (floating.owns(window)) return;
       void runtime.setFocused(true).catch(() => {});
-      computers.setFocused(true);
     });
     app.on("browser-window-blur", (_event, window) => {
       if (floating.owns(window)) return;
       void runtime.setFocused(false).catch(() => {});
-      computers.setFocused(false);
     });
     if (app.isPackaged) watchAppUpdates(updates, { app, powerMonitor });
     else void updates.check();
@@ -512,12 +524,8 @@ async function startDesktop() {
     quitPrepared ??= (async () => {
       notifier.closeAll();
       floating.dispose();
-      // Each computer's channels close too; nothing on the other Macs stops.
-      try {
-        await Promise.all([runtime.close(), computers.close()]);
-      } finally {
-        computerCaches.close();
-      }
+      // The daemon owns local and remote connections; quitting disconnects this window only.
+      await runtime.close();
     })().catch((error) => {
       quitPrepared = null;
       quitting = false;

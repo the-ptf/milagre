@@ -165,13 +165,8 @@ function createRuntime(options) {
       throw error;
     }
   }
-  const handlers = new Map();
-  const commands = {
-    handle(name, handler) {
-      if (handlers.has(name)) throw new Error(`Duplicate command: ${name}`);
-      handlers.set(name, handler);
-    },
-  };
+  const commands = require("./command-dispatcher.cjs").createRuntimeCommands();
+  const handlers = commands;
   const { createChatSimulators, simulatorToolDefinitions } = require("./chat-simulators.cjs");
   const existingChat = (action) => async (chatId) => {
     const scope = projectOfKey(chatId),
@@ -1844,6 +1839,18 @@ function createRuntime(options) {
     ],
     createMcpServer: ({ toolsFor }) => ({ url: (chatId) => localMcp.chatUrl(chatId, toolsFor), close: async () => {} }),
   });
+  // Owner clients select an existing Chat. Its agent tools retain their identity, grants and dynamic Bot gates.
+  const chatCommands = require("./command-dispatcher.cjs").createCommandDispatcher({
+    definitions: (chatId) => linked.forChat(chatId).tools,
+  });
+  for (const action of ["list", "describe", "run"])
+    commands.handle(`command:${action}`, async (_context, { chatId, name, input } = {}) => {
+      await existingChat("using commands")(chatId);
+      if (action === "list") return chatCommands.list(chatId);
+      if (typeof name !== "string" || !name) throw new Error("A command name is required");
+      if (action === "describe") return chatCommands.describe(chatId, name);
+      return chatCommands.run(chatId, name, input);
+    });
   // link_worktree_create: a shared Link Chat's Worktree in one Project, made when its agent is about to change it. The
   // running agent owns it at once, the Link's windows show it, and the Project lists it as the shared Chat's. Its setup
   // gets the same review as an ordinary Worktree's, now, before the agent works in it.
@@ -2513,12 +2520,11 @@ function createRuntime(options) {
   }
 
   return {
-    methods: Object.freeze([...handlers.keys()]),
+    methods: commands.methods(),
+    commandDefinitions: commands.list,
     invoke(method, args = [], context = null) {
       return accept(() => {
-        if (!handlers.has(method)) throw new Error(`Unknown command: ${method}`);
-        if (!Array.isArray(args)) throw new Error("Command arguments must be an array");
-        return handlers.get(method)(context, ...args);
+        return commands.invoke(method, args, context);
       });
     },
     disconnect: (clientId) => Promise.all([simulators.disconnect(clientId), browsers.disconnect(clientId)]).then(() => undefined),
