@@ -246,7 +246,8 @@ export function createActivityTracker({ maxChats = MAX_CHATS, holdsTask = holdsA
     },
     /** Forgets the Chats `drop` picks, every Chat when it is left out. */
     forget(drop = () => true) {
-      for (const chatId of [...chats.keys()]) if (drop(chatId)) chats.delete(chatId);
+      // A copy: the caller's predicate may update the tracked Chats.
+      for (const chatId of Array.from(chats.keys())) if (drop(chatId)) chats.delete(chatId);
     },
   };
 }

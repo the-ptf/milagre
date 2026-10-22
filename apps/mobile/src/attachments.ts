@@ -6,6 +6,8 @@ export type Attachment = { id: string; name: string; uri: string; image?: ImageA
 const MAX_ATTACHMENTS = 4;
 export const MAX_PHOTO_BYTES = 160 * 1024;
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
+// Receipts follow the draft object, never a URI or attachment id that could now carry different bytes.
+const uploads = new WeakMap<Attachment, { client: Client; projectPath: string; name: string; base64: string; id: string }>();
 export function appendAttachments(current: Attachment[], added: Attachment[]) {
   if (current.length + added.length > MAX_ATTACHMENTS) throw new Error(ATTACHMENT_LIMIT_MESSAGE);
   return [...current, ...added];
@@ -28,7 +30,15 @@ export async function prepareAttachments(
   const images: ImageAttachment[] = [];
   for (const item of attachments) {
     if (item.image) images.push(item.image);
-    else files.push(item.path || (await retry(() => client.upload(projectPath, item.name, item.base64!))).path);
+    else if (item.path) files.push(item.path);
+    else {
+      const saved = uploads.get(item);
+      const matches = saved?.client === client && saved.projectPath === projectPath && saved.name === item.name && saved.base64 === item.base64;
+      const reused = matches ? await retry(() => client.reuseUpload(projectPath, saved.id)) : null;
+      const uploaded = reused ?? (await retry(() => client.upload(projectPath, item.name, item.base64!)));
+      if (uploaded.id) uploads.set(item, { client, projectPath, name: item.name, base64: item.base64!, id: uploaded.id });
+      files.push(uploaded.path);
+    }
   }
   return { files, images };
 }

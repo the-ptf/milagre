@@ -27,7 +27,8 @@ export function withDiffStats(state, stats) {
     const worktree = worktrees[id];
     if (!worktree || !stat) continue;
     if (worktree.diff?.added === stat.added && worktree.diff?.removed === stat.removed) continue;
-    worktrees = { ...worktrees, [id]: { ...worktree, diff: { added: stat.added, removed: stat.removed } } };
+    if (worktrees === state.worktrees) worktrees = { ...state.worktrees };
+    worktrees[id] = { ...worktree, diff: { added: stat.added, removed: stat.removed } };
   }
   return worktrees === state.worktrees ? state : { ...state, worktrees };
 }

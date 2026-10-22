@@ -211,7 +211,7 @@ export function parseDesignFeedback(body: string): { choice: ArtifactRef | null;
 
 /** The design the user last chose in these messages, read back from the message designFeedbackMessage wrote. */
 export function chosenDesign(bodies: string[]): { id: string; version: number } | null {
-  for (const body of [...bodies].reverse()) {
+  for (const body of bodies.toReversed()) {
     const [, id, version] = CHOICE.exec(body) ?? [];
     if (id && version) return { id, version: Number(version) };
   }

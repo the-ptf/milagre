@@ -10,12 +10,15 @@ import { MediaLightbox } from "./motion/LazyMediaLightbox";
 import { isRemoteKey, useScope } from "../lib/computer-bridge";
 import { useRemoteMedia } from "../lib/remote-media";
 
+const NO_IMAGES: ImageAttachment[] = [];
+const NO_FILES: string[] = [];
+
 const AttachmentPreview = lazyView(() => import("./AttachmentPreview").then((module) => module.AttachmentPreview));
 
 /** `leading` goes first in the row, which isn't a file the user attached. */
 export function Attachments({
-  images = [],
-  files = [],
+  images = NO_IMAGES,
+  files = NO_FILES,
   localFiles,
   removeImage,
   removeFile,

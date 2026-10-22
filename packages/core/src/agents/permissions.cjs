@@ -403,7 +403,8 @@ class PendingPermissions {
 
   setMode(mode) {
     this.mode = mode;
-    for (const [requestId, pending] of [...this.answers]) {
+    // A copy: resolving calls answers and emits events that can add requests.
+    for (const [requestId, pending] of Array.from(this.answers)) {
       if (mode === "full" || (mode === "auto" && pending.inWorkspace)) this.resolve(requestId, "allow");
     }
   }
@@ -426,7 +427,8 @@ class PendingPermissions {
   }
 
   cancelAll() {
-    for (const requestId of [...this.answers.keys()]) this.resolve(requestId, "cancelled");
+    // A copy: cancellation callbacks can add requests for a later pass.
+    for (const requestId of Array.from(this.answers.keys())) this.resolve(requestId, "cancelled");
   }
 }
 

@@ -600,7 +600,7 @@ test("mobile uploads are private, bounded and scoped to an open Project", async 
   assert.equal((await upload({ ...payload, base64: "invalid!" })).status, 400);
   assert.equal((await upload({ ...payload, base64: Buffer.alloc(5 * 1024 * 1024 + 1).toString("base64") })).status, 413);
   const next = (await (await upload(payload)).json()).result;
-  assert.notEqual(next.path, file.path);
+  assert.equal(next.path, file.path, "identical uploads reuse the completed file");
 });
 
 test("a chat screenshot outside the Project is served privately and retained after its temporary source is removed", async (t) => {

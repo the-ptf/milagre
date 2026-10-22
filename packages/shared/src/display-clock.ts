@@ -22,7 +22,8 @@ export function createDisplayClock<Timer = ReturnType<typeof setInterval>>({
     const next = now();
     if (next === value) return;
     value = next;
-    for (const listener of [...listeners]) listener();
+    // A copy: subscribers can change subscriptions during a tick.
+    for (const listener of Array.from(listeners)) listener();
   };
   const stop = () => {
     if (timer !== undefined) cancel(timer);

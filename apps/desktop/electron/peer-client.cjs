@@ -233,18 +233,18 @@ async function connectPeer({
     }
   }
 
-  socket.onopen = () => {
+  socket.addEventListener("open", () => {
     if (!client.closed) send(hello.message);
-  };
+  });
   // A failed socket always closes afterwards, with the code that says why.
-  socket.onerror = () => {};
-  socket.onclose = (event) => {
+  socket.addEventListener("error", () => {});
+  socket.addEventListener("close", (event) => {
     const code = event?.code;
     if (!channel) end(new PeerError(code === CLOSE_ROOM_FULL ? "full" : code === CLOSE_HOST_OFFLINE ? "offline" : "lost"));
     // A Mac from before PR 1 takes the hello as a phone's and closes on the first rpc message.
     else end(new PeerError(!answered && code === CLOSE_BY_HOST ? "outdated" : "lost"));
-  };
-  socket.onmessage = (event) => {
+  });
+  socket.addEventListener("message", (event) => {
     if (client.closed) return;
     const bytes = toBytes(event?.data);
     if (!bytes?.length) return end(new PeerError("lost"));
@@ -282,7 +282,7 @@ async function connectPeer({
     ping = setTimeout(tick, PING_MS);
     settle?.resolve(undefined);
     settle = null;
-  };
+  });
   handshake = setTimeout(() => end(new PeerError("lost")), HANDSHAKE_MS);
 
   function start(request) {

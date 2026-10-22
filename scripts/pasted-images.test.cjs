@@ -27,11 +27,14 @@ function imageDraft() {
     useEffect() {},
   };
   const pending = [];
-  class FileReader {
+  class FileReader extends EventTarget {
+    emit(type) {
+      this.dispatchEvent(new Event(type));
+    }
     readAsDataURL() {
       pending.push(() => {
         this.result = "data:image/png;base64,AAAA";
-        this.onload();
+        this.emit("load");
       });
     }
   }

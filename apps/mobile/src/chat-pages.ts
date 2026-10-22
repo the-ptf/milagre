@@ -19,7 +19,7 @@ const listeners = new Map<string, Set<() => void>>();
 function set(key: string, next: ChatWindow) {
   windows.set(key, next);
   // A copy: a listener can resubscribe while it is told, and a live Set would then be walked forever.
-  for (const listener of [...(listeners.get(key) ?? [])]) listener();
+  for (const listener of Array.from(listeners.get(key) ?? [])) listener();
 }
 
 /**

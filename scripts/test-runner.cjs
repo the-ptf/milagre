@@ -59,8 +59,8 @@ const MANIFEST = {
   "test-ports.cjs": { needs: ["zsh", "ps", "lsof"] },
   // needsBuild: loads apps/desktop/dist; test-project-links only passed serially because test-desktop built it first.
   "test-design-csp.cjs": { needsBuild: true },
-  // Red on the Linux CI runner (xvfb); each issue holds the log and the triage notes.
-  "test-chat-send-feedback.cjs": { platforms: ["darwin"], reason: "message navigation rebuilds on Linux, #235" },
+  // #235: restored Linux coverage; provisional weight until the next green CI timing.
+  "test-chat-send-feedback.cjs": { seconds: 28 },
   // The Routines page, form and Chat surfaces on a Vite fixture (no build); about 6s on a Mac, so a Linux runner guess.
   "test-routines.cjs": { seconds: 9 },
 };

@@ -9,6 +9,8 @@ import { useSettings } from "../../lib/settings";
 import { Markdown } from "../markdown/Markdown";
 import { StepRow } from "./StepRow";
 
+const NO_WAITING_STEPS: string[] = [];
+
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
 function Icon({ icon, size = 14 }: { icon: IconData; size?: number }) {
@@ -42,7 +44,7 @@ function Title({ title, shimmer }: { title: string; shimmer: boolean }) {
 export function ActivityBlock({
   entries,
   streaming = false,
-  waitingStepIds = [],
+  waitingStepIds = NO_WAITING_STEPS,
 }: {
   entries: ActivityEntry[];
   streaming?: boolean;
@@ -69,7 +71,7 @@ export function ActivityBlock({
   if (entries.length === 1 && first?.type === "step") return <StepRow step={first.step} waiting={waitingStepIds.includes(first.step.id)} />;
 
   const steps = entries.flatMap((entry): ChatStep[] => (entry.type === "step" ? [entry.step] : []));
-  const current = streaming ? [...steps].reverse().find((step) => step.status === "running") : undefined;
+  const current = streaming ? steps.findLast((step) => step.status === "running") : undefined;
   const waiting = current ? waitingStepIds.includes(current.id) : false;
   const summary = activitySummary(steps);
 

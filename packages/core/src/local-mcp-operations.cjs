@@ -48,7 +48,7 @@ function createLocalMcpOperations({ directory }) {
         pending.delete(id);
       }
     },
-    idle: () => Promise.allSettled([...pending.values()]),
+    idle: () => Promise.allSettled(pending.values()),
   };
 }
 module.exports = { createLocalMcpOperations };

@@ -12,6 +12,25 @@ import {
   SIMULATOR_RECEIVER_SCRIPT,
 } from "./simulator-receiver.mjs";
 
+function eventTarget() {
+  const listeners = new Map();
+  return {
+    addEventListener(type, listener) {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(listener);
+    },
+    removeEventListener(type, listener) {
+      listeners.get(type)?.delete(listener);
+    },
+    emit(type, event) {
+      for (const listener of Array.from(listeners.get(type) || [])) listener(event);
+    },
+    listenerCount(type) {
+      return listeners.get(type)?.size || 0;
+    },
+  };
+}
+
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const deferred = () => {
   let resolve;
@@ -288,6 +307,7 @@ function browserHarness(call, { playVideo = true, device } = {}) {
     "repair",
   ])
     elements[id] = {
+      ...eventTarget(),
       style: {
         setProperty(key, value) {
           this[key] = value;
@@ -299,10 +319,10 @@ function browserHarness(call, { playVideo = true, device } = {}) {
       getBoundingClientRect: () => ({ left: 0, top: 0 }),
       setPointerCapture() {},
     };
-  const track = { stop() {} };
+  const track = { ...eventTarget(), stop() {} };
   elements.back.hidden = true;
   elements.video.play = async () => {
-    if (playVideo) elements.video.onplaying?.();
+    if (playVideo) elements.video.emit("playing");
   };
   const themeValues = {};
   const rootStyle = {
@@ -336,6 +356,7 @@ function browserHarness(call, { playVideo = true, device } = {}) {
     connectionState = "connected";
     iceConnectionState = "connected";
     constructor() {
+      Object.assign(this, eventTarget());
       peers.push(this);
     }
     addTransceiver() {}
@@ -346,7 +367,7 @@ function browserHarness(call, { playVideo = true, device } = {}) {
       this.localDescription = value;
     }
     async setRemoteDescription() {
-      this.ontrack?.({ streams: [{ getTracks: () => [track] }], track });
+      this.emit("track", { streams: [{ getTracks: () => [track] }], track });
     }
     close() {
       this.closed = true;
@@ -433,7 +454,7 @@ test("the framed viewer reports connection and ownership states to its native he
   assert.equal(h.states.at(-1), "view-only");
   assert.equal(h.elements.control.hidden, false);
   h.peers[0].connectionState = "failed";
-  h.peers[0].onconnectionstatechange();
+  h.peers[0].emit("connectionstatechange");
   await h.flush();
   assert.deepEqual(h.states, ["connecting", "live", "view-only", "error"], "a failure must not report a pause before disconnecting");
   h.bridge.dispose();
@@ -444,12 +465,20 @@ test("Reconnect is available on a live stream and releases it before opening the
   await h.flush();
   assert.equal(h.elements.retry.hidden, false);
   assert.equal(h.elements.retry.disabled, false);
-  h.elements.retry.onclick();
+  assert.equal(h.elements.video.listenerCount("playing"), 1);
+  h.elements.retry.emit("click");
   await h.flush();
   const methods = calls.map(([method]) => method);
   assert.ok(methods.indexOf("close") < methods.lastIndexOf("open"));
   assert.equal(methods.filter((method) => method === "open").length, 2);
   assert.equal(h.peers[0].closed, true);
+  assert.equal(h.peers[0].listenerCount("track"), 0);
+  assert.equal(h.peers[0].listenerCount("connectionstatechange"), 0);
+  assert.equal(h.peers[0].listenerCount("iceconnectionstatechange"), 0);
+  assert.equal(h.elements.video.listenerCount("playing"), 1, "Reconnect replaces the old attempt's video listener");
+  h.peers[0].connectionState = "failed";
+  h.peers[0].emit("connectionstatechange");
+  assert.equal(h.states.at(-1), "live", "a stopped peer cannot disconnect the current viewer");
   assert.deepEqual(h.states, ["connecting", "live", "connecting", "live"], "Reconnect must not briefly report a pause");
   h.bridge.dispose();
 });
@@ -468,7 +497,7 @@ test("Reconnect remains available if input becomes unready after a live stream",
   assert.equal(h.elements.retry.hidden, false);
   assert.equal(h.elements.retry.disabled, false, "a stalled input channel can be reopened");
   ready = true;
-  h.elements.retry.onclick();
+  h.elements.retry.emit("click");
   await h.flush();
   assert.equal(calls.filter(([method]) => method === "open").length, 2);
   assert.equal(h.states.at(-1), "live");
@@ -491,9 +520,9 @@ test("bundled receiver releases pointer cancellation and closes video/control on
   const h = browserHarness(fakeHost(calls));
   await h.flush();
   assert.equal(h.elements.message.textContent, "You control this simulator");
-  h.elements.stage.onpointerdown(pointer(1));
-  h.elements.stage.onpointermove(pointer(1, 350));
-  h.elements.stage.onpointercancel(pointer(1));
+  h.elements.stage.emit("pointerdown", pointer(1));
+  h.elements.stage.emit("pointermove", pointer(1, 350));
+  h.elements.stage.emit("pointercancel", pointer(1));
   await h.flush();
   assert.deepEqual(
     calls.filter(([method]) => method === "input").map(([, args]) => args.event.phase),
@@ -505,7 +534,7 @@ test("bundled receiver releases pointer cancellation and closes video/control on
   assert.equal(h.peers[0].closed, true);
   assert.equal(h.intervals.size, 0);
   assert.ok(calls.some(([method]) => method === "close"));
-  h.elements.stage.onpointerdown(pointer(2));
+  h.elements.stage.emit("pointerdown", pointer(2));
   await h.flush();
   assert.equal(calls.filter(([method]) => method === "input").length, 3);
 });
@@ -524,7 +553,7 @@ test("bundled receiver reconnects by itself when shown again, but not after a fa
   assert.equal(h.peers[1].closed, undefined);
   assert.equal(h.elements.message.textContent, "You control this simulator");
   h.peers[1].connectionState = "failed";
-  h.peers[1].onconnectionstatechange();
+  h.peers[1].emit("connectionstatechange");
   await h.flush();
   assert.match(h.elements.message.textContent, /could not reach/);
   const opens = calls.filter(([method]) => method === "open").length;
@@ -547,15 +576,15 @@ test("bundled receiver repairs Device Hub's blocked touches only after a second,
   await h.flush();
   assert.equal(h.elements.blocked.hidden, false);
   assert.match(h.elements.message.textContent, /Device Hub/);
-  h.elements.repair.onclick();
+  h.elements.repair.emit("click");
   await h.flush();
   assert.equal(calls.filter(([method]) => method === "repair").length, 0, "the first tap only warns");
   assert.match(h.elements["blocked-text"].textContent, /closes its apps/);
   h.timeout(6000);
   assert.doesNotMatch(h.elements["blocked-text"].textContent, /closes its apps/, "an unconfirmed warning goes away");
-  h.elements.repair.onclick();
+  h.elements.repair.emit("click");
   blocked = false;
-  h.elements.repair.onclick();
+  h.elements.repair.emit("click");
   await h.flush();
   await h.flush();
   assert.deepEqual(
@@ -585,8 +614,8 @@ test("a status poll during repair does not strand the viewer on the removed capa
     return (method === "status" || method === "control") && !repaired ? { ...result, inputBlocked: true } : result;
   });
   await h.flush();
-  h.elements.repair.onclick();
-  h.elements.repair.onclick();
+  h.elements.repair.emit("click");
+  h.elements.repair.emit("click");
   await h.flush();
   for (const poll of h.intervals.values()) await poll();
   await h.flush();
@@ -620,7 +649,7 @@ test("bundled receiver cancels a timed out open and retries without inheriting o
   h.timeout(25000);
   await h.flush();
   assert.equal(h.elements.retry.hidden, false);
-  h.elements.retry.onclick();
+  h.elements.retry.emit("click");
   await h.flush();
   assert.equal(h.elements.message.textContent, "You control this simulator");
   gate.resolve({ viewerId: "orphan", iceServers: [] });
@@ -671,10 +700,10 @@ test("rotation waits for a new geometry generation even when an old status says 
   const calls = [];
   const h = browserHarness(fakeHost(calls));
   await h.flush();
-  h.elements.rotate.onclick();
+  h.elements.rotate.emit("click");
   await h.flush();
   for (const poll of h.intervals.values()) await poll();
-  h.elements.stage.onpointerdown(pointer(1));
+  h.elements.stage.emit("pointerdown", pointer(1));
   await h.flush();
   assert.equal(calls.filter(([method, args]) => method === "input" && args.event.kind === "touch").length, 0);
   h.bridge.dispose();
@@ -688,7 +717,7 @@ test("Rotate returns landscape phones to portrait without requesting unsupported
     const calls = [];
     const h = browserHarness(fakeHost(calls, { ...readyStatus, orientation }));
     await h.flush();
-    h.elements.rotate.onclick();
+    h.elements.rotate.emit("click");
     await h.flush();
     assert.equal(calls.find(([method]) => method === "input")[1].event.orientation, target);
     h.bridge.dispose();
@@ -704,7 +733,7 @@ test("Android Back is shown only for Android and sends a scoped button event", a
   await h.flush();
   assert.equal(h.elements.back.hidden, false);
   assert.equal(h.elements.back.disabled, false);
-  h.elements.back.onclick();
+  h.elements.back.emit("click");
   await h.flush();
   assert.deepEqual(calls.find(([m]) => m === "input")[1].event, { kind: "button", button: "back" });
   const ios = browserHarness(fakeHost([]));
@@ -750,7 +779,7 @@ test("connection failures are visible in the screen area and retry clears them",
   await h.flush();
   assert.equal(h.elements.failure.hidden, false);
   assert.match(h.elements.failure.textContent, /helper could not start/);
-  h.elements.retry.onclick();
+  h.elements.retry.emit("click");
   assert.equal(h.elements.failure.hidden, true);
   h.bridge.dispose();
 });

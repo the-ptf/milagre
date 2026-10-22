@@ -386,9 +386,10 @@ const computerSubscribers = new Map();
 const anyComputerSubscribers = new Set();
 /** @param {unknown} _event @param {any} event */
 function dispatchComputerEvent(_event, event) {
-  for (const callback of [...anyComputerSubscribers]) callback(event);
+  // Copies: callbacks can unsubscribe and resubscribe during dispatch.
+  for (const callback of Array.from(anyComputerSubscribers)) callback(event);
   const set = computerSubscribers.get(`${event?.computerId}|${event?.channel}`);
-  if (set) for (const callback of [...set]) callback(event.payload);
+  if (set) for (const callback of Array.from(set)) callback(event.payload);
 }
 /** One ipcRenderer listener serves every computer subscription (many would pass EventEmitter's MaxListeners). */
 function syncComputerListener() {
@@ -451,7 +452,7 @@ function remote(computerId) {
 // A forgotten computer's bridge goes with it, so pairing it again starts clean.
 ipcRenderer.on("computers:changed", (_event, snapshot) => {
   const known = new Set((snapshot?.computers ?? []).map((/** @type {{ id: string }} */ computer) => computer.id));
-  for (const id of [...remotes.keys()]) if (!known.has(id)) remotes.delete(id);
+  for (const id of remotes.keys()) if (!known.has(id)) remotes.delete(id);
 });
 
 /** @type {Window["milagre"]} */

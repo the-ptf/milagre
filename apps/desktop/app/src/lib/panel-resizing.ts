@@ -11,7 +11,8 @@ export const panelResizing = () => dragging;
 export function setPanelResizing(value: boolean) {
   if (dragging === value) return;
   dragging = value;
-  if (!value) for (const listener of [...ended]) listener();
+  // A copy: resize callbacks can unsubscribe and resubscribe while they run.
+  if (!value) for (const listener of Array.from(ended)) listener();
 }
 
 /** Runs `listener` each time a drag ends. Returns the unsubscribe. */
