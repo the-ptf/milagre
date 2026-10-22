@@ -308,10 +308,13 @@ export function LinkWorkspace({
       })
       .catch(() => {});
   }, [owner, chatId, state.sessions]);
-  async function send(body = draftStore.get().trim(), preserve = false) {
-    if (preparing || imageDraft.loading || (!body && !imageDraft.images.length && !imageDraft.files.length)) return;
+  // `attach` false sends the body alone, as design feedback does: the composer's images and files stay for later.
+  async function send(body = draftStore.get().trim(), preserve = false, attach = true) {
+    const images = attach ? imageDraft.images : [];
+    const files = attach ? imageDraft.files : [];
+    if (preparing || imageDraft.loading || (!body && !images.length && !files.length)) return false;
     const selection = latest.current.selection;
-    const operation = drafts.beginSend(scope, sessionId, JSON.stringify({ body, images: imageDraft.images, files: imageDraft.files }));
+    const operation = drafts.beginSend(scope, sessionId, JSON.stringify({ body, images, files }));
     setPreparing(true);
     setError(null);
     pendingOperation.current = operation;
@@ -323,9 +326,9 @@ export function LinkWorkspace({
         sessionId,
         operationId: operation,
         body,
-        prompt: attachmentPrompt(body, imageDraft.files),
-        images: await prepareImageUploads(owner, imageDraft.images),
-        files: imageDraft.files,
+        prompt: attachmentPrompt(body, files),
+        images: await prepareImageUploads(owner, images),
+        files,
         provider: model.provider,
         model: model.id,
         permissionMode: composerPrefs.permissionMode,
@@ -348,6 +351,7 @@ export function LinkWorkspace({
       return true;
     } catch (error) {
       if (latest.current.active && latest.current.selection === selection) setError(ipcErrorMessage(error));
+      return false;
     } finally {
       if (latest.current.active) setPreparing(false);
     }
@@ -547,6 +551,7 @@ export function LinkWorkspace({
                         messages={messages}
                         imageDraft={imageDraft}
                         onSend={() => void send()}
+                        onSendDesignMessage={(text) => send(text, true, false)}
                         onStop={chatId && run ? () => void agents.interrupt(chatId) : undefined}
                         isSending={Boolean(run && !approval && !question)}
                         sendBlocked={preparing}
