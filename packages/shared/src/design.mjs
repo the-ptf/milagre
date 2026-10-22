@@ -336,7 +336,7 @@ export function designNodeAt(document, x, y) {
   const layout = designLayout(document);
   const nodes = new Map(document.nodes.map((node) => [node.id, node]));
   const contains = (box) => box && x >= box.x && y >= box.y && x <= box.x + box.width && y <= box.y + box.height;
-  for (const [id, box] of [...layout].reverse()) {
+  for (const [id, box] of [...layout].toReversed()) {
     if (!contains(box)) continue;
     const node = nodes.get(id);
     let parentId = node.parentId;

@@ -485,7 +485,7 @@ class CodexSession {
       },
       { timeoutMs: 5000 },
     );
-    if (!previous?.cursor) return { ...thread, turns: [...newest.data].reverse(), cursor: newest.backwardsCursor };
+    if (!previous?.cursor) return { ...thread, turns: newest.data.toReversed(), cursor: newest.backwardsCursor };
     const turns = [];
     let cursor = previous.cursor;
     const seen = new Set();
