@@ -30,6 +30,7 @@
     "oxc/no-async-endpoint-handlers": "warn",
     "unicorn/no-useless-spread": "warn",
     "unicorn/no-array-reverse": "error",
+    "oxc/no-accumulating-spread": "error",
     "react/memo-dependencies": "warn",
     "react/no-object-type-as-default-prop": "error",
     "eslint/preserve-caught-error": "error",

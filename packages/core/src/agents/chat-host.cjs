@@ -1268,7 +1268,8 @@ class ChatHost {
               for (const [sessionId, { prompt, ...turn }] of chats) {
                 const session = sessions[sessionId];
                 if (!session) continue;
-                sessions = { ...sessions, [sessionId]: { ...session, resumeTurn: { ...turn, stoppedAt, ...(session.native_session_id ? {} : { prompt }) } } };
+                if (sessions === latest.sessions) sessions = { ...latest.sessions };
+                sessions[sessionId] = { ...session, resumeTurn: { ...turn, stoppedAt, ...(session.native_session_id ? {} : { prompt }) } };
               }
               return sessions === latest.sessions ? latest : { ...latest, sessions };
             },
@@ -1370,7 +1371,8 @@ class ChatHost {
         for (const session of Object.values(latest.sessions)) {
           if (!session.handoverPending) continue;
           const { handoverPending: _pending, ...rest } = session;
-          sessions = { ...sessions, [session.id]: rest };
+          if (sessions === latest.sessions) sessions = { ...latest.sessions };
+          sessions[session.id] = rest;
         }
         let next = { ...latest, sessions };
         for (const item of latest.messages) {
