@@ -1,7 +1,7 @@
 import type { ModelOption, ModelCapabilities, ModelCapability, EffortLevel } from "./model.ts";
 
 /** The Claude models Claude Code 2.1.288 offers fast mode on; a guess until Claude reports its own list. */
-const CLAUDE_FAST_MODELS = ["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8"];
+const CLAUDE_FAST_MODELS = new Set(["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8"]);
 
 /** What the agent reported for this model, or a cautious guess while it hasn't answered. */
 export function capabilityFor(model: ModelOption, capabilities: ModelCapabilities | null): ModelCapability {
@@ -14,7 +14,7 @@ export function capabilityFor(model: ModelOption, capabilities: ModelCapabilitie
     const family = antigravityFamilies(ANTIGRAVITY_AGENT_OPTIONS).find((item) => item.id === model.id);
     return { efforts: family?.efforts ?? [], ...(family?.defaultEffort ? { defaultEffort: family.defaultEffort } : {}), ultracode: false, fastMode: false };
   }
-  const fastMode = CLAUDE_FAST_MODELS.includes(model.id);
+  const fastMode = CLAUDE_FAST_MODELS.has(model.id);
   if (model.id.includes("haiku")) return { efforts: [], ultracode: false, fastMode };
   const modern = /claude-(opus|sonnet|fable)-5/.test(model.id);
   return { efforts: modern ? ["low", "medium", "high", "xhigh", "max"] : ["low", "medium", "high", "max"], ultracode: modern, fastMode };

@@ -58,10 +58,10 @@ test("every action is pinned to a full SHA with its version in a comment", () =>
 
 test("the Next beta draft waits for the required checks, not the change filter or desktop-checks", () => {
   assert.equal(ci.jobs.release, undefined, "merges cut no release");
-  const needs = [ci.jobs["next-beta"].needs].flat();
-  assert.ok(needs.includes("javascript"));
-  assert.ok(!needs.includes("desktop-checks"));
-  assert.ok(!needs.includes("changes"));
+  const needs = new Set([ci.jobs["next-beta"].needs].flat());
+  assert.ok(needs.has("javascript"));
+  assert.ok(!needs.has("desktop-checks"));
+  assert.ok(!needs.has("changes"));
 });
 
 test("CI runs the unit suite through the single test command, one shard per matrix leg on a runner of its own", () => {

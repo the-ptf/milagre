@@ -158,7 +158,7 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
   assert.equal(ALIASES["project:open-at"], "project:open");
   const preload = fs.readFileSync(path.join(__dirname, "preload.cjs"), "utf8");
   const list = (name) => {
-    const match = new RegExp(`const ${name} = (\\[[^\\]]*\\]);`).exec(preload);
+    const match = new RegExp(`const ${name} = (?:new Set\\()?(\\[[^\\]]*\\])\\)?;`).exec(preload);
     assert.ok(match, `preload.cjs declares ${name}`);
     return JSON.parse(match[1].replace(/,\s*\]$/, "]"));
   };

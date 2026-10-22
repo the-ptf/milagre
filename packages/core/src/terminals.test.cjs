@@ -249,12 +249,12 @@ test("the shell is the user's own and the environment drops the host's Electron 
 });
 
 test("shell discovery includes installed and registered shells without duplicate symlinks", () => {
-  const files = ["/bin/bash", "/usr/bin/bash", "/opt/bin/fish", "/usr/bin/zsh", "/opt/custom/shell"];
+  const files = new Set(["/bin/bash", "/usr/bin/bash", "/opt/bin/fish", "/usr/bin/zsh", "/opt/custom/shell"]);
   const shells = terminalShells({
     platform: "linux",
     env: { PATH: "/opt/bin:/usr/bin:.", SHELL: "/bin/bash" },
     userShell: () => "/bin/bash",
-    exists: (file) => files.includes(file),
+    exists: (file) => files.has(file),
     readShells: () => "# Login shells\n/bin/bash\n/usr/bin/bash\n/opt/custom/shell # installed\n/missing/sh\n",
     realpath: (file) => (file === "/bin/bash" ? "/usr/bin/bash" : file),
   });

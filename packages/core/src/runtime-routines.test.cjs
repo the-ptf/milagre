@@ -398,8 +398,8 @@ test("a schedule Routine starts a Chat of its own in a new Worktree; a quiet Run
   assert.equal(run.chatId, chatId);
 
   // No recursion: the Run's agent can't make or start Routines.
-  const names = agent.options.linked.tools.map((tool) => tool.name);
-  for (const name of ["heartbeat_create", "routine_create", "routine_run_now"]) assert.ok(!names.includes(name), name);
+  const names = new Set(agent.options.linked.tools.map((tool) => tool.name));
+  for (const name of ["heartbeat_create", "routine_create", "routine_run_now"]) assert.ok(!names.has(name), name);
   assert.ok(f.tool("heartbeat_create"), "the Chat the user started keeps them");
 
   const worktreeId = session.worktree_id;

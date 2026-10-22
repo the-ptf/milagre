@@ -6,7 +6,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 // notifications, updates, its own host, devices and accounts. A paired computer's bridge refuses them before any IPC,
 // and main refuses them again (computer-routing.cjs keeps the same lists; computer-routing.test.cjs compares them).
 const NOT_REMOTE = "Not available on a remote computer";
-const LOCAL_ONLY = [
+const LOCAL_ONLY = new Set([
   "project:open",
   "project:reveal",
   "project:set-hidden",
@@ -30,7 +30,7 @@ const LOCAL_ONLY = [
   "mcp:save",
   "mcp:signIn",
   "mcp:cancelSignIn",
-];
+]);
 const LOCAL_ONLY_PREFIXES = [
   "app:",
   "artifact-preview:",
@@ -48,7 +48,7 @@ const LOCAL_ONLY_PREFIXES = [
   "update:",
 ];
 /** @param {string} channel */
-const isLocalOnly = (channel) => LOCAL_ONLY.includes(channel) || LOCAL_ONLY_PREFIXES.some((prefix) => channel.startsWith(prefix));
+const isLocalOnly = (channel) => LOCAL_ONLY.has(channel) || LOCAL_ONLY_PREFIXES.some((prefix) => channel.startsWith(prefix));
 
 /**
  * Every call and event the window has, over whatever carries them: this Mac's IPC, or a paired computer's through main.
