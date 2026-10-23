@@ -21,8 +21,8 @@ import { isLean, stateEvents } from "./lib/state-events";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { cliName } from "@milagre/shared/providers";
-import { useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, type CSSProperties, type SetStateAction } from "react";
-import { flushSync } from "react-dom";
+import { Activity, useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type SetStateAction } from "react";
+import { createPortal, flushSync } from "react-dom";
 import {
   ChatMessage,
   ImageAttachment,
@@ -91,7 +91,7 @@ import { chatPullRequests, pullRequestRefsCache } from "./lib/chat-pull-requests
 import { usePastedImages } from "./components/usePastedImages";
 import { DotBackground } from "./components/DotBackground";
 import { StartupSplash } from "./components/StartupSplash";
-import SidebarNav from "./components/SidebarNav";
+import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, rememberProjectCopy, runKeys, useScopeStates } from "./lib/sidebar-scopes";
 import { activeChatKeys, gridChats, readChatLayout, saveChatLayout, type ChatLayout } from "./lib/chat-grid";
 import { chatOnScreen, keepsRoutinesView, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
@@ -211,6 +211,12 @@ function App() {
   // The latest state of every project the main process has sent this window; it's their only writer
   // (see ADR-0001). The ref leads, so callbacks read a state that arrived since the last render.
   const [selectedLink, setSelectedLink] = useState<OpenLink | null>(null);
+  // The Link shown last stays mounted behind the Project (an <Activity>), so going back to it is a style change.
+  const [lastLink, setLastLink] = useState<OpenLink | null>(null);
+  // Counts the requests to show a Link's Chat, so asking for the same Chat again shows it again.
+  const [linkOpenNonce, setLinkOpenNonce] = useState(0);
+  // Each Link as the host last opened it, so opening it again shows at once while the host answers.
+  const linksSeen = useRef(new Map<string, OpenLink>());
   const selectedLinkRef = useRef(selectedLink);
   selectedLinkRef.current = selectedLink;
   const [linkInitialSession, setLinkInitialSession] = useState<number | undefined>();
@@ -1449,19 +1455,37 @@ function App() {
   async function selectLink(id: string, sessionId?: number, { keepView = false } = {}) {
     leaveBots();
     const navigation = ++projectNavigation.current;
-    try {
-      const next = await bridgeForKey(`milagre-link:${id}`).openNamedLink(id);
-      if (navigation !== projectNavigation.current) return;
+    const adopt = (next: OpenLink) => {
       if (!selectedLinkRef.current && projectRef.current)
         scopeDrafts.save({ kind: "project", projectPath: projectRef.current.path }, { text: draftStore.get(), sessionId: selectedSessionRef.current });
       advanceChatView();
       setLinkStates((previous) => ({ ...previous, [id]: next.state }));
       setLinkInitialSession(sessionId);
+      setLinkOpenNonce((count) => count + 1);
       setSelectedLink(next);
+      setLastLink(next);
       if (!keepView) setView("chat");
       setNewChatError(null);
+    };
+    // The Link shows at once from what this window holds (the host's last open, or the sidebar's read); the host's
+    // open then refreshes it in place. Opening on the host recovers its Chats and can take a while when the Mac is busy.
+    const known = linksSeen.current.get(id) ?? knownLink(id);
+    const held = linkStatesRef.current[id] ?? scopeStates[`milagre-link:${id}`];
+    const instant = known && held && !("worktrees" in held) ? { link: known.link, projects: known.projects, state: held } : null;
+    if (instant) adopt(instant);
+    try {
+      const next = await bridgeForKey(`milagre-link:${id}`).openNamedLink(id);
+      if (navigation !== projectNavigation.current) return;
+      linksSeen.current.set(id, next);
+      if (!instant) {
+        adopt(next);
+        return;
+      }
+      setLinkStates((previous) => ({ ...previous, [id]: next.state }));
+      setSelectedLink((current) => (current?.link.id === id ? next : current));
+      setLastLink((current) => (current?.link.id === id ? next : current));
     } catch (error) {
-      setNotice(ipcErrorMessage(error));
+      if (navigation === projectNavigation.current) setNotice(ipcErrorMessage(error));
     }
   }
   async function openCanvasChat(projectPath: string, sessionId: number, adopt: Parameters<typeof adoptProject>[1] = {}) {
@@ -2275,53 +2299,64 @@ function App() {
         {addComputerDialog}
       </DotBackground>
     );
-  if (selectedLink)
+  const shownLink = selectedLink ?? lastLink;
+  const linkWorkspace = shownLink && (
+    <LinkWorkspace
+      key={shownLink.link.id}
+      opened={shownLink}
+      state={linkStates[shownLink.link.id] ?? shownLink.state}
+      openNonce={linkOpenNonce}
+      hostConnection={hostConnection}
+      saveNotice={dockSaveNotice}
+      saveScopes={unsavedScopes}
+      ports={agentPorts}
+      agents={agentRuns}
+      drafts={scopeDrafts}
+      initialSessionId={linkInitialSession}
+      preferences={{
+        models,
+        selectedModel,
+        onModelChange: chooseModel,
+        modelForChat: modelForChatKey,
+        showModel: setSelectedModel,
+        cliStatus,
+        onModelPickerOpen: refreshCliStatus,
+        onUpdateCli: handleUpdateCli,
+        updatingCli,
+        capability: selectedCapability,
+        // Options are now managed internally by LinkWorkspace via useComposerPreferences
+      }}
+      onSwitchProject={(path) => void switchProject(path)}
+      onSwitchLink={(id) => void selectLink(id)}
+      onLinkProject={() => setLinkDialogOpen(true)}
+      onAddComputer={() => setAddComputerOpen(true)}
+      onOpenComputerSettings={openComputerSettings}
+      onEditLink={(id) => void editLink(id)}
+      onOpenProject={() => void openProject()}
+      onSettings={() => {
+        setSettingsSection("project-accounts");
+        setView("settings");
+      }}
+      onOpenAccounts={openAccounts}
+      linkedWork={linkedWork}
+      onCanvasChat={(path, id) => void openCanvasChat(path, id)}
+      usage={sidebarUsage}
+      onNewChatInScope={newChatInScope}
+    />
+  );
+  const linkDialogs = (
+    <>
+      {linkDialog}
+      {addComputerDialog}
+      {addProjectDialog}
+    </>
+  );
+  // A Link with no Project to stand behind it (none open yet) is the whole window.
+  if (selectedLink && (loading || !project || !state || splash === "intro"))
     return (
       <>
-        <LinkWorkspace
-          key={selectedLink.link.id}
-          opened={selectedLink}
-          state={linkStates[selectedLink.link.id] ?? selectedLink.state}
-          hostConnection={hostConnection}
-          saveNotice={dockSaveNotice}
-          saveScopes={unsavedScopes}
-          ports={agentPorts}
-          agents={agentRuns}
-          drafts={scopeDrafts}
-          initialSessionId={linkInitialSession}
-          preferences={{
-            models,
-            selectedModel,
-            onModelChange: chooseModel,
-            modelForChat: modelForChatKey,
-            showModel: setSelectedModel,
-            cliStatus,
-            onModelPickerOpen: refreshCliStatus,
-            onUpdateCli: handleUpdateCli,
-            updatingCli,
-            capability: selectedCapability,
-            // Options are now managed internally by LinkWorkspace via useComposerPreferences
-          }}
-          onSwitchProject={(path) => void switchProject(path)}
-          onSwitchLink={(id) => void selectLink(id)}
-          onLinkProject={() => setLinkDialogOpen(true)}
-          onAddComputer={() => setAddComputerOpen(true)}
-          onOpenComputerSettings={openComputerSettings}
-          onEditLink={(id) => void editLink(id)}
-          onOpenProject={() => void openProject()}
-          onSettings={() => {
-            setSettingsSection("project-accounts");
-            setView("settings");
-          }}
-          onOpenAccounts={openAccounts}
-          linkedWork={linkedWork}
-          onCanvasChat={(path, id) => void openCanvasChat(path, id)}
-          usage={sidebarUsage}
-          onNewChatInScope={newChatInScope}
-        />
-        {linkDialog}
-        {addComputerDialog}
-        {addProjectDialog}
+        {linkWorkspace}
+        {linkDialogs}
       </>
     );
 
@@ -2542,7 +2577,10 @@ function App() {
     return commands;
   }
 
-  return (
+  // The Link on screen and the Project behind it (or the other way round) both stay mounted: the hidden one keeps
+  // its DOM and state out of the document, with its effects and listeners off, so switching between them is one
+  // insertion.
+  const projectWorkspace = (
     <BridgeContext.Provider value={bridgeForKey(project.path)}>
       <ScopeContext.Provider value={project.path}>
         <DotBackground key="app">
@@ -3095,6 +3133,52 @@ function App() {
         )}
       </ScopeContext.Provider>
     </BridgeContext.Provider>
+  );
+  return (
+    <>
+      <WorkspaceSlots
+        shown={selectedLink ? "link" : "project"}
+        slots={[...(linkWorkspace ? [{ key: "link", element: linkWorkspace }] : []), { key: "project", element: projectWorkspace }]}
+      />
+      {/* The Project's copy of these sits in the hidden tree while a Link is on screen. */}
+      {selectedLink && linkDialogs}
+    </>
+  );
+}
+
+/**
+ * The workspaces a window keeps mounted: the one on screen, in the host, and the hidden ones in nodes of their own
+ * outside the document (as ChatComposer parks transcripts), so nothing that queries the document meets them. A hidden
+ * one is an <Activity> in its hidden mode: its state and DOM stay, its effects and listeners stop.
+ */
+function WorkspaceSlots({ shown, slots }: { shown: string; slots: { key: string; element: ReactNode }[] }) {
+  const [nodes] = useState(() => new Map<string, HTMLDivElement>());
+  const nodeFor = (key: string) => {
+    let node = nodes.get(key);
+    if (!node) {
+      node = document.createElement("div");
+      node.className = "contents";
+      node.dataset.workspaceSlot = key;
+      nodes.set(key, node);
+    }
+    return node;
+  };
+  // The host takes the shown slot's node as a ref, in the layout phase before the portals' own layout effects.
+  const host = useCallback(
+    (hostNode: HTMLDivElement | null) => {
+      if (!hostNode) return;
+      for (const child of Array.from(hostNode.children)) if (child !== nodes.get(shown)) child.remove();
+      const node = nodeFor(shown);
+      if (node.parentElement !== hostNode) hostNode.appendChild(node);
+    },
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- a new callback per shown slot is what makes React run it again
+    [shown],
+  );
+  return (
+    <>
+      <div ref={host} className="contents" />
+      {slots.map((slot) => createPortal(<Activity mode={slot.key === shown ? "visible" : "hidden"}>{slot.element}</Activity>, nodeFor(slot.key), slot.key))}
+    </>
   );
 }
 

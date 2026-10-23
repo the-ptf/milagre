@@ -431,6 +431,21 @@ const lastLists = {
   order: null as string[] | null,
 };
 
+/** A Link as the last sidebar read it, with its member Projects: enough to open it at once while the host answers. */
+export function knownLink(id: string): { link: NamedProjectLink; projects: Array<{ id: string; name: string; path: string }> } | null {
+  const link = lastLists.links.find((item) => item.id === id);
+  if (!link) return null;
+  const projects = link.projectIds.map(
+    (projectId) =>
+      lastLists.registered.find((project) => project.id === projectId) ?? {
+        id: projectId,
+        name: projectId.split(/[\\/]/).filter(Boolean).at(-2) ?? projectId,
+        path: "",
+      },
+  );
+  return { link, projects };
+}
+
 function AttentionDot({ className = "" }: { className?: string }) {
   return <span role="img" aria-label="Needs attention" title="A chat here waits for you" className={`size-2 shrink-0 rounded-full bg-orange ${className}`} />;
 }
@@ -613,6 +628,19 @@ export default memo(function SidebarNav({
     ? projectRows({ recent: recentProjects, currentPath: projectPath, currentName: workspaceName })
     : recentProjects.map((project) => ({ ...project, initial: project.name.slice(0, 1).toUpperCase(), current: false }));
 
+  // A sidebar whose effects run again after a hidden spell (the Project's behind a Link, an <Activity>) first takes
+  // what the other sidebar read meanwhile, before paint, so a Link made while it was away is listed at once.
+  const readBefore = useRef(false);
+  useLayoutEffect(() => {
+    // Taken now: this sidebar's own effect below writes its stale lists over the cache right after.
+    const { links, registered, recent } = lastLists;
+    if (readBefore.current) {
+      setNamedLinks(links);
+      setRegisteredProjects(registered);
+      setRecentProjects(recent);
+    }
+    readBefore.current = true;
+  }, []);
   // Read on mount and again each time the menu opens, so a folder that's gone drops out.
   useEffect(() => {
     let live = true;

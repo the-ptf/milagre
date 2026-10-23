@@ -332,6 +332,7 @@ export function MessageScroller({
   // A parked transcript put back in the document (ChatComposer's TranscriptSlots) with messages whose size
   // contain-intrinsic-size never learned measures every message once more.
   const [measurePass, setMeasurePass] = useState(0);
+  const shownBefore = useRef(false);
   useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
@@ -340,6 +341,9 @@ export function MessageScroller({
       setMeasurePass((pass) => pass + 1);
     };
     viewport.addEventListener(TRANSCRIPT_SHOWN_EVENT, remeasure);
+    // Effects run again when a hidden <Activity> shows this scroller again; display:none dropped the remembered sizes.
+    if (shownBefore.current) remeasure();
+    shownBefore.current = true;
     return () => viewport.removeEventListener(TRANSCRIPT_SHOWN_EVENT, remeasure);
   }, []);
   useEffect(() => {
