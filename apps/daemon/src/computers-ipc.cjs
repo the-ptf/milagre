@@ -8,7 +8,7 @@ const OPENED = new Set(["project:read", "project:switch", "project:open", "proje
 // What a window reads that a computer's last copy can answer while it is away.
 const MAX_REMEMBERED_CHARS = 32 * 1024 * 1024;
 const nameOf = (projectPath, recent) =>
-  recent?.find?.((project) => project.path === projectPath)?.name ?? projectPath.split("/").filter(Boolean).at(-1) ?? projectPath;
+  recent?.find?.((project) => project.path === projectPath)?.name ?? projectPath.split("/").findLast(Boolean) ?? projectPath;
 
 /** A read answered from the cache, or null when the cache can't answer it. A chat with no copy reads empty, never pending. */
 function readOffline(cache, id, method, args) {

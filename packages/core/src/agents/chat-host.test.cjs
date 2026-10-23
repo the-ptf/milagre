@@ -591,7 +591,7 @@ test("switching back resumes the parked session with a catch-up of what happened
   await waitUntil(() => saved.get(ALPHA)?.messages.length === 5);
 
   await host.send(message(ALPHA, "three", { sessionId }));
-  const backOf = () => created.filter((item) => item.provider === "claude").at(-1);
+  const backOf = () => created.findLast((item) => item.provider === "claude");
   await waitUntil(() => backOf()?.options.resumeId === "claude-1" && backOf().turns.length);
   const back = backOf();
   await host.states.flush();
@@ -1429,7 +1429,7 @@ test("a slow send does not publish old state after a concurrent turn finishes", 
     seq,
     [...seq].sort((a, b) => a - b),
   );
-  const latest = h.published.filter((x) => x.state).at(-1).state;
+  const latest = h.published.findLast((x) => x.state).state;
   assert.ok(latest.messages.some((m) => m.body === "First reply complete."));
   assert.equal(h.started.length, 2);
   await h.states.close();

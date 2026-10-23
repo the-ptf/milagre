@@ -28,7 +28,7 @@ export default function ActivitySheet() {
     message === "run"
       ? run
         ? undefined
-        : chatMessages.filter((entry) => entry.session_id === Number(id) && entry.role !== "user").at(-1)
+        : chatMessages.findLast((entry) => entry.session_id === Number(id) && entry.role !== "user")
       : chatMessages.find((entry) => entry.id === Number(message));
   // The snapshot leaves tool output out; the sheet fetches this message whole so each tool can expand.
   const [full, setFull] = useState<{ id: number; steps: ChatStep[]; body: string } | null>(null);

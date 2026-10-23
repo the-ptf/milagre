@@ -546,7 +546,7 @@ async function race(t, fuzzSeed) {
       pending.push(states.update(projectPath, (state) => ({ ...state, messages: [...state.messages, message] }), { chats: [chat] }));
     } else if (roll < 0.45) {
       // A message changes in place (an image captured, a divider marked done).
-      const target = model.filter((message) => message.session_id === chat).at(-1);
+      const target = model.findLast((message) => message.session_id === chat);
       if (!target) continue;
       model = model.map((message) => (message.id === target.id ? { ...message, body: `${message.body}!` } : message));
       pending.push(
@@ -558,7 +558,7 @@ async function race(t, fuzzSeed) {
       );
     } else if (roll < 0.5) {
       // A message taken back.
-      const target = model.filter((message) => message.session_id === chat).at(-1);
+      const target = model.findLast((message) => message.session_id === chat);
       if (!target) continue;
       model = model.filter((message) => message.id !== target.id);
       pending.push(

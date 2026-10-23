@@ -865,7 +865,7 @@ function NewChatHeader({
           .map((worktree) => ({
             key: String(worktree.id),
             name: worktree.name,
-            description: worktree.path.split("/").filter(Boolean).pop(),
+            description: worktree.path.split("/").findLast(Boolean),
             selected: worktree.id === selected?.id,
             choose: () => onWorktreeChange(worktree.id),
           }))

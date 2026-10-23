@@ -1010,7 +1010,7 @@ test("reads paginated child history without resuming and keeps completion separa
     events.some((e) => e.type === "turn-completed"),
     false,
   );
-  const child = events.filter((e) => e.type === "subagent-update").at(-1).agent;
+  const child = events.findLast((e) => e.type === "subagent-update").agent;
   assert.equal(child.status, "completed");
   assert.equal(child.transcript[0].text, "Paged result");
 });

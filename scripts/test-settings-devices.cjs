@@ -188,7 +188,7 @@ async function browserChecks() {
     // Devices: no phones yet and no Computers list, then a phone and a computer as they pair.
     const phoneKey = "p".repeat(43);
     const computerKey = "c".repeat(43);
-    const hostDevices = () => relays.filter((options) => !options.retired).at(-1).phones;
+    const hostDevices = () => relays.findLast((options) => !options.retired).phones;
     const computersShown = `[...document.querySelectorAll('h2')].some((h) => h.textContent === 'Computers')`;
     await waitFor(`document.querySelector('[data-devices-empty]')?.textContent === 'No phones yet'`);
     assert.equal(await evaluate(computersShown), false);

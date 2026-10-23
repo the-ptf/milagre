@@ -420,10 +420,7 @@ test("Claude keeps a subagent's own to-do list on it, apart from the chat's, and
   ];
   const listed = mapClaudeMessage(tool("t1", "TodoWrite", { todos }), state);
   assert.deepEqual(
-    listed
-      .filter((e) => e.type === "subagent-update")
-      .at(-1)
-      .agent.tasks.map((task) => [task.content, task.status]),
+    listed.findLast((e) => e.type === "subagent-update").agent.tasks.map((task) => [task.content, task.status]),
     [
       ["Read the login code", "completed"],
       ["Check the token refresh", "in_progress"],
@@ -439,7 +436,7 @@ test("Claude keeps a subagent's own to-do list on it, apart from the chat's, and
   mapClaudeMessage(tool("t2", "Read", { file_path: "/repo/src/auth.ts" }), state);
   mapClaudeMessage(tool("t3", "Read", { file_path: "/repo/docs/flow.png" }), state);
   const last = mapClaudeMessage(tool("t4", "Bash", { command: "npm test" }), state);
-  const agent = last.filter((e) => e.type === "subagent-update").at(-1).agent;
+  const agent = last.findLast((e) => e.type === "subagent-update").agent;
   // The to-do list call is the list, not a step of the transcript.
   assert.deepEqual(agent.progress, { steps: 1, said: "I'll start with the token refresh.", tools: { reads: 1, images: 1, commands: 1 } });
   assert.equal(
@@ -449,7 +446,7 @@ test("Claude keeps a subagent's own to-do list on it, apart from the chat's, and
   assert.equal(agent.transcript.find((entry) => entry.text.startsWith("Ran")).tool, "shell");
   // A transcript entry seen again (the same message replayed) isn't counted twice.
   const replay = mapClaudeMessage(tool("t4", "Bash", { command: "npm test" }), state);
-  assert.equal((replay.filter((e) => e.type === "subagent-update").at(-1)?.agent ?? agent).progress.tools.commands, 1);
+  assert.equal((replay.findLast((e) => e.type === "subagent-update")?.agent ?? agent).progress.tools.commands, 1);
 });
 test("Claude keeps a subagent's TaskCreate list once its result gives the id", () => {
   const state = {};
@@ -471,7 +468,7 @@ test("Claude keeps a subagent's TaskCreate list once its result gives the id", (
     },
     state,
   );
-  const agent = created.filter((e) => e.type === "subagent-update").at(-1).agent;
+  const agent = created.findLast((e) => e.type === "subagent-update").agent;
   assert.deepEqual(agent.tasks, [{ id: "7", content: "Audit the session cookie", status: "pending" }]);
 });
 test("Codex keeps a subagent's plan updates on it, not on the chat", () => {

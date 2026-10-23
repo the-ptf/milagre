@@ -41,7 +41,7 @@ export function groupRoutines<T extends Routine>(routines: readonly T[]): { hear
 }
 
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
-const projectName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+const projectName = (path: string) => path.split(/[\\/]/).findLast(Boolean) ?? path;
 
 /** Local calendar days from `at` to `now`: 0 the same day, 1 yesterday. */
 function daysBetween(at: number, now: number): number {

@@ -73,7 +73,7 @@ function KindIcon({ path, size }: { path: string; size: number }) {
 /** A file in a sent prompt: its type and name; a tap opens the preview when `onOpen` is given. */
 export function FileMentionChip({ path, onOpen }: { path: string; onOpen?: () => void }) {
   const { colors, textPx } = useTheme();
-  const name = path.split("/").filter(Boolean).at(-1) ?? path;
+  const name = path.split("/").findLast(Boolean) ?? path;
   return (
     <Box px={textPx} color={colors.lineStrong} fill={colors.hover} onPress={onOpen} label={`Preview ${name}`}>
       <KindIcon path={path} size={textPx} />

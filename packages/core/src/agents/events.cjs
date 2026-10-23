@@ -124,8 +124,7 @@ function readLastLine(text) {
       .replace(/\x1b\[[0-9;]*m/g, "")
       .split("\n")
       .map((item) => item.trim())
-      .filter(Boolean)
-      .at(-1) ?? "";
+      .findLast(Boolean) ?? "";
   const logged = LOG_PREFIX.test(raw);
   const line = logged ? raw.replace(LOG_PREFIX, "") : raw;
   return { line: line.length > 300 ? `${line.slice(0, 299)}…` : line, logged };

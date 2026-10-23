@@ -150,7 +150,7 @@ test("a 401 re-reads the token file, refreshes once and retries", async () => {
   write({ refresh_token: "rotated-refresh-token" });
   tokens.clear();
   await read(home, fake, { tokens });
-  const form = new URLSearchParams(fake.calls.filter((call) => call.url.includes("oauth2")).at(-1).init.body);
+  const form = new URLSearchParams(fake.calls.findLast((call) => call.url.includes("oauth2")).init.body);
   assert.equal(form.get("refresh_token"), "rotated-refresh-token");
 });
 

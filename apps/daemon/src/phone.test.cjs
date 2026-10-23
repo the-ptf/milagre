@@ -1195,7 +1195,7 @@ test("a Reset with webhooks and phone access off drains the old room through its
   assert.equal(drain.options.retired, true);
   assert.deepEqual(drain.options.hooks.ids(), [], "it registers nothing, so the room lets its hooks go");
   assert.equal((await readDraining(dataDir, 0)).length, 1);
-  const newHost = relays.filter((host) => host.options.hooksOnly).at(-1);
+  const newHost = relays.findLast((host) => host.options.hooksOnly);
   assert.notEqual(newHost.options.identity.hostId, old.hostId, "webhooks go on through the new identity");
   drain.options.hooks.drained();
   await waitFor(() => drain.closed);

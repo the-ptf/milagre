@@ -1653,7 +1653,7 @@ export default function ChatScreen() {
                                 : Object.values(project.state.worktrees).map((item) => ({
                                     id: String(item.id),
                                     title: item.name,
-                                    subtitle: item.path?.split("/").filter(Boolean).pop(),
+                                    subtitle: item.path?.split("/").findLast(Boolean),
                                     checked: item.id === worktreeId,
                                     systemImage: "arrow.triangle.branch",
                                     disabled: targetDisabled,
