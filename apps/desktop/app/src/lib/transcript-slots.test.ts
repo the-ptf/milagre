@@ -7,14 +7,25 @@ test("showing a Chat appends its slot once and updates it in place after", () =>
   slots = showSlot(slots, "b", "b1");
   const again = showSlot(slots, "a", "a2");
   assert.deepEqual(
-    again.map((slot) => [slot.key, slot.element]),
+    again.map((slot) => [slot.id, slot.key, slot.element]),
     [
-      ["a", "a2"],
-      ["b", "b1"],
+      [1, "a", "a2"],
+      [2, "b", "b1"],
     ],
-    "a keeps its place before b",
+    "a keeps its place and number before b",
   );
   assert.equal(showSlot(again, "a", "a2"), again, "the same element shown again changes nothing");
+});
+
+test("a draft's slot becomes its saved Chat's, keeping its number", () => {
+  let slots = showSlot([], "view:7", "draft");
+  slots = showSlot(slots, "/p#12", "saved", "view:7");
+  assert.deepEqual(
+    slots.map((slot) => [slot.id, slot.key, slot.element]),
+    [[1, "/p#12", "saved"]],
+  );
+  slots = showSlot(slots, "/p#13", "other", "view:7");
+  assert.equal(slots.length, 2, "an alias nobody holds any more appends");
 });
 
 test("trimming drops the parked slots shown longest ago and never the active one", () => {
@@ -32,6 +43,7 @@ test("trimming drops the parked slots shown longest ago and never the active one
     ["a", "b"],
     "the active slot stays even when it was shown long ago",
   );
+  assert.equal(showSlot(trimmed, "g", "g").at(-1)!.id, 7, "numbers are never reused");
 });
 
 test("dropping a slot leaves the others in order", () => {

@@ -21,6 +21,7 @@ import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
 import { createContext, Fragment, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, DragEvent, ReactElement, ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { commitChatSwitch } from "../lib/chat-switch-timing";
 import { showSlot, trimSlots, type TranscriptSlot } from "../lib/transcript-slots";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -90,7 +91,7 @@ import { LinkedMessageHeader, linkedContext } from "./LinkedMessage";
 import { isHandoff } from "@milagre/shared/handoff";
 import { isCompaction } from "@milagre/shared/compaction";
 import { isWorktreeLinked } from "@milagre/shared/worktree-link";
-import { MessageScroller } from "./agents/message-scroller";
+import { MessageScroller, TRANSCRIPT_SHOWN_EVENT } from "./agents/message-scroller";
 import { RecommendationCard } from "./agents/recommendation-card";
 import { parseRecommendation } from "../lib/recommendation";
 import { StepRow } from "./agents/StepRow";
@@ -1102,13 +1103,15 @@ export function ChatComposer({
   // The runtime knows a Chat by its Project's path, not the Worktree's `projectPath` it runs in.
   const runtimeChat = typeof chatId === "number" && chatId > 0 && projectPath ? (agentChatId ?? `${messageScope ?? projectPath}#${chatId}`) : null;
   // The transcript slot on screen (TranscriptSlots); a parked one comes back at the scroll position it left at.
-  const transcriptKey = isNewChat ? null : (agentChatId ?? runtimeChat);
+  // A draft's transcript takes its view's key until the Chat is saved; its slot then becomes the Chat's.
+  const draftKey = scrollKey === undefined ? null : `view:${scrollKey}`;
+  const transcriptKey = isNewChat ? null : (agentChatId ?? runtimeChat ?? draftKey);
   useEffect(() => {
     if (isNewChat) {
       setScrolled(false);
       return;
     }
-    const viewport = root.current?.querySelector<HTMLElement>("[data-transcript-slot]:not([data-parked]) section");
+    const viewport = root.current?.querySelector<HTMLElement>('[data-transcript-slot] [aria-label="Conversation"]');
     setScrolled((viewport?.scrollTop ?? 0) > 4);
   }, [isNewChat, transcriptKey]);
   // Undo changes: the Chat's task checkpoints, the panel that takes the composer's place, and the message it outlines.
@@ -1250,13 +1253,14 @@ export function ChatComposer({
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
         <TranscriptSlots
           activeKey={transcriptKey}
+          view={scrollKey}
           messageCount={messages.length}
           element={
-            isNewChat ? null : (
+            isNewChat ? null : messages.length === 0 ? (
+              <div className="relative flex min-h-0 flex-1 flex-col" />
+            ) : (
               <div className="relative flex min-h-0 flex-1 flex-col">
                 <MessageScroller
-                  // A parked transcript keeps its scroller: its slot's key, not the per-open one, which would mount it again.
-                  key={transcriptKey ?? scrollKey ?? messages[0]?.session_id ?? "new"}
                   navigation="rail"
                   followOutput
                   smooth
@@ -1550,21 +1554,102 @@ function ReplyProviders({
 
 /**
  * The transcript on screen and the last few shown before it, kept mounted (lib/transcript-slots.ts, after MonoCode's
- * TranscriptPool). A parked transcript keeps the element it was last shown with, so React leaves its tree alone, and
- * hides with `content-visibility`, which keeps its layout and scroll position for the next visit: coming back costs a
- * style change, not parsing and laying out every message again. Without a key (a Chat not saved yet) the element
+ * TranscriptPool). Each slot renders through a portal into a node of its own; the shown one's node sits in the host,
+ * the parked ones' leave the document with their DOM intact, so DOM queries never meet them and coming back is one
+ * insertion, not parsing and laying out every message again. A parked transcript keeps the
+ * element it was last shown with, so React leaves its tree alone. Without a key (a Chat not saved yet) the element
  * renders in place and nothing is parked.
  */
-function TranscriptSlots({ activeKey, element, messageCount }: { activeKey: string | null; element: ReactElement | null; messageCount: number }) {
+/** The height styles.css gives a message content-visibility has never laid out (`contain-intrinsic-size: auto 160px`). */
+const MESSAGE_PLACEHOLDER_HEIGHT = 160;
+
+function TranscriptSlots({
+  activeKey,
+  view,
+  element,
+  messageCount,
+}: {
+  activeKey: string | null;
+  /** The conversation on screen (App's chat view): a key change within one view is a draft becoming its saved Chat. */
+  view: number | string | undefined;
+  element: ReactElement | null;
+  messageCount: number;
+}) {
   const [slots, setSlots] = useState<TranscriptSlot<ReactElement>[]>([]);
-  const next = activeKey && element ? showSlot(slots, activeKey, element) : slots;
+  const [nodes] = useState(() => new Map<number, HTMLDivElement>());
+  const [scrollTops] = useState(() => new Map<number, number>());
+  const [unmeasured] = useState(() => new Set<number>());
+  const [last, setLast] = useState<{ view: typeof view; key: string | null }>({ view, key: activeKey });
+  const alias = last.view !== undefined && last.view === view && last.key && last.key !== activeKey ? last.key : undefined;
+  const next = activeKey && element ? showSlot(slots, activeKey, element, alias) : slots;
   if (next !== slots) setSlots(next);
+  if (last.view !== view || last.key !== activeKey) setLast({ view, key: activeKey });
+  const nodeFor = (id: number) => {
+    let node = nodes.get(id);
+    if (!node) {
+      node = document.createElement("div");
+      node.className = "contents";
+      node.dataset.transcriptSlot = String(id);
+      nodes.set(id, node);
+    }
+    return node;
+  };
+  const activeId = activeKey ? next.find((slot) => slot.key === activeKey)?.id : undefined;
+  // The host takes the shown slot's node as a ref, in the layout phase before the portals' own layout effects: a
+  // transcript that opens measures itself inside the document. The node it replaces leaves with its scroll position.
+  const [hosts] = useState<{ current: HTMLDivElement | null }>(() => ({ current: null }));
+  const host = useCallback(
+    (hostNode: HTMLDivElement | null) => {
+      const node = activeId === undefined ? null : nodeFor(activeId);
+      // Whatever other slot the host holds is parked: it leaves with its scroll position. The host leaving (a new
+      // Chat takes the window) parks its slot the same way. Only slot nodes leave: React may reuse this div for the
+      // in-place transcript of a Chat without a key, whose children it has already placed when the ref lets go.
+      for (const child of Array.from((hostNode ?? hosts.current)?.querySelectorAll<HTMLElement>(":scope > [data-transcript-slot]") ?? [])) {
+        if (hostNode && child === node) continue;
+        const viewport = child.querySelector<HTMLElement>('[aria-label="Conversation"]');
+        if (viewport) scrollTops.set(Number(child.dataset.transcriptSlot), viewport.scrollTop);
+        // Out of the document, content-visibility forgets the size of every skipped message. Each keeps its own, so
+        // the transcript comes back at the same height and opens where it should without measuring again. A message
+        // never laid out stands at the placeholder size (styles.css), which says nothing: the transcript measures again.
+        const id = Number(child.dataset.transcriptSlot);
+        for (const message of child.querySelectorAll<HTMLElement>('[data-slot="message"]')) {
+          const height = message.offsetHeight;
+          if (height > 0 && height !== MESSAGE_PLACEHOLDER_HEIGHT) message.style.containIntrinsicSize = `auto ${height}px`;
+          else unmeasured.add(id);
+        }
+        child.remove();
+      }
+      hosts.current = hostNode;
+      if (!hostNode || !node || activeId === undefined) return;
+      if (node.parentElement !== hostNode) {
+        hostNode.appendChild(node);
+        // A Chat opens at its latest turn, parked or not; the scroller hears the move and follows again.
+        const viewport = node.querySelector<HTMLElement>('[aria-label="Conversation"]');
+        if (viewport && scrollTops.has(activeId)) {
+          if (unmeasured.delete(activeId)) viewport.dispatchEvent(new Event(TRANSCRIPT_SHOWN_EVENT));
+          viewport.scrollTop = viewport.scrollHeight;
+          viewport.dispatchEvent(new Event("scroll"));
+        }
+      }
+    },
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- a new callback per slot is what makes React run it again
+    [activeId],
+  );
   // Parked transcripts past the limit leave after the switch has painted, so a burst of switches pays for it once.
   useEffect(() => {
     if (trimSlots(next, activeKey) === next) return;
     const timer = window.setTimeout(() => setSlots((current) => trimSlots(current, activeKey)), 500);
     return () => window.clearTimeout(timer);
   }, [next, activeKey]);
+  useEffect(() => {
+    for (const id of Array.from(nodes.keys()))
+      if (!next.some((slot) => slot.id === id)) {
+        nodes.get(id)?.remove();
+        nodes.delete(id);
+        scrollTops.delete(id);
+        unmeasured.delete(id);
+      }
+  }, [next, nodes, scrollTops, unmeasured]);
   // The switch is measured once the Chat's messages are on screen (lib/chat-switch-timing.ts).
   useLayoutEffect(() => {
     if (activeKey && messageCount > 0) commitChatSwitch(activeKey);
@@ -1574,22 +1659,10 @@ function TranscriptSlots({ activeKey, element, messageCount }: { activeKey: stri
     if (!next.length) return null;
   }
   return (
-    <div className={element ? "relative min-h-0 flex-1" : "pointer-events-none absolute inset-0"}>
-      {next.map((slot) => {
-        const shown = slot.key === activeKey && Boolean(element);
-        return (
-          <div
-            key={slot.key}
-            data-transcript-slot={slot.key}
-            data-parked={shown ? undefined : ""}
-            inert={!shown || undefined}
-            className={`absolute inset-0 flex flex-col ${shown ? "" : "pointer-events-none [content-visibility:hidden]"}`}
-          >
-            {slot.element}
-          </div>
-        );
-      })}
-    </div>
+    <>
+      {element && <div ref={host} className="relative flex min-h-0 flex-1 flex-col" />}
+      {next.map((slot) => createPortal(slot.element, nodeFor(slot.id), String(slot.id)))}
+    </>
   );
 }
 

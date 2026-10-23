@@ -66,8 +66,9 @@ const earlierLoads = new Map<string, Promise<void>>();
 const stale = new Set<string>();
 /** A paired computer's chat paints from its last copy on this Mac while the computer's own answer is on its way. */
 function recallRemote(scope: string, chatId: number, key: string) {
+  if (!isRemoteKey(scope)) return;
   const recall = window.milagre.computers?.recall;
-  if (!isRemoteKey(scope) || !recall) return;
+  if (!recall) return;
   void Promise.resolve(recall(computerOfKey(scope), { kind: "chat", scope, chatId }))
     .then((kept) => {
       // The computer answered first, or nobody wants the Chat any more.
