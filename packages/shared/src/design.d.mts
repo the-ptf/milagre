@@ -135,5 +135,5 @@ export function designLiveParts(document: DesignDocument): {
   bounds: Map<string, DesignBounds>;
 };
 /** A portable SVG with native shapes, text and image elements. Inter and loaded catalog faces are embedded unless `embedFonts` is false. JSON is the lossless design export. */
-export function designSvg(document: DesignDocument, options?: { embedFonts?: boolean; onCanvasOnly?: boolean }): string;
+export function designSvg(document: DesignDocument, options?: { embedFonts?: boolean; onCanvasOnly?: boolean; renderByteLimit?: number }): string;
 export function createExampleDesign(): DesignDocument;

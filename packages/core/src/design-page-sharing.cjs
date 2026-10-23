@@ -253,7 +253,6 @@ function createDesignPageSharing({
           const entry = await updateHistory(filename, (entries) => {
             const target = currentLink(entries, selectedKind);
             if (target) return target;
-            if (entries.length >= 200) throw Error("This Chat has reached its limit of 200 published links.");
             const secret = randomBytes(32);
             const id = hash(secret);
             const created = {

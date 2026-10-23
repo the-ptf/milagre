@@ -593,3 +593,60 @@ test("Artifact sharing keeps one link per page, separate from Designs, and works
   assert.equal((await api.listAll()).find((item) => item.id === designShare.id).revoked, true);
   assert.equal((await createDesignPageSharing(options).listAll()).length, 2);
 });
+
+test("republishing an expired hosted page creates a new link through the host used by desktop and mobile", async (t) => {
+  const { createPageService, createQuotaService, PAGE_TTL_MS } = await import("../../../apps/design-share/src/service.mjs");
+  const { validateDesignPageSnapshot, renderDesignPage } = await import("@milagre/shared/design-page");
+  const memory = () => {
+    const values = new Map();
+    return {
+      get: (key) => structuredClone(values.get(key)),
+      put: (key, value) => values.set(key, structuredClone(value)),
+      delete: (key) => values.delete(key),
+      keys: (prefix) => [...values.keys()].filter((key) => key.startsWith(prefix)),
+      transaction: (callback) => callback(),
+    };
+  };
+  const { options, artifacts, request } = await fixture(t);
+  await artifacts.show({ chatId: CHAT, title: "Explainer", html: "<p>One page</p>" });
+  const quotaStorage = memory();
+  const quota = createQuotaService({ storage: quotaStorage, limits: { bytes: 20 * 1024 ** 3 } });
+  const pages = new Map();
+  let time = 1000;
+  const api = createDesignPageSharing({
+    ...options,
+    fetch: async (url, init) => {
+      if (new URL(url).pathname === "/health") return new Response("ok");
+      const id = new URL(url).pathname.split("/").at(-1);
+      if (!pages.has(id))
+        pages.set(
+          id,
+          createPageService({
+            storage: memory(),
+            validate: validateDesignPageSnapshot,
+            render: renderDesignPage,
+            quota,
+            quotaId: id,
+            now: () => time,
+            setAlarm: async () => {},
+            deleteAlarm: async () => {},
+          }),
+        );
+      return pages.get(id).fetch(new Request(url, init), id);
+    },
+  });
+  for (const kind of ["designs", "artifacts"]) {
+    const first = await api.publish({ ...request, kind });
+    time += PAGE_TTL_MS;
+    await pages.get(first.id).alarm();
+    const next = await api.publish({ ...request, kind });
+    assert.notEqual(next.id, first.id);
+    assert.deepEqual(
+      (await api.list({ chatId: CHAT, kind })).map((share) => share.id),
+      [next.id],
+    );
+    assert.equal((await api.listAll()).find((share) => share.id === first.id).revoked, true);
+    await api.revoke({ chatId: CHAT, kind, id: next.id });
+  }
+  assert.equal(quotaStorage.get("activeBytes"), 0);
+});
