@@ -67,7 +67,7 @@ function fixture(platform) {
     require(id) {
       if (id === "react") return react;
       if (id === "./offline-cache.ts") return { rememberChat() {} };
-      if (id === "./computer-bridge.ts") return { bridgeForKey: () => ({ readChatMessages: read }) };
+      if (id === "./computer-bridge.ts") return { bridgeForKey: () => ({ readChatMessages: read }), isRemoteKey: () => false };
       if (id === "./state-events.ts") return { stateEvents: { onMessages() {} } };
       return require(id);
     },

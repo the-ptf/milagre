@@ -78,7 +78,7 @@ async function main() {
                 ? "export function rememberChat() {}"
                 : args.path.endsWith("state-events.ts")
                   ? "export const stateEvents={onMessages(){}}"
-                  : "export function bridgeForKey() { return {readChatMessages: (...args)=>window.read(...args)} }",
+                  : "export function bridgeForKey() { return {readChatMessages: (...args)=>window.read(...args)} }; export const isRemoteKey = () => false;",
             }));
           },
         },

@@ -369,6 +369,8 @@ export default function ChatScreen() {
   const [transcript, setTranscript] = useState({ key: scrollKey, messages: loadedMessages });
   const messages = lean && historyPage.loading && !loadedMessages.length && transcript.key === scrollKey ? transcript.messages : loadedMessages;
   if (transcript.key !== scrollKey || transcript.messages !== messages) setTranscript({ key: scrollKey, messages });
+  // A saved Chat whose page is still on its way shows nothing yet, not the new-chat welcome.
+  const pageLoading = lean && Boolean(params.id) && historyPage.loading && !messages.length;
   // The open Chat's PRs, read as its row in the Chat list reads them (same refs, same pooled lookups), so the PR action
   // above the composer and the row's status are about the same PRs.
   const prPath = session.snapshot?.project.link ? undefined : worktreeOf?.path;
@@ -1309,7 +1311,7 @@ export default function ChatScreen() {
                 />
               </View>
             )}
-            {!messages.length && !run && (
+            {!messages.length && !run && !pageLoading && (
               <View style={{ paddingVertical: 48, alignItems: "center", gap: 8 }}>
                 <Text style={styles.subtitle}>What are we working on?</Text>
                 <Text style={[styles.muted, { textAlign: "center" }]}>

@@ -183,6 +183,8 @@ type SidebarNavProps = {
   askingKeys?: string;
   /** Opens a chat of another Project (its path) or Link (`milagre-link:` key) from the all-Projects sidebar. */
   onOpenScopeChat?: (scopeKey: string, id: string) => void;
+  /** The pointer rests on a chat's row: its page can be read before the click. */
+  onHoverChat?: (scopeKey: string, id: string) => void;
   /** "Link and ask A…": sends the message to that chat (its Project path and id) through the normal send path. */
   onAskChat?: (scopeKey: string, id: string, message: { body: string; prompt: string }) => Promise<unknown>;
 };
@@ -552,6 +554,7 @@ export default memo(function SidebarNav({
   waitingKeys = "",
   askingKeys = "",
   onOpenScopeChat,
+  onHoverChat,
   onNewChatInScope,
   onAskChat,
 }: SidebarNavProps) {
@@ -755,6 +758,17 @@ export default memo(function SidebarNav({
   };
   const openScope = useRef((key: string, id: string) => onOpenScopeChat?.(key, id));
   openScope.current = (key: string, id: string) => onOpenScopeChat?.(key, id);
+  const hoverScope = useRef((key: string, id: string) => onHoverChat?.(key, id));
+  hoverScope.current = (key: string, id: string) => onHoverChat?.(key, id);
+  const scopeHovers = useRef(new Map<string, (item: SidebarRecent) => void>());
+  const hoverFor = (key: string) => {
+    let hover = scopeHovers.current.get(key);
+    if (!hover) {
+      hover = (item) => hoverScope.current(key, item.id);
+      scopeHovers.current.set(key, hover);
+    }
+    return hover;
+  };
   // Canvas Links join this Mac's Projects: a Named Link's shared chats and another computer's take none.
   const linkProjectIdOf = (key: string | undefined) =>
     key && !key.startsWith("milagre-link:") && !isRemoteKey(key) ? (registeredProjects.find((project) => project.path === key)?.id ?? null) : null;
@@ -771,6 +785,7 @@ export default memo(function SidebarNav({
               actions: chatActions,
               showHints,
               onPick: pickChat,
+              onHover: hoverFor(scope.key),
               linkProjectId: scope.link ? null : linkProjectIdOf(scope.key),
               computer: rowComputer(scope.key),
               show: chatRowShow,
@@ -781,6 +796,7 @@ export default memo(function SidebarNav({
               actions: actionsFor(scope.key),
               showHints: false,
               onPick: pickerFor(scope.key),
+              onHover: hoverFor(scope.key),
               linkProjectId: scope.link ? null : linkProjectIdOf(scope.key),
               computer: rowComputer(scope.key),
               show: chatRowShow,
@@ -1250,6 +1266,7 @@ export default memo(function SidebarNav({
                       actions={chatActions}
                       showHints={showHints}
                       onPick={pickChat}
+                      onHover={hoverFor(currentKey)}
                       show={chatRowShow}
                       linkProjectId={selectedLink ? null : linkProjectIdOf(projectPath)}
                       header={
@@ -1395,6 +1412,7 @@ function ChatList({
   actions,
   showHints,
   onPick,
+  onHover,
   linkProjectId,
   computer,
   show,
@@ -1413,6 +1431,7 @@ function ChatList({
   actions: ChatRowActions;
   showHints: boolean;
   onPick: (item: SidebarRecent) => void;
+  onHover?: (item: SidebarRecent) => void;
   /** The Project's id on the canvas; null when its chats can't be linked from here. */
   linkProjectId: string | null;
   computer?: RowComputer;
@@ -1808,6 +1827,7 @@ function ChatList({
       actions={rowActions}
       shortcutHint={showHints && hintOffset + index < 9 ? `${shortcutModifier}${hintOffset + index + 1}` : undefined}
       onPick={onPick}
+      onHover={onHover}
       computer={computer}
       show={show}
       dimOffline={dimOffline || (Boolean(pinnedTarget) && Boolean(item.pinned))}

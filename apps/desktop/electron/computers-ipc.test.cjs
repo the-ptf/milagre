@@ -157,6 +157,21 @@ test("while a computer isn't online, the window's reads come from its cache; any
   await assert.rejects(call("computers:invoke", ID, "routines:hook", [`${ID}|abcd1234`]), { message: "studio is offline." });
   await assert.rejects(call("computers:invoke", ID, "routines:update", [`${ID}|abcd1234`, { enabled: false }]), { message: "studio is offline." });
 
+  // The window paints a chat from its copy while the computer, online, answers: the copy comes back qualified.
+  await call("computers:remember", ID, {
+    kind: "chat",
+    scope: `${ID}|/p`,
+    chatId: 7,
+    window: { messages: [{ id: 70, body: "kept copy" }], hasMore: true, total: 12 },
+  });
+  assert.deepEqual(await call("computers:recall", ID, { kind: "chat", scope: `${ID}|/p`, chatId: 7 }), {
+    messages: [{ id: 70, body: "kept copy" }],
+    hasMore: false,
+    total: 12,
+  });
+  assert.equal(await call("computers:recall", ID, { kind: "chat", scope: `${ID}|/p`, chatId: 8 }), null, "a chat never kept has no copy");
+  assert.equal(await call("computers:recall", ID, { kind: "state", scope: `${ID}|/p` }), null, "only chats are recalled");
+
   await call("computers:remove", ID);
   assert.deepEqual(removed, [ID]);
   assert.equal(cache.get(ID, "recent", ""), null, "its cache went with it");

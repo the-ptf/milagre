@@ -221,6 +221,8 @@ export type ComputersApi = {
       | { kind: "state"; scope: string; state: unknown }
       | { kind: "chat"; scope: string; chatId: number; window: { messages: unknown[]; hasMore: boolean; total: number } },
   ) => Promise<void>;
+  /** A chat's offline copy, read to paint it while the computer's own answer is on its way; null without one. */
+  recall?: (id: string, entry: { kind: "chat"; scope: string; chatId: number }) => Promise<{ messages: unknown[]; hasMore: boolean; total: number } | null>;
 };
 
 import type { DiffMode, DiffFilesResult, DiffFileResult } from "@milagre/shared/git-diff";
