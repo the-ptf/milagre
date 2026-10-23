@@ -32,6 +32,7 @@ import {
   runWhen,
   triggerText,
   unreadRunChats,
+  unreadRunChatsOf,
   unreadRunRoutines,
 } from "./routines.mjs";
 
@@ -614,6 +615,13 @@ test("unreadRunRoutines: the Routines with a hidden Run Chat nobody opened, anot
 test("unreadRunChats: the keys of the hidden Run Chats nobody opened, for the Runs list's dots", () => {
   assert.deepEqual([...unreadRunChats(unreadStates())].toSorted(), ["/code/shop#1", "/code/web#3", "mac-2|/code/api#1"]);
   assert.equal(unreadRunChats({}).size, 0);
+});
+
+test("unreadRunChatsOf: one Routine's unread hidden Run Chats, another computer's by its qualified id", () => {
+  assert.deepEqual(unreadRunChatsOf(unreadStates(), "r1"), ["/code/shop#1"]);
+  assert.deepEqual(unreadRunChatsOf(unreadStates(), "mac-2|r6"), ["mac-2|/code/api#1"]);
+  assert.deepEqual(unreadRunChatsOf(unreadStates(), "r3"), []);
+  assert.deepEqual(unreadRunChatsOf(unreadStates(), "r5"), []);
 });
 
 test("chatLeft: a Chat is there to open while its Project holds its session, archived or not", () => {

@@ -130,7 +130,7 @@ import { restoredChatsNotice } from "./lib/restored-chats";
 import { lazyView } from "./lib/lazy-view";
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
-import { canOpenRunChat, unreadRunChats, unreadRunRoutines } from "@milagre/shared/routines";
+import { canOpenRunChat, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { RoutineChip } from "./components/routines/RoutineChip";
 import { RUN_CHAT_REPLY_NOTE, RunChatHeader } from "./components/routines/RunChatHeader";
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
@@ -182,6 +182,7 @@ function latestSessionId(state: CoordinatorState) {
 const NO_MESSAGES: ChatMessage[] = [];
 const NO_REFS: string[] = [];
 const NO_KEYS: string[] = [];
+const NO_ROUTINES = new Set<string>();
 // `sent`: the main process saved the message; the preview stays until the saved message reaches the window's state.
 type PendingSend = PendingChat & { view: number; projectPath: string; originSessionId: number | null; originWorktreeId: number; sent?: boolean };
 const NO_WORKTREE = -1;
@@ -706,6 +707,7 @@ function App() {
     notificationSchedule,
     showAttentionButton,
     floatingInbox,
+    routineNudges,
   } = useSettings();
   useEffect(() => {
     void window.milagre.setFloatingInbox?.(floatingInbox).catch(() => {});
@@ -855,12 +857,20 @@ function App() {
   const { states: scopeStates } = useScopeStates(true, NO_KEYS);
   const gridStates = useMemo(() => ({ ...scopeStates, ...states }), [scopeStates, states]);
   // The Routines with a hidden Run Chat nobody opened yet: the sidebar's Routines button and their rows show a dot.
-  const unreadRunRoutineIds = useStableSet(useMemo(() => unreadRunRoutines(gridStates), [gridStates]));
+  // Settings › Routines can turn these nudges off on this Mac: no dots, so no Mark as read either.
+  const unreadRunRoutineIds = useStableSet(useMemo(() => (routineNudges ? unreadRunRoutines(gridStates) : NO_ROUTINES), [routineNudges, gridStates]));
   // The hidden Run Chats nobody opened: their Runs show a dot on their Routine's page.
   const unreadRunChatKeys = useStableSet(useMemo(() => unreadRunChats(gridStates), [gridStates]));
   // Whether a Run's row opens its Chat: one still there, archived or not, or one in a Project the window holds no state for,
   // which opening loads by path (openCanvasChat). A Run whose Chat left with its Worktree opens nothing.
   const canOpenRun = useCallback((key: string) => canOpenRunChat(gridStates, key), [gridStates]);
+  // A Routine row's Mark as read: each of its unread hidden Run Chats is marked read in its own Project.
+  const markRoutineRead = useEvent((id: string) => {
+    for (const key of unreadRunChatsOf(gridStates, id)) {
+      const path = projectOfKey(key);
+      void reportChatAction(bridgeForKey(path).patchChat(path, sessionIdFromKey(key), { unread: false }), "Could not mark the Run read", setNotice);
+    }
+  });
   const focusedChatKey = project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null;
   // A Run's Chat beside its Routine's page: the window's Chat pane, moved next to the Runs, once that Chat is the open one.
   const runPaneOpen = view === "routines" && routineId !== null && runPane !== null && runPane === focusedChatKey;
@@ -2714,6 +2724,7 @@ function App() {
                       runChat={runPaneOpen ? runPane : null}
                       onOpenRoutine={openRoutine}
                       onOpenChat={openLinkedChat}
+                      onMarkRead={markRoutineRead}
                       onOpenRunChat={openRunChat}
                       onCloseRunChat={closeRunPane}
                     />

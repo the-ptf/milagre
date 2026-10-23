@@ -45,6 +45,7 @@ import {
   Notification01Icon,
   PaintBoardIcon,
   Plug01Icon,
+  RepeatIcon,
   SecurityCheckIcon,
   ServerIcon,
   Settings01Icon,
@@ -121,6 +122,7 @@ export type SettingsSection =
   | "appearance"
   | "chat"
   | "notifications"
+  | "routines"
   | "connections"
   | "skills"
   | "mcp"
@@ -139,6 +141,7 @@ const SECTIONS: Array<{ key: SettingsSection; label: string; icon: ReactNode }> 
   { key: "appearance", label: "Appearance", icon: <Icon icon={PaintBoardIcon} /> },
   { key: "chat", label: "Chat", icon: <Icon icon={BubbleChatIcon} /> },
   { key: "notifications", label: "Notifications", icon: <Icon icon={Notification01Icon} /> },
+  { key: "routines", label: "Routines", icon: <Icon icon={RepeatIcon} /> },
   { key: "connections", label: "Connections", icon: <Icon icon={ConnectIcon} /> },
   { key: "skills", label: "Skills", icon: <Icon icon={BookOpen01Icon} /> },
   { key: "mcp", label: "MCP", icon: <Icon icon={Plug01Icon} /> },
@@ -807,6 +810,18 @@ function NotificationsSettings() {
         <NotificationChimeSetting />
       </Group>
     </>
+  );
+}
+
+/** Settings › Routines: whether this Mac nudges about unread Runs (the top bar's Routines button and the Routines' rows). */
+function RoutinesSettings() {
+  const settings = useSettings();
+  return (
+    <Group title="Nudges">
+      <Row label="Unread Runs dot" description="On the Routines button and each Routine's row, while a Run's Chat has a result you haven't opened">
+        <Switch label="Unread Runs dot" checked={settings.routineNudges} onChange={(routineNudges) => updateSettings({ routineNudges })} />
+      </Row>
+    </Group>
   );
 }
 
@@ -2258,6 +2273,7 @@ export function SettingsPanel({
         {section === "appearance" && <AppearanceSettings />}
         {section === "chat" && <ChatSettings />}
         {section === "notifications" && <NotificationsSettings />}
+        {section === "routines" && <RoutinesSettings />}
         {section === "connections" && (
           <>
             <p className="mt-1 text-[13px] text-ink-2">Services Milagre signs in to, so Chats can start from their issues.</p>
