@@ -325,17 +325,18 @@ function App() {
       nextSelection(models, current, { defaultId: getSettings().defaultModelId, applyDefault, preferredProvider: preferredProviderRef.current }),
     );
   }, [models]);
-  // A pick in an open Project chat stays with that chat; elsewhere (the new-chat screen, a Link) it becomes the default.
+  // A pick in an open chat stays with that chat (a Link's composer names its chat); on a new-chat screen it becomes the default.
   const chatModels = useRef<Record<string, string>>(readChatModels());
-  const chooseModel = (model: ModelOption) => {
+  const chooseModel = (model: ModelOption, linkChat?: string | null) => {
     pickedModel.current = true;
     setSelectedModel(model);
     const sessionId = selectedSessionRef.current;
-    if (sessionId === null || !projectRef.current || selectedLinkRef.current) {
+    const chat = selectedLinkRef.current ? linkChat : sessionId !== null && projectRef.current ? chatKey(projectRef.current.path, sessionId) : null;
+    if (!chat) {
       updateSettings({ defaultModelId: model.id });
       return;
     }
-    chatModels.current = { ...chatModels.current, [chatKey(projectRef.current.path, sessionId)]: model.id };
+    chatModels.current = { ...chatModels.current, [chat]: model.id };
     localStorage.setItem(CHAT_MODELS_KEY, JSON.stringify(chatModels.current));
   };
   const selectedCapability = capabilityFor(selectedModel, capabilities);
@@ -776,15 +777,18 @@ function App() {
     void agentRuns.answerQuestion(chatKey(project.path, selectedSession.id), pendingQuestion.requestId, answers).catch(() => {});
   }
 
+  // The model a chat's picker shows, by chat key: as for the open Project chat.
+  const modelForChatKey = (chat: string, provider: ModelProvider | undefined, own: ChatMessage[]) =>
+    modelForOpenChat(chatModels.current[chat], provider, own, models, resolveModel(models, defaultModelId, providerForId(defaultModelId)));
+
   // The picker follows the open chat: the model picked there, else the one it last ran, on the agent it's bound to.
+  // A Link keeps the Project open behind it; its own chat sets the picker then (LinkWorkspace).
   useEffect(() => {
-    if (!project || !selectedSession) return;
+    if (!project || !selectedSession || selectedLink) return;
     const own = messages.filter((message) => message.session_id === selectedSession.id);
-    const picked = chatModels.current[chatKey(project.path, selectedSession.id)];
-    const fallback = resolveModel(models, defaultModelId, providerForId(defaultModelId));
-    const nextModel = modelForOpenChat(picked, selectedSession.provider, own, models, fallback);
+    const nextModel = modelForChatKey(chatKey(project.path, selectedSession.id), selectedSession.provider, own);
     if (nextModel.id !== selectedModel.id) setSelectedModel(nextModel);
-  }, [project?.path, selectedSession?.id, selectedSession?.provider, messages, models]);
+  }, [project?.path, selectedSession?.id, selectedSession?.provider, messages, models, selectedLink?.link.id]);
 
   function receiveState(projectPath: string, next: CoordinatorState | LinkState) {
     if (isLinkScopeKey(projectPath)) {
@@ -2268,6 +2272,8 @@ function App() {
             models,
             selectedModel,
             onModelChange: chooseModel,
+            modelForChat: modelForChatKey,
+            showModel: setSelectedModel,
             cliStatus,
             onModelPickerOpen: refreshCliStatus,
             onUpdateCli: handleUpdateCli,
