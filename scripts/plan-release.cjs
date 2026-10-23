@@ -1,6 +1,6 @@
-// Plans a desktop release. Merges to main cut no tags: Publish cuts a beta from the newest CI-green main commit, with
-// the changes since the previous beta, and promotes the newest beta to stable, with the changes since the previous
-// stable. CI keeps one untagged "Next beta" draft that lists what the next beta would ship.
+// Plans a desktop release. Merges to main cut no tags: Publish cuts a beta from the newest main commit whose CI and
+// installer checks passed, with the changes since the previous beta, and promotes the newest beta to stable, with the
+// changes since the previous stable. CI keeps one untagged "Next beta" draft that lists what the next beta would ship.
 //   node scripts/plan-release.cjs plan        CHANNEL, REQUESTED, SCHEDULED, NOTES_FILE in; key=value lines for $GITHUB_OUTPUT out
 //   node scripts/plan-release.cjs preview     the next beta's version and notes, from origin/main
 //   node scripts/plan-release.cjs next-draft  rewrites the Next beta draft from origin/main
@@ -87,18 +87,68 @@ function commitsSince(exec, fromTag, to) {
     });
 }
 
-/** The commit a beta ships: the one asked for, or the newest main commit whose CI run passed. */
+// Betas ship macOS and Linux installers; a Windows build is optional, so its check doesn't hold a beta back.
+const REQUIRED_INSTALLERS = ["macos", "linux"];
+
+/**
+ * Why the installer checks (package-candidates.yml) rule out shipping `sha`, or null. That workflow runs on main pushes
+ * that touch the app, so the run that tested `sha` is the one on the newest commit at or before it. A run cancelled
+ * because a newer push superseded it tested nothing, which leaves the commits above it untested.
+ */
+function installerProblem(exec, sha, runs) {
+  for (const commit of exec("git", ["rev-list", "--first-parent", "--max-count=500", sha]).split("\n").filter(Boolean)) {
+    const own = runs.filter((run) => run.headSha === commit);
+    if (!own.length) continue;
+    const run = own.find((item) => item.conclusion !== "cancelled");
+    const at = commit.slice(0, 12);
+    if (!run) return `its installer checks were cancelled on ${at}`;
+    if (run.status !== "completed") return `its installer checks are still running on ${at}`;
+    const { jobs } = JSON.parse(exec("gh", ["run", "view", String(run.databaseId), "--json", "jobs"]));
+    const failed = REQUIRED_INSTALLERS.filter((platform) => !jobs.some((job) => job.name.startsWith(`package (${platform},`) && job.conclusion === "success"));
+    return failed.length ? `the ${failed.join(" and ")} installer check failed on ${at}` : null;
+  }
+  return "no installer check has run on it";
+}
+
+/** The commit a beta ships: the one asked for, or the newest main commit whose CI and installer checks passed. */
 function greenCommit({ exec, requested }) {
-  const runs = ["run", "list", "--workflow", "ci.yml", "--event", "push", "--status", "success", "--limit", "1", "--json", "headSha"];
+  const ci = ["run", "list", "--workflow", "ci.yml", "--event", "push", "--status", "success", "--json", "headSha"];
+  const installers = () =>
+    JSON.parse(
+      exec("gh", [
+        "run",
+        "list",
+        "--workflow",
+        "package-candidates.yml",
+        "--event",
+        "push",
+        "--branch",
+        "main",
+        "--limit",
+        "100",
+        "--json",
+        "databaseId,headSha,status,conclusion",
+      ]),
+    );
   if (requested) {
     const sha = commitOf(exec, requested);
     if (!isAncestor(exec, sha, MAIN)) throw new Error(`${requested} is not on main`);
-    if (!JSON.parse(exec("gh", [...runs, "--commit", sha])).length) throw new Error(`CI has not passed on ${requested} (${sha.slice(0, 12)})`);
+    if (!JSON.parse(exec("gh", [...ci, "--limit", "1", "--commit", sha])).length) throw new Error(`CI has not passed on ${requested} (${sha.slice(0, 12)})`);
+    const problem = installerProblem(exec, sha, installers());
+    if (problem) throw new Error(`${requested} (${sha.slice(0, 12)}) can't ship: ${problem}`);
     return sha;
   }
-  const [run] = JSON.parse(exec("gh", [...runs, "--branch", "main"]));
-  if (!run) throw new Error("No main commit has passed CI");
-  return commitOf(exec, run.headSha);
+  const green = JSON.parse(exec("gh", [...ci, "--limit", "30", "--branch", "main"]));
+  if (!green.length) throw new Error("No main commit has passed CI");
+  const runs = installers();
+  const problems = [];
+  for (const { headSha } of green) {
+    const sha = commitOf(exec, headSha);
+    const problem = installerProblem(exec, sha, runs);
+    if (!problem) return sha;
+    problems.push(`${sha.slice(0, 12)}: ${problem}`);
+  }
+  throw new Error(`No CI-green main commit passed its installer checks\n${problems.join("\n")}`);
 }
 
 function line(commit, repo) {
