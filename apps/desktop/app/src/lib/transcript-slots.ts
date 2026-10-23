@@ -4,7 +4,7 @@
 // another place in the tree, and a draft's slot can become its saved Chat's without a remount.
 
 /** How many transcripts stay mounted besides the one on screen. */
-export const TRANSCRIPT_SLOT_LIMIT = 4;
+const TRANSCRIPT_SLOT_LIMIT = 4;
 
 export type TranscriptSlot<T> = { id: number; key: string; element: T; shownAt: number };
 
