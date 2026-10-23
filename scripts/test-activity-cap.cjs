@@ -72,13 +72,18 @@ async function browserChecks() {
     await evaluate("window.append()");
     await waitFor(`${rowCount} === 155`);
     assert.ok((await evaluate(firstTitle)).includes("Command 100"));
+    // Measure after the fold/output transitions finish. Screenshot capture can otherwise hide a transient position.
+    await waitFor(
+      `${fold}.nextElementSibling.getAnimations({ subtree: true }).every(animation => !Number.isFinite(animation.effect?.getComputedTiming().endTime) || animation.playState === "finished")`,
+    );
     await evaluate(`${body}.scrollIntoView({ block: "start" })`);
-    const beforeTop = await evaluate(`${body}.getBoundingClientRect().top`);
     await screenshot("capped");
+    const beforeTop = await evaluate(`${body}.getBoundingClientRect().top`);
     await evaluate(`${earlier}.click()`);
     await waitFor(`${rowCount} === 255 && !${earlier}`);
     assert.equal(await evaluate(`document.activeElement === ${body}`), true, "reveal transfers keyboard focus to the retained body");
-    assert.ok(Math.abs((await evaluate(`${body}.getBoundingClientRect().top`)) - beforeTop) < 2, "revealing rows keeps the top of the list in place");
+    const afterTop = await evaluate(`${body}.getBoundingClientRect().top`);
+    assert.ok(Math.abs(afterTop - beforeTop) < 2, `revealing rows keeps the top of the list in place (${beforeTop} to ${afterTop})`);
     assert.equal(
       await evaluate(
         '[...document.querySelectorAll("[data-slot=step]")].find(e => e.textContent.includes("Command 100"))?.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded")',
