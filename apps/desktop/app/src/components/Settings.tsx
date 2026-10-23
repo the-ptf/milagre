@@ -2,6 +2,7 @@ import { NotificationScheduleSetting } from "./NotificationScheduleSetting";
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
 import { useDesignsEnabled } from "../lib/designs-enabled";
 import { useBots } from "../lib/bots-store";
+import { useRemoteDelegationEnabled } from "../lib/remote-delegation";
 import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/ai-consent";
 import { PrivacySettings } from "./AiConsent";
 import { showUpdateNotice } from "./UpdateNotice";
@@ -577,6 +578,30 @@ export function DesignsSettings() {
   );
 }
 
+function RemoteDelegationSettings() {
+  const setting = useRemoteDelegationEnabled();
+  return (
+    <div data-slot="remote-delegation-setting">
+      <Row
+        label="Delegate to other computers"
+        description="A Chat's agent can hand work to a Project on another paired computer. That computer runs the turn, and this Chat shows it as it runs. Needs Drive other computers on in Settings > Devices."
+      >
+        <Switch
+          label="Delegate to other computers"
+          checked={setting.enabled}
+          disabled={!setting.ready || setting.saving}
+          onChange={(enabled) => void setting.save(enabled)}
+        />
+      </Row>
+      {setting.error && (
+        <p role="alert" className="px-4 pb-3 text-[12px] text-red">
+          {setting.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function BotsSettings() {
   const bots = useBots();
   return (
@@ -667,6 +692,7 @@ function ExperimentalSettings() {
           <Switch label="Ultracode Fatality" checked={settings.ultracodeFatality} onChange={(ultracodeFatality) => updateSettings({ ultracodeFatality })} />
         </Row>
         <BotsSettings />
+        <RemoteDelegationSettings />
       </Group>
     </>
   );
