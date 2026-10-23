@@ -81,7 +81,7 @@ function shape(node, box, inset = 0) {
  * (an opacity or clip group far past the right or bottom edge), so the agent's rasterizer drops them.
  * HTTPS image references and font-family names remain references; this pure function does not fetch or embed them.
  */
-export function renderDesignSvg(document, bounds, textLayout, resolveColor, fontFaces = "", { onCanvasOnly = false } = {}) {
+export function renderDesignSvg(document, bounds, textLayout, resolveColor, fontFaces = "", { onCanvasOnly = false, renderByteLimit } = {}) {
   const children = new Map();
   for (const [index, node] of document.nodes.entries()) {
     const siblings = children.get(node.parentId) ?? [];
@@ -89,7 +89,7 @@ export function renderDesignSvg(document, bounds, textLayout, resolveColor, font
     children.set(node.parentId, siblings);
   }
   const definitions = [];
-  const take = designRenderBudget("SVG");
+  const take = designRenderBudget("SVG", renderByteLimit);
   const colorAttributes = (kind, value, fallback) => {
     const result = paint(resolveColor(value, fallback));
     if (result.opacity === 0) return `${kind}="none"`;

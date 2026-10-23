@@ -7,10 +7,6 @@ routes = [{ pattern = "share.milagre.cloud", custom_domain = true }]
 [vars]
 PUBLIC_ORIGIN = "https://share.milagre.cloud"
 MAX_TOTAL_BYTES = "21474836480"
-MAX_TOTAL_PAGES = "100000"
-MAX_DAILY_PAGES = "2000"
-MAX_DAILY_IP_PAGES = "200"
-MAX_DAILY_IP_UPDATES = "2000"
 
 [[durable_objects.bindings]]
 name = "PAGES"

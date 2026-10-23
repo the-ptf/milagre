@@ -2,11 +2,11 @@
 export const MAX_DESIGN_RENDER_BYTES = 8 * 1024 * 1024;
 const encoder = new TextEncoder();
 
-export function designRenderBudget(format) {
+export function designRenderBudget(format, limit = MAX_DESIGN_RENDER_BYTES) {
   let bytes = 0;
   return (part, node) => {
     bytes += encoder.encode(part).byteLength;
-    if (bytes > MAX_DESIGN_RENDER_BYTES) {
+    if (bytes > limit) {
       const layer = node ? ` at layer "${node.name ?? node.id}" (${node.id})` : "";
       throw new Error(`Design ${format} exceeds the 8 MiB rendered size limit${layer}. Reduce visible text or image content.`);
     }

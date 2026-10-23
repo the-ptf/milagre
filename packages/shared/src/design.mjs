@@ -755,8 +755,9 @@ function previewController(design, selected, bounds) {
 /**
  * embedFonts: false leaves Inter as a font-family reference, for callers that must stay small (a shared page of many designs).
  * onCanvasOnly: true leaves out layers wholly outside the screen, for the agent's rasterizer.
+ * renderByteLimit: sharing uses Infinity; previews and exports keep the default render budget.
  */
-export function designSvg(value, { embedFonts = true, onCanvasOnly = false } = {}) {
+export function designSvg(value, { embedFonts = true, onCanvasOnly = false, renderByteLimit } = {}) {
   const document = validateDesignDocument(value);
   const textLayout = cachedTextLayout();
   return renderDesignSvg(
@@ -765,7 +766,7 @@ export function designSvg(value, { embedFonts = true, onCanvasOnly = false } = {
     textLayout,
     (value, fallback) => designColor(document, value, fallback),
     embedFonts ? designFontFaces(document) : "",
-    { onCanvasOnly },
+    { onCanvasOnly, renderByteLimit },
   );
 }
 

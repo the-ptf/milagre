@@ -221,24 +221,18 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
         const entries = await activeArtifacts(folder, format);
         if (format === "html") {
           if (!entries.length) throw Error("This Chat has no artifact page to share.");
-          let bytes = 0;
           const artifacts = [];
           for (const entry of entries) {
             const current = await readVersion(folder, entry);
-            bytes += Buffer.byteLength(current.html);
-            if (bytes > 8 * 1024 * 1024) throw Error("This Artifacts page exceeds the 8 MB sharing limit.");
             artifacts.push({ title: current.title, html: sharedHtml(current.html), width: current.width, height: current.height });
           }
           return { schemaVersion: 1, kind: "artifacts", title: request.title, artifacts };
         }
-        if (!entries.length || entries.length > 20) throw Error("A shared page must contain between 1 and 20 designs.");
+        if (!entries.length) throw Error("A shared page must contain at least one design.");
         const designs = [];
-        let size = 0;
         for (const entry of entries) {
           const latest = entry.versions.at(-1);
           const source = await readVersionFile(documentFile(folder, entry.id, latest.version));
-          size += Buffer.byteLength(source);
-          if (size > 8 * 1024 * 1024) throw Error("This Designs page exceeds the 8 MB sharing limit.");
           designs.push({ title: latest.title, document: JSON.parse(source) });
         }
         return { schemaVersion: 1, title: request.title, designs };

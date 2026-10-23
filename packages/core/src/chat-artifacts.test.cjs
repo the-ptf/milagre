@@ -797,3 +797,15 @@ test("the design tools tell any agent, a subagent too, to design on the Chat's c
   assert.match(tools.design_show.description, /to revise a design, keep its id/);
   assert.match(tools.design_apply.description, /^Revise a design on this Chat's Designs canvas, keeping its id; any agent or subagent/);
 });
+
+test("page snapshots capture every design beyond the former 20-design cap", async (t) => {
+  const { api, tools } = await fixture(t);
+  await assert.rejects(api.pageSnapshot({ chatId: CHAT, title: "Designs" }), /at least one design/);
+  for (let i = 0; i < 21; i++) {
+    await tools.design_show.run({ id: `design-${i}`, title: `Design ${i + 1}`, document: designDocument() });
+  }
+  const snapshot = await api.pageSnapshot({ chatId: CHAT, title: "Designs" });
+  assert.equal(snapshot.designs.length, 21);
+  assert.equal(new Set(snapshot.designs.map((design) => design.title)).size, 21);
+  assert.ok(snapshot.designs.some((design) => design.title === "Design 21"));
+});
