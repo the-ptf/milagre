@@ -208,6 +208,17 @@ async function browserChecks() {
     assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "[Image #1] ", "Attached image inserts [Image #1] token");
     assert.equal(await evaluate('document.querySelectorAll("[data-prompt-editor] [data-chip=image]").length'), 1, "Attached image renders as an inline chip");
     assert.equal(await evaluate('document.querySelector("[data-promptbar] [data-image-badge]")?.textContent'), "#1", "Composer image thumbnail shows #1 badge");
+    assert.deepEqual(
+      await evaluate(
+        `[...document.querySelectorAll('[data-promptbar] [aria-label=Attachments] [aria-label^="Preview "]')].map((b) => b.getAttribute('aria-label'))`,
+      ),
+      ["Preview note.txt", "Preview clip.mp4", "Preview photo.png"],
+      "Attachments keep the order they were added in, images included",
+    );
+    await click("[data-prompt-editor] [data-chip=image]");
+    await waitFor(`!!document.querySelector('dialog[open] img')`);
+    await key("Escape");
+    await waitFor(`!document.querySelector('dialog')`);
     assert.equal(await evaluate('document.querySelector("[aria-label=Send]").disabled'), false, "File-only messages can send");
     await chooseFiles([["Card.tsx", "text/typescript"]]);
     await click('[aria-label="Preview Card.tsx"]');
@@ -243,7 +254,7 @@ async function browserChecks() {
     const counter = String.raw`document.querySelector("dialog [aria-live]")?.textContent`;
     await click('[aria-label="Preview photo.png"]');
     await waitFor(String.raw`document.querySelector("dialog[open] img")?.naturalWidth > 0`);
-    assert.equal(await evaluate(counter), "1 / 2");
+    assert.equal(await evaluate(counter), "2 / 2", "The photo was added after the video, so it pages after it");
     assert.equal(
       await evaluate(`document.querySelector('[data-promptbar] [aria-label="Preview photo.png"] img').classList.contains('opacity-0')`),
       true,
@@ -268,16 +279,16 @@ async function browserChecks() {
     await waitFor(String.raw`document.querySelector("dialog img")?.dataset.zoom === "2.50"`);
     await key("ArrowRight");
     await delay(100);
-    assert.equal(await evaluate(counter), "1 / 2", "Arrow keys pan a zoomed image instead of changing item");
+    assert.equal(await evaluate(counter), "2 / 2", "Arrow keys pan a zoomed image instead of changing item");
     await delay(400);
     await screenshot("lightbox-zoomed");
     await clickImage();
     await waitFor(String.raw`document.querySelector("dialog img")?.dataset.zoom === "1.00"`);
-    await key("ArrowRight");
-    await waitFor(`${counter} === '2 / 2' && !!document.querySelector('dialog video[controls]')`);
     assert.equal(await evaluate('document.querySelector("dialog [aria-label=Next]").disabled'), true, "Navigation stops at the last item");
     await key("ArrowLeft");
-    await waitFor(`${counter} === '1 / 2'`);
+    await waitFor(`${counter} === '1 / 2' && !!document.querySelector('dialog video[controls]')`);
+    await key("ArrowRight");
+    await waitFor(`${counter} === '2 / 2'`);
     // A click on the empty area around the image closes the viewer.
     await mouseClick(60, 380);
     await waitFor(String.raw`!document.querySelector("dialog")`);
@@ -395,6 +406,8 @@ async function browserChecks() {
       "[Image #1]",
       "Removing Image #1 shifts [Image #2] to [Image #1]",
     );
+    await type("");
+    await waitFor(`!document.querySelector('[data-promptbar] [aria-label="Preview Pasted image.png"]')`);
     await screenshot("clipboard-image");
     await chooseFiles([["discard.txt", "text/plain"]]);
     // Sidebar chats keep creation order, newest first: Other chat (session 5) is ⌘1, Attachment test (session 3) is ⌘2.
@@ -410,6 +423,8 @@ async function browserChecks() {
     await waitFor(String.raw`window.synced.at(-1)?.unread.includes("/fixture#3")`);
     await key("2", { metaKey: true });
     await waitFor(String.raw`!window.synced.at(-1)?.unread.includes("/fixture#3")`);
+    await waitFor(`!!document.querySelector('[data-promptbar] [aria-label="Preview discard.txt"]')`);
+    await click('[data-promptbar] [aria-label="Remove discard.txt"]');
     await waitFor(String.raw`!!document.querySelector('[aria-label="Send"]') && !document.querySelector('[aria-label="Stop agent"]')`);
     await delay(250);
     require("node:fs").writeFileSync("/tmp/milagre-attachments.png", (await window.webContents.capturePage()).toPNG());

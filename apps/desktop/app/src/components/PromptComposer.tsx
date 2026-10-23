@@ -19,7 +19,7 @@ import { ProviderLogo } from "./ProviderLogo";
 import { Attachments } from "./Attachments";
 import { useProjectFiles } from "./useProjectFiles";
 import { promptToken, fileMentionPath, insertImageMentions, insertPromptToken } from "../lib/file-mentions";
-import { shiftImageMentions } from "../lib/prompt-mentions";
+import { mentionedImages, shiftImageMentions } from "../lib/prompt-mentions";
 import { formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
 import { rankSkillMatches } from "@milagre/shared/skill-catalog";
 import { useSkills } from "./useSkills";
@@ -428,6 +428,22 @@ export function PromptComposer({
     });
   }
 
+  // Deleting an image's chip from the text removes the image too, and renumbers the chips after it.
+  function dropUnmentionedImages(previous: string, next: string) {
+    const before = mentionedImages(previous, imageCount);
+    const after = mentionedImages(next, imageCount);
+    const removed = [...before].filter((index) => !after.has(index)).sort((a, b) => b - a);
+    for (const index of removed) {
+      const image = imageDraft.images[index - 1];
+      if (image?.path) imageDraft.removeFile(image.path);
+      else if (image) imageDraft.remove(image.id);
+      next = shiftImageMentions(next, index);
+    }
+    return next;
+  }
+
+  const [previewId, setPreviewId] = useState<string | null>(null);
+
   function handleRemoveImage(id: string) {
     const index = imageDraft.images.findIndex((image) => image.id === id);
     imageDraft.remove(id);
@@ -720,6 +736,9 @@ export function PromptComposer({
             localFiles={imageDraft.localFiles}
             images={imageDraft.images}
             files={imageDraft.files.filter((file) => !chipPaths.includes(file))}
+            order={imageDraft.order}
+            previewId={previewId}
+            onPreview={setPreviewId}
             removeImage={handleRemoveImage}
             removeFile={handleRemoveFile}
           />
@@ -744,6 +763,7 @@ export function PromptComposer({
                 value={draft}
                 parts={parts}
                 skillDescriptions={skillDescriptions}
+                onOpenImage={(index) => setPreviewId(imageDraft.images[index - 1]?.id ?? null)}
                 onPaste={(event) => {
                   const selection = inputRef.current?.getSelection() ?? { start: caret, end: caret };
                   const promise = imageDraft.onPaste(event);
@@ -752,7 +772,7 @@ export function PromptComposer({
                 onSelect={setCaret}
                 onChange={(value, position) => {
                   setCaret(position);
-                  onDraftChange(value);
+                  onDraftChange(dropUnmentionedImages(draftLatest.current, value));
                   setDismissed(false);
                   setPlusOpen(false);
                 }}

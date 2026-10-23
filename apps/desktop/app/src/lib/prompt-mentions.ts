@@ -1,1 +1,1 @@
-export { isMentionOfFile, mentionedFile, mentionedFiles, shiftImageMentions } from "@milagre/shared/prompt-mentions";
+export { isMentionOfFile, mentionedFile, mentionedFiles, mentionedImages, shiftImageMentions } from "@milagre/shared/prompt-mentions";
