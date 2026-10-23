@@ -1,7 +1,7 @@
 import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { BubbleChatIcon, Delete02Icon, LaptopIcon, MoreHorizontalIcon, PencilEdit02Icon, PlayIcon } from "@hugeicons/core-free-icons";
+import { BubbleChatIcon, Delete02Icon, LaptopIcon, MoreHorizontalIcon, PencilEdit02Icon, PlayIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import type { Routine } from "@milagre/shared/model";
 import { canRunNow } from "@milagre/shared/routines";
 import GlideMenu from "../primitives/GlideMenu";
@@ -154,7 +154,7 @@ function DeleteQuestion({ routine, onCancel, onDelete, className = "" }: { routi
 
 /**
  * One Routine: tile, name (with a dot while a hidden Run Chat of it is unread) and meta, then its status, its switch and a
- * ⋯ menu (Edit, Run now, Open Chat, Delete). Clicking the row opens the Routine's page.
+ * ⋯ menu (Edit, Run now, Open Chat, Mark as read while unread, Delete). Clicking the row opens the Routine's page.
  */
 export function RoutineRow({
   routine,
@@ -167,6 +167,7 @@ export function RoutineRow({
   onEdit,
   onRunNow,
   onOpenChat,
+  onMarkRead,
   onDelete,
 }: {
   routine: RoutineWithRuns;
@@ -182,6 +183,8 @@ export function RoutineRow({
   onEdit: () => void;
   onRunNow: () => void;
   onOpenChat: (chatKey: string) => void;
+  /** Marks the Routine's unread Run Chats read, clearing its dot. */
+  onMarkRead?: () => void;
   onDelete: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -192,6 +195,7 @@ export function RoutineRow({
     { key: "edit", label: "Edit", icon: PencilEdit02Icon, onSelect: onEdit },
     ...(canRunNow(routine) ? [{ key: "run", label: "Run now", icon: PlayIcon, onSelect: onRunNow }] : []),
     ...(chat ? [{ key: "chat", label: heartbeat ? "Open Chat" : "Open last Chat", icon: BubbleChatIcon, onSelect: () => onOpenChat(chat) }] : []),
+    ...(unread && onMarkRead ? [{ key: "read", label: "Mark as read", icon: Tick02Icon, onSelect: onMarkRead }] : []),
     { key: "delete", label: "Delete", icon: Delete02Icon, danger: true, onSelect: () => setConfirming(true) },
   ];
 

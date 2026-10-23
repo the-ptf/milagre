@@ -496,6 +496,13 @@ export function unreadRunChats(states) {
   return new Set(unreadHiddenRunChats(states).map((chat) => chat.chatKey));
 }
 
+/** The keys of one Routine's hidden Run Chats nobody has opened yet (its id as unreadRunRoutines names it): Mark as read clears them. */
+export function unreadRunChatsOf(states, routineId) {
+  return unreadHiddenRunChats(states)
+    .filter((chat) => chat.routineId === routineId)
+    .map((chat) => chat.chatKey);
+}
+
 /**
  * Whether a Run's Chat is there to open: its Project's state, as the client holds it, has the session, archived or not. A
  * quiet Run archives its Chat, which stays when it ran in the Project folder or its Worktree wasn't clean; a Worktree removed
