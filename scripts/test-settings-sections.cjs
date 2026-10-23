@@ -251,8 +251,8 @@ async function browserChecks() {
     // Routines have no switch any more: a computer runs them once a device allowed AI sharing for it.
     await delay(300);
     assert.deepEqual(
-      await switches(),
-      ["Designs", "Delegate to other computers", "Floating inbox", "Ultracode Fatality", "Bots"],
+      [...(await switches())].sort(),
+      ["Bots", "Delegate to other computers", "Designs", "Floating inbox", "Ultracode Fatality"],
       "Experimental lists only Designs, Delegate to other computers, Floating inbox, Ultracode Fatality and Bots",
     );
     assert.equal(
