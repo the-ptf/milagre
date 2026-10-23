@@ -3217,6 +3217,24 @@
           }
         }
       ]
+    },
+    "computers:recall": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "entry",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T132"
+          }
+        }
+      ]
     }
   },
   "native": [
@@ -5913,6 +5931,22 @@
         }
       },
       "required": ["messages", "hasMore", "total"],
+      "additionalProperties": false
+    },
+    "T132": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "chat"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "chatId": {
+          "type": "number"
+        }
+      },
+      "required": ["kind", "scope", "chatId"],
       "additionalProperties": false
     }
   }
