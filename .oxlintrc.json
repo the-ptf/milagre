@@ -33,6 +33,7 @@
     "unicorn/no-array-reverse": "error",
     "oxc/no-accumulating-spread": "error",
     "react/memo-dependencies": "warn",
+    "react/jsx-no-constructed-context-values": "error",
     "react/no-object-type-as-default-prop": "error",
     "eslint/preserve-caught-error": "error",
     "no-await-in-loop": "off"

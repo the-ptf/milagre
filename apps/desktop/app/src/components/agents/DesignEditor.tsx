@@ -769,9 +769,11 @@ export function DesignDocumentEditor({
     previewError,
   ]);
 
+  const fieldScope = selectedNode?.id ?? "selection";
+  const draftFields = useMemo(() => ({ pending: setEditingField, fields: fieldDrafts, scope: fieldScope }), [fieldDrafts, fieldScope]);
   if (!enabled) return null;
   return (
-    <DraftFields.Provider value={{ pending: setEditingField, fields: fieldDrafts, scope: selectedNode?.id ?? "selection" }}>
+    <DraftFields.Provider value={draftFields}>
       {active &&
         workspace.tools &&
         createPortal(

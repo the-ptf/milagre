@@ -2521,8 +2521,9 @@ function App() {
     return commands;
   }
 
+  const projectBridge = bridgeForKey(project.path);
   return (
-    <BridgeContext.Provider value={bridgeForKey(project.path)}>
+    <BridgeContext.Provider value={projectBridge}>
       <ScopeContext.Provider value={project.path}>
         <DotBackground key="app">
           <PersistenceNotices scopes={globalUnsavedScopes}>
