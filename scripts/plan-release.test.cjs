@@ -24,7 +24,7 @@ function fixture(t) {
     return git("rev-parse", "HEAD").trim();
   };
   const tag = (name, ref = "HEAD") => git("tag", name, ref);
-  const state = { releases: [], runs: [], calls: [] };
+  const state = { releases: [], runs: [], installers: [], calls: [] };
   // A published release, as Publish leaves it: a tag and a release.
   const release = (name, ref = "HEAD") => {
     tag(name, ref);
@@ -34,9 +34,14 @@ function fixture(t) {
     state.calls.push([command, ...args]);
     if (command === "git") return git(...args);
     if (args[0] === "release" && args[1] === "list") return JSON.stringify(state.releases);
+    if (args[0] === "run" && args[1] === "list" && args.includes("package-candidates.yml")) return JSON.stringify(state.installers);
+    if (args[0] === "run" && args[1] === "view") {
+      const run = state.installers.find((item) => String(item.databaseId) === args[2]);
+      return JSON.stringify({ jobs: run.jobs });
+    }
     if (args[0] === "run" && args[1] === "list") {
       const at = args.indexOf("--commit");
-      const shas = at === -1 ? state.runs.slice(0, 1) : state.runs.filter((sha) => sha === args[at + 1]);
+      const shas = at === -1 ? state.runs : state.runs.filter((sha) => sha === args[at + 1]);
       return JSON.stringify(shas.map((headSha) => ({ headSha })));
     }
     throw new Error(`unexpected ${command} ${args.join(" ")}`);
@@ -44,6 +49,17 @@ function fixture(t) {
   return { git, commit, tag, release, exec, state };
 }
 const head = (f) => f.git("rev-parse", "HEAD").trim();
+// A package-candidates.yml run on a main push; `failed` names the platforms whose installer check failed.
+const installers = (databaseId, headSha, { failed = [], status = "completed", conclusion } = {}) => ({
+  databaseId,
+  headSha,
+  status,
+  conclusion: conclusion ?? (status !== "completed" ? "" : failed.length ? "failure" : "success"),
+  jobs: ["linux", "macos", "windows"].map((platform) => ({
+    name: `package (${platform}, runner, command)`,
+    conclusion: failed.includes(platform) ? "failure" : "success",
+  })),
+});
 
 test("the first beta after a stable bumps by the biggest change and lists every change since stable", (t) => {
   const f = fixture(t);
@@ -250,6 +266,7 @@ test("a beta ships the newest green main commit, or a requested one that is on m
   const first = f.commit("feat: initial");
   const second = f.commit("feat: next");
   f.state.runs = [first];
+  f.state.installers = [installers(1, first)];
   assert.equal(greenCommit({ exec: f.exec }), first);
   assert.equal(greenCommit({ exec: f.exec, requested: first }), first);
   assert.throws(() => greenCommit({ exec: f.exec, requested: second }), /CI has not passed on/);
@@ -260,6 +277,32 @@ test("a beta ships the newest green main commit, or a requested one that is on m
   assert.throws(() => greenCommit({ exec: f.exec, requested: side }), /is not on main/);
   f.state.runs = [];
   assert.throws(() => greenCommit({ exec: f.exec }), /No main commit has passed CI/);
+});
+
+test("a beta skips main commits whose macOS or Linux installer check failed, ran on an older commit or was cancelled", (t) => {
+  const f = fixture(t);
+  const good = f.commit("feat: initial");
+  const broken = f.commit("feat: headless CLI");
+  const docs = f.commit("docs: no app change");
+  f.state.runs = [docs, broken, good];
+  // The docs commit touched no app path, so the check on the broken commit below it is the one that tested its tree.
+  f.state.installers = [installers(2, broken, { failed: ["macos"] }), installers(1, good, { failed: ["windows"] })];
+  assert.equal(greenCommit({ exec: f.exec }), good, "a failed Windows check doesn't hold a beta back");
+  assert.throws(() => greenCommit({ exec: f.exec, requested: docs }), /can't ship: the macos installer check failed on/);
+  assert.throws(() => greenCommit({ exec: f.exec, requested: broken }), /can't ship: the macos installer check failed on/);
+  const fixed = f.commit("fix: keychain");
+  f.state.runs = [fixed, docs, broken, good];
+  f.state.installers.unshift(installers(3, fixed, { status: "in_progress" }));
+  assert.throws(() => greenCommit({ exec: f.exec, requested: fixed }), /still running/);
+  assert.equal(greenCommit({ exec: f.exec }), good);
+  f.state.installers[0] = installers(3, fixed, { conclusion: "cancelled" });
+  assert.throws(() => greenCommit({ exec: f.exec, requested: fixed }), /cancelled/);
+  f.state.installers[0] = installers(3, fixed, { failed: ["linux"] });
+  assert.throws(() => greenCommit({ exec: f.exec, requested: fixed }), /the linux installer check failed/);
+  f.state.installers[0] = installers(3, fixed);
+  assert.equal(greenCommit({ exec: f.exec }), fixed);
+  f.state.installers = [installers(2, broken, { failed: ["macos", "linux"] })];
+  assert.throws(() => greenCommit({ exec: f.exec }), /No CI-green main commit passed its installer checks[\s\S]*no installer check has run on it/);
 });
 
 test("release lines link the PR, show the scope and capitalize prose only", () => {
