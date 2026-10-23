@@ -674,3 +674,23 @@ test("expiry retries its refund after a quota outage without serving or retainin
   assert.equal(f.quotaStorage.get("activeBytes"), 0);
   assert.equal((await f.send("GET")).status, 404);
 });
+
+test("rejected uploads drain their input without decoding or reserving it", async () => {
+  const f = await fixture();
+  await f.send("DELETE");
+  let pulled = 0;
+  const body = new ReadableStream(
+    {
+      pull(controller) {
+        if (++pulled <= 12) controller.enqueue(new Uint8Array(1024 * 1024));
+        else controller.close();
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  const request = new Request(f.request("PUT"), { method: "PUT", body, duplex: "half" });
+  assert.equal((await f.service.fetch(request, f.id)).status, 410);
+  assert.equal(pulled, 13, "forwarding completes before the DO response ends its request lifetime");
+  assert.equal(request.bodyUsed, true);
+  assert.equal(f.reservations.length, 0);
+});

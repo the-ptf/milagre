@@ -300,6 +300,21 @@ export function createPageService({ storage, validate, render, quota, quotaId, s
           return response(result(), meta ? 200 : 201, "application/json; charset=utf-8");
         } catch (error) {
           return response(error?.status === 413 ? "Snapshot too large" : "Unable to process snapshot", error?.status === 413 ? 413 : 503);
+        } finally {
+          // Finish an upload rejected before decoding without buffering it. The Worker
+          // must not keep forwarding its request stream after the DO response is sent.
+          if (request.body && !request.bodyUsed) {
+            const reader = request.body.getReader();
+            try {
+              while (!(await reader.read()).done) {
+                /* discard */
+              }
+            } catch {
+              /* A disconnected sender has no remaining upload to drain. */
+            } finally {
+              reader.releaseLock();
+            }
+          }
         }
       });
     },
