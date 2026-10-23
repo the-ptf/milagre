@@ -43,10 +43,32 @@ async function render(document) {
   }
 }
 
-parentPort.on("message", async ({ id, document }) => {
+/** Redraws one raster image at width x height and returns it as a PNG, for images too large to embed as they are. */
+async function shrink({ src, width, height }) {
+  ready ??= load().catch((error) => {
+    ready = undefined;
+    throw error;
+  });
+  const { Resvg } = await ready;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><image width="${width}" height="${height}" preserveAspectRatio="none" href="${src}"/></svg>`;
+  let resvg;
+  let rendered;
+  try {
+    resvg = new Resvg(svg, { font: { loadSystemFonts: false } });
+    rendered = resvg.render();
+    return { mime: "image/png", base64: Buffer.from(rendered.asPng()).toString("base64") };
+  } finally {
+    try {
+      rendered?.free();
+      resvg?.free();
+    } catch {}
+  }
+}
+
+parentPort.on("message", async ({ id, document, image }) => {
   try {
     // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker_threads port, not a window
-    parentPort.postMessage({ id, result: await render(document) });
+    parentPort.postMessage({ id, result: image ? await shrink(image) : await render(document) });
   } catch (error) {
     // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker_threads port, not a window
     parentPort.postMessage({ id, error: error?.message ?? String(error) });

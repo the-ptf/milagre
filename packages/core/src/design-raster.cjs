@@ -17,10 +17,20 @@ let idleTimer;
 let queue = Promise.resolve();
 let nextId = 0;
 
-/** Width and height from a PNG, GIF or JPEG header, or null when the bytes are not one of those. */
+/** Width and height from a PNG, GIF, JPEG or WebP header, or null when the bytes are not one of those. */
 function imageSize(bytes) {
   if (bytes.length >= 24 && bytes.readUInt32BE(0) === 0x89504e47 && bytes.subarray(12, 16).toString("latin1") === "IHDR")
     return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  if (bytes.length >= 30 && bytes.subarray(0, 4).toString("latin1") === "RIFF" && bytes.subarray(8, 12).toString("latin1") === "WEBP") {
+    const chunk = bytes.subarray(12, 16).toString("latin1");
+    if (chunk === "VP8X") return { width: 1 + bytes.readUIntLE(24, 3), height: 1 + bytes.readUIntLE(27, 3) };
+    if (chunk === "VP8 ") return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff };
+    if (chunk === "VP8L") {
+      const bits = bytes.readUInt32LE(21);
+      return { width: 1 + (bits & 0x3fff), height: 1 + ((bits >> 14) & 0x3fff) };
+    }
+    return null;
+  }
   if (bytes.length >= 10 && bytes.subarray(0, 3).toString("latin1") === "GIF") return { width: bytes.readUInt16LE(6), height: bytes.readUInt16LE(8) };
   if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
     let offset = 2;
@@ -84,7 +94,7 @@ function start() {
   return started;
 }
 
-function post(document) {
+function post(request) {
   clearTimeout(idleTimer);
   worker ??= start();
   const current = worker;
@@ -120,7 +130,7 @@ function post(document) {
     current.on("error", onError);
     current.on("exit", onExit);
     // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker_threads port, not a window
-    current.postMessage({ id, document });
+    current.postMessage({ id, ...request });
   }).finally(() => {
     if (worker !== current) return;
     rendersOnWorker++;
@@ -133,7 +143,17 @@ function post(document) {
 
 /** Draws a validated design as a PNG, at most 1568 px on the long edge. Renders run one at a time. */
 function renderDesignPng(document) {
-  const result = queue.then(() => post(rasterDocument(document)));
+  const result = queue.then(() => post({ document: rasterDocument(document) }));
+  queue = result.catch(() => {});
+  return result;
+}
+
+/** Redraws a PNG, JPEG, GIF or WebP data URL at width x height as a PNG data URL. Shares the render queue and worker. */
+function resizeImagePng(src, width, height) {
+  const size = imageSize(Buffer.from(src.slice(src.indexOf(",") + 1), "base64"));
+  if (!size) return Promise.reject(Error("The image size could not be read."));
+  if (size.width > MAX_IMAGE_EDGE * 2 || size.height > MAX_IMAGE_EDGE * 2) return Promise.reject(Error("The image is too large to decode."));
+  const result = queue.then(() => post({ image: { src, width, height } })).then(({ mime, base64 }) => `data:${mime};base64,${base64}`);
   queue = result.catch(() => {});
   return result;
 }
@@ -149,4 +169,4 @@ const designRasterTesting = {
   retire,
 };
 
-module.exports = { renderDesignPng, designRasterTesting };
+module.exports = { renderDesignPng, resizeImagePng, imageSize, designRasterTesting };
