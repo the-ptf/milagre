@@ -15,23 +15,33 @@ function isAppShortcut(input, platform) {
 }
 
 /**
+ * Whether this key is ⌘ plus `letter` alone (Ctrl off macOS).
+ * @param {{ type: string; key: string; meta: boolean; control: boolean; shift: boolean; alt: boolean }} input
+ * @param {NodeJS.Platform} platform
+ * @param {string} letter
+ */
+function isCommandKey(input, platform, letter) {
+  const command = platform === "darwin" ? input.meta : input.control;
+  return input.type === "keyDown" && command && !input.shift && !input.alt && input.key.toLowerCase() === letter;
+}
+
+/**
  * Whether this key is ⌘W (Ctrl+W off macOS), which the window menu would take to close the window.
  * @param {{ type: string; key: string; meta: boolean; control: boolean; shift: boolean; alt: boolean }} input
  * @param {NodeJS.Platform} platform
  */
-function isCloseKey(input, platform) {
-  const command = platform === "darwin" ? input.meta : input.control;
-  return input.type === "keyDown" && command && !input.shift && !input.alt && input.key.toLowerCase() === "w";
-}
+const isCloseKey = (input, platform) => isCommandKey(input, platform, "w");
 
 /**
- * Forwards the app's shortcuts from any frame of the window to its renderer, on "app:shortcut". While a Terminal has
- * focus (the renderer says so on "app:terminal-focused"), ⌘W closes that Terminal instead of the window.
+ * Forwards the app's shortcuts from any frame of the window to its renderer, on "app:shortcut". ⌘W closes the
+ * focused Terminal (the renderer says so on "app:terminal-focused") and does nothing otherwise, so a stray press
+ * never hides the window. ⌘Q goes to `onQuitKey`, which asks before quitting, instead of the menu.
  * @param {Electron.WebContents} contents
  * @param {NodeJS.Platform} [platform]
  * @param {Pick<Electron.IpcMain, "on" | "removeListener">} [ipc]
+ * @param {() => void} [onQuitKey]
  */
-function forwardAppShortcuts(contents, platform = process.platform, ipc = require("electron").ipcMain) {
+function forwardAppShortcuts(contents, platform = process.platform, ipc = require("electron").ipcMain, onQuitKey) {
   let terminalFocused = false;
   /** @param {Electron.IpcMainEvent} event @param {unknown} focused */
   const onFocus = (event, focused) => {
@@ -40,9 +50,14 @@ function forwardAppShortcuts(contents, platform = process.platform, ipc = requir
   ipc.on("app:terminal-focused", onFocus);
   contents.once("destroyed", () => ipc.removeListener("app:terminal-focused", onFocus));
   contents.on("before-input-event", (event, input) => {
-    if (terminalFocused && isCloseKey(input, platform)) {
+    if (isCloseKey(input, platform)) {
       event.preventDefault();
-      contents.send("app:close-focused-terminal");
+      if (terminalFocused) contents.send("app:close-focused-terminal");
+      return;
+    }
+    if (onQuitKey && isCommandKey(input, platform, "q")) {
+      event.preventDefault();
+      onQuitKey();
       return;
     }
     if (!isAppShortcut(input, platform)) return;
