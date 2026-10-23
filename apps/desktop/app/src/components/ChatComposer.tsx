@@ -1612,11 +1612,14 @@ function TranscriptSlots({
         // the transcript comes back at the same height and opens where it should without measuring again. A message
         // never laid out stands at the placeholder size (styles.css), which says nothing: the transcript measures again.
         const id = Number(child.dataset.transcriptSlot);
-        for (const message of child.querySelectorAll<HTMLElement>('[data-slot="message"]')) {
-          const height = message.offsetHeight;
+        const messages = Array.from(child.querySelectorAll<HTMLElement>('[data-slot="message"]'));
+        // Every read before any write: one layout, not one per message.
+        const heights = messages.map((message) => message.offsetHeight);
+        messages.forEach((message, index) => {
+          const height = heights[index]!;
           if (height > 0 && height !== MESSAGE_PLACEHOLDER_HEIGHT) message.style.containIntrinsicSize = `auto ${height}px`;
           else unmeasured.add(id);
-        }
+        });
         child.remove();
       }
       hosts.current = hostNode;

@@ -2802,8 +2802,8 @@ function App() {
                       root={isRemoteKey(project.path) ? "" : (selectedWorktree?.path ?? project.path)}
                       files={selectedWorktree?.path ?? (isRemoteKey(project.path) ? "" : project.path)}
                     >
+                      {/* One composer across Projects: its parked transcripts (TranscriptSlots) outlive a Project switch. */}
                       <DraftChatComposer
-                        key={project.path}
                         store={draftStore}
                         messages={displayedMessages}
                         loading={messagesLoading}
