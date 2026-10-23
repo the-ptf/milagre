@@ -61,6 +61,14 @@ export type ChoiceControls = {
   onChoose: ((design: ArtifactRef) => void) | null;
 };
 export type CanvasView = { x: number; y: number; scale: number };
+
+/** Screen spacing of the canvas dot grid: 24 canvas px, doubled as you zoom out so the dots never pack closer than 12 px into noise. */
+function dotStep(scale: number) {
+  let step = 24 * scale;
+  while (step < 12) step *= 2;
+  return step;
+}
+
 export type CanvasHandle = {
   zoomBy: (factor: number) => void;
   /** Zooms to this scale (1 is 100%) about the middle of the view. */
@@ -530,7 +538,7 @@ export const ArtifactCanvas = forwardRef<
       className={`relative min-h-0 flex-1 touch-none overflow-hidden bg-canvas outline-none ${drag.current ? "cursor-grabbing" : "cursor-grab"}`}
       style={{
         backgroundImage: "radial-gradient(var(--color-line) 1px, transparent 1px)",
-        backgroundSize: `${24 * view.scale}px ${24 * view.scale}px`,
+        backgroundSize: `${dotStep(view.scale)}px ${dotStep(view.scale)}px`,
         backgroundPosition: `${view.x}px ${view.y}px`,
       }}
       onPointerDown={onPointerDown}
