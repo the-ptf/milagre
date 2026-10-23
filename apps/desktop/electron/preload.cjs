@@ -259,6 +259,9 @@ function makeBridge(invoke, listen, send) {
     setWorktreePosition: (id, worktreePath, position) => invoke("canvas:worktree-position", id, worktreePath, position),
     openCanvasProject: (projectPath) => invoke("canvas:open-project", projectPath),
     getLinkedWork: () => invoke("linked:snapshot"),
+    readRemoteDelegationEnabled: () => invoke("linked:remote-enabled:read"),
+    saveRemoteDelegationEnabled: (value) => invoke("linked:remote-enabled:save", value),
+    onRemoteDelegationEnabledChanged: (callback) => listen("linked:remote-enabled-changed", callback),
     stopNegotiation: (id) => invoke("linked:stop-negotiation", id),
     onAppShortcut: (callback) => listen("app:shortcut", callback),
     onLinkedWork: (callback) => listen("linked:changed", callback),
@@ -369,6 +372,7 @@ function makeBridge(invoke, listen, send) {
     notifyCompletion: (notice) => invoke("notification:completed", notice),
     onOpenChat: (callback) => listen("notification:open-chat", callback),
     onOpenPhoneSettings: (callback) => listen("notification:open-phone-settings", () => callback()),
+    uploadAttachment: (request) => invoke("attachment:upload", request),
   };
 }
 

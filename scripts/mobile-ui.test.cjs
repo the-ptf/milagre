@@ -160,7 +160,10 @@ function load(file, modules, extra = "", cache = new Map()) {
       }
       // A Chat's activity (chat-activity.mjs) is a pure derivation many screens read; tests get the real one.
       if (id === "@milagre/shared/chat-activity" && !(id in modules)) return require("@milagre/shared/chat-activity");
-      if (["@milagre/shared/chat-history", "@milagre/shared/chat-window-cache", "@milagre/shared/display-clock"].includes(id) && !(id in modules))
+      if (
+        ["@milagre/shared/chat-history", "@milagre/shared/chat-window-cache", "@milagre/shared/display-clock", "@milagre/shared/refresh-loop"].includes(id) &&
+        !(id in modules)
+      )
         return require(id);
       if (relative === "display-clock" && !(id in modules)) return load("display-clock.ts", modules, "", cache);
       assert.ok(id in modules, `Unexpected import: ${id}`);
@@ -1884,6 +1887,7 @@ function chatHost({
   const session = {
     designs: designsOn,
     client: {
+      upload: async (_project, name) => ({ path: `/p/uploads/${name}` }),
       url: "mac",
       call: (method, args) => {
         calls.push({ method, args });
@@ -3893,9 +3897,9 @@ test("the attachment pull-down opens the selected picker and blocks a second pic
     uri: `file:///${i}.txt`,
     image: false,
   }));
-  assert.ok(menu().props.sections[0].items.every((item) => item.disabled));
+  assert.ok(menu().props.sections[0].items.every((item) => !item.disabled));
   menu().props.onSelect("files");
-  assert.deepEqual(kinds, ["photos", "camera"], "four attachments block another picker");
+  assert.deepEqual(kinds, ["photos", "camera", "files"], "four attachments do not block another picker");
 });
 
 test("text typed during the first send follows the created Chat into its composer", async () => {
@@ -4623,6 +4627,7 @@ test("attachment drafts survive a failed send and move only after a successful f
   const photo = { id: "photo", name: "photo.jpg", uri: "file:///photo", image: { id: "photo", name: "photo.jpg", dataUrl: "data:image/jpeg;base64,/9j/" } };
   screen.session.attachments["/p#new:1"] = [photo];
   screen.send();
+  await settle();
   screen.sending.reject(new Error("Connection lost"));
   await settle();
   assert.equal(screen.session.attachments["/p#new:1"][0].id, "photo");
@@ -5391,6 +5396,7 @@ test("relay transports: one per Mac, replaced by a new code, closed in the backg
   const identity = { publicKey: new Uint8Array(32), secretKey: new Uint8Array(32) };
   const phoneRandom = (n) => new Uint8Array(n);
   const { relayRuntime } = load("relay-native.ts", {
+    "expo-crypto": { randomUUID: require("node:crypto").randomUUID },
     "./ai-consent": { beforeAiCall: async () => {} },
     "react-native": {
       AppState: {
@@ -6206,6 +6212,7 @@ for (const provider of ["claude", "codex"])
     const calls = [];
     const accounts = {
       providers: [
+        { provider: "antigravity", installed: false, selectedId: "default", accounts: [{ id: "default", label: "Default account", state: "unknown" }] },
         {
           provider,
           selectedId: "default",
@@ -6236,7 +6243,7 @@ for (const provider of ["claude", "codex"])
       client: {
         call: async (method, args = []) => {
           calls.push([method, ...args]);
-          const group = accounts.providers[0];
+          const group = accounts.providers.find((group) => group.provider === provider);
           if (method === "accounts:select") group.selectedId = args[1];
           if (method === "accounts:login") group.accounts.find((a) => a.id === args[1]).state = "signing-in";
           if (method === "accounts:cancel") group.accounts.find((a) => a.id === args[1]).state = "signed-out";
@@ -6274,6 +6281,11 @@ for (const provider of ["claude", "codex"])
     try {
       render();
       await settle();
+      assert.equal(
+        find(render(), (n) => n.type === "ProviderLogo" && n.props.provider === "antigravity"),
+        undefined,
+        "Uninstalled providers have no account group",
+      );
       const row = find(render(), (n) => n.type === "Pressable" && n.props.accessibilityRole === "radio" && n.props.accessibilityLabel === "work@example.test");
       assert.ok(row, "The account row is a directly selectable control");
       assert.match(row.props.accessibilityHint, /^Business account\./);
@@ -12654,4 +12666,66 @@ test("phone notification schedule controls save days, overnight hours, timezone 
   assert.match(textOf(render()), /Ends the next day/);
   toggle("Notification schedule").props.onPress();
   assert.equal(saved.at(-1).schedule, null);
+});
+
+test("Git polling on the phone keeps the current list during reads and pauses off-screen", async () => {
+  const react = hookHost({ effects: true });
+  const timers = new Map();
+  let next = 0,
+    calls = 0,
+    finish;
+  const client = {
+    call: () => {
+      calls++;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  };
+  const { startRefreshLoop } = require("@milagre/shared/refresh-loop");
+  const { useRpc } = load("use-rpc.ts", {
+    react,
+    "@milagre/shared/refresh-loop": {
+      startRefreshLoop: (options) =>
+        startRefreshLoop({
+          ...options,
+          schedule(fn) {
+            timers.set(++next, fn);
+            return next;
+          },
+          cancel(timer) {
+            timers.delete(timer);
+          },
+        }),
+    },
+  });
+  let active = true;
+  const render = () => {
+    react.begin();
+    const result = useRpc(client, "git:diff-files", [{ cwd: "/project", mode: "uncommitted" }], active);
+    react.flush();
+    return result;
+  };
+  assert.equal(render().loading, true);
+  finish({ files: ["edited.ts"] });
+  await settle();
+  assert.deepEqual(render().data.files, ["edited.ts"]);
+  const [id, tick] = timers.entries().next().value;
+  timers.delete(id);
+  const reading = tick();
+  assert.deepEqual(render().data.files, ["edited.ts"], "the list stays visible during a background read");
+  finish({ files: [] });
+  await reading;
+  assert.deepEqual(render().data.files, [], "an external commit clears the list without a user action");
+  active = false;
+  render();
+  assert.equal(timers.size, 0);
+  const before = calls;
+  active = true;
+  render();
+  assert.equal(calls, before + 1, "returning to the screen reads immediately");
+  react.unmount();
+  finish({ files: ["late.ts"] });
+  await settle();
+  assert.equal(timers.size, 0);
 });

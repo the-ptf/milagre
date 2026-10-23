@@ -46,6 +46,7 @@ export function RoutinesPage({
   runChat = null,
   onOpenRoutine,
   onOpenChat,
+  onMarkRead,
   onOpenRunChat,
   onCloseRunChat,
 }: {
@@ -65,6 +66,8 @@ export function RoutinesPage({
   /** Opens a Routine's page (a row's click), or goes back to the list with null. */
   onOpenRoutine?: (routineId: string | null) => void;
   onOpenChat: (chatKey: string) => void;
+  /** Marks a Routine's unread Run Chats read: its row's Mark as read. */
+  onMarkRead?: (routineId: string) => void;
   /** Opens a Run's Chat beside the Routine's page; without it a Run opens its Chat in the window (onOpenChat). */
   onOpenRunChat?: (chatKey: string) => void;
   /** Closes the Run Chat beside the page: Edit and New Routine take the page over. */
@@ -217,6 +220,7 @@ export function RoutinesPage({
       }}
       onRunNow={() => act(routine, () => bridgeForKey(routine.id).runRoutineNow(routine.id))}
       onOpenChat={onOpenChat}
+      onMarkRead={onMarkRead ? () => onMarkRead(routine.id) : undefined}
       onDelete={() => act(routine, () => bridgeForKey(routine.id).deleteRoutine(routine.id))}
     />
   );

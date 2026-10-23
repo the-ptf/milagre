@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { test } from "node:test";
 import { validateDesignPageSnapshot, renderDesignPage } from "@milagre/shared/design-page";
-import { authorized, boundedBody, CHUNK_BYTES, createPageService, createQuotaService, digest, MAX_BODY_BYTES, quotaLimits, routeRequest } from "./service.mjs";
+import { authorized, boundedBody, CHUNK_BYTES, createPageService, createQuotaService, digest, PAGE_TTL_MS, quotaLimits, routeRequest } from "./service.mjs";
 
 function memory() {
   const map = new Map();
@@ -37,13 +37,23 @@ async function fixture(options = {}) {
       return { title: value.title };
     },
     render: (value) => `<html>${value.title}</html>`,
-    admit: async () => true,
-    reserve: async (ip, size) => {
-      reservations.push({ ip, size });
-      return true;
+    quotaId: id,
+    setAlarm: async () => {},
+    deleteAlarm: async () => {},
+    quota: {
+      available: async () => 20 * 1024 ** 3,
+      reserve: async (id, operation, size) => {
+        reservations.push({ id, operation, size });
+        return true;
+      },
+      commit: async () => true,
+      abort: async () => {},
+      release: async () => {},
+      importPage: async () => {},
     },
     ...options,
   };
+  if (options.reserve) settings.quota = { ...settings.quota, reserve: options.reserve };
   const service = createPageService(settings);
   const request = (method, body = { title: "Page" }, headers = {}) =>
     new Request(`https://share.milagre.cloud/${method === "GET" || method === "HEAD" ? "s" : "api/pages"}/${id}`, {
@@ -96,13 +106,13 @@ test("revoke before delayed upload reserves a durable tombstone and prevents pub
   assert.equal((await restarted.fetch(f.request("PUT"), f.id, "192.0.2.1")).status, 410);
   assert.equal((await f.send("DELETE")).status, 204);
   assert.equal((await f.send("GET")).status, 404);
-  assert.deepEqual(f.reservations, [{ ip: "192.0.2.1", size: 1024 }]);
+  assert.deepEqual(f.reservations, []);
 });
 
-test("quota exhaustion refuses a new tombstone but does not block revoking an existing page", async () => {
+test("quota exhaustion never blocks revocation", async () => {
   const denied = await fixture({ reserve: async () => false });
-  assert.equal((await denied.send("DELETE")).status, 429);
-  assert.equal(denied.storage.get("meta"), undefined);
+  assert.equal((await denied.send("DELETE")).status, 204);
+  assert.deepEqual(denied.storage.get("meta"), { deleted: true });
   let allowed = true;
   const existing = await fixture({ reserve: async () => allowed });
   assert.equal((await existing.send("PUT")).status, 201);
@@ -152,29 +162,14 @@ test("an authorized PUT with changed content replaces the page under the same li
   assert.equal((await f.send("PUT", { title: "Third" })).status, 410);
 });
 
-test("replacements pass admission and quota, and a refused one leaves the page untouched", async () => {
-  let admitted = true;
+test("a refused replacement leaves the published page untouched", async () => {
   let reserved = true;
-  let renders = 0;
-  const f = await fixture({
-    admit: async () => admitted,
-    reserve: async () => reserved,
-    render: (value) => {
-      renders++;
-      return `<html>${value.title}</html>`;
-    },
-  });
+  const f = await fixture({ reserve: async () => reserved });
   assert.equal((await f.send("PUT")).status, 201);
-  admitted = false;
-  assert.equal((await f.send("PUT", { title: "Changed" })).status, 429);
-  assert.equal(renders, 1, "an exhausted publisher is refused before rendering");
-  assert.equal((await f.send("PUT")).status, 200, "identical retries survive exhaustion");
-  admitted = true;
   reserved = false;
   assert.equal((await f.send("PUT", { title: "Changed" })).status, 429);
+  assert.equal((await f.send("PUT")).status, 200);
   assert.equal(await (await f.send("GET")).text(), "<html>Page</html>");
-  assert.deepEqual(f.storage.keys("html:"), ["html:0"]);
-  assert.equal((await f.send("PUT", { title: "Changed" }, { Authorization: `Bearer ${randomBytes(32).toString("base64url")}` })).status, 401);
 });
 
 test("a reader of the old revision stops instead of receiving a mixed page", async () => {
@@ -202,7 +197,7 @@ test("invalid, compressed, and oversized content never reaches storage or quota"
   assert.equal((await f.send("PUT", {})).status, 400);
   assert.equal((await f.send("PUT", undefined, { "Content-Type": "text/html" })).status, 415);
   assert.equal((await f.send("PUT", undefined, { "Content-Encoding": "gzip" })).status, 415);
-  assert.equal((await f.send("PUT", undefined, { "Content-Length": String(MAX_BODY_BYTES + 1) })).status, 413);
+
   assert.equal(f.storage.get("meta"), undefined);
   assert.equal(f.reservations.length, 0);
 });
@@ -249,69 +244,6 @@ test("quota or storage failure never exposes partial snapshots", async () => {
   assert.equal(failed.status, 503);
   assert.ok(!(await failed.text()).includes("internal secret"));
   assert.deepEqual(storage.keys("html:"), []);
-});
-
-test("quota stays durable, daily limits reset, and lifetime bytes are never refunded", async () => {
-  const storage = memory();
-  let now = Date.UTC(2026, 9, 12);
-  const opts = { storage, limits: { pages: 4, bytes: 90, daily: 2, perIp: 1 }, now: () => now };
-  let service = createQuotaService(opts);
-  assert.equal(await service.reserve("192.0.2.1", 20), true);
-  service = createQuotaService(opts);
-  assert.equal(await service.reserve("192.0.2.1", 20), false);
-  assert.equal(await service.reserve("192.0.2.2", 20), true);
-  assert.equal(await service.reserve("192.0.2.3", 20), false);
-  now += 86400000;
-  assert.equal(await service.reserve("192.0.2.1", 20), true);
-  assert.equal(await service.reserve("192.0.2.2", 31), false);
-  assert.equal(await service.reserve("192.0.2.2", 30), true);
-  now += 86400000;
-  assert.equal(await service.reserve("192.0.2.9", 1), false);
-  assert.ok(storage.keys("ip:").every((key) => !key.includes("192.0.2")));
-});
-
-test("replacements spend bytes and their own daily update count, never a publication", async () => {
-  const storage = memory();
-  let now = Date.UTC(2026, 9, 21);
-  const service = createQuotaService({ storage, limits: { pages: 2, bytes: 100, daily: 1, perIp: 1, perIpUpdates: 2 }, now: () => now });
-  assert.equal(await service.reserve("192.0.2.1", 10), true);
-  assert.equal(await service.admit("192.0.2.1"), false, "the publication limit is spent");
-  assert.equal(await service.admit("192.0.2.1", true), true, "updating the existing link still works");
-  assert.equal(await service.reserve("192.0.2.1", 10, true), true);
-  assert.equal(await service.reserve("192.0.2.1", 10, true), true);
-  assert.equal(await service.reserve("192.0.2.1", 10, true), false, "daily updates per IP are bounded");
-  assert.equal(await service.reserve("192.0.2.2", 71, true), false, "updates still respect the lifetime byte budget");
-  assert.deepEqual(storage.get("total"), { pages: 1, bytes: 30 });
-  assert.equal(storage.get("daily"), 1);
-  now += 86400000;
-  assert.equal(await service.reserve("192.0.2.1", 10, true), true, "the update count resets the next day");
-  assert.equal(storage.get("daily"), 0, "an update on a new day does not inherit yesterday's publications");
-  assert.equal(await service.reserve("192.0.2.1", 10), true);
-  assert.equal(await service.reserve("192.0.2.3", 10), false, "the lifetime page count still applies");
-  assert.ok(storage.keys("update:").every((key) => !key.includes("192.0.2")));
-});
-
-test("the page service asks for replacement quota only when a page already exists", async () => {
-  const calls = [];
-  const f = await fixture({
-    admit: async (_ip, replacement) => (calls.push(["admit", replacement === true]), true),
-    reserve: async (_ip, _size, replacement) => (calls.push(["reserve", replacement === true]), true),
-  });
-  assert.equal((await f.send("PUT")).status, 201);
-  assert.equal((await f.send("PUT", { title: "Changed" })).status, 200);
-  assert.deepEqual(calls, [
-    ["admit", false],
-    ["reserve", false],
-    ["admit", true],
-    ["reserve", true],
-  ]);
-});
-
-test("concurrent quota reservations cannot exceed the global count", async () => {
-  const service = createQuotaService({ storage: memory(), limits: { pages: 1, bytes: 100, daily: 1, perIp: 1 } });
-  assert.deepEqual(await Promise.all([service.reserve("1", 20), service.reserve("2", 20)]), [true, false]);
-  assert.throws(() => quotaLimits({ MAX_TOTAL_PAGES: "NaN" }), /Invalid/);
-  assert.throws(() => quotaLimits({ MAX_DAILY_PAGES: "10001" }), /Invalid/);
 });
 
 test("public router rejects browser writes, unexpected origins, wrong methods and write query strings", async () => {
@@ -379,87 +311,6 @@ test("real shared validation publishes all page designs, escapes titles, and rej
   assert.equal(other.reservations.length, 0);
 });
 
-test("narrow text amplification is rejected before rendering or spending quota", async () => {
-  let renders = 0;
-  const f = await fixture({
-    validate: validateDesignPageSnapshot,
-    render: (page) => {
-      renders++;
-      return renderDesignPage(page);
-    },
-  });
-  const page = {
-    schemaVersion: 1,
-    title: "Narrow text",
-    designs: [
-      {
-        title: "One",
-        document: {
-          schemaVersion: 1,
-          width: 390,
-          height: 844,
-          nodes: Array.from({ length: 60 }, (_, i) => ({ id: `text${i}`, type: "text", width: 1, height: 1, fontSize: 2, text: "a".repeat(15000) })),
-        },
-      },
-    ],
-  };
-  assert.equal((await f.send("PUT", page)).status, 413);
-  assert.equal(renders, 0);
-  assert.equal(f.reservations.length, 0);
-  assert.equal(f.storage.get("meta"), undefined);
-});
-
-test("admission authenticates first and refuses an exhausted publisher before parsing, validation or rendering", async () => {
-  let checks = 0;
-  const f = await fixture({
-    admit: async () => {
-      checks++;
-      return false;
-    },
-    validate: () => assert.fail("validation must not run"),
-    render: () => assert.fail("render must not run"),
-  });
-  assert.equal((await f.send("PUT", undefined, { Authorization: "Bearer wrong" })).status, 401);
-  assert.equal(checks, 0);
-  const request = new Request(f.request("PUT"), { method: "PUT", body: "{invalid json" });
-  assert.equal((await f.service.fetch(request, f.id, "192.0.2.1")).status, 429);
-  assert.equal(request.bodyUsed, false);
-  assert.equal(checks, 1);
-  assert.equal(f.reservations.length, 0);
-});
-
-test("durable admission checks never spend or reset counters, including after a day rollover", async () => {
-  const storage = memory();
-  let now = Date.UTC(2026, 9, 12);
-  const options = { storage, limits: { pages: 3, bytes: 100, daily: 2, perIp: 1 }, now: () => now };
-  let quota = createQuotaService(options);
-  assert.equal(await quota.admit("192.0.2.1"), true);
-  assert.deepEqual(storage.keys(""), []);
-  assert.equal(await quota.reserve("192.0.2.1", 20), true);
-  quota = createQuotaService(options);
-  assert.equal(await quota.admit("192.0.2.1"), false);
-  const before = storage.keys("").map((key) => [key, storage.get(key)]);
-  assert.equal(await quota.admit("192.0.2.2"), true);
-  now += 86400000;
-  assert.equal(await quota.admit("192.0.2.1"), true);
-  assert.deepEqual(
-    storage.keys("").map((key) => [key, storage.get(key)]),
-    before,
-  );
-  assert.equal(await quota.reserve("192.0.2.1", 20), true);
-  assert.equal(await quota.reserve("192.0.2.2", 60), true);
-  assert.equal(await quota.admit("192.0.2.3"), false);
-});
-
-test("quota exhaustion preserves identical retries of a committed snapshot", async () => {
-  let admitted = true;
-  const f = await fixture({ admit: async () => admitted });
-  assert.equal((await f.send("PUT")).status, 201);
-  admitted = false;
-  assert.equal((await f.send("PUT")).status, 200);
-  assert.equal(f.reservations.length, 1);
-});
-
 test("public reads load one chunk per pull, cancellation stops reads, and revocation terminates active streams", async () => {
   const storage = memory();
   let reads = 0;
@@ -483,17 +334,10 @@ test("public reads load one chunk per pull, cancellation stops reads, and revoca
   assert.equal(reads, 8);
 });
 
-test("rendered size limits return 413 without a quota reservation", async () => {
+test("rendered pages above 8 MiB are charged to the shared cap", async () => {
   const f = await fixture({ render: () => "x".repeat(8 * 1024 * 1024 + 1) });
-  assert.equal((await f.send("PUT")).status, 413);
-  assert.equal(f.reservations.length, 0);
-  const budget = await fixture({
-    render: () => {
-      throw Object.assign(new Error("budget exceeded"), { status: 413 });
-    },
-  });
-  assert.equal((await budget.send("PUT")).status, 413);
-  assert.equal(budget.reservations.length, 0);
+  assert.equal((await f.send("PUT")).status, 201);
+  assert.ok(f.reservations[0].size > 8 * 1024 * 1024);
 });
 
 test("one interactive Artifact publishes as a sandboxed page, updates in place and can be revoked", async () => {
@@ -595,4 +439,258 @@ test("robots.txt blocks every crawler from every path", async () => {
   assert.equal(await robots.text(), "User-agent: *\nDisallow: /\n");
   assert.equal(await (await routeRequest(new Request("https://share.milagre.cloud/robots.txt", { method: "HEAD" }), env)).text(), "");
   assert.equal((await routeRequest(new Request("https://share.milagre.cloud/robots.txt", { method: "PUT" }), env)).status, 405);
+});
+
+test("active quota is durable, replacement charges are net, and refunds are idempotent", () => {
+  const storage = memory();
+  const options = { storage, limits: { bytes: 100 } };
+  let quota = createQuotaService(options);
+  assert.equal(quota.reserve("a", "1", 80), true);
+  assert.equal(quota.reserve("a", "1", 80), true);
+  assert.equal(quota.reserve("b", "1", 21), false);
+  assert.equal(quota.commit("a", "1"), true);
+  quota = createQuotaService(options);
+  assert.equal(quota.reserve("a", "2", 90), true);
+  assert.equal(quota.commit("a", "2"), true);
+  assert.equal(storage.get("activeBytes"), 90);
+  assert.equal(quota.reserve("a", "3", 30), true);
+  assert.equal(storage.get("activeBytes"), 90, "old charge remains until the smaller revision is stored");
+  assert.equal(quota.commit("a", "3"), true);
+  assert.equal(quota.commit("a", "3"), true);
+  assert.equal(storage.get("activeBytes"), 30);
+  quota.release("a");
+  quota.release("a");
+  assert.equal(storage.get("activeBytes"), 0);
+  assert.equal(quota.reserve("a", "4", 10), false, "a late upload cannot resurrect a released page");
+  assert.equal(quota.reserve("b", "1", 100), true);
+  assert.equal(quotaLimits({}).bytes, 20 * 1024 ** 3);
+  assert.throws(() => quotaLimits({ MAX_TOTAL_BYTES: "NaN" }), /Invalid/);
+});
+
+test("aborts fence delayed reservations and stale commits cannot change later revisions", () => {
+  const storage = memory();
+  const quota = createQuotaService({ storage, limits: { bytes: 100 } });
+  quota.abort("page", "1");
+  assert.equal(quota.reserve("page", "1", 80), false);
+  assert.equal(quota.reserve("page", "2", 20), true);
+  assert.equal(quota.commit("page", "2"), true);
+  assert.equal(quota.reserve("page", "3", 90), true);
+  quota.abort("page", "3");
+  assert.equal(storage.get("activeBytes"), 20);
+  assert.equal(quota.reserve("page", "4", 40), true);
+  assert.equal(quota.commit("page", "4"), true);
+  assert.equal(quota.reserve("page", "3", 90), false);
+  assert.equal(quota.commit("page", "2"), false);
+  quota.abort("page", "2");
+  assert.equal(storage.get("activeBytes"), 40);
+});
+
+test("simultaneous pages cannot reserve beyond the one global byte cap", async () => {
+  const quota = createQuotaService({ storage: memory(), limits: { bytes: 100 } });
+  assert.deepEqual(await Promise.all([quota.reserve("one", "1", 60), quota.reserve("two", "1", 60)]), [true, false]);
+});
+
+async function lifecycle(options = {}) {
+  const quotaStorage = options.quotaStorage ?? memory();
+  const quota = createQuotaService({ storage: quotaStorage, limits: { bytes: 1000000 } });
+  let time = 1000;
+  let alarm;
+  const f = await fixture({
+    quota,
+    now: () => time,
+    setAlarm: async (value) => {
+      alarm = value;
+    },
+    deleteAlarm: async () => {
+      alarm = undefined;
+    },
+    ...options,
+  });
+  return {
+    ...f,
+    quota,
+    quotaStorage,
+    time: (value) => {
+      time = value;
+    },
+    alarm: () => alarm,
+  };
+}
+
+test("identical republishing renews 30 days, reading does not, and expiry deletes and refunds", async () => {
+  const f = await lifecycle();
+  assert.equal((await f.send("PUT")).status, 201);
+  const charge = f.quotaStorage.get("activeBytes");
+  assert.ok(charge > 0);
+  assert.equal(f.alarm(), 1000 + PAGE_TTL_MS);
+  f.time(2000);
+  await f.send("HEAD");
+  assert.equal(f.alarm(), 1000 + PAGE_TTL_MS);
+  assert.equal((await f.send("PUT")).status, 200);
+  assert.equal(f.alarm(), 2000 + PAGE_TTL_MS);
+  assert.equal(f.quotaStorage.get("activeBytes"), charge);
+  f.time(1000 + PAGE_TTL_MS);
+  await f.service.alarm();
+  assert.equal((await f.send("HEAD")).status, 200, "an old alarm cannot expire a renewed page");
+  f.time(2000 + PAGE_TTL_MS);
+  await f.service.alarm();
+  assert.equal(f.quotaStorage.get("activeBytes"), 0);
+  assert.deepEqual(f.storage.keys("html:"), []);
+  assert.equal((await f.send("GET")).status, 404);
+  assert.equal((await f.send("PUT")).status, 410);
+  assert.equal(f.alarm(), undefined);
+});
+
+test("expiry is enforced on reads and streams even before the cleanup alarm runs", async () => {
+  const f = await lifecycle({ render: () => "x".repeat(CHUNK_BYTES * 2) });
+  await f.send("PUT");
+  const reader = (await f.send("GET")).body.getReader();
+  await reader.read();
+  f.time(1000 + PAGE_TTL_MS);
+  await assert.rejects(reader.read(), /Snapshot revoked/);
+  assert.equal((await f.send("HEAD")).status, 404);
+  assert.equal(f.quotaStorage.get("activeBytes"), 0);
+});
+
+test("lost reservation acknowledgement is aborted by a durable alarm after restart", async () => {
+  const f = await lifecycle();
+  f.settings.quota = {
+    ...f.quota,
+    reserve: (...args) => {
+      f.quota.reserve(...args);
+      throw Error("lost reply");
+    },
+  };
+  const interrupted = createPageService(f.settings);
+  assert.equal((await interrupted.fetch(f.request("PUT"), f.id)).status, 503);
+  assert.ok(f.quotaStorage.get("activeBytes") > 0);
+  assert.ok(f.storage.get("pending"));
+  const restarted = createPageService({ ...f.settings, quota: f.quota });
+  await restarted.alarm();
+  assert.equal(f.quotaStorage.get("activeBytes"), 0);
+  assert.equal(f.storage.get("pending"), undefined);
+  assert.equal((await restarted.fetch(f.request("PUT"), f.id)).status, 201);
+});
+
+test("failed local storage restores the prior allocation and leaves its page readable", async () => {
+  const f = await lifecycle();
+  await f.send("PUT");
+  const charge = f.quotaStorage.get("activeBytes");
+  const put = f.settings.storage.put;
+  f.settings.storage.put = (key, value) => {
+    if (key === "meta" && value.hash !== f.storage.get("meta")?.hash) throw Error("disk write failed");
+    put(key, value);
+  };
+  assert.equal((await f.send("PUT", { title: "A much larger replacement" })).status, 503);
+  await f.service.alarm();
+  assert.equal(f.quotaStorage.get("activeBytes"), charge);
+  assert.equal(await (await f.send("GET")).text(), "<html>Page</html>");
+});
+
+test("lost commit acknowledgement is recovered without another charge", async () => {
+  const f = await lifecycle();
+  let dropped = false;
+  f.settings.quota = {
+    ...f.quota,
+    commit: (...args) => {
+      const result = f.quota.commit(...args);
+      if (!dropped) {
+        dropped = true;
+        throw Error("lost commit reply");
+      }
+      return result;
+    },
+  };
+  const interrupted = createPageService(f.settings);
+  assert.equal((await interrupted.fetch(f.request("PUT"), f.id)).status, 503);
+  const charge = f.quotaStorage.get("activeBytes");
+  await createPageService(f.settings).alarm();
+  assert.equal(f.quotaStorage.get("activeBytes"), charge);
+  assert.equal((await f.send("PUT")).status, 200);
+  assert.equal(f.quotaStorage.get("activeBytes"), charge);
+});
+
+test("failed refunds retry after restart, and a lost refund reply cannot release twice", async () => {
+  for (const lostReply of [false, true]) {
+    const f = await lifecycle();
+    await f.send("PUT");
+    f.settings.quota = {
+      ...f.quota,
+      release: (id) => {
+        if (lostReply) f.quota.release(id);
+        throw Error("quota offline");
+      },
+    };
+    const interrupted = createPageService(f.settings);
+    assert.equal((await interrupted.fetch(f.request("DELETE"), f.id)).status, 503);
+    assert.deepEqual(f.storage.keys("html:"), []);
+    assert.equal(f.storage.get("meta").releasePending, true);
+    assert.ok(f.alarm());
+    const restarted = createPageService({ ...f.settings, quota: f.quota });
+    await restarted.alarm();
+    assert.equal(f.quotaStorage.get("activeBytes"), 0);
+    assert.equal((await restarted.fetch(f.request("DELETE"), f.id)).status, 204);
+    assert.equal(f.quotaStorage.get("activeBytes"), 0);
+  }
+});
+
+test("legacy inventory blocks uploads until complete, accounts surviving HTML and schedules expiry", async () => {
+  const quotaStorage = memory();
+  quotaStorage.put("total", { pages: 999, bytes: 1000000 });
+  const f = await lifecycle({ quotaStorage });
+  f.storage.put("meta", { hash: "legacy", chunks: 1 });
+  f.storage.put("html:0", new TextEncoder().encode("legacy"));
+  assert.equal(f.quota.available("new-page"), 0);
+  await f.service.migrate();
+  await f.service.migrate();
+  assert.equal(quotaStorage.get("activeBytes"), 6, "inventory is idempotent");
+  assert.equal(f.alarm(), 1000 + PAGE_TTL_MS);
+  f.quota.finishMigration();
+  assert.equal(f.quota.available("new-page"), 999994);
+  await f.send("DELETE");
+  assert.equal(quotaStorage.get("activeBytes"), 0);
+});
+
+test("expiry retries its refund after a quota outage without serving or retaining the content", async () => {
+  const f = await lifecycle();
+  await f.send("PUT");
+  const charge = f.quotaStorage.get("activeBytes");
+  const interrupted = createPageService({
+    ...f.settings,
+    quota: {
+      ...f.quota,
+      release: () => {
+        throw Error("quota offline");
+      },
+    },
+  });
+  f.time(1000 + PAGE_TTL_MS);
+  await assert.rejects(interrupted.alarm(), /quota offline/);
+  assert.equal(f.storage.get("meta").deleted, true);
+  assert.deepEqual(f.storage.keys("html:"), []);
+  assert.equal(f.quotaStorage.get("activeBytes"), charge, "space remains charged until the refund succeeds");
+  assert.equal(f.alarm(), 1000 + PAGE_TTL_MS + 60000);
+  await createPageService(f.settings).alarm();
+  assert.equal(f.quotaStorage.get("activeBytes"), 0);
+  assert.equal((await f.send("GET")).status, 404);
+});
+
+test("rejected uploads drain their input without decoding or reserving it", async () => {
+  const f = await fixture();
+  await f.send("DELETE");
+  let pulled = 0;
+  const body = new ReadableStream(
+    {
+      pull(controller) {
+        if (++pulled <= 12) controller.enqueue(new Uint8Array(1024 * 1024));
+        else controller.close();
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  const request = new Request(f.request("PUT"), { method: "PUT", body, duplex: "half" });
+  assert.equal((await f.service.fetch(request, f.id)).status, 410);
+  assert.equal(pulled, 13, "forwarding completes before the DO response ends its request lifetime");
+  assert.equal(request.bodyUsed, true);
+  assert.equal(f.reservations.length, 0);
 });

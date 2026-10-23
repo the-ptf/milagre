@@ -3,7 +3,7 @@ import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { Add01Icon, RepeatIcon } from "@hugeicons/core-free-icons";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
-import { canRunNow, unreadRunRoutines } from "@milagre/shared/routines";
+import { canRunNow, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { useSession } from "../session";
 import { useRoutines, type RoutineWithRuns } from "../use-routines";
 import { useProjectStates } from "../use-project-states";
@@ -103,7 +103,15 @@ export default function RoutinesScreen() {
     else if (id === "open") {
       const chatId = chatOf(routine);
       if (chatId) router.push({ pathname: "/chat", params: { projectPath: projectOfKey(chatId), hostId: client.url, id: String(sessionIdFromKey(chatId)) } });
-    } else if (id === "delete")
+    } else if (id === "read")
+      void act(
+        () =>
+          Promise.all(
+            unreadRunChatsOf(states, routine.id).map((key) => client.call("chat:patch", [projectOfKey(key), sessionIdFromKey(key), { unread: false }])),
+          ),
+        "Could not mark this Routine read.",
+      );
+    else if (id === "delete")
       void act(async () => {
         if (!(await confirm(`Delete ${routine.name}?`, routineDeleteMessage(routine), "Delete"))) return;
         await client.call("routines:delete", [routine.id]);
@@ -268,6 +276,7 @@ function RoutineRow({
               // Linear and webhook Routines run only on their event; the scheduler refuses Run now for them.
               ...(canRunNow(routine) ? [{ id: "run", title: "Run now", systemImage: "play", disabled: !routine.enabled }] : []),
               { id: "open", title: heartbeat ? "Open Chat" : "Open last Chat", systemImage: "bubble.left", disabled: !hasChat },
+              ...(unread ? [{ id: "read", title: "Mark as read", systemImage: "checkmark" }] : []),
             ],
           },
           { items: [{ id: "delete", title: "Delete", systemImage: "trash", destructive: true }] },

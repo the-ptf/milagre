@@ -261,7 +261,6 @@ export function PromptComposer({
   }, [typedFound, projectPath]);
   // A chip is its file's only representation: the file is attached while the chip is in the draft (no tile), deleting
   // the chip detaches it, and undoing that attaches it again. Files attached by paste or + are never detached here.
-  // A remote Chat can't take files from this Mac, so nothing is attached until the user sends (which shows why).
   const mentionAttached = useRef(new Set<string>());
   const mentionScope = useRef(imageDraft.scope);
   const chipKey = [...new Set(parts.flatMap((part) => (part.kind === "file" ? [fileMentionPath(projectPath, part.path) ?? ""] : [])).filter(Boolean))].join(
@@ -280,7 +279,6 @@ export function PromptComposer({
       mentionAttached.current.delete(path);
       if (imageDraft.files.includes(path)) imageDraft.removeFile(path);
     }
-    if (imageDraft.remote) return;
     for (const path of chipPaths) {
       if (imageDraft.files.includes(path)) continue;
       mentionAttached.current.add(path);
@@ -391,8 +389,7 @@ export function PromptComposer({
     setPlusOpen(false);
     // Every chip's file goes with the message, even one whose attachment the effect hasn't caught up with yet; the
     // parent's send reads its attachments from its render, so commit them first and send from the new render.
-    // A remote Chat refuses this Mac's files, so a chip's file stays a mention there (no refusal notice at send).
-    const missing = imageDraft.remote ? [] : chipPaths.filter((path) => !imageDraft.files.includes(path));
+    const missing = chipPaths.filter((path) => !imageDraft.files.includes(path));
     if (missing.length) {
       flushSync(() => {
         for (const path of missing) {
@@ -473,7 +470,7 @@ export function PromptComposer({
         const path = fileMentionPath(projectPath, row.path);
         if (!path) return;
         markKnown(row.path);
-        if (!imageDraft.files.includes(path) && !imageDraft.remote) mentionAttached.current.add(path);
+        if (!imageDraft.files.includes(path)) mentionAttached.current.add(path);
         imageDraft.attachPath(path);
         const mention = formatFileMention(row.path);
         onDraftChange(insertPromptToken(draft, token, mention));

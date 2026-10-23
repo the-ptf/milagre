@@ -107,6 +107,8 @@ export type ScopeStates = Readonly<Record<string, { sessions: Readonly<Record<st
 export function unreadRunRoutines(states: ScopeStates): Set<string>;
 /** The keys ("<path>#<id>") of the hidden Run Chats nobody has opened yet, Links' left out: their Runs show a dot on the Routine page. */
 export function unreadRunChats(states: ScopeStates): Set<string>;
+/** The keys of one Routine's hidden Run Chats nobody has opened yet, its id as unreadRunRoutines names it: Mark as read clears them. */
+export function unreadRunChatsOf(states: ScopeStates, routineId: string): string[];
 /**
  * Whether a Run's Chat is there to open: its Project's state has the session, archived or not. False for a Chat gone with
  * its Worktree, and for a Project no state is held for.

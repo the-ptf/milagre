@@ -1,7 +1,7 @@
 # The one desktop release pipeline. Merges to main cut no tags; this workflow plans each release
 # (scripts/plan-release.cjs) and creates its tag only once every required platform has built:
-#   beta    the newest CI-green main commit as a vX.Y.Z-beta.N prerelease, never marked latest, with the changes since
-#           the previous beta. Weekdays at 09:00 UTC (skipped when nothing user-facing landed) and on dispatch.
+#   beta    the newest main commit whose CI and macOS + Linux installer checks (package-candidates.yml) passed, as a
+#           vX.Y.Z-beta.N prerelease, never marked latest, with the changes since the previous beta. Weekdays at 09:00 UTC (skipped when nothing user-facing landed) and on dispatch.
 #   stable  the newest beta's commit rebuilt as vX.Y.Z, marked latest, with the changes since the previous stable;
 #           then packages.milagre.cloud is redeployed from it. Dispatch only.
 # macOS and Linux always build. Windows builds only once the RELEASE_WINDOWS repository variable is "true", which
@@ -20,7 +20,7 @@ on:
         default: beta
         required: true
       ref:
-        description: "beta only: the main commit to ship; empty means the newest one CI passed"
+        description: "beta only: the main commit to ship; empty means the newest one CI and the installer checks passed"
         type: string
         required: false
       beta:
@@ -33,7 +33,7 @@ env:
   DO_NOT_TRACK: "1"
 permissions:
   contents: write
-  # The beta plan reads which main commits passed CI.
+  # The beta plan reads which main commits passed CI and the installer checks.
   actions: read
 concurrency:
   group: publish

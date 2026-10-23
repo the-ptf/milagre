@@ -7,9 +7,9 @@ const MAX_PHONES = 16;
 // One device on the LAN gets a few sockets (a reconnect overlapping its dying predecessor), not the whole table.
 const MAX_PER_ADDRESS = 4;
 // A phone that reads slower than the Mac writes is dropped rather than buffered without end. A response is written
-// all at once, base64 and sealed, so the cap holds the largest one (MAX_RESPONSE, 32 MiB, about 43 MiB on the wire)
+// all at once, base64 and sealed, so the cap holds the largest one (MAX_RESPONSE, 64 MiB, about 86 MiB on the wire)
 // with room for a few small ones beside it. A phone that stops reading altogether is caught by the ping.
-const MAX_BUFFERED = 64 * 1024 * 1024;
+const MAX_BUFFERED = 96 * 1024 * 1024;
 // A socket that answers neither a ping nor anything else for two intervals is half open: the phone left the network.
 const PING_MS = 30_000;
 // Larger than one sealed 256 KiB upload chunk, base64 and all.

@@ -8,8 +8,21 @@ const { computerName } = require("./mobile-pairing.cjs");
 const { readOwnHostId } = require("./own-host.cjs");
 const { writePrivate } = require("./relay-identity.cjs");
 
-/** One manager and cache per owning daemon. Both native IPC and the CLI call these handlers. */
-function createComputerService({ dataDir, emit = () => {}, ...options }) {
+/** Runs a listener of the computers; one that throws must not break them. */
+function hear(listener) {
+  try {
+    listener();
+  } catch {
+    /* a listener must not break the computers */
+  }
+}
+
+/**
+ * One manager and cache per owning daemon. Both native IPC and the CLI call these handlers. `onRemoteEvent(id, channel,
+ * payload)` hears each computer's events as it sent them (unqualified), `onOnline(id)` each computer coming online, and
+ * `onRemoved(id)` each one the user removed: this daemon's own Delegations to other computers follow them (spec 2026-10-23).
+ */
+function createComputerService({ dataDir, emit = () => {}, onRemoteEvent = () => {}, onOnline = () => {}, onRemoved = () => {}, ...options }) {
   const handlers = new Map();
   const vault = createComputerVault({ dataDir });
   const cache = createComputerCaches({ dir: path.join(dataDir, "computers") });
@@ -22,13 +35,25 @@ function createComputerService({ dataDir, emit = () => {}, ...options }) {
     return next;
   };
   let ipc;
+  // Each computer's last state, so onOnline fires once per return.
+  const states = new Map();
   const computers = createComputers({
     dataDir,
     credentials: vault,
     ownHostId: () => readOwnHostId(dataDir),
     ...options,
-    onChange: () => ipc?.changed(),
-    emit: (id, channel, payload) => ipc?.event(id, channel, payload),
+    onChange: (list) => {
+      ipc?.changed();
+      for (const computer of list ?? []) {
+        const was = states.get(computer.id);
+        states.set(computer.id, computer.state);
+        if (computer.state === "online" && was !== "online") hear(() => onOnline(computer.id));
+      }
+    },
+    emit: (id, channel, payload) => {
+      hear(() => onRemoteEvent(id, channel, payload));
+      ipc?.event(id, channel, payload);
+    },
   });
   ipc = registerComputers({
     ipcMain: { handle: (method, handler) => handlers.set(method, handler) },
@@ -63,6 +88,13 @@ function createComputerService({ dataDir, emit = () => {}, ...options }) {
     }),
   );
   handlers.set("computers:import-keys", (_context, value) => vault.importLegacy(value));
+  const remove = handlers.get("computers:remove");
+  handlers.set("computers:remove", async (context, id) => {
+    const result = await remove(context, id);
+    states.delete(String(id));
+    hear(() => onRemoved(String(id)));
+    return result;
+  });
   const setEnabled = handlers.get("computers:set-enabled");
   handlers.set("computers:set-enabled", (context, on) =>
     control(async () => {
@@ -84,6 +116,11 @@ function createComputerService({ dataDir, emit = () => {}, ...options }) {
       return result;
     },
     setFocused: (value) => computers.setFocused(value),
+    /** The paired computers as this daemon's own code reaches them: raw calls, no offline copy, no qualified keys. */
+    remote: {
+      list: () => (enabled ? computers.list().map((computer) => ({ id: computer.id, name: computer.name, online: computer.state === "online" })) : []),
+      invoke: (id, method, args) => computers.invoke(id, method, args),
+    },
     async close() {
       await ready.catch(() => {});
       await controls;

@@ -447,6 +447,86 @@ test("malformed asynchronous image redirects reject publication without crashing
   await assert.rejects(fetchRaster("https://example.com/image", { lookup: async () => [{ address: "8.8.8.8", family: 4 }], request }), /invalid redirect/);
 });
 
+test("image downloads identify themselves and name the failing host", async () => {
+  const { EventEmitter } = require("node:events");
+  let headers;
+  const request = (_url, options, callback) => {
+    headers = options.headers;
+    const req = new EventEmitter();
+    req.setTimeout = () => {};
+    req.end = () => queueMicrotask(() => callback({ statusCode: 403, headers: {}, destroy() {} }));
+    return req;
+  };
+  await assert.rejects(
+    fetchRaster("https://cdn.example.com/logo.png", { lookup: async () => [{ address: "8.8.8.8", family: 4 }], request }),
+    /cdn\.example\.com could not be downloaded \(HTTP 403\)/,
+  );
+  assert.match(headers["user-agent"], /Chrome\/\d+/, "CDN bot rules reject requests that don't look like the browser that renders the design");
+  assert.equal(headers["sec-fetch-dest"], "image");
+});
+
+test("a transient image failure is retried once, a permanent one is not", async () => {
+  const doc = document();
+  doc.nodes = [{ id: "one", type: "image", width: 20, height: 20, src: "https://example.com/flaky.png" }];
+  const snapshot = { schemaVersion: 1, title: "All", designs: [{ title: "One", document: doc }] };
+  let tries = 0;
+  const flaky = async () => {
+    if (++tries === 1) throw Object.assign(Error("HTTP 503"), { retryable: true });
+    return "data:image/png;base64,iVBORw0KGgo=";
+  };
+  const result = await embedPageImages(snapshot, { fetchImage: flaky });
+  assert.equal(tries, 2);
+  assert.match(result.designs[0].document.nodes[0].src, /^data:/);
+  tries = 0;
+  const forbidden = async () => {
+    tries++;
+    throw Object.assign(Error("HTTP 403"), { retryable: false });
+  };
+  await assert.rejects(embedPageImages(snapshot, { fetchImage: forbidden }), /HTTP 403/);
+  assert.equal(tries, 1);
+});
+
+test("an image too large to embed is redrawn at twice the largest size the page draws it", async () => {
+  const zlib = require("node:zlib");
+  const { resizeImagePng, imageSize } = require("./design-raster.cjs");
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(body));
+    return Buffer.concat([length, body, crc]);
+  };
+  // 1200 x 1200 RGB noise: far over the 500,000 character src limit as a PNG.
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(1200, 0);
+  header.writeUInt32BE(1200, 4);
+  header.set([8, 2, 0, 0, 0], 8);
+  const rows = require("node:crypto").randomBytes(1200 * (1 + 1200 * 3));
+  for (let row = 0; row < 1200; row++) rows[row * (1 + 1200 * 3)] = 0;
+  const png = Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    chunk("IHDR", header),
+    chunk("IDAT", zlib.deflateSync(rows)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+  const source = `data:image/png;base64,${png.toString("base64")}`;
+  assert.ok(source.length > 500_000);
+  const doc = document();
+  doc.nodes = [
+    { id: "small", type: "image", width: 40, height: 40, src: "https://example.com/logo.png" },
+    { id: "large", type: "image", width: 150, height: 100, src: "https://example.com/logo.png" },
+  ];
+  const result = await embedPageImages(
+    { schemaVersion: 1, title: "All", designs: [{ title: "One", document: doc }] },
+    { fetchImage: async () => source, resize: resizeImagePng },
+  );
+  const embedded = result.designs[0].document.nodes[0].src;
+  assert.equal(embedded, result.designs[0].document.nodes[1].src, "one download serves every use");
+  assert.ok(embedded.length <= 500_000);
+  assert.deepEqual(imageSize(Buffer.from(embedded.split(",")[1], "base64")), { width: 300, height: 300 }, "covers the 150 x 100 box at 2x, aspect kept");
+});
+
 test("the snapshot image deadline also bounds DNS lookup", async () => {
   const controller = new AbortController();
   const pending = fetchRaster("https://example.com/image", {
@@ -512,4 +592,61 @@ test("Artifact sharing keeps one link per page, separate from Designs, and works
   await api.revokeSaved({ id: designShare.id });
   assert.equal((await api.listAll()).find((item) => item.id === designShare.id).revoked, true);
   assert.equal((await createDesignPageSharing(options).listAll()).length, 2);
+});
+
+test("republishing an expired hosted page creates a new link through the host used by desktop and mobile", async (t) => {
+  const { createPageService, createQuotaService, PAGE_TTL_MS } = await import("../../../apps/design-share/src/service.mjs");
+  const { validateDesignPageSnapshot, renderDesignPage } = await import("@milagre/shared/design-page");
+  const memory = () => {
+    const values = new Map();
+    return {
+      get: (key) => structuredClone(values.get(key)),
+      put: (key, value) => values.set(key, structuredClone(value)),
+      delete: (key) => values.delete(key),
+      keys: (prefix) => [...values.keys()].filter((key) => key.startsWith(prefix)),
+      transaction: (callback) => callback(),
+    };
+  };
+  const { options, artifacts, request } = await fixture(t);
+  await artifacts.show({ chatId: CHAT, title: "Explainer", html: "<p>One page</p>" });
+  const quotaStorage = memory();
+  const quota = createQuotaService({ storage: quotaStorage, limits: { bytes: 20 * 1024 ** 3 } });
+  const pages = new Map();
+  let time = 1000;
+  const api = createDesignPageSharing({
+    ...options,
+    fetch: async (url, init) => {
+      if (new URL(url).pathname === "/health") return new Response("ok");
+      const id = new URL(url).pathname.split("/").at(-1);
+      if (!pages.has(id))
+        pages.set(
+          id,
+          createPageService({
+            storage: memory(),
+            validate: validateDesignPageSnapshot,
+            render: renderDesignPage,
+            quota,
+            quotaId: id,
+            now: () => time,
+            setAlarm: async () => {},
+            deleteAlarm: async () => {},
+          }),
+        );
+      return pages.get(id).fetch(new Request(url, init), id);
+    },
+  });
+  for (const kind of ["designs", "artifacts"]) {
+    const first = await api.publish({ ...request, kind });
+    time += PAGE_TTL_MS;
+    await pages.get(first.id).alarm();
+    const next = await api.publish({ ...request, kind });
+    assert.notEqual(next.id, first.id);
+    assert.deepEqual(
+      (await api.list({ chatId: CHAT, kind })).map((share) => share.id),
+      [next.id],
+    );
+    assert.equal((await api.listAll()).find((share) => share.id === first.id).revoked, true);
+    await api.revoke({ chatId: CHAT, kind, id: next.id });
+  }
+  assert.equal(quotaStorage.get("activeBytes"), 0);
 });

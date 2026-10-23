@@ -222,10 +222,9 @@ test("account scope RPCs enumerate Projects and Links, validate scope, and persi
   assert.deepEqual(entry.projects.map((project) => project.id).sort(), registry.map((project) => project.id).sort());
   const claude = (snapshot) => snapshot.providers.find((provider) => provider.provider === "claude");
   assert.equal(claude(await runtime.invoke("accounts:scope", [projects[0], true])).effectiveId, ids.work);
-  // The saved file predates Antigravity: Antigravity follows its Milagre-owned default profile.
+  // Antigravity is not installed in this fixture, so it has no Project account choice.
   const antigravity = (await runtime.invoke("accounts:scope", [projects[0]])).providers.find((provider) => provider.provider === "antigravity");
-  assert.equal(antigravity.effectiveId, "default");
-  assert.equal(antigravity.accounts[0].label, "Default account");
+  assert.equal(antigravity, undefined);
   await runtime.invoke("accounts:assign", [linkKey, "claude", ids.shared]);
   assert.equal(claude(await runtime.invoke("accounts:scope", [linkKey])).accountId, ids.shared);
   assert.equal(claude(await runtime.invoke("accounts:scope", [projects[0]])).accountId, ids.work);

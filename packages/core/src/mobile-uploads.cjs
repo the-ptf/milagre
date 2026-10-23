@@ -4,7 +4,7 @@ const path = require("node:path");
 const { randomUUID, createHash } = require("node:crypto");
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-const MAX_BYTES = 5 * 1024 * 1024;
+const { MAX_ATTACHMENT_BYTES: MAX_BYTES } = require("@milagre/shared/limits");
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const failure = (status, message) => Object.assign(new Error(message), { status });
@@ -113,7 +113,7 @@ function createMobileUploads({ dataDir, now = Date.now }) {
           if (typeof request.name !== "string" || typeof request.base64 !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(request.base64))
             throw failure(400, "Invalid attachment");
           bytes = Buffer.from(request.base64, "base64");
-          if (bytes.length > MAX_BYTES) throw failure(413, "Each file must be 5 MiB or smaller");
+          if (bytes.length > MAX_BYTES) throw failure(413, "Each file must be 50 MiB or smaller");
           if (!bytes.length || bytes.toString("base64") !== request.base64) throw failure(400, "Invalid attachment data");
           name = filename(request.name);
           if (!name || name === "." || name === "..") throw failure(400, "Choose a file with a name");
@@ -150,10 +150,34 @@ function createMobileUploads({ dataDir, now = Date.now }) {
         await write(entries);
         return { id: entry.id, path: destination(entry), name: entry.name };
       }),
+    resolveImages: (projectPath, images = []) =>
+      serial(async () => {
+        if (!Array.isArray(images)) throw failure(400, "Images must be an array.");
+        const entries = images.some((image) => !image.dataUrl) ? await read() : [];
+        const resolved = [];
+        for (const image of images) {
+          if (image.dataUrl) {
+            resolved.push(image);
+            continue;
+          }
+          const entry = entries.find((item) => item.projectPath === projectPath && destination(item) === image.path);
+          if (!entry || !(await intact(entry))) throw failure(400, "An uploaded image is missing or changed. Attach it again.");
+          const bytes = await fs.readFile(destination(entry));
+          const mime = bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+            ? "image/png"
+            : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+              ? "image/jpeg"
+              : /^GIF8[79]a$/.test(bytes.subarray(0, 6).toString())
+                ? "image/gif"
+                : "image/webp";
+          resolved.push({ ...image, dataUrl: `data:${mime};base64,${bytes.toString("base64")}` });
+        }
+        return resolved;
+      }),
     claim: (request) =>
       serial(async () => {
         const files = await Promise.all(
-          (Array.isArray(request.files) ? request.files : [])
+          [...(Array.isArray(request.files) ? request.files : []), ...(request.images ?? []).flatMap((image) => (image.path ? [image.path] : []))]
             .filter((file) => typeof file === "string")
             .map(async (file) => {
               if (!path.isAbsolute(file)) return file;

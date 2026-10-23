@@ -1,3 +1,4 @@
+import { prepareImageUploads } from "../lib/attachment-uploads";
 import { PersistenceNotices, type UnsavedScope } from "./PersistenceNotice";
 import { CommandPalette } from "./CommandPalette";
 import { chatActivity } from "@milagre/shared/chat-activity";
@@ -29,13 +30,13 @@ import SidebarNav from "./SidebarNav";
 import { runKeys } from "../lib/sidebar-scopes";
 import { DraftChatComposer } from "./DraftChatComposer";
 import { useComposerPreferences } from "../lib/use-composer-preferences";
-import { effortFor } from "../model";
+import { effortFor, type ChatMessage, type ModelOption, type ModelProvider } from "../model";
 import { createDraftStore, draftKey } from "../lib/draft-store";
 import { createScopeDrafts, linkChatRows, memberWorktreeForAction } from "../lib/link-scope";
-import { REMOTE_FILES_NOTICE, usePastedImages } from "./usePastedImages";
+import { usePastedImages } from "./usePastedImages";
 import type { useAgentRuns } from "./useAgentRuns";
 import { attachmentPrompt } from "../lib/media";
-import { modelForChat, sentDecision, sentReply } from "../lib/agent-runs";
+import { sentDecision, sentReply } from "../lib/agent-runs";
 import { PermissionCard } from "./agents/PermissionCard";
 import { QuestionCard } from "./agents/QuestionCard";
 import { getSettings } from "../lib/settings";
@@ -57,8 +58,15 @@ const CANVAS_STATES = {};
 
 type Preferences = Pick<
   ComponentProps<typeof DraftChatComposer>,
-  "models" | "selectedModel" | "onModelChange" | "cliStatus" | "onModelPickerOpen" | "onUpdateCli" | "updatingCli" | "capability"
->;
+  "models" | "selectedModel" | "cliStatus" | "onModelPickerOpen" | "onUpdateCli" | "updatingCli" | "capability"
+> & {
+  /** A pick, kept by the open chat (its key), or the default for new chats when none is open. */
+  onModelChange: (model: ModelOption, chatId: string | null) => void;
+  /** The model a chat's picker shows: its own pick, else its last turn's, on its provider. */
+  modelForChat: (chatId: string, provider: ModelProvider | undefined, messages: ChatMessage[]) => ModelOption;
+  /** Shows a model in the picker without counting as a pick. */
+  showModel: (model: ModelOption) => void;
+};
 export function LinkWorkspace({
   opened,
   state,
@@ -152,7 +160,7 @@ export function LinkWorkspace({
   );
   const chatMessagesOf = (id: number) => (lean ? (id === sessionId ? messages : []) : state.messages.filter((message) => message.session_id === id));
   const composerPrefs = useComposerPreferences(`${owner}#${sessionId ?? "new"}`);
-  const imageDraft = usePastedImages(`${owner}:${sessionId ?? "new"}`, isRemoteKey(owner));
+  const imageDraft = usePastedImages(`${owner}:${sessionId ?? "new"}`, owner);
   const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [findOpen, setFindOpen] = useState(false);
@@ -226,10 +234,13 @@ export function LinkWorkspace({
       setSessionId(initialSessionId);
     }
   }, [initialSessionId]);
+  const { modelForChat: _modelForChat, showModel: _showModel, onModelChange: _onModelChange, ...composerModels } = preferences;
+  // The picker follows the open chat, as a Project's does: its own pick, else its last turn's model.
   useEffect(() => {
-    const model = modelForChat(preferences.selectedModel, session?.provider, messages, preferences.models);
-    if (model.id !== preferences.selectedModel.id) preferences.onModelChange(model);
-  }, [sessionId, session?.provider]);
+    if (!chatId) return;
+    const model = preferences.modelForChat(chatId, session?.provider, messages);
+    if (model.id !== preferences.selectedModel.id) preferences.showModel(model);
+  }, [chatId, session?.provider, messages, preferences.models]);
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
       if (event.defaultPrevented || event.isComposing || isModalOpen()) return;
@@ -307,15 +318,13 @@ export function LinkWorkspace({
       })
       .catch(() => {});
   }, [owner, chatId, state.sessions]);
-  async function send(body = draftStore.get().trim(), preserve = false) {
-    if (preparing || imageDraft.loading || (!body && !imageDraft.images.length && !imageDraft.files.length)) return;
-    // A file attached from this Mac is a path the other Mac can't read; pasted images travel as data and still go.
-    if (isRemoteKey(owner) && imageDraft.files.length) {
-      setError(REMOTE_FILES_NOTICE);
-      return;
-    }
+  // `attach` false sends the body alone, as design feedback does: the composer's images and files stay for later.
+  async function send(body = draftStore.get().trim(), preserve = false, attach = true) {
+    const images = attach ? imageDraft.images : [];
+    const files = attach ? imageDraft.files : [];
+    if (preparing || imageDraft.loading || (!body && !images.length && !files.length)) return false;
     const selection = latest.current.selection;
-    const operation = drafts.beginSend(scope, sessionId, JSON.stringify({ body, images: imageDraft.images, files: imageDraft.files }));
+    const operation = drafts.beginSend(scope, sessionId, JSON.stringify({ body, images, files }));
     setPreparing(true);
     setError(null);
     pendingOperation.current = operation;
@@ -327,9 +336,9 @@ export function LinkWorkspace({
         sessionId,
         operationId: operation,
         body,
-        prompt: attachmentPrompt(body, imageDraft.files),
-        images: imageDraft.images,
-        files: imageDraft.files,
+        prompt: attachmentPrompt(body, files),
+        images: await prepareImageUploads(owner, images),
+        files,
         provider: model.provider,
         model: model.id,
         permissionMode: composerPrefs.permissionMode,
@@ -352,6 +361,7 @@ export function LinkWorkspace({
       return true;
     } catch (error) {
       if (latest.current.active && latest.current.selection === selection) setError(ipcErrorMessage(error));
+      return false;
     } finally {
       if (latest.current.active) setPreparing(false);
     }
@@ -534,7 +544,8 @@ export function LinkWorkspace({
                     <EditorLinks root={root}>
                       <DraftChatComposer
                         saveNotice={saveNotice}
-                        {...preferences}
+                        {...composerModels}
+                        onModelChange={(model) => preferences.onModelChange(model, chatId)}
                         effort={preferences.capability ? effortFor(preferences.capability, composerPrefs.effort) : composerPrefs.effort}
                         onEffortChange={composerPrefs.setEffort}
                         ultracode={composerPrefs.ultracode}
@@ -551,6 +562,7 @@ export function LinkWorkspace({
                         messages={messages}
                         imageDraft={imageDraft}
                         onSend={() => void send()}
+                        onSendDesignMessage={(text) => send(text, true, false)}
                         onStop={chatId && run ? () => void agents.interrupt(chatId) : undefined}
                         isSending={Boolean(run && !approval && !question)}
                         sendBlocked={preparing}

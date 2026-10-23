@@ -22,7 +22,7 @@ const CLOSE_HOST_OFFLINE = 4404;
 const CLOSE_ROOM_FULL = 4429;
 const DESKTOP_PEER = "desktop-peer-v1";
 // A paired Mac is not trusted like the local daemon: a paged reply may not announce more than MAX_PAGES pages nor run
-// past MAX_PAGED_CHARS in all. The daemon holds at most 64 Mi characters of pages at once (server.cjs PAGES_BUDGET_CHARS)
+// past MAX_PAGED_CHARS in all. The daemon holds at most 96 Mi characters of pages at once (server.cjs PAGES_BUDGET_CHARS)
 // in pages of up to 1 Mi, so these have headroom over any real reply.
 const MAX_PAGES = 1024;
 const MAX_PAGED_CHARS = 128 * 1024 * 1024;

@@ -315,3 +315,65 @@ test("an added Claude account picks up the connected account's MCP servers when 
   fs.writeFileSync(path.join(f.home, ".claude.json"), "{ not json");
   assert.equal(f.accounts.environment("claude", added.id).CLAUDE_CONFIG_DIR, dir, "an unreadable config never blocks the Chat");
 });
+
+test("uninstalled providers have no account controls or project choices, and installation restores saved accounts", async (t) => {
+  const f = fixture(t);
+  let installed = true;
+  const accounts = createAccounts({
+    ...f.options,
+    signInAntigravity: () => ({ cancel() {}, done: new Promise(() => {}) }),
+    cli: async (provider) => ({ command: provider === "antigravity" && !installed ? null : `/cli/${provider}` }),
+  });
+  t.after(() => accounts.close());
+  await accounts.list();
+  const added = group(await accounts.add("antigravity", "Work"), "antigravity").accounts[1];
+  accounts.cancel("antigravity", added.id);
+  installed = false;
+  assert.equal(group(await accounts.list(), "antigravity").installed, false);
+  assert.equal(
+    (await accounts.scope("/project")).providers.some((p) => p.provider === "antigravity"),
+    false,
+  );
+  assert.equal(group(await accounts.list(), "claude").accounts.length, 1);
+  installed = true;
+  const restored = group(await accounts.list(), "antigravity");
+  assert.equal(restored.installed, true);
+  assert.equal(restored.accounts.length, 2);
+  assert.equal(restored.accounts[1].id, added.id, "saved profiles survive an uninstall");
+  assert.equal(
+    (await accounts.scope("/project")).providers.some((p) => p.provider === "antigravity"),
+    true,
+  );
+});
+
+test("installation during an account check refreshes the newly available provider", async (t) => {
+  const f = fixture(t);
+  let installed = false;
+  let release, started;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const inspecting = new Promise((resolve) => {
+    started = resolve;
+  });
+  const accounts = createAccounts({
+    ...f.options,
+    cli: async (provider) => ({ command: provider === "antigravity" && !installed ? null : `/cli/${provider}` }),
+    inspect: async (provider) => {
+      if (provider === "claude") {
+        started();
+        await gate;
+      }
+      return { state: "ready" };
+    },
+  });
+  t.after(() => accounts.close());
+  const first = accounts.list();
+  await inspecting;
+  installed = true;
+  const afterInstall = accounts.list();
+  await tick();
+  release();
+  await first;
+  assert.equal(group(await afterInstall, "antigravity").accounts[0].state, "ready");
+});

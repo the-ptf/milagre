@@ -2,6 +2,7 @@ import { NotificationScheduleSetting } from "./NotificationScheduleSetting";
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
 import { useDesignsEnabled } from "../lib/designs-enabled";
 import { useBots } from "../lib/bots-store";
+import { useRemoteDelegationEnabled } from "../lib/remote-delegation";
 import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/ai-consent";
 import { PrivacySettings } from "./AiConsent";
 import { showUpdateNotice } from "./UpdateNotice";
@@ -45,6 +46,7 @@ import {
   Notification01Icon,
   PaintBoardIcon,
   Plug01Icon,
+  RepeatIcon,
   SecurityCheckIcon,
   ServerIcon,
   Settings01Icon,
@@ -121,6 +123,7 @@ export type SettingsSection =
   | "appearance"
   | "chat"
   | "notifications"
+  | "routines"
   | "connections"
   | "skills"
   | "mcp"
@@ -139,6 +142,7 @@ const SECTIONS: Array<{ key: SettingsSection; label: string; icon: ReactNode }> 
   { key: "appearance", label: "Appearance", icon: <Icon icon={PaintBoardIcon} /> },
   { key: "chat", label: "Chat", icon: <Icon icon={BubbleChatIcon} /> },
   { key: "notifications", label: "Notifications", icon: <Icon icon={Notification01Icon} /> },
+  { key: "routines", label: "Routines", icon: <Icon icon={RepeatIcon} /> },
   { key: "connections", label: "Connections", icon: <Icon icon={ConnectIcon} /> },
   { key: "skills", label: "Skills", icon: <Icon icon={BookOpen01Icon} /> },
   { key: "mcp", label: "MCP", icon: <Icon icon={Plug01Icon} /> },
@@ -574,6 +578,30 @@ export function DesignsSettings() {
   );
 }
 
+function RemoteDelegationSettings() {
+  const setting = useRemoteDelegationEnabled();
+  return (
+    <div data-slot="remote-delegation-setting">
+      <Row
+        label="Delegate to other computers"
+        description="A Chat's agent can hand work to a Project on another paired computer. That computer runs the turn, and this Chat shows it as it runs. Needs Drive other computers on in Settings > Devices."
+      >
+        <Switch
+          label="Delegate to other computers"
+          checked={setting.enabled}
+          disabled={!setting.ready || setting.saving}
+          onChange={(enabled) => void setting.save(enabled)}
+        />
+      </Row>
+      {setting.error && (
+        <p role="alert" className="px-4 pb-3 text-[12px] text-red">
+          {setting.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function BotsSettings() {
   const bots = useBots();
   return (
@@ -664,6 +692,7 @@ function ExperimentalSettings() {
           <Switch label="Ultracode Fatality" checked={settings.ultracodeFatality} onChange={(ultracodeFatality) => updateSettings({ ultracodeFatality })} />
         </Row>
         <BotsSettings />
+        <RemoteDelegationSettings />
       </Group>
     </>
   );
@@ -807,6 +836,18 @@ function NotificationsSettings() {
         <NotificationChimeSetting />
       </Group>
     </>
+  );
+}
+
+/** Settings › Routines: whether this Mac nudges about unread Runs (the top bar's Routines button and the Routines' rows). */
+function RoutinesSettings() {
+  const settings = useSettings();
+  return (
+    <Group title="Nudges">
+      <Row label="Unread Runs dot" description="On the Routines button and each Routine's row, while a Run's Chat has a result you haven't opened">
+        <Switch label="Unread Runs dot" checked={settings.routineNudges} onChange={(routineNudges) => updateSettings({ routineNudges })} />
+      </Row>
+    </Group>
   );
 }
 
@@ -2258,6 +2299,7 @@ export function SettingsPanel({
         {section === "appearance" && <AppearanceSettings />}
         {section === "chat" && <ChatSettings />}
         {section === "notifications" && <NotificationsSettings />}
+        {section === "routines" && <RoutinesSettings />}
         {section === "connections" && (
           <>
             <p className="mt-1 text-[13px] text-ink-2">Services Milagre signs in to, so Chats can start from their issues.</p>

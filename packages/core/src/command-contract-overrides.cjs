@@ -20,7 +20,7 @@ module.exports = {
   "project:open": [p("folder"), p("options", object({ takeNotice: b }, []), true)],
   "chat:ports": [p("chatId")],
   "chat:send-status": [p("projectPath"), p("clientMessageId")],
-  "attachment:upload": request({ projectPath: s, name: s, base64: s, reuse: s, quota: n }, ["projectPath"]),
+  "attachment:upload": request({ projectPath: s, name: s, base64: s, reuse: s, quota: n, transferId: s, offset: n, totalBytes: n }, ["projectPath"]),
   "chat:inbox": [],
   "link:workspace-roots": [p("requested")],
   "project:plain-root": [p("root")],
@@ -32,6 +32,17 @@ module.exports = {
   "devices:take-notices": [],
   "devices:confirm-notices": [p("claim")],
   "peer:routes": [],
+  // Another computer's daemon delegating to this Mac's Projects (spec 2026-10-23).
+  "delegation:targets": [],
+  "delegation:prepare": request({ worktree: s, chat: s, mode: s }, ["worktree", "chat"]),
+  "delegation:receive": request({ id: s, worktree: s, chat: s, message: s, mode: s, from: object({ label: s, computer: s }, []) }, [
+    "id",
+    "worktree",
+    "chat",
+    "message",
+  ]),
+  "delegation:reports": request({ ids: array(s) }),
+  "delegation:collected": request({ ids: array(s) }),
   "push:register": request({ deviceId: s, token: s, hostId: s, notifyWhenWaiting: b, notifyOnCompletion: b, chime: s, schedule }, [
     "deviceId",
     "token",

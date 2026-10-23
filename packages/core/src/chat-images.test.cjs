@@ -76,8 +76,8 @@ test("non-images and oversized local files are not captured", async (t) => {
   const { project, file, images } = await fixture(t);
   await fs.writeFile(file, "private text with a png extension");
   await assert.rejects(images.resolve(project, file), /image/);
-  await fs.writeFile(file, Buffer.alloc(6 * 1024 * 1024));
-  await assert.rejects(images.resolve(project, file), /MB/);
+  await fs.writeFile(file, Buffer.alloc(51 * 1024 * 1024));
+  await assert.rejects(images.resolve(project, file), /MiB/);
 });
 
 test("reusing a screenshot filename in a later reply captures the new bytes", async (t) => {

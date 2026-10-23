@@ -147,6 +147,8 @@ const ALLOWED: Record<string, string[]> = {
   "lib/settings.ts": ["setWindowBackground"],
   "lib/editors.ts": ["listEditors", "openInEditor"],
   "lib/linked-work.ts": ["getLinkedWork", "onLinkedWork"],
+  // This Mac's own switch for its Chats delegating to other computers.
+  "lib/remote-delegation.ts": ["readRemoteDelegationEnabled", "saveRemoteDelegationEnabled", "onRemoteDelegationEnabledChanged"],
   "lib/terminal-sessions.ts": ["setTerminalFocused"],
   "lib/terminal-actions.ts": ["onTerminalsChanged", "onComputerEvent"],
 };

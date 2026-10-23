@@ -1,13 +1,15 @@
-import { MAX_IMAGE_BYTES, MAX_IMAGES, IMAGE_TYPES, IMAGE_ERRORS } from "@milagre/shared/limits";
+import { MAX_ATTACHMENT_BYTES, IMAGE_TYPES, IMAGE_ERRORS } from "@milagre/shared/limits";
 import { useEffect, useRef, useState } from "react";
 import type { ClipboardEvent } from "react";
 import type { ImageAttachment } from "../model";
+import { isRemoteKey } from "../lib/computer-bridge";
+import { uploadFile } from "../lib/attachment-uploads";
 import { remapImageMentions } from "@milagre/shared/prompt-mentions";
 
 const TYPES = new Set(IMAGE_TYPES);
 
 function isAttachableImage(file: File): boolean {
-  return TYPES.has(file.type) && file.size <= MAX_IMAGE_BYTES;
+  return TYPES.has(file.type) && file.size <= MAX_ATTACHMENT_BYTES;
 }
 
 function readImage(file: File): Promise<ImageAttachment> {
@@ -19,10 +21,9 @@ function readImage(file: File): Promise<ImageAttachment> {
   });
 }
 
-export const REMOTE_FILES_NOTICE = "Files from this Mac can't be attached to a chat on another computer. Paste images instead.";
-
-/** `remote`: the chat is on another Mac, so files from this one are refused (pasted images travel as data and still go). */
-export function usePastedImages(scope: string, remote = false) {
+/** Selected files travel as bytes to the owning computer; project mentions already name files on that computer. */
+export function usePastedImages(scope: string, owner?: string) {
+  const remote = isRemoteKey(owner);
   const [images, commitImages] = useState<ImageAttachment[]>([]);
   const currentImages = useRef(images);
   function setImages(update: ImageAttachment[] | ((current: ImageAttachment[]) => ImageAttachment[])) {
@@ -83,12 +84,8 @@ export function usePastedImages(scope: string, remote = false) {
       setError(IMAGE_ERRORS.type);
       return [];
     }
-    if (files.some((file) => file.size > MAX_IMAGE_BYTES)) {
+    if (files.some((file) => file.size > MAX_ATTACHMENT_BYTES)) {
       setError(IMAGE_ERRORS.size);
-      return [];
-    }
-    if (images.length + files.length > MAX_IMAGES) {
-      setError(IMAGE_ERRORS.count);
       return [];
     }
     const current = generation.current;
@@ -144,10 +141,6 @@ export function usePastedImages(scope: string, remote = false) {
   }
 
   async function attachFiles(selected: File[]): Promise<number[]> {
-    if (remote) {
-      if (selected.length) setError(REMOTE_FILES_NOTICE);
-      return [];
-    }
     if (reading.current) {
       setError("Wait for the current attachment to finish loading, then try again.");
       return [];
@@ -158,25 +151,41 @@ export function usePastedImages(scope: string, remote = false) {
     setError("");
     const nextImages: ImageAttachment[] = [];
     const paths: string[] = [];
-    let failed = false;
+    let failed = "";
     for (const file of selected) {
+      if (current !== generation.current) return [];
       try {
-        const path = window.milagre.getPathForFile(file);
+        let path: string;
+        if (file.size > MAX_ATTACHMENT_BYTES) throw new Error(`${file.name} is larger than 50 MiB.`);
+        if (remote) {
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.addEventListener("load", () => resolve(String(reader.result)));
+            reader.addEventListener("error", () => reject(new Error(`Could not read ${file.name}. Choose it again with Add files.`)));
+            reader.readAsDataURL(file);
+          });
+          if (current !== generation.current) return [];
+          const result = await uploadFile(owner!, file.name, dataUrl.slice(dataUrl.indexOf(",") + 1), () => current === generation.current);
+          path = result.path;
+        } else {
+          path = window.milagre.getPathForFile(file);
+        }
+        if (current !== generation.current) return [];
         if (!path) {
-          failed = true;
+          failed = "Could not get a local path for one or more files. Choose them again with Add files.";
           continue;
         }
         paths.push(path);
         localFiles.current.set(path, file);
-        if (isAttachableImage(file) && images.length + nextImages.length < MAX_IMAGES) {
+        if (isAttachableImage(file)) {
           try {
             nextImages.push({ ...(await readImage(file)), path });
           } catch {
             /* The disk attachment still works. */
           }
         }
-      } catch {
-        failed = true;
+      } catch (error) {
+        failed = error instanceof Error ? error.message : "Could not attach the file. Try again.";
       }
     }
     if (current !== generation.current) return [];
@@ -185,17 +194,13 @@ export function usePastedImages(scope: string, remote = false) {
     setFiles((existing) => [...new Set([...existing, ...paths])]);
     append(paths);
     setImages((existing) => [...existing, ...nextImages.filter((image) => !existing.some((item) => item.path === image.path))]);
-    if (failed) setError("Could not get a local path for one or more files. Choose them again with Add files.");
+    if (failed) setError(failed);
     reading.current = false;
     setLoading(false);
     return added.map((_, i) => base + i + 1);
   }
 
   function attachPath(path: string) {
-    if (remote) {
-      setError(REMOTE_FILES_NOTICE);
-      return;
-    }
     setFiles((current) => (current.includes(path) ? current : [...current, path]));
     setOrder((current) => (current.includes(path) ? current : [...current, path]));
     setError("");

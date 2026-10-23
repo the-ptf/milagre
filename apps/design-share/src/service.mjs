@@ -1,5 +1,4 @@
-export const MAX_BODY_BYTES = 8 * 1024 * 1024;
-const MAX_HTML_BYTES = 8 * 1024 * 1024;
+export { createQuotaService, quotaLimits } from "./quota.mjs";
 export const CHUNK_BYTES = 96 * 1024;
 const encoder = new TextEncoder();
 export const SECURITY_HEADERS = {
@@ -37,7 +36,7 @@ export async function authorized(request, id) {
 }
 
 /** Do not trust Content-Length alone; hosts may stream and attackers may lie. */
-export async function boundedBody(request, limit = MAX_BODY_BYTES) {
+export async function boundedBody(request, limit = Number.MAX_SAFE_INTEGER) {
   const declared = request.headers.get("Content-Length");
   if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > limit)) {
     throw Object.assign(new Error("Snapshot too large"), { status: 413 });
@@ -136,36 +135,106 @@ function withSocialPreview(chunk, requestUrl) {
 /** Pages published before replacements existed have no revision and keep their original keys. */
 const chunkKey = (revision, index) => (revision ? `html:${revision}:${index}` : `html:${index}`);
 
-/** The adapter's transaction is synchronous and atomic (SQLite Durable Object transactionSync). */
-export function createPageService({ storage, validate, render, admit, reserve }) {
+export const PAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const RETRY_MS = 60 * 1000;
+
+/** Durable intent plus an alarm repairs interrupted reservations, commits and refunds. */
+export function createPageService({ storage, validate, render, quota, quotaId, setAlarm, deleteAlarm, now = Date.now }) {
   const enqueue = serial();
+  const schedule = async () => {
+    const meta = storage.get("meta");
+    if (storage.get("pending") || meta?.releasePending) await setAlarm(now() + RETRY_MS);
+    else if (meta && !meta.deleted && meta.expiresAt) await setAlarm(meta.expiresAt);
+    else await deleteAlarm();
+  };
+  const recover = async () => {
+    const pending = storage.get("pending");
+    if (!pending && !storage.get("meta")?.releasePending) return;
+    if (pending) {
+      const meta = storage.get("meta");
+      if (meta?.operation === pending.operation) {
+        if (!(await quota.commit(quotaId, pending.operation))) throw Error("Quota commit not confirmed");
+      } else await quota.abort(quotaId, pending.operation);
+      storage.delete("pending");
+    }
+    const meta = storage.get("meta");
+    if (meta?.releasePending) {
+      await quota.release(quotaId);
+      storage.put("meta", { deleted: true });
+    }
+    await schedule();
+  };
+  const remove = async (meta) => {
+    // Schedule before either local mutation or remote refund. A crash always leaves a retry.
+    await setAlarm(now() + RETRY_MS);
+    storage.transaction(() => {
+      for (let i = 0; i < (meta?.chunks ?? 0); i++) storage.delete(chunkKey(meta.revision, i));
+      storage.put("meta", { deleted: true, releasePending: true });
+    });
+    await recover();
+  };
+  const migrate = async () => {
+    const meta = storage.get("meta");
+    if (!meta || meta.deleted) {
+      if (meta?.deleted) await quota.release(quotaId);
+      return;
+    }
+    if (!meta.expiresAt) {
+      await setAlarm(now() + PAGE_TTL_MS);
+      storage.put("meta", { ...meta, expiresAt: now() + PAGE_TTL_MS });
+    }
+    // The legacy publisher discarded JSON, so only its surviving HTML can be inventoried.
+    let bytes = 0;
+    for (let i = 0; i < meta.chunks; i++) bytes += storage.get(chunkKey(meta.revision, i))?.byteLength ?? 0;
+    await quota.importPage(quotaId, bytes);
+    await schedule();
+  };
   return {
-    fetch(request, id, ip) {
+    migrate: () => enqueue(migrate),
+    alarm: () =>
+      enqueue(async () => {
+        try {
+          await recover();
+          const meta = storage.get("meta");
+          if (meta && !meta.deleted && meta.expiresAt <= now()) await remove(meta);
+          else await schedule();
+        } catch (error) {
+          await setAlarm(now() + RETRY_MS);
+          throw error;
+        }
+      }),
+    fetch(request, id) {
       return enqueue(async () => {
         try {
           const isRead = request.method === "GET" || request.method === "HEAD";
           if (!isRead && !(await authorized(request, id))) return response("Unauthorized", 401);
-          const meta = storage.get("meta");
+          await recover();
+          let meta = storage.get("meta");
+          if (meta && !meta.deleted && !meta.expiresAt) {
+            await migrate();
+            meta = storage.get("meta");
+          }
+          if (meta && !meta.deleted && meta.expiresAt <= now()) {
+            await remove(meta);
+            meta = storage.get("meta");
+          }
           if (isRead) {
             if (!meta || meta.deleted) return response("Not found", 404);
             if (request.method === "HEAD") return response(null, 200, "text/html; charset=utf-8");
             let index = 0;
-            // A zero high-water mark prevents idle readers from retaining even one chunk.
-            // Check the metadata on every pull: revocation stops an in-flight response, and a reader
-            // started on one revision ends rather than splicing in chunks of the replacement.
             const stream = new ReadableStream(
               {
                 pull(controller) {
                   try {
                     const current = storage.get("meta");
-                    if (current?.deleted) throw new Error("Snapshot revoked");
-                    if (current?.revision !== meta.revision) throw new Error("Snapshot updated");
+                    if (current?.deleted || current?.expiresAt <= now()) throw Error("Snapshot revoked");
+                    if (current?.revision !== meta.revision) throw Error("Snapshot updated");
                     if (index >= meta.chunks) {
                       controller.close();
                       return;
                     }
                     const chunk = storage.get(chunkKey(meta.revision, index++));
-                    if (!(chunk instanceof Uint8Array)) throw new Error("Missing stored chunk");
+                    if (!(chunk instanceof Uint8Array)) throw Error("Missing stored chunk");
                     controller.enqueue(index === 1 ? withSocialPreview(chunk, request.url) : chunk);
                   } catch (error) {
                     controller.error(error);
@@ -177,120 +246,78 @@ export function createPageService({ storage, validate, render, admit, reserve })
             return response(stream, 200, "text/html; charset=utf-8");
           }
           if (request.method === "DELETE") {
-            // A timed-out PUT may still be in flight. Reserve this capability even when no page
-            // exists yet, so a successful revoke cannot be undone by a delayed upload.
-            if (!meta && !(await reserve(ip, 1024))) return response("Publishing limit reached", 429);
-            if (!meta?.deleted)
-              storage.transaction(() => {
-                for (let i = 0; i < (meta?.chunks ?? 0); i++) storage.delete(chunkKey(meta.revision, i));
-                storage.put("meta", { deleted: true });
-              });
+            if (!meta?.deleted) await remove(meta);
             return response(null, 204);
           }
           if (request.method !== "PUT") return response("Method not allowed", 405);
           if (meta?.deleted) return response("Snapshot revoked", 410);
-          if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers.get("Content-Type") ?? "")) {
+          if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers.get("Content-Type") ?? ""))
             return response("Expected application/json", 415);
-          }
           if (request.headers.has("Content-Encoding")) return response("Encoded bodies are not supported", 415);
-          // A retry of an already committed page must remain usable after quota exhaustion.
-          // New uploads check durable counters before body decoding or expensive validation.
-          if (!meta && !(await admit(ip))) return response("Publishing limit reached", 429);
-          const bytes = await boundedBody(request);
+          // Only the service-wide cap bounds input. There is no per-page byte budget.
+          const available = await quota.available(quotaId);
+          if (!meta && !available) return response("Publishing unavailable", 429);
+          const body = await boundedBody(request, meta ? Math.max(available, meta.bytes ?? 0) : available);
           let snapshot;
           try {
-            snapshot = validate(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
-          } catch (error) {
-            if (error?.status === 413) return response("Snapshot too large", 413);
+            snapshot = validate(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)));
+          } catch {
             return response("Invalid Designs page snapshot", 400);
           }
           const canonical = encoder.encode(JSON.stringify(snapshot));
-          if (canonical.byteLength > MAX_BODY_BYTES) return response("Snapshot too large", 413);
           const hash = await digest(canonical);
           const result = () => JSON.stringify({ id, path: `/s/${id}` });
-          // An identical retry is free. Changed content replaces the page: it pays its bytes and a daily update,
-          // not a new publication. Only now, after hashing, can a replacement be told apart from a retry.
-          if (meta?.hash === hash) return response(result(), 200, "application/json; charset=utf-8");
-          if (meta && !(await admit(ip, true))) return response("Publishing limit reached", 429);
+          if (meta?.hash === hash) {
+            await setAlarm(now() + PAGE_TTL_MS);
+            storage.put("meta", { ...meta, expiresAt: now() + PAGE_TTL_MS });
+            return response(result(), 200, "application/json; charset=utf-8");
+          }
           let html;
           try {
             html = encoder.encode(render(snapshot));
-          } catch (error) {
-            if (error?.status === 413) return response("Rendered snapshot too large", 413);
+          } catch {
             return response("Unable to render Designs page", 400);
           }
-          if (html.byteLength > MAX_HTML_BYTES) return response("Rendered snapshot too large", 413);
-          // Count even failed writes against the budget. A crash can spend a reservation twice, but never bypass it.
-          if (!(await reserve(ip, canonical.byteLength + html.byteLength, !!meta))) return response("Publishing limit reached", 429);
+          const bytes = canonical.byteLength + html.byteLength;
+          const operation = String((storage.get("sequence") ?? 0) + 1);
+          await setAlarm(now() + RETRY_MS);
+          storage.transaction(() => {
+            storage.put("sequence", Number(operation));
+            storage.put("pending", { operation });
+          });
+          if (!(await quota.reserve(quotaId, operation, bytes))) {
+            await recover();
+            return response("Publishing unavailable", 429);
+          }
           const count = Math.ceil(html.byteLength / CHUNK_BYTES);
-          // A replacement writes under the next revision and drops the old chunks in the same transaction,
-          // so storage holds one version and readers of the old one stop instead of mixing the two.
           const revision = meta ? (meta.revision ?? 0) + 1 : 0;
           storage.transaction(() => {
             for (let i = 0; i < (meta?.chunks ?? 0); i++) storage.delete(chunkKey(meta.revision, i));
             for (let i = 0; i < count; i++) storage.put(chunkKey(revision, i), html.slice(i * CHUNK_BYTES, (i + 1) * CHUNK_BYTES));
-            storage.put("meta", { hash, chunks: count, revision });
+            storage.put("meta", { hash, chunks: count, revision, bytes, operation, expiresAt: now() + PAGE_TTL_MS });
           });
+          await recover();
           return response(result(), meta ? 200 : 201, "application/json; charset=utf-8");
         } catch (error) {
           return response(error?.status === 413 ? "Snapshot too large" : "Unable to process snapshot", error?.status === 413 ? 413 : 503);
+        } finally {
+          // Finish an upload rejected before decoding without buffering it. The Worker
+          // must not keep forwarding its request stream after the DO response is sent.
+          if (request.body && !request.bodyUsed) {
+            const reader = request.body.getReader();
+            try {
+              while (!(await reader.read()).done) {
+                /* discard */
+              }
+            } catch {
+              /* A disconnected sender has no remaining upload to drain. */
+            } finally {
+              reader.releaseLock();
+            }
+          }
         }
       });
     },
-  };
-}
-
-export function quotaLimits(env) {
-  const positive = (name, fallback, max) => {
-    const value = env[name] === undefined ? fallback : Number(env[name]);
-    if (!Number.isSafeInteger(value) || value <= 0 || value > max) throw new Error(`Invalid ${name}`);
-    return value;
-  };
-  return {
-    bytes: positive("MAX_TOTAL_BYTES", 1024 ** 3, 100 * 1024 ** 3),
-    pages: positive("MAX_TOTAL_PAGES", 10000, 1000000),
-    daily: positive("MAX_DAILY_PAGES", 100, 10000),
-    perIp: positive("MAX_DAILY_IP_PAGES", 10, 1000),
-    perIpUpdates: positive("MAX_DAILY_IP_UPDATES", 500, 100000),
-  };
-}
-
-export function createQuotaService({ storage, limits, now = Date.now }) {
-  const enqueue = serial();
-  // A replacement of an existing page (a live Artifact updated again) spends bytes and its own daily
-  // per-IP update count. It never spends a publication, so updating one link cannot lock out new links.
-  const check = (ip, bytes, spend, replacement = false) =>
-    enqueue(async () => {
-      if (!ip || ip.length > 64 || !Number.isSafeInteger(bytes) || bytes < 1 || bytes > MAX_BODY_BYTES + MAX_HTML_BYTES) return false;
-      const day = new Date(now()).toISOString().slice(0, 10);
-      const ipHash = await digest(encoder.encode(`${day}:${ip}`));
-      return storage.transaction(() => {
-        const total = storage.get("total") ?? { pages: 0, bytes: 0 };
-        const currentDay = storage.get("date") === day;
-        const daily = currentDay ? (storage.get("daily") ?? 0) : 0;
-        const key = `${replacement ? "update" : "ip"}:${ipHash}`;
-        const count = currentDay ? (storage.get(key) ?? 0) : 0;
-        if (total.bytes + bytes > limits.bytes) return false;
-        if (replacement ? count >= limits.perIpUpdates : total.pages >= limits.pages || daily >= limits.daily || count >= limits.perIp) return false;
-        if (!spend) return true;
-        if (!currentDay) {
-          for (const prefix of ["ip:", "update:"]) for (const stale of storage.keys(prefix)) storage.delete(stale);
-          storage.put("date", day);
-          storage.put("daily", 0);
-        }
-        storage.put(key, count + 1);
-        if (replacement) {
-          storage.put("total", { ...total, bytes: total.bytes + bytes });
-          return true;
-        }
-        storage.put("total", { pages: total.pages + 1, bytes: total.bytes + bytes });
-        storage.put("daily", daily + 1);
-        return true;
-      });
-    });
-  return {
-    admit: (ip, replacement) => check(ip, 1, false, replacement === true),
-    reserve: (ip, bytes, replacement) => check(ip, bytes, true, replacement === true),
   };
 }
 

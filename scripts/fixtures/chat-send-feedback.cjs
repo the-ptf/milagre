@@ -78,6 +78,7 @@ window.milagre = new Proxy({
     return structuredClone({ messages: chat.slice(start, end), hasMore: start > 0, total: chat.length });
   },
   listBranches: async () => ["main"],
+  uploadAttachment: async request => ({ file: { path: "/fixture/uploads/" + request.name } }),
   getPathForFile: file => "/fixture/" + file.name,
   createWorktree: () => {
     window.calls.created++;

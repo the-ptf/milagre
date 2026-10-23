@@ -267,6 +267,15 @@ export type MilagreBridge = {
   restartHost: () => Promise<void>;
   onRuntimeConnection: (callback: (state: RuntimeConnection) => void) => () => void;
   onRuntimeSnapshot: (callback: (snapshot: RuntimeSnapshot) => void) => () => void;
+  uploadAttachment: (request: {
+    projectPath: string;
+    name?: string;
+    base64?: string;
+    reuse?: string;
+    transferId?: string;
+    offset?: number;
+    totalBytes?: number;
+  }) => Promise<{ file?: { id: string; path: string } | null; error?: { status: number; message: string } }>;
   getPathForFile: (file: File) => string;
   readAttachment: (file: string) => Promise<{ text: string; binary: boolean; truncated: boolean }>;
   searchProjectFiles: (root: string, query: string) => Promise<string[]>;
@@ -473,6 +482,10 @@ export type MilagreBridge = {
   grantDelegations?: (chatId: string, linkId: string) => Promise<void>;
   /** Delegations and Negotiations still open across Links, and the Codex Chats that only receive. */
   getLinkedWork: () => Promise<LinkedWork>;
+  /** Settings > Experimental: whether this Mac's Chats may delegate to another paired computer's Projects. */
+  readRemoteDelegationEnabled: () => Promise<{ enabled: boolean }>;
+  saveRemoteDelegationEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
+  onRemoteDelegationEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   onLinkedWork: (callback: (work: LinkedWork) => void) => () => void;
   /** An app ⌘⇧ shortcut pressed while an embedded frame had focus, forwarded by the main process (its letter). */
   onAppShortcut: (callback: (key: string) => void) => () => void;

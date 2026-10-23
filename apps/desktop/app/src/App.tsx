@@ -1,3 +1,4 @@
+import { prepareImageUploads } from "./lib/attachment-uploads";
 import { ProviderUpdateNotice } from "./components/ProviderUpdateNotice";
 import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components/PersistenceNotice";
 import { AiConsentDialog } from "./components/AiConsent";
@@ -87,7 +88,7 @@ import { useWorktreeLinearIssues } from "./components/useWorktreeLinearIssues";
 import { issueFirstMessage, LINK_PR_HINT, restoredDraft, type LinearIssue } from "@milagre/shared/linear";
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
 import { chatPullRequests, pullRequestRefsCache } from "./lib/chat-pull-requests";
-import { REMOTE_FILES_NOTICE, usePastedImages } from "./components/usePastedImages";
+import { usePastedImages } from "./components/usePastedImages";
 import { DotBackground } from "./components/DotBackground";
 import { StartupSplash } from "./components/StartupSplash";
 import SidebarNav from "./components/SidebarNav";
@@ -129,10 +130,12 @@ import { restoredChatsNotice } from "./lib/restored-chats";
 import { lazyView } from "./lib/lazy-view";
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
-import { canOpenRunChat, unreadRunChats, unreadRunRoutines } from "@milagre/shared/routines";
+import { canOpenRunChat, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { RoutineChip } from "./components/routines/RoutineChip";
 import { RUN_CHAT_REPLY_NOTE, RunChatHeader } from "./components/routines/RunChatHeader";
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
+import { remoteDelegationsFrom } from "./lib/remote-delegation";
+import { RemoteDelegationCard } from "./components/agents/RemoteDelegationCard";
 import { DraftChatComposer } from "./components/DraftChatComposer";
 import { queueControls } from "./components/QueuedMessages";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
@@ -181,6 +184,7 @@ function latestSessionId(state: CoordinatorState) {
 const NO_MESSAGES: ChatMessage[] = [];
 const NO_REFS: string[] = [];
 const NO_KEYS: string[] = [];
+const NO_ROUTINES = new Set<string>();
 // `sent`: the main process saved the message; the preview stays until the saved message reaches the window's state.
 type PendingSend = PendingChat & { view: number; projectPath: string; originSessionId: number | null; originWorktreeId: number; sent?: boolean };
 const NO_WORKTREE = -1;
@@ -323,17 +327,18 @@ function App() {
       nextSelection(models, current, { defaultId: getSettings().defaultModelId, applyDefault, preferredProvider: preferredProviderRef.current }),
     );
   }, [models]);
-  // A pick in an open Project chat stays with that chat; elsewhere (the new-chat screen, a Link) it becomes the default.
+  // A pick in an open chat stays with that chat (a Link's composer names its chat); on a new-chat screen it becomes the default.
   const chatModels = useRef<Record<string, string>>(readChatModels());
-  const chooseModel = (model: ModelOption) => {
+  const chooseModel = (model: ModelOption, linkChat?: string | null) => {
     pickedModel.current = true;
     setSelectedModel(model);
     const sessionId = selectedSessionRef.current;
-    if (sessionId === null || !projectRef.current || selectedLinkRef.current) {
+    const chat = selectedLinkRef.current ? linkChat : sessionId !== null && projectRef.current ? chatKey(projectRef.current.path, sessionId) : null;
+    if (!chat) {
       updateSettings({ defaultModelId: model.id });
       return;
     }
-    chatModels.current = { ...chatModels.current, [chatKey(projectRef.current.path, sessionId)]: model.id };
+    chatModels.current = { ...chatModels.current, [chat]: model.id };
     localStorage.setItem(CHAT_MODELS_KEY, JSON.stringify(chatModels.current));
   };
   const selectedCapability = capabilityFor(selectedModel, capabilities);
@@ -602,7 +607,7 @@ function App() {
   );
   const selectedWorktree = worktrees.find((worktree) => worktree.id === (selectedSession?.worktree_id ?? selectedWorktreeId)) ?? firstWorktree;
   // Assigning a new Chat its persisted id keeps attachments for the next message; navigating away clears them.
-  const imageDraft = usePastedImages(`${project?.path ?? ""}:${chatView.current}`, isRemoteKey(project?.path));
+  const imageDraft = usePastedImages(`${project?.path ?? ""}:${chatView.current}`, project?.path);
   useEffect(() => {
     if (!restoringSend) return;
     imageDraft.restore(restoringSend.message.images ?? [], restoringSend.message.files ?? []);
@@ -705,6 +710,7 @@ function App() {
     notificationSchedule,
     showAttentionButton,
     floatingInbox,
+    routineNudges,
   } = useSettings();
   useEffect(() => {
     void window.milagre.setFloatingInbox?.(floatingInbox).catch(() => {});
@@ -773,15 +779,18 @@ function App() {
     void agentRuns.answerQuestion(chatKey(project.path, selectedSession.id), pendingQuestion.requestId, answers).catch(() => {});
   }
 
+  // The model a chat's picker shows, by chat key: as for the open Project chat.
+  const modelForChatKey = (chat: string, provider: ModelProvider | undefined, own: ChatMessage[]) =>
+    modelForOpenChat(chatModels.current[chat], provider, own, models, resolveModel(models, defaultModelId, providerForId(defaultModelId)));
+
   // The picker follows the open chat: the model picked there, else the one it last ran, on the agent it's bound to.
+  // A Link keeps the Project open behind it; its own chat sets the picker then (LinkWorkspace).
   useEffect(() => {
-    if (!project || !selectedSession) return;
+    if (!project || !selectedSession || selectedLink) return;
     const own = messages.filter((message) => message.session_id === selectedSession.id);
-    const picked = chatModels.current[chatKey(project.path, selectedSession.id)];
-    const fallback = resolveModel(models, defaultModelId, providerForId(defaultModelId));
-    const nextModel = modelForOpenChat(picked, selectedSession.provider, own, models, fallback);
+    const nextModel = modelForChatKey(chatKey(project.path, selectedSession.id), selectedSession.provider, own);
     if (nextModel.id !== selectedModel.id) setSelectedModel(nextModel);
-  }, [project?.path, selectedSession?.id, selectedSession?.provider, messages, models]);
+  }, [project?.path, selectedSession?.id, selectedSession?.provider, messages, models, selectedLink?.link.id]);
 
   function receiveState(projectPath: string, next: CoordinatorState | LinkState) {
     if (isLinkScopeKey(projectPath)) {
@@ -817,6 +826,10 @@ function App() {
     [backgroundKey],
   );
   const linkedWork = useLinkedWork();
+  const remoteDelegations = useMemo(
+    () => remoteDelegationsFrom(linkedWork, project && selectedSession ? chatKey(project.path, selectedSession.id) : null),
+    [linkedWork, project, selectedSession],
+  );
   // Chats in other projects that wait on an approval or question, but not in Projects hidden from the sidebar. Joined, so a
   // streamed batch that changes nothing keeps the arrays.
   const hiddenProjects = useHiddenProjects();
@@ -854,12 +867,20 @@ function App() {
   const { states: scopeStates } = useScopeStates(true, NO_KEYS);
   const gridStates = useMemo(() => ({ ...scopeStates, ...states }), [scopeStates, states]);
   // The Routines with a hidden Run Chat nobody opened yet: the sidebar's Routines button and their rows show a dot.
-  const unreadRunRoutineIds = useStableSet(useMemo(() => unreadRunRoutines(gridStates), [gridStates]));
+  // Settings › Routines can turn these nudges off on this Mac: no dots, so no Mark as read either.
+  const unreadRunRoutineIds = useStableSet(useMemo(() => (routineNudges ? unreadRunRoutines(gridStates) : NO_ROUTINES), [routineNudges, gridStates]));
   // The hidden Run Chats nobody opened: their Runs show a dot on their Routine's page.
   const unreadRunChatKeys = useStableSet(useMemo(() => unreadRunChats(gridStates), [gridStates]));
   // Whether a Run's row opens its Chat: one still there, archived or not, or one in a Project the window holds no state for,
   // which opening loads by path (openCanvasChat). A Run whose Chat left with its Worktree opens nothing.
   const canOpenRun = useCallback((key: string) => canOpenRunChat(gridStates, key), [gridStates]);
+  // A Routine row's Mark as read: each of its unread hidden Run Chats is marked read in its own Project.
+  const markRoutineRead = useEvent((id: string) => {
+    for (const key of unreadRunChatsOf(gridStates, id)) {
+      const path = projectOfKey(key);
+      void reportChatAction(bridgeForKey(path).patchChat(path, sessionIdFromKey(key), { unread: false }), "Could not mark the Run read", setNotice);
+    }
+  });
   const focusedChatKey = project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null;
   // A Run's Chat beside its Routine's page: the window's Chat pane, moved next to the Runs, once that Chat is the open one.
   const runPaneOpen = view === "routines" && routineId !== null && runPane !== null && runPane === focusedChatKey;
@@ -1520,11 +1541,6 @@ function App() {
     issue?: LinearIssue,
   ): Promise<boolean> {
     if ((!body && !images.length && !files.length) || !state || !selectedWorktree || !project || sendInFlight.current || imageDraft.loading) return false;
-    // A file attached from this Mac is a path the other Mac can't read; pasted images travel as data and still go.
-    if (isRemoteKey(project.path) && files.length) {
-      setNotice(REMOTE_FILES_NOTICE);
-      return false;
-    }
     if (readOnly) {
       setNotice(`${openComputer?.name ?? "That computer"} is offline.`);
       return false;
@@ -1579,7 +1595,10 @@ function App() {
     };
     let target: Awaited<ReturnType<typeof resolveSendTarget>> = null;
     let sent = false;
+    let uploading = true;
     try {
+      const uploadedImages = await prepareImageUploads(project.path, images);
+      uploading = false;
       target = await resolveSendTarget(body, issue);
       if (!target) return false;
       if (firstMessage && stillHere()) preparedTarget.current = { ...target, view, projectPath: project.path };
@@ -1597,7 +1616,7 @@ function App() {
             sessionId: sendTarget.sessionId,
             worktreeId: sendTarget.worktreeId,
             body,
-            images,
+            images: uploadedImages,
             files,
             // A Mac that predates PR actions ignores prAction and sends this prompt as it is.
             prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(body, files),
@@ -1628,7 +1647,7 @@ function App() {
     } catch (error) {
       // The host may have saved the message and lost only its answer: a resend of this text carries the same id.
       failedSendIds.current.remember(resendKey, preview.message.clientMessageId!, body, resendParts);
-      const message = `${target ? "Could not send the message" : "Could not create the worktree"}: ${ipcErrorMessage(error)}`;
+      const message = `${uploading ? "Could not upload attachments" : target ? "Could not send the message" : "Could not create the worktree"}: ${ipcErrorMessage(error)}`;
       if (stillHere()) {
         setNewChatError(message);
         if (!preserveComposer) {
@@ -2259,6 +2278,8 @@ function App() {
             models,
             selectedModel,
             onModelChange: chooseModel,
+            modelForChat: modelForChatKey,
+            showModel: setSelectedModel,
             cliStatus,
             onModelPickerOpen: refreshCliStatus,
             onUpdateCli: handleUpdateCli,
@@ -2715,6 +2736,7 @@ function App() {
                       runChat={runPaneOpen ? runPane : null}
                       onOpenRoutine={openRoutine}
                       onOpenChat={openLinkedChat}
+                      onMarkRead={markRoutineRead}
                       onOpenRunChat={openRunChat}
                       onCloseRunChat={closeRunPane}
                     />
@@ -2904,22 +2926,39 @@ function App() {
                         notice={notice}
                         onDismissNotice={() => setNotice(null)}
                         approval={
-                          pendingApproval ? (
-                            <PermissionCard
-                              key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingApproval.requestId}`}
-                              request={pendingApproval}
-                              waiting={(run?.approvals.length ?? 1) - 1}
-                              answering={sentDecision(run, pendingApproval.requestId)}
-                              onAnswer={answerApproval}
-                            />
-                          ) : pendingQuestion ? (
-                            <QuestionCard
-                              key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingQuestion.requestId}`}
-                              request={pendingQuestion}
-                              waiting={(run?.questions.length ?? 1) - 1}
-                              answering={sentReply(run, pendingQuestion.requestId)}
-                              onAnswer={answerQuestion}
-                            />
+                          pendingApproval || pendingQuestion || remoteDelegations.length ? (
+                            <div className="flex w-full flex-col gap-2">
+                              {pendingApproval ? (
+                                <PermissionCard
+                                  key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingApproval.requestId}`}
+                                  request={pendingApproval}
+                                  waiting={(run?.approvals.length ?? 1) - 1}
+                                  answering={sentDecision(run, pendingApproval.requestId)}
+                                  onAnswer={answerApproval}
+                                />
+                              ) : pendingQuestion ? (
+                                <QuestionCard
+                                  key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingQuestion.requestId}`}
+                                  request={pendingQuestion}
+                                  waiting={(run?.questions.length ?? 1) - 1}
+                                  answering={sentReply(run, pendingQuestion.requestId)}
+                                  onAnswer={answerQuestion}
+                                />
+                              ) : null}
+                              {/* Delegations this Chat sent to other computers, their turns mirrored live from there. */}
+                              {remoteDelegations.map((delegation) => (
+                                <RemoteDelegationCard
+                                  key={delegation.id}
+                                  delegation={delegation}
+                                  run={delegation.to_chat ? agentRuns.runs[delegation.to_chat] : undefined}
+                                  onAnswer={(requestId, decision) => {
+                                    if (delegation.to_chat) void agentRuns.respond(delegation.to_chat, requestId, decision).catch(() => {});
+                                  }}
+                                  onOpenChat={openChatKey}
+                                  onStop={(key) => void agentRuns.interrupt(key).catch(() => {})}
+                                />
+                              ))}
+                            </div>
                           ) : undefined
                         }
                       />

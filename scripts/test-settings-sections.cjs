@@ -31,6 +31,9 @@ window.milagre = {
   readDesignsEnabled: async () => ({ enabled: true }),
   saveDesignsEnabled: async (enabled) => ({ enabled }),
   onDesignsEnabledChanged: () => () => {},
+  readRemoteDelegationEnabled: async () => ({ enabled: false }),
+  saveRemoteDelegationEnabled: async (enabled) => ({ enabled }),
+  onRemoteDelegationEnabledChanged: () => () => {},
   readRoutinesEnabled: async () => ({ enabled: false }),
   saveRoutinesEnabled: async (enabled) => ({ enabled }),
   readBotsEnabled: async () => ({ enabled: false }),
@@ -248,12 +251,14 @@ async function browserChecks() {
     // Routines have no switch any more: a computer runs them once a device allowed AI sharing for it.
     await delay(300);
     assert.deepEqual(
-      await switches(),
-      ["Designs", "Floating inbox", "Ultracode Fatality", "Bots"],
-      "Experimental lists only Designs, Floating inbox, Ultracode Fatality and Bots",
+      [...(await switches())].sort(),
+      ["Bots", "Delegate to other computers", "Designs", "Floating inbox", "Ultracode Fatality"],
+      "Experimental lists only Designs, Delegate to other computers, Floating inbox, Ultracode Fatality and Bots",
     );
     assert.equal(
-      await evaluate(`/legacy sidebar|Other computers|Notification chime|Custom theme|usage limits|Linear/i.test(document.querySelector("main").textContent)`),
+      await evaluate(
+        `/legacy sidebar|Notification chime|Custom theme|usage limits|Linear/i.test(document.querySelector("main").textContent) || /Other computers/.test(document.querySelector("main").textContent)`,
+      ),
       false,
       "settings that graduated are not in Experimental",
     );

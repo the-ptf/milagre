@@ -1,3 +1,4 @@
+import { useScreenActive } from "./display-clock";
 import { useMemo, useState } from "react";
 import { Pressable, RefreshControl, Text, View } from "react-native";
 import { router } from "expo-router";
@@ -98,7 +99,12 @@ function MemberChanges({
   const styles = useStyles();
   const session = useSession();
   const [collapsed, setCollapsed] = useState(false);
-  const { data: result, error, refresh } = useRpc<DiffFilesResult>(session.client, "git:diff-files", [{ cwd: member.worktreePath, base: member.base, mode }]);
+  const active = useScreenActive();
+  const {
+    data: result,
+    error,
+    refresh,
+  } = useRpc<DiffFilesResult>(session.client, "git:diff-files", [{ cwd: member.worktreePath, base: member.base, mode }], active);
   const files = result?.isRepo ? result.files : undefined;
   const tree = useMemo(() => buildDiffTree(files ?? []), [files]);
   const added = files?.reduce((sum, file) => sum + file.added, 0) ?? 0;

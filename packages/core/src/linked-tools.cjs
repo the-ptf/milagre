@@ -308,6 +308,10 @@ function linkedToolDefinitions(chatId, { reads, delegations }) {
         chat: z.string().describe('A Chat ref (projectPath#id) in that Worktree, from linked_overview or chat_list, or "new".'),
         message: z.string().min(1),
         negotiation: z.boolean().optional(),
+        computer: z
+          .string()
+          .optional()
+          .describe("Another paired computer's name, for a Worktree on it, as linked_overview lists them. Leave out for this computer."),
       },
       readOnly: false,
       run: (args) => delegations.delegate(chatId, args),

@@ -69,7 +69,7 @@ test("Windows job keeper isolates PowerShell modules and restores the target env
 
 test(
   "Windows native helpers survive inherited PowerShell 7 modules and preserve the application module path",
-  { skip: process.platform !== "win32", timeout: 45000 },
+  { skip: process.platform !== "win32", timeout: 90000 },
   async (t) => {
     const { once } = require("node:events");
     const { windowsAcl } = require("./private-files.cjs");

@@ -63,6 +63,8 @@ export interface AppSettings {
   /** Settings › Notifications: the sound a chat's notification plays, instead of the system's. */
   notificationChime: NotificationChime;
   notificationSchedule: NotificationSchedule | null;
+  /** Settings › Routines: the Routines button and Routine rows show a dot while a Run's Chat is unread on this Mac. */
+  routineNudges: boolean;
   /** Settings › Appearance: fonts, sizes, chat width, diff colors and motion. */
   appearance: Appearance;
 }
@@ -100,6 +102,7 @@ const DEFAULTS: AppSettings = {
   ultracodeFatality: false,
   notificationChime: DEFAULT_NOTIFICATION_CHIME,
   notificationSchedule: null,
+  routineNudges: true,
   appearance: DEFAULT_APPEARANCE,
 };
 
@@ -146,6 +149,7 @@ function load(): AppSettings {
           return null;
         }
       })(),
+      routineNudges: typeof saved.routineNudges === "boolean" ? saved.routineNudges : DEFAULTS.routineNudges,
       appearance: parseAppearance(saved.appearance),
     };
   } catch {

@@ -13,6 +13,7 @@ const { createRuntime } = require("@milagre/core");
 const { socketPath: pathFor, prepareSocketDirectory } = require("./paths.cjs");
 const { VERSION, MAX_FRAME_BYTES, MAX_PENDING, pageSize, wire } = require("./protocol.cjs");
 const { createPhone, RELAY_URL } = require("./phone.cjs");
+const { computerName } = require("./mobile-pairing.cjs");
 const { createMobilePush } = require("./mobile-push.cjs");
 const { createLiveActivity } = require("./live-activity.cjs");
 const { createExpoPush } = require("./expo-push.cjs");
@@ -62,7 +63,7 @@ const STATE_METHODS = Object.freeze(["state:read"]);
 const PAGES_TTL_MS = 30000;
 // What one connection may hold in paged responses at once, in characters. A response larger than that alone is still
 // served when nothing else is held; the rest wait for a reader to finish rather than evict a response being read.
-const PAGES_BUDGET_CHARS = 64 * 1024 * 1024;
+const PAGES_BUDGET_CHARS = 96 * 1024 * 1024;
 // Their replies are sized to fit a frame already; paging them again would never end.
 const PAGE_METHODS = new Set(["daemon:result-page", "daemon:snapshot-page"]);
 
@@ -311,6 +312,12 @@ function eventFrame(channel, payload, seq, inlineLimit) {
   return { json, bytes: Buffer.byteLength(json) + 1 };
 }
 
+/** Adds `listener` to `set`; the result removes it. */
+function subscribe(set, listener) {
+  set.add(listener);
+  return () => set.delete(listener);
+}
+
 async function startDaemon({
   dataDir,
   version,
@@ -365,9 +372,22 @@ async function startDaemon({
       return attentionContext(project.state, project.link?.name || project.name || require("node:path").basename(project.path), sessionIdFromKey(chatId));
     },
   });
+  // This daemon's paired computers, for its Chats' Delegations to them (spec 2026-10-23). `computers` is made below; the
+  // runtime only calls these after it starts.
+  const remoteListeners = { event: new Set(), online: new Set(), removed: new Set() };
+  let macName;
+  const remoteComputers = {
+    list: () => computers.remote.list(),
+    invoke: (id, method, args) => computers.remote.invoke(id, method, args),
+    thisMac: () => (macName ??= computerName()),
+    onEvent: (listener) => subscribe(remoteListeners.event, listener),
+    onOnline: (listener) => subscribe(remoteListeners.online, listener),
+    onRemoved: (listener) => subscribe(remoteListeners.removed, listener),
+  };
   const runtime = createRuntime({
     // Webhook URLs point at the relay the phone uses.
     hookRelayUrl: phoneOptions.relayUrl ?? RELAY_URL,
+    remoteComputers,
     ...runtimeOptions,
     dataDir,
     version,
@@ -507,6 +527,15 @@ async function startDaemon({
     dataDir,
     ...computerOptions,
     emit: (channel, payload) => broadcast(channel, payload),
+    onRemoteEvent: (id, channel, payload) => {
+      for (const listener of remoteListeners.event) listener(id, channel, payload);
+    },
+    onOnline: (id) => {
+      for (const listener of remoteListeners.online) listener(id);
+    },
+    onRemoved: (id) => {
+      for (const listener of remoteListeners.removed) listener(id);
+    },
   });
   /**
    * One client of the daemon, whatever carries its frames: the Unix socket below, and a paired desktop's channel (peer-channel.cjs).

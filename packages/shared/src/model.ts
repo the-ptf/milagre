@@ -548,7 +548,8 @@ export type ChatContext =
  * report coming back, a Negotiation's agreement, or a notice about one. `from` is the other Chat's key.
  */
 export type LinkedContext =
-  | { kind: "delegation"; delegationId: string; from: string; fromLabel: string; negotiation?: { id: string; round: number } }
+  /** `from` is null for a Delegation another computer sent: its Chat isn't on this one. */
+  | { kind: "delegation"; delegationId: string; from: string | null; fromLabel: string; negotiation?: { id: string; round: number } }
   | {
       kind: "delegation-report";
       delegationId: string;
@@ -565,7 +566,8 @@ export interface OpenDelegation {
   id: string;
   /** The Link it travels along; null for a Delegation inside its Chat's own Project. */
   link_id: string | null;
-  from_chat: string;
+  /** Null on the computer that runs another computer's Delegation. */
+  from_chat: string | null;
   to_chat: string | null;
   from_label: string;
   to_label: string;
@@ -573,6 +575,8 @@ export interface OpenDelegation {
   negotiation_id?: string;
   round?: number;
   message: string;
+  /** The paired computer that runs it, for a Delegation to another computer; `to_chat` is then that computer's key. */
+  computer?: { id: string; name: string };
 }
 
 export interface RunningNegotiation {
@@ -673,7 +677,8 @@ export interface PermissionRequest {
   /** The tool step this request is about. */
   stepId?: string;
   /** On a Delegation's card: where it goes ("Project / branch / Chat"), what it says, and whether it opens a Negotiation. */
-  delegation?: { target: string; message: string; negotiation: boolean };
+  /** `computer`: the paired computer it goes to, for a Delegation to another computer (Always allow covers that computer). */
+  delegation?: { target: string; message: string; negotiation: boolean; computer?: string };
   /** On a bot's sign-off card: the gated action and the bot that wants it. */
   gate?: GateMeta;
 }
@@ -1041,7 +1046,7 @@ export type ProviderAccount = {
   /** When the account hit its plan's usage limit in a Chat: the time it can be used again (ISO). Project accounts only. */
   limitedUntil?: string;
 };
-export type AccountsSnapshot = { providers: { provider: ModelProvider; selectedId: string; accounts: ProviderAccount[] }[] };
+export type AccountsSnapshot = { providers: { provider: ModelProvider; installed?: boolean; selectedId: string; accounts: ProviderAccount[] }[] };
 export interface TranscriptState {
   next_id: number;
   sessions: Record<string, AgentSession | LinkChatSession>;

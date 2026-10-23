@@ -517,10 +517,14 @@ function createRuntime(options) {
   }
 
   const mobileUploads = require("./mobile-uploads.cjs").createMobileUploads({ dataDir: realpathSync(dataDir) });
+  const attachmentTransfers = require("./attachment-transfers.cjs").createAttachmentTransfers({
+    dataDir: realpathSync(dataDir),
+    upload: (request) => mobileUploads.upload(request),
+  });
   commands.handle("attachment:upload", async (_event, request) => {
     if (!scopeStates.has(request?.projectPath)) throw new Error("Open the Project or Link before uploading files.");
     try {
-      return { file: await mobileUploads.upload(request) };
+      return { file: await attachmentTransfers.receive(request) };
     } catch (error) {
       if (error.status) return { error: { status: error.status, message: error.message } };
       throw error;
@@ -1094,6 +1098,7 @@ function createRuntime(options) {
     // Undo is a convenience: a Worktree it can't capture still runs the task, with no checkpoint.
     beforeTask: (request) => checkpoints.begin(request).catch((error) => console.warn("Checkpoint start capture failed:", error.message)),
     beforeSend: async (request) => {
+      request.images = await mobileUploads.resolveImages(request.projectPath, request.images);
       await mobileUploads.claim(request);
       if (request.sessionId != null && request.context?.kind !== "compaction" && (!request.canStart || request.canStart())) {
         const chatId = chatKey(request.projectPath, request.sessionId);
@@ -1787,8 +1792,28 @@ function createRuntime(options) {
     read: (chatId) => chats.plan(chatId),
     update: (chatId, change) => chats.updatePlan(chatId, change),
   });
+  // Delegations to another paired computer's Projects (Settings > Experimental, spec 2026-10-23). The daemon supplies its
+  // computers (`remoteComputers`): list() -> [{ id, name, online }], invoke(id, method, args), thisMac(), and
+  // onEvent(listener) / onOnline(listener) / onRemoved(listener) for their events, their coming back and their removal.
+  const remoteDelegation = require("./design-settings.cjs").createDesignSettings(path.join(dataDir, "remote-delegation.json"), {
+    name: "Delegating to other computers",
+    missing: false,
+  });
+  const remoteComputers = options.remoteComputers ?? null;
+  const remote = remoteComputers && {
+    enabled: () => remoteDelegation.enabled(),
+    list: () => remoteComputers.list(),
+    computer: (name) => {
+      const wanted = String(name ?? "").trim();
+      const computers = remoteComputers.list();
+      return computers.find((item) => item.id === wanted) ?? computers.find((item) => item.name.toLowerCase() === wanted.toLowerCase()) ?? null;
+    },
+    invoke: (id, method, args) => remoteComputers.invoke(id, method, args),
+    thisMac: () => remoteComputers.thisMac(),
+  };
   const linked = createLinkedWorktrees({
     dataDir,
+    remote,
     registry: projectRegistry,
     // A named Link's member Projects, { id, name, path }, for its shared Chats' Delegations.
     linkProjects: async (linkId) => {
@@ -2045,6 +2070,30 @@ function createRuntime(options) {
     titles: chatTitles,
   });
   commands.handle("linked:snapshot", () => linked.snapshot());
+  commands.handle("linked:remote-enabled:read", () => ({ enabled: remoteDelegation.enabled() }));
+  commands.handle("linked:remote-enabled:save", (_event, value) => {
+    const result = remoteDelegation.save(value);
+    emit("linked:remote-enabled-changed", result);
+    return result;
+  });
+  // Another computer's Chat delegating to this Mac's Projects (a paired desktop's daemon calls these, spec 2026-10-23).
+  commands.handle("delegation:targets", () => linked.hosted.targets());
+  commands.handle("delegation:prepare", (_event, request) => linked.hosted.prepare(request));
+  commands.handle("delegation:receive", (_event, request) => linked.hosted.receive(request));
+  commands.handle("delegation:reports", (_event, request) => linked.hosted.reports(request));
+  commands.handle("delegation:collected", (_event, request) => linked.hosted.collected(request));
+  // This Mac's Delegations to other computers hear back: a report as it is sent, and the ones missed while away.
+  remoteComputers?.onEvent?.((computerId, channel, payload) => {
+    if (channel === "delegation:report")
+      void linked.remoteFinished(computerId, payload).catch((error) => console.warn("Milagre couldn't take a Delegation report:", error.message));
+  });
+  remoteComputers?.onOnline?.((computerId) => {
+    void linked.catchUp(computerId).catch((error) => console.warn("Milagre couldn't collect Delegation reports:", error.message));
+  });
+  // A removed computer can't report back: its open Delegations are settled here.
+  remoteComputers?.onRemoved?.((computerId) => {
+    void linked.computerRemoved(computerId).catch((error) => console.warn("Milagre couldn't settle a removed computer's Delegations:", error.message));
+  });
   commands.handle("linked:stop-negotiation", (_event, id) => (typeof id === "string" ? linked.stop({ negotiationId: id }) : undefined));
   // Each way a project opens (launch, the folder dialog, a switch) puts it at the top of the recent list.
   // `takeNotice`: this open is a desktop window's, which shows the restored-chats notice. Over the daemon only the
@@ -2472,7 +2521,11 @@ function createRuntime(options) {
   commands.handle("bots:memory:save", (_event, id, text, base) => bots.saveMemory(String(id), String(text ?? ""), base == null ? undefined : String(base)));
   void track(() => bots.start(), background).catch((error) => console.warn("Milagre couldn't start its bots:", error.message));
 
-  const sweepUploads = () => track(() => mobileUploads.sweep(), background).catch((error) => console.warn("Attachment cleanup skipped:", error.message));
+  const sweepUploads = () =>
+    track(async () => {
+      await attachmentTransfers.sweep();
+      await mobileUploads.sweep();
+    }, background).catch((error) => console.warn("Attachment cleanup skipped:", error.message));
   const uploadSweepTimer = setInterval(sweepUploads, 24 * 60 * 60 * 1000);
   uploadSweepTimer.unref();
   void sweepUploads();
@@ -2495,6 +2548,7 @@ function createRuntime(options) {
       // A waiting Linear sign-in is an accepted command too: end it, or the wait below lasts until its timeout.
       await linear.dispose();
       await Promise.allSettled(active);
+      await attachmentTransfers.close();
       accounts.close();
       keepAwake.quit();
       ports.close();
@@ -2577,6 +2631,7 @@ function createRuntime(options) {
       // A waiting Linear sign-in is an accepted command, but its window is gone when this runs on quit: end it.
       await linear.dispose();
       await Promise.allSettled(active);
+      await attachmentTransfers.close();
       await scopeStates.flush();
       await usageStore.idle();
     },

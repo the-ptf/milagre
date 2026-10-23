@@ -37,17 +37,16 @@ export async function pickAttachments(kind: "photos" | "camera" | "files" | "pas
     const result =
       kind === "camera"
         ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"] })
-        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, selectionLimit: 4 });
+        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, selectionLimit: 0 });
     if (result.canceled) return [];
     return Promise.all(result.assets.map(preparePhoto));
   }
   const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: true });
   if (result.canceled) return [];
-  if (result.assets.length > 4) throw new Error("Attach up to 4 photos or files per message.");
   return Promise.all(
     result.assets.map(async (asset, index) => {
       const file = new File(asset.uri);
-      if (file.size > MAX_FILE_BYTES) throw new Error(`${asset.name} is larger than 5 MiB.`);
+      if (file.size > MAX_FILE_BYTES) throw new Error(`${asset.name} is larger than 50 MiB.`);
       return { id: `${Date.now()}-${index}`, name: asset.name, uri: asset.uri, base64: await file.base64() };
     }),
   );
