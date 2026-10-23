@@ -205,3 +205,35 @@ test("shared pages accept more than 5,000 layers across individually valid desig
   );
   assert.match(renderDesignPage(snapshot), /<figure /);
 });
+
+test("designs with groups render one named block per group, as the desktop Canvas lays them out", () => {
+  const input = page();
+  input.designs = [
+    { title: "Sign in", group: " Onboarding ", document: document() },
+    { title: "Loose", document: document() },
+    { title: "Theme", group: "Settings", document: document() },
+    { title: "Create account", group: "Onboarding", document: document() },
+    { title: "Evil", group: '<b onmouseover="alert(1)">x</b>', document: document() },
+  ];
+  const snapshot = validateDesignPageSnapshot(input);
+  assert.deepEqual(Object.keys(snapshot.designs[0]), ["title", "group", "document"]);
+  assert.equal(snapshot.designs[0].group, "Onboarding");
+  assert.deepEqual(Object.keys(snapshot.designs[1]), ["title", "document"]);
+  const html = renderDesignPage(snapshot);
+  const sections = [...html.matchAll(/<section aria-label="([^"]*)">/g)].map((match) => match[1]);
+  assert.deepEqual(sections, ["Onboarding", "Ungrouped", "Settings", "&lt;b onmouseover=&quot;alert(1)&quot;&gt;x&lt;/b&gt;"]);
+  assert.doesNotMatch(html, /<b onmouseover/);
+  const onboarding = html.slice(html.indexOf('aria-label="Onboarding"'), html.indexOf('aria-label="Ungrouped"'));
+  assert.deepEqual(
+    [...onboarding.matchAll(/<figcaption>([^<]*)</g)].map((match) => match[1]),
+    ["Sign in", "Create account"],
+  );
+  assert.match(onboarding, /<span>Onboarding<\/span><b>2<\/b>/);
+  assert.match(html, /<span class="none">Ungrouped<\/span><b>1<\/b>/);
+  assert.match(html, /flex-direction:column/);
+});
+test("pages without groups keep one row and no block chrome", () => {
+  const html = renderDesignPage(page());
+  assert.doesNotMatch(html, /<section |#canvas\{[^}]*flex-direction:column|border-radius:40px/);
+  assert.equal((html.match(/<figure /g) ?? []).length, 2);
+});

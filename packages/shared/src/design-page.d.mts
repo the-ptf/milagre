@@ -2,7 +2,8 @@ import type { DesignDocument } from "./design.mjs";
 export interface DesignPageSnapshot {
   schemaVersion: 1;
   title: string;
-  designs: { title: string; document: DesignDocument }[];
+  /** A design's group names the block it sits in, as on the desktop Canvas; designs without one share a block. */
+  designs: { title: string; group?: string; document: DesignDocument }[];
 }
 export interface ArtifactPageSnapshot {
   schemaVersion: 1;

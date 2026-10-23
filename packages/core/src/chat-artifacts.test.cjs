@@ -424,6 +424,8 @@ test("a design keeps its group through revisions and edits until a revision name
     await tools.design_apply.run({ id: "welcome", expectedVersion: 2, operations: [{ op: "update", id: "heading", patch: { text: "Hi" } }] }),
   );
   assert.equal(edited.group, "Onboarding");
+  const shared = await api.pageSnapshot({ chatId: CHAT, title: "Designs" });
+  assert.equal(shared.designs.find((design) => design.title === "Welcome")?.group, "Onboarding", "the public page keeps the block");
   assert.equal((await api.list({ chatId: CHAT, format: "design" }))[0].group, "Onboarding");
   assert.equal((await api.get({ chatId: CHAT, id: "welcome", version: 1 })).group, "Onboarding");
   const moved = firstLine(await tools.design_show.run({ id: "welcome", title: "Welcome", group: "Settings", expectedVersion: 3, document: designDocument() }));
