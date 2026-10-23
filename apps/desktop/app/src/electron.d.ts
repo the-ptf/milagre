@@ -482,6 +482,10 @@ export type MilagreBridge = {
   grantDelegations?: (chatId: string, linkId: string) => Promise<void>;
   /** Delegations and Negotiations still open across Links, and the Codex Chats that only receive. */
   getLinkedWork: () => Promise<LinkedWork>;
+  /** Settings > Experimental: whether this Mac's Chats may delegate to another paired computer's Projects. */
+  readRemoteDelegationEnabled: () => Promise<{ enabled: boolean }>;
+  saveRemoteDelegationEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
+  onRemoteDelegationEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   onLinkedWork: (callback: (work: LinkedWork) => void) => () => void;
   /** An app ⌘⇧ shortcut pressed while an embedded frame had focus, forwarded by the main process (its letter). */
   onAppShortcut: (callback: (key: string) => void) => () => void;

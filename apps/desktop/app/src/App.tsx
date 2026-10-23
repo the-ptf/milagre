@@ -134,6 +134,8 @@ import { canOpenRunChat, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } f
 import { RoutineChip } from "./components/routines/RoutineChip";
 import { RUN_CHAT_REPLY_NOTE, RunChatHeader } from "./components/routines/RunChatHeader";
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
+import { remoteDelegationsFrom } from "./lib/remote-delegation";
+import { RemoteDelegationCard } from "./components/agents/RemoteDelegationCard";
 import { DraftChatComposer } from "./components/DraftChatComposer";
 import { queueControls } from "./components/QueuedMessages";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
@@ -824,6 +826,10 @@ function App() {
     [backgroundKey],
   );
   const linkedWork = useLinkedWork();
+  const remoteDelegations = useMemo(
+    () => remoteDelegationsFrom(linkedWork, project && selectedSession ? chatKey(project.path, selectedSession.id) : null),
+    [linkedWork, project, selectedSession],
+  );
   // Chats in other projects that wait on an approval or question, but not in Projects hidden from the sidebar. Joined, so a
   // streamed batch that changes nothing keeps the arrays.
   const hiddenProjects = useHiddenProjects();
@@ -2920,22 +2926,39 @@ function App() {
                         notice={notice}
                         onDismissNotice={() => setNotice(null)}
                         approval={
-                          pendingApproval ? (
-                            <PermissionCard
-                              key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingApproval.requestId}`}
-                              request={pendingApproval}
-                              waiting={(run?.approvals.length ?? 1) - 1}
-                              answering={sentDecision(run, pendingApproval.requestId)}
-                              onAnswer={answerApproval}
-                            />
-                          ) : pendingQuestion ? (
-                            <QuestionCard
-                              key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingQuestion.requestId}`}
-                              request={pendingQuestion}
-                              waiting={(run?.questions.length ?? 1) - 1}
-                              answering={sentReply(run, pendingQuestion.requestId)}
-                              onAnswer={answerQuestion}
-                            />
+                          pendingApproval || pendingQuestion || remoteDelegations.length ? (
+                            <div className="flex w-full flex-col gap-2">
+                              {pendingApproval ? (
+                                <PermissionCard
+                                  key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingApproval.requestId}`}
+                                  request={pendingApproval}
+                                  waiting={(run?.approvals.length ?? 1) - 1}
+                                  answering={sentDecision(run, pendingApproval.requestId)}
+                                  onAnswer={answerApproval}
+                                />
+                              ) : pendingQuestion ? (
+                                <QuestionCard
+                                  key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingQuestion.requestId}`}
+                                  request={pendingQuestion}
+                                  waiting={(run?.questions.length ?? 1) - 1}
+                                  answering={sentReply(run, pendingQuestion.requestId)}
+                                  onAnswer={answerQuestion}
+                                />
+                              ) : null}
+                              {/* Delegations this Chat sent to other computers, their turns mirrored live from there. */}
+                              {remoteDelegations.map((delegation) => (
+                                <RemoteDelegationCard
+                                  key={delegation.id}
+                                  delegation={delegation}
+                                  run={delegation.to_chat ? agentRuns.runs[delegation.to_chat] : undefined}
+                                  onAnswer={(requestId, decision) => {
+                                    if (delegation.to_chat) void agentRuns.respond(delegation.to_chat, requestId, decision).catch(() => {});
+                                  }}
+                                  onOpenChat={openChatKey}
+                                  onStop={(key) => void agentRuns.interrupt(key).catch(() => {})}
+                                />
+                              ))}
+                            </div>
                           ) : undefined
                         }
                       />
