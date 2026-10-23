@@ -256,7 +256,9 @@ async function browserChecks() {
       "Experimental lists only Designs, Delegate to other computers, Floating inbox, Ultracode Fatality and Bots",
     );
     assert.equal(
-      await evaluate(`/legacy sidebar|Other computers|Notification chime|Custom theme|usage limits|Linear/i.test(document.querySelector("main").textContent)`),
+      await evaluate(
+        `/legacy sidebar|Notification chime|Custom theme|usage limits|Linear/i.test(document.querySelector("main").textContent) || /Other computers/.test(document.querySelector("main").textContent)`,
+      ),
       false,
       "settings that graduated are not in Experimental",
     );
