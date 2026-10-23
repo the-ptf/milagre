@@ -30,13 +30,13 @@ import SidebarNav from "./SidebarNav";
 import { runKeys } from "../lib/sidebar-scopes";
 import { DraftChatComposer } from "./DraftChatComposer";
 import { useComposerPreferences } from "../lib/use-composer-preferences";
-import { effortFor } from "../model";
+import { effortFor, type ChatMessage, type ModelOption, type ModelProvider } from "../model";
 import { createDraftStore, draftKey } from "../lib/draft-store";
 import { createScopeDrafts, linkChatRows, memberWorktreeForAction } from "../lib/link-scope";
 import { usePastedImages } from "./usePastedImages";
 import type { useAgentRuns } from "./useAgentRuns";
 import { attachmentPrompt } from "../lib/media";
-import { modelForChat, sentDecision, sentReply } from "../lib/agent-runs";
+import { sentDecision, sentReply } from "../lib/agent-runs";
 import { PermissionCard } from "./agents/PermissionCard";
 import { QuestionCard } from "./agents/QuestionCard";
 import { getSettings } from "../lib/settings";
@@ -58,8 +58,15 @@ const CANVAS_STATES = {};
 
 type Preferences = Pick<
   ComponentProps<typeof DraftChatComposer>,
-  "models" | "selectedModel" | "onModelChange" | "cliStatus" | "onModelPickerOpen" | "onUpdateCli" | "updatingCli" | "capability"
->;
+  "models" | "selectedModel" | "cliStatus" | "onModelPickerOpen" | "onUpdateCli" | "updatingCli" | "capability"
+> & {
+  /** A pick, kept by the open chat (its key), or the default for new chats when none is open. */
+  onModelChange: (model: ModelOption, chatId: string | null) => void;
+  /** The model a chat's picker shows: its own pick, else its last turn's, on its provider. */
+  modelForChat: (chatId: string, provider: ModelProvider | undefined, messages: ChatMessage[]) => ModelOption;
+  /** Shows a model in the picker without counting as a pick. */
+  showModel: (model: ModelOption) => void;
+};
 export function LinkWorkspace({
   opened,
   state,
@@ -227,10 +234,13 @@ export function LinkWorkspace({
       setSessionId(initialSessionId);
     }
   }, [initialSessionId]);
+  const { modelForChat: _modelForChat, showModel: _showModel, onModelChange: _onModelChange, ...composerModels } = preferences;
+  // The picker follows the open chat, as a Project's does: its own pick, else its last turn's model.
   useEffect(() => {
-    const model = modelForChat(preferences.selectedModel, session?.provider, messages, preferences.models);
-    if (model.id !== preferences.selectedModel.id) preferences.onModelChange(model);
-  }, [sessionId, session?.provider]);
+    if (!chatId) return;
+    const model = preferences.modelForChat(chatId, session?.provider, messages);
+    if (model.id !== preferences.selectedModel.id) preferences.showModel(model);
+  }, [chatId, session?.provider, messages, preferences.models]);
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
       if (event.defaultPrevented || event.isComposing || isModalOpen()) return;
@@ -534,7 +544,8 @@ export function LinkWorkspace({
                     <EditorLinks root={root}>
                       <DraftChatComposer
                         saveNotice={saveNotice}
-                        {...preferences}
+                        {...composerModels}
+                        onModelChange={(model) => preferences.onModelChange(model, chatId)}
                         effort={preferences.capability ? effortFor(preferences.capability, composerPrefs.effort) : composerPrefs.effort}
                         onEffortChange={composerPrefs.setEffort}
                         ultracode={composerPrefs.ultracode}
