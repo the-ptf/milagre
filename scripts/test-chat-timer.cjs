@@ -7,6 +7,9 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
+import { SpinnerRing } from "/src/components/primitives/SpinnerRing";
+import { followDisplayVisibility } from "/src/lib/display-clock";
+followDisplayVisibility();
 import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import { startRun } from "@milagre/shared/agent-runs";
 import "/src/styles.css";
@@ -27,6 +30,7 @@ function Fixture() {
   window.newTurn = () => { runs = startRun(runs, chat, "gpt-6-sol"); setVersion(v => v + 1); };
   if (!chat) return <div>Chat closed</div>;
   return <div style={{ height: "100%", padding: 12 }}>
+    <div data-rings style={{ display: "flex", alignItems: "center", gap: 4 }}>{[10, 12, 16].map(size => <SpinnerRing key={size} size={size} color="rgb(255, 0, 0)" />)}</div>
     <ChatComposer messages={[{ id: 1, session_id: chat === "a" ? 1 : 2, context: null, role: "user", body: "Check the chat timer" }]}
       imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
       projectPath="/fixture" draft="" onDraftChange={noop} onSend={noop} isSending={true} sendBlocked={false}
@@ -69,6 +73,48 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor(`!!(${timer})`);
+    // The SVG pixels stay still; only their HTML boxes animate. Exercise the
+    // shared primitive at rail, row and normal sizes, plus the real running mark.
+    assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('.spinner-ring')).slice(0, 3).map(el => [el.offsetWidth, el.offsetHeight])`), [
+      [10, 10],
+      [12, 12],
+      [16, 16],
+    ]);
+    assert.equal(await evaluate(`document.querySelector('.spinner-ring circle:last-child').getAttribute('stroke')`), "rgb(255, 0, 0)");
+    const targets = `document.getAnimations().filter(a => ['spin', 'running-logo-glow', 'running-logo-twinkle'].includes(a.animationName))`;
+    assert.equal(await evaluate(`${targets}.length >= 6 && ${targets}.every(a => a.effect.target instanceof HTMLSpanElement)`), true);
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector('.spinner-ring')).animationTimingFunction`), "steps(24)");
+    assert.equal(await evaluate(`document.querySelector('.running-logo').getAttribute('aria-hidden')`), "true");
+    assert.equal(await evaluate(`document.querySelectorAll('.running-logo > span > svg > path').length`), 3);
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector('.running-logo-leg-right')).animationDelay`), "0.24s");
+    // Seek the actual browser animations to check the retained holds and peaks.
+    async function seek(time) {
+      return evaluate(
+        `(() => { const result = {}; for (const a of ${targets}) { a.pause(); a.currentTime = ${time}; if (a.animationName.startsWith('running-logo')) result[a.effect.target.className] = getComputedStyle(a.effect.target).opacity; } return result; })()`,
+      );
+    }
+    assert.equal((await seek(0))["running-logo-leg running-logo-leg-left"], "0.15");
+    assert.equal((await seek(288))["running-logo-leg running-logo-leg-left"], "0.55");
+    assert.equal((await seek(528))["running-logo-leg running-logo-leg-left"], "0.55");
+    assert.equal((await seek(960))["running-logo-leg running-logo-leg-left"], "0.15");
+    assert.equal((await seek(1200))["running-logo-star"], "0.45");
+    assert.equal((await seek(1680))["running-logo-star"], "1");
+    assert.equal((await seek(2040))["running-logo-star"], "1");
+    await evaluate(`${targets}.forEach(a => a.play())`);
+    await evaluate(`document.documentElement.setAttribute('data-display-hidden', '')`);
+    assert.equal(await evaluate(`${targets}.every(a => getComputedStyle(a.effect.target).animationPlayState === 'paused')`), true);
+    await evaluate(`document.documentElement.removeAttribute('data-display-hidden')`);
+    assert.equal(
+      await evaluate(`${targets}.every(a => getComputedStyle(a.effect.target).animationPlayState === 'running')`),
+      true,
+      "visible unfocused window keeps animating",
+    );
+    window.webContents.debugger.attach("1.3");
+    await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    assert.equal(await evaluate(`${targets}.length`), 0, "reduced motion leaves both indicators static");
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector('.running-logo-star')).opacity`), "0.45");
+    await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
+    window.webContents.debugger.detach();
     await screenshot("initial");
     assert.equal(await evaluate(timer), "1m 5.0s", "opening mid-turn shows time since the turn began");
     await evaluate('window.openChat("b")');
@@ -89,7 +135,9 @@ async function browserChecks() {
     await evaluate("window.newTurn()");
     await waitFor(`(${timer}) === "0.0s"`);
     await screenshot("new-turn");
-    console.log("PASS: timers survive chat switches, remounts, question waits and delayed ticks; new turns reset");
+    console.log(
+      "PASS: compositor indicator targets, sizes, sampled holds, hidden and reduced motion; timers survive chat switches, remounts, question waits and delayed ticks; new turns reset",
+    );
     app.exit(0);
   } catch (error) {
     console.error(error);

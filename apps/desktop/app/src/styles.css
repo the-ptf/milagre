@@ -1556,38 +1556,155 @@ code.step-shimmer {
 .running-logo {
   overflow: visible;
 }
-.running-logo * {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-.running-logo-mark {
+/* Animate HTML boxes so the compositor can reuse each SVG's painted pixels. */
+.running-logo > span {
+  position: absolute;
+  inset: 0;
   fill: var(--ink);
+}
+.running-logo svg {
+  display: block;
+  overflow: visible;
 }
 .running-logo-leg {
   opacity: 0.15;
-  animation: running-logo-glow 2400ms ease-in-out infinite;
+  animation: running-logo-glow 2400ms step-end infinite;
 }
 .running-logo-leg-right {
   animation-delay: 240ms;
 }
 .running-logo-star {
   opacity: 0.45;
-  animation: running-logo-twinkle 2400ms cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  transform-origin: 50% 32.3%;
+  animation: running-logo-twinkle 2400ms step-end infinite;
 }
 
+/* Sample the original easing curves every 80 ms, retaining their hold/peak
+ * boundaries. step-end limits updates without turning the eased ramps linear. */
 @keyframes running-logo-twinkle {
-  0%,
+  0% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  3.33333% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  6.66667% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  10% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  13.33333% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  16.66667% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  20% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  23.33333% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  26.66667% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  30% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  33.33333% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  36.66667% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  40% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  43.33333% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
+  46.66667% {
+    opacity: 0.45;
+    transform: scale(1) rotate(0deg);
+  }
   50% {
     opacity: 0.45;
     transform: scale(1) rotate(0deg);
+  }
+  53.33333% {
+    opacity: 0.46504;
+    transform: scale(1.00821) rotate(1.2309deg);
+  }
+  56.66667% {
+    opacity: 0.53199;
+    transform: scale(1.04472) rotate(6.70836deg);
+  }
+  60% {
+    opacity: 0.725;
+    transform: scale(1.15) rotate(22.5deg);
+  }
+  63.33333% {
+    opacity: 0.91801;
+    transform: scale(1.25528) rotate(38.29164deg);
+  }
+  66.66667% {
+    opacity: 0.98496;
+    transform: scale(1.29179) rotate(43.7691deg);
   }
   70% {
     opacity: 1;
     transform: scale(1.3) rotate(45deg);
   }
+  73.33333% {
+    opacity: 1;
+    transform: scale(1.29042) rotate(46.86329deg);
+  }
+  76.66667% {
+    opacity: 1;
+    transform: scale(1.23715) rotate(57.22021deg);
+  }
+  80% {
+    opacity: 1;
+    transform: scale(1.14683) rotate(74.78238deg);
+  }
+  83.33333% {
+    opacity: 1;
+    transform: scale(1.12202) rotate(79.60766deg);
+  }
   85% {
     opacity: 1;
     transform: scale(1.12) rotate(80deg);
+  }
+  86.66667% {
+    opacity: 0.99383;
+    transform: scale(1.11865) rotate(80.1121deg);
+  }
+  90% {
+    opacity: 0.91801;
+    transform: scale(1.10211) rotate(81.49075deg);
+  }
+  93.33333% {
+    opacity: 0.64203;
+    transform: scale(1.0419) rotate(86.50851deg);
+  }
+  96.66667% {
+    opacity: 0.47928;
+    transform: scale(1.00639) rotate(89.46763deg);
   }
   100% {
     opacity: 0.45;
@@ -1595,19 +1712,110 @@ code.step-shimmer {
   }
 }
 @keyframes running-logo-glow {
-  0%,
-  40%,
-  100% {
+  0% {
     opacity: 0.15;
   }
-  12%,
+  3.33333% {
+    opacity: 0.21409;
+  }
+  6.66667% {
+    opacity: 0.38801;
+  }
+  10% {
+    opacity: 0.52755;
+  }
+  12% {
+    opacity: 0.55;
+  }
+  13.33333% {
+    opacity: 0.55;
+  }
+  16.66667% {
+    opacity: 0.55;
+  }
+  20% {
+    opacity: 0.55;
+  }
   22% {
     opacity: 0.55;
+  }
+  23.33333% {
+    opacity: 0.54572;
+  }
+  26.66667% {
+    opacity: 0.49434;
+  }
+  30% {
+    opacity: 0.38801;
+  }
+  33.33333% {
+    opacity: 0.26429;
+  }
+  36.66667% {
+    opacity: 0.17788;
+  }
+  40% {
+    opacity: 0.15;
+  }
+  43.33333% {
+    opacity: 0.15;
+  }
+  46.66667% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.15;
+  }
+  53.33333% {
+    opacity: 0.15;
+  }
+  56.66667% {
+    opacity: 0.15;
+  }
+  60% {
+    opacity: 0.15;
+  }
+  63.33333% {
+    opacity: 0.15;
+  }
+  66.66667% {
+    opacity: 0.15;
+  }
+  70% {
+    opacity: 0.15;
+  }
+  73.33333% {
+    opacity: 0.15;
+  }
+  76.66667% {
+    opacity: 0.15;
+  }
+  80% {
+    opacity: 0.15;
+  }
+  83.33333% {
+    opacity: 0.15;
+  }
+  86.66667% {
+    opacity: 0.15;
+  }
+  90% {
+    opacity: 0.15;
+  }
+  93.33333% {
+    opacity: 0.15;
+  }
+  96.66667% {
+    opacity: 0.15;
+  }
+  100% {
+    opacity: 0.15;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .running-logo * {
+  .running-logo > span,
+  .spinner-ring {
     animation: none !important;
   }
 }
