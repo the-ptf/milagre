@@ -66,7 +66,9 @@ if (-not $ownAccess) { throw 'Private path must allow the current Windows user t
   execFileSyncImpl(powershell(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], {
     env: powershellEnvironment(),
     encoding: "utf8",
-    timeout: 10000,
+    // Windows PowerShell 5.1 can take over 10 s to start on a busy machine (CI runners hit it); a slow start isn't a
+    // permissions failure.
+    timeout: 30000,
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
