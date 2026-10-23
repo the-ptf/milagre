@@ -120,7 +120,8 @@ import { OfflineBanner } from "./components/OfflineBanner";
 import { settingsCommands } from "./lib/settings-commands";
 import type { Command } from "./lib/commands";
 import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
-import { useChatMessages } from "./lib/chat-messages";
+import { prefetchChatMessages, useChatMessages } from "./lib/chat-messages";
+import { beginChatSwitch } from "./lib/chat-switch-timing";
 import { RECENT_PROJECTS_CHANGED, type RecentProject } from "./lib/project-list";
 import { useHiddenProjects } from "./lib/hidden-projects";
 import { useProjectImages } from "./lib/project-images";
@@ -659,6 +660,8 @@ function App() {
   const transcriptLoading = pendingHere && pendingCanonicalId !== null ? canonicalWindow.loading : chatWindow.loading;
   const displayedMessages = lean && transcriptLoading && !loadedMessages.length && transcript.key === transcriptKey ? transcript.messages : loadedMessages;
   if (transcript.key !== transcriptKey || transcript.messages !== displayedMessages) setTranscript({ key: transcriptKey, messages: displayedMessages });
+  // A saved Chat with nothing to show yet because its page is still on its way: not a new Chat.
+  const messagesLoading = lean && transcriptLoading && !displayedMessages.length && Boolean(selectedSession && selectedSession.id > 0);
   // How many messages the open Chat has: its summary's count while its window is still loading from the host.
   const chatCount = lean ? (selectedSession?.summary?.count ?? messages.length) : messages.length;
   preferredProviderRef.current = chatCount > 0 ? selectedSession?.provider : undefined;
@@ -1063,7 +1066,10 @@ function App() {
       setView("chat");
       return;
     }
-    if (sessionId !== selectedSessionRef.current) advanceChatView();
+    if (sessionId !== selectedSessionRef.current) {
+      if (projectRef.current) beginChatSwitch(chatKey(projectRef.current.path, sessionId));
+      advanceChatView();
+    }
     setSelectedSessionId(sessionId);
     setSelectedWorktreeId(openState()?.sessions[sessionId]?.worktree_id ?? null);
     if (!keepsRoutinesView(holdRoutinesView.current, projectRef.current?.path, sessionId)) setView("chat");
@@ -1460,6 +1466,7 @@ function App() {
   }
   async function openCanvasChat(projectPath: string, sessionId: number, adopt: Parameters<typeof adoptProject>[1] = {}) {
     leaveBots();
+    beginChatSwitch(chatKey(projectPath, sessionId));
     if (isLinkScopeKey(projectPath)) {
       await selectLink(projectPath.slice("milagre-link:".length), sessionId, adopt);
       return;
@@ -1983,6 +1990,14 @@ function App() {
   });
   const sidebarRunKeys = runKeys(agentRuns.runs);
   const openScopeChat = useEvent((scopeKey: string, id: string) => void openCanvasChat(scopeKey, Number(id)));
+  // The pointer rests on a chat's row: its page is read now (a host that keeps messages by Chat), so the click paints
+  // at once instead of waiting on the host, or on another computer's network.
+  const hoverChat = useEvent((scopeKey: string, id: string) => {
+    const state = isLinkScopeKey(scopeKey)
+      ? linkStatesRef.current[scopeKey.slice("milagre-link:".length)]
+      : (statesRef.current[scopeKey] ?? scopeStates[scopeKey]);
+    if (state && isLean(state)) prefetchChatMessages(scopeKey, Number(id));
+  });
   // "Link and ask A…" from the sidebar's Link popover: a plain user message to chat A on its own model, as its composer
   // would pick it, and the permission mode new turns get. A's agent decides whether to make a Delegation. Then A opens,
   // so the message and the reply are in view.
@@ -2646,6 +2661,7 @@ function App() {
                 waitingKeys={sidebarRunKeys.waiting}
                 askingKeys={sidebarRunKeys.asking}
                 onOpenScopeChat={openScopeChat}
+                onHoverChat={hoverChat}
                 onAskChat={askLinkedChat}
                 sidebarMode={sidebarMode}
                 onSidebarMode={setSidebarMode}
@@ -2790,6 +2806,7 @@ function App() {
                         key={project.path}
                         store={draftStore}
                         messages={displayedMessages}
+                        loading={messagesLoading}
                         scrollKey={chatView.current}
                         pendingMessageId={pendingHere && pendingCanonicalId === null ? pendingSend?.message.id : undefined}
                         imageDraft={imageDraft}

@@ -164,6 +164,21 @@ function registerComputers({ ipcMain, computers, thisMac, send, cache = null, on
     }
   });
 
+  // A chat's last copy, for the window to paint while the computer answers (chat-messages.ts). Older turns are never
+  // kept, so the copy stands alone until the real window replaces it.
+  ipcMain.handle("computers:recall", (_event, id, entry) => {
+    const computerId = String(id);
+    if (!cache || !entry || entry.kind !== "chat" || typeof entry.scope !== "string" || !Number.isSafeInteger(entry.chatId) || !paired(computerId)) return null;
+    try {
+      const kept = cache.get(computerId, "chat", `${stripComputer(computerId, entry.scope)}#${entry.chatId}`);
+      if (!Array.isArray(kept?.messages)) return null;
+      return qualifyResult(computerId, "chat:messages", { messages: kept.messages, hasMore: false, total: kept.total });
+    } catch (error) {
+      warn(computerId, error);
+      return null;
+    }
+  });
+
   return {
     changed: () => send("computers:changed", snapshot()),
     /** @param {string} computerId @param {string} channel @param {unknown} payload */

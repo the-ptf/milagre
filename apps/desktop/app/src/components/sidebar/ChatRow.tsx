@@ -170,6 +170,8 @@ function BackgroundMark({ count = 0 }: { count?: number }) {
 }
 
 const HOVER_CARD_DELAY = 500;
+// Long enough for a pointer crossing the list not to read every chat, short enough to finish before most clicks.
+const PREFETCH_DELAY = 90;
 /** Time to cross from the row to the card before it closes, so its PR links can be clicked. */
 const HOVER_CARD_GRACE = 250;
 /** PR chips the row has room for; the rest are a count, and the hover card lists them all. */
@@ -258,6 +260,7 @@ export const ChatRow = memo(function ChatRow({
   active,
   collapsed,
   onPick,
+  onHover,
   actions,
   shortcutHint,
   computer,
@@ -271,6 +274,8 @@ export const ChatRow = memo(function ChatRow({
   active: boolean;
   collapsed: boolean;
   onPick: (item: SidebarRecent) => void;
+  /** The pointer has rested on the row: a chance to read the chat's page before the click. */
+  onHover?: (item: SidebarRecent) => void;
   actions: ChatRowActions;
   shortcutHint?: string;
   computer?: RowComputer;
@@ -362,8 +367,23 @@ export const ChatRow = memo(function ChatRow({
     clearHover();
     setCard(null);
   };
+  const prefetchTimer = useRef<number | null>(null);
+  const clearPrefetch = () => {
+    if (prefetchTimer.current !== null) window.clearTimeout(prefetchTimer.current);
+    prefetchTimer.current = null;
+  };
+  // A pointer resting on the row is about to click it: the chat's page is read now, so the click paints at once.
+  const prefetchSoon = () => {
+    clearPrefetch();
+    if (!onHover) return;
+    prefetchTimer.current = window.setTimeout(() => {
+      prefetchTimer.current = null;
+      onHover(item);
+    }, PREFETCH_DELAY);
+  };
   const showCardSoon = () => {
     clearHover();
+    prefetchSoon();
     // Back on the row from the card: the card stays as it is. A chat being dragged over the row doesn't open it.
     if (menu || renaming || card || document.documentElement.hasAttribute("data-chat-drag")) return;
     hoverTimer.current = window.setTimeout(() => {
@@ -398,7 +418,10 @@ export const ChatRow = memo(function ChatRow({
         data-chat-id={item.id}
         className={`group/row relative ${dragging ? "opacity-50" : ""} ${computer?.offline && dimOffline ? "opacity-50" : ""}`}
         onPointerEnter={showCardSoon}
-        onPointerLeave={hideCardSoon}
+        onPointerLeave={() => {
+          clearPrefetch();
+          hideCardSoon();
+        }}
         onPointerDown={hideCard}
         onContextMenu={(event) => {
           event.preventDefault();
