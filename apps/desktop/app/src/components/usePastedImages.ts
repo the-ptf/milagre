@@ -33,6 +33,9 @@ export function usePastedImages(scope: string, owner?: string) {
   }
   const localFiles = useRef(new Map<string, File>());
   const [files, setFiles] = useState<string[]>([]);
+  // Attachment keys (a file's path, a pasted image's id) in the order they were added, so the row lists them that way.
+  const [order, setOrder] = useState<string[]>([]);
+  const append = (keys: string[]) => setOrder((current) => [...current.filter((key) => !keys.includes(key)), ...keys]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const generation = useRef(0);
@@ -43,15 +46,30 @@ export function usePastedImages(scope: string, owner?: string) {
     reading.current = false;
     setImages([]);
     setFiles([]);
+    setOrder([]);
     setLoading(false);
     setError("");
   }
 
+  // Each Chat keeps its attachments while the user is in another, like its draft text does.
+  const stash = useRef(new Map<string, { images: ImageAttachment[]; files: string[]; order: string[] }>());
+  const latest = useRef({ files, order });
+  latest.current = { files, order };
   useEffect(() => {
+    const stashed = stash.current;
+    const saved = stashed.get(scope);
+    stashed.delete(scope);
     clear();
-    localFiles.current.clear();
+    if (saved) {
+      setImages(saved.images);
+      setFiles(saved.files);
+      setOrder(saved.order);
+    }
     return () => {
       generation.current++;
+      // oxlint-disable-next-line react-hooks/exhaustive-deps -- read on the way out: the leaving Chat's latest attachments.
+      const leaving = { images: currentImages.current, ...latest.current };
+      if (leaving.images.length || leaving.files.length) stashed.set(scope, leaving);
     };
   }, [scope]);
 
@@ -78,6 +96,7 @@ export function usePastedImages(scope: string, owner?: string) {
       if (current !== generation.current) return [];
       const base = currentImages.current.length;
       setImages((existing) => [...existing, ...next]);
+      append(next.map((image) => image.id));
       return next.map((_, i) => base + i + 1);
     } catch (error) {
       if (current === generation.current) setError(error instanceof Error ? error.message : "Could not read image.");
@@ -173,6 +192,7 @@ export function usePastedImages(scope: string, owner?: string) {
     const added = nextImages.filter((image) => !currentImages.current.some((item) => item.path === image.path));
     const base = currentImages.current.length;
     setFiles((existing) => [...new Set([...existing, ...paths])]);
+    append(paths);
     setImages((existing) => [...existing, ...nextImages.filter((image) => !existing.some((item) => item.path === image.path))]);
     if (failed) setError(failed);
     reading.current = false;
@@ -182,6 +202,7 @@ export function usePastedImages(scope: string, owner?: string) {
 
   function attachPath(path: string) {
     setFiles((current) => (current.includes(path) ? current : [...current, path]));
+    setOrder((current) => (current.includes(path) ? current : [...current, path]));
     setError("");
   }
 
@@ -199,6 +220,7 @@ export function usePastedImages(scope: string, owner?: string) {
     );
     setImages(merged);
     setFiles((current) => [...new Set([...sentFiles, ...current])]);
+    setOrder((current) => [...new Set([...sentImages.map((image) => image.path ?? image.id), ...sentFiles, ...current])]);
     return remapped;
   }
 
@@ -208,6 +230,7 @@ export function usePastedImages(scope: string, owner?: string) {
     remote,
     images,
     files,
+    order,
     localFiles: localFiles.current,
     loading,
     error,
