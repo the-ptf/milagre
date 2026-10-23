@@ -2,6 +2,11 @@ const https = require("node:https");
 const dns = require("node:dns/promises");
 const { isIP } = require("node:net");
 const { isSnapshotRaster } = require("@milagre/shared/design-page");
+const { resizeImagePng, imageSize } = require("./design-raster.cjs");
+
+// A design's image src holds at most 500,000 characters. A larger download is redrawn at the size the design shows it.
+const MAX_SRC = 500_000;
+const MAX_DOWNLOAD = 20 * 1024 * 1024;
 
 function publicAddress(address) {
   if (isIP(address) === 4) {
@@ -24,6 +29,20 @@ function publicAddress(address) {
   const [first, second] = address.split(":").map((part) => parseInt(part || "0", 16));
   return first >= 0x2000 && first <= 0x3fff && first !== 0x2002 && first !== 0x3fff && !(first === 0x2001 && (second < 0x200 || second === 0xdb8));
 }
+
+// The design view loads images through Chromium, so downloads send the headers Chromium sends for an <img>:
+// CDN bot rules (CloudFront, Cloudflare, Akamai) answer 403 to requests that don't look like a browser.
+// The Accept list stays to the formats a shared page can embed, so content negotiation never picks AVIF.
+const chrome = (process.versions.chrome ?? "152.0.0.0").split(".")[0];
+const IMAGE_HEADERS = {
+  accept: "image/webp,image/png,image/jpeg,image/gif;q=0.9",
+  "accept-language": "en-US,en;q=0.9",
+  "user-agent": `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chrome}.0.0.0 Safari/537.36`,
+  "sec-fetch-dest": "image",
+  "sec-fetch-mode": "no-cors",
+  "sec-fetch-site": "cross-site",
+};
+const transient = (error) => error.retryable === true || ["ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ECONNREFUSED"].includes(error.code);
 
 /** DNS answers are checked and pinned to the socket; every redirect goes through the same checks. */
 async function fetchRaster(source, { lookup = dns.lookup, request = https.request, signal } = {}, redirects = 0) {
@@ -55,8 +74,7 @@ async function fetchRaster(source, { lookup = dns.lookup, request = https.reques
       url,
       {
         signal,
-        // CDN bot rules (CloudFront, Cloudflare) answer 403 to requests without a User-Agent.
-        headers: { accept: "image/png,image/jpeg,image/gif,image/webp", "user-agent": "Milagre (+https://milagre.cloud)" },
+        headers: IMAGE_HEADERS,
         lookup: (_hostname, options, callback) => (options.all ? callback(null, addresses) : callback(null, addresses[0].address, addresses[0].family)),
       },
       (response) => {
@@ -88,9 +106,9 @@ async function fetchRaster(source, { lookup = dns.lookup, request = https.reques
         let size = 0;
         response.on("data", (chunk) => {
           size += chunk.length;
-          if (size > 374_000) {
+          if (size > MAX_DOWNLOAD) {
             response.destroy();
-            reject(Error("A design image is too large to embed. Use an image smaller than 374 KB."));
+            reject(Error(`A design image from ${url.hostname} is larger than 20 MB. Replace it before sharing this page.`));
           } else chunks.push(chunk);
         });
         response.on("error", reject);
@@ -102,25 +120,55 @@ async function fetchRaster(source, { lookup = dns.lookup, request = https.reques
       },
     );
     req.on("error", reject);
-    req.setTimeout(10_000, () => req.destroy(Error("A design image took too long to download.")));
+    req.setTimeout(10_000, () => req.destroy(Object.assign(Error(`A design image from ${url.hostname} took too long to download.`), { retryable: true })));
     req.end();
   });
 }
 
-async function embedPageImages(snapshot, { fetchImage = fetchRaster } = {}) {
+/** Fits an image under MAX_SRC: redrawn as a PNG that covers its largest drawn box at 2x, then 1x, never enlarged. */
+async function fitImage(data, box, resize) {
+  if (data.length <= MAX_SRC) return data;
+  const size = imageSize(Buffer.from(data.slice(data.indexOf(",") + 1), "base64"));
+  if (size) {
+    for (const density of [2, 1]) {
+      const scale = Math.min(1, Math.max((box.width * density) / size.width, (box.height * density) / size.height));
+      const width = Math.max(1, Math.round(size.width * scale));
+      const height = Math.max(1, Math.round(size.height * scale));
+      const smaller = await resize(data, width, height).catch(() => null);
+      if (smaller && smaller.length <= MAX_SRC && isSnapshotRaster(smaller)) return smaller;
+    }
+  }
+  throw Error("A design image is too large to embed, even at the size the design shows it. Replace it before sharing this page.");
+}
+
+async function embedPageImages(snapshot, { fetchImage = fetchRaster, resize = resizeImagePng } = {}) {
   const result = structuredClone(snapshot);
   const images = new Map();
   const signal = AbortSignal.timeout(30_000);
+  // The largest box each image is drawn in across the page, so one download serves every use.
+  const boxes = new Map();
+  for (const design of result.designs)
+    for (const node of design.document.nodes) {
+      if (node.type !== "image" || !/^https:/i.test(node.src ?? "")) continue;
+      const box = boxes.get(node.src) ?? { width: 1, height: 1 };
+      boxes.set(node.src, { width: Math.max(box.width, node.width ?? 1), height: Math.max(box.height, node.height ?? 1) });
+    }
   for (const design of result.designs) {
     for (const node of design.document.nodes) {
       if (node.type !== "image" || !/^https:/i.test(node.src ?? "")) continue;
       if (!images.has(node.src)) {
         if (images.size >= 40) throw Error("A shared page can embed up to 40 distinct remote images.");
-        images.set(node.src, await fetchImage(node.src, { signal }));
+        // One retry covers a rate limit, a server hiccup or a dropped connection; the page deadline bounds both tries.
+        const download = () => fetchImage(node.src, { signal });
+        const data = await download().catch((error) => {
+          if (!transient(error) || signal.aborted) throw error;
+          return new Promise((resolve) => setTimeout(resolve, 1000)).then(download);
+        });
+        images.set(node.src, await fitImage(data, boxes.get(node.src), resize));
       }
       node.src = images.get(node.src);
     }
   }
   return result;
 }
-module.exports = { publicAddress, fetchRaster, embedPageImages };
+module.exports = { publicAddress, fetchRaster, embedPageImages, IMAGE_HEADERS };
