@@ -252,8 +252,8 @@ async function browserChecks() {
     await delay(300);
     assert.deepEqual(
       await switches(),
-      ["Designs", "Floating inbox", "Ultracode Fatality", "Bots"],
-      "Experimental lists only Designs, Floating inbox, Ultracode Fatality and Bots",
+      ["Designs", "Delegate to other computers", "Floating inbox", "Ultracode Fatality", "Bots"],
+      "Experimental lists only Designs, Delegate to other computers, Floating inbox, Ultracode Fatality and Bots",
     );
     assert.equal(
       await evaluate(`/legacy sidebar|Other computers|Notification chime|Custom theme|usage limits|Linear/i.test(document.querySelector("main").textContent)`),
