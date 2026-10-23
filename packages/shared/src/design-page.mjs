@@ -8,8 +8,6 @@ function freeze(value) {
   }
   return value;
 }
-export const DESIGN_PAGE_PUBLIC_NOTICE =
-  "This publishes every saved design on this page. Anyone with the link can view, copy or redistribute it. Copies may remain online permanently.";
 const title = (value) => {
   if (typeof value !== "string" || !value.trim() || value.length > 120) throw Error("A public page title must have 1 to 120 characters.");
   return value.trim();

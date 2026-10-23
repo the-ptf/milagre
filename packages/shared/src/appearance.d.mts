@@ -27,7 +27,6 @@ export type DiffPair = {
   dark: { add: string; remove: string } | null;
 };
 
-export const SIZE_STEPS: readonly SizeStep[];
 export const CHAT_WIDTH_IDS: readonly ChatWidth[];
 export const SIDEBAR_USAGE_IDS: readonly SidebarUsageMode[];
 export const PROVIDER_ICON_IDS: readonly ProviderIconStyle[];

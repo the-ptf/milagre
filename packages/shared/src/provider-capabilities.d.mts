@@ -12,6 +12,5 @@ export type ProviderCapabilities = Readonly<{
   /** Milagre installs the CLI itself. */
   managedInstall: boolean;
 }>;
-export type ProviderCapability = keyof ProviderCapabilities;
 export const DEFAULT_CAPABILITIES: ProviderCapabilities;
 export function providerCapabilities(provider: string | null | undefined): ProviderCapabilities;

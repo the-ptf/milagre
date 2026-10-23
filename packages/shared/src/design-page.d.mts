@@ -10,7 +10,6 @@ export interface ArtifactPageSnapshot {
   title: string;
   artifacts: { title: string; html: string; width: number; height: number }[];
 }
-export const DESIGN_PAGE_PUBLIC_NOTICE: string;
 export function validateDesignPageSnapshot(value: unknown): DesignPageSnapshot | ArtifactPageSnapshot;
 export function isSnapshotRaster(source: string): boolean;
 export function renderDesignPage(snapshot: DesignPageSnapshot | ArtifactPageSnapshot): string;
