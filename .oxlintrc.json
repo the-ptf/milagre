@@ -24,6 +24,7 @@
     "unicorn/no-array-sort": "warn",
     "unicorn/prefer-add-event-listener": "error",
     "unicorn/prefer-set-has": "error",
+    "unicorn/prefer-array-find": "error",
     "react/exhaustive-effect-dependencies": "warn",
     "react/refs": "warn",
     "react/set-state-in-effect": "warn",

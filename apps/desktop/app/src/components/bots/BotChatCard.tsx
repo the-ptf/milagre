@@ -9,7 +9,7 @@ export const BOT_CHAT_STATUS: Record<BotChatRecord["status"], string> = {
   "taken-over": "Yours",
 };
 
-export const projectLabel = (projectPath: string) => projectPath.split(/[\\/]/).filter(Boolean).at(-1) ?? projectPath;
+export const projectLabel = (projectPath: string) => projectPath.split(/[\\/]/).findLast(Boolean) ?? projectPath;
 
 /** A Milagre Chat the bot opened, as its thread shows it: title, Project and how it stands, and Open Chat. */
 export function BotChatCard({

@@ -9313,10 +9313,7 @@ test("with two Linear workspaces the issue sheet has a tab each, and the picked 
   // The sheet's tab reads the other workspace; the same key in two workspaces never collides.
   const beta = await request.load("beta", false);
   assert.equal(JSON.stringify(beta.map((item) => item.id)), JSON.stringify(["beta:OPS-7"]));
-  assert.equal(
-    JSON.stringify(screen.calls.filter((call) => call.method === "linear:issues").at(-1).args),
-    JSON.stringify([{ fresh: false, workspace: "beta" }]),
-  );
+  assert.equal(JSON.stringify(screen.calls.findLast((call) => call.method === "linear:issues").args), JSON.stringify([{ fresh: false, workspace: "beta" }]));
   screen.render();
   request.onSelect("beta:OPS-7");
   await settle();

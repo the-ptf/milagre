@@ -26,7 +26,7 @@ export function terminalPlaces(chat: object): TerminalPlace[] | undefined {
   if (!Array.isArray(worktrees)) return undefined;
   return worktrees.map((member) => ({
     path: member.worktreePath,
-    label: member.alias ?? member.projectPath.split(/[\\/]/).filter(Boolean).at(-1) ?? member.worktreePath,
+    label: member.alias ?? member.projectPath.split(/[\\/]/).findLast(Boolean) ?? member.worktreePath,
   }));
 }
 

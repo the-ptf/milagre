@@ -259,7 +259,7 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
           {projects.map((project) => (
             <Row
               key={project.path}
-              title={project.name || project.path.split("/").filter(Boolean).at(-1) || project.path}
+              title={project.name || project.path.split("/").findLast(Boolean) || project.path}
               leading={<ProjectIcon client={client} path={project.path} size={22} />}
               onPress={() => router.push({ pathname: "/project-settings", params: { path: project.path, name: project.name ?? "" } })}
             />

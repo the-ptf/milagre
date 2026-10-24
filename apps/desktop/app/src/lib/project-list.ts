@@ -11,7 +11,7 @@ export function projectInitial(name: string): string {
 }
 
 function folderName(projectPath: string): string {
-  return projectPath.split("/").filter(Boolean).at(-1) ?? projectPath;
+  return projectPath.split("/").findLast(Boolean) ?? projectPath;
 }
 
 /**

@@ -126,20 +126,14 @@ export function LinkWorkspace({
   const draftStore = useMemo(createDraftStore, [owner]);
   const saved = drafts.read(scope);
   const [sessionId, setSessionId] = useState<number | null>(
-    () =>
-      initialSessionId ??
-      (drafts.has(scope)
-        ? saved.sessionId
-        : (Object.values(state.sessions)
-            .filter((session) => !session.archived)
-            .at(-1)?.id ?? null)),
+    () => initialSessionId ?? (drafts.has(scope) ? saved.sessionId : (Object.values(state.sessions).findLast((session) => !session.archived)?.id ?? null)),
   );
   const session = sessionId == null ? undefined : state.sessions[sessionId];
   const chatId = session ? chatKeyForScope(scope, session.id) : null;
   // A shared Chat's Terminals start in one of its Worktrees, chosen when it has several.
   const terminalPlaces: TerminalPlace[] | undefined = session?.worktrees.map((member) => ({
     path: member.worktreePath,
-    label: member.alias ?? member.projectPath.split(/[\\/]/).filter(Boolean).at(-1) ?? member.worktreePath,
+    label: member.alias ?? member.projectPath.split(/[\\/]/).findLast(Boolean) ?? member.worktreePath,
   }));
   const run = chatId ? agents.runs[chatId] : undefined;
   // Every project's chats that wait on the user, except in Projects hidden from the sidebar; the Link's own are marked in its sidebar.

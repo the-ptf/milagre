@@ -1044,7 +1044,7 @@ test("linear commands connect, report and disconnect, and emit the status", asyn
     ["acme"],
   );
   assert.deepEqual(await runtime.invoke("linear:disconnect", [{ workspace: "acme" }]), { connected: false, workspaces: [] });
-  assert.deepEqual(events.filter((event) => event.channel === "linear:status-changed").at(-1).payload, { connected: false, workspaces: [] });
+  assert.deepEqual(events.findLast((event) => event.channel === "linear:status-changed").payload, { connected: false, workspaces: [] });
 });
 
 test("flush ends a waiting Linear sign-in instead of waiting out its timeout", async (t) => {
@@ -1205,7 +1205,7 @@ test("linear:worktree-issues names a worktree's issue and linear:issues reports 
   assert.deepEqual(await runtime.invoke("linear:issues", [{}]), { error: "Linear is off in Settings › Connections › Linear.", notConnected: true });
   assert.deepEqual(await runtime.invoke("linear:worktree-issues", [project]), {});
   assert.deepEqual(await runtime.invoke("linear:enabled:save", [true]), { enabled: true });
-  assert.deepEqual(events.filter((event) => event.channel === "linear:enabled-changed").at(-1).payload, { enabled: true });
+  assert.deepEqual(events.findLast((event) => event.channel === "linear:enabled-changed").payload, { enabled: true });
   await connectLinearFixture(dataDir);
 
   const issues = await runtime.invoke("linear:issues", [{}]);
@@ -1297,7 +1297,7 @@ test("worktree:link-issue renames a Milagre-named branch with no open PR to the 
   assert.equal(stored.linearIssue, "ENG-12");
   assert.equal(stored.linearWorkspace, "acme");
   assert.equal(branchOf(worktree.path), "eng-12-fix-login");
-  assert.deepEqual(events.filter((event) => event.channel === "worktree:renamed").at(-1).payload, {
+  assert.deepEqual(events.findLast((event) => event.channel === "worktree:renamed").payload, {
     projectPath: linked.project.path,
     path: worktree.path,
     from: worktree.name,
@@ -1439,7 +1439,7 @@ test("worktree:unlink-issue removes the stored key and never renames the branch 
   assert.equal("linearWorkspace" in after, false);
   await runtime.flush();
   assert.equal((await readSavedState(project)).worktrees[worktreeId].linearIssue, null, "The unlink survives a restart");
-  assert.equal(events.filter(({ channel }) => channel === "project:state").at(-1).payload.state.worktrees[worktreeId].linearIssue, null);
+  assert.equal(events.findLast(({ channel }) => channel === "project:state").payload.state.worktrees[worktreeId].linearIssue, null);
   assert.equal(after.name, "eng-12-fix-login");
   assert.equal(branchOf(worktree.path), "eng-12-fix-login");
 });
