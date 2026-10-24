@@ -47,14 +47,39 @@ export const SHEETS_OVER_CHAT = new Set([
   "background",
   "handoff-brief",
   "routine-form",
+  "select-text",
   "viewer",
+]);
+// Every page inside the Settings sheet (app/(settings)): the group is one sheet in the layout, so its pages share the
+// sheet's rule. A sheet that opens over the Chat leaves it viewed.
+export const SETTINGS_SHEET_PAGES = new Set([
+  "settings",
+  "computers",
+  "computer",
+  "general",
+  "accounts",
+  "project-accounts",
+  "connections",
+  "appearance",
+  "chat-display",
+  "notifications",
+  "usage",
+  "skills",
+  "skill",
+  "mcp",
+  "mcp-server",
+  "local-mcp",
+  "experimental",
+  "privacy",
+  "project-settings",
+  "published-pages",
 ]);
 // Sheets the layout presents over a full-screen page (the designs), which already hides the Chat: they don't keep it viewed.
 export const SHEETS_OVER_PAGES = new Set(["design-share-sheet"]);
 /** The Chat on screen: the one at /chat (`chat`), or the one a sheet opened over (`previous`), while its computer is connected. */
 export function viewedChat(path: string, chat: PushView, previous: PushView, connected: string | undefined): PushView {
   if (path === "/chat") return chat;
-  return previous && previous.hostId === connected && SHEETS_OVER_CHAT.has(path.slice(1)) ? previous : null;
+  return previous && previous.hostId === connected && (SHEETS_OVER_CHAT.has(path.slice(1)) || SETTINGS_SHEET_PAGES.has(path.slice(1))) ? previous : null;
 }
 export function shouldPresentNotification(value: unknown, view: PushView) {
   const data = value as Record<string, unknown> | null;
