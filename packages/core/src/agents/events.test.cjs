@@ -829,7 +829,7 @@ test("an agent on a reachable computer is told to bind servers to all interfaces
   assert.match(text, /runs on the computer "deer", at 192\.168\.2\.179, 100\.69\.206\.111/);
   assert.match(text, /localhost is that device, not this one/);
   assert.match(text, /0\.0\.0\.0/);
-  assert.match(text, /http:\/\/192\.168\.2\.179:5173/);
+  assert.match(text, /http:\/\/192\.168\.2\.179:5173, instead of a localhost one/);
   assert.doesNotMatch(text, /\u2014|\u2013/);
   // Nobody else reaches a computer with no LAN or tailnet address: nothing to say.
   assert.equal(hostNetworkInstructions({ name: "deer", addresses: [] }), "");

@@ -35,6 +35,7 @@ import { answeredQuestions, lastUserModel, projectOfKey, sessionIdFromKey } from
 import { pullRequestAction, pullRequestBlockers, rowPullRequests } from "@milagre/shared/pr-blockers";
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
+import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
 import { ReachableHostContext } from "../reachable-host";
 import { useReachableHost } from "../routes-native";
 import { useComposer, usePendingChats, useSession } from "../session";
@@ -585,6 +586,7 @@ export default function ChatScreen() {
   // Polled here, not in the chip: a command serving one of these ports leaves the background line.
   const portsChat = params.id && Number(params.id) > 0 && session.snapshot ? `${session.snapshot.project.path}#${params.id}` : undefined;
   const { ports } = useChatPorts(portsChat ? session.client : null, portsChat);
+  const reachable = useMemo(() => ({ host: reachableHost, loopbackOnly: loopbackOnlyPorts(ports) }), [reachableHost, ports]);
   if (!session.client || (!session.snapshot && !wanted)) return <Redirect href="/" />;
   if (!session.snapshot || !targetMatches || needsWorktree) {
     return (
@@ -1251,7 +1253,7 @@ export default function ChatScreen() {
   const lift = dockPadding - 8;
   return (
     <GenerativeUIProvider send={genuiSend}>
-      <ReachableHostContext value={reachableHost}>
+      <ReachableHostContext value={reachable}>
         <View style={[styles.screen, dots]}>
           <Stack.Screen options={{ title, headerTitle: () => header, headerBackVisible: false, gestureEnabled: false }} />
           {sidebar}

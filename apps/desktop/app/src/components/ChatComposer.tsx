@@ -21,6 +21,8 @@ import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
 import { createContext, Fragment, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, DragEvent, ReactElement, ReactNode } from "react";
+import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
+import { LoopbackPortsContext } from "../lib/ports";
 import { createPortal } from "react-dom";
 import { commitChatSwitch } from "../lib/chat-switch-timing";
 import { showSlot, trimSlots, type TranscriptSlot } from "../lib/transcript-slots";
@@ -1092,6 +1094,7 @@ export function ChatComposer({
   onSendDesignMessage,
   onOpenDiff,
 }: ChatComposerProps) {
+  const loopbackPorts = useMemo(() => loopbackOnlyPorts(ports), [ports]);
   const chatWidth = useSettings().appearance.chatWidth;
   const root = useRef<HTMLDivElement>(null);
   const chatId = messages[0]?.session_id ?? "new";
@@ -1278,32 +1281,35 @@ export function ChatComposer({
                     data-chat-width={chatWidth}
                     className="chat-column mx-auto flex min-h-full w-full max-w-[var(--chat-width)] flex-col gap-3 px-3 pt-12 pb-4"
                   >
-                    <StepDetailsScope scope={messageScope}>
-                      <MessageTranscript
-                        findOpen={findOpen}
-                        earlier={earlier}
-                        messages={messages}
-                        pendingMessageId={pendingMessageId}
-                        isSending={isSending}
-                        streamingText={streamingText}
-                        streamingSteps={streamingSteps}
-                        asking={asking}
-                        undoable={undoable}
-                        undoBlocked={isSending || Boolean(offlineName)}
-                        onUndo={runtimeChat ? undoTask : undefined}
-                        highlightId={highlightId}
-                        onCheckpointPreview={runtimeChat ? previewRecovery : undefined}
-                        waitingStepIds={waitingStepIds}
-                        onRecommendationSelect={onRecommendationSelect}
-                        onUpdateCli={onUpdateCli}
-                        updatingCli={updatingCli}
-                        cliStatus={cliStatus}
-                        onOpenLinkedChat={onOpenLinkedChat}
-                        onOpenAccounts={onOpenAccounts}
-                        offlineName={offlineName}
-                        models={models}
-                      />
-                    </StepDetailsScope>
+                    {/* Reply links to this Chat's loopback-only servers stay localhost (Markdown.tsx). */}
+                    <LoopbackPortsContext.Provider value={loopbackPorts}>
+                      <StepDetailsScope scope={messageScope}>
+                        <MessageTranscript
+                          findOpen={findOpen}
+                          earlier={earlier}
+                          messages={messages}
+                          pendingMessageId={pendingMessageId}
+                          isSending={isSending}
+                          streamingText={streamingText}
+                          streamingSteps={streamingSteps}
+                          asking={asking}
+                          undoable={undoable}
+                          undoBlocked={isSending || Boolean(offlineName)}
+                          onUndo={runtimeChat ? undoTask : undefined}
+                          highlightId={highlightId}
+                          onCheckpointPreview={runtimeChat ? previewRecovery : undefined}
+                          waitingStepIds={waitingStepIds}
+                          onRecommendationSelect={onRecommendationSelect}
+                          onUpdateCli={onUpdateCli}
+                          updatingCli={updatingCli}
+                          cliStatus={cliStatus}
+                          onOpenLinkedChat={onOpenLinkedChat}
+                          onOpenAccounts={onOpenAccounts}
+                          offlineName={offlineName}
+                          models={models}
+                        />
+                      </StepDetailsScope>
+                    </LoopbackPortsContext.Provider>
 
                     {isSending && (
                       <div className="w-full" style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>

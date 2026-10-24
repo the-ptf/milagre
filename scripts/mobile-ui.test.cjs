@@ -1341,8 +1341,8 @@ test("mobile skill input preserves edits and clears its description when the car
   assert.equal(draft, "see  next", "Backspace removes the whole image reference");
 });
 
-function markdownHost({ media, basePath, reachableHost = null } = {}) {
-  const react = { ...hookHost({ effects: true }), memo: (fn) => fn, useContext: (context) => (context === "ReachableHostContext" ? reachableHost : undefined) };
+function markdownHost({ media, basePath, reachable = null } = {}) {
+  const react = { ...hookHost({ effects: true }), memo: (fn) => fn, useContext: (context) => (context === "ReachableHostContext" ? reachable : undefined) };
   const viewer = require("../apps/mobile/src/viewer-store.ts");
   const routes = [],
     links = [];
@@ -1424,12 +1424,12 @@ test("plain URLs in mobile replies render as links and open the exact address", 
   }
 });
 
-test("a localhost link opens at the computer's IP when the phone reaches it on the LAN, and stays as written otherwise", async () => {
+test("a localhost link opens at the computer's IP when the phone reaches it on the LAN, and stays as written otherwise or for a loopback-only server", async () => {
   for (const [text, label, url] of [
     ["Open http://localhost:5173 to see it.", "http://100.69.206.111:5173", "http://100.69.206.111:5173"],
     ["[The app](http://127.0.0.1:3000/app?x=1)", "The app", "http://100.69.206.111:3000/app?x=1"],
   ]) {
-    const screen = markdownHost({ reachableHost: "100.69.206.111" });
+    const screen = markdownHost({ reachable: { host: "100.69.206.111", loopbackOnly: new Set([5175]) } });
     const tree = screen.render(text);
     const link = find(tree, (node) => node.props?.accessibilityRole === "link");
     assert.ok(link, `Missing link in ${text}`);
@@ -1437,6 +1437,10 @@ test("a localhost link opens at the computer's IP when the phone reaches it on t
     await link.props.onPress();
     assert.deepEqual(screen.links, [url]);
   }
+  // A server the Chat's ports show on the computer's loopback only would not answer at its IP.
+  const loopback = markdownHost({ reachable: { host: "100.69.206.111", loopbackOnly: new Set([5175]) } });
+  await find(loopback.render("Running at http://127.0.0.1:5175."), (node) => node.props?.accessibilityRole === "link").props.onPress();
+  assert.deepEqual(loopback.links, ["http://127.0.0.1:5175"]);
   const relay = markdownHost();
   const link = find(relay.render("Open http://localhost:5173 to see it."), (node) => node.props?.accessibilityRole === "link");
   await link.props.onPress();

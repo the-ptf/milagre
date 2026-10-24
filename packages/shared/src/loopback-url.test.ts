@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isLoopbackUrl, listensBeyondLoopback, reachableUrl } from "./loopback-url.ts";
+import { isLoopbackUrl, listensBeyondLoopback, loopbackOnlyPorts, reachableUrl } from "./loopback-url.ts";
 
 test("a loopback link points at the machine's address, keeping port, path and query", () => {
   assert.equal(reachableUrl("http://localhost:5173", "100.69.206.111"), "http://100.69.206.111:5173");
@@ -29,4 +29,21 @@ test("other links, and no address, stay as they were", () => {
 test("a server bound to loopback only can't be reached from another machine", () => {
   for (const address of ["127.0.0.1", "::1", "127.0.0.53"]) assert.equal(listensBeyondLoopback(address), false);
   for (const address of ["*", "0.0.0.0", "::", "192.168.2.179"]) assert.equal(listensBeyondLoopback(address), true);
+});
+
+test("a link to a server that listens on loopback only stays as written: its IP link would not answer", () => {
+  const loopbackOnly = loopbackOnlyPorts([
+    { port: 5175, address: "127.0.0.1" },
+    { port: 5174, address: "*" },
+    { port: 3000, address: "::1" },
+    { port: 3000, address: "*" },
+    { port: 80, address: "127.0.0.1" },
+  ]);
+  assert.deepEqual([...loopbackOnly].sort(), [5175, 80].sort());
+  assert.equal(reachableUrl("http://127.0.0.1:5175", "10.0.0.4", loopbackOnly), "http://127.0.0.1:5175");
+  assert.equal(reachableUrl("http://localhost/", "10.0.0.4", loopbackOnly), "http://localhost/");
+  assert.equal(reachableUrl("http://localhost:5174", "10.0.0.4", loopbackOnly), "http://10.0.0.4:5174");
+  assert.equal(reachableUrl("http://localhost:3000", "10.0.0.4", loopbackOnly), "http://10.0.0.4:3000");
+  // A port nobody saw listening is the best guess: the computer's address.
+  assert.equal(reachableUrl("http://localhost:8080", "10.0.0.4", loopbackOnly), "http://10.0.0.4:8080");
 });

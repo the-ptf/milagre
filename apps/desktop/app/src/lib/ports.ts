@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useEffect, useRef, useState } from "react";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import type { AgentPort, AgentPorts } from "../model";
 import { keepComputers, replaceComputerEntries } from "./agent-runs";
@@ -16,6 +16,9 @@ export function portUrl(port: AgentPort): string | null {
   const address = computerAddressOf(port.computerId);
   return address && listensBeyondLoopback(port.address) ? reachableUrl(`http://localhost:${port.port}`, address) : null;
 }
+
+/** The Chat's ports that listen on loopback alone (loopbackOnlyPorts, from ChatComposer): a reply link to one stays localhost. */
+export const LoopbackPortsContext = createContext<ReadonlySet<number>>(new Set());
 
 /** Why another computer's port has no link here, for its title. */
 export function unreachablePortReason(port: AgentPort, computer: string): string {

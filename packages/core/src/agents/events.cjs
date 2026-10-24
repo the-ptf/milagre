@@ -77,7 +77,7 @@ const MILAGRE_INSTRUCTIONS = milagreInstructions();
 function hostNetworkInstructions({ name, addresses = [] } = {}) {
   if (!addresses.length) return "";
   const [first] = addresses;
-  return `Network: this Chat runs on ${name ? `the computer "${name}"` : "this computer"}, at ${addresses.join(", ")}. The user may be reading from another device (their phone, or another Mac through Milagre), where localhost is that device, not this one. When you start a server for the user to open, bind it to all interfaces (0.0.0.0: \`vite --host\`, \`next dev -H 0.0.0.0\`, \`python -m http.server --bind 0.0.0.0\`) and give its link with this computer's address, such as http://${first}:5173, beside the localhost one. Milagre points localhost links in your replies at this computer for a user on another device.`;
+  return `Network: this Chat runs on ${name ? `the computer "${name}"` : "this computer"}, at ${addresses.join(", ")}. The user may be reading from another device (their phone, or another Mac through Milagre), where localhost is that device, not this one. When you start a server for the user to open, bind it to all interfaces (0.0.0.0: \`vite --host\`, \`next dev -H 0.0.0.0\`, \`python -m http.server --bind 0.0.0.0\`) and give its link with this computer's address, such as http://${first}:5173, instead of a localhost one: that link opens on this computer too. Milagre points localhost links in your replies at this computer for a user on another device.`;
 }
 
 // The system prompt of an analysis-only advisor (advisors.cjs). It has only the read tools it is given, so it gets none
