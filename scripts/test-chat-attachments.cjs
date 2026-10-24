@@ -291,7 +291,17 @@ async function browserChecks() {
     await key("ArrowRight");
     await waitFor(`${counter} === '2 / 2'`);
     // A click on the empty area around the image closes the viewer.
-    await mouseClick(60, 380);
+    // Let the slide that ArrowRight started settle first: a click right after it left the viewer open about half the runs.
+    await delay(600);
+    // A point found by hit-testing, so it is certain to be empty stage and not a control or the image.
+    const empty = await evaluate(
+      `(() => { for (const fy of [0.5, 0.3, 0.7, 0.2, 0.8]) for (const fx of [0.1, 0.9, 0.25, 0.75, 0.5]) {
+        const x = Math.round(innerWidth * fx), y = Math.round(innerHeight * fy), el = document.elementFromPoint(x, y);
+        if (el?.closest('dialog') && !el.closest('button, img, video, [aria-live], [role=slider]')) return { x, y };
+      } return null; })()`,
+    );
+    assert.ok(empty, "The viewer has an empty area to click");
+    await mouseClick(empty.x, empty.y);
     await waitFor(String.raw`!document.querySelector("dialog")`);
     assert.equal(await evaluate('document.activeElement?.getAttribute("aria-label")'), "Preview photo.png", "Focus returns to the thumbnail");
     assert.equal(await evaluate(`document.querySelector('[data-promptbar] [aria-label="Preview photo.png"] img').classList.contains('opacity-0')`), false);
@@ -326,9 +336,15 @@ async function browserChecks() {
     assert.ok(await evaluate('window.calls[0].prompt.includes("/fixture/files/note.txt") && window.calls[0].prompt.includes("/fixture/files/clip.mp4")'));
     assert.deepEqual(await evaluate("window.saved.messages.at(-1).files"), ["/fixture/files/note.txt", "/fixture/files/clip.mp4", "/fixture/files/photo.png"]);
     assert.equal(await evaluate("window.saved.messages.at(-1).body"), "[Image #1]");
-    await waitFor(
-      String.raw`!!document.querySelector("article [aria-label=\"Preview photo.png\"]") && !!document.querySelector("article [data-chip=\"image\"]")`,
+    // A send that is only its image mentions shows the photo tile alone, with no text bubble carrying an [Image #1] chip.
+    await waitFor(String.raw`!!document.querySelector("article [aria-label=\"Preview photo.png\"]")`);
+    // The image also sits in the message's files (by its original path) but shows once: the sent copy keeps that path as its source.
+    assert.equal(
+      await evaluate(`document.querySelector('article:has([aria-label="Preview note.txt"])').querySelectorAll('[aria-label="Preview photo.png"]').length`),
+      1,
+      "A chosen image shows once in the sent message",
     );
+    assert.equal(await evaluate(`!!document.querySelector('article [data-chip="image"]')`), false, "An images-only message has no [Image #1] chip");
     await click('article [aria-label="Preview note.txt"]');
     await waitFor(`document.querySelector('dialog[open]')?.textContent.includes('export const greeting')`);
     await key("Escape");
@@ -336,10 +352,6 @@ async function browserChecks() {
     assert.deepEqual(await evaluate("window.fileReads"), ["/fixture/files/note.txt"]);
     assert.equal(await evaluate("window.interrupted"), undefined, "File preview Escape never stops active agent");
     await click('article [aria-label="Preview photo.png"]');
-    await waitFor(`document.querySelector('dialog[open] img')?.naturalWidth > 0`);
-    await key("Escape");
-    await waitFor(String.raw`!document.querySelector("dialog")`);
-    await click('article [data-chip="image"]');
     await waitFor(`document.querySelector('dialog[open] img')?.naturalWidth > 0`);
     await key("Escape");
     await waitFor(String.raw`!document.querySelector("dialog")`);
@@ -387,6 +399,23 @@ async function browserChecks() {
     );
     await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.src.startsWith('data:image/png')`);
     assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "[Image #1] ", "Images above the old limit remain image attachments");
+    // With text beside it, the image mention stays a chip in the sent message and opens the viewer.
+    await type("look [Image #1]");
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
+    await key("Enter");
+    await waitFor("window.calls.length === 3");
+    assert.equal(await evaluate("window.saved.messages.at(-1).body"), "look [Image #1]");
+    await waitFor(String.raw`!!document.querySelector('article [data-chip="image"]')`);
+    await click('article [data-chip="image"]');
+    await waitFor(`document.querySelector('dialog[open] img')?.naturalWidth > 0`);
+    await key("Escape");
+    await waitFor(String.raw`!document.querySelector("dialog")`);
+    await type("");
+    await evaluate(
+      `(() => { const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array(6 * 1024 * 1024)], 'photo.png', {type:'image/png'})); document.querySelector('[data-prompt-editor]').dispatchEvent(new DragEvent('drop', { bubbles:true, cancelable:true, dataTransfer:dt })); })()`,
+    );
+    await waitFor(String.raw`document.querySelector('[data-promptbar] img')?.src.startsWith('data:image/png')`);
+    assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), "[Image #1] ", "A dropped image after a send is [Image #1] again");
     await click('[data-promptbar] [aria-label="Remove photo.png"]');
     await evaluate(
       `(() => { const dt = new DataTransfer(); dt.items.add(new File([Uint8Array.from(atob(window.imageBytes), c=>c.charCodeAt(0))], 'pasted.png', {type:'image/png'})); document.querySelector('[data-prompt-editor]').dispatchEvent(new ClipboardEvent('paste', { bubbles:true, cancelable:true, clipboardData:dt })); })()`,

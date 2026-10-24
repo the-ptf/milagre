@@ -13,6 +13,31 @@ export function formatImageMention(index) {
   return `[Image #${index}]`;
 }
 
+/** True when a sent prompt is only its attached images' tokens (`[Image #1] [Image #2]`): the images show, not a text bubble. */
+export function onlyImageMentions(prompt, images) {
+  if (!images || !prompt.trim()) return false;
+  return !prompt.replace(IMAGE_TOKEN, (token, index) => (hasImage(images, Number(index)) ? "" : token)).trim();
+}
+
+/**
+ * A Chat's name from the first line of its prompt: the `[Image #N]` tokens of attached images are dropped and the spaces
+ * collapsed, and a line that was only tokens reads "Image" or "N images". `images` is the attached count, or a predicate for
+ * the valid indexes; omit it when unknown and every token counts. A token with no image behind it stays as text.
+ */
+export function promptTitle(line, images) {
+  const found = new Set();
+  const text = line
+    .replace(IMAGE_TOKEN, (token, index) => {
+      if (images !== undefined && !hasImage(images, Number(index))) return token;
+      found.add(Number(index));
+      return "";
+    })
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text || !found.size) return text;
+  return found.size === 1 ? "Image" : `${found.size} images`;
+}
+
 /** `"Image #1"` display label for a 1-based attached image index. */
 export function imageLabel(index) {
   return `Image #${index}`;

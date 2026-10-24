@@ -8,12 +8,13 @@ import type { ChatMessage, ChatStep, LinkedContext } from "@milagre/shared/model
 import { linkedContext, linkedHeading } from "@milagre/shared/linked-message";
 import { activitySummary, replyActivity, unspokenThought } from "@milagre/shared/reply-parts";
 import { FileChip } from "./file-chip";
-import { promptParts } from "@milagre/shared/prompt-parts";
+import { onlyImageMentions, promptParts } from "@milagre/shared/prompt-parts";
 import { isMentionOfFile, mentionedFile, mentionedFiles } from "@milagre/shared/prompt-mentions";
 import { FileMentionChip, ImageMentionChip, SkillChip } from "./prompt-chip";
 import { promptAccessibilityLabel } from "./prompt-label";
 import { useSkillNames } from "./use-skill-names";
 import { Markdown } from "./markdown";
+import { MessageActions, messageActionProps, selectableMessageText } from "./message-actions";
 import { Icon } from "./icons";
 import { ActivityTitle } from "./activity-item";
 import { ToolRow } from "./tool-row";
@@ -302,21 +303,29 @@ export const ChatReply = memo(function ChatReply({
     return (
       <View style={{ gap: 6, paddingVertical: 4 }}>
         <LinkedHeader context={linked} onOpenChat={onOpenChat} />
-        <View
-          style={{
-            borderWidth: 1,
-            borderColor: colors.line,
-            borderRadius: 14,
-            borderCurve: "continuous",
-            paddingVertical: 10,
-            paddingHorizontal: 14,
-            ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
-          }}
-        >
-          <Text selectable style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) }}>
-            {text}
-          </Text>
-        </View>
+        <MessageActions text={text}>
+          {(openActions) => (
+            <View
+              style={{
+                borderWidth: 1,
+                borderColor: colors.line,
+                borderRadius: 14,
+                borderCurve: "continuous",
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
+              }}
+            >
+              <Text
+                selectable={selectableMessageText}
+                style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) }}
+                {...messageActionProps(openActions)}
+              >
+                {text}
+              </Text>
+            </View>
+          )}
+        </MessageActions>
       </View>
     );
   if (message?.role === "user") {
@@ -343,31 +352,42 @@ export const ChatReply = memo(function ChatReply({
         ) : message.answered?.length ? (
           <AnswerCard answered={message.answered} />
         ) : (
-          !!text && (
-            <View
-              style={{
-                backgroundColor: colors.canvas,
-                borderRadius: 18,
-                borderCurve: "continuous",
-                paddingVertical: 10,
-                paddingHorizontal: 14,
-                ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
-              }}
-            >
-              <Text selectable accessibilityLabel={promptAccessibilityLabel(parts)} style={{ color: colors.ink, fontSize: textPx, lineHeight }}>
-                {parts.map((part, index) =>
-                  part.kind === "skill" ? (
-                    <SkillChip key={index} name={part.name} />
-                  ) : part.kind === "file" ? (
-                    <FileMentionChip key={index} path={part.path} onOpen={() => openMention(part.path, attached, root)} />
-                  ) : part.kind === "image" ? (
-                    <ImageMentionChip key={index} index={part.index} onOpen={() => open(viewerPhotos(message, media), part.index - 1, [])} />
-                  ) : (
-                    part.text
-                  ),
-                )}
-              </Text>
-            </View>
+          // A send that is only its images shows them above, without an "Image #1" bubble.
+          !!text &&
+          !onlyImageMentions(text, userImages) && (
+            <MessageActions text={text}>
+              {(openActions) => (
+                <View
+                  style={{
+                    backgroundColor: colors.canvas,
+                    borderRadius: 18,
+                    borderCurve: "continuous",
+                    paddingVertical: 10,
+                    paddingHorizontal: 14,
+                    ...(highlighted ? { outlineWidth: 1.5, outlineColor: colors.accent, outlineStyle: "solid" as const } : {}),
+                  }}
+                >
+                  <Text
+                    selectable={selectableMessageText}
+                    accessibilityLabel={promptAccessibilityLabel(parts)}
+                    style={{ color: colors.ink, fontSize: textPx, lineHeight }}
+                    {...messageActionProps(openActions)}
+                  >
+                    {parts.map((part, index) =>
+                      part.kind === "skill" ? (
+                        <SkillChip key={index} name={part.name} />
+                      ) : part.kind === "file" ? (
+                        <FileMentionChip key={index} path={part.path} onOpen={() => openMention(part.path, attached, root)} />
+                      ) : part.kind === "image" ? (
+                        <ImageMentionChip key={index} index={part.index} onOpen={() => open(viewerPhotos(message, media), part.index - 1, [])} />
+                      ) : (
+                        part.text
+                      ),
+                    )}
+                  </Text>
+                </View>
+              )}
+            </MessageActions>
           )
         )}
       </View>
@@ -385,7 +405,11 @@ export const ChatReply = memo(function ChatReply({
           entry.type === "step" ? (
             <ToolRow key={entry.step.id} step={entry.step} live={!!run} waiting={waiting} onPress={openActivity} />
           ) : (
-            <Markdown key={`text-${index}`} text={entry.text} media={savedMedia} basePath={basePath} />
+            <MessageActions key={`text-${index}`} text={entry.text} markdown>
+              {(openActions) => (
+                <Markdown text={entry.text} media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />
+              )}
+            </MessageActions>
           ),
         )
       ) : reply.activity.length === 1 && reply.activity[0]?.type === "step" ? (
@@ -407,15 +431,32 @@ export const ChatReply = memo(function ChatReply({
         </View>
       ))}
       <ArtifactCards steps={reply.artifacts} chatId={chatId} chosen={designChoice} />
-      {!!reply.answer.trim() && <Markdown text={reply.answer} streaming={!!run} media={savedMedia} basePath={basePath} />}
+      {!!reply.answer.trim() && (
+        <MessageActions text={reply.answer} markdown>
+          {(openActions) => (
+            <Markdown
+              text={reply.answer}
+              streaming={!!run}
+              media={savedMedia}
+              basePath={basePath}
+              selectable={selectableMessageText}
+              onMessageAction={openActions}
+            />
+          )}
+        </MessageActions>
+      )}
       {/* The reply says what the Heartbeat is for; its card follows. */}
       {heartbeats.map((step) => (
         <HeartbeatCard key={step.id} step={step} />
       ))}
       {!!thought && (
-        <View style={{ opacity: 0.75 }}>
-          <Markdown text={thought} media={savedMedia} basePath={basePath} />
-        </View>
+        <MessageActions text={thought} markdown>
+          {(openActions) => (
+            <View style={{ opacity: 0.75 }}>
+              <Markdown text={thought} media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />
+            </View>
+          )}
+        </MessageActions>
       )}
       {!run && message?.outcome === "cancelled" && <Text style={styles.muted}>Turn stopped</Text>}
       {limit && message && <UsageLimitCard limit={limit} sessionId={message.session_id} projectPath={limitProjectPath} />}

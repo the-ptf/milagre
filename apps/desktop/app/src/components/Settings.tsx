@@ -92,12 +92,16 @@ import { isFontInstalled, withBundledNames } from "../lib/appearance";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { NOTIFICATION_CHIMES, type NotificationChime } from "@milagre/shared/notification-chimes";
 import {
+  CHAT_LIST_HINT,
+  CHAT_LIST_MODES,
+  CHAT_LIST_TITLE,
   DETAIL_LEVEL_TITLE,
   EXPAND_REASONING_HINT,
   EXPAND_REASONING_TITLE,
   TOOL_CALL_DISPLAYS,
   TOOL_CALL_DISPLAY_HINT,
   TOOL_CALL_DISPLAY_TITLE,
+  type ChatList,
   type ToolCallDisplay,
 } from "@milagre/shared/chat-display";
 import { playNotificationChime } from "../lib/notification-chime";
@@ -622,6 +626,17 @@ function ChatSettings() {
   const settings = useSettings();
   return (
     <>
+      <Group title={CHAT_LIST_TITLE}>
+        <Row label={CHAT_LIST_TITLE} description={CHAT_LIST_HINT}>
+          <Select<ChatList>
+            label={CHAT_LIST_TITLE}
+            width={300}
+            value={settings.chatList}
+            onChange={(chatList) => updateSettings({ chatList })}
+            options={CHAT_LIST_MODES.map((mode) => ({ value: mode.id, label: mode.label, description: mode.description }))}
+          />
+        </Row>
+      </Group>
       <Group title="Replies">
         <Row
           label="TLDR writing"

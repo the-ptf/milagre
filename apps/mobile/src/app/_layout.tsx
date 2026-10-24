@@ -11,6 +11,7 @@ import { PushProvider } from "../push";
 import { StartupSplash } from "../startup-splash";
 import { useTheme } from "../theme";
 import { UpdateShell } from "../update-sheet";
+import { stackScreenOptions } from "../stack-options";
 import { SidePanelsHost, SidePanelsProvider } from "../side-panels";
 import { setConfirmPresenter } from "../confirm-store";
 import { setChoicePresenter } from "../choice-store";
@@ -28,7 +29,6 @@ export default function Layout() {
     ...base,
     colors: { ...base.colors, primary: palette.accent, background: palette.page, card: palette.page, text: palette.ink, border: palette.line },
   };
-  // Titles sit inline in a transparent top bar; content blurs softly as it scrolls under it (iOS 26 scroll edge effect).
   const sheet = {
     presentation: "formSheet",
     sheetGrabberVisible: true,
@@ -47,26 +47,10 @@ export default function Layout() {
                   {/* oxlint-disable-next-line react/style-prop-object -- React Native style object; the rule targets web DOM styles */}
                   <StatusBar style="auto" />
                   <UpdateShell>
-                    <Stack
-                      screenOptions={{
-                        headerTransparent: true,
-                        headerStyle: { backgroundColor: "transparent" },
-                        scrollEdgeEffects: { top: "soft" },
-                        headerTintColor: palette.ink,
-                        headerTitleStyle: { color: palette.ink, fontWeight: "600", fontSize: 17 },
-                        contentStyle: { backgroundColor: palette.page },
-                        headerShadowVisible: false,
-                        headerBackButtonDisplayMode: "minimal",
-                      }}
-                    >
+                    <Stack screenOptions={stackScreenOptions(palette)}>
                       <Stack.Screen name="index" options={{ title: "Computers" }} />
-                      <Stack.Screen name="project-accounts" options={{ title: "Project Accounts" }} />
-                      <Stack.Screen name="accounts" options={{ title: "Accounts" }} />
-                      <Stack.Screen name="settings" options={{ title: "Settings" }} />
-                      <Stack.Screen name="general" options={{ title: "General" }} />
-                      <Stack.Screen name="connections" options={{ title: "Connections" }} />
-                      <Stack.Screen name="appearance" options={{ title: "Appearance" }} />
-                      <Stack.Screen name="chat-display" options={{ title: "Chat" }} />
+                      {/* Settings: one sheet holding a Stack of its own (app/(settings)/_layout.tsx), so its pages open inside it. */}
+                      <Stack.Screen name="(settings)" options={{ ...sheet, sheetAllowedDetents: [1] }} />
                       <Stack.Screen name="update-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                       <Stack.Screen name="update-notes" options={{ ...sheet, sheetAllowedDetents: [0.75, 1] }} />
                       <Stack.Screen name="confirm-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
@@ -75,16 +59,8 @@ export default function Layout() {
                         name="choice-sheet"
                         options={{ ...sheet, headerShown: true, headerBackVisible: false, sheetAllowedDetents: [0.75, 1], sheetInitialDetentIndex: 0 }}
                       />
-                      <Stack.Screen name="notifications" options={{ title: "Notifications" }} />
-                      <Stack.Screen name="usage" options={{ title: "Plan usage" }} />
-                      <Stack.Screen name="skills" options={{ title: "Skills" }} />
-                      <Stack.Screen name="mcp" options={{ title: "MCP" }} />
-                      <Stack.Screen name="mcp-server" />
                       <Stack.Screen name="mcp-add" options={{ ...sheet, title: "Add MCP server", sheetAllowedDetents: [1] }} />
-                      <Stack.Screen name="local-mcp" options={{ title: "Milagre MCP" }} />
-                      <Stack.Screen name="experimental" options={{ title: "Experimental" }} />
                       <Stack.Screen name="chime-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
-                      <Stack.Screen name="skill" options={{ title: "Skill" }} />
                       <Stack.Screen name="add-computer" options={{ ...sheet, sheetAllowedDetents: [1] }} />
                       <Stack.Screen name="pair" options={{ title: "Pairing" }} />
                       <Stack.Screen name="projects" options={{ title: "Projects" }} />
@@ -92,7 +68,6 @@ export default function Layout() {
                       <Stack.Screen name="routines" options={{ title: "Routines" }} />
                       <Stack.Screen name="routine" options={{ title: "Routine" }} />
                       <Stack.Screen name="routine-form" options={{ ...sheet, sheetAllowedDetents: [1] }} />
-                      <Stack.Screen name="project-settings" options={{ title: "Project" }} />
                       <Stack.Screen name="link-projects" options={{ ...sheet, sheetAllowedDetents: [1] }} />
                       <Stack.Screen name="link-chat" options={{ ...sheet, sheetAllowedDetents: [1] }} />
                       <Stack.Screen name="choose-projects" options={{ ...sheet, sheetAllowedDetents: [0.6, 1], sheetInitialDetentIndex: 0 }} />
@@ -132,6 +107,7 @@ export default function Layout() {
                       <Stack.Screen name="activity" options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }} />
                       <Stack.Screen name="background" options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }} />
                       <Stack.Screen name="handoff-brief" options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }} />
+                      <Stack.Screen name="select-text" options={{ ...sheet, sheetAllowedDetents: [0.6, 1] }} />
                       <Stack.Screen
                         name="viewer"
                         options={{ presentation: "transparentModal", headerShown: false, animation: "none", contentStyle: { backgroundColor: "transparent" } }}

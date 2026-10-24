@@ -118,7 +118,7 @@ window.milagre = new Proxy({
   },
 }, { get(target, key) { return target[key] ?? (String(key).startsWith("on") ? () => () => {} : async () => null); } });
 // settings.ts read localStorage when it was imported above, so the saved settings go through its own setter.
-updateSettings({ defaultModelId: "claude-opus-5-5", defaultPermissionMode: "ask", otherComputers: true });
+updateSettings({ defaultModelId: "claude-opus-5-5", defaultPermissionMode: "ask", otherComputers: true, chatList: "grouped" });
 window.setOther = (otherComputers) => updateSettings({ otherComputers });
 const { default: App } = await import("/src/App");
 createRoot(document.getElementById("root")).render(<App />);

@@ -24,7 +24,9 @@ export async function prepareImageUploads(owner: string, images: ImageAttachment
       continue;
     }
     const file = await uploadFile(owner, image.name, image.dataUrl.slice(image.dataUrl.indexOf(",") + 1));
-    prepared.push({ id: image.id, name: image.name, path: file.path });
+    // The upload's path is a temporary copy. The file the user chose stays the image's source, so the sent message, which also
+    // lists that file, shows the image once.
+    prepared.push({ id: image.id, name: image.name, path: file.path, ...(image.path ? { sourcePath: image.path } : {}) });
   }
   return prepared;
 }

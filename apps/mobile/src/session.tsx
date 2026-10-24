@@ -49,13 +49,16 @@ function useSessionState() {
   const seen = useRef(new Map<string, Snapshot>());
   const listed = useRef(new Map<string, Snapshot | ProjectPreview>());
   const previews = useRef(new Map<Client, Map<string, Promise<Snapshot | ProjectPreview>>>());
+  // The Project the live snapshot is for: its cached copy is the live one, which a list read must not replace.
+  const liveKey = useRef<string | null>(null);
   // Keep streamed status and local refreshes in the copy a remounted drawer will read.
   useEffect(() => {
     if (client && snapshot) {
       const key = `${client.url}|${snapshot.project.path}`;
       seen.current.set(key, snapshot);
       listed.current.set(key, snapshot);
-    }
+      liveKey.current = key;
+    } else liveKey.current = null;
   }, [client, snapshot]);
   const cachedProject = useCallback(
     (path: string) => (client ? (listed.current.get(`${client.url}|${path}`) ?? seen.current.get(`${client.url}|${path}`)) : undefined),
@@ -302,6 +305,18 @@ function useSessionState() {
     },
     [client],
   );
+  // The sidebar's own reads of this computer's Projects warm opening them, as previewProject does, without a second request.
+  const seedPreview = useCallback(
+    (source: Pick<Client, "url">, path: string, copy: Snapshot | ProjectPreview) => {
+      if (!client || source !== client) return;
+      const key = `${client.url}|${path}`;
+      const canonicalKey = `${client.url}|${copy.project.path}`;
+      if (key === liveKey.current || canonicalKey === liveKey.current) return;
+      listed.current.set(key, copy).set(canonicalKey, copy);
+      if (!copy.previewOnly) seen.current.set(key, copy).set(canonicalKey, copy);
+    },
+    [client],
+  );
   const reloadProjects = useCallback(async () => {
     if (!client) return;
     const current = generation.current;
@@ -416,6 +431,7 @@ function useSessionState() {
     rememberChat,
     cachedProject,
     previewProject,
+    seedPreview,
     reloadProjects,
     setProjectHidden,
     claimAutoOpen,

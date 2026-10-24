@@ -1248,6 +1248,138 @@ test("drawer snapshots are marked and cached separately from full snapshots", as
   assert.equal((await request(route + "&view=chats", { headers: { "if-none-match": response.headers.get("etag") } })).status, 304);
 });
 
+test("chat-lists reads several Projects in one request without opening them or touching their recent order", async (t) => {
+  const { project, request, rpc, dataDir } = await fixture(t);
+  const other = path.join(path.dirname(project), "other");
+  await fs.mkdir(other);
+  execFileSync("git", ["init", "-b", "main", other], { stdio: "ignore" });
+  await rpc("project:open", [project]);
+  await rpc("project:open", [other]);
+  const unopened = path.join(path.dirname(project), "unopened");
+  await fs.mkdir(unopened);
+  const desktop = await connect({ dataDir });
+  t.after(() => desktop.close());
+  const recent = async () => (await desktop.call("project:recent")).map((entry) => entry.path);
+  const before = await recent();
+  const route = (paths) => "/chat-lists?paths=" + encodeURIComponent(JSON.stringify(paths));
+  const response = await request(route([project, other, "link:missing", "relative", unopened]));
+  assert.equal(response.status, 200);
+  const { result } = await response.json();
+  assert.deepEqual(Object.keys(result).sort(), [other, project, "link:missing", "relative", unopened].sort());
+  for (const owner of [project, other]) {
+    assert.equal(result[owner].previewOnly, true);
+    assert.equal(result[owner].project.path, owner);
+  }
+  const single = (await (await request("/snapshot?projectPath=" + encodeURIComponent(project) + "&view=chats")).json()).result;
+  assert.deepEqual(result[project], single);
+  for (const owner of ["link:missing", "relative"]) assert.equal(typeof result[owner].error, "string");
+  assert.deepEqual(result[unopened], { error: "Open the project before reading its snapshot." });
+  assert.deepEqual(await recent(), before, "reading the lists leaves the recent Projects as they were");
+  assert.equal(
+    (await request(route([project, other]), { headers: { "if-none-match": (await request(route([project, other]))).headers.get("etag") } })).status,
+    304,
+  );
+});
+
+test("chat-lists refuses more than 20 Projects, and a list that is not a JSON list of paths", async (t) => {
+  const { project, request } = await fixture(t);
+  const route = (paths) => "/chat-lists?paths=" + encodeURIComponent(paths);
+  const twenty = Array.from({ length: 20 }, (_, index) => path.join(project, String(index)));
+  assert.equal((await request(route(JSON.stringify(twenty)))).status, 200);
+  for (const paths of [JSON.stringify([...twenty, project]), "not json", JSON.stringify({ a: 1 }), JSON.stringify([project, 3]), JSON.stringify([])])
+    assert.equal((await request(route(paths))).status, 400, paths);
+  assert.equal((await request("/chat-lists")).status, 400);
+});
+
+test("a confined phone gets an error, never data, for a Project outside its folder in chat-lists", async (t) => {
+  const { project, dataDir, rpc, token } = await fixture(t);
+  await rpc("project:open", [project]);
+  const outside = path.join(path.dirname(project), "outside");
+  await fs.mkdir(outside);
+  const bridge = await startMobileBridge({ dataDir, port: 0, token, allowedRoot: project });
+  t.after(() => bridge.close());
+  const response = await fetch(bridge.url + "/chat-lists?paths=" + encodeURIComponent(JSON.stringify([project, outside])), {
+    headers: { authorization: "Bearer " + token },
+  });
+  assert.equal(response.status, 200);
+  const { result } = await response.json();
+  assert.equal(result[project].previewOnly, true);
+  assert.deepEqual(Object.keys(result[outside]), ["error"]);
+});
+
+test("chat-lists reads an unchanged batch once, and leaves the Projects a snapshot holds warm", async (t) => {
+  // A bridge whose host connection counts what it reads, built from its own copy of the module (it takes `connect` at load).
+  const { project, dataDir, token, rpc } = await fixture(t);
+  const clientModule = require("./client.cjs");
+  const realConnect = clientModule.connect;
+  const reads = { "state:read": 0, "chat:all-messages": 0 };
+  clientModule.connect = async (options) => {
+    const connection = await realConnect(options);
+    const call = connection.call.bind(connection);
+    connection.call = async (method, args) => {
+      if (method in reads) reads[method]++;
+      return call(method, args);
+    };
+    return connection;
+  };
+  const bridgePath = require.resolve("./mobile-bridge.cjs");
+  const kept = require.cache[bridgePath];
+  delete require.cache[bridgePath];
+  const { startMobileBridge: startCountingBridge } = require("./mobile-bridge.cjs");
+  require.cache[bridgePath] = kept;
+  clientModule.connect = realConnect;
+  t.after(() => {
+    clientModule.connect = realConnect;
+  });
+  const bridge = await startCountingBridge({ dataDir, port: 0, token });
+  t.after(() => bridge.close());
+  const get = (route) => fetch(bridge.url + route, { headers: { authorization: `Bearer ${token}` } });
+  const projects = [project];
+  for (let index = 1; index < 20; index++) {
+    const other = path.join(path.dirname(project), `batch-${index}`);
+    await fs.mkdir(other);
+    execFileSync("git", ["init", "-q", "-b", "main", other], { stdio: "ignore" });
+    projects.push(other);
+  }
+  for (const item of projects) assert.equal((await rpc("project:open", [item])).status, 200);
+  const list = "/chat-lists?paths=" + encodeURIComponent(JSON.stringify(projects));
+  const snapshot = (owner) => get("/snapshot?projectPath=" + encodeURIComponent(owner));
+  const spent = async (run) => {
+    const before = { ...reads };
+    await run();
+    return { stateReads: reads["state:read"] - before["state:read"], messageReads: reads["chat:all-messages"] - before["chat:all-messages"] };
+  };
+
+  // The Project a phone has open is held by its snapshot, and a 20-Project list neither reads it again nor evicts it.
+  assert.deepEqual(await spent(async () => assert.equal((await snapshot(project)).status, 200)), { stateReads: 1, messageReads: 1 });
+  const first = await spent(async () => assert.equal((await get(list)).status, 200));
+  assert.deepEqual(first, { stateReads: 19, messageReads: 20 }, "the held Project is borrowed; the other 19 are read without being held");
+  assert.deepEqual(
+    await spent(async () => assert.equal((await snapshot(project)).status, 200)),
+    { stateReads: 0, messageReads: 1 },
+    "the snapshot's Project stayed held",
+  );
+
+  // The same batch again, with nothing changed: no Project is read.
+  const response = await get(list);
+  assert.deepEqual(await spent(async () => assert.equal((await get(list)).status, 200)), { stateReads: 0, messageReads: 0 });
+  assert.equal((await get(list)).headers.get("etag"), response.headers.get("etag"));
+
+  // A change to one Project lists that Project again, and only it.
+  const chat = Object.values((await (await snapshot(project)).json()).result.project.state.sessions)[0];
+  const host = await connect({ dataDir });
+  t.after(() => host.close());
+  await host.call("chat:git-note", [`${project}#${chat.id}`, "A note"]);
+  let again;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    again = await spent(async () => assert.equal((await get(list)).status, 200));
+    if (again.messageReads) break;
+    await delay(20);
+  }
+  assert.equal(again.messageReads, 1, "only the Project that changed is read again");
+  assert.deepEqual(await spent(async () => assert.equal((await get(list)).status, 200)), { stateReads: 0, messageReads: 0 });
+});
+
 test("phone:routes is answered by the phone hook, never forwarded to the daemon", async (t) => {
   const asked = [];
   const answer = { hostId: "h".repeat(22), key: "k".repeat(43), lan: ["ws://192.168.1.20:8798"] };

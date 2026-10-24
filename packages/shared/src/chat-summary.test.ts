@@ -58,3 +58,11 @@ test("a Chat that started from a Linear issue names the issue, so a comment on i
   assert.equal(later.linearIssue, undefined);
   assert.equal(sameSummary(summary, summarizeChat([card, message(4, { role: "assistant", body: "On it." })])), true);
 });
+
+test("a Chat that began with images keeps how many, so their tokens can be named in its title", () => {
+  const image = { id: "i", name: "a.png", path: "/a.png" };
+  const summary = summarizeChat([message(1, { role: "user", body: "[Image #1] [Image #2]", images: [image, image] })]);
+  assert.equal(summary.titleLine, "[Image #1] [Image #2]");
+  assert.equal(summary.titleImages, 2);
+  assert.equal("titleImages" in summarizeChat([message(1, { role: "user", body: "hi" })]), false);
+});

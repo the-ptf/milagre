@@ -67,6 +67,8 @@ function mediaName(text: string, path: string): string {
 
 type Answer = { status: number; ok: boolean; etag?: string | null; text: () => Promise<string> };
 const LOST = "Connection lost. Reconnect to your computer. Check the Chat before sending again.";
+/** What a retired client's callers get: the computer it served was replaced, and nothing more is started for it. */
+const replaced = () => new Error("This computer was replaced.");
 /** The connection dropped or a deadline passed: the request may have reached the Mac (see retryKind in send-retry). */
 const lost = () => Object.assign(new Error(LOST), { retry: "unknown" as const });
 const decoder = new TextDecoder();
@@ -143,6 +145,18 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
   const token = host.token.trim();
   // The last snapshot per route and its ETag: an unchanged Project answers 304 instead of megabytes.
   const cached = new Map<string, { etag: string; value: unknown }>();
+  // Every route is cached by its URL, so a route whose URL varies (the Projects of /chat-lists) must not pile up.
+  const CACHED_ROUTES = 200;
+  const CHAT_LISTS = "/chat-lists?";
+  function remember(route: string, entry: { etag: string; value: unknown }) {
+    // The Projects asked for change from read to read: only the latest batch's answer can still be revalidated.
+    if (route.startsWith(CHAT_LISTS)) for (const known of cached.keys()) if (known !== route && known.startsWith(CHAT_LISTS)) cached.delete(known);
+    cached.delete(route);
+    cached.set(route, entry);
+    while (cached.size > CACHED_ROUTES) cached.delete(cached.keys().next().value!);
+  }
+  // Set once the owner replaced this client: it starts no request, transport or stream after that.
+  let retired = false;
   // Per Project, the last snapshot the host numbered: the next one comes as a patch on it, a few hundred bytes where a
   // large Project's snapshot runs to megabytes. A host that doesn't number snapshots answers with the whole one.
   const numbered = new Map<string, { epoch: string; version: number; value: SnapshotAnswer }>();
@@ -178,6 +192,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
   // The Mac adds the token to every request it forwards; over the relay or the LAN it only rides the handshake.
   /** The transport this request rides: the LAN when it is up, else the relay for a relay computer, else none (HTTPS). */
   const carrier = (): Promise<RelayTransport> | null => {
+    if (retired) throw replaced();
     const lan = lanNow();
     if (lan) return Promise.resolve(lan);
     return relay ? runtime!.transport({ relay, token }) : null;
@@ -208,6 +223,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
 
   function request<T>(route: string, body?: unknown, deadlineMs = timeoutMs, extraHeaders: Record<string, string> = {}): Promise<T> {
     return timed(deadlineMs, async (signal) => {
+      if (retired) throw replaced();
       const previous = body === undefined ? cached.get(route) : undefined;
       const headers = { "Content-Type": "application/json", ...extraHeaders, ...(previous ? { "If-None-Match": previous.etag } : {}) };
       const sent = body === undefined ? undefined : JSON.stringify(body);
@@ -246,7 +262,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       if (response.status === 429) throw Object.assign(new Error("Your computer is busy right now. Try again in a moment."), { status: 429 });
       if (!response.ok || value.error)
         throw Object.assign(new Error(value.error?.message || `Request failed (${response.status})`), { status: response.status });
-      if (body === undefined && response.etag) cached.set(route, { etag: response.etag, value: value.result });
+      if (body === undefined && response.etag) remember(route, { etag: response.etag, value: value.result });
       return value.result as T;
     });
   }
@@ -303,17 +319,25 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
 
   return {
     url,
+    /** Stops this client from starting any request, relay transport or stream; what is already in flight settles on its own. */
+    retire() {
+      retired = true;
+    },
     async recentScopes(): Promise<RecentProject[]> {
-      const [projects, groups] = await Promise.all([
+      // All three requests settle before this answers or fails: a caller that limits requests in flight counts them as one job.
+      const [recent, linked, registered] = await Promise.allSettled([
         request<RecentProject[]>("/rpc", { v: 1, method: "project:recent", args: [] }),
-        Promise.all([
-          request<NamedProjectLink[]>("/rpc", { v: 1, method: "link:list", args: [] }),
-          request<RegisteredProject[]>("/rpc", { v: 1, method: "project:registry", args: [] }),
-        ]).catch((error) => {
-          if (/not available from mobile|demo computer only/i.test(error.message)) return [[], []] as [NamedProjectLink[], RegisteredProject[]];
-          throw error;
-        }),
+        request<NamedProjectLink[]>("/rpc", { v: 1, method: "link:list", args: [] }),
+        request<RegisteredProject[]>("/rpc", { v: 1, method: "project:registry", args: [] }),
       ]);
+      if (recent.status === "rejected") throw recent.reason;
+      let groups: [NamedProjectLink[], RegisteredProject[]];
+      const failure = linked.status === "rejected" ? linked : registered.status === "rejected" ? registered : null;
+      if (failure) {
+        if (!/not available from mobile|demo computer only/i.test((failure.reason as Error)?.message)) throw failure.reason;
+        groups = [[], []];
+      } else groups = [(linked as PromiseFulfilledResult<NamedProjectLink[]>).value, (registered as PromiseFulfilledResult<RegisteredProject[]>).value];
+      const projects = recent.value;
       const [links, registry] = groups;
       return [
         ...projects.map(({ hidden: _hidden, ...project }) => project),
@@ -346,6 +370,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
     reuseUpload: (projectPath: string, id: string) => request<{ path: string; name: string; id: string } | null>("/attachments", { projectPath, reuse: id }),
     // Git fetches, worktree setup and removing a worktree get the same deadline as the desktop daemon client.
     call: async <T>(method: string, args: unknown[] = []) => {
+      if (retired) throw replaced();
       if (runtime?.beforeCall) await runtime.beforeCall(method, args);
       return request<T>(
         "/rpc",
@@ -379,13 +404,22 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
     message: (projectPath: string, id: number) => request<ChatMessage>(`/message?projectPath=${encodeURIComponent(projectPath)}&id=${id}`),
     snapshot: async (projectPath: string) => phoneSnapshot(await readSnapshot(projectPath)),
     preview: (projectPath: string) => request<ProjectPreview | Snapshot>("/snapshot?projectPath=" + encodeURIComponent(projectPath) + "&view=chats"),
+    /**
+     * The drawer previews of up to 20 Projects in one read-only request. A Project the Mac can't read comes back as
+     * `{ error }`. A Mac without the route fails with code "unsupported": ask for each Project's `preview` instead.
+     */
+    chatLists: (paths: string[]) =>
+      request<Record<string, ProjectPreview | { error: string }>>("/chat-lists?paths=" + encodeURIComponent(JSON.stringify(paths))).catch((error: unknown) => {
+        throw (error as { status?: number })?.status === 404 ? Object.assign(error as Error, { code: "unsupported" as const }) : error;
+      }),
     /** Just the Project's streaming turns: what a live "runs" signal fetches instead of the whole snapshot. */
     runs: (projectPath: string) => request<Runs>("/runs?projectPath=" + encodeURIComponent(projectPath)),
     /** Chat keys, in every Project, whose turn waits on an approval or question. */
     attention: () => request<string[]>("/attention"),
     inbox: () => request<import("@milagre/shared/attention").InboxSnapshot>("/inbox"),
     /** The Project's live socket, through the same tunnel and Access headers as every request, or through the relay. */
-    live: (projectPath: string, options: LiveOptions) => {
+    live: (projectPath: string, options: LiveOptions): Live => {
+      if (retired) return { close() {} };
       const path = `/live?projectPath=${encodeURIComponent(projectPath)}`;
       const open = () => {
         const through = carrier();

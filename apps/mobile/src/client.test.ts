@@ -25,6 +25,135 @@ test("recent scopes strip the computer's own hidden flags so the phone keeps its
   assert.equal(recent[1]?.hidden, undefined);
 });
 
+/** A fetcher whose answers the test releases one at a time, so requests can be held open. */
+function heldFetcher(answers: Record<string, () => Response>) {
+  const waiting: { method: string; release: () => void }[] = [];
+  const fetcher = (async (_url: unknown, init?: RequestInit) => {
+    const { method } = JSON.parse(init?.body as string);
+    return new Promise<Response>((resolve) => waiting.push({ method, release: () => resolve(answers[method]!()) }));
+  }) as typeof fetch;
+  const release = (method: string) => waiting.filter((item) => item.method === method).forEach((item) => item.release());
+  return { fetcher, release, methods: () => waiting.map((item) => item.method) };
+}
+const answer = (result: unknown, status = 200) => new Response(JSON.stringify({ v: 1, result }), { status });
+const refusal = (message: string, status = 500) => new Response(JSON.stringify({ v: 1, error: { message } }), { status });
+
+test("recent scopes settle all three requests before failing, so a limiter counts them as one job", async () => {
+  const held = heldFetcher({
+    "project:recent": () => refusal("Disk error"),
+    "link:list": () => answer([]),
+    "project:registry": () => answer([]),
+  });
+  const client = createClient({ address: "http://127.0.0.1:8787", token: "token" }, held.fetcher);
+  let outcome = "pending";
+  const read = client.recentScopes().then(
+    () => (outcome = "resolved"),
+    (error: Error) => (outcome = error.message),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(held.methods().sort(), ["link:list", "project:recent", "project:registry"]);
+  held.release("project:recent");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(outcome, "pending", "one failed request does not end the read while its siblings are out");
+  held.release("link:list");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(outcome, "pending");
+  held.release("project:registry");
+  await read;
+  assert.equal(outcome, "Disk error");
+});
+
+test("a Mac that doesn't list Links from mobile still answers its Projects, once every request settled", async () => {
+  const held = heldFetcher({
+    "project:recent": () => answer([{ path: "/shop", name: "shop" }]),
+    "link:list": () => refusal("link:list is not available from mobile", 403),
+    "project:registry": () => answer([]),
+  });
+  const client = createClient({ address: "http://127.0.0.1:8787", token: "token" }, held.fetcher);
+  let result: unknown = "pending";
+  const read = client.recentScopes().then((value) => (result = value));
+  await new Promise((resolve) => setImmediate(resolve));
+  held.release("link:list");
+  held.release("project:recent");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(result, "pending", "the registry is still out");
+  held.release("project:registry");
+  await read;
+  assert.deepEqual(result, [{ path: "/shop", name: "shop" }]);
+  // Any other failure of the Links is the read's failure.
+  const broken = heldFetcher({
+    "project:recent": () => answer([]),
+    "link:list": () => refusal("Disk error"),
+    "project:registry": () => answer([]),
+  });
+  const failing = createClient({ address: "http://127.0.0.1:8787", token: "token" }, broken.fetcher);
+  const failed = assert.rejects(failing.recentScopes(), /Disk error/);
+  await new Promise((resolve) => setImmediate(resolve));
+  ["project:recent", "link:list", "project:registry"].forEach(broken.release);
+  await failed;
+});
+
+test("a retired client starts no request, even one that was waiting on a transport", async () => {
+  let fetched = 0;
+  const client = createClient({ address: "http://127.0.0.1:8787", token: "token" }, async () => {
+    fetched++;
+    return answer({ ok: true });
+  });
+  assert.deepEqual(await client.call("daemon:status"), { ok: true });
+  client.retire();
+  await assert.rejects(client.call("daemon:status"), /replaced/);
+  await assert.rejects(client.preview("/a"), /replaced/);
+  await assert.rejects(client.recentScopes(), /replaced/);
+  assert.equal(fetched, 1);
+  client.live("/a", { onSignal() {}, onStatus() {} }).close();
+
+  let opened = 0;
+  const runtime = {
+    transport: async () => {
+      opened++;
+      return {
+        request: async () => ({ status: 200, headers: {}, body: new TextEncoder().encode(JSON.stringify({ v: 1, result: 1 })) }),
+        live: () => ({ close() {} }),
+      };
+    },
+    files: { find: async () => null, write: async () => "" },
+  } as unknown as RelayRuntime;
+  const relay = { url: "wss://relay.example", hostId: "h".repeat(22), key: "k".repeat(43) };
+  const relayed = createClient({ address: "relay://x", token: "token", relay }, fetch, 1000, runtime);
+  relayed.retire();
+  await assert.rejects(relayed.call("daemon:status"), /replaced/);
+  await assert.rejects(relayed.chatLists(["/a"]), /replaced/);
+  assert.equal(opened, 0, "the relay's transport is never created for a retired client");
+});
+
+test("only the latest chat-lists answer stays cached, and the cache is bounded", async () => {
+  const sent: (string | null)[] = [];
+  const client = createClient({ address: "http://127.0.0.1:8787", token: "token" }, async (url, init) => {
+    const headers = init?.headers as Record<string, string>;
+    sent.push(headers["If-None-Match"] ?? null);
+    const lists = String(url).includes("chat-lists");
+    const etag = lists ? `"${String(url).length}-${String(url)}"` : '"preview"';
+    if (headers["If-None-Match"] === etag) return new Response(null, { status: 304, headers: { etag } });
+    return new Response(JSON.stringify({ v: 1, result: {} }), { headers: { etag } });
+  });
+  await client.chatLists(["/a"]);
+  await client.chatLists(["/a"]);
+  assert.deepEqual(sent, [null, sent[1]], "the same batch revalidates");
+  assert.notEqual(sent[1], null);
+  await client.chatLists(["/a", "/b"]);
+  await client.chatLists(["/a", "/b", "/c"]);
+  // The first batch's entry was dropped when a different one was cached: asking it again sends no validator.
+  await client.chatLists(["/a"]);
+  assert.equal(sent.at(-1), null);
+  // Other routes keep theirs, and many distinct routes do not grow the cache forever.
+  await client.preview("/p");
+  await client.preview("/p");
+  assert.equal(sent.at(-1), '"preview"');
+  for (let i = 0; i < 300; i++) await client.preview(`/p${i}`);
+  await client.preview("/p");
+  assert.equal(sent.at(-1), null, "the oldest routes were evicted");
+});
+
 test("endpoint accepts HTTPS and emulator loopback, rejecting plaintext remote and credential/path tricks", () => {
   assert.equal(localEndpoint("http://127.0.0.1:8787/"), "http://127.0.0.1:8787");
   assert.equal(localEndpoint("http://10.0.2.2:8787"), "http://10.0.2.2:8787");
@@ -435,6 +564,27 @@ test("drawer previews use a separate ETag route and accept full snapshots from a
   assert.ok(routes[0].endsWith("/snapshot?projectPath=%2Fp&view=chats"));
   assert.ok(routes[1] !== undefined);
   assert.ok(routes[1].endsWith("/snapshot?projectPath=%2Fp"));
+});
+
+test("chat lists name their Projects in one encoded route, and a Mac without the route reports it as unsupported", async () => {
+  const routes: string[] = [];
+  const lists = { "/a b": { project: { path: "/a b" }, runs: { runs: {} }, previewOnly: true }, "/gone": { error: "Not found" } };
+  const client = createClient({ address: "http://127.0.0.1:8787", token: "token" }, async (url) => {
+    routes.push(String(url));
+    return new Response(JSON.stringify({ v: 1, result: lists }));
+  });
+  assert.deepEqual(await client.chatLists(["/a b", "/gone"]), lists);
+  assert.ok(routes[0]?.endsWith("/chat-lists?paths=" + encodeURIComponent(JSON.stringify(["/a b", "/gone"]))));
+  const older = createClient(
+    { address: "http://127.0.0.1:8787", token: "token" },
+    async () => new Response(JSON.stringify({ v: 1, error: { message: "Unknown endpoint" } }), { status: 404 }),
+  );
+  await assert.rejects(older.chatLists(["/a"]), (error) => (error as { code?: string }).code === "unsupported");
+  const busy = createClient(
+    { address: "http://127.0.0.1:8787", token: "token" },
+    async () => new Response(JSON.stringify({ v: 1, error: { message: "Too many pending requests" } }), { status: 429 }),
+  );
+  await assert.rejects(busy.chatLists(["/a"]), (error) => (error as { code?: string }).code === undefined);
 });
 
 const cloudflareHost = {

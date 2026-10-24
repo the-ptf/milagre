@@ -10,7 +10,9 @@ import React, { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import SidebarNav from "/src/components/SidebarNav";
 import { orderChats } from "/src/lib/chat-list";
+import { updateSettings } from "/src/lib/settings";
 import "/src/styles.css";
+updateSettings({ chatList: "grouped" });
 const links = [];
 window.calls = { picks: [], added: [], removed: [] };
 window.milagre = {

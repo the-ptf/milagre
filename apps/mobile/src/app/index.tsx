@@ -1,23 +1,18 @@
-import { nativeActivity } from "../live-activity-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Platform, RefreshControl, Text, View } from "react-native";
+import { Platform, RefreshControl, Text, View } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
 import { Add01Icon, ComputerIcon, LaptopIcon, Settings01Icon } from "@hugeicons/core-free-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSession, type HostLink } from "../session";
 import { usePush } from "../push";
-import { savedHosts } from "../hosts-native";
-import { confirmSheet } from "../confirm-store";
-import { createClient } from "../client";
-import { relayRuntime } from "../relay-native";
 import { lanRoutes } from "../routes-native";
 import type { SavedHost } from "../hosts-store";
+import { forgetComputer, isDesktopComputer, pingComputer, renameComputer, type Reachability } from "../computer-actions";
 import { Icon } from "../icons";
 import { ErrorNotice, HeaderButton, IconButton, ListRow, PageScroll, showActions, useStyles } from "../ui";
 import { useTheme } from "../theme";
 import { UpdateSettingsBadge, useAppUpdates } from "../update-sheet";
 
-type Reachability = "online" | "checking" | "offline";
 const DEMO = process.env.EXPO_PUBLIC_DEMO === "1";
 
 export default function ComputersScreen() {
@@ -39,13 +34,7 @@ export default function ComputersScreen() {
     setStatus(Object.fromEntries(hosts.map((host) => [host.id, "checking"])));
     await Promise.all(
       hosts.map(async (host) => {
-        let next: Reachability = "offline";
-        try {
-          await createClient(host, fetch, 5000, relayRuntime).call("daemon:status");
-          next = "online";
-        } catch {
-          /* unreachable */
-        }
+        const next = await pingComputer(host);
         setStatus((current) => ({ ...current, [host.id]: next }));
       }),
     );
@@ -99,40 +88,8 @@ export default function ComputersScreen() {
     });
   }, [session.hosts, session.booted]); // eslint-disable-line react-hooks/exhaustive-deps
   function manage(host: SavedHost, action: string) {
-    if (action === "rename")
-      Alert.prompt(
-        "Rename computer",
-        undefined,
-        (name) =>
-          void savedHosts
-            .rename(host.id, name)
-            .then(load)
-            .catch((e) => setError(e.message)),
-        "plain-text",
-        host.name,
-      );
-    if (action === "forget")
-      confirmSheet(`Forget ${host.name}?`, "You will need to scan its code again to reconnect.", [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Forget",
-          style: "destructive",
-          onPress: () => {
-            session.cancelNavigation();
-            if (session.client?.url === host.address) session.disconnect();
-            void push
-              .forget(host)
-              .then(() => nativeActivity?.endAsync(host.id))
-              .then(() => savedHosts.forget(host.id))
-              .then(() => {
-                if (host.relay) relayRuntime.forget(host.relay.hostId);
-                lanRoutes.forget(host.id);
-              })
-              .then(load)
-              .catch((e) => setError(e.message));
-          },
-        },
-      ]);
+    if (action === "rename") renameComputer(host, { onRenamed: load, onError: setError });
+    if (action === "forget") forgetComputer(host, { session, push, onForgotten: load, onError: setError });
   }
   const dot = (state?: Reachability) => (state === "online" ? colors.green : state === "offline" ? colors.red : colors.orange);
   const label = (state?: Reachability) => (state === "online" ? "Online" : state === "offline" ? "Offline" : "Checking…");
@@ -212,7 +169,7 @@ export default function ComputersScreen() {
                         justifyContent: "center",
                       }}
                     >
-                      <Icon icon={/studio|mini|imac/i.test(host.name) ? ComputerIcon : LaptopIcon} tone="ink" size={20} />
+                      <Icon icon={isDesktopComputer(host.name) ? ComputerIcon : LaptopIcon} tone="ink" size={20} />
                       <View
                         style={{
                           position: "absolute",
