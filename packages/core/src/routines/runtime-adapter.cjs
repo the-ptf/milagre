@@ -848,6 +848,8 @@ function createRoutines({
     // any more; a Routine created, turned on or run from such a device says it too, through authorize).
     read: () => ({ enabled: store.enabled() }),
     save,
+    // Runs under way, which an app update waits for (app-auto-update.cjs).
+    runningCount: () => store.runningCount(),
     // store.list gives copies, so each takes its Runs in place. While this computer may not run Routines, none has a next
     // Run: every surface (rows, a Routine's page, a Chat's Next check, the phone) would otherwise promise one that won't come.
     list: () => {

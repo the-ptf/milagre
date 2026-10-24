@@ -45,6 +45,8 @@ const METHODS = new Set([
   "linear:move-to-started:save",
   "limits:auto-switch:read",
   "limits:auto-switch:save",
+  "app-update:auto:read",
+  "app-update:auto:save",
   "routines:enabled:read",
   "routines:enabled:save",
   "routines:list",

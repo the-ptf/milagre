@@ -208,6 +208,18 @@ class ChatHost {
     return Boolean(this.runs[chatId]) || this.preparing.has(chatId) || this.notes.has(chatId) || this.subagentRecoveries.has(chatId);
   }
 
+  /** Every chat isBusy says is busy, plus those whose send is on its way to a turn: what a restart would cut short. */
+  busyChats() {
+    return new Set([
+      ...Object.keys(this.runs),
+      ...this.preparing.keys(),
+      ...this.notes.keys(),
+      ...this.subagentRecoveries.keys(),
+      ...this.startingTurns.keys(),
+      ...this.pendingSends.keys(),
+    ]);
+  }
+
   /** The turns streaming now, in every project, and the number of the last event they hold. */
   snapshot() {
     return { runs: this.runs, seq: this.seq };

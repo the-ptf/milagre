@@ -134,6 +134,8 @@ export type UpdateState = {
   version: string | null;
   progress: number;
   error?: string;
+  /** Auto update is on: a downloaded update installs by itself once nothing runs (Settings › About). */
+  auto?: boolean;
 };
 
 /** The Phone setting as the host runs it. The link and QR (an SVG) are there only while it is on; both carry the access token. */
@@ -365,6 +367,11 @@ export type MilagreBridge = {
   /** Settings › Accounts: after a usage limit, move the Chat's Project to the next ready account and continue by itself. */
   readLimitAutoSwitch: () => Promise<{ autoSwitch: boolean }>;
   saveLimitAutoSwitch: (value: boolean) => Promise<{ autoSwitch: boolean }>;
+  /** Settings › About: install a downloaded update by itself once no Chat or Routine runs and the Mac sits unused for 5 minutes. Kept by the host, so a paired desktop or the phone flips it too. */
+  readAutoUpdate: () => Promise<{ autoUpdate: boolean }>;
+  saveAutoUpdate: (value: boolean) => Promise<{ autoUpdate: boolean }>;
+  /** The switch changed, here or from another device. */
+  onAutoUpdate: (callback: (value: { autoUpdate: boolean }) => void) => () => void;
   /** Whether this Mac may run Routines: a device that allowed AI sharing authorized it (with a Routine write, or `true` here). `false` stops them. */
   readRoutinesEnabled: () => Promise<{ enabled: boolean }>;
   saveRoutinesEnabled: (value: boolean, consentVersion?: string) => Promise<{ enabled: boolean }>;

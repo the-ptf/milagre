@@ -86,6 +86,7 @@ const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsa
 const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
 const { createHookStore } = require("./routines/hook-store.cjs");
+const { createAutoUpdate, hostActivity } = require("./app-auto-update.cjs");
 // Where webhook URLs point unless the daemon says otherwise (its phone's relay).
 const HOOK_RELAY_URL = "wss://relay.milagre.cloud";
 const { chatTitle, isHiddenRunChat } = require("@milagre/shared/chats");
@@ -1254,6 +1255,17 @@ function createRuntime(options) {
   routines.start();
   commands.handle("routines:enabled:read", () => routines.read());
   commands.handle("routines:enabled:save", (_event, value, consentVersion) => routines.save(value === true, consentVersion));
+  // Auto update: the switch, and what a restart to install an update would stop (desktop app-updates.cjs).
+  const autoUpdate = createAutoUpdate({ file: path.join(dataDir, "app-update.json"), emit });
+  commands.handle("app-update:auto:read", () => autoUpdate.read());
+  commands.handle("app-update:auto:save", (_event, value) => autoUpdate.save(value === true));
+  commands.handle("app-update:activity", () =>
+    hostActivity({
+      busy: chats.busyChats(),
+      scopes: scopeStates.projects().map((key) => ({ key, state: heldState(key) })),
+      routines: routines.runningCount(),
+    }),
+  );
   commands.handle("routines:list", () => routines.list());
   // Create and change check a Routine's target the same way (routineTargets): a listed Project, a Chat that is there.
   commands.handle("routines:update", (_event, id, patch, consentVersion) => routines.update(id, patch, consentVersion));

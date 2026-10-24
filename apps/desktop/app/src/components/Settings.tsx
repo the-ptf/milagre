@@ -55,7 +55,15 @@ import {
   VolumeHighIcon,
 } from "@hugeicons/core-free-icons";
 import { DOT_COLOR, computerTone, routeLine, seenAgo, useComputers, useHiddenComputers } from "../lib/computers";
-import type { FilesToCopy as FilesToCopyResult, PairedDevice, PhoneStatus, ReleaseChannel, UpdateState, WorktreeSetupSettings } from "../electron";
+import type {
+  FilesToCopy as FilesToCopyResult,
+  MilagreBridge,
+  PairedDevice,
+  PhoneStatus,
+  ReleaseChannel,
+  UpdateState,
+  WorktreeSetupSettings,
+} from "../electron";
 import { DEFAULT_FILES_TO_COPY, parsePatterns, previewSentence } from "../lib/files-to-copy";
 import { PERMISSION_MODES } from "../model";
 import type { ModelOption, PermissionMode } from "../model";
@@ -107,6 +115,7 @@ import { WorkspaceIcon } from "./WorkspaceIcon";
 import { RECENT_PROJECTS_CHANGED, projectInitial, projectRows } from "../lib/project-list";
 import type { RecentProject } from "../lib/project-list";
 import { setProjectImage, useProjectImages } from "../lib/project-images";
+import { AUTO_UPDATE_HINT, AUTO_UPDATE_TITLE } from "@milagre/shared/auto-update";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE, choiceOf, mainSyncChoices, mainSyncStatusLine, overrideOf } from "@milagre/shared/main-sync";
 import type { MainSyncChoice, MainSyncSettings } from "@milagre/shared/main-sync";
 
@@ -406,6 +415,11 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
             </Row>
           )}
         </div>
+        {computer.state === "online" && (
+          <div data-computer-auto-update>
+            <AutoUpdateRow key={id} bridge={bridgeFor(id)} />
+          </div>
+        )}
       </Group>
       {computer.state === "online" && (
         <section data-computer-mcp className="mt-6">
@@ -1539,7 +1553,7 @@ function updateDescription(update: UpdateState | null): string {
     case "downloading":
       return `Downloading ${update.version ? `Milagre ${update.version}` : "update"}… ${Math.round(update.progress)}%`;
     case "downloaded":
-      return `${update.version ? `Milagre ${update.version}` : "The update"} is ready to install.`;
+      return `${update.version ? `Milagre ${update.version}` : "The update"} is ready to install.${update.auto ? " Auto update installs it once nothing is running." : ""}`;
     case "installing":
       return "Saving your work and restarting Milagre.";
     case "error":
@@ -1549,6 +1563,44 @@ function updateDescription(update: UpdateState | null): string {
     default:
       return "Check for the latest Milagre release.";
   }
+}
+
+/**
+ * Auto update, kept by the host it reaches: this Mac's (Settings › About, then the update state carries it too) or a
+ * paired computer's (its Computer page). Hidden until the host answers; an older one never does.
+ */
+function AutoUpdateRow({ bridge }: { bridge: Pick<MilagreBridge, "readAutoUpdate" | "saveAutoUpdate" | "onAutoUpdate"> }) {
+  const [autoUpdate, setAutoUpdate] = useState<boolean | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let live = true;
+    bridge.readAutoUpdate().then(
+      (value) => live && setAutoUpdate(value?.autoUpdate === true),
+      () => live && setAutoUpdate(null),
+    );
+    // Another device can change it meanwhile.
+    const off = bridge.onAutoUpdate((value) => setAutoUpdate(value?.autoUpdate === true));
+    return () => {
+      live = false;
+      off();
+    };
+  }, [bridge]);
+  if (autoUpdate === null) return null;
+  const change = async (next: boolean) => {
+    setError("");
+    setAutoUpdate(next);
+    try {
+      setAutoUpdate((await bridge.saveAutoUpdate(next)).autoUpdate);
+    } catch (cause) {
+      setAutoUpdate(!next);
+      setError(ipcErrorMessage(cause));
+    }
+  };
+  return (
+    <Row label={AUTO_UPDATE_TITLE} description={error || AUTO_UPDATE_HINT}>
+      <Switch label={AUTO_UPDATE_TITLE} checked={autoUpdate} onChange={(next) => void change(next)} />
+    </Row>
+  );
 }
 
 export function AboutSettings({ update }: { update: UpdateState | null }) {
@@ -1596,6 +1648,7 @@ export function AboutSettings({ update }: { update: UpdateState | null }) {
           {update?.status === "installing" ? "Restarting…" : update?.status === "downloaded" ? "Install & restart" : "Check for updates"}
         </button>
       </Row>
+      <AutoUpdateRow bridge={window.milagre} />
       {electron && (
         <Row label="Runtime">
           <span className="tabular-nums">
