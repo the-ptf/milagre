@@ -310,7 +310,10 @@ export default function ChatScreen() {
     : undefined;
   const pendingCanonicalId = pending && session.snapshot ? pendingChatSessionId(session.snapshot.project.state, pending.preview) : null;
   const archiveRequest = useRef(false);
-  const busy = actionBusy || !!pending;
+  // A send the computer took no longer holds the composer while its saved copy is on the way: a stale snapshot would
+  // otherwise keep the button spinning until the turn ends.
+  const unsent = !!pending && !pending.accepted;
+  const busy = actionBusy || unsent;
   const focused = useRef<object | null>(null);
   useFocusEffect(
     useCallback(() => {
@@ -796,7 +799,7 @@ export default function ChatScreen() {
     // A turn running now takes this message as a steer, on the provider it already runs.
     const steered = Boolean(run);
     if (!body && !(withAttachments && attachments.length)) return false;
-    if (busy || sendingRef.current || pending || picking) return "busy";
+    if (busy || sendingRef.current || picking) return "busy";
     sendingRef.current = true;
     setBusy(true);
     setError("");

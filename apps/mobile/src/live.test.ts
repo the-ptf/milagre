@@ -28,6 +28,7 @@ function clock() {
   };
   return { timers, run, queue };
 }
+const settle = () => new Promise((resolve) => setImmediate(resolve));
 type Fake = LiveSocket & { url: string; headers: Record<string, string>; closed?: number; emit(type: string, event?: object): void };
 function sockets() {
   const made: Fake[] = [];
@@ -328,4 +329,72 @@ test("a usage signal reaches subscribers without fetching Project state", () => 
   made[0]!.emit("message", { data: '{"type":"usage"}' });
   assert.deepEqual(signals, ["usage"]);
   live.close();
+});
+
+test("a Project fetch that fails with the socket open is tried again with growing waits until one lands", async () => {
+  const { timers, run, queue } = clock();
+  let options!: { onSignal: (signal: "runs" | "project") => void; onStatus: (open: boolean) => void };
+  let failing = 3;
+  let fetched = 0;
+  const stop = syncProject({
+    connect: (given) => {
+      options = given;
+      return { close() {} };
+    },
+    snapshot: async () => {
+      fetched++;
+      if (failing-- > 0) throw Object.assign(new Error("Too many requests"), { status: 429 });
+    },
+    runs: async () => {},
+    onError: () => {},
+    active: () => true,
+    watchActive: () => () => {},
+    pollDelay: () => 4000,
+    timers,
+  });
+  await settle();
+  options.onStatus(true);
+  await settle();
+  // The fetch on opening failed: tried again after 1 s, then 2 s, and the third retry lands.
+  assert.equal(run(1000), 1000);
+  await settle();
+  assert.equal(run(2000), 2000);
+  await settle();
+  assert.equal(queue.length, 0, "nothing more is scheduled once a fetch lands");
+  assert.ok(fetched >= 4);
+  stop();
+});
+
+test("a closed socket leaves failed fetches to the poll, and stopping cancels a waiting retry", async () => {
+  const { timers, queue } = clock();
+  let options!: { onSignal: (signal: "runs" | "project") => void; onStatus: (open: boolean) => void };
+  const stop = syncProject({
+    connect: (given) => {
+      options = given;
+      return { close() {} };
+    },
+    snapshot: async () => {
+      throw new Error("Timed out: snapshot");
+    },
+    runs: async () => {},
+    onError: () => {},
+    active: () => true,
+    watchActive: () => () => {},
+    pollDelay: () => 4000,
+    timers,
+  });
+  await settle();
+  assert.deepEqual(
+    queue.map((timer) => timer.ms),
+    [4000],
+    "socket not open yet: only the poll waits",
+  );
+  options.onStatus(true);
+  await settle();
+  assert.deepEqual(
+    queue.map((timer) => timer.ms),
+    [1000],
+  );
+  stop();
+  assert.equal(queue.length, 0);
 });

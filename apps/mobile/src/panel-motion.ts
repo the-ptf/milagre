@@ -11,6 +11,17 @@ export function dragTo(from: number, translation: number, width: number, min: nu
 }
 
 /**
+ * The panel a drag has just moved into, or null when it stays on the same side. A drag that starts toward one panel
+ * and swings past the screen into the other must draw that one too, or it settles open over nothing.
+ */
+export function entered(previous: number, next: number): "left" | "right" | null {
+  "worklet";
+  const side = Math.sign(next);
+  if (side === 0 || side === Math.sign(previous)) return null;
+  return side > 0 ? "left" : "right";
+}
+
+/**
  * Where a released drag settles. Opening, a panel stays past a third of the width or on a flick toward it; closing,
  * it goes once a third has been pulled back or on a flick away.
  */
