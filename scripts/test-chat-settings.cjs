@@ -70,6 +70,7 @@ async function browserChecks() {
     await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Chat').click()`);
     await waitFor(`!!${trigger}`);
   };
+  const listTrigger = `document.querySelector('button[aria-label="Chat list"]')`;
   const reasoning = `document.querySelector('[role="switch"][aria-label="Always expand reasoning"]')`;
   const trigger = `document.querySelector('button[aria-label="Tool call display"]')`;
   const option = (label) =>
@@ -86,6 +87,16 @@ async function browserChecks() {
     assert.equal(await evaluate(`${trigger}.textContent.trim()`), "Compact", "tool calls start compact");
     assert.equal(await evaluate(`!!${reply("many", "[data-slot=activity]")}`), true, "Compact folds the activity into one line");
     assert.equal(await evaluate(shows("lone", "Only one way")), false, "a thinking row starts closed");
+    assert.equal(await evaluate(`${listTrigger}.textContent.trim()`), "One list", "the sidebar lists Chats in one list by default");
+    await evaluate(`${listTrigger}.click()`);
+    await waitFor(
+      `!![...document.querySelectorAll('[role="listbox"][aria-label="Chat list"] [role="option"]')].find((o) => o.textContent.includes("Grouped by Project"))`,
+    );
+    await evaluate(
+      `[...document.querySelectorAll('[role="listbox"][aria-label="Chat list"] [role="option"]')].find((o) => o.textContent.includes("Grouped by Project")).click()`,
+    );
+    await waitFor(`${listTrigger}.textContent.trim() === "Grouped by Project"`);
+    assert.equal((await saved()).chatList, "grouped", "Grouped by Project is saved");
     await screenshot("chat-settings-default");
 
     await evaluate(`${reasoning}.click()`);
@@ -119,7 +130,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!${reply("many", "[data-slot=activity-inline]")}`), true);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Settings › Chat lists Always expand reasoning and Tool call display under Detail level, folded and Compact by default; reasoning opens thinking rows until clicked; Full detail shows each tool call, thinking and note in order with no fold; both save; Murilo mode reads as Full detail",
+      "PASS: Settings › Chat opens with Chat list on One list and saves Grouped by Project, then lists Always expand reasoning and Tool call display under Detail level, folded and Compact by default; reasoning opens thinking rows until clicked; Full detail shows each tool call, thinking and note in order with no fold; both save; Murilo mode reads as Full detail",
     );
     app.exit(0);
   } catch (error) {

@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { CoordinatorState } from "@milagre/shared/model";
 import type { AgentRuns } from "@milagre/shared/agent-runs";
-import { heartbeatKeys, heartbeatLines, railLive, rememberScopeRows, runKeys, scopeChats, withHeartbeats } from "./sidebar-scopes.ts";
+import { heartbeatKeys, heartbeatLines, mergeScopeChats, railLive, rememberScopeRows, runKeys, scopeChats, withHeartbeats } from "./sidebar-scopes.ts";
 import { clock } from "@milagre/shared/routines";
+import type { SidebarRecent } from "../components/sidebar/ChatRow";
 
 const session = (id: number, extra = {}) => ({ id, worktree_id: 1, agent_name: "Claude", status: "Idle", ...extra });
 const message = (id: number, session_id: number, body: string) => ({ id, session_id, role: "user", body });
@@ -153,4 +154,163 @@ test("no pulse with the Routines switch off (no Routines read) or on an archived
     withHeartbeats("/code/shop", rows, archived).some((row) => row.heartbeat),
     false,
   );
+});
+
+const flatRow = (id: string, lastAt: number | undefined, extra: Partial<SidebarRecent> = {}, firstAt?: number): SidebarRecent => ({
+  id,
+  label: id,
+  details: { lastAt, firstAt },
+  ...extra,
+});
+
+test("one list: pinned first across scopes by pin order, then the latest activity, each scope keeping its own order", () => {
+  const merged = mergeScopeChats(
+    [
+      { key: "/a", rows: [flatRow("a-pin", 5, { pinned: true, pinOrder: 2 }), flatRow("a1", 90), flatRow("a2", 20)] },
+      { key: "/b", rows: [flatRow("b-pin", 1, { pinned: true, pinOrder: 1 }), flatRow("b1", 50), flatRow("b2", 70)] },
+    ],
+    "recent",
+  );
+  assert.deepEqual(
+    merged.map(({ scopeKey, row }) => `${scopeKey}${row.id}`),
+    // b2 (70) waits behind b1 (50): a scope's rows stay in the order its setting gave them.
+    ["/bb-pin", "/aa-pin", "/aa1", "/bb1", "/bb2", "/aa2"],
+  );
+});
+
+test("one list: equal activity goes to the earlier scope, rows without activity keep their place, and an empty scope adds nothing", () => {
+  const merged = mergeScopeChats(
+    [
+      { key: "/a", rows: [flatRow("a1", 10), flatRow("a2", undefined)] },
+      { key: "/empty", rows: [] },
+      { key: "/b", rows: [flatRow("b1", 10), flatRow("b2", undefined)] },
+    ],
+    "recent",
+  );
+  assert.deepEqual(
+    merged.map(({ row }) => row.id),
+    ["a1", "b1", "a2", "b2"],
+  );
+  assert.deepEqual(mergeScopeChats([], "recent"), []);
+});
+
+test("one list: newest Chat first orders across Projects by when each Chat began, whatever its id", () => {
+  // /a's Chat 90 began before /b's Chat 2, though its id is larger and it was active more recently.
+  const merged = mergeScopeChats(
+    [
+      { key: "/a", rows: [flatRow("90", 900, {}, 100), flatRow("80", 800, {}, 50)] },
+      { key: "/b", rows: [flatRow("3", 300, {}, 400), flatRow("2", 200, {}, 300)] },
+    ],
+    "created",
+  );
+  assert.deepEqual(
+    merged.map(({ scopeKey, row }) => `${scopeKey}${row.id}`),
+    ["/b3", "/b2", "/a90", "/a80"],
+  );
+});
+
+test("one list: latest message first orders across Projects by lastAt, whatever the ids", () => {
+  const merged = mergeScopeChats(
+    [
+      { key: "/a", rows: [flatRow("90", 150, {}, 100)] },
+      { key: "/b", rows: [flatRow("3", 400, {}, 5), flatRow("2", 160, {}, 4)] },
+    ],
+    "recent",
+  );
+  assert.deepEqual(
+    merged.map(({ scopeKey, row }) => `${scopeKey}${row.id}`),
+    ["/b3", "/b2", "/a90"],
+  );
+});
+
+test("one list: a Chat without firstAt goes by its latest activity under newest first, and pins ignore the order", () => {
+  const merged = mergeScopeChats(
+    [
+      { key: "/a", rows: [flatRow("a-pin", 1, { pinned: true, pinOrder: 2 }, 999), flatRow("old", 250, {}), flatRow("older", 10, {}, 5)] },
+      { key: "/b", rows: [flatRow("b-pin", 1, { pinned: true, pinOrder: 1 }, 1), flatRow("b1", 900, {}, 300), flatRow("b2", 900, {}, 100)] },
+    ],
+    "created",
+  );
+  assert.deepEqual(
+    merged.map(({ row }) => row.id),
+    ["b-pin", "a-pin", "b1", "old", "b2", "older"],
+  );
+});
+
+/** The merge as it was before the heap: every scope scanned for every row. The oracle for the heap one. */
+function mergeByScan(scopes: readonly { key: string; rows: readonly SidebarRecent[] }[], order: "created" | "recent") {
+  const merged: { scopeKey: string; row: SidebarRecent }[] = [];
+  const timeOf = (row: SidebarRecent) => (order === "created" ? (row.details?.firstAt ?? row.details?.lastAt) : row.details?.lastAt) ?? 0;
+  for (const pinned of [true, false]) {
+    const queues = scopes.map(({ key, rows }) => ({ key, rows: rows.filter((row) => Boolean(row.pinned) === pinned), at: 0 }));
+    const first = (a: SidebarRecent, b: SidebarRecent) => (pinned ? (a.pinOrder ?? 0) - (b.pinOrder ?? 0) : timeOf(b) - timeOf(a));
+    for (;;) {
+      let next: (typeof queues)[number] | undefined;
+      let nextRow: SidebarRecent | undefined;
+      for (const queue of queues) {
+        const row = queue.rows[queue.at];
+        if (row && (!nextRow || first(row, nextRow) < 0)) [next, nextRow] = [queue, row];
+      }
+      if (!next || !nextRow) break;
+      next.at++;
+      merged.push({ scopeKey: next.key, row: nextRow });
+    }
+  }
+  return merged;
+}
+
+/** A repeatable stream of numbers in [0, 1). */
+function seeded(seed: number) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let mixed = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+test("one list: the heap merge gives what a scan of every scope gave, on random scopes with ties, gaps and unsorted rows", () => {
+  const random = seeded(7);
+  const int = (below: number) => Math.floor(random() * below);
+  for (let round = 0; round < 300; round++) {
+    const scopes = Array.from({ length: int(12) }, (_, scope) => ({
+      key: `/p${scope}`,
+      rows: Array.from({ length: int(15) }, (_, at) =>
+        // Few distinct times and pin orders, so ties are common; some rows have no times or no pin order.
+        flatRow(
+          `p${scope}-${at}`,
+          random() < 0.15 ? undefined : int(8),
+          random() < 0.3 ? { pinned: true, ...(random() < 0.8 ? { pinOrder: int(5) } : {}) } : {},
+          random() < 0.25 ? undefined : int(8),
+        ),
+      ),
+    }));
+    for (const order of ["recent", "created"] as const) {
+      const heap = mergeScopeChats(scopes, order);
+      const scan = mergeByScan(scopes, order);
+      assert.equal(heap.length, scan.length);
+      heap.forEach((entry, at) => {
+        assert.equal(entry.scopeKey, scan[at].scopeKey, `round ${round} ${order} #${at}`);
+        assert.equal(entry.row, scan[at].row, `round ${round} ${order} #${at}`);
+      });
+    }
+  }
+});
+
+test("one list: 200 Projects of 50 Chats merge quickly, in the order a scan gave", () => {
+  const random = seeded(11);
+  const scopes = Array.from({ length: 200 }, (_, scope) => ({
+    key: `/p${scope}`,
+    // Each scope's rows are newest first, as the setting leaves them; a few are pinned.
+    rows: Array.from({ length: 50 }, (_, at) =>
+      flatRow(`p${scope}-${at}`, 100000 - at * 100 - Math.floor(random() * 90), at < 2 ? { pinned: true, pinOrder: scope * 2 + at } : {}),
+    ),
+  }));
+  const started = performance.now();
+  const merged = mergeScopeChats(scopes, "recent");
+  const took = performance.now() - started;
+  assert.equal(merged.length, 10000);
+  assert.ok(took < 250, `merged 10000 rows in ${took.toFixed(1)} ms`);
+  const scan = mergeByScan(scopes, "recent");
+  assert.ok(merged.every((entry, at) => entry.row === scan[at].row));
 });
