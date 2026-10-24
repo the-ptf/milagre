@@ -2,6 +2,7 @@ import React from "react";
 import RNCMaskedView from "@react-native-masked-view/masked-view";
 import { LinearGradient } from "expo-linear-gradient";
 import { Platform, ScrollView, type ScrollViewInstance, type ScrollViewProps, type ViewProps } from "react-native";
+import { ScrollView as GestureScrollView } from "react-native-gesture-handler";
 import { useStyles } from "./styles";
 
 // The library still extends NativeMethods, which RN 0.88 removed; its native view props are unchanged.
@@ -17,6 +18,8 @@ export const PageScroll = React.forwardRef<ScrollViewInstance, ScrollViewProps &
   const current = React.useRef({ top: false, bottom: false, height: 0 });
   const [edges, setEdges] = React.useState({ top: false, bottom: false, height: 0 });
   const fading = fadeEdges && !props.horizontal;
+  // Register horizontal scrolling with the panel recognizer, so dragging a table or code stays in its scroll view.
+  const NativeScroll = props.horizontal ? GestureScrollView : ScrollView;
   const update = () => {
     const { offset, height, content } = metrics.current;
     const next = { top: content > height && offset > 1, bottom: height > 0 && offset + height < content - 1, height };
@@ -26,7 +29,7 @@ export const PageScroll = React.forwardRef<ScrollViewInstance, ScrollViewProps &
     setEdges(next);
   };
   const scroll = (
-    <ScrollView
+    <NativeScroll
       ref={ref}
       contentInsetAdjustmentBehavior="automatic"
       keyboardShouldPersistTaps="handled"
@@ -64,7 +67,7 @@ export const PageScroll = React.forwardRef<ScrollViewInstance, ScrollViewProps &
       {...props}
     >
       {children}
-    </ScrollView>
+    </NativeScroll>
   );
   if (!fading) return scroll;
   const edge = Math.min(28 / (edges.height || 1), 0.5);

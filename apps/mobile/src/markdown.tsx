@@ -3,7 +3,21 @@ import { isMermaidFence } from "@milagre/shared/diagram";
 import { MermaidBlock } from "./diagram";
 import { GenerativeUI, MarkdownStreamingContext } from "./genui/GenerativeUI";
 import { memo, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, Linking, Pressable, Text, View, type ImageSourcePropType, type TextStyle, type ViewInstance } from "react-native";
+import {
+  AccessibilityInfo,
+  Alert,
+  Image,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type ImageSourcePropType,
+  type TextStyle,
+  type ViewInstance,
+} from "react-native";
+import * as Clipboard from "expo-clipboard";
+import { Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { router } from "expo-router";
 import type { Token } from "markdown-it";
 import { localFileLink } from "@milagre/shared/file-link";
@@ -16,6 +30,9 @@ import { showImages, type MediaValue, type ThumbRect } from "./viewer-store";
 import { resolveMarkdownImage } from "./markdown-image";
 import { useTheme, type Palette } from "./theme";
 import { messageActionProps } from "./message-actions";
+import { Icon } from "./icons";
+import { tap } from "./primitives/tap";
+import { markdownCellText, markdownColumnWidths, markdownTableRows, type MarkdownNode as Node } from "./markdown-table";
 
 type ImageOptions = { media?: (path: string) => MediaValue; basePath?: string };
 /** What the plain render helpers need from the theme; components pass it in from their hooks. `basePath` resolves relative file links. */
@@ -30,6 +47,7 @@ type MarkdownTheme = {
   selectable: boolean;
   /** Opens the message's Copy / Select text actions; set, it is also the VoiceOver action on each text block. */
   onMessageAction?: () => void;
+  tableHeader?: boolean;
 };
 
 // Chat reading size: desktop uses 13px at 1.55; a phone reads best a little larger. `textPx` follows Settings > Appearance > Text size.
@@ -147,7 +165,6 @@ function MarkdownImage({ src, alt, media, basePath }: { src: string; alt: string
   );
 }
 
-type Node = { token: Token; children: Node[] };
 function tree(tokens: Token[]) {
   const root: Node[] = [],
     stack = [root];
@@ -238,27 +255,120 @@ function inlineNodes(nodes: Node[], t: MarkdownTheme): React.ReactNode {
     );
   });
 }
+const CodeBlock = memo(function CodeBlock({ code, language, t }: { code: string; language: string; t: MarkdownTheme }) {
+  const [copied, setCopied] = useState(false);
+  const copyState = useRef({ live: true, request: 0, timer: undefined as ReturnType<typeof setTimeout> | undefined });
+  useEffect(() => {
+    const state = copyState.current;
+    state.live = true;
+    return () => {
+      state.live = false;
+      state.request++;
+      clearTimeout(state.timer);
+    };
+  }, []);
+  const copy = () => {
+    const state = copyState.current;
+    const request = ++state.request;
+    void Clipboard.setStringAsync(code).then(
+      () => {
+        if (!state.live || request !== state.request) return false;
+        tap();
+        AccessibilityInfo.announceForAccessibility("Copied");
+        setCopied(true);
+        clearTimeout(state.timer);
+        state.timer = setTimeout(() => setCopied(false), 1500);
+        return true;
+      },
+      () => {},
+    );
+  };
+  return (
+    <View style={{ backgroundColor: t.colors.field, borderRadius: 12, borderCurve: "continuous", overflow: "hidden" }}>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingLeft: 12,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderColor: t.colors.line,
+        }}
+      >
+        <Text numberOfLines={1} style={[t.styles.label, { flex: 1 }]}>
+          {language.toLowerCase() || "text"}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={copied ? "Copied" : "Copy code"}
+          onPress={copy}
+          style={({ pressed }) => ({ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
+        >
+          <Icon icon={copied ? Tick02Icon : Copy01Icon} size={16} />
+        </Pressable>
+      </View>
+      <PageScroll horizontal contentContainerStyle={{ padding: 12, paddingBottom: 12 }}>
+        <Text
+          selectable={t.selectable}
+          style={[t.styles.code, { fontSize: t.codeSize + 1, lineHeight: Math.round((t.codeSize + 1) * 1.5) }]}
+          {...messageActionProps(t.onMessageAction)}
+        >
+          {code}
+        </Text>
+      </PageScroll>
+    </View>
+  );
+});
+
+const MarkdownTable = memo(function MarkdownTable({ nodes, images, t }: { nodes: Node[]; images: ImageOptions; t: MarkdownTheme }) {
+  const [available, setAvailable] = useState(0);
+  const rows = useMemo(() => markdownTableRows(nodes), [nodes]);
+  const text = useMemo(() => rows.map((row) => row.map((cell) => markdownCellText(cell.children))), [rows]);
+  const widths = useMemo(() => markdownColumnWidths(text, available, t.textPx), [text, available, t.textPx]);
+  const line = StyleSheet.hairlineWidth;
+  return (
+    <View
+      onLayout={({ nativeEvent }) => setAvailable(Math.max(0, nativeEvent.layout.width - line * 2))}
+      style={{ borderWidth: line, borderColor: t.colors.line, borderRadius: 12, borderCurve: "continuous", overflow: "hidden" }}
+    >
+      <PageScroll horizontal directionalLockEnabled bounces={false} contentContainerStyle={{ padding: 0, paddingBottom: 0, gap: 0 }}>
+        <View>
+          {rows.map((row, index) => (
+            <View key={index} style={{ flexDirection: "row", borderTopWidth: index ? line : 0, borderColor: t.colors.line }}>
+              {widths.map((width, column) => {
+                const cell = row[column];
+                const header = cell?.token.type === "th_open";
+                return (
+                  <View
+                    key={column}
+                    style={{
+                      width,
+                      padding: 12,
+                      borderLeftWidth: column ? line : 0,
+                      borderColor: t.colors.line,
+                      backgroundColor: header ? t.colors.field : undefined,
+                    }}
+                  >
+                    {cell && blocks(cell.children, images, { ...t, tableHeader: header })}
+                  </View>
+                );
+              })}
+            </View>
+          ))}
+        </View>
+      </PageScroll>
+    </View>
+  );
+});
+
 function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.ReactNode {
-  const { colors, styles } = t;
-  const body = bodyOf(colors, t.textPx);
+  const { colors } = t;
+  const body = { ...bodyOf(colors, t.textPx), ...(t.tableHeader ? { fontWeight: "600" as const } : {}) };
   return nodes.map(({ token, children }, index) => {
     const key = `${token.type}-${index}`;
     if (token.type === "inline") return <View key={key}>{inlineContent(token.children || [], t, body, false, images)}</View>;
     if (token.type === "fence" || token.type === "code_block") {
-      const plain = (
-        <View style={{ backgroundColor: colors.field, borderRadius: 12, borderCurve: "continuous", overflow: "hidden" }}>
-          {token.info && <Text style={[styles.label, { paddingHorizontal: 12, paddingTop: 10 }]}>{token.info}</Text>}
-          <PageScroll horizontal contentContainerStyle={{ padding: 12, paddingBottom: 12 }}>
-            <Text
-              selectable={t.selectable}
-              style={[styles.code, { fontSize: t.codeSize + 1, lineHeight: Math.round((t.codeSize + 1) * 1.5) }]}
-              {...messageActionProps(t.onMessageAction)}
-            >
-              {token.content.replace(/\n$/, "")}
-            </Text>
-          </PageScroll>
-        </View>
-      );
+      const plain = <CodeBlock code={token.content.replace(/\n$/, "")} language={token.info} t={t} />;
       return (
         <View key={key}>
           {token.type === "fence" && isGenuiFence(token.info) ? (
@@ -306,16 +416,7 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
         </View>
       );
     if (token.type === "hr") return <View key={key} style={{ height: 1, backgroundColor: colors.line }} />;
-    if (token.type === "tr_open")
-      return (
-        <View key={key} style={{ flexDirection: "row", gap: 12, paddingVertical: 8, borderBottomWidth: 0.5, borderColor: colors.line }}>
-          {children.map((child, i) => (
-            <View key={i} style={{ flex: 1 }}>
-              {blocks(child.children, images, t)}
-            </View>
-          ))}
-        </View>
-      );
+    if (token.type === "table_open") return <MarkdownTable key={key} nodes={children} images={images} t={t} />;
     return (
       <View key={key} style={{ gap: 8 }}>
         {children.length ? (
@@ -342,11 +443,12 @@ const Chunk = memo(function Chunk({
   const styles = useStyles();
   const reachable = useContext(ReachableHostContext);
   const nodes = useMemo(() => tree(markdownTokens(text, streaming)), [text, streaming]);
-  return (
-    <MarkdownStreamingContext value={streaming}>
-      {blocks(nodes, { media, basePath }, { colors, styles, basePath, textPx, codeSize, reachable, selectable, onMessageAction })}
-    </MarkdownStreamingContext>
+  const images = useMemo(() => ({ media, basePath }), [media, basePath]);
+  const theme = useMemo(
+    () => ({ colors, styles, basePath, textPx, codeSize, reachable, selectable, onMessageAction }),
+    [colors, styles, basePath, textPx, codeSize, reachable, selectable, onMessageAction],
   );
+  return <MarkdownStreamingContext value={streaming}>{blocks(nodes, images, theme)}</MarkdownStreamingContext>;
 });
 export const Markdown = memo(function Markdown({
   text,

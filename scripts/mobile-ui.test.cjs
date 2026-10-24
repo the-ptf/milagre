@@ -161,6 +161,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       )
         return require(id);
       if (relative && `./${relative}` in modules) id = `./${relative}`;
+      if (id === "react-native-gesture-handler") return { ScrollView: "GestureScrollView", ...modules[id] };
       // Image assets are opaque sources; any value stands in.
       if (id.endsWith(".png") && !(id in modules)) return { uri: id };
       if (id === "@milagre/shared/model-copy" && !(id in modules)) return require("../packages/shared/src/model-copy.ts");
@@ -1432,7 +1433,7 @@ for (const reactCompiler of [false, true])
     }
   });
 
-function markdownHost({ media, basePath, reachable = null, reactCompiler = false } = {}) {
+function markdownHost({ media, basePath, reachable = null, reactCompiler = false, copy = async () => {}, haptic = () => {}, textPx = 15, codeSize = 12 } = {}) {
   const react = { ...hookHost({ effects: true }), memo: (fn) => fn, useContext: (context) => (context === "ReachableHostContext" ? reachable : undefined) };
   const viewer = require("../apps/mobile/src/viewer-store.ts");
   const routes = [],
@@ -1452,6 +1453,9 @@ function markdownHost({ media, basePath, reachable = null, reactCompiler = false
         View: "View",
         Image: "Image",
         Pressable: "Pressable",
+        StyleSheet: { hairlineWidth: 0.5 },
+        Platform: { OS: "ios" },
+        AccessibilityInfo: { announceForAccessibility: () => {} },
         Alert: {},
         Linking: {
           openURL: async (url) => {
@@ -1460,6 +1464,12 @@ function markdownHost({ media, basePath, reachable = null, reactCompiler = false
         },
       },
       "expo-router": { router: { push: (route) => routes.push(route) } },
+      "expo-clipboard": { setStringAsync: copy },
+      "@hugeicons/core-free-icons": { Copy01Icon: "copy", Tick02Icon: "tick" },
+      "./icons": { Icon: "Icon" },
+      "expo-haptics": { selectionAsync: async () => haptic() },
+      "./markdown-table": require("../apps/mobile/src/markdown-table.ts"),
+      "./theme": { useTheme: () => ({ ...themeHooks.useTheme(), textPx, codeSize }) },
       "./viewer-store": viewer,
       "./chat-presentation": require("../apps/mobile/src/chat-presentation.ts"),
       "./markdown-image": require("../apps/mobile/src/markdown-image.ts"),
@@ -1474,6 +1484,10 @@ function markdownHost({ media, basePath, reachable = null, reactCompiler = false
     if (Array.isArray(node)) return node.flatMap(expand);
     if (!node || typeof node !== "object") return node;
     if (typeof node.type === "function") return expand(node.type(node.props));
+    if (node.type === "MermaidBlock" || node.type === "GenerativeUI") {
+      const prop = node.type === "MermaidBlock" ? "plain" : "fallback";
+      return { ...node, props: { ...node.props, [prop]: expand(node.props[prop]) } };
+    }
     return { ...node, props: { ...node.props, children: expand(node.props?.children) } };
   }
   return {
@@ -1484,8 +1498,122 @@ function markdownHost({ media, basePath, reachable = null, reactCompiler = false
     routes,
     links,
     viewer,
+    unmount: () => react.unmount(),
   };
 }
+
+test("Markdown code copies exact current content, replaces its feedback timer, and scales code", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const reactCompiler of [false, true]) {
+    const copies = [];
+    let taps = 0;
+    const screen = markdownHost({ reactCompiler, copy: async (code) => copies.push(code), haptic: () => taps++ });
+    const source = "```BASH\n  printf 'a  b'\n\n```";
+    const button = (tree) => find(tree, (node) => node.props?.accessibilityRole === "button");
+    let rendered = screen.render(source);
+    assert.ok(textOf(rendered).includes("bash"));
+    const codeText = find(rendered, (node) => node.type === "Text" && Array.isArray(node.props.style) && node.props.style[1]?.fontSize);
+    assert.equal(codeText.props.style[1].fontSize, 13);
+    assert.equal(codeText.props.style[1].lineHeight, 20);
+    assert.equal(button(rendered).props.accessibilityLabel, "Copy code");
+    const hit = button(rendered).props.style({ pressed: false });
+    assert.ok(hit.minWidth >= 44 && hit.minHeight >= 44);
+    button(rendered).props.onPress();
+    await Promise.resolve();
+    rendered = screen.render(source);
+    assert.equal(button(rendered).props.accessibilityLabel, "Copied");
+    assert.equal(find(rendered, (node) => node.type === "Icon").props.icon, "tick");
+    t.mock.timers.tick(1000);
+    button(rendered).props.onPress();
+    await Promise.resolve();
+    t.mock.timers.tick(500);
+    assert.equal(button(screen.render(source)).props.accessibilityLabel, "Copied");
+    t.mock.timers.tick(1000);
+    assert.equal(button(screen.render(source)).props.accessibilityLabel, "Copy code");
+    assert.deepEqual(copies, ["  printf 'a  b'\n", "  printf 'a  b'\n"]);
+    assert.equal(taps, 2);
+    rendered = screen.render("```\nfirst", true);
+    assert.ok(textOf(rendered).includes("text"));
+    button(rendered).props.onPress();
+    await Promise.resolve();
+    rendered = screen.render("```\nfirst\nsecond", true);
+    button(rendered).props.onPress();
+    await Promise.resolve();
+    assert.deepEqual(copies.slice(-2), ["first", "first\nsecond"]);
+    screen.unmount();
+    t.mock.timers.tick(1500);
+  }
+});
+
+test("Markdown code ignores stale clipboard completion, failure and resolution after unmount", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const requests = [];
+  let taps = 0;
+  const screen = markdownHost({
+    copy: () => {
+      const request = deferred();
+      requests.push(request);
+      return request.promise;
+    },
+    haptic: () => taps++,
+  });
+  const source = "    indented code\n";
+  const button = () => find(screen.render(source), (node) => node.props?.accessibilityRole === "button");
+  assert.ok(textOf(screen.render(source)).includes("text"));
+  button().props.onPress();
+  button().props.onPress();
+  requests[1].resolve();
+  await Promise.resolve();
+  t.mock.timers.tick(1000);
+  requests[0].resolve();
+  await Promise.resolve();
+  t.mock.timers.tick(500);
+  assert.equal(button().props.accessibilityLabel, "Copy code");
+  assert.equal(taps, 1);
+  button().props.onPress();
+  requests[2].reject(new Error("clipboard unavailable"));
+  await Promise.resolve();
+  assert.equal(button().props.accessibilityLabel, "Copy code");
+  button().props.onPress();
+  screen.unmount();
+  requests[3].resolve();
+  await Promise.resolve();
+  assert.equal(taps, 1);
+});
+
+test("Markdown tables align header/body columns, fill short tables and preserve rich nested cells", async () => {
+  for (const prefix of ["", "> ", "  "]) {
+    const source =
+      (prefix === "  " ? "- Table\n\n" : "") +
+      ["| Name | Value |", "| --- | --- |", "| **bold** | [short](https://example.org) |", "| `code` | final |"].map((line) => prefix + line).join("\n");
+    const screen = markdownHost({ textPx: 20 });
+    let rendered = screen.render(source);
+    const outer = find(rendered, (node) => typeof node.props?.onLayout === "function");
+    outer.props.onLayout({ nativeEvent: { layout: { width: 341 } } });
+    rendered = screen.render(source);
+    const scroll = find(rendered, (node) => node.type === "PageScroll" && node.props.horizontal);
+    assert.deepEqual({ ...scroll.props.contentContainerStyle }, { padding: 0, paddingBottom: 0, gap: 0 });
+    const cells = [];
+    const collect = (node) => {
+      if (Array.isArray(node)) return node.forEach(collect);
+      if (!node || typeof node !== "object") return;
+      if (node.props?.style?.width) cells.push(node);
+      collect(node.props?.children);
+    };
+    collect(scroll);
+    assert.equal(cells.length, 6);
+    assert.ok(cells.every((cell) => cell.props.style.width === 170));
+    const headerText = find(cells[0], (node) => node.type === "Text");
+    assert.equal(headerText.props.style.fontWeight, "600");
+    assert.equal(headerText.props.style.fontSize, 20);
+    assert.ok(textOf(rendered).includes("bold") && textOf(rendered).includes("code"));
+    const link = find(rendered, (node) => node.props?.accessibilityRole === "link");
+    link.props.onPress();
+    await Promise.resolve();
+    assert.deepEqual(screen.links, ["https://example.org"]);
+    screen.unmount();
+  }
+});
 
 test("Markdown fences render native headings and links with nested code kept literal", async () => {
   for (const streaming of [false, true]) {
@@ -3750,6 +3878,11 @@ test("shared mobile scrolling fades only the edges with more content and keeps n
   ]);
   react.begin();
   assert.equal(PageScroll({ children: "Plain" }, ref).type, "ScrollView", "other screens keep their existing native scroll");
+  react.begin();
+  const horizontal = PageScroll({ horizontal: true, children: "Wide", contentContainerStyle: { padding: 0 } }, ref);
+  assert.equal(horizontal.type, "GestureScrollView", "horizontal content owns its drag instead of opening a side panel");
+  assert.equal(horizontal.props.ref, ref);
+  assert.equal(horizontal.props.horizontal, true);
 });
 
 test("composer attachment choices stay in a native menu after the header action-sheet fix", async (t) => {
