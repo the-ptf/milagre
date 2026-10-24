@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { EthernetPortIcon, LinkSquare02Icon, StopCircleIcon } from "@hugeicons/core-free-icons";
 import type { AgentPort } from "../../model";
-import { portComputer, portUrl } from "../../lib/ports";
+import { portComputer, portUrl, unreachablePortReason } from "../../lib/ports";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
@@ -79,11 +79,12 @@ export function PortTrack({ ports: listed, onStop }: { ports?: AgentPort[]; onSt
               >
                 {(() => {
                   const computer = portComputer(port);
+                  const url = portUrl(port);
                   const rowClass = "flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-[13px] text-ink no-underline focus-visible:outline-2";
-                  // Another computer's port is not at this Mac's localhost: shown, not linked.
-                  if (computer)
+                  // Another computer's port opens at its LAN or tailnet IP; one this Mac can't reach is shown, not linked.
+                  if (computer && !url)
                     return (
-                      <span data-port-remote title={`Listening on ${computer}`} className={rowClass}>
+                      <span data-port-remote title={unreachablePortReason(port, computer)} className={rowClass}>
                         <span className="w-14 shrink-0 font-mono tabular-nums">:{port.port}</span>
                         <span className="min-w-0 flex-1 truncate text-ink-3">
                           {port.command} · on {computer}
@@ -93,15 +94,17 @@ export function PortTrack({ ports: listed, onStop }: { ports?: AgentPort[]; onSt
                     );
                   return (
                     <a
-                      href={portUrl(port)}
+                      href={url ?? undefined}
                       target="_blank"
                       rel="noopener noreferrer"
-                      title={`Open ${portUrl(port)}`}
+                      title={`Open ${url}`}
+                      {...(computer ? { "data-port-remote": true } : {})}
                       className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-[13px] text-ink no-underline focus-visible:outline-2"
                     >
                       <span className="w-14 shrink-0 font-mono tabular-nums">:{port.port}</span>
                       <span className="min-w-0 flex-1 truncate text-ink-3">
                         {port.command}
+                        {computer ? ` · on ${computer}` : null}
                         <span className="sr-only">, process {port.pid}</span>
                       </span>
                       <span className="flex shrink-0 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">

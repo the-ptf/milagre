@@ -14,6 +14,7 @@ const { socketPath: pathFor, prepareSocketDirectory } = require("./paths.cjs");
 const { VERSION, MAX_FRAME_BYTES, MAX_PENDING, pageSize, wire } = require("./protocol.cjs");
 const { createPhone, RELAY_URL } = require("./phone.cjs");
 const { computerName } = require("./mobile-pairing.cjs");
+const { lanAddresses } = require("./lan-addresses.cjs");
 const { createMobilePush } = require("./mobile-push.cjs");
 const { createLiveActivity } = require("./live-activity.cjs");
 const { createExpoPush } = require("./expo-push.cjs");
@@ -388,6 +389,8 @@ async function startDaemon({
     // Webhook URLs point at the relay the phone uses.
     hookRelayUrl: phoneOptions.relayUrl ?? RELAY_URL,
     remoteComputers,
+    // What a Chat's agent is told about where the user can reach this Mac: they often read from a phone or another Mac.
+    hostNetwork: () => ({ name: (macName ??= computerName()), addresses: lanAddresses() }),
     ...runtimeOptions,
     dataDir,
     version,

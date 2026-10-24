@@ -71,6 +71,15 @@ function milagreInstructions(tldrEnabled = true, workspaceInstructions = "", des
 }
 const MILAGRE_INSTRUCTIONS = milagreInstructions();
 
+// What a Chat's agent is told about the machine it runs on (session-manager.cjs adds it to the session's instructions):
+// the user often reads from a phone or another Mac, where its localhost is their own device. `addresses` are this
+// machine's LAN and Tailscale IPs (the daemon's lanAddresses()); without any, nobody else can reach it and nothing is said.
+function hostNetworkInstructions({ name, addresses = [] } = {}) {
+  if (!addresses.length) return "";
+  const [first] = addresses;
+  return `Network: this Chat runs on ${name ? `the computer "${name}"` : "this computer"}, at ${addresses.join(", ")}. The user may be reading from another device (their phone, or another Mac through Milagre), where localhost is that device, not this one. When you start a server for the user to open, bind it to all interfaces (0.0.0.0: \`vite --host\`, \`next dev -H 0.0.0.0\`, \`python -m http.server --bind 0.0.0.0\`) and give its link with this computer's address, such as http://${first}:5173, instead of a localhost one: that link opens on this computer too. Milagre points localhost links in your replies at this computer for a user on another device.`;
+}
+
 // The system prompt of an analysis-only advisor (advisors.cjs). It has only the read tools it is given, so it gets none
 // of a Chat's tool sections; `tools` names them.
 function advisorInstructions(tldrEnabled = true, tools = []) {
@@ -488,6 +497,7 @@ module.exports = {
   SUBAGENT_PLAN_INSTRUCTIONS,
   advisorInstructions,
   executionAdvisorInstructions,
+  hostNetworkInstructions,
   milagreInstructions,
   sessionInstructions,
   RESUME_FAILED_MESSAGE,

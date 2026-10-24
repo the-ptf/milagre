@@ -2,11 +2,13 @@ import { isGenuiFence } from "@milagre/shared/genui";
 import { isMermaidFence } from "@milagre/shared/diagram";
 import { MermaidBlock } from "./diagram";
 import { GenerativeUI, MarkdownStreamingContext } from "./genui/GenerativeUI";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, Linking, Pressable, Text, View, type ImageSourcePropType, type TextStyle, type ViewInstance } from "react-native";
 import { router } from "expo-router";
 import type { Token } from "markdown-it";
 import { localFileLink } from "@milagre/shared/file-link";
+import { reachableUrl } from "@milagre/shared/loopback-url";
+import { ReachableHostContext, type ReachableHost } from "./reachable-host";
 import { markdownChunks, markdownTokens, safeLink } from "./chat-presentation";
 import { PageScroll, useStyles, type Styles } from "./ui";
 import { showImages, type MediaValue, type ThumbRect } from "./viewer-store";
@@ -16,7 +18,7 @@ import { useTheme, type Palette } from "./theme";
 
 type ImageOptions = { media?: (path: string) => MediaValue; basePath?: string };
 /** What the plain render helpers need from the theme; components pass it in from their hooks. `basePath` resolves relative file links. */
-type MarkdownTheme = { colors: Palette; styles: Styles; basePath?: string; textPx: number; codeSize: number };
+type MarkdownTheme = { colors: Palette; styles: Styles; basePath?: string; textPx: number; codeSize: number; reachable?: ReachableHost | null };
 
 // Chat reading size: desktop uses 13px at 1.55; a phone reads best a little larger. `textPx` follows Settings > Appearance > Text size.
 const bodyOf = (colors: Palette, textPx = 15) => ({ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) });
@@ -182,7 +184,7 @@ function inlineContent(tokens: Token[], t: MarkdownTheme, style: TextStyle = bod
 function inlineNodes(nodes: Node[], t: MarkdownTheme): React.ReactNode {
   return nodes.map(({ token, children }, i) => {
     if (token.type === "softbreak" || token.type === "hardbreak") return "\n";
-    const text = children.length ? inlineNodes(children, t) : token.content;
+    let text = children.length ? inlineNodes(children, t) : token.content;
     const style: TextStyle =
       token.type === "strong_open"
         ? { fontWeight: "600" }
@@ -193,7 +195,11 @@ function inlineNodes(nodes: Node[], t: MarkdownTheme): React.ReactNode {
             : token.type === "code_inline"
               ? { fontFamily: t.styles.code.fontFamily, backgroundColor: t.colors.field, fontSize: t.codeSize + 1.5 }
               : {};
-    const href = token.type === "link_open" ? String(token.attrGet("href") || "") : "";
+    const written = token.type === "link_open" ? String(token.attrGet("href") || "") : "";
+    // A localhost link is the Chat's computer, never the phone: it opens at that computer's IP (unless the Chat's ports
+    // show that server on loopback only), and a bare URL says so.
+    const href = written && reachableUrl(written, t.reachable?.host, t.reachable?.loopbackOnly);
+    if (href !== written && children.map((child) => child.token.content).join("") === written) text = href;
     const url = href ? safeLink(href) : null;
     // A link to a file on the computer opens the file preview; the phone's browser can't reach it.
     const file = href && !url ? localFileLink(href, t.basePath) : null;
@@ -305,9 +311,12 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
 const Chunk = memo(function Chunk({ text, streaming, media, basePath }: { text: string; streaming: boolean } & ImageOptions) {
   const { colors, textPx, codeSize } = useTheme();
   const styles = useStyles();
+  const reachable = useContext(ReachableHostContext);
   const nodes = useMemo(() => tree(markdownTokens(text, streaming)), [text, streaming]);
   return (
-    <MarkdownStreamingContext value={streaming}>{blocks(nodes, { media, basePath }, { colors, styles, basePath, textPx, codeSize })}</MarkdownStreamingContext>
+    <MarkdownStreamingContext value={streaming}>
+      {blocks(nodes, { media, basePath }, { colors, styles, basePath, textPx, codeSize, reachable })}
+    </MarkdownStreamingContext>
   );
 });
 export const Markdown = memo(function Markdown({ text, streaming = false, media, basePath }: { text: string; streaming?: boolean } & ImageOptions) {
