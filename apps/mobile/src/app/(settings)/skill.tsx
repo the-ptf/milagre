@@ -3,11 +3,11 @@ import { Text, View } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import { SKILL_SCOPES, shadowedBy, shortenHome, skillBody, skillProviderLabel } from "@milagre/shared/skill-catalog";
-import { useSession } from "../session";
-import { useRpc } from "../use-rpc";
-import { Markdown } from "../markdown";
-import { ErrorNotice, PageScroll, PillButton, useStyles } from "../ui";
-import { overrides, useSkillBadge, useSkillCatalog } from "../use-skills";
+import { useSession } from "../../session";
+import { useRpc } from "../../use-rpc";
+import { Markdown } from "../../markdown";
+import { ErrorNotice, PageScroll, PillButton, useStyles } from "../../ui";
+import { overrides, useSkillBadge, useSkillCatalog } from "../../use-skills";
 
 const scopeLabel = (scope: string) => SKILL_SCOPES.find((item) => item.scope === scope)?.label ?? scope;
 

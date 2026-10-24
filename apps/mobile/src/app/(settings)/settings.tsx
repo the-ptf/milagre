@@ -1,42 +1,49 @@
-import { useCallback, useState, type ReactNode } from "react";
-import { Pressable, Text, View } from "react-native";
+import { useCallback, useState } from "react";
+import { Platform, Pressable, Text, View } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
 import {
-  ArrowRight01Icon,
+  Archive02Icon,
   BookOpen01Icon,
   BubbleChatIcon,
+  Cancel01Icon,
   ComputerIcon,
   ConnectIcon,
   Download04Icon,
   FlaskConicalIcon,
   FolderKeyIcon,
-  LaptopIcon,
   Notification01Icon,
   PaintBoardIcon,
   Plug01Icon,
+  RepeatIcon,
   SecurityCheckIcon,
   ServerIcon,
   Settings01Icon,
   UserCircleIcon,
 } from "@hugeicons/core-free-icons";
-import { TOOL_CALL_DISPLAYS } from "@milagre/shared/chat-display";
-import { usePush } from "../push";
-import { useAppUpdates } from "../update-sheet";
-import { Icon, type IconData } from "../icons";
-import { useSession } from "../session";
-import { ProjectIcon } from "../project-icon";
-import { lanRoutes } from "../routes-native";
-import { useToolCallDisplay } from "../chat-display-setting";
-import { appVersionLine } from "../app-version";
-import { useTheme } from "../theme";
-import { PageScroll, useStyles } from "../ui";
+import { chatListLabel } from "@milagre/shared/chat-display";
+import { usePush } from "../../push";
+import { useAppUpdates } from "../../update-sheet";
+import { Icon, type IconData } from "../../icons";
+import { useSession } from "../../session";
+import { ProjectIcon } from "../../project-icon";
+import { useChatList } from "../../chat-display-setting";
+import { useArchivedCount } from "../../all-computers";
+import { useComputerStatus } from "../../use-computer-status";
+import { useRoutines, useRoutinesAvailable } from "../../use-routines";
+import { appVersionLine } from "../../app-version";
+import { Group, Row } from "../../settings-list";
+import { useTheme } from "../../theme";
+import { HeaderButton, PageScroll, useStyles } from "../../ui";
 
 type SettingsPage =
+  | "computers"
+  | "routines"
   | "general"
   | "accounts"
   | "project-accounts"
   | "appearance"
   | "chat-display"
+  | "archived"
   | "notifications"
   | "connections"
   | "skills"
@@ -50,56 +57,49 @@ const MODE_LABEL = { system: "System", light: "Light", dark: "Dark" } as const;
 export default function SettingsScreen() {
   return (
     <>
-      <Stack.Screen options={{ title: "Settings", headerLargeTitle: true, headerLargeTitleStyle: { fontWeight: "700" } }} />
+      <Stack.Screen options={{ title: "Settings" }} />
+      {/* Settings is the first page of its sheet, so Back here closes the sheet. */}
+      <Stack.Toolbar placement="right">
+        {Platform.OS === "ios" ? (
+          <Stack.Toolbar.Button icon="xmark" accessibilityLabel="Close Settings" onPress={() => router.back()} />
+        ) : (
+          <Stack.Toolbar.View>
+            <HeaderButton label="Close Settings" icon={Cancel01Icon} onPress={() => router.back()} />
+          </Stack.Toolbar.View>
+        )}
+      </Stack.Toolbar>
       <PageScroll>
-        <SettingsView onOpen={(page) => router.push(`/${page}`)} />
+        <SettingsView
+          onOpen={(page) => {
+            // Routines is a full page of the app, not a page of the sheet: close the sheet, then open it over the Chat.
+            if (page === "routines") router.back();
+            router.push(`/${page}`);
+          }}
+        />
       </PageScroll>
     </>
   );
 }
 
-/** A grouped list: its header, the rows in one card with inset separators, and a note under it. */
-function Group({ title, footer, children }: { title?: string; footer?: string; children: ReactNode[] }) {
-  const styles = useStyles();
-  const { colors } = useTheme();
-  const rows = children.filter(Boolean);
-  return (
-    <View style={{ gap: 8 }}>
-      {title ? (
-        <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 13, paddingHorizontal: 16 }}>
-          {title}
-        </Text>
-      ) : null}
-      <View style={[styles.card, { paddingVertical: 0, paddingHorizontal: 16, gap: 0 }]}>
-        {rows.map((row, index) => (
-          <View key={index}>
-            {index > 0 && <View style={[styles.separator, { marginLeft: 36 }]} />}
-            {row}
-          </View>
-        ))}
-      </View>
-      {footer ? <Text style={{ color: colors.ink2, fontSize: 13, lineHeight: 18, paddingHorizontal: 16 }}>{footer}</Text> : null}
-    </View>
-  );
-}
-
-/** One Settings row: icon, title, the current value when it's known without asking the Mac, and a chevron. */
-function Row({
+/** A square entry point at the top of Settings: icon, title and a one-line state. */
+function Tile({
   title,
   icon,
-  leading,
   value,
+  dot,
   disabled = false,
   onPress,
 }: {
   title: string;
-  icon?: IconData;
-  leading?: ReactNode;
+  icon: IconData;
   value?: string;
+  /** A status dot before the value. */
+  dot?: string;
   disabled?: boolean;
   onPress: () => void;
 }) {
   const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <Pressable
       accessibilityRole="button"
@@ -107,36 +107,32 @@ function Row({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 14,
-        minHeight: 52,
-        opacity: disabled ? 0.4 : pressed ? 0.5 : 1,
-      })}
+      style={({ pressed }) => [styles.card, { flex: 1, minHeight: 101, gap: 6, padding: 14, borderRadius: 18, opacity: disabled ? 0.4 : pressed ? 0.5 : 1 }]}
     >
-      {leading ?? (icon ? <Icon icon={icon} tone="ink" size={22} /> : null)}
-      <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 17 }}>
+      <Icon icon={icon} tone="ink" size={22} />
+      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 16, fontWeight: "600" }}>
         {title}
       </Text>
       {value ? (
-        <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 17, maxWidth: "45%" }}>
-          {value}
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+          {dot ? <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: dot }} /> : null}
+          <Text numberOfLines={1} style={{ flex: 1, color: colors.ink3, fontSize: 13 }}>
+            {value}
+          </Text>
+        </View>
       ) : null}
-      <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
     </Pressable>
   );
 }
 
-/** Settings pages stay on the native stack for the header and interactive back gesture. */
+/** The first page of the Settings sheet; each row opens a page inside the same sheet. */
 export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void }) {
-  const styles = useStyles();
   const { colors, settings: theme } = useTheme();
   const push = usePush();
   const updates = useAppUpdates();
   const session = useSession();
-  const [toolCallDisplay] = useToolCallDisplay();
+  const [chatList] = useChatList();
+  const archived = useArchivedCount();
   const client = session.client;
   const host = client ? session.hosts.find((saved) => saved.id === client.url) : undefined;
   const macName = host?.name || session.hostName || "Your Mac";
@@ -175,54 +171,36 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
                 : status === "error" || status === "check-error"
                   ? "Could not check"
                   : "Check now";
-  const route = host ? (lanRoutes.kind(host.id) === "lan" ? "Local network" : host.relay ? "Relay" : host.address.replace(/^https?:\/\//, "")) : "";
+  const reachability = useComputerStatus(session.hosts);
+  const states = Object.values(reachability);
+  const online = states.filter((state) => state === "online").length;
+  const offline = states.filter((state) => state === "offline").length;
+  const computersValue = !states.length
+    ? "None paired"
+    : online + offline === 0
+      ? "Checking…"
+      : online === 0
+        ? "Offline"
+        : offline === 0
+          ? `${online} online`
+          : `${online} online · ${offline} offline`;
+  // Routines: the Mac's switch gates the tile; the count comes from the same store the Routines page reads.
+  const routinesAvailable = useRoutinesAvailable(client);
+  const routines = useRoutines(routinesAvailable ? client : null);
+  const routinesOn = routines.routines.filter((routine) => routine.enabled).length;
+  const routinesValue = !client ? "No computer connected" : !routinesAvailable ? "Update your Mac" : routines.loading ? undefined : `${routinesOn} on`;
   return (
     <View style={{ gap: 28 }}>
-      {/* Which computer the Mac settings below belong to; tapping it goes back to the list to switch or pair. */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={client ? `${macName}. Connected, ${route}` : session.hosts.length ? "Choose a computer" : "Pair a computer"}
-        onPress={() => (client || session.hosts.length ? router.navigate("/") : router.push("/add-computer"))}
-        style={({ pressed }) => [styles.card, { flexDirection: "row", alignItems: "center", gap: 12, opacity: pressed ? 0.5 : 1 }]}
-      >
-        <View
-          style={{
-            width: 48,
-            height: 48,
-            borderRadius: 12,
-            borderCurve: "continuous",
-            backgroundColor: colors.field,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Icon icon={client && /studio|mini|imac/i.test(macName) ? ComputerIcon : LaptopIcon} tone="ink" size={22} />
-          {client ? (
-            <View
-              style={{
-                position: "absolute",
-                right: -2,
-                bottom: -2,
-                width: 12,
-                height: 12,
-                borderRadius: 6,
-                backgroundColor: colors.green,
-                borderWidth: 2,
-                borderColor: colors.surface,
-              }}
-            />
-          ) : null}
-        </View>
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-            {client ? macName : session.hosts.length ? "No computer connected" : "Pair a computer"}
-          </Text>
-          <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 15 }}>
-            {client ? `Connected · ${route}` : session.hosts.length ? "Choose one to change its settings" : "Scan the code in Milagre on your Mac"}
-          </Text>
-        </View>
-        <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
-      </Pressable>
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <Tile
+          title="Computers"
+          icon={ComputerIcon}
+          value={computersValue}
+          dot={online > 0 ? colors.green : colors.lineStrong}
+          onPress={() => onOpen("computers")}
+        />
+        <Tile title="Routines" icon={RepeatIcon} value={routinesValue} disabled={!routinesAvailable} onPress={() => onOpen("routines")} />
+      </View>
       <Group title="This iPhone" footer="Saved on this phone. Your other devices keep their own.">
         <Row
           title="Notifications"
@@ -231,12 +209,8 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
           onPress={() => onOpen("notifications")}
         />
         <Row title="Appearance" icon={PaintBoardIcon} value={MODE_LABEL[theme.mode]} onPress={() => onOpen("appearance")} />
-        <Row
-          title="Chat"
-          icon={BubbleChatIcon}
-          value={TOOL_CALL_DISPLAYS.find((display) => display.id === toolCallDisplay)?.label}
-          onPress={() => onOpen("chat-display")}
-        />
+        <Row title="Chat" icon={BubbleChatIcon} value={chatListLabel(chatList)} onPress={() => onOpen("chat-display")} />
+        <Row title="Archived Chats" icon={Archive02Icon} value={archived === null ? undefined : String(archived)} onPress={() => onOpen("archived")} />
         <Row title="Experimental" icon={FlaskConicalIcon} onPress={() => onOpen("experimental")} />
       </Group>
       {/* The connected Mac's settings; without one there is nothing here the phone can change, so the group is gone. */}

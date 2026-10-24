@@ -3,10 +3,10 @@ import { Pressable, Text, View, type StyleProp, type TextStyle } from "react-nat
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { mcpChipLine, mcpEditTarget, mcpRemoveTargets, mcpTargetPlaces, mcpTransportLine } from "@milagre/shared/mcp";
 import { providerName } from "@milagre/shared/providers";
-import { useMcp } from "../use-mcp";
-import { Button, PageScroll, Toggle, useStyles } from "../ui";
-import { useTheme } from "../theme";
-import { confirm } from "../confirm-store";
+import { useMcp } from "../../use-mcp";
+import { Button, PageScroll, Toggle, useStyles } from "../../ui";
+import { useTheme } from "../../theme";
+import { confirm } from "../../confirm-store";
 
 /** One server: a switch per account, and Edit and Remove for URL servers added in Milagre or a provider's user config. */
 export default function McpServerScreen() {

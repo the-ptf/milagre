@@ -2,14 +2,14 @@ import { Linking, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { ArrowRight01Icon, Notification01Icon } from "@hugeicons/core-free-icons";
 import { notificationChimeLabel } from "@milagre/shared/notification-chimes";
-import { useAttentionButton } from "../attention";
-import { useActivity } from "../live-activity";
-import { usePush } from "../push";
-import { useSession } from "../session";
-import { Icon } from "../icons";
-import { ErrorNotice, ListRow, PageScroll, PillButton, PullDown, Toggle, useStyles } from "../ui";
-import { NotificationScheduleSetting } from "../notification-schedule-setting";
-import { useTheme } from "../theme";
+import { useAttentionButton } from "../../attention";
+import { useActivity } from "../../live-activity";
+import { usePush } from "../../push";
+import { useSession } from "../../session";
+import { Icon } from "../../icons";
+import { ErrorNotice, ListRow, PageScroll, PillButton, PullDown, Toggle, useStyles } from "../../ui";
+import { NotificationScheduleSetting } from "../../notification-schedule-setting";
+import { useTheme } from "../../theme";
 
 export default function NotificationsScreen() {
   return (

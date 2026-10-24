@@ -1,6 +1,6 @@
 import { Stack } from "expo-router";
-import { PageScroll } from "../ui";
-import { GeneralSection } from "../general-section";
+import { PageScroll } from "../../ui";
+import { GeneralSection } from "../../general-section";
 
 export default function GeneralScreen() {
   return (

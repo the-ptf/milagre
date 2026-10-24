@@ -4,9 +4,9 @@ import { Stack, router } from "expo-router";
 import type { SkillOption } from "@milagre/shared/model";
 import { SKILL_PROVIDERS, SKILL_SCOPES, filterSkills, groupSkills, shadowedBy, shortenHome, skillProviderLabel } from "@milagre/shared/skill-catalog";
 import type { SkillScope } from "@milagre/shared/skill-catalog";
-import { overrides, useSkillBadge, useSkillCatalog } from "../use-skills";
-import { ErrorNotice, Field, PageScroll, PullDown, useStyles } from "../ui";
-import { useTheme } from "../theme";
+import { overrides, useSkillBadge, useSkillCatalog } from "../../use-skills";
+import { ErrorNotice, Field, PageScroll, PullDown, useStyles } from "../../ui";
+import { useTheme } from "../../theme";
 
 export default function SkillsScreen() {
   const styles = useStyles();

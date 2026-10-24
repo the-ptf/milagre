@@ -1,6 +1,6 @@
 import { Stack } from "expo-router";
-import { PageScroll } from "../ui";
-import { UsageSection } from "../usage-section";
+import { PageScroll } from "../../ui";
+import { UsageSection } from "../../usage-section";
 
 export default function UsageScreen() {
   return (

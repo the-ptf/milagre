@@ -5,10 +5,10 @@ import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { MAIN_SYNC_TITLE, choiceOf, mainSyncChoices, mainSyncStatusLine, overrideOf } from "@milagre/shared/main-sync";
 import type { MainSyncChoice, MainSyncSettings } from "@milagre/shared/main-sync";
-import { useSession } from "../session";
-import { ProjectIcon, setProjectImage } from "../project-icon";
-import { ProjectAccountsGroup } from "../project-accounts-section";
-import { ErrorNotice, PageScroll, PillButton, Segmented, Toggle, useStyles } from "../ui";
+import { useSession } from "../../session";
+import { ProjectIcon, setProjectImage } from "../../project-icon";
+import { ProjectAccountsGroup } from "../../project-accounts-section";
+import { ErrorNotice, PageScroll, PillButton, Segmented, Toggle, useStyles } from "../../ui";
 
 // Same size as desktop's: the icon is shown small everywhere, and the computer keeps it under 450 KB.
 async function pickIcon() {

@@ -1,6 +1,6 @@
 import { Stack } from "expo-router";
-import { PageScroll } from "../ui";
-import { ProjectAccountsSection } from "../project-accounts-section";
+import { PageScroll } from "../../ui";
+import { ProjectAccountsSection } from "../../project-accounts-section";
 
 export default function ProjectAccountsScreen() {
   return (

@@ -3,9 +3,9 @@ import { Stack, router } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text, View } from "react-native";
-import { DesignPageShareSheet } from "../design-page-share";
-import { useSession } from "../session";
-import { PillButton, useStyles } from "../ui";
+import { DesignPageShareSheet } from "../../design-page-share";
+import { useSession } from "../../session";
+import { PillButton, useStyles } from "../../ui";
 
 export default function PublishedPagesScreen() {
   const session = useSession();

@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Linking, Text, View } from "react-native";
 import { Stack } from "expo-router";
 import { AI_CONSENT_DESCRIPTION, AI_CONSENT_DETAIL, AI_RESET_DETAIL, AI_PROVIDER_POLICIES, PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/ai-consent";
-import { aiConsent } from "../ai-consent";
-import { ErrorNotice, ListRow, PageScroll, PillButton, useStyles } from "../ui";
+import { aiConsent } from "../../ai-consent";
+import { ErrorNotice, ListRow, PageScroll, PillButton, useStyles } from "../../ui";
 
 export default function PrivacyScreen() {
   return (

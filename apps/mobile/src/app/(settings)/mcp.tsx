@@ -1,9 +1,9 @@
 import { Platform } from "react-native";
 import { Stack, router } from "expo-router";
 import { Add01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
-import { HeaderButton, PageScroll } from "../ui";
-import { McpSection } from "../mcp-section";
-import { useMcp } from "../use-mcp";
+import { HeaderButton, PageScroll } from "../../ui";
+import { McpSection } from "../../mcp-section";
+import { useMcp } from "../../use-mcp";
 
 const add = () => router.push("/mcp-add");
 

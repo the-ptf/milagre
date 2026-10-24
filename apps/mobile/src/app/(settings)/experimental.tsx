@@ -1,6 +1,6 @@
 import { Stack } from "expo-router";
-import { PageScroll } from "../ui";
-import { ExperimentalSection } from "../experimental-section";
+import { PageScroll } from "../../ui";
+import { ExperimentalSection } from "../../experimental-section";
 
 export default function ExperimentalScreen() {
   return (

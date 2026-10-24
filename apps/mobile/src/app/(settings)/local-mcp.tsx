@@ -1,6 +1,6 @@
 import { Stack } from "expo-router";
-import { PageScroll } from "../ui";
-import { LocalMcpSection } from "../local-mcp-section";
+import { PageScroll } from "../../ui";
+import { LocalMcpSection } from "../../local-mcp-section";
 
 export default function LocalMcpScreen() {
   return (
