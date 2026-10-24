@@ -21,21 +21,28 @@ type MarkdownTheme = { colors: Palette; styles: Styles; basePath?: string; textP
 // Chat reading size: desktop uses 13px at 1.55; a phone reads best a little larger. `textPx` follows Settings > Appearance > Text size.
 const bodyOf = (colors: Palette, textPx = 15) => ({ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) });
 
+/** Each retry reads the computer again, including when its target and media callback are unchanged. */
+function readImage(target: ReturnType<typeof resolveMarkdownImage>, media: ImageOptions["media"], attempt: number) {
+  let source: MediaValue | null = null;
+  if (target) {
+    if ("url" in target) source = { uri: target.url };
+    else {
+      try {
+        source = media?.(target.path) ?? null;
+      } catch {
+        // An unavailable computer image keeps its retry control.
+      }
+    }
+  }
+  return { attempt, source };
+}
+
 function MarkdownImage({ src, alt, media, basePath }: { src: string; alt: string } & ImageOptions) {
   const { colors } = useTheme();
   const styles = useStyles();
   const target = useMemo(() => resolveMarkdownImage(src, basePath), [src, basePath]);
   const [attempt, setAttempt] = useState(0);
-  const source = useMemo(() => {
-    void attempt;
-    if (!target) return null;
-    if ("url" in target) return { uri: target.url };
-    try {
-      return media?.(target.path) ?? null;
-    } catch {
-      return null;
-    }
-  }, [target, media, attempt]);
+  const { source } = useMemo(() => readImage(target, media, attempt), [target, media, attempt]);
   const pending = source && typeof (source as Promise<ImageSourcePropType>).then === "function" ? (source as Promise<ImageSourcePropType>) : null;
   const [loaded, setLoaded] = useState<{ source: MediaValue; value: ImageSourcePropType | null } | null>(null);
   const [failed, setFailed] = useState<MediaValue | null>(null);

@@ -1506,8 +1506,13 @@ function ChatList({
   const otherList = (scope: string | undefined) => (scope === undefined ? undefined : sidebarLinks.lists().find((handle) => handle.scopeKey === scope));
 
   // Window listeners and memoized row actions call through this, so they always see the latest render.
-  const live = useRef({ recents, actions, over, drop, finish, hit, sidebarLinks });
-  live.current = { recents, actions, over, drop, finish, hit, sidebarLinks };
+  const live = useRef({ recents, actions, sidebarLinks });
+  live.current = { recents, actions, sidebarLinks };
+  // Keep the drag handlers separate: drop closes over rowActions below.
+  const dragHandlers = useRef({ over, drop, finish, hit });
+  useLayoutEffect(() => {
+    dragHandlers.current = { over, drop, finish, hit };
+  });
 
   // Another Project's list finds this one's rows when a drag from there ends here.
   useEffect(() => {
@@ -1516,10 +1521,13 @@ function ChatList({
     return sidebarLinks.register(handle);
   }, [scopeKey, linkProjectId]);
 
-  const showToast = (text: string, undo?: () => void) => {
-    const aside = listRef.current?.closest("aside")?.getBoundingClientRect();
-    live.current.sidebarLinks.toast(text, { undo, left: (aside?.right ?? 0) + 12 });
-  };
+  const showToast = useCallback(
+    (text: string, undo?: () => void) => {
+      const aside = listRef.current?.closest("aside")?.getBoundingClientRect();
+      live.current.sidebarLinks.toast(text, { undo, left: (aside?.right ?? 0) + 12 });
+    },
+    [live],
+  );
 
   /** Beside the sidebar, level with the row the menu or the drop was on. */
   const anchorAt = (top: number) => {
@@ -1557,7 +1565,7 @@ function ChatList({
           }
         : {}),
     }),
-    [actions, linkProjectId, scopeKey],
+    [actions, linkProjectId, scopeKey, live, showToast],
   );
 
   const endpoint = (item: SidebarRecent) => ({ pinned: item.pinned, worktree: item.details?.path });
@@ -1723,7 +1731,7 @@ function ChatList({
         started = true;
         begin(id, false);
       }
-      live.current.over(live.current.hit(moveEvent.clientX, moveEvent.clientY));
+      dragHandlers.current.over(dragHandlers.current.hit(moveEvent.clientX, moveEvent.clientY));
     };
     const stop = () => {
       window.removeEventListener("pointermove", move);
@@ -1740,11 +1748,11 @@ function ChatList({
       };
       window.addEventListener("click", swallow, { capture: true, once: true });
       window.setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
-      live.current.drop();
+      dragHandlers.current.drop();
     };
     const cancel = () => {
       stop();
-      if (started) live.current.finish();
+      if (started) dragHandlers.current.finish();
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
@@ -1757,7 +1765,7 @@ function ChatList({
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      live.current.finish();
+      dragHandlers.current.finish();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
