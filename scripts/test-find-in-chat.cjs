@@ -26,6 +26,10 @@ const bodies = [
   "A phrase that runs across **bold text** and \`inline\` code boundaries.",
 ];
 const messages = bodies.map((body, index) => ({ id: index + 1, session_id: 1, context: null, role: index % 2 || index === bodies.length - 1 ? "assistant" : "user", body }));
+messages.push({ id: 100, session_id: 1, context: null, role: "assistant", body: "Activity reply.", steps: [
+  { id: "fold-a", kind: "shell", title: "foldedunique", status: "done", offset: 0 },
+  { id: "fold-b", kind: "shell", title: "Another command", status: "done", offset: 0 },
+] });
 function Fixture() {
   const [findOpen, setFindOpen] = useState(false);
   const [findSignal, setFindSignal] = useState(0);
@@ -291,6 +295,19 @@ async function browserChecks() {
     await evaluate('document.querySelector("[data-find-bar] input").select()');
     window.webContents.insertText("needle");
     await waitFor('document.querySelector("[data-find-count]").textContent === "1 of 5"');
+
+    // Opening and closing a fold updates an already-open search, even after rows have mounted.
+    await evaluate('document.querySelector("[data-find-bar] input").select()');
+    window.webContents.insertText("foldedunique");
+    await waitFor('document.querySelector("[data-find-count]").textContent === "No results"');
+    const fold = 'document.querySelector("[data-slot=activity] > button")';
+    await evaluate(`${fold}.click()`);
+    await waitFor('document.querySelector("[data-find-count]").textContent === "1 of 1"');
+    await evaluate(`${fold}.click()`);
+    await waitFor('document.querySelector("[data-find-count]").textContent === "No results"');
+    await evaluate(`${fold}.click()`);
+    await waitFor('document.querySelector("[data-find-count]").textContent === "1 of 1"');
+    console.log("PASS: find counts folded step text only while expanded, updating live across reopen");
 
     key("Escape");
     await waitFor('!document.querySelector("[data-find-bar]")');
