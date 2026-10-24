@@ -1167,6 +1167,8 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     attachChat,
     finishRun,
     setRunTitle,
+    // How many Runs are under way, in every Routine, a completed one's last Run included.
+    runningCount: () => Object.values(data.runs).reduce((count, runs) => count + runs.filter((run) => run.status === "running").length, 0),
     // Whether a Run is still in the store.
     hasRun: (runId) => runIndex.has(runId),
     // Whether Routine `routineId` was deleted or purged here, ever.

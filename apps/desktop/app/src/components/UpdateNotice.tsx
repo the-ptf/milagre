@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { motion, useReducedMotion } from "motion/react";
+import { AUTO_UPDATE_WAITING } from "@milagre/shared/auto-update";
 import type { UpdateState } from "../electron";
 import { useMotionScale } from "../lib/ease";
 import { useDismiss } from "../lib/use-dismiss";
@@ -247,7 +248,7 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
                         ? "Looking for a newer version of Milagre."
                         : "The update could not finish."}
             </p>
-            {ready && <p className="mt-2">Restarting Milagre will stop running agents.</p>}
+            {ready && <p className="mt-2">{state.auto ? AUTO_UPDATE_WAITING : "Restarting Milagre will stop running agents."}</p>}
           </div>
           {downloading && (
             <div className="mt-4 flex items-center gap-3">

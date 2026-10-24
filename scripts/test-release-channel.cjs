@@ -16,6 +16,9 @@ window.milagre = {
   setReleaseChannel: async (channel) => { window.__channelCalls.push(channel); return channel; },
   getUpdateState: async () => ({ status: "idle", version: null, progress: 0 }),
   checkForUpdates: async () => ({ status: "up-to-date", version: null, progress: 0 }),
+  readAutoUpdate: async () => ({ autoUpdate: false }),
+  saveAutoUpdate: async (value) => ({ autoUpdate: value }),
+  onAutoUpdate: () => () => {},
   installUpdate: async () => {},
   onUpdateState: () => () => {},
 };

@@ -22,6 +22,8 @@ module.exports = {
   "chat:send-status": [p("projectPath"), p("clientMessageId")],
   "attachment:upload": request({ projectPath: s, name: s, base64: s, reuse: s, quota: n, transferId: s, offset: n, totalBytes: n }, ["projectPath"]),
   "chat:inbox": [],
+  // What a restart to install an app update would stop; the desktop's updater asks (app-auto-update.cjs).
+  "app-update:activity": [],
   "link:workspace-roots": [p("requested")],
   "project:plain-root": [p("root")],
   "project:snapshot": project,

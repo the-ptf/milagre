@@ -23,7 +23,16 @@ let changed = () => {};
 const snapshot = () => ({ thisMac: "victor-mbp", computers });
 window.renames = [];
 window.removed = [];
+window.autoSaves = [];
+const fallback = { get(target, key) { return target[key] ?? (String(key).startsWith("on") ? () => () => {} : async () => null); } };
+// A paired computer's own calls: only Auto update answers; the rest stay as an older computer that has nothing.
+const remote = (id) => ({
+  readAutoUpdate: async () => ({ autoUpdate: false }),
+  saveAutoUpdate: async (value) => (window.autoSaves.push([id, value]), { autoUpdate: value }),
+  onAutoUpdate: () => () => {},
+});
 window.milagre = new Proxy({
+  on: remote,
   listRecentProjects: async () => [],
   listEditors: async () => [],
   onComputersChanged: (callback) => ((changed = callback), () => {}),
@@ -43,7 +52,7 @@ window.milagre = new Proxy({
       return snapshot();
     },
   },
-}, { get(target, key) { return target[key] ?? (String(key).startsWith("on") ? () => () => {} : async () => null); } });
+}, fallback);
 updateSettings({ otherComputers: true });
 function Fixture() {
   const [section, setSection] = useState("appearance");
@@ -101,6 +110,13 @@ async function browserChecks() {
     assert.equal(await text('[data-connection="relay"] [data-connection-state]'), "Ready");
     await waitFor(`document.querySelector('[data-computer-projects]')?.textContent.includes('2 Projects')`);
     assert.match(await text("[data-computer-projects]"), /arketa-web, infra\. Accounts and simulators stay on arketa\./);
+    // Auto update flips on that computer, through its own calls.
+    await waitFor(`document.querySelector('[data-computer-auto-update] [role=switch]')?.getAttribute('aria-checked') === 'false'`);
+    await evaluate(`document.querySelector('[data-computer-auto-update] [role=switch]').click()`);
+    await waitFor(
+      `window.autoSaves.length === 1 && document.querySelector('[data-computer-auto-update] [role=switch]').getAttribute('aria-checked') === 'true'`,
+    );
+    assert.deepEqual(await evaluate("window.autoSaves"), [["c-arketa", true]]);
     await screenshot("computer-settings");
     console.log("PASS: a computer's settings show its connection routes, which is in use, and what lives there");
 

@@ -29,6 +29,9 @@ window.milagre = {
   onUpdateState: (cb) => { listener = cb; return () => {}; },
   installUpdate: async () => { window.__installs++; window.__update({ ...window.__state, status: "installing" }); },
   checkForUpdates: async () => { window.__checks++; window.__update({ ...window.__state, status: "checking" }); },
+  readAutoUpdate: async () => ({ autoUpdate: window.__autoUpdate ?? false }),
+  saveAutoUpdate: async (value) => { window.__autoUpdate = value; window.__autoListener?.({ autoUpdate: value }); return { autoUpdate: value }; },
+  onAutoUpdate: (cb) => { window.__autoListener = cb; return () => {}; },
   listRecentProjects: async () => [], listNamedLinks: async () => [], listProjects: async () => [],
   getProjectImage: async () => null, listEditors: async () => [],
   onProjectState: () => () => {}, onLinkState: () => () => {},
@@ -154,6 +157,22 @@ async function browserChecks() {
     await waitFor("window.__checks === 1");
     await evaluate("window.__update({ status: 'downloaded', version: '1.2.4', progress: 100 })");
     await waitFor("document.body.innerText.includes('v1.2.4 is ready')");
+    // Auto update: the switch in About saves on the host; with it on, the ready card says the update installs by itself.
+    const autoSwitch = `document.querySelector('[role=switch][aria-label="Auto update"]')`;
+    await waitFor(`${autoSwitch}?.getAttribute('aria-checked') === 'false'`);
+    assert.match(await evaluate("document.body.innerText"), /nobody has used the Mac for 5 minutes/);
+    await evaluate(`${autoSwitch}.click()`);
+    await waitFor(`window.__autoUpdate === true && ${autoSwitch}.getAttribute('aria-checked') === 'true'`);
+    await evaluate("window.__update({ status: 'downloaded', version: '1.2.4', progress: 100, auto: true })");
+    await waitFor("document.body.innerText.includes('Auto update is on')");
+    assert.doesNotMatch(await evaluate("document.body.innerText"), /stop running agents/);
+    assert.match(await evaluate("document.body.innerText"), /Auto update installs it once nothing is running/);
+    await screenshot("update-auto");
+    // Turned off from another device: the switch follows.
+    await evaluate("window.__autoListener({ autoUpdate: false })");
+    await waitFor(`${autoSwitch}.getAttribute('aria-checked') === 'false'`);
+    await evaluate("window.__update({ status: 'downloaded', version: '1.2.4', progress: 100, auto: false })");
+    await waitFor("document.body.innerText.includes('stop running agents')");
     // Escape returns keyboard focus to the persistent trigger.
     await evaluate("document.querySelector('[role=dialog] button').focus()");
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
@@ -241,6 +260,7 @@ async function browserChecks() {
     await screenshot("update-sidebar-collapsed");
     console.log("PASS: update pill above the chat composer morphs into the card in place, falling back to the bottom left without a visible Chat");
     console.log("PASS: update progress, ready card, dismissal, settings warning, installation, retries and keyboard access");
+    console.log("PASS: Auto update switch in About saves, follows other devices, and changes the ready card's line");
     app.exit(0);
   } catch (error) {
     console.error(error);

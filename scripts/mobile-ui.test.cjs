@@ -8828,6 +8828,7 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "@milagre/shared/main-sync": require("@milagre/shared/main-sync"),
+    "@milagre/shared/auto-update": require("@milagre/shared/auto-update"),
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { router: { push: (path) => pushed.push(path) }, useFocusEffect: (fn) => focused.push(fn) },
     "@hugeicons/core-free-icons": {},
@@ -8855,6 +8856,60 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
   await settle();
   assert.equal(toggle().props.selected, true, "a refused save puts the switch back");
   assert.equal(find(render(), (n) => n.type === "ErrorNotice").props.message, "This demo computer only opens its demo project.");
+});
+
+test("mobile Auto update switch shows the Mac's setting, saves a change and hides for an older Mac", async () => {
+  const react = hookHost();
+  const focused = [];
+  const calls = [];
+  let saved = false;
+  let older = false;
+  const client = {
+    async call(method, args) {
+      calls.push([method, ...args]);
+      if (method === "app-update:auto:read") {
+        if (older) throw new Error("Unknown method");
+        return { autoUpdate: saved };
+      }
+      if (method === "app-update:auto:save") {
+        saved = args[0];
+        return { autoUpdate: saved };
+      }
+      if (method === "main-sync:default:read") return { syncMain: false };
+      throw new Error("Unknown method");
+    },
+  };
+  const { GeneralSection } = load("general-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/main-sync": require("@milagre/shared/main-sync"),
+    "@milagre/shared/auto-update": require("@milagre/shared/auto-update"),
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { router: { push() {} }, useFocusEffect: (fn) => focused.push(fn) },
+    "@hugeicons/core-free-icons": {},
+    "./session": { useSession: () => ({ client }) },
+    "./icons": { Icon: "Icon" },
+    "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
+  });
+  const render = () => {
+    react.begin();
+    return GeneralSection();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const toggle = () => find(render(), (n) => n.props?.title === "Auto update");
+  assert.equal(toggle(), undefined, "nothing shows before the Mac answers");
+  for (const fn of focused.splice(0)) fn();
+  await settle();
+  assert.equal(toggle().props.selected, false);
+  toggle().props.onPress();
+  await settle();
+  assert.deepEqual(calls.at(-1), ["app-update:auto:save", true]);
+  assert.equal(toggle().props.selected, true);
+  older = true;
+  render();
+  for (const fn of focused.splice(0)) fn();
+  await settle();
+  assert.equal(toggle(), undefined, "an older Mac has no Auto update to show");
 });
 
 // Settings with every import faked; `state` is read on each render, so a test can change the Mac or the Linear answer.

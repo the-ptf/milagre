@@ -1027,6 +1027,20 @@
         }
       ]
     },
+    "app-update:auto:read": {
+      "parameters": []
+    },
+    "app-update:auto:save": {
+      "parameters": [
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
     "routines:enabled:read": {
       "parameters": []
     },

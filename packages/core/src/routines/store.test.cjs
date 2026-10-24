@@ -33,6 +33,19 @@ test("setEnabled persists", () => {
   assert.equal(createRoutineStore(options).enabled(), true);
 });
 
+test("runningCount counts the Runs under way in every Routine, an update's wait", () => {
+  const { store } = setup();
+  store.setEnabled(true);
+  const first = store.upsertHeartbeat(base);
+  const second = store.upsertHeartbeat({ ...base, chatId: "c2", name: "other" });
+  assert.equal(store.runningCount(), 0);
+  const { run } = store.startRun(first.id, START);
+  store.startRun(second.id, START);
+  assert.equal(store.runningCount(), 2);
+  store.finishRun(run.id, { status: "acted" });
+  assert.equal(store.runningCount(), 1);
+});
+
 test("pre-consent and stale Routine profiles stay off without losing their Routines or Runs", () => {
   const { store, options, file } = setup();
   const routine = store.upsertHeartbeat(base);

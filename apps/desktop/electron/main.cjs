@@ -124,7 +124,7 @@ async function startDesktop() {
   protocol.handle("milagre-artifact", (request) => previews.handle(request));
   const appIconPath = path.join(__dirname, "../app/public/logo-milagre-image.png");
   const { createReleaseChannelStore, prepareUpdater } = require("./release-channel.cjs");
-  const { createAppUpdates, watchAppUpdates } = require("./app-updates.cjs");
+  const { createAppUpdates, createAutoInstall, watchAppUpdates } = require("./app-updates.cjs");
   const releaseChannel = createReleaseChannelStore({ file: path.join(app.getPath("userData"), "release-channel.json") });
   const updates = createAppUpdates({
     updater: autoUpdater,
@@ -151,6 +151,16 @@ async function startDesktop() {
     return next;
   });
   ipcMain.handle("update:install", () => updates.install());
+  // Auto update's switch lives on the host, where the phone and paired desktops change it too; an older host has none.
+  const readAutoUpdate = () =>
+    void runtime
+      ?.invoke("app-update:auto:read", [])
+      .then((value) => updates.setAuto(value?.autoUpdate === true))
+      .catch(() => updates.setAuto(false));
+  const autoInstall = createAutoInstall(updates, {
+    activity: () => runtime.invoke("app-update:activity", []),
+    inputIdleSeconds: () => powerMonitor.getSystemIdleTime(),
+  });
 
   // A project or worktree folder in the file manager; only a checkout's top folder opens (see reveal.cjs).
   ipcMain.handle("project:reveal", (_event, folder) =>
@@ -306,6 +316,7 @@ async function startDesktop() {
         if (channel === "agent:event") notifier.observe(payload.chatId, payload.event);
         if (channel === "notification:waiting" && notifyWhenWaiting && Notification.isSupported()) notifier.notify(payload);
         if (channel === "phone:paired") void deviceNotices.paired(payload);
+        if (channel === "app-update:auto") updates.setAuto(payload?.autoUpdate === true);
         if (channel === "devices:pending" && Notification.isSupported()) notifier.notifyComputerWaiting(payload?.requests);
         if (channel === "runtime:connection") {
           connectionState = payload;
@@ -313,6 +324,7 @@ async function startDesktop() {
           if (payload.connected && runtime) {
             registerHostMethods();
             nativeCommands.publish();
+            readAutoUpdate();
             void computerUnlock?.prepare().catch((error) => console.warn("Computer credentials:", error.message));
             void deviceNotices.connected();
           }
@@ -499,7 +511,8 @@ async function startDesktop() {
       if (floating.owns(window)) return;
       void runtime.setFocused(false).catch(() => {});
     });
-    if (app.isPackaged) watchAppUpdates(updates, { app, powerMonitor });
+    readAutoUpdate();
+    if (app.isPackaged) watchAppUpdates(updates, { app, powerMonitor, autoInstall });
     else void updates.check();
     app.on("activate", () => {
       if (floating.owns(BrowserWindow.getFocusedWindow())) return;

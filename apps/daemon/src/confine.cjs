@@ -130,6 +130,9 @@ const PATHS = Object.freeze({
   // Auto-switch after a usage limit names no folder and reaches every Project's accounts: a confined phone only reads it.
   "limits:auto-switch:read": none,
   "limits:auto-switch:save": denied,
+  // Auto update restarts the whole Mac's Milagre: a confined phone only reads the switch.
+  "app-update:auto:read": none,
+  "app-update:auto:save": denied,
   // Routines send prompts into any Chat on the Mac: a confined phone sees its own Project's (filterResult) and the switch,
   // and changes nothing.
   "routines:enabled:read": none,
