@@ -13,7 +13,7 @@ import { DiffView, type DiffTarget } from "./app/diff";
 import { IconButton } from "./ui";
 import { springTo, scaledTiming, useMotionScale } from "./motion";
 import { getMotionScale, useTheme } from "./theme";
-import { dragTo, settle } from "./panel-motion";
+import { dragTo, entered, settle } from "./panel-motion";
 
 type Side = "left" | "right";
 /** What the focused screen offers: the left panel always, Changes when it has a Worktree. */
@@ -98,8 +98,11 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
     Keyboard.dismiss();
     setMounted((previous) => (previous[side] ? previous : { ...previous, [side]: true }));
   }, []);
+  // A panel that opens is drawn, whatever the drag pulled on the way; open over nothing, the shade would block every tap.
   const settled = useCallback((to: number) => {
-    setOpen(sideOf(to));
+    const side = sideOf(to);
+    if (side) setMounted((previous) => (previous[side] ? previous : { ...previous, [side]: true }));
+    setOpen(side);
   }, []);
   const go = useCallback((href: Href, secondary: boolean) => {
     if (secondary) {
@@ -226,15 +229,19 @@ function swipe({
   settled: (to: number) => void;
   scale: number;
 }) {
+  // Each panel the finger reaches is drawn as it gets there, the other one too when the drag swings back past the screen.
   return Gesture.Pan()
     .activeOffsetX(offset)
     .failOffsetY([-SLOP_Y, SLOP_Y])
-    .onStart((event) => {
+    .onStart(() => {
       from.set(progress.get());
-      if (pull) scheduleOnRN(pull, event.translationX > 0 ? "left" : "right");
     })
     .onUpdate((event) => {
-      progress.set(dragTo(from.get(), event.translationX, width, min, max));
+      const previous = progress.get();
+      const next = dragTo(from.get(), event.translationX, width, min, max);
+      progress.set(next);
+      const side = pull && entered(previous, next);
+      if (side) scheduleOnRN(pull, side);
     })
     .onEnd((event) => {
       const to = settle(from.get(), progress.get(), event.velocityX);

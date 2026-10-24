@@ -124,6 +124,10 @@ export function openLive(
   };
 }
 
+/** The first wait before a failed Project fetch is tried again with the socket open, doubling up to the cap. */
+const PROJECT_RETRY_MS = 1000;
+const PROJECT_RETRY_MAX_MS = 8000;
+
 export type SyncOptions = {
   /** Opens the Project's live socket. */
   connect: (options: Pick<LiveOptions, "onSignal" | "onStatus">) => Live;
@@ -169,6 +173,16 @@ export function syncProject({
   // One fetch at a time, so a slow response never lands over a newer one; "project" covers "runs".
   let pending: LiveSignal | null = null;
   let fetching = false;
+  // A Project fetch that failed with the socket open is tried again: no signal may come until the turn ends, and until
+  // then a send the computer took keeps the composer waiting for the saved copy (a busy Mac's 429, a dropped answer).
+  let retry: unknown;
+  let failures = 0;
+  function retryLater() {
+    timers.clearTimeout(retry);
+    if (stopped || !open) return;
+    retry = timers.setTimeout(() => void pull("project"), Math.min(PROJECT_RETRY_MS * 2 ** failures, PROJECT_RETRY_MAX_MS));
+    failures++;
+  }
   async function pull(kind: LiveSignal) {
     pending = pending === "project" || kind === "project" ? "project" : "runs";
     if (fetching) return;
@@ -180,8 +194,14 @@ export function syncProject({
         pending = null;
         try {
           await (next === "project" ? snapshot() : runs());
+          if (next === "project") {
+            failures = 0;
+            timers.clearTimeout(retry);
+          }
         } catch (error) {
-          if (!stopped) onError(error as Error);
+          if (stopped) continue;
+          onError(error as Error);
+          if (next === "project") retryLater();
         }
       }
     } finally {
@@ -222,6 +242,8 @@ export function syncProject({
   }
   function background() {
     timers.clearTimeout(poll);
+    timers.clearTimeout(retry);
+    failures = 0;
     live?.close();
     live = null;
     open = false;
