@@ -575,4 +575,3 @@ export function createAllComputersStore(deps: StoreDeps) {
     },
   };
 }
-export type AllComputersStore = ReturnType<typeof createAllComputersStore>;

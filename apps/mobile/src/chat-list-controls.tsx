@@ -18,7 +18,7 @@ import { useVoiceDictation } from "./voice-dictation-hook";
 import { VoiceMicButton } from "./voice-mic-button";
 
 /** How tall the floating controls are, and the room the list keeps under its last row. */
-export const CONTROLS_HEIGHT = 48;
+const CONTROLS_HEIGHT = 48;
 const FADE_EXTRA = 28;
 const DICTATION_ERROR_SECONDS = 4;
 /** The controls stop this far above the keyboard, like the Chat composer. */

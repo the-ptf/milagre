@@ -52,7 +52,7 @@ export const SHEETS_OVER_CHAT = new Set([
 ]);
 // Every page inside the Settings sheet (app/(settings)): the group is one sheet in the layout, so its pages share the
 // sheet's rule. A sheet that opens over the Chat leaves it viewed.
-export const SETTINGS_SHEET_PAGES = new Set([
+const SETTINGS_SHEET_PAGES = new Set([
   "settings",
   "computers",
   "computer",

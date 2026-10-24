@@ -9,6 +9,7 @@ const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import SidebarNav from "/src/components/SidebarNav";
+import { updateSettings } from "/src/lib/settings";
 import { AttentionButton } from "/src/components/changes/ChangesChrome";
 import "/src/styles.css";
 window.milagre = {
@@ -16,6 +17,7 @@ window.milagre = {
   readProject: async (path) => ({ path, name: path, state: { sessions: {}, worktrees: {}, messages: [] } }),
   listProjects: async () => [], listNamedLinks: async () => [], getProjectImage: async () => null,
 };
+updateSettings({ chatList: "grouped" });
 function Fixture() {
   const [waiting, setWaiting] = useState(["/work/milagre-ade", "/work/shop"]);
   const items = [
