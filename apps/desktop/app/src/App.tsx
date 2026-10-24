@@ -2580,8 +2580,9 @@ function App() {
   // The Link on screen and the Project behind it (or the other way round) both stay mounted: the hidden one keeps
   // its DOM and state out of the document, with its effects and listeners off, so switching between them is one
   // insertion.
+  const projectBridge = bridgeForKey(project.path);
   const projectWorkspace = (
-    <BridgeContext.Provider value={bridgeForKey(project.path)}>
+    <BridgeContext.Provider value={projectBridge}>
       <ScopeContext.Provider value={project.path}>
         <DotBackground key="app">
           <PersistenceNotices scopes={globalUnsavedScopes}>

@@ -85,7 +85,8 @@ export function UpdateShell({ children }: { children: ReactNode }) {
     present();
     return unsubscribe;
   }, [presented, navigationRef]);
-  return <AppUpdates.Provider value={{ state, check: controller.check, install: controller.install, dismiss: defer }}>{children}</AppUpdates.Provider>;
+  const value = useMemo(() => ({ state, check: controller.check, install: controller.install, dismiss: defer }), [state, controller, defer]);
+  return <AppUpdates.Provider value={value}>{children}</AppUpdates.Provider>;
 }
 
 // Expo Router wraps the app stack in its generated root navigator.
