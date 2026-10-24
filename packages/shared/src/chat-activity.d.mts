@@ -1,9 +1,8 @@
 import type { AgentRun } from "./agent-runs.mjs";
 import type { AgentEvent, AgentPort, BackgroundTask, ChatSummary, ModelProvider, Subagent } from "./model.ts";
 
-/** What a Chat is doing: see CHAT_ACTIVITIES in chat-activity.mjs for which wins. */
+/** What a Chat is doing: see activityOf in chat-activity.mjs for which wins. */
 export type ChatActivityState = "waiting" | "working" | "failed" | "background" | "idle";
-export const CHAT_ACTIVITIES: readonly ChatActivityState[];
 
 /** What the activity reads from a Chat's saved session. */
 export type ActivitySession = {
