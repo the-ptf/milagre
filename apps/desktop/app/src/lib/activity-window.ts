@@ -3,16 +3,21 @@ import type { ActivityEntry } from "./reply-parts";
 const ACTIVITY_CAP = 200;
 const ACTIVITY_PAGE = 150;
 
-/** Fix the first-open boundary, lowering it only to keep running/waiting steps visible. */
+/**
+ * Fix the first-open boundary, lowering it only to keep waiting steps, and running steps while the
+ * reply streams, visible. A saved reply can keep a stale `running` step (an interrupted turn), which
+ * must not lift the cap.
+ */
 export function activityBoundary(
   entries: ActivityEntry[],
   waitingStepIds: string[],
+  streaming: boolean,
   boundary = entries.length > ACTIVITY_CAP ? entries.length - ACTIVITY_PAGE : 0,
 ) {
   const end = Math.min(boundary, entries.length);
   for (let index = 0; index < end; index++) {
     const entry = entries[index];
-    if (entry?.type === "step" && (entry.step.status === "running" || waitingStepIds.includes(entry.step.id))) return index;
+    if (entry?.type === "step" && ((streaming && entry.step.status === "running") || waitingStepIds.includes(entry.step.id))) return index;
   }
   return end;
 }

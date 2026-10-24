@@ -55,7 +55,7 @@ export function ActivityBlock({
   // Null until first opened; mounted rows and their output state survive later collapses.
   const [boundary, setBoundary] = useState<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
-  const hidden = boundary === null ? 0 : activityBoundary(entries, waitingStepIds, boundary);
+  const hidden = boundary === null ? 0 : activityBoundary(entries, waitingStepIds, streaming, boundary);
   // An earlier step can resume or need approval. Reveal it permanently, without evicting rows.
   if (boundary !== null && hidden < boundary) setBoundary(hidden);
   const { toolCallDisplay } = useSettings();
@@ -88,7 +88,7 @@ export function ActivityBlock({
         type="button"
         aria-expanded={open}
         onClick={() => {
-          if (boundary === null) setBoundary(activityBoundary(entries, waitingStepIds));
+          if (boundary === null) setBoundary(activityBoundary(entries, waitingStepIds, streaming));
           setOpen((value) => !value);
         }}
         className="flex w-fit max-w-full min-w-0 items-center gap-2 rounded-[8px] px-1.5 py-1 text-left text-[12.5px] leading-[1.4] text-ink-2 transition-colors hover:bg-hover hover:text-ink"
