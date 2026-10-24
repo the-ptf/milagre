@@ -48,6 +48,7 @@ import { Notice } from "./Notice";
 import { Attachments } from "./Attachments";
 import { lazyView } from "../lib/lazy-view";
 import { PromptText } from "./PromptText";
+import { onlyImageMentions } from "@milagre/shared/prompt-parts";
 import { useFilesRoot } from "./editor-links";
 import { useSentSkills } from "./useSentSkills";
 import { isRemoteKey, useScope } from "../lib/computer-bridge";
@@ -400,7 +401,8 @@ const MessageSection = memo(function MessageSection({
         ) : answered ? (
           <AnswerCard answered={answered} />
         ) : isUser ? (
-          message.body.trim() ? (
+          // A send that is only its images shows them above, without an "Image #1" bubble.
+          message.body.trim() && !onlyImageMentions(message.body, message.images?.length ?? 0) ? (
             <UserBody
               body={message.body}
               skills={mentions.described}

@@ -17,7 +17,10 @@ export function summarizeChat(messages) {
   const summary = { count: messages.length };
   if (messages.length) Object.assign(summary, { firstId: messages[0].id, lastId: messages.at(-1).id });
   // The first line of the first thing the user wrote names a Chat that has no title.
-  if (input) summary.titleLine = input.body.trim().split("\n")[0].slice(0, 200);
+  if (input) {
+    summary.titleLine = input.body.trim().split("\n")[0].slice(0, 200);
+    if (input.images?.length) summary.titleImages = input.images.length;
+  }
   if (lastReply?.outcome) summary.lastOutcome = lastReply.outcome;
   const refs = pullRequestRefs(messages);
   if (refs.length) summary.pullRequests = refs;
