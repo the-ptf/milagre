@@ -105,8 +105,12 @@ export interface ChatSummary {
   lastId?: number;
   /** When the Chat last got a message or a reply ended (ms since epoch); absent until that happens on a host that keeps it. */
   lastAt?: number;
+  /** When the Chat got its first message (ms since epoch), so Chats of different Projects can be ordered by age; absent on a Chat that began before the host kept it. */
+  firstAt?: number;
   /** The first line of the first thing the user wrote, which names a Chat that has no title. */
   titleLine?: string;
+  /** How many images that first message carried, so `[Image #N]` in the title line is known to name them; absent when none or not counted. */
+  titleImages?: number;
   /** How the last reply ended (the commit dialog's notes aren't replies). */
   lastOutcome?: "completed" | "failed" | "cancelled";
   /** The PRs the Chat's commands created or merged. */

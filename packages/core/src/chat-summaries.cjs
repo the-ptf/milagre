@@ -29,8 +29,8 @@ const onlyLinkLines = (list, prior) =>
   list.slice(prior.length).every((item) => item.context?.kind === "worktree-linked");
 
 /** `next` with the summary of every Chat whose messages changed since `previous` (all of them without one) brought up to date. */
-// `lastAt` is when a Chat last got a message or a reply ended: messages carry no time, so it is stamped here as the
-// change is saved. A state read from disk (no `previous`) keeps what it had.
+// `lastAt` is when a Chat last got a message or a reply ended, and `firstAt` when it got its first: messages carry no
+// time, so both are stamped here as the change is saved. A state read from disk (no `previous`) keeps what it had.
 function withChatSummaries(next, previous, clock = Date.now) {
   if (!next?.sessions || !Array.isArray(next.messages)) return next;
   if (previous && next.messages === previous.messages && next.sessions === previous.sessions) return next;
@@ -53,8 +53,13 @@ function withChatSummaries(next, previous, clock = Date.now) {
     const quiet = before && onlyLinkLines(list, before.get(String(id)) ?? EMPTY);
     const active =
       previous && !quiet && (old ? old.count !== summary.count || old.lastId !== summary.lastId || old.lastOutcome !== summary.lastOutcome : summary.count > 0);
-    const lastAt = active ? clock() : old?.lastAt;
+    const stamp = active ? clock() : undefined;
+    const lastAt = stamp ?? old?.lastAt;
     if (lastAt !== undefined) summary.lastAt = lastAt;
+    // `firstAt` is when the Chat got its first message, stamped like `lastAt`; a Chat that had messages before the host
+    // kept it has none, and nothing in its session says when it began. It orders Chats across Projects, whose ids can't.
+    const firstAt = summary.count === 0 ? undefined : old?.count ? old.firstAt : stamp;
+    if (firstAt !== undefined) summary.firstAt = firstAt;
     if (sameSummary(session.summary, summary)) continue;
     (sessions ??= { ...next.sessions })[id] = { ...session, summary };
   }
