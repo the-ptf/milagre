@@ -46,7 +46,9 @@ async function storeImages(projectPath, images = []) {
       const { bytes, mime } = decoded[index];
       const extension = mime === "image/jpeg" ? "jpg" : mime.slice("image/".length);
       const stored = await writeContent(projectPath, "images", bytes, extension);
-      const { dataUrl: _dataUrl, path: original, ...rest } = image;
+      const { dataUrl: _dataUrl, path: uploaded, ...rest } = image;
+      // A sender that uploaded a copy names the file it came from; otherwise the path it sent is the source.
+      const original = typeof image.sourcePath === "string" && image.sourcePath ? image.sourcePath : uploaded;
       return { ...rest, path: stored, ...(original ? { sourcePath: original } : {}) };
     }),
   );
