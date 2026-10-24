@@ -43,6 +43,7 @@ import { WorkspaceIcon } from "./WorkspaceIcon";
 import type { ChatRowShow } from "@milagre/shared/chat-row";
 import { FiltersButton, type PickerProject } from "./sidebar/FiltersMenu";
 import { shortcutModifier, useShortcutHints } from "../lib/shortcut-hints";
+import { useEvent } from "../lib/stable";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { projectMenuActions, type ProjectMenuKey } from "@/lib/reveal";
 import { projectRows, stableOrder, type RecentProject } from "@/lib/project-list";
@@ -69,10 +70,12 @@ import {
   cachedProjectCopy,
   heartbeatKeys,
   heartbeatLines,
+  mergeScopeChats,
   railLive,
   rememberScopeRows,
   scopeChats,
   useScopeStates,
+  type FlatChat,
   withHeartbeats,
 } from "../lib/sidebar-scopes";
 import { ScopeRail, type RailScope } from "./sidebar/ScopeRail";
@@ -573,7 +576,7 @@ export default memo(function SidebarNav({
   onNewChatInScope,
   onAskChat,
 }: SidebarNavProps) {
-  const { chatOrder, chatRowShow } = useSettings();
+  const { chatOrder, chatRowShow, chatList } = useSettings();
   // Other computers (Settings › Devices): their Projects join the list, and every row says its computer.
   const { thisMac, computers } = useComputers();
   const remote = useComputerScopes(computers);
@@ -724,6 +727,8 @@ export default memo(function SidebarNav({
     ...remote.scopes.filter((scope) => !scope.link).map((scope) => scope.key),
   ]);
   const showAll = !collapsed;
+  // One list: every scope's chats in one column, each row naming its Project; Grouped by Project keeps a fold per scope.
+  const oneList = showAll && chatList === "list";
   const {
     states: scopeStates,
     failed: failedScopes,
@@ -1059,6 +1064,69 @@ export default memo(function SidebarNav({
     window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
   };
 
+  // One list: the unpinned rows of every scope in one column. The pinned ones stay in their scope's slot of the Pinned
+  // section, where they still drag; each scope's list renders just those.
+  const flatScopes = new Map(groups.map(({ scope, list, pinned, rest }) => [scope.key, { name: scope.name, list, rows: [...pinned, ...rest] }]));
+  const flatChats = oneList
+    ? mergeScopeChats(
+        groups.map(({ scope, rest }) => ({ key: scope.key, rows: rest })),
+        chatOrder,
+      )
+    : [];
+  const loadingScopes = groups.some(({ scope, state, current }) => !state && !current && !failedScopes.has(scope.key));
+  const flatBody = (
+    <>
+      {groups.map(({ scope, pinned, list }) =>
+        pinned.length > 0 ? (
+          <ChatList
+            key={scope.key}
+            recents={pinned}
+            scopeKey={scope.key}
+            {...list}
+            header={null}
+            pinnedTarget={pinSlots[scope.key] ?? null}
+            anyPinned={anyPinned}
+            projectName={scope.name}
+          />
+        ) : null,
+      )}
+      {groups.length > 0 && (
+        <div data-one-list-header className="sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2">
+          <span className="text-[length:calc(12.5px+var(--sidebar-delta))] font-medium text-ink-3">Chats</span>
+          <Tooltip label="New chat" shortcut="⌘N" align="end">
+            <button
+              type="button"
+              aria-label="New chat"
+              onClick={() => {
+                if (activeTitle === undefined) setDemoActiveTitle(null);
+                onNewChat?.();
+              }}
+              className={CHATS_HEADER_BUTTON}
+            >
+              <IconPlusMedium size={16} />
+            </button>
+          </Tooltip>
+        </div>
+      )}
+      <FlatChatList chats={flatChats} scopes={flatScopes} />
+      {groups
+        .filter(({ scope, state, current }) => !state && !current && failedScopes.has(scope.key))
+        .map(({ scope }) => (
+          <p key={scope.key} className="mx-2 flex h-8 items-center gap-1 pl-2 text-[length:calc(13px+var(--sidebar-delta))] text-ink-3">
+            <span className="truncate">Couldn't load chats of {scope.name}.</span>
+            <button type="button" onClick={() => retryScope(scope.key)} className="shrink-0 cursor-pointer text-ink-2 underline-offset-2 hover:underline">
+              Retry
+            </button>
+          </p>
+        ))}
+      {groups.length > 0 && flatChats.length === 0 && !anyPinned && (
+        <p data-one-list-empty className="mx-2 h-8 pl-2 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">
+          {loadingScopes ? "Loading chats…" : "No chats yet"}
+        </p>
+      )}
+    </>
+  );
+
   const chrome = useWindowChrome();
   // The bar's controls end where they end; a diff's Back and a bot's header start after them.
   const bar = useRef<HTMLDivElement>(null);
@@ -1076,7 +1144,7 @@ export default memo(function SidebarNav({
   }, []);
   return (
     <div className={`relative flex min-h-0 shrink-0 flex-col ${fill ? "h-full" : "h-[600px]"} ${className}`}>
-      {/* The window's top bar, beside its controls: the sidebar toggle, then Canvas, Search, Routines and Link projects.
+      {/* The window's top bar, beside its controls: the sidebar toggle, then Canvas, Routines, Link projects and Search.
           A scrolled chat runs under it, so the group sits on a solid pill. */}
       <div
         ref={bar}
@@ -1114,19 +1182,6 @@ export default memo(function SidebarNav({
                 </button>
               </Tooltip>
             )}
-            {onOpenCommands && (
-              <Tooltip label="Search commands, chats, and projects" side="bottom" shortcut={`${shortcutModifier}K`}>
-                <button
-                  type="button"
-                  aria-label="Command palette"
-                  aria-keyshortcuts={IS_MAC ? "Meta+K" : "Control+K"}
-                  onClick={onOpenCommands}
-                  className={`${TOOL_BUTTON} size-8`}
-                >
-                  <IconMagnifyingGlass size={16} />
-                </button>
-              </Tooltip>
-            )}
             {onOpenRoutines && (
               <Tooltip label="Routines" side="bottom">
                 <button
@@ -1152,6 +1207,19 @@ export default memo(function SidebarNav({
               <Tooltip label="Link projects" side="bottom">
                 <button type="button" aria-label="Link projects" data-link-projects onClick={onLinkProject} className={`${TOOL_BUTTON} size-8`}>
                   <HugeIcon icon={Link04Icon} size={16} />
+                </button>
+              </Tooltip>
+            )}
+            {onOpenCommands && (
+              <Tooltip label="Search commands, chats, and projects" side="bottom" shortcut={`${shortcutModifier}K`}>
+                <button
+                  type="button"
+                  aria-label="Command palette"
+                  aria-keyshortcuts={IS_MAC ? "Meta+K" : "Control+K"}
+                  onClick={onOpenCommands}
+                  className={`${TOOL_BUTTON} size-8`}
+                >
+                  <IconMagnifyingGlass size={16} />
                 </button>
               </Tooltip>
             )}
@@ -1201,87 +1269,91 @@ export default memo(function SidebarNav({
                           <div key={group.scope.key} ref={pinSlotRef(group.scope.key)} data-pinned-scope={group.scope.key} />
                         ))}
                       </div>
-                      {groups.map(({ scope, current, state, rest, pinned, list, dimmed }, index) => {
-                        const open = !closedScopes.includes(scope.key);
-                        return (
-                          <section
-                            key={scope.key}
-                            data-sidebar-scope={scope.key}
-                            data-current={current || undefined}
-                            aria-label={scope.name}
-                            data-offline={dimmed || undefined}
-                            className={`mb-2 ${dimmed ? "opacity-50" : ""}`}
-                          >
-                            {scope.link && !scopes[index - 1]?.link && (
-                              <p className="mx-2 mt-1 mb-1 h-6 pl-2 text-[length:calc(12.5px+var(--sidebar-delta))] font-medium leading-6 text-ink-3">Links</p>
-                            )}
-                            <ScopeHeader
-                              name={scope.name}
-                              icon={
-                                scope.link ? (
-                                  <ProjectAvatarStack
-                                    projects={scope.link.projectIds.map(
-                                      (id) => registeredProjects.find((project) => project.id === id) ?? { path: "", name: "Project" },
-                                    )}
-                                  />
-                                ) : (
-                                  <span className="flex size-5 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
-                                    <WorkspaceIcon src={current && !selectedLink ? workspace.image : scopeImage(scope.key)} fallback={scope.initial} />
-                                  </span>
-                                )
-                              }
-                              open={open}
-                              current={current}
-                              attention={!current && attentionPaths.includes(scope.key)}
-                              onToggle={() => toggleScope(scope.key)}
-                              onNewChat={
-                                current
-                                  ? () => {
-                                      if (activeTitle === undefined) setDemoActiveTitle(null);
-                                      onNewChat?.();
-                                    }
-                                  : () => onNewChatInScope?.(scope.key)
-                              }
-                              menu={scopeMenu(scope, current)}
-                            />
-                            {/* Rows grow open and shut instead of appearing at once; closed ones leave the tab order. */}
-                            <div
-                              inert={!open}
-                              data-scope-body
-                              className="grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
-                              style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
-                            >
-                              <div className="min-w-0 overflow-hidden">
-                                {rest.length > 0 || pinned.length > 0 ? (
-                                  <ChatList
-                                    recents={pinned.length ? [...pinned, ...rest] : rest}
-                                    scopeKey={scope.key}
-                                    {...list}
-                                    header={null}
-                                    pinnedTarget={pinSlots[scope.key] ?? null}
-                                    anyPinned={anyPinned}
-                                  />
-                                ) : !state && !current && failedScopes.has(scope.key) ? (
-                                  <p className="mx-2 flex h-8 items-center gap-1 pl-9 text-[length:calc(13px+var(--sidebar-delta))] text-ink-3">
-                                    Couldn't load chats.
-                                    <button
-                                      type="button"
-                                      onClick={() => retryScope(scope.key)}
-                                      className="cursor-pointer text-ink-2 underline-offset-2 hover:underline"
-                                    >
-                                      Retry
-                                    </button>
-                                  </p>
-                                ) : (
-                                  <p className="mx-2 h-8 pl-9 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">
-                                    {state || current ? "No chats yet" : "Loading chats…"}
+                      {oneList
+                        ? flatBody
+                        : groups.map(({ scope, current, state, rest, pinned, list, dimmed }, index) => {
+                            const open = !closedScopes.includes(scope.key);
+                            return (
+                              <section
+                                key={scope.key}
+                                data-sidebar-scope={scope.key}
+                                data-current={current || undefined}
+                                aria-label={scope.name}
+                                data-offline={dimmed || undefined}
+                                className={`mb-2 ${dimmed ? "opacity-50" : ""}`}
+                              >
+                                {scope.link && !scopes[index - 1]?.link && (
+                                  <p className="mx-2 mt-1 mb-1 h-6 pl-2 text-[length:calc(12.5px+var(--sidebar-delta))] font-medium leading-6 text-ink-3">
+                                    Links
                                   </p>
                                 )}
-                              </div>
-                            </div>
-                          </section>
-                        );
-                      })}
+                                <ScopeHeader
+                                  name={scope.name}
+                                  icon={
+                                    scope.link ? (
+                                      <ProjectAvatarStack
+                                        projects={scope.link.projectIds.map(
+                                          (id) => registeredProjects.find((project) => project.id === id) ?? { path: "", name: "Project" },
+                                        )}
+                                      />
+                                    ) : (
+                                      <span className="flex size-5 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
+                                        <WorkspaceIcon src={current && !selectedLink ? workspace.image : scopeImage(scope.key)} fallback={scope.initial} />
+                                      </span>
+                                    )
+                                  }
+                                  open={open}
+                                  current={current}
+                                  attention={!current && attentionPaths.includes(scope.key)}
+                                  onToggle={() => toggleScope(scope.key)}
+                                  onNewChat={
+                                    current
+                                      ? () => {
+                                          if (activeTitle === undefined) setDemoActiveTitle(null);
+                                          onNewChat?.();
+                                        }
+                                      : () => onNewChatInScope?.(scope.key)
+                                  }
+                                  menu={scopeMenu(scope, current)}
+                                />
+                                {/* Rows grow open and shut instead of appearing at once; closed ones leave the tab order. */}
+                                <div
+                                  inert={!open}
+                                  data-scope-body
+                                  className="grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+                                  style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
+                                >
+                                  <div className="min-w-0 overflow-hidden">
+                                    {rest.length > 0 || pinned.length > 0 ? (
+                                      <ChatList
+                                        recents={pinned.length ? [...pinned, ...rest] : rest}
+                                        scopeKey={scope.key}
+                                        {...list}
+                                        header={null}
+                                        pinnedTarget={pinSlots[scope.key] ?? null}
+                                        anyPinned={anyPinned}
+                                      />
+                                    ) : !state && !current && failedScopes.has(scope.key) ? (
+                                      <p className="mx-2 flex h-8 items-center gap-1 pl-9 text-[length:calc(13px+var(--sidebar-delta))] text-ink-3">
+                                        Couldn't load chats.
+                                        <button
+                                          type="button"
+                                          onClick={() => retryScope(scope.key)}
+                                          className="cursor-pointer text-ink-2 underline-offset-2 hover:underline"
+                                        >
+                                          Retry
+                                        </button>
+                                      </p>
+                                    ) : (
+                                      <p className="mx-2 h-8 pl-9 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">
+                                        {state || current ? "No chats yet" : "Loading chats…"}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </section>
+                            );
+                          })}
                     </>
                   ) : railScopes ? (
                     <ScopeRail scopes={railScopes} onOpenScope={openRailScope} onOpenChat={openRailChat} />
@@ -1432,6 +1504,129 @@ type ChatDrag = { id: string; target: DropTarget | null; keyboard: boolean };
 
 const sameTarget = (a: DropTarget | null, b: DropTarget | null) => a?.id === b?.id && a?.zone === b?.zone && a?.scope === b?.scope;
 
+/** What a list's rows read when an action runs: the latest rows, actions and Links. */
+type RowActionsNow = { recents: SidebarRecent[]; actions: ChatRowActions; sidebarLinks: ReturnType<typeof useSidebarLinks> };
+
+/**
+ * A scope's row actions: pinning that can be undone from a toast, and the Link items that open the shared "Link with…"
+ * and "Remove Link with…" lists. `now` reads the latest state, so one object serves every render.
+ */
+function chatRowActions(
+  actions: ChatRowActions,
+  linkProjectId: string | null,
+  scopeKey: string,
+  now: () => RowActionsNow,
+  showToast: (text: string, undo?: () => void) => void,
+): ChatRowActions {
+  return {
+    ...actions,
+    onPin:
+      actions.onPin &&
+      ((id, order) => {
+        const latest = now();
+        const item = latest.recents.find((row) => row.id === id);
+        if (!item || !latest.actions.onPin) return;
+        const orders = latest.recents.filter((row) => row.pinned && row.id !== id).map((row) => row.pinOrder ?? 0);
+        const next = order === undefined ? pinOrderAt(orders, orders.length) : order;
+        const previous = item.pinned ? (item.pinOrder ?? 0) : null;
+        latest.actions.onPin(id, next);
+        if ((previous === null) !== (next === null)) showToast(next === null ? "Unpinned" : "Pinned", () => now().actions.onPin?.(id, previous));
+      }),
+    ...(linkProjectId
+      ? {
+          onLinkWith: (id: string, anchor: { top: number; left: number }) => {
+            const item = now().recents.find((row) => row.id === id);
+            if (item) now().sidebarLinks.pick({ scopeKey, item }, anchor, "link");
+          },
+          onRemoveLink: (id: string, anchor: { top: number; left: number }) => {
+            const item = now().recents.find((row) => row.id === id);
+            if (item) now().sidebarLinks.pick({ scopeKey, item }, anchor, "remove");
+          },
+        }
+      : {}),
+  };
+}
+
+/** What the one-list sidebar knows of a scope: the props its ChatList would get, and all its rows. */
+type FlatScope = {
+  name: string;
+  list: {
+    isActive: (item: SidebarRecent) => boolean;
+    actions: ChatRowActions;
+    showHints: boolean;
+    onPick: (item: SidebarRecent) => void;
+    onHover: (item: SidebarRecent) => void;
+    linkProjectId: string | null;
+    computer?: RowComputer;
+    show: ChatRowShow;
+  };
+  /** Pinned rows first, then the rest, as the scope's own list orders them (the ⌘1–9 hints count along it). */
+  rows: SidebarRecent[];
+};
+
+/**
+ * The one-list sidebar's unpinned rows: chats of every scope in one column, each with its own scope's actions, marks,
+ * Links and Project on the second line. The rows don't drag: pinning goes through the row menu (pinned rows still drag
+ * in the Pinned section).
+ */
+function FlatChatList({ chats, scopes }: { chats: FlatChat[]; scopes: Map<string, FlatScope> }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const sidebarLinks = useSidebarLinks();
+  const botMarks = useBotMarks();
+  // Both read the latest render's scopes and Links when an action runs, so one set of actions serves every render.
+  const showToast = useEvent((text: string, undo?: () => void) => {
+    const aside = listRef.current?.closest("aside")?.getBoundingClientRect();
+    sidebarLinks.toast(text, { undo, left: (aside?.right ?? 0) + 12 });
+  });
+  const readScope = useEvent((scopeKey: string): RowActionsNow => {
+    const scope = scopes.get(scopeKey);
+    return { recents: scope?.rows ?? [], actions: scope?.list.actions ?? {}, sidebarLinks };
+  });
+  const nowOf = (scopeKey: string) => () => readScope(scopeKey);
+  // One object per scope and set of actions, so its rows keep their memo.
+  const [made] = useState(() => new Map<string, { source: ChatRowActions; linkProjectId: string | null; actions: ChatRowActions }>());
+  const actionsOf = (scopeKey: string, scope: FlatScope) => {
+    const hit = made.get(scopeKey);
+    if (hit && hit.source === scope.list.actions && hit.linkProjectId === scope.list.linkProjectId) return hit.actions;
+    const actions = chatRowActions(scope.list.actions, scope.list.linkProjectId, scopeKey, nowOf(scopeKey), showToast);
+    made.set(scopeKey, { source: scope.list.actions, linkProjectId: scope.list.linkProjectId, actions });
+    return actions;
+  };
+  // Where each scope's first nine rows sit in its list, the only ones with a ⌘1–9 hint: one pass per scope, not a scan per row.
+  const hintPositions = useMemo(() => {
+    const positions = new Map<SidebarRecent, number>();
+    for (const { list, rows } of scopes.values()) if (list.showHints) rows.slice(0, 9).forEach((row, at) => positions.set(row, at));
+    return positions;
+  }, [scopes]);
+  return (
+    <div ref={listRef} data-chat-list-flat className="flex flex-col gap-px">
+      {chats.map(({ scopeKey, row }) => {
+        const scope = scopes.get(scopeKey)!;
+        const { list } = scope;
+        const position = list.showHints ? (hintPositions.get(row) ?? -1) : -1;
+        return (
+          <ChatRow
+            key={`${scopeKey}#${row.id}`}
+            item={row}
+            active={list.isActive(row)}
+            collapsed={false}
+            actions={actionsOf(scopeKey, scope)}
+            shortcutHint={position >= 0 && position < 9 ? `${shortcutModifier}${position + 1}` : undefined}
+            onPick={list.onPick}
+            onHover={list.onHover}
+            computer={list.computer}
+            show={list.show}
+            dimOffline
+            linked={list.linkProjectId ? sidebarLinks.endsFor(scopeKey, row) : undefined}
+            bot={botMarks.get(`${scopeKey}#${row.id}`)}
+            project={scope.name}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 function ChatList({
   recents,
   scopeKey,
@@ -1450,6 +1645,7 @@ function ChatList({
   hintOffset = 0,
   pinnedTarget,
   anyPinned = false,
+  projectName,
 }: {
   recents: SidebarRecent[];
   /** The Project path or Link key the chats belong to. */
@@ -1477,6 +1673,8 @@ function ChatList({
   pinnedTarget?: HTMLElement | null;
   /** Another list already shows pinned rows (and the Pinned heading) in that section. */
   anyPinned?: boolean;
+  /** The one-list sidebar has no Project header: each row says its Project on its second line. */
+  projectName?: string;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const pinRef = useRef<HTMLDivElement>(null);
@@ -1537,34 +1735,8 @@ function ChatList({
 
   // Pinning from the row menu and from a drag both land here, so either can be undone. The Link items open the
   // shared "Link with…" and "Remove Link with…" lists.
-  const rowActions = useMemo<ChatRowActions>(
-    () => ({
-      ...actions,
-      onPin:
-        actions.onPin &&
-        ((id, order) => {
-          const now = live.current;
-          const item = now.recents.find((row) => row.id === id);
-          if (!item || !now.actions.onPin) return;
-          const orders = now.recents.filter((row) => row.pinned && row.id !== id).map((row) => row.pinOrder ?? 0);
-          const next = order === undefined ? pinOrderAt(orders, orders.length) : order;
-          const previous = item.pinned ? (item.pinOrder ?? 0) : null;
-          now.actions.onPin(id, next);
-          if ((previous === null) !== (next === null)) showToast(next === null ? "Unpinned" : "Pinned", () => live.current.actions.onPin?.(id, previous));
-        }),
-      ...(linkProjectId
-        ? {
-            onLinkWith: (id: string, anchor: { top: number; left: number }) => {
-              const item = live.current.recents.find((row) => row.id === id);
-              if (item) live.current.sidebarLinks.pick({ scopeKey, item }, anchor, "link");
-            },
-            onRemoveLink: (id: string, anchor: { top: number; left: number }) => {
-              const item = live.current.recents.find((row) => row.id === id);
-              if (item) live.current.sidebarLinks.pick({ scopeKey, item }, anchor, "remove");
-            },
-          }
-        : {}),
-    }),
+  const rowActions = useMemo(
+    () => chatRowActions(actions, linkProjectId, scopeKey, () => live.current, showToast),
     [actions, linkProjectId, scopeKey, live, showToast],
   );
 
@@ -1870,6 +2042,7 @@ function ChatList({
       dragging={drag?.id === item.id}
       linked={linkProjectId ? sidebarLinks.endsFor(scopeKey, item) : undefined}
       bot={botMarks.get(`${scopeKey}#${item.id}`)}
+      project={projectName}
     />
   );
 

@@ -278,7 +278,7 @@ export function SidePanelsHost() {
         <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
           {mounted.left && (
             <Animated.View {...hidden("left")} style={[StyleSheet.absoluteFill, { backgroundColor: colors.page }, left]}>
-              <ProjectNavigation key={session.client.url} activeChatId={screen.chatId} onClose={() => show(null)} onNavigate={navigate} />
+              <ProjectNavigation visible={open === "left"} activeChatId={screen.chatId} onClose={() => show(null)} onNavigate={navigate} />
             </Animated.View>
           )}
           {mounted.right && screen.worktreeId !== undefined && (

@@ -66,7 +66,7 @@ window.pushShop = (state) => listeners.forEach((callback) => callback({ path: "/
 localStorage.removeItem("milagre.sidebarClosedScopes");
 // A restart keeps the saved group order; a first load starts clean.
 if (!restartRecent) localStorage.removeItem("milagre.sidebarScopeOrder");
-updateSettings({ chatRowShow: DESKTOP_CHAT_ROW_SHOW });
+updateSettings({ chatRowShow: DESKTOP_CHAT_ROW_SHOW, chatList: "grouped" });
 createRoot(document.getElementById("root")).render(
   <div style={{ display: "flex", height: "100vh", padding: "60px 12px 12px" }}>
     <SidebarNav fill workspaceName="arketa" projectPath="/work/arketa" recents={[{ id: "1", label: "Fix the login flow", details: { failed: true } }]} activeId="1"

@@ -373,6 +373,12 @@ const projectRuns = ({ runs, seq }, projectPath) => ({
   seq,
 });
 const failure = (status, message) => Object.assign(new Error(message), { status });
+// Projects one /chat-lists call may name, and how many of them it reads at a time.
+const MAX_CHAT_LISTS = 20;
+const CHAT_LIST_READS = 4;
+// The computed lists /chat-lists keeps per Project, and how long one may stand when no event says its Project changed.
+const CHAT_LIST_CACHE = 64;
+const CHAT_LIST_MAX_AGE = 30000;
 const ATTACHMENT_QUOTA = 200 * 1024 * 1024;
 // A native-client bridge behind loopback or an explicitly configured TLS proxy. All state stays in the Unix-socket
 // daemon; closing this listener must never stop that runtime or its turns.
@@ -407,12 +413,15 @@ async function startMobileBridge({
   // the Project, and the next snapshot reads it again.
   const HELD_PROJECTS = 4;
   const heldProjects = new Map();
+  async function readHeld(owner) {
+    // With the rest of the snapshot: phones key a Project by its path and show its name.
+    const { state, version, epoch, ...rest } = await client.call("state:read", [owner, { rest: true }]);
+    return { epoch, version, project: { ...rest, state } };
+  }
   async function heldProject(owner) {
     let held = heldProjects.get(owner);
     if (!held) {
-      // With the rest of the snapshot: phones key a Project by its path and show its name.
-      const { state, version, epoch, ...rest } = await client.call("state:read", [owner, { rest: true }]);
-      held = { epoch, version, project: { ...rest, state } };
+      held = await readHeld(owner);
       heldProjects.set(owner, held);
       if (heldProjects.size > HELD_PROJECTS) heldProjects.delete(heldProjects.keys().next().value);
     } else {
@@ -421,9 +430,12 @@ async function startMobileBridge({
     }
     return held.project;
   }
+  // How many events each Project has had: /chat-lists lists a Project again only when this moved, or its runs did.
+  const changes = new Map();
   function followState(channel, payload) {
     const owner =
       channel === "project:state" ? payload?.path : channel === "agent:event" && typeof payload?.chatId === "string" ? projectOfKey(payload.chatId) : null;
+    if (typeof owner === "string") changes.set(owner, (changes.get(owner) ?? 0) + 1);
     const held = typeof owner === "string" ? heldProjects.get(owner) : undefined;
     if (!held) return;
     const state = held.project.state;
@@ -481,6 +493,29 @@ async function startMobileBridge({
         projects: link.link.projectIds.map((id) => projects.find((project) => project.id === id) ?? { id, path: "", name: "Unavailable Project" }),
       },
     };
+  }
+  // The chat list of one Project for /chat-lists. A phone polls a stable batch of them, so this neither holds nor evicts
+  // the Projects heldProject keeps for the Chat a phone has open (it borrows a held one, and reads the rest apart), and
+  // it keeps the computed list while the Project has had no event and its runs are the same.
+  const chatLists = new Map();
+  async function chatListOf(owner, runs) {
+    await confine?.check(owner);
+    if (!validScope(owner)) throw failure(400, "Choose a valid Project or Link");
+    const ownRuns = projectRuns(runs, owner);
+    const signature = JSON.stringify(ownRuns);
+    const stamp = changes.get(owner) ?? 0;
+    const kept = chatLists.get(owner);
+    chatLists.delete(owner);
+    if (kept && kept.stamp === stamp && kept.signature === signature && Date.now() - kept.at < CHAT_LIST_MAX_AGE) {
+      chatLists.set(owner, kept);
+      return kept.result;
+    }
+    const project = heldProjects.get(owner)?.project ?? (await readHeld(owner)).project;
+    const { project: listed } = await withMessages(owner, { project }, { marks: true });
+    const result = forChatList(listed, ownRuns);
+    chatLists.set(owner, { stamp, signature, at: Date.now(), result });
+    if (chatLists.size > CHAT_LIST_CACHE) chatLists.delete(chatLists.keys().next().value);
+    return result;
   }
   async function scopeRoots(owner) {
     if (!isLinkScopeKey(owner)) return client.call("project:worktree-paths", [owner]);
@@ -686,6 +721,34 @@ async function startMobileBridge({
           const since = req.headers["x-milagre-snapshot-since"];
           if (typeof since !== "string") reply(200, { result }, { etag: true });
           else reply(200, { result: numberSnapshot(pages ? `${projectPath}#pages` : projectPath, result, since) });
+          return;
+        }
+        // The /snapshot?view=chats of up to MAX_CHAT_LISTS Projects in one request, for a phone listing every Chat. Read
+        // only: readScope never opens a Project, so the recent order is not touched. A Project that can't be read says why in
+        // its own entry, so one stale path doesn't blank the list.
+        if (req.method === "GET" && target.pathname === "/chat-lists") {
+          let paths;
+          try {
+            paths = JSON.parse(target.searchParams.get("paths") ?? "");
+          } catch {
+            throw failure(400, "Choose the Projects as a JSON list");
+          }
+          if (!Array.isArray(paths) || !paths.length || !paths.every((item) => typeof item === "string"))
+            throw failure(400, "Choose the Projects as a JSON list of paths");
+          if (paths.length > MAX_CHAT_LISTS) throw failure(400, `Choose at most ${MAX_CHAT_LISTS} Projects`);
+          const runs = await client.call("chat:runs");
+          const projects = [...new Set(paths)];
+          const result = {};
+          const read = async (projectPath) => {
+            try {
+              if (isLinkScopeKey(projectPath)) throw failure(400, "Chats of a Link are not listed here");
+              result[projectPath] = await chatListOf(projectPath, runs);
+            } catch (error) {
+              result[projectPath] = { error: error.message };
+            }
+          };
+          for (let at = 0; at < projects.length; at += CHAT_LIST_READS) await Promise.all(projects.slice(at, at + CHAT_LIST_READS).map(read));
+          reply(200, { result }, { etag: true });
           return;
         }
         // A page of one Chat's messages, slim like the snapshot's (tool output from /message), and search across Chats.

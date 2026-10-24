@@ -90,6 +90,8 @@ type ChatDetails = {
   ports?: AgentPort[];
   /** When the chat last got a message or a reply ended (ChatSummary.lastAt). */
   lastAt?: number;
+  /** When the chat got its first message (ChatSummary.firstAt), which orders chats of different Projects by age. */
+  firstAt?: number;
 };
 
 /** The computer a row's chat lives on, shown on its second line once there are two or more computers. */
@@ -269,6 +271,7 @@ export const ChatRow = memo(function ChatRow({
   dragging = false,
   linked = NO_LINKS,
   bot,
+  project,
 }: {
   item: SidebarRecent;
   active: boolean;
@@ -289,6 +292,8 @@ export const ChatRow = memo(function ChatRow({
   linked?: LinkedEnd[];
   /** The bot that opened the chat and still runs it: "from <Bot name>" leads the second line. */
   bot?: BotMark;
+  /** The Project (or Link) the chat belongs to, when the list has no Project header to say so: it leads the second line. */
+  project?: string;
 }) {
   const [archiving, setArchiving] = useState(false);
   const archivePending = useRef(false);
@@ -321,7 +326,8 @@ export const ChatRow = memo(function ChatRow({
         {rowComputer.offline ? `${rowComputer.name}, offline` : rowComputer.name}
       </span>,
     );
-  const factLine = facts.length > 0 || Boolean(branch || diff || lastAt !== undefined) || hasChips;
+  const projectName = collapsed ? undefined : project;
+  const factLine = Boolean(projectName) || facts.length > 0 || Boolean(branch || diff || lastAt !== undefined) || hasChips;
   if (item.worktreeCount !== undefined && factLine)
     facts.push(
       <span key="worktrees" className="shrink-0">
@@ -345,6 +351,13 @@ export const ChatRow = memo(function ChatRow({
     facts.push(
       <span key="ago" data-chat-ago title={new Date(lastAt).toLocaleString()} className="shrink-0 tabular-nums">
         {activityAgo(lastAt, now)}
+      </span>,
+    );
+  if (projectName)
+    facts.unshift(
+      <span key="project" data-chat-project className="flex min-w-0 shrink items-center gap-1 truncate">
+        <HugeiconsIcon icon={Folder01Icon} size={12} strokeWidth={2} color="currentColor" className="shrink-0" />
+        <span className="truncate">{projectName}</span>
       </span>,
     );
   const twoLines = factLine || item.worktreeCount !== undefined;

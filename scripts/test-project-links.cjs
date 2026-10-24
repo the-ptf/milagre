@@ -131,6 +131,10 @@ async function main() {
       assert.equal(result.exceptionDetails, undefined, JSON.stringify(result.exceptionDetails));
       return result.result.value;
     };
+    // The sidebar's Project groups, not its One list, are what this check drives.
+    await evaluate(
+      `localStorage.setItem("milagre-settings", JSON.stringify({ chatList: "grouped" })); window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }))`,
+    );
     const click = (text) => evaluate(`[...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}).click()`);
     const input = (selector, value) =>
       evaluate(

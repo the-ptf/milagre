@@ -25,8 +25,10 @@ window.fail = path => { const index = window.requests.findIndex(request => reque
 const desktop = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { updateSettings } from '/src/lib/settings';
 import '/src/styles.css';
 ${data}
+updateSettings({ chatList: 'grouped' });
 window.milagre = new Proxy({
   simulators: { list: async ({ chatId }) => ({ chatId, supported: false, devices: [], attached: [], available: [] }) },
   getRuntimeConnection: async () => ({ connected: true }),
@@ -54,6 +56,8 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SessionProvider, useSession } from '/@fs/${path.resolve("apps/mobile/src/session.tsx")}';
 import { ProjectNavigation } from '/@fs/${path.resolve("apps/mobile/src/project-navigation.tsx")}';
+import { allComputers } from '/@fs/${path.resolve("apps/mobile/src/all-computers.tsx")}';
+window.allComputers = allComputers;
 ${data}
 window.makeClient = host => ({
   url: host.address,
@@ -102,7 +106,7 @@ const stubs = {
   "./routes-native":
     'export const lanRoutes = { set() {}, forget() {}, checkAll() {}, subscribe: () => () => {}, kind: () => "remote", view: () => ({ current: () => null, subscribe: () => () => {} }) }; export const learnRoutes = async () => {};',
   "./hosts-native":
-    "export const savedHosts = { list: async () => [] }; export const savedNavigation = { read: async () => null }; export const readPermission = async () => null; export const savePermission = async () => {}; export const savedChatDefaults = { readModel: () => null, saveModel: async () => {} }; export const savedProjectOrder = { apply: async (_host, projects) => projects, save: async () => {} }; const noFolds = new Set(); export const savedHiddenProjects = { hidden: () => noFolds, apply: async (_host, projects) => projects, setHidden: async () => {} }; export const savedFoldedProjects = { subscribe: () => () => {}, folded: () => noFolds, loaded: () => true, load: async () => {}, toggle: async () => {} };",
+    "window.savedHostList = []; export const savedHosts = { list: async () => window.savedHostList.slice(), save: async host => { window.savedHostList = [...window.savedHostList.filter(saved => saved.id !== host.address), { id: host.address, lastUsed: 1, ...host }]; } }; export const savedNavigation = { read: async () => null }; export const readPermission = async () => null; export const savePermission = async () => {}; export const savedChatDefaults = { readModel: () => null, saveModel: async () => {} }; export const savedProjectOrder = { apply: async (_host, projects) => projects, save: async () => {} }; const noFolds = new Set(); export const savedHiddenProjects = { hidden: () => noFolds, apply: async (_host, projects) => projects, setHidden: async () => {} }; export const savedFoldedProjects = { subscribe: () => () => {}, folded: () => noFolds, loaded: () => true, load: async () => {}, toggle: async () => {} };",
   "./live": "export const syncProject = () => () => {};",
   "./ui": ui,
   "./theme":
@@ -111,6 +115,10 @@ const stubs = {
   "expo-linking": "export const openURL = async () => {};",
   "expo-clipboard": "export const setStringAsync = async () => {};",
   "react-native-safe-area-context": "export const useSafeAreaInsets = () => ({ top: 0, bottom: 0 });",
+  "./chat-list-controls":
+    "export const CONTROLS_HEIGHT = 48; export const useControlsBottomInset = () => 48 + 36; export const useControlsVisibility = () => ({ hidden: false, onScroll() {}, reveal() {} }); export const ChatListControls = () => null;",
+  "./computer-actions": "export const isDesktopComputer = name => /studio|mini|imac/i.test(name);",
+  "./chat-display-setting": "export const useChatList = () => ['grouped', () => {}];",
   "./status-indicators": "export const ChatMarkIcon = () => null;",
   "./icons": "export const Icon = () => null; export const SpinnerRing = () => null; export const LinearLogo = () => null;",
   "./loading-logo": "export const LoadingLogo = () => null;",
@@ -239,6 +247,9 @@ async function browserChecks() {
     await waitFor("window.requests.some(request => request.path === '/beta')");
     await evaluate("window.finish('/beta', 'Retried beta')");
     await waitFor(contains("Retried beta Chat"));
+    // Browsing the drawer (the all-computers store reading /beta) warmed the session's own cache.
+    assert.equal(await evaluate("!!window.session.cachedProject('/beta')"), true, "the drawer's read of the current computer seeds the session cache");
+    assert.equal(await evaluate("window.requests.some(request => request.path === '/beta')"), false, "no extra preview of beta is needed before opening it");
     await evaluate("window.session.open('/beta'); void 0");
     await waitFor("window.session.snapshot?.project.path === '/beta'");
     assert.equal(await evaluate("window.session.opening.cached"), true, "drawer previews warm foreground navigation");
@@ -248,25 +259,33 @@ async function browserChecks() {
     // Selecting beta refreshes alpha's preview on the current connection.
     await waitFor("window.requests.some(request => request.host === 'host-one' && request.path === '/alpha')");
     await evaluate("window.finish('/alpha', 'Fresh alpha', 'host-one')");
-    await evaluate("window.session.connect({ address: 'host-two', token: '' }, false)");
-    await waitFor(contains("Loading chats..."));
-    assert.equal(await evaluate(contains("Fresh alpha Chat")), false, "same path on another computer has no borrowed cache");
+    // Both computers are saved, as paired phones have them: each keeps its own answers while the other is the open one.
+    await evaluate("window.savedHostList = [{ id: 'host-one', name: 'One', address: 'host-one', token: '', lastUsed: 1 }]");
+    await evaluate("window.session.connect({ address: 'host-two', token: '', name: 'Two' }, true)");
     await waitFor("window.requests.some(request => request.host === 'host-two')");
+    const alphaOn = (host) => `window.allComputers.viewOf('${host}')?.copies.get('/alpha')?.project.state.sessions[2]?.title`;
+    assert.equal(await evaluate(alphaOn("host-two")), undefined, "same path on another computer has no borrowed cache");
+    assert.equal(await evaluate(alphaOn("host-one")), "Fresh alpha Chat", "the other computer keeps its answers");
+    await evaluate("window.finish('/alpha', 'Other computer', 'host-two')");
+    await waitFor(`${alphaOn("host-two")} === 'Other computer Chat'`);
+    assert.equal(await evaluate(alphaOn("host-one")), "Fresh alpha Chat", "late response stays with its computer");
     await evaluate("window.session.connect({ address: 'host-one', token: '' }, false)");
     await waitFor(contains("Fresh alpha Chat"));
-    await evaluate("window.finish('/alpha', 'Other computer', 'host-two')");
-    await delay(100);
-    assert.equal(await evaluate(contains("Other computer")), false, "late response stays with its computer");
-    await waitFor("window.requests.some(request => request.host === 'host-one')");
-    await evaluate("window.finish('/alpha', 'Returned alpha', 'host-one')");
-    await waitFor(contains("Returned alpha Chat"));
+    await waitFor("window.requests.some(request => request.host === 'host-one' && request.path === '/alpha')");
+    // The reconnect and the store each read it; answer whichever reads are open until the list shows the new answer.
+    await waitFor(`(() => { try { window.finish('/alpha', 'Returned alpha', 'host-one'); } catch {} return ${contains("Returned alpha Chat")}; })()`);
+    assert.equal(await evaluate(alphaOn("host-two")), "Other computer Chat", "returning leaves the other computer's answers alone");
     await evaluate("window.drawer(false)");
     await delay(50);
-    await evaluate("void window.session.previewProject('/alpha')");
+    // Answer every other open read, so only the empty alpha list below can still be loading.
+    await evaluate(
+      "window.requests.filter(request => request.path !== '/alpha').forEach(request => window.finish(request.path, request.path.slice(1) + ' settled', request.host))",
+    );
+    await evaluate("void window.allComputers.refreshProject('host-one', '/alpha')");
     await waitFor("window.requests.some(request => request.path === '/alpha')");
     await evaluate(`(() => {
       const index = window.requests.findIndex(request => request.path === '/alpha');
-      const project = window.session.cachedProject('/alpha').project;
+      const project = window.allComputers.viewOf('host-one').copies.get('/alpha').project;
       window.requests.splice(index, 1)[0].resolve({ ...project, state: { ...project.state, sessions: {}, messages: [] } });
     })()`);
     await delay(50);

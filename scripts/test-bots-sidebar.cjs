@@ -70,7 +70,7 @@ window.milagre = {
   },
 };
 localStorage.removeItem("milagre.sidebarClosedScopes");
-updateSettings({ chatRowShow: DESKTOP_CHAT_ROW_SHOW });
+updateSettings({ chatRowShow: DESKTOP_CHAT_ROW_SHOW, chatList: "grouped" });
 const rows = [
   { id: "4", label: "Fix flaky terminal-perf test", mark: "running", details: { path: PROJECT, branch: "ops/flaky-shard-2" } },
   { id: "6", label: "Bump expo-notifications", details: { path: PROJECT, branch: "main" } },

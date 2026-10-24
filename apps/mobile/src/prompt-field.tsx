@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import * as Font from "expo-font";
+import { Linking, Pressable, Text, View } from "react-native";
 import Animated, { Easing, FadeInDown, ReduceMotion } from "react-native-reanimated";
 import type { SkillCatalog } from "@milagre/shared/model";
 import { formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
 import { editImageMentions } from "@milagre/shared/prompt-mentions";
 import { withAlpha } from "@milagre/shared/themes";
+import { fileKind } from "@milagre/shared/file-kinds";
 import { promptSkillAtSelection, promptSkillParts, promptSkillQuery } from "@milagre/shared/prompt-skills";
 import type { Client } from "./client";
 import { fileQueryAt, isOldMacError, mentionPaths, type KnownFiles } from "./file-mentions";
@@ -13,8 +15,35 @@ import { Field, ListRow, PageScroll } from "./ui";
 import { useTheme } from "./theme";
 import { useImagePaste } from "./use-image-paste";
 import type { PastedImage } from "./attachment-picker";
+import { insertDictation } from "./voice-dictation";
+import { useVoiceDictation } from "./voice-dictation-hook";
+import { VoiceMicButton } from "./voice-mic-button";
 
 const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
+// Desktop's chip icons as glyphs (scripts/build-chip-glyphs.py): a mention's first character draws its icon and `]` draws
+// nothing, so `[Image #1]` reads as an image chip in a field that can only style its own characters. Loaded at runtime,
+// so it ships over the air.
+const GLYPHS = "MilagreChipGlyphs";
+const GLYPH_FONT = { [GLYPHS]: require("../assets/fonts/MilagreChipGlyphs.ttf") };
+const IMAGE_ICON = "#26a69a";
+// The mic sits over the field's trailing edge; the text stops short of it.
+const MIC_WIDTH = 34;
+const ERROR_SECONDS = 8;
+
+function useChipGlyphs() {
+  const [ready, setReady] = useState(() => Font.isLoaded(GLYPHS));
+  useEffect(() => {
+    if (ready) return;
+    let live = true;
+    Font.loadAsync(GLYPH_FONT)
+      .then(() => live && setReady(true))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [ready]);
+  return ready;
+}
 
 /** A lookup answer versions the mutable known-file cache without changing the draft or its selection. */
 function readMarks(draft: string, options: Parameters<typeof promptParts>[1], lookups: number) {
@@ -63,6 +92,7 @@ export function PromptField({
   // The menus sit inside the translucent glass composer; an opaque surface keeps the transcript from showing through the rows.
   const menuStyle = { maxHeight: 180, backgroundColor: colors.surface, borderRadius: 14, borderCurve: "continuous" as const };
   const paste = useImagePaste(onImagePaste);
+  const glyphs = useChipGlyphs();
   const { data, loading, error, refresh } = useRpc<SkillCatalog>(projectPath ? client : null, "skills:list", [projectPath]);
   const skillList = data?.skills;
   const skills = useMemo(() => (commands?.length ? [...commands, ...(skillList ?? [])] : skillList), [commands, skillList]);
@@ -83,6 +113,23 @@ export function PromptField({
     [draft, skills, known, projectPath, lookups, images],
   );
   const [requested, setRequested] = useState<{ draft: string; selection: typeof selection } | null>(null);
+  // Until the field has reported a caret, `selection` is the initial 0 and says nothing about where the user means to dictate.
+  const placed = useRef(false);
+  const dictation = useVoiceDictation((text, anchor) => {
+    const edit = insertDictation(draft, anchor.selection, text);
+    if (!edit) return;
+    const caret = { start: edit.caret, end: edit.caret };
+    setRequested({ draft: edit.value, selection: caret });
+    setSelection(caret);
+    onChangeText(edit.value);
+  });
+  const { error: dictationError, dismiss: dismissDictationError } = dictation;
+  useEffect(() => {
+    // A permission refusal stays until the user acts on it; the other messages clear themselves.
+    if (!dictationError || dictationError.kind === "permission") return;
+    const timer = setTimeout(dismissDictationError, ERROR_SECONDS * 1000);
+    return () => clearTimeout(timer);
+  }, [dictationError, dismissDictationError]);
   const [rendered, setRendered] = useState({ draft, parts: marks, restore: undefined as typeof selection | undefined });
   // Recoloring after the catalog loads must preserve a selected range. Ordinary edits keep native caret control.
   const changed = rendered.draft !== draft || rendered.parts !== marks;
@@ -180,53 +227,136 @@ export function PromptField({
         </Animated.View>
       ) : null}
       {/* TextInput cannot receive value and attributed children together. The children mirror every accepted edit. */}
-      <Field
-        {...paste}
-        label="Message"
-        hideLabel
-        placeholder={placeholder}
-        multiline
-        autoCorrect
-        spellCheck
-        autoCapitalize="sentences"
-        onChangeText={(value) => {
-          const edit = editImageMentions(draft, value, images, selection);
-          const caret = edit.caret === null ? null : { start: edit.caret, end: edit.caret };
-          setRequested(caret ? { draft: edit.value, selection: caret } : null);
-          if (caret) setSelection(caret);
-          onChangeText(edit.value);
-        }}
-        onSelectionChange={(event) => {
-          setSelection(event.nativeEvent.selection);
-          setRequested(null);
-          setRendered((current) => (current.restore ? { ...current, restore: undefined } : current));
-        }}
-        selection={restore}
-        onFocus={() => {
-          paste.onFocus();
-          setFocused(true);
-        }}
-        onBlur={() => setFocused(false)}
-        style={{ backgroundColor: "transparent", fontSize: inputSize, minHeight: 44, maxHeight: 140, paddingHorizontal: 10, paddingVertical: 6 }}
-      >
-        <Text style={{ fontSize: inputSize, color: colors.ink }}>
-          {marks.map((part, index) => (
-            <Text
-              key={index}
-              style={
-                part.kind === "text"
-                  ? { color: colors.ink }
-                  : {
-                      color: colors.accentInk,
-                      backgroundColor: part.kind === "file" || part.kind === "image" ? withAlpha(colors.accent, 0.14) : colors.accentTint,
-                    }
-              }
+      <View>
+        <Field
+          {...paste}
+          label="Message"
+          hideLabel
+          placeholder={placeholder}
+          multiline
+          autoCorrect
+          spellCheck
+          autoCapitalize="sentences"
+          onChangeText={(value) => {
+            const edit = editImageMentions(draft, value, images, selection);
+            const caret = edit.caret === null ? null : { start: edit.caret, end: edit.caret };
+            setRequested(caret ? { draft: edit.value, selection: caret } : null);
+            if (caret) setSelection(caret);
+            onChangeText(edit.value);
+          }}
+          onSelectionChange={(event) => {
+            placed.current = true;
+            setSelection(event.nativeEvent.selection);
+            setRequested(null);
+            setRendered((current) => (current.restore ? { ...current, restore: undefined } : current));
+          }}
+          selection={restore}
+          onFocus={() => {
+            paste.onFocus();
+            setFocused(true);
+          }}
+          onBlur={() => setFocused(false)}
+          style={{
+            backgroundColor: "transparent",
+            fontSize: inputSize,
+            minHeight: 44,
+            maxHeight: 140,
+            paddingHorizontal: 10,
+            paddingVertical: 6,
+            ...(dictation.available ? { paddingRight: 10 + MIC_WIDTH } : null),
+          }}
+        >
+          <Text style={{ fontSize: inputSize, color: colors.ink }}>
+            {marks.map((part, index) =>
+              part.kind === "text" ? (
+                <Text key={index} style={{ color: colors.ink }}>
+                  {part.text}
+                </Text>
+              ) : glyphs ? (
+                // Like desktop's chips: skills tinted with a wand, files and images on the hover gray with their icon.
+                <Text
+                  key={index}
+                  style={
+                    part.kind === "skill"
+                      ? { color: colors.accentInk, backgroundColor: colors.accentTint }
+                      : { color: colors.ink, backgroundColor: colors.hover }
+                  }
+                >
+                  <Text
+                    style={{
+                      fontFamily: GLYPHS,
+                      color: part.kind === "image" ? IMAGE_ICON : part.kind === "file" ? fileKind(part.path).color : colors.accentInk,
+                    }}
+                  >
+                    {part.text[0]}
+                  </Text>
+                  {part.kind === "image" ? (
+                    <>
+                      {part.text.slice(1, -1)}
+                      <Text style={{ fontFamily: GLYPHS }}>{part.text.slice(-1)}</Text>
+                    </>
+                  ) : (
+                    part.text.slice(1)
+                  )}
+                </Text>
+              ) : (
+                <Text
+                  key={index}
+                  style={{
+                    color: colors.accentInk,
+                    backgroundColor: part.kind === "file" || part.kind === "image" ? withAlpha(colors.accent, 0.14) : colors.accentTint,
+                  }}
+                >
+                  {part.text}
+                </Text>
+              ),
+            )}
+          </Text>
+        </Field>
+        {dictation.available ? (
+          <View style={{ position: "absolute", right: 4, bottom: 6 }}>
+            <VoiceMicButton
+              phase={dictation.phase}
+              level={dictation.level}
+              onPress={() => {
+                if (dictation.phase === "recording") return void dictation.stop();
+                // Where the words land is fixed now, while the caret is where the user left it.
+                const end = draft.length;
+                void dictation.start({ draft, selection: placed.current ? selection : { start: end, end } });
+              }}
+            />
+          </View>
+        ) : null}
+      </View>
+      {dictationError ? (
+        <View
+          accessibilityRole="alert"
+          accessibilityLiveRegion="polite"
+          style={{ marginHorizontal: 10, marginBottom: 6, padding: 10, borderRadius: 10, backgroundColor: colors.redTint, gap: 6 }}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={dictationError.message}
+            accessibilityHint="Dismisses the message"
+            onPress={dismissDictationError}
+          >
+            <Text style={{ color: colors.red, fontSize: 13, lineHeight: 18 }}>{dictationError.message}</Text>
+          </Pressable>
+          {dictationError.kind === "permission" ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open Settings"
+              hitSlop={6}
+              onPress={() => {
+                dismissDictationError();
+                void Linking.openSettings();
+              }}
             >
-              {part.text}
-            </Text>
-          ))}
-        </Text>
-      </Field>
+              <Text style={{ color: colors.red, fontSize: 13, fontWeight: "600" }}>Open Settings</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
       {skill && !query ? (
         <View
           accessibilityLiveRegion="polite"

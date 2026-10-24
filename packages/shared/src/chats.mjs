@@ -1,6 +1,7 @@
 // How a chat is named, shared by the sidebar and the main process's notifications. Types: chats.d.mts.
 export { pullRequestRefs, pullRequestRefsCache, chatPullRequests } from "./chat-pull-requests.mjs";
 import { chatSummary, summarizeChat } from "./chat-summary.mjs";
+import { promptTitle } from "./prompt-parts.mjs";
 
 /** The same status palette for desktop and mobile chat lists. */
 export function chatMarkTone(mark) {
@@ -15,16 +16,15 @@ export function shortTitle(line) {
   return line.length > 60 ? `${line.slice(0, 57)}…` : line;
 }
 
-/** The chat's name: the one the user gave it, else the first line of its first message (from its summary when it has one). */
+/** The chat's name: the one the user gave it, else the first line of its first message (from its summary when it has one), with image tokens named. */
 export function chatTitle(session, messages = []) {
   if (session.title?.trim()) return session.title.trim();
   if (session.generatedTitle?.trim()) return session.generatedTitle.trim();
+  const first = session.summary ? undefined : messages.find((message) => message.role !== "assistant" && message.body.trim());
+  // A summary kept before it counted the first message's images has no count: its tokens all count.
   const line = session.summary
-    ? (session.summary.titleLine ?? "")
-    : (messages
-        .find((message) => message.role !== "assistant" && message.body.trim())
-        ?.body.trim()
-        .split("\n")[0] ?? "");
+    ? promptTitle(session.summary.titleLine ?? "", session.summary.titleImages)
+    : promptTitle(first?.body.trim().split("\n")[0] ?? "", first?.images?.length ?? 0);
   if (!line) return session.agent_name;
   return shortTitle(line);
 }

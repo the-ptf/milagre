@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { promptParts, promptImageBlocks, formatFileMention, formatImageMention, imageLabel, skillLabel } from "./prompt-parts.mjs";
+import {
+  promptParts,
+  promptImageBlocks,
+  formatFileMention,
+  formatImageMention,
+  imageLabel,
+  onlyImageMentions,
+  promptTitle,
+  skillLabel,
+} from "./prompt-parts.mjs";
 import { editImageMentions, mentionedImages, remapImageMentions, shiftImageMentions } from "./prompt-mentions.mjs";
 
 test("splits skills, files and images out of prose and keeps the text verbatim", () => {
@@ -100,4 +109,25 @@ test("formatFileMention quotes paths with spaces", () => {
 test("skillLabel title-cases the slug", () => {
   assert.equal(skillLabel("frontend-design"), "Frontend Design");
   assert.equal(skillLabel("plugin:review-code"), "Review Code");
+});
+
+test("onlyImageMentions is true only when the prompt is just its attached images", () => {
+  assert.equal(onlyImageMentions("[Image #1]", 1), true);
+  assert.equal(onlyImageMentions(" [Image #1]\n[Image #2] ", 2), true);
+  assert.equal(onlyImageMentions("[Image #1] look at this", 1), false);
+  assert.equal(onlyImageMentions("[Image #2]", 1), false);
+  assert.equal(onlyImageMentions("[Image #1]", 0), false);
+  assert.equal(onlyImageMentions("", 1), false);
+});
+
+test("promptTitle drops attached image tokens and names an image-only line", () => {
+  assert.equal(promptTitle("[Image #1]", 1), "Image");
+  assert.equal(promptTitle("[Image #1] [Image #2]", 2), "2 images");
+  assert.equal(promptTitle("[Image #1] [Image #1]", 2), "Image");
+  assert.equal(promptTitle("look at [Image #1]  please", 1), "look at please");
+  assert.equal(promptTitle("[Image #2] only", 1), "[Image #2] only");
+  assert.equal(promptTitle("[Image #2]", 1), "[Image #2]");
+  assert.equal(promptTitle("[Image #4]"), "Image");
+  assert.equal(promptTitle("Fix the login", 0), "Fix the login");
+  assert.equal(promptTitle("", 1), "");
 });

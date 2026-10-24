@@ -56,3 +56,25 @@ test("a new message or an ended reply stamps lastAt; a rename, a reread or a reb
   );
   assert.equal(created.sessions[4].summary.lastAt, 500);
 });
+
+test("firstAt is stamped when a Chat gets its first message and then never moves; a Chat without messages has none", () => {
+  const read = withChatSummaries(state(), null, () => 100);
+  assert.equal(read.sessions[1].summary.firstAt, undefined, "a state read from disk has no time to give");
+  assert.equal(read.sessions[3].summary.firstAt, undefined, "a Chat with no messages has no first message");
+  const first = withChatSummaries({ ...read, messages: [...read.messages, ask(5, 3, "Third chat")] }, read, () => 200);
+  assert.equal(first.sessions[3].summary.firstAt, 200);
+  assert.equal(first.sessions[3].summary.lastAt, 200);
+  assert.equal(first.sessions[1], read.sessions[1]);
+  const replied = withChatSummaries({ ...first, messages: [...first.messages, reply(6, 3, { outcome: "completed" })] }, first, () => 300);
+  assert.equal(replied.sessions[3].summary.firstAt, 200, "later activity keeps when the Chat began");
+  assert.equal(replied.sessions[3].summary.lastAt, 300);
+  assert.equal(replied.sessions[2].summary.firstAt, undefined, "a Chat that had messages before the host kept firstAt doesn't invent one");
+  const created = withChatSummaries(
+    { ...replied, sessions: { ...replied.sessions, 4: { id: 4, agent_name: "c" } }, messages: [...replied.messages, ask(7, 4, "New")] },
+    replied,
+    () => 400,
+  );
+  assert.equal(created.sessions[4].summary.firstAt, 400);
+  const emptied = withChatSummaries({ ...created, messages: created.messages.filter((message) => message.session_id !== 4) }, created, () => 500);
+  assert.equal(emptied.sessions[4].summary.firstAt, undefined);
+});

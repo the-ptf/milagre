@@ -5,7 +5,7 @@ import { DEFAULT_THEME_ID, parseCustomTheme, resolvePalette, resolveThemeSetting
 import type { CustomTheme, ThemeChoice } from "@milagre/shared/themes";
 import type { ChatOrder } from "./chat-list";
 import { DESKTOP_CHAT_ROW_SHOW, parseChatRowShow, type ChatRowShow } from "@milagre/shared/chat-row";
-import { parseToolCallDisplay, type ToolCallDisplay } from "@milagre/shared/chat-display";
+import { parseChatList, parseToolCallDisplay, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
 import { DEFAULT_NOTIFICATION_CHIME, parseNotificationChime, type NotificationChime } from "@milagre/shared/notification-chimes";
 import { applyPalette } from "./theme-sheet.ts";
 import { applyAppearance } from "./appearance.ts";
@@ -50,6 +50,8 @@ export interface AppSettings {
   tldrEnabled: boolean;
   /** Sidebar chats by start date, or with the latest message first. */
   chatOrder: ChatOrder;
+  /** Settings › Chat: the sidebar lists every Chat in one list, or groups them by Project. */
+  chatList: ChatList;
   /** What a sidebar chat row's second line shows (the Filters menu's Show). */
   chatRowShow: ChatRowShow;
   /** Settings › Chat: a reply's tool calls fold into one line, or show one row each with the text between them. */
@@ -95,6 +97,7 @@ const DEFAULTS: AppSettings = {
   claudeReplies: "concise",
   tldrEnabled: true,
   chatOrder: "created",
+  chatList: "list",
   chatRowShow: DESKTOP_CHAT_ROW_SHOW,
   toolCallDisplay: "compact",
   expandReasoning: false,
@@ -136,6 +139,7 @@ function load(): AppSettings {
       tldrEnabled: typeof saved.tldrEnabled === "boolean" ? saved.tldrEnabled : DEFAULTS.tldrEnabled,
       claudeReplies: CLAUDE_REPLIES.has(saved.claudeReplies as ClaudeReplies) ? saved.claudeReplies! : DEFAULTS.claudeReplies,
       chatOrder: CHAT_ORDERS.has(saved.chatOrder as ChatOrder) ? saved.chatOrder! : DEFAULTS.chatOrder,
+      chatList: parseChatList(saved.chatList),
       chatRowShow: parseChatRowShow(saved.chatRowShow, DEFAULTS.chatRowShow),
       toolCallDisplay: parseToolCallDisplay(saved.toolCallDisplay, saved.muriloMode),
       expandReasoning: typeof saved.expandReasoning === "boolean" ? saved.expandReasoning : DEFAULTS.expandReasoning,

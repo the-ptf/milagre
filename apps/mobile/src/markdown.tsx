@@ -15,10 +15,22 @@ import { showImages, type MediaValue, type ThumbRect } from "./viewer-store";
 
 import { resolveMarkdownImage } from "./markdown-image";
 import { useTheme, type Palette } from "./theme";
+import { messageActionProps } from "./message-actions";
 
 type ImageOptions = { media?: (path: string) => MediaValue; basePath?: string };
 /** What the plain render helpers need from the theme; components pass it in from their hooks. `basePath` resolves relative file links. */
-type MarkdownTheme = { colors: Palette; styles: Styles; basePath?: string; textPx: number; codeSize: number; reachable?: ReachableHost | null };
+type MarkdownTheme = {
+  colors: Palette;
+  styles: Styles;
+  basePath?: string;
+  textPx: number;
+  codeSize: number;
+  reachable?: ReachableHost | null;
+  /** False where a long press on the message offers Select text instead (chat replies on iOS). */
+  selectable: boolean;
+  /** Opens the message's Copy / Select text actions; set, it is also the VoiceOver action on each text block. */
+  onMessageAction?: () => void;
+};
 
 // Chat reading size: desktop uses 13px at 1.55; a phone reads best a little larger. `textPx` follows Settings > Appearance > Text size.
 const bodyOf = (colors: Palette, textPx = 15) => ({ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) });
@@ -161,7 +173,13 @@ function inlineContent(tokens: Token[], t: MarkdownTheme, style: TextStyle = bod
   const flush = () => {
     if (text.some((token) => token.nesting === 0 && token.content.trim()))
       parts.push(
-        <Text key={`text-${parts.length}`} selectable accessibilityRole={heading ? "header" : undefined} style={style}>
+        <Text
+          key={`text-${parts.length}`}
+          selectable={t.selectable}
+          accessibilityRole={heading ? "header" : undefined}
+          style={style}
+          {...messageActionProps(t.onMessageAction)}
+        >
           {inline(text, t)}
         </Text>,
       );
@@ -231,7 +249,11 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
         <View style={{ backgroundColor: colors.field, borderRadius: 12, borderCurve: "continuous", overflow: "hidden" }}>
           {token.info && <Text style={[styles.label, { paddingHorizontal: 12, paddingTop: 10 }]}>{token.info}</Text>}
           <PageScroll horizontal contentContainerStyle={{ padding: 12, paddingBottom: 12 }}>
-            <Text selectable style={[styles.code, { fontSize: t.codeSize + 1, lineHeight: Math.round((t.codeSize + 1) * 1.5) }]}>
+            <Text
+              selectable={t.selectable}
+              style={[styles.code, { fontSize: t.codeSize + 1, lineHeight: Math.round((t.codeSize + 1) * 1.5) }]}
+              {...messageActionProps(t.onMessageAction)}
+            >
               {token.content.replace(/\n$/, "")}
             </Text>
           </PageScroll>
@@ -299,7 +321,7 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
         {children.length ? (
           blocks(children, images, t)
         ) : (
-          <Text selectable style={body}>
+          <Text selectable={t.selectable} style={body} {...messageActionProps(t.onMessageAction)}>
             {token.content}
           </Text>
         )}
@@ -308,23 +330,45 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
   });
 }
 /** One top-level block; unchanged blocks skip parsing and rendering while the reply streams. */
-const Chunk = memo(function Chunk({ text, streaming, media, basePath }: { text: string; streaming: boolean } & ImageOptions) {
+const Chunk = memo(function Chunk({
+  text,
+  streaming,
+  media,
+  basePath,
+  selectable,
+  onMessageAction,
+}: { text: string; streaming: boolean; selectable: boolean; onMessageAction?: () => void } & ImageOptions) {
   const { colors, textPx, codeSize } = useTheme();
   const styles = useStyles();
   const reachable = useContext(ReachableHostContext);
   const nodes = useMemo(() => tree(markdownTokens(text, streaming)), [text, streaming]);
   return (
     <MarkdownStreamingContext value={streaming}>
-      {blocks(nodes, { media, basePath }, { colors, styles, basePath, textPx, codeSize, reachable })}
+      {blocks(nodes, { media, basePath }, { colors, styles, basePath, textPx, codeSize, reachable, selectable, onMessageAction })}
     </MarkdownStreamingContext>
   );
 });
-export const Markdown = memo(function Markdown({ text, streaming = false, media, basePath }: { text: string; streaming?: boolean } & ImageOptions) {
+export const Markdown = memo(function Markdown({
+  text,
+  streaming = false,
+  media,
+  basePath,
+  selectable = true,
+  onMessageAction,
+}: { text: string; streaming?: boolean; selectable?: boolean; onMessageAction?: () => void } & ImageOptions) {
   const chunks = useMemo(() => markdownChunks(text), [text]);
   return (
     <View style={{ gap: 12 }}>
       {chunks.map((chunk, index) => (
-        <Chunk key={index} text={chunk} media={media} basePath={basePath} streaming={streaming && index === chunks.length - 1} />
+        <Chunk
+          key={index}
+          text={chunk}
+          media={media}
+          basePath={basePath}
+          selectable={selectable}
+          onMessageAction={onMessageAction}
+          streaming={streaming && index === chunks.length - 1}
+        />
       ))}
     </View>
   );

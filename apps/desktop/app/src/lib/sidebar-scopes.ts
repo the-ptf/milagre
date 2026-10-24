@@ -124,9 +124,61 @@ export function scopeChats(
         ...(worktree ? { branch: worktree.name, path: worktree.path, diff: worktree.diff } : {}),
         failed: chatSummary(session, sessionMessages).lastOutcome === "failed",
         lastAt: chatSummary(session, sessionMessages).lastAt,
+        firstAt: chatSummary(session, sessionMessages).firstAt,
       },
     };
   });
+}
+
+/** One row of the one-list sidebar, with the scope (Project or Link key) it belongs to. */
+export type FlatChat = { scopeKey: string; row: SidebarRecent };
+
+/**
+ * Every scope's rows as one list: pinned Chats first, by `pinOrder`, then the rest in the Chat order setting: newest
+ * Chat first (`created`, by when its first message came) or latest message first (`recent`). Chat and message ids are
+ * per Project, so the order across scopes comes from the summary's times. Each scope's rows arrive in the setting's order
+ * already and keep it within their scope; the scopes interleave by the time of the row each has next. A row without its
+ * time (a Chat the host began tracking before `firstAt`) goes by its latest activity instead. Ties go to the earlier scope.
+ * A heap of the scopes keeps this to O(rows × log scopes), where a scan of every scope for every row grew with Chats × Projects.
+ */
+export function mergeScopeChats(scopes: readonly { key: string; rows: readonly SidebarRecent[] }[], order: ChatOrder): FlatChat[] {
+  const merged: FlatChat[] = [];
+  const timeOf = (row: SidebarRecent) => (order === "created" ? (row.details?.firstAt ?? row.details?.lastAt) : row.details?.lastAt) ?? 0;
+  for (const pinned of [true, false]) {
+    const queues = scopes.map(({ key, rows }, index) => ({ key, index, rows: rows.filter((row) => Boolean(row.pinned) === pinned), at: 0 }));
+    type Queue = (typeof queues)[number];
+    // A row goes before another when it has the lower pin order, else the newer time.
+    const first = (a: SidebarRecent, b: SidebarRecent) => (pinned ? (a.pinOrder ?? 0) - (b.pinOrder ?? 0) : timeOf(b) - timeOf(a));
+    // The scopes with rows left, as a heap by the row each has next; ties go to the earlier scope.
+    const heap = queues.filter((queue) => queue.rows.length);
+    const before = (a: Queue, b: Queue) => {
+      const rank = first(a.rows[a.at]!, b.rows[b.at]!);
+      return rank < 0 || (rank === 0 && a.index < b.index);
+    };
+    const down = (from: number) => {
+      for (let at = from; ;) {
+        const left = heap[2 * at + 1];
+        const right = heap[2 * at + 2];
+        let top = at;
+        if (left && before(left, heap[top]!)) top = 2 * at + 1;
+        if (right && before(right, heap[top]!)) top = 2 * at + 2;
+        if (top === at) return;
+        [heap[at], heap[top]] = [heap[top]!, heap[at]!];
+        at = top;
+      }
+    };
+    for (let at = (heap.length >> 1) - 1; at >= 0; at--) down(at);
+    for (let top = heap[0]; top; top = heap[0]) {
+      merged.push({ scopeKey: top.key, row: top.rows[top.at++]! });
+      // Its next row sinks from the top to where it goes; a scope with none left makes way.
+      if (top.at >= top.rows.length) {
+        heap[0] = heap[heap.length - 1]!;
+        heap.pop();
+      }
+      down(0);
+    }
+  }
+  return merged;
 }
 
 /**

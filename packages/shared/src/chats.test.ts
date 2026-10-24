@@ -3,6 +3,7 @@ import test from "node:test";
 import type { AgentSession, ChatMessage, CoordinatorState } from "./model.ts";
 import { chatTitle, comparePins, pinOrderAt, shortTitle } from "./chats.mjs";
 
+const image = (index: number) => ({ id: `i${index}`, name: `${index}.png`, path: `/${index}.png` });
 const session: AgentSession = { id: 1, worktree_id: 1, agent_name: "main", status: "Created" };
 
 test("shortTitle keeps a line of 60 characters whole and cuts a longer one to 57 and an ellipsis", () => {
@@ -22,6 +23,23 @@ test("chatTitle prefers the user's name, then the first message's first line", (
   assert.equal(chatTitle({ ...session, title: "   " }, messages), "Fix the login");
   assert.equal(chatTitle(session, []), "main");
   assert.equal(chatTitle(session, [{ id: 3, session_id: 1, body: "x".repeat(80), context: null }]), `${"x".repeat(57)}…`);
+});
+
+test("chatTitle names an image-only prompt Image or N images and drops image tokens from other prompts", () => {
+  const chat = (body: string, imageCount: number) =>
+    chatTitle(session, [
+      { id: 1, session_id: 1, body, context: null, role: "user", images: Array.from({ length: imageCount }, (_, i) => image(i + 1)) },
+    ] as ChatMessage[]);
+  assert.equal(chat("[Image #1]", 1), "Image");
+  assert.equal(chat("[Image #1] [Image #2]", 2), "2 images");
+  assert.equal(chat("look at [Image #1]   please", 1), "look at please");
+  assert.equal(chat("[Image #3]", 1), "[Image #3]");
+  assert.equal(chat("[Image #1]", 0), "[Image #1]");
+  // From a summary: the count of images the first message carried, or none kept (an older summary), which counts every token.
+  assert.equal(chatTitle({ ...session, summary: { count: 1, titleLine: "[Image #1]", titleImages: 1 } }), "Image");
+  assert.equal(chatTitle({ ...session, summary: { count: 1, titleLine: "[Image #1] [Image #2]" } }), "2 images");
+  assert.equal(chatTitle({ ...session, summary: { count: 1, titleLine: "[Image #2]", titleImages: 1 } }), "[Image #2]");
+  assert.equal(chatTitle({ ...session, title: "Mine", summary: { count: 1, titleLine: "[Image #1]", titleImages: 1 } }), "Mine");
 });
 
 test("chat lists hide a worktree's empty starter chat but keep chats with messages and handovers", async () => {

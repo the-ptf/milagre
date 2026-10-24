@@ -12,4 +12,7 @@ export function promptImageBlocks<T>(prompt: string, images?: readonly T[]): Pro
 export function formatFileMention(path: string): string;
 export function formatImageMention(index: number): string;
 export function imageLabel(index: number): string;
+export function onlyImageMentions(prompt: string, images: number | ((index: number) => boolean)): boolean;
+/** A Chat name from a prompt line: attached `[Image #N]` tokens dropped, or "Image" / "N images" when only they remained. */
+export function promptTitle(line: string, images?: number | ((index: number) => boolean)): string;
 export function skillLabel(name: string): string;

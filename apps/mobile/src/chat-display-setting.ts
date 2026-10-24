@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import type { ToolCallDisplay } from "@milagre/shared/chat-display";
-import { readExpandReasoning, readToolCallDisplay, saveExpandReasoning, saveToolCallDisplay } from "./hosts-native";
+import type { ChatList, ToolCallDisplay } from "@milagre/shared/chat-display";
+import { readChatList, readExpandReasoning, readToolCallDisplay, saveChatList, saveExpandReasoning, saveToolCallDisplay } from "./hosts-native";
 
 // Settings › Chat on this phone, read once and shared by Settings and every Chat.
 
@@ -40,3 +40,6 @@ export const useToolCallDisplay = phoneSetting<ToolCallDisplay>("compact", readT
 
 /** Desktop's Always expand reasoning: thinking rows start open in the Activity sheet. */
 export const useExpandReasoning = phoneSetting(false, readExpandReasoning, saveExpandReasoning);
+
+/** Settings › Chat › Chat list: the sidebar's One list, or a group per Project that folds. */
+export const useChatList = phoneSetting<ChatList>("list", readChatList, saveChatList);

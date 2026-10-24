@@ -19,3 +19,26 @@ export function parseToolCallDisplay(value: unknown, murilo?: unknown): ToolCall
   if (value === "compact" || value === "full") return value;
   return murilo === true ? "full" : "compact";
 }
+
+// Settings › Chat: how the sidebar lists Chats. Each device keeps its own choice.
+
+/** One list shows every Chat of every Project in a single list; Grouped by Project keeps a fold per Project. */
+export type ChatList = "list" | "grouped";
+
+export const CHAT_LIST_MODES: { id: ChatList; label: string; description: string }[] = [
+  { id: "list", label: "One list", description: "Every Chat of every Project in one list, with its Project on the second line." },
+  { id: "grouped", label: "Grouped by Project", description: "A group per Project that folds." },
+];
+
+export const CHAT_LIST_TITLE = "Chat list";
+export const CHAT_LIST_HINT = "How the sidebar lists your Chats.";
+
+/** The label of a Chat list value. */
+export function chatListLabel(value: ChatList): string {
+  return CHAT_LIST_MODES.find((mode) => mode.id === value)?.label ?? "One list";
+}
+
+/** A saved choice; anything else is One list. */
+export function parseChatList(value: unknown): ChatList {
+  return value === "grouped" ? "grouped" : "list";
+}
