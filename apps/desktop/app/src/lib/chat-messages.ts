@@ -1,5 +1,6 @@
 import { rememberChat } from "./offline-cache.ts";
-import { bridgeForKey } from "./computer-bridge.ts";
+import { bridgeForKey, isRemoteKey } from "./computer-bridge.ts";
+import { computerOfKey } from "@milagre/shared/chat-scopes";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { ChatMessage } from "../model.ts";
 import type { MessageChanges } from "../electron.d.ts";
@@ -63,10 +64,24 @@ const loads = new Map<string, Promise<void>>();
 const earlierLoads = new Map<string, Promise<void>>();
 // Reads whose page may predate a change that arrived while they were on their way: each reads again when it ends.
 const stale = new Set<string>();
+/** A paired computer's chat paints from its last copy on this Mac while the computer's own answer is on its way. */
+function recallRemote(scope: string, chatId: number, key: string) {
+  if (!isRemoteKey(scope)) return;
+  const recall = window.milagre.computers?.recall;
+  if (!recall) return;
+  void Promise.resolve(recall(computerOfKey(scope), { kind: "chat", scope, chatId }))
+    .then((kept) => {
+      // The computer answered first, or nobody wants the Chat any more.
+      if (!kept?.messages.length || !loads.has(key) || windows.has(key)) return;
+      set(key, { messages: kept.messages as ChatMessage[], hasMore: kept.hasMore, total: kept.total, loading: true });
+    })
+    .catch(() => {});
+}
 function load(scope: string, chatId: number) {
   const key = keyOf(scope, chatId);
   let loading = loads.get(key);
   if (!loading) {
+    recallRemote(scope, chatId, key);
     loading = bridgeForKey(scope)
       .readChatMessages(scope, chatId, { turns: TURNS })
       .then(
@@ -134,6 +149,18 @@ function follow() {
       }
     }
   });
+}
+
+/**
+ * Reads Chat `chatId`'s window before it is shown (the pointer is over its row), so opening it paints at once. A
+ * window already read, or being read, is left alone.
+ */
+export function prefetchChatMessages(scope: string, chatId: number) {
+  if (!(chatId > 0)) return;
+  const key = keyOf(scope, chatId);
+  if (windows.has(key) || loads.has(key)) return;
+  follow();
+  void load(scope, chatId);
 }
 
 /** The window of Chat `chatId`'s messages, read when first shown; none while `scope` or `chatId` is missing. */

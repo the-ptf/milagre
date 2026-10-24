@@ -62,9 +62,11 @@ export function PermissionCard({
       alwaysAllowLabel={
         request.kind === "setup"
           ? SETUP_APPROVAL_COPY.always
-          : request.kind === "delegation"
-            ? "Always allow for this Link in this chat"
-            : "Always allow in this chat"
+          : request.delegation?.computer
+            ? `Always allow for ${request.delegation.computer} in this chat`
+            : request.kind === "delegation"
+              ? "Always allow for this Link in this chat"
+              : "Always allow in this chat"
       }
       onDeny={() => onAnswer("deny")}
       {...(request.kind === "setup" ? { approveLabel: SETUP_APPROVAL_COPY.allow, denyLabel: SETUP_APPROVAL_COPY.deny } : {})}

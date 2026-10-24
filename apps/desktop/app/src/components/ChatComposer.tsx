@@ -20,7 +20,10 @@ import type { AgentPort, BackgroundTask, ChatPlan, ContextUsage, Subagent } from
 import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
 import { createContext, Fragment, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ComponentProps, DragEvent, ReactNode } from "react";
+import type { ComponentProps, DragEvent, ReactElement, ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { commitChatSwitch } from "../lib/chat-switch-timing";
+import { showSlot, trimSlots, type TranscriptSlot } from "../lib/transcript-slots";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, Folder01Icon, GitBranchIcon, GitForkIcon, GitPullRequestIcon, LaptopIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { LinearLogo } from "./ProviderLogo";
@@ -88,7 +91,7 @@ import { LinkedMessageHeader, linkedContext } from "./LinkedMessage";
 import { isHandoff } from "@milagre/shared/handoff";
 import { isCompaction } from "@milagre/shared/compaction";
 import { isWorktreeLinked } from "@milagre/shared/worktree-link";
-import { MessageScroller } from "./agents/message-scroller";
+import { MessageScroller, TRANSCRIPT_SHOWN_EVENT } from "./agents/message-scroller";
 import { RecommendationCard } from "./agents/recommendation-card";
 import { parseRecommendation } from "../lib/recommendation";
 import { StepRow } from "./agents/StepRow";
@@ -688,6 +691,8 @@ interface ChatComposerProps {
   /** The open conversation keeps its scroll view when a draft gets its saved Chat id. */
   scrollKey?: number | string;
   messages: AppChatMessage[];
+  /** A saved Chat's page is still being read, so an empty `messages` doesn't mean a new Chat. */
+  loading?: boolean;
   /** Unsaved input appears below the reply still streaming while the backend prepares the send. */
   pendingMessageId?: number;
   draft: string;
@@ -1010,6 +1015,7 @@ export function ChatComposer({
   scrollKey,
   earlier,
   messages,
+  loading = false,
   pendingMessageId,
   draft,
   onDraftChange,
@@ -1089,16 +1095,25 @@ export function ChatComposer({
   const chatWidth = useSettings().appearance.chatWidth;
   const root = useRef<HTMLDivElement>(null);
   const chatId = messages[0]?.session_id ?? "new";
-  // A first message, including its preview while setup runs, opens the conversation layout.
-  const isNewChat = messages.length === 0;
+  // A first message, including its preview while setup runs, opens the conversation layout. A saved Chat whose page is
+  // still on its way from the host is not a new one: its conversation layout waits, empty, instead of the new-chat header.
+  const isNewChat = messages.length === 0 && !loading;
   const workingModelName = runModelName ?? selectedModel.name;
   const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    if (isNewChat) setScrolled(false);
-  }, [isNewChat]);
-
   // The runtime knows a Chat by its Project's path, not the Worktree's `projectPath` it runs in.
   const runtimeChat = typeof chatId === "number" && chatId > 0 && projectPath ? (agentChatId ?? `${messageScope ?? projectPath}#${chatId}`) : null;
+  // The transcript slot on screen (TranscriptSlots); a parked one comes back at the scroll position it left at.
+  // A draft's transcript takes its view's key until the Chat is saved; its slot then becomes the Chat's.
+  const draftKey = scrollKey === undefined ? null : `view:${scrollKey}`;
+  const transcriptKey = isNewChat ? null : (agentChatId ?? runtimeChat ?? draftKey);
+  useEffect(() => {
+    if (isNewChat) {
+      setScrolled(false);
+      return;
+    }
+    const viewport = root.current?.querySelector<HTMLElement>('[data-transcript-slot] [aria-label="Conversation"]');
+    setScrolled((viewport?.scrollTop ?? 0) > 4);
+  }, [isNewChat, transcriptKey]);
   // Undo changes: the Chat's task checkpoints, the panel that takes the composer's place, and the message it outlines.
   const checkpointApi = useMemo<CheckpointApi>(() => (runtimeChat ? (bridgeForKey(runtimeChat).checkpoints ?? NO_CHECKPOINTS) : NO_CHECKPOINTS), [runtimeChat]);
   const review = useCheckpoints(checkpointApi, runtimeChat ?? "");
@@ -1236,89 +1251,100 @@ export function ChatComposer({
           </div>
         )}
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
-        {!isNewChat && (
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            <MessageScroller
-              key={scrollKey ?? messages[0]?.session_id ?? "new"}
-              navigation="rail"
-              followOutput
-              smooth
-              busy={isSending}
-              className="min-h-0 flex-1"
-              // The find bar floats over the top of the chat, so the first message moves below it while it is open.
-              // The chip row floats over the bottom blur, so the last message can scroll clear of it.
-              viewportClassName={`${findOpen ? "pt-12" : "pt-4"} pb-10`}
-              contentClassName="min-h-full"
-              // Streamed text isn't in the key: the scroller follows the content's growth itself, once per layout.
-              autoScrollKey={`${messages.length}-${isSending}-${streamingSteps?.length ?? 0}`}
-              viewportProps={{ onScroll: (event) => setScrolled(event.currentTarget.scrollTop > 4) }}
-            >
-              <div data-chat-width={chatWidth} className="chat-column mx-auto flex min-h-full w-full max-w-[var(--chat-width)] flex-col gap-3 px-3 pt-12 pb-4">
-                <StepDetailsScope scope={messageScope}>
-                  <MessageTranscript
-                    findOpen={findOpen}
-                    earlier={earlier}
-                    messages={messages}
-                    pendingMessageId={pendingMessageId}
-                    isSending={isSending}
-                    streamingText={streamingText}
-                    streamingSteps={streamingSteps}
-                    asking={asking}
-                    undoable={undoable}
-                    undoBlocked={isSending || Boolean(offlineName)}
-                    onUndo={runtimeChat ? undoTask : undefined}
-                    highlightId={highlightId}
-                    onCheckpointPreview={runtimeChat ? previewRecovery : undefined}
-                    waitingStepIds={waitingStepIds}
-                    onRecommendationSelect={onRecommendationSelect}
-                    onUpdateCli={onUpdateCli}
-                    updatingCli={updatingCli}
-                    cliStatus={cliStatus}
-                    onOpenLinkedChat={onOpenLinkedChat}
-                    onOpenAccounts={onOpenAccounts}
-                    offlineName={offlineName}
-                    models={models}
-                  />
-                </StepDetailsScope>
+        <TranscriptSlots
+          activeKey={transcriptKey}
+          view={scrollKey}
+          messageCount={messages.length}
+          element={
+            isNewChat ? null : messages.length === 0 ? (
+              <div className="relative flex min-h-0 flex-1 flex-col" />
+            ) : (
+              <div className="relative flex min-h-0 flex-1 flex-col">
+                <MessageScroller
+                  navigation="rail"
+                  followOutput
+                  smooth
+                  busy={isSending}
+                  className="min-h-0 flex-1"
+                  // The find bar floats over the top of the chat, so the first message moves below it while it is open.
+                  // The chip row floats over the bottom blur, so the last message can scroll clear of it.
+                  viewportClassName={`${findOpen ? "pt-12" : "pt-4"} pb-10`}
+                  contentClassName="min-h-full"
+                  // Streamed text isn't in the key: the scroller follows the content's growth itself, once per layout.
+                  autoScrollKey={`${messages.length}-${isSending}-${streamingSteps?.length ?? 0}`}
+                  viewportProps={{ onScroll: (event) => setScrolled(event.currentTarget.scrollTop > 4) }}
+                >
+                  <div
+                    data-chat-width={chatWidth}
+                    className="chat-column mx-auto flex min-h-full w-full max-w-[var(--chat-width)] flex-col gap-3 px-3 pt-12 pb-4"
+                  >
+                    <StepDetailsScope scope={messageScope}>
+                      <MessageTranscript
+                        findOpen={findOpen}
+                        earlier={earlier}
+                        messages={messages}
+                        pendingMessageId={pendingMessageId}
+                        isSending={isSending}
+                        streamingText={streamingText}
+                        streamingSteps={streamingSteps}
+                        asking={asking}
+                        undoable={undoable}
+                        undoBlocked={isSending || Boolean(offlineName)}
+                        onUndo={runtimeChat ? undoTask : undefined}
+                        highlightId={highlightId}
+                        onCheckpointPreview={runtimeChat ? previewRecovery : undefined}
+                        waitingStepIds={waitingStepIds}
+                        onRecommendationSelect={onRecommendationSelect}
+                        onUpdateCli={onUpdateCli}
+                        updatingCli={updatingCli}
+                        cliStatus={cliStatus}
+                        onOpenLinkedChat={onOpenLinkedChat}
+                        onOpenAccounts={onOpenAccounts}
+                        offlineName={offlineName}
+                        models={models}
+                      />
+                    </StepDetailsScope>
 
-                {isSending && (
-                  <div className="w-full" style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
-                    <ThinkingIndicator startedAt={runStartedAt} label={waitingForSubagents ? "Waiting on subagents" : `Working with ${workingModelName}`} />
+                    {isSending && (
+                      <div className="w-full" style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
+                        <ThinkingIndicator startedAt={runStartedAt} label={waitingForSubagents ? "Waiting on subagents" : `Working with ${workingModelName}`} />
+                      </div>
+                    )}
+                    <BackgroundWork
+                      key={runtimeChat}
+                      items={backgroundItems({ provider: sessionProvider ?? selectedModel.provider, subagents, backgroundTasks }, ports)}
+                      chatKey={runtimeChat}
+                      showIndicator={!isSending && activity?.activity === "background"}
+                      mark={<ChatMarkDotInline mark="background" failed={false} background={activity?.background ?? 0} />}
+                    />
+                    {runtimeChat && !isSending && <NextCheck chatKey={runtimeChat} />}
+                    {resume && !isSending && (
+                      <div data-resume-bar className="flex w-full items-center gap-3 rounded-control border border-line px-3 py-2 text-[12px] text-ink-2">
+                        <span className="min-w-0 flex-1">Milagre closed while this chat was working.</span>
+                        <button
+                          type="button"
+                          onClick={resume.onContinue}
+                          disabled={sendBlocked}
+                          className="shrink-0 rounded-control bg-ink px-2.5 py-1 font-medium text-surface transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40"
+                        >
+                          Continue
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-                <BackgroundWork
-                  key={runtimeChat}
-                  items={backgroundItems({ provider: sessionProvider ?? selectedModel.provider, subagents, backgroundTasks }, ports)}
-                  chatKey={runtimeChat}
-                  showIndicator={!isSending && activity?.activity === "background"}
-                  mark={<ChatMarkDotInline mark="background" failed={false} background={activity?.background ?? 0} />}
-                />
-                {runtimeChat && !isSending && <NextCheck chatKey={runtimeChat} />}
-                {resume && !isSending && (
-                  <div data-resume-bar className="flex w-full items-center gap-3 rounded-control border border-line px-3 py-2 text-[12px] text-ink-2">
-                    <span className="min-w-0 flex-1">Milagre closed while this chat was working.</span>
-                    <button
-                      type="button"
-                      onClick={resume.onContinue}
-                      disabled={sendBlocked}
-                      className="shrink-0 rounded-control bg-ink px-2.5 py-1 font-medium text-surface transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40"
-                    >
-                      Continue
-                    </button>
-                  </div>
-                )}
+                </MessageScroller>
+                {/* Messages passing under the chip row soften into a progressive blur that reaches the composer. */}
+                <div
+                  aria-hidden
+                  data-busy={isSending || undefined}
+                  className="chat-bottom-blur progressive-blur pointer-events-none absolute inset-x-0 bottom-0 z-10 h-14"
+                >
+                  <ProgressiveBlurLayers />
+                </div>
               </div>
-            </MessageScroller>
-            {/* Messages passing under the chip row soften into a progressive blur that reaches the composer. */}
-            <div
-              aria-hidden
-              data-busy={isSending || undefined}
-              className="chat-bottom-blur progressive-blur pointer-events-none absolute inset-x-0 bottom-0 z-10 h-14"
-            >
-              <ProgressiveBlurLayers />
-            </div>
-          </div>
-        )}
+            )
+          }
+        />
         <div
           data-chat-width={chatWidth}
           className={`chat-gutter mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 items-center justify-end gap-2 px-3 empty:hidden ${isNewChat ? "mb-2" : "pointer-events-none relative z-20 -mt-[38px] mb-3.5 has-[[data-expanded]]:z-[70] [&>*]:pointer-events-auto"}`}
@@ -1523,6 +1549,123 @@ function ReplyProviders({
     <ArtifactsProvider chatId={chatId} steps={steps} userMessages={userMessages} onSend={onSend} agent={agent} followAgent={followAgent} subagents={subagents}>
       <GenerativeUIProvider onSend={onSend}>{children}</GenerativeUIProvider>
     </ArtifactsProvider>
+  );
+}
+
+/**
+ * The transcript on screen and the last few shown before it, kept mounted (lib/transcript-slots.ts, after MonoCode's
+ * TranscriptPool). Each slot renders through a portal into a node of its own; the shown one's node sits in the host,
+ * the parked ones' leave the document with their DOM intact, so DOM queries never meet them and coming back is one
+ * insertion, not parsing and laying out every message again. A parked transcript keeps the
+ * element it was last shown with, so React leaves its tree alone. Without a key (a Chat not saved yet) the element
+ * renders in place and nothing is parked.
+ */
+/** The height styles.css gives a message content-visibility has never laid out (`contain-intrinsic-size: auto 160px`). */
+const MESSAGE_PLACEHOLDER_HEIGHT = 160;
+
+function TranscriptSlots({
+  activeKey,
+  view,
+  element,
+  messageCount,
+}: {
+  activeKey: string | null;
+  /** The conversation on screen (App's chat view): a key change within one view is a draft becoming its saved Chat. */
+  view: number | string | undefined;
+  element: ReactElement | null;
+  messageCount: number;
+}) {
+  const [slots, setSlots] = useState<TranscriptSlot<ReactElement>[]>([]);
+  const [nodes] = useState(() => new Map<number, HTMLDivElement>());
+  const [scrollTops] = useState(() => new Map<number, number>());
+  const [unmeasured] = useState(() => new Set<number>());
+  const [last, setLast] = useState<{ view: typeof view; key: string | null }>({ view, key: activeKey });
+  const alias = last.view !== undefined && last.view === view && last.key && last.key !== activeKey ? last.key : undefined;
+  const next = activeKey && element ? showSlot(slots, activeKey, element, alias) : slots;
+  if (next !== slots) setSlots(next);
+  if (last.view !== view || last.key !== activeKey) setLast({ view, key: activeKey });
+  const nodeFor = (id: number) => {
+    let node = nodes.get(id);
+    if (!node) {
+      node = document.createElement("div");
+      node.className = "contents";
+      node.dataset.transcriptSlot = String(id);
+      nodes.set(id, node);
+    }
+    return node;
+  };
+  const activeId = activeKey ? next.find((slot) => slot.key === activeKey)?.id : undefined;
+  // The host takes the shown slot's node as a ref, in the layout phase before the portals' own layout effects: a
+  // transcript that opens measures itself inside the document. The node it replaces leaves with its scroll position.
+  const [hosts] = useState<{ current: HTMLDivElement | null }>(() => ({ current: null }));
+  const host = useCallback(
+    (hostNode: HTMLDivElement | null) => {
+      const node = activeId === undefined ? null : nodeFor(activeId);
+      // Whatever other slot the host holds is parked: it leaves with its scroll position. The host leaving (a new
+      // Chat takes the window) parks its slot the same way. Only slot nodes leave: React may reuse this div for the
+      // in-place transcript of a Chat without a key, whose children it has already placed when the ref lets go.
+      for (const child of Array.from((hostNode ?? hosts.current)?.querySelectorAll<HTMLElement>(":scope > [data-transcript-slot]") ?? [])) {
+        if (hostNode && child === node) continue;
+        const viewport = child.querySelector<HTMLElement>('[aria-label="Conversation"]');
+        if (viewport) scrollTops.set(Number(child.dataset.transcriptSlot), viewport.scrollTop);
+        // Out of the document, content-visibility forgets the size of every skipped message. Each keeps its own, so
+        // the transcript comes back at the same height and opens where it should without measuring again. A message
+        // never laid out stands at the placeholder size (styles.css), which says nothing: the transcript measures again.
+        const id = Number(child.dataset.transcriptSlot);
+        const messages = Array.from(child.querySelectorAll<HTMLElement>('[data-slot="message"]'));
+        // Every read before any write: one layout, not one per message.
+        const heights = messages.map((message) => message.offsetHeight);
+        messages.forEach((message, index) => {
+          const height = heights[index]!;
+          if (height > 0 && height !== MESSAGE_PLACEHOLDER_HEIGHT) message.style.containIntrinsicSize = `auto ${height}px`;
+          else unmeasured.add(id);
+        });
+        child.remove();
+      }
+      hosts.current = hostNode;
+      if (!hostNode || !node || activeId === undefined) return;
+      if (node.parentElement !== hostNode) {
+        hostNode.appendChild(node);
+        // A Chat opens at its latest turn, parked or not; the scroller hears the move and follows again.
+        const viewport = node.querySelector<HTMLElement>('[aria-label="Conversation"]');
+        if (viewport && scrollTops.has(activeId)) {
+          if (unmeasured.delete(activeId)) viewport.dispatchEvent(new Event(TRANSCRIPT_SHOWN_EVENT));
+          viewport.scrollTop = viewport.scrollHeight;
+          viewport.dispatchEvent(new Event("scroll"));
+        }
+      }
+    },
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- a new callback per slot is what makes React run it again
+    [activeId],
+  );
+  // Parked transcripts past the limit leave after the switch has painted, so a burst of switches pays for it once.
+  useEffect(() => {
+    if (trimSlots(next, activeKey) === next) return;
+    const timer = window.setTimeout(() => setSlots((current) => trimSlots(current, activeKey)), 500);
+    return () => window.clearTimeout(timer);
+  }, [next, activeKey]);
+  useEffect(() => {
+    for (const id of Array.from(nodes.keys()))
+      if (!next.some((slot) => slot.id === id)) {
+        nodes.get(id)?.remove();
+        nodes.delete(id);
+        scrollTops.delete(id);
+        unmeasured.delete(id);
+      }
+  }, [next, nodes, scrollTops, unmeasured]);
+  // The switch is measured once the Chat's messages are on screen (lib/chat-switch-timing.ts).
+  useLayoutEffect(() => {
+    if (activeKey && messageCount > 0) commitChatSwitch(activeKey);
+  }, [activeKey, messageCount]);
+  if (!activeKey) {
+    if (element) return element;
+    if (!next.length) return null;
+  }
+  return (
+    <>
+      {element && <div ref={host} className="relative flex min-h-0 flex-1 flex-col" />}
+      {next.map((slot) => createPortal(slot.element, nodeFor(slot.id), String(slot.id)))}
+    </>
   );
 }
 

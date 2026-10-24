@@ -15,24 +15,36 @@ const NO_FILES: string[] = [];
 
 const AttachmentPreview = lazyView(() => import("./AttachmentPreview").then((module) => module.AttachmentPreview));
 
-/** `leading` goes first in the row, which isn't a file the user attached. */
+/**
+ * `leading` goes first in the row, which isn't a file the user attached. `order` lists attachment keys (a path, or a
+ * pasted image's id) in the order they were added; without it images come before files. `previewId`/`onPreview`
+ * control which item the viewer shows, so a chip elsewhere can open it.
+ */
 export function Attachments({
   images = NO_IMAGES,
   files = NO_FILES,
+  order,
   localFiles,
   removeImage,
   removeFile,
   leading,
+  previewId,
+  onPreview,
 }: {
   images?: ImageAttachment[];
   files?: string[];
+  order?: string[];
   localFiles?: Map<string, File>;
   removeImage?: (id: string) => void;
   removeFile?: (path: string) => void;
   leading?: ReactNode;
+  previewId?: string | null;
+  onPreview?: (id: string | null) => void;
 }) {
-  // The open item's index among the media; its thumbnail hides while the viewer shows it.
-  const [open, setOpen] = useState<number | null>(null);
+  // The open item's id; its thumbnail hides while the viewer shows it.
+  const [ownPreview, setOwnPreview] = useState<string | null>(null);
+  const openId = previewId !== undefined ? previewId : ownPreview;
+  const setOpenId = onPreview ?? setOwnPreview;
   const thumbs = useRef(new Map<string, HTMLButtonElement>());
   // A remote chat's images come from its computer; its other files have no preview here.
   const scope = useScope();
@@ -45,6 +57,7 @@ export function Attachments({
   const items = [
     ...images.map((image, index) => ({
       id: image.id,
+      key: image.path ?? image.id,
       index: index + 1,
       path: image.dataUrl ? undefined : image.path,
       name: image.name,
@@ -57,6 +70,7 @@ export function Attachments({
       .filter((path) => !images.some((image) => (image.sourcePath ?? image.path) === path))
       .map((path) => ({
         id: path,
+        key: path,
         index: undefined,
         path,
         name: path.split("/").at(-1) || path,
@@ -66,12 +80,19 @@ export function Attachments({
         remove: removeFile ? () => removeFile(path) : undefined,
       })),
   ];
+  if (order) {
+    const rank = (key: string) => (order.includes(key) ? order.indexOf(key) : order.length);
+    items.sort((a, b) => rank(a.key) - rank(b.key));
+  }
   // The viewer pages only through what has an image to show: one still loading, or one that failed, has none.
   const media = items.filter((item): item is typeof item & LightboxItem => !!item.kind && !!item.src);
   const failedRemote = (item: (typeof items)[number]) => remote && item.kind === "image" && !item.src && !!item.path && !!remoteFailed[item.path];
-  const close = useCallback(() => setOpen(null), []);
+  const found = openId === null ? -1 : media.findIndex((item) => item.id === openId);
+  const open = found < 0 ? null : found;
+  const close = useCallback(() => setOpenId(null), [setOpenId]);
+  const setOpen = (index: number) => setOpenId(media[index]?.id ?? null);
   const thumbFor = useCallback((id: string) => thumbs.current.get(id), []);
-  const showing = (id: string) => open !== null && media[open]?.id === id;
+  const showing = (id: string) => openId === id;
   if (!items.length && !leading) return null;
   return (
     <div className="mb-2 flex flex-wrap items-start gap-2" aria-label="Attachments">

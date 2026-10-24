@@ -10,6 +10,8 @@ const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // goes through bridgeFor / bridgeForKey / useBridge, so it reaches the computer of the Project or chat it is about.
 const ALLOWED: Record<string, string[]> = {
   "lib/offline-cache.ts": ["computers", "onComputersChanged"],
+  // A paired computer's chat paints from the copy this Mac keeps of it while the computer answers.
+  "lib/chat-messages.ts": ["computers"],
   "App.tsx": [
     "onAccountsChanged",
     "listRecentProjects",
@@ -147,6 +149,8 @@ const ALLOWED: Record<string, string[]> = {
   "lib/settings.ts": ["setWindowBackground"],
   "lib/editors.ts": ["listEditors", "openInEditor"],
   "lib/linked-work.ts": ["getLinkedWork", "onLinkedWork"],
+  // This Mac's own switch for its Chats delegating to other computers.
+  "lib/remote-delegation.ts": ["readRemoteDelegationEnabled", "saveRemoteDelegationEnabled", "onRemoteDelegationEnabledChanged"],
   "lib/terminal-sessions.ts": ["setTerminalFocused"],
   "lib/terminal-actions.ts": ["onTerminalsChanged", "onComputerEvent"],
 };

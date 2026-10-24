@@ -1792,8 +1792,28 @@ function createRuntime(options) {
     read: (chatId) => chats.plan(chatId),
     update: (chatId, change) => chats.updatePlan(chatId, change),
   });
+  // Delegations to another paired computer's Projects (Settings > Experimental, spec 2026-10-23). The daemon supplies its
+  // computers (`remoteComputers`): list() -> [{ id, name, online }], invoke(id, method, args), thisMac(), and
+  // onEvent(listener) / onOnline(listener) / onRemoved(listener) for their events, their coming back and their removal.
+  const remoteDelegation = require("./design-settings.cjs").createDesignSettings(path.join(dataDir, "remote-delegation.json"), {
+    name: "Delegating to other computers",
+    missing: false,
+  });
+  const remoteComputers = options.remoteComputers ?? null;
+  const remote = remoteComputers && {
+    enabled: () => remoteDelegation.enabled(),
+    list: () => remoteComputers.list(),
+    computer: (name) => {
+      const wanted = String(name ?? "").trim();
+      const computers = remoteComputers.list();
+      return computers.find((item) => item.id === wanted) ?? computers.find((item) => item.name.toLowerCase() === wanted.toLowerCase()) ?? null;
+    },
+    invoke: (id, method, args) => remoteComputers.invoke(id, method, args),
+    thisMac: () => remoteComputers.thisMac(),
+  };
   const linked = createLinkedWorktrees({
     dataDir,
+    remote,
     registry: projectRegistry,
     // A named Link's member Projects, { id, name, path }, for its shared Chats' Delegations.
     linkProjects: async (linkId) => {
@@ -2050,6 +2070,30 @@ function createRuntime(options) {
     titles: chatTitles,
   });
   commands.handle("linked:snapshot", () => linked.snapshot());
+  commands.handle("linked:remote-enabled:read", () => ({ enabled: remoteDelegation.enabled() }));
+  commands.handle("linked:remote-enabled:save", (_event, value) => {
+    const result = remoteDelegation.save(value);
+    emit("linked:remote-enabled-changed", result);
+    return result;
+  });
+  // Another computer's Chat delegating to this Mac's Projects (a paired desktop's daemon calls these, spec 2026-10-23).
+  commands.handle("delegation:targets", () => linked.hosted.targets());
+  commands.handle("delegation:prepare", (_event, request) => linked.hosted.prepare(request));
+  commands.handle("delegation:receive", (_event, request) => linked.hosted.receive(request));
+  commands.handle("delegation:reports", (_event, request) => linked.hosted.reports(request));
+  commands.handle("delegation:collected", (_event, request) => linked.hosted.collected(request));
+  // This Mac's Delegations to other computers hear back: a report as it is sent, and the ones missed while away.
+  remoteComputers?.onEvent?.((computerId, channel, payload) => {
+    if (channel === "delegation:report")
+      void linked.remoteFinished(computerId, payload).catch((error) => console.warn("Milagre couldn't take a Delegation report:", error.message));
+  });
+  remoteComputers?.onOnline?.((computerId) => {
+    void linked.catchUp(computerId).catch((error) => console.warn("Milagre couldn't collect Delegation reports:", error.message));
+  });
+  // A removed computer can't report back: its open Delegations are settled here.
+  remoteComputers?.onRemoved?.((computerId) => {
+    void linked.computerRemoved(computerId).catch((error) => console.warn("Milagre couldn't settle a removed computer's Delegations:", error.message));
+  });
   commands.handle("linked:stop-negotiation", (_event, id) => (typeof id === "string" ? linked.stop({ negotiationId: id }) : undefined));
   // Each way a project opens (launch, the folder dialog, a switch) puts it at the top of the recent list.
   // `takeNotice`: this open is a desktop window's, which shows the restored-chats notice. Over the daemon only the

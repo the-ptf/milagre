@@ -69,6 +69,9 @@ export interface MessageScrollerProps extends ComponentPropsWithRef<"div"> {
   autoScrollKey?: string | number;
 }
 
+/** Dispatched on the viewport of a parked transcript that is back in the document and needs measuring again. */
+export const TRANSCRIPT_SHOWN_EVENT = "milagre:transcript-shown";
+
 export function MessageScroller({
   followOutput = true,
   followThreshold = 56,
@@ -326,6 +329,23 @@ export function MessageScroller({
     programmaticScrollRef.current = false;
   }, []);
 
+  // A parked transcript put back in the document (ChatComposer's TranscriptSlots) with messages whose size
+  // contain-intrinsic-size never learned measures every message once more.
+  const [measurePass, setMeasurePass] = useState(0);
+  const shownBefore = useRef(false);
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const remeasure = () => {
+      setMeasuring(true);
+      setMeasurePass((pass) => pass + 1);
+    };
+    viewport.addEventListener(TRANSCRIPT_SHOWN_EVENT, remeasure);
+    // Effects run again when a hidden <Activity> shows this scroller again; display:none dropped the remembered sizes.
+    if (shownBefore.current) remeasure();
+    shownBefore.current = true;
+    return () => viewport.removeEventListener(TRANSCRIPT_SHOWN_EVENT, remeasure);
+  }, []);
   useEffect(() => {
     let settle = 0;
     const first = requestAnimationFrame(() => {
@@ -335,7 +355,8 @@ export function MessageScroller({
       cancelAnimationFrame(first);
       cancelAnimationFrame(settle);
     };
-  }, []);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- each pass runs the settle frames again
+  }, [measurePass]);
 
   useLayoutEffect(() => {
     followingRef.current = followOutput;

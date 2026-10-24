@@ -448,9 +448,11 @@ export function Approval({
           <Text style={{ color: colors.ink2, fontSize: 13, fontWeight: "500" }}>
             {approval.kind === "setup"
               ? SETUP_APPROVAL_COPY.always
-              : approval.kind === "delegation"
-                ? "Always allow for this Link in this Chat"
-                : "Always allow in this Chat"}
+              : approval.delegation?.computer
+                ? `Always allow for ${approval.delegation.computer} in this Chat`
+                : approval.kind === "delegation"
+                  ? "Always allow for this Link in this Chat"
+                  : "Always allow in this Chat"}
           </Text>
         </Pressable>
       )}

@@ -468,7 +468,7 @@ async function startDesktop() {
       }
     });
     guardNavigation(window.webContents, { appUrl, openExternal: (url) => shell.openExternal(url).catch(() => {}) });
-    forwardAppShortcuts(window.webContents);
+    forwardAppShortcuts(window.webContents, process.platform, electronIpcMain, () => void confirmQuit(window));
     // A reload keeps every turn running: the main process saves them, and the renderer takes the
     // turns streaming now, with their approval and question cards, from "chat:runs".
     if (!app.isPackaged) {
@@ -551,6 +551,26 @@ async function startDesktop() {
       }
     },
   });
+  // ⌘Q asks first. Quitting from the dock, the menu, an update or a logout does not.
+  let confirmingQuit = false;
+  /** @param {Electron.BrowserWindow} window */
+  async function confirmQuit(window) {
+    if (confirmingQuit) return;
+    confirmingQuit = true;
+    try {
+      const { response } = await dialog.showMessageBox(window, {
+        type: "question",
+        message: "Quit Milagre?",
+        detail: "Agents keep running in the background.",
+        buttons: ["Quit", "Cancel"],
+        defaultId: 0,
+        cancelId: 1,
+      });
+      if (response === 0) app.quit();
+    } finally {
+      confirmingQuit = false;
+    }
+  }
   ipcMain.handle("app:retry-quit", () => {
     app.quit();
   });

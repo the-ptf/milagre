@@ -21,8 +21,8 @@ import { isLean, stateEvents } from "./lib/state-events";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { cliName } from "@milagre/shared/providers";
-import { useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, type CSSProperties, type SetStateAction } from "react";
-import { flushSync } from "react-dom";
+import { Activity, useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type SetStateAction } from "react";
+import { createPortal, flushSync } from "react-dom";
 import {
   ChatMessage,
   ImageAttachment,
@@ -91,7 +91,7 @@ import { chatPullRequests, pullRequestRefsCache } from "./lib/chat-pull-requests
 import { usePastedImages } from "./components/usePastedImages";
 import { DotBackground } from "./components/DotBackground";
 import { StartupSplash } from "./components/StartupSplash";
-import SidebarNav from "./components/SidebarNav";
+import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, rememberProjectCopy, runKeys, useScopeStates } from "./lib/sidebar-scopes";
 import { activeChatKeys, gridChats, readChatLayout, saveChatLayout, type ChatLayout } from "./lib/chat-grid";
 import { chatOnScreen, keepsRoutinesView, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
@@ -120,7 +120,8 @@ import { OfflineBanner } from "./components/OfflineBanner";
 import { settingsCommands } from "./lib/settings-commands";
 import type { Command } from "./lib/commands";
 import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
-import { useChatMessages } from "./lib/chat-messages";
+import { prefetchChatMessages, useChatMessages } from "./lib/chat-messages";
+import { beginChatSwitch } from "./lib/chat-switch-timing";
 import { RECENT_PROJECTS_CHANGED, type RecentProject } from "./lib/project-list";
 import { useHiddenProjects } from "./lib/hidden-projects";
 import { useProjectImages } from "./lib/project-images";
@@ -134,6 +135,8 @@ import { canOpenRunChat, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } f
 import { RoutineChip } from "./components/routines/RoutineChip";
 import { RUN_CHAT_REPLY_NOTE, RunChatHeader } from "./components/routines/RunChatHeader";
 import { delegatedChats, useLinkedWork } from "./lib/linked-work";
+import { remoteDelegationsFrom } from "./lib/remote-delegation";
+import { RemoteDelegationCard } from "./components/agents/RemoteDelegationCard";
 import { DraftChatComposer } from "./components/DraftChatComposer";
 import { queueControls } from "./components/QueuedMessages";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
@@ -208,6 +211,12 @@ function App() {
   // The latest state of every project the main process has sent this window; it's their only writer
   // (see ADR-0001). The ref leads, so callbacks read a state that arrived since the last render.
   const [selectedLink, setSelectedLink] = useState<OpenLink | null>(null);
+  // The Link shown last stays mounted behind the Project (an <Activity>), so going back to it is a style change.
+  const [lastLink, setLastLink] = useState<OpenLink | null>(null);
+  // Counts the requests to show a Link's Chat, so asking for the same Chat again shows it again.
+  const [linkOpenNonce, setLinkOpenNonce] = useState(0);
+  // Each Link as the host last opened it, so opening it again shows at once while the host answers.
+  const linksSeen = useRef(new Map<string, OpenLink>());
   const selectedLinkRef = useRef(selectedLink);
   selectedLinkRef.current = selectedLink;
   const [linkInitialSession, setLinkInitialSession] = useState<number | undefined>();
@@ -657,6 +666,8 @@ function App() {
   const transcriptLoading = pendingHere && pendingCanonicalId !== null ? canonicalWindow.loading : chatWindow.loading;
   const displayedMessages = lean && transcriptLoading && !loadedMessages.length && transcript.key === transcriptKey ? transcript.messages : loadedMessages;
   if (transcript.key !== transcriptKey || transcript.messages !== displayedMessages) setTranscript({ key: transcriptKey, messages: displayedMessages });
+  // A saved Chat with nothing to show yet because its page is still on its way: not a new Chat.
+  const messagesLoading = lean && transcriptLoading && !displayedMessages.length && Boolean(selectedSession && selectedSession.id > 0);
   // How many messages the open Chat has: its summary's count while its window is still loading from the host.
   const chatCount = lean ? (selectedSession?.summary?.count ?? messages.length) : messages.length;
   preferredProviderRef.current = chatCount > 0 ? selectedSession?.provider : undefined;
@@ -824,6 +835,10 @@ function App() {
     [backgroundKey],
   );
   const linkedWork = useLinkedWork();
+  const remoteDelegations = useMemo(
+    () => remoteDelegationsFrom(linkedWork, project && selectedSession ? chatKey(project.path, selectedSession.id) : null),
+    [linkedWork, project, selectedSession],
+  );
   // Chats in other projects that wait on an approval or question, but not in Projects hidden from the sidebar. Joined, so a
   // streamed batch that changes nothing keeps the arrays.
   const hiddenProjects = useHiddenProjects();
@@ -1057,7 +1072,10 @@ function App() {
       setView("chat");
       return;
     }
-    if (sessionId !== selectedSessionRef.current) advanceChatView();
+    if (sessionId !== selectedSessionRef.current) {
+      if (projectRef.current) beginChatSwitch(chatKey(projectRef.current.path, sessionId));
+      advanceChatView();
+    }
     setSelectedSessionId(sessionId);
     setSelectedWorktreeId(openState()?.sessions[sessionId]?.worktree_id ?? null);
     if (!keepsRoutinesView(holdRoutinesView.current, projectRef.current?.path, sessionId)) setView("chat");
@@ -1437,23 +1455,42 @@ function App() {
   async function selectLink(id: string, sessionId?: number, { keepView = false } = {}) {
     leaveBots();
     const navigation = ++projectNavigation.current;
-    try {
-      const next = await bridgeForKey(`milagre-link:${id}`).openNamedLink(id);
-      if (navigation !== projectNavigation.current) return;
+    const adopt = (next: OpenLink) => {
       if (!selectedLinkRef.current && projectRef.current)
         scopeDrafts.save({ kind: "project", projectPath: projectRef.current.path }, { text: draftStore.get(), sessionId: selectedSessionRef.current });
       advanceChatView();
       setLinkStates((previous) => ({ ...previous, [id]: next.state }));
       setLinkInitialSession(sessionId);
+      setLinkOpenNonce((count) => count + 1);
       setSelectedLink(next);
+      setLastLink(next);
       if (!keepView) setView("chat");
       setNewChatError(null);
+    };
+    // The Link shows at once from what this window holds (the host's last open, or the sidebar's read); the host's
+    // open then refreshes it in place. Opening on the host recovers its Chats and can take a while when the Mac is busy.
+    const known = linksSeen.current.get(id) ?? knownLink(id);
+    const held = linkStatesRef.current[id] ?? scopeStates[`milagre-link:${id}`];
+    const instant = known && held && !("worktrees" in held) ? { link: known.link, projects: known.projects, state: held } : null;
+    if (instant) adopt(instant);
+    try {
+      const next = await bridgeForKey(`milagre-link:${id}`).openNamedLink(id);
+      if (navigation !== projectNavigation.current) return;
+      linksSeen.current.set(id, next);
+      if (!instant) {
+        adopt(next);
+        return;
+      }
+      setLinkStates((previous) => ({ ...previous, [id]: next.state }));
+      setSelectedLink((current) => (current?.link.id === id ? next : current));
+      setLastLink((current) => (current?.link.id === id ? next : current));
     } catch (error) {
-      setNotice(ipcErrorMessage(error));
+      if (navigation === projectNavigation.current) setNotice(ipcErrorMessage(error));
     }
   }
   async function openCanvasChat(projectPath: string, sessionId: number, adopt: Parameters<typeof adoptProject>[1] = {}) {
     leaveBots();
+    beginChatSwitch(chatKey(projectPath, sessionId));
     if (isLinkScopeKey(projectPath)) {
       await selectLink(projectPath.slice("milagre-link:".length), sessionId, adopt);
       return;
@@ -1977,6 +2014,14 @@ function App() {
   });
   const sidebarRunKeys = runKeys(agentRuns.runs);
   const openScopeChat = useEvent((scopeKey: string, id: string) => void openCanvasChat(scopeKey, Number(id)));
+  // The pointer rests on a chat's row: its page is read now (a host that keeps messages by Chat), so the click paints
+  // at once instead of waiting on the host, or on another computer's network.
+  const hoverChat = useEvent((scopeKey: string, id: string) => {
+    const state = isLinkScopeKey(scopeKey)
+      ? linkStatesRef.current[scopeKey.slice("milagre-link:".length)]
+      : (statesRef.current[scopeKey] ?? scopeStates[scopeKey]);
+    if (state && isLean(state)) prefetchChatMessages(scopeKey, Number(id));
+  });
   // "Link and ask A…" from the sidebar's Link popover: a plain user message to chat A on its own model, as its composer
   // would pick it, and the permission mode new turns get. A's agent decides whether to make a Delegation. Then A opens,
   // so the message and the reply are in view.
@@ -2254,53 +2299,64 @@ function App() {
         {addComputerDialog}
       </DotBackground>
     );
-  if (selectedLink)
+  const shownLink = selectedLink ?? lastLink;
+  const linkWorkspace = shownLink && (
+    <LinkWorkspace
+      key={shownLink.link.id}
+      opened={shownLink}
+      state={linkStates[shownLink.link.id] ?? shownLink.state}
+      openNonce={linkOpenNonce}
+      hostConnection={hostConnection}
+      saveNotice={dockSaveNotice}
+      saveScopes={unsavedScopes}
+      ports={agentPorts}
+      agents={agentRuns}
+      drafts={scopeDrafts}
+      initialSessionId={linkInitialSession}
+      preferences={{
+        models,
+        selectedModel,
+        onModelChange: chooseModel,
+        modelForChat: modelForChatKey,
+        showModel: setSelectedModel,
+        cliStatus,
+        onModelPickerOpen: refreshCliStatus,
+        onUpdateCli: handleUpdateCli,
+        updatingCli,
+        capability: selectedCapability,
+        // Options are now managed internally by LinkWorkspace via useComposerPreferences
+      }}
+      onSwitchProject={(path) => void switchProject(path)}
+      onSwitchLink={(id) => void selectLink(id)}
+      onLinkProject={() => setLinkDialogOpen(true)}
+      onAddComputer={() => setAddComputerOpen(true)}
+      onOpenComputerSettings={openComputerSettings}
+      onEditLink={(id) => void editLink(id)}
+      onOpenProject={() => void openProject()}
+      onSettings={() => {
+        setSettingsSection("project-accounts");
+        setView("settings");
+      }}
+      onOpenAccounts={openAccounts}
+      linkedWork={linkedWork}
+      onCanvasChat={(path, id) => void openCanvasChat(path, id)}
+      usage={sidebarUsage}
+      onNewChatInScope={newChatInScope}
+    />
+  );
+  const linkDialogs = (
+    <>
+      {linkDialog}
+      {addComputerDialog}
+      {addProjectDialog}
+    </>
+  );
+  // A Link with no Project to stand behind it (none open yet) is the whole window.
+  if (selectedLink && (loading || !project || !state || splash === "intro"))
     return (
       <>
-        <LinkWorkspace
-          key={selectedLink.link.id}
-          opened={selectedLink}
-          state={linkStates[selectedLink.link.id] ?? selectedLink.state}
-          hostConnection={hostConnection}
-          saveNotice={dockSaveNotice}
-          saveScopes={unsavedScopes}
-          ports={agentPorts}
-          agents={agentRuns}
-          drafts={scopeDrafts}
-          initialSessionId={linkInitialSession}
-          preferences={{
-            models,
-            selectedModel,
-            onModelChange: chooseModel,
-            modelForChat: modelForChatKey,
-            showModel: setSelectedModel,
-            cliStatus,
-            onModelPickerOpen: refreshCliStatus,
-            onUpdateCli: handleUpdateCli,
-            updatingCli,
-            capability: selectedCapability,
-            // Options are now managed internally by LinkWorkspace via useComposerPreferences
-          }}
-          onSwitchProject={(path) => void switchProject(path)}
-          onSwitchLink={(id) => void selectLink(id)}
-          onLinkProject={() => setLinkDialogOpen(true)}
-          onAddComputer={() => setAddComputerOpen(true)}
-          onOpenComputerSettings={openComputerSettings}
-          onEditLink={(id) => void editLink(id)}
-          onOpenProject={() => void openProject()}
-          onSettings={() => {
-            setSettingsSection("project-accounts");
-            setView("settings");
-          }}
-          onOpenAccounts={openAccounts}
-          linkedWork={linkedWork}
-          onCanvasChat={(path, id) => void openCanvasChat(path, id)}
-          usage={sidebarUsage}
-          onNewChatInScope={newChatInScope}
-        />
-        {linkDialog}
-        {addComputerDialog}
-        {addProjectDialog}
+        {linkWorkspace}
+        {linkDialogs}
       </>
     );
 
@@ -2521,8 +2577,11 @@ function App() {
     return commands;
   }
 
+  // The Link on screen and the Project behind it (or the other way round) both stay mounted: the hidden one keeps
+  // its DOM and state out of the document, with its effects and listeners off, so switching between them is one
+  // insertion.
   const projectBridge = bridgeForKey(project.path);
-  return (
+  const projectWorkspace = (
     <BridgeContext.Provider value={projectBridge}>
       <ScopeContext.Provider value={project.path}>
         <DotBackground key="app">
@@ -2641,6 +2700,7 @@ function App() {
                 waitingKeys={sidebarRunKeys.waiting}
                 askingKeys={sidebarRunKeys.asking}
                 onOpenScopeChat={openScopeChat}
+                onHoverChat={hoverChat}
                 onAskChat={askLinkedChat}
                 sidebarMode={sidebarMode}
                 onSidebarMode={setSidebarMode}
@@ -2781,10 +2841,11 @@ function App() {
                       root={isRemoteKey(project.path) ? "" : (selectedWorktree?.path ?? project.path)}
                       files={selectedWorktree?.path ?? (isRemoteKey(project.path) ? "" : project.path)}
                     >
+                      {/* One composer across Projects: its parked transcripts (TranscriptSlots) outlive a Project switch. */}
                       <DraftChatComposer
-                        key={project.path}
                         store={draftStore}
                         messages={displayedMessages}
+                        loading={messagesLoading}
                         scrollKey={chatView.current}
                         pendingMessageId={pendingHere && pendingCanonicalId === null ? pendingSend?.message.id : undefined}
                         imageDraft={imageDraft}
@@ -2921,22 +2982,39 @@ function App() {
                         notice={notice}
                         onDismissNotice={() => setNotice(null)}
                         approval={
-                          pendingApproval ? (
-                            <PermissionCard
-                              key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingApproval.requestId}`}
-                              request={pendingApproval}
-                              waiting={(run?.approvals.length ?? 1) - 1}
-                              answering={sentDecision(run, pendingApproval.requestId)}
-                              onAnswer={answerApproval}
-                            />
-                          ) : pendingQuestion ? (
-                            <QuestionCard
-                              key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingQuestion.requestId}`}
-                              request={pendingQuestion}
-                              waiting={(run?.questions.length ?? 1) - 1}
-                              answering={sentReply(run, pendingQuestion.requestId)}
-                              onAnswer={answerQuestion}
-                            />
+                          pendingApproval || pendingQuestion || remoteDelegations.length ? (
+                            <div className="flex w-full flex-col gap-2">
+                              {pendingApproval ? (
+                                <PermissionCard
+                                  key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingApproval.requestId}`}
+                                  request={pendingApproval}
+                                  waiting={(run?.approvals.length ?? 1) - 1}
+                                  answering={sentDecision(run, pendingApproval.requestId)}
+                                  onAnswer={answerApproval}
+                                />
+                              ) : pendingQuestion ? (
+                                <QuestionCard
+                                  key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingQuestion.requestId}`}
+                                  request={pendingQuestion}
+                                  waiting={(run?.questions.length ?? 1) - 1}
+                                  answering={sentReply(run, pendingQuestion.requestId)}
+                                  onAnswer={answerQuestion}
+                                />
+                              ) : null}
+                              {/* Delegations this Chat sent to other computers, their turns mirrored live from there. */}
+                              {remoteDelegations.map((delegation) => (
+                                <RemoteDelegationCard
+                                  key={delegation.id}
+                                  delegation={delegation}
+                                  run={delegation.to_chat ? agentRuns.runs[delegation.to_chat] : undefined}
+                                  onAnswer={(requestId, decision) => {
+                                    if (delegation.to_chat) void agentRuns.respond(delegation.to_chat, requestId, decision).catch(() => {});
+                                  }}
+                                  onOpenChat={openChatKey}
+                                  onStop={(key) => void agentRuns.interrupt(key).catch(() => {})}
+                                />
+                              ))}
+                            </div>
                           ) : undefined
                         }
                       />
@@ -3056,6 +3134,52 @@ function App() {
         )}
       </ScopeContext.Provider>
     </BridgeContext.Provider>
+  );
+  return (
+    <>
+      <WorkspaceSlots
+        shown={selectedLink ? "link" : "project"}
+        slots={[...(linkWorkspace ? [{ key: "link", element: linkWorkspace }] : []), { key: "project", element: projectWorkspace }]}
+      />
+      {/* The Project's copy of these sits in the hidden tree while a Link is on screen. */}
+      {selectedLink && linkDialogs}
+    </>
+  );
+}
+
+/**
+ * The workspaces a window keeps mounted: the one on screen, in the host, and the hidden ones in nodes of their own
+ * outside the document (as ChatComposer parks transcripts), so nothing that queries the document meets them. A hidden
+ * one is an <Activity> in its hidden mode: its state and DOM stay, its effects and listeners stop.
+ */
+function WorkspaceSlots({ shown, slots }: { shown: string; slots: { key: string; element: ReactNode }[] }) {
+  const [nodes] = useState(() => new Map<string, HTMLDivElement>());
+  const nodeFor = (key: string) => {
+    let node = nodes.get(key);
+    if (!node) {
+      node = document.createElement("div");
+      node.className = "contents";
+      node.dataset.workspaceSlot = key;
+      nodes.set(key, node);
+    }
+    return node;
+  };
+  // The host takes the shown slot's node as a ref, in the layout phase before the portals' own layout effects.
+  const host = useCallback(
+    (hostNode: HTMLDivElement | null) => {
+      if (!hostNode) return;
+      for (const child of Array.from(hostNode.children)) if (child !== nodes.get(shown)) child.remove();
+      const node = nodeFor(shown);
+      if (node.parentElement !== hostNode) hostNode.appendChild(node);
+    },
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- a new callback per shown slot is what makes React run it again
+    [shown],
+  );
+  return (
+    <>
+      <div ref={host} className="contents" />
+      {slots.map((slot) => createPortal(<Activity mode={slot.key === shown ? "visible" : "hidden"}>{slot.element}</Activity>, nodeFor(slot.key), slot.key))}
+    </>
   );
 }
 

@@ -43,6 +43,8 @@ interface PromptEditorProps {
   onSelect(caret: number): void;
   /** Skill name (lowercase) to description, shown when hovering a skill chip. */
   skillDescriptions: ReadonlyMap<string, string>;
+  /** Opens the attached image an image chip (1-based) stands for. */
+  onOpenImage?(index: number): void;
   /** The Chat the draft belongs to; a new key starts a new undo history. */
   resetKey?: string;
   label?: string;
@@ -95,6 +97,7 @@ export function PromptEditor({
   onPaste,
   onSelect,
   skillDescriptions,
+  onOpenImage,
   resetKey,
   label = "Prompt",
   className = "",
@@ -486,7 +489,7 @@ export function PromptEditor({
           chip.part.kind === "skill" ? (
             <SkillChip name={chip.part.name} description={skillDescriptions.get(chip.part.name.toLowerCase())} />
           ) : chip.part.kind === "image" ? (
-            <ImageChip index={chip.part.index} />
+            <ImageChip index={chip.part.index} onOpen={onOpenImage?.bind(null, chip.part.index)} />
           ) : (
             <FileChip path={chip.part.path} />
           ),

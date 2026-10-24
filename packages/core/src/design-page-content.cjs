@@ -5,7 +5,7 @@ function publicPageContent(snapshot) {
   return {
     schemaVersion: snapshot.schemaVersion,
     title: snapshot.title,
-    designs: snapshot.designs.map(({ title, document: input }) => {
+    designs: snapshot.designs.map(({ title, group, document: input }) => {
       const document = validateDesignDocument(input);
       const byId = new Map(document.nodes.map((node) => [node.id, node]));
       const visible = document.nodes.filter((node) => {
@@ -18,6 +18,7 @@ function publicPageContent(snapshot) {
       const literal = (value) => (value?.startsWith("$") ? designColor(document, value) : value);
       return {
         title,
+        ...(group ? { group } : {}),
         document: {
           schemaVersion: 1,
           width: document.width,

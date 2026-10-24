@@ -221,6 +221,8 @@ export type ComputersApi = {
       | { kind: "state"; scope: string; state: unknown }
       | { kind: "chat"; scope: string; chatId: number; window: { messages: unknown[]; hasMore: boolean; total: number } },
   ) => Promise<void>;
+  /** A chat's offline copy, read to paint it while the computer's own answer is on its way; null without one. */
+  recall?: (id: string, entry: { kind: "chat"; scope: string; chatId: number }) => Promise<{ messages: unknown[]; hasMore: boolean; total: number } | null>;
 };
 
 import type { DiffMode, DiffFilesResult, DiffFileResult } from "@milagre/shared/git-diff";
@@ -482,6 +484,10 @@ export type MilagreBridge = {
   grantDelegations?: (chatId: string, linkId: string) => Promise<void>;
   /** Delegations and Negotiations still open across Links, and the Codex Chats that only receive. */
   getLinkedWork: () => Promise<LinkedWork>;
+  /** Settings > Experimental: whether this Mac's Chats may delegate to another paired computer's Projects. */
+  readRemoteDelegationEnabled: () => Promise<{ enabled: boolean }>;
+  saveRemoteDelegationEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
+  onRemoteDelegationEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   onLinkedWork: (callback: (work: LinkedWork) => void) => () => void;
   /** An app ⌘⇧ shortcut pressed while an embedded frame had focus, forwarded by the main process (its letter). */
   onAppShortcut: (callback: (key: string) => void) => () => void;

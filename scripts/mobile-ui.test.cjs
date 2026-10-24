@@ -12122,7 +12122,9 @@ const heartbeatFor = (chatId, extra = {}) => ({
   enabled: true,
   createdBy: { kind: "agent", chatId },
   nextRunAt: new Date(2026, 9, 17, 10, 45).getTime(),
-  expiresAt: new Date(2026, 9, 24, 9, 0).getTime(),
+  // A year far ahead: the card reads "ends 09:00" instead of "ends Oct 24" on the day a Heartbeat ends, and the
+  // runner's clock crossed that day (UTC) before the Mac's did.
+  expiresAt: new Date(2036, 9, 24, 9, 0).getTime(),
   runCount: 2,
   createdAt: 1,
   updatedAt: 1,
