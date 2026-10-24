@@ -83,7 +83,7 @@ async function browserChecks() {
     `[...document.querySelectorAll("[data-slot=step]")].find((step) => step.textContent.includes(${JSON.stringify(command)}))?.textContent ?? ""`;
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(`!!${toggle("npm test")}`);
+    await waitFor(`!!document.querySelector("[data-slot=activity] > button")`);
     // Replies inside an activity block start collapsed: open the blocks so their steps show.
     await evaluate(
       `[...document.querySelectorAll("[data-slot=message] button[aria-expanded=false]")].filter((button) => !button.closest("[data-slot=step]")).forEach((button) => button.click())`,

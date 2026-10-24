@@ -45,5 +45,4 @@ export interface SimulatorApi {
   close(request: { viewerId: string }): Promise<null>;
 }
 export type SimulatorMethod = Exclude<keyof SimulatorApi, "list" | "attach" | "detach">;
-export type SimulatorRpcRequest = { channel: "milagre-simulator"; id: number; method: SimulatorMethod; args: Record<string, unknown> };
 export type SimulatorRpcResponse = { channel: "milagre-simulator"; id: number; result?: unknown; error?: string };

@@ -69,7 +69,7 @@ export function UpdateShell({ children }: { children: ReactNode }) {
     <Updates.Provider value={state}>
       <SlotRegistry.Provider value={register}>
         {children}
-        <UpdateNotice state={state} slot={slots.filter((slot) => shown.has(slot)).at(-1) ?? null} />
+        <UpdateNotice state={state} slot={slots.findLast((slot) => shown.has(slot)) ?? null} />
       </SlotRegistry.Provider>
     </Updates.Provider>
   );

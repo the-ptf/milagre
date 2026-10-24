@@ -228,7 +228,7 @@ test("a Chat an agent starts through its own MCP takes the calling Chat's permis
   assert.equal(f.sessions[1].turns[0].permissionMode, "full");
   // The agent is told another agent sent it; the Chat's bubble shows the message as sent.
   assert.match(f.sessions[1].turns[0].prompt, /^Message from the agent of Chat .*, sent with Milagre's chat_start \(not the user\):\n\nReview the PR$/);
-  const [bubble] = (await f.runtime.invoke("project:snapshot", [f.project])).state.messages.filter((m) => m.role === "user" && m.body === "Review the PR");
+  const bubble = (await f.runtime.invoke("project:snapshot", [f.project])).state.messages.find((m) => m.role === "user" && m.body === "Review the PR");
   assert.ok(bubble, "the message shows as typed");
 });
 

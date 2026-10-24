@@ -22,7 +22,7 @@ import {
 // Loaded with the canvas, not inlined into every page: React holds the first render until both have loaded.
 import flowCss from "@xyflow/react/dist/style.css?url";
 import canvasCss from "./live-canvas.css?url";
-import { createContext, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useState } from "react";
 
 type Mark = "waiting" | "running" | "unread" | "idle";
 type Chat = { title: string; mark: Mark };
@@ -183,7 +183,7 @@ const edgeTypes = { link: LinkEdge };
 export default function LiveCanvas() {
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>(initialNodes());
   const [edges, setEdges] = useEdgesState<Edge<LinkData>>(initialEdges());
-  const stop = (id: string) => setEdges((current) => current.map((edge) => (edge.id === id ? { ...edge, data: {} } : edge)));
+  const stop = useCallback((id: string) => setEdges((current) => current.map((edge) => (edge.id === id ? { ...edge, data: {} } : edge))), [setEdges]);
   const [selected, setSelected] = useState<string | null>(null);
   const shown = edges.map((edge) => ({
     ...edge,

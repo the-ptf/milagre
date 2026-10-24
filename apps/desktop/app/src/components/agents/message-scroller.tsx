@@ -25,7 +25,15 @@ function getMessageText(message: HTMLElement) {
     message.querySelector<HTMLElement>('[data-slot="message-bubble-content"]') ??
     message.querySelector<HTMLElement>('[data-slot="message-content"]') ??
     message;
-  return (surface.textContent ?? "").replace(/\s+/g, " ").trim();
+  if (surface !== message) return (surface.textContent ?? "").replace(/\s+/g, " ").trim();
+  // Answerless replies preview their summary, independent of which activity rows were opened.
+  const walker = document.createTreeWalker(message, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) =>
+      node instanceof Element ? (node.matches('[data-slot="activity-body"]') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP) : NodeFilter.FILTER_ACCEPT,
+  });
+  let text = "";
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) text += node.textContent ?? "";
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function getMessagePreview(message: HTMLElement, assistantResponse?: HTMLElement) {

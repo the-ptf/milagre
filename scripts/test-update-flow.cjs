@@ -201,6 +201,8 @@ async function browserChecks() {
     await evaluate(`${button("Install & restart")}.click()`);
     await waitFor("document.querySelector('[role=dialog]')?.getClientRects().length > 0");
     await screenshot("update-settings-hidden-chat");
+    // showUpdateNotice moves focus on the next animation frame; Escape must reach the card.
+    await waitFor("document.querySelector('[role=dialog]')?.contains(document.activeElement)");
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     await waitFor("!document.querySelector('[role=dialog]')");
     await waitFor("getComputedStyle(document.querySelector('[data-face=pill]')).visibility === 'visible'");

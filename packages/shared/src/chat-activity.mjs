@@ -8,6 +8,7 @@ import { isTurnEnd, subagentActive } from "./agent-runs.mjs";
 import { providerCapabilities } from "./provider-capabilities.mjs";
 
 /**
+ * The activity from what is known of a Chat. `background` is how much background work still goes on.
  * The first that applies wins:
  * - waiting: the turn waits on the user (an approval or a question);
  * - working: a turn runs;
@@ -15,9 +16,6 @@ import { providerCapabilities } from "./provider-capabilities.mjs";
  * - background: no turn runs, but background work goes on and its results come back to the Chat;
  * - idle: nothing runs.
  */
-export const CHAT_ACTIVITIES = Object.freeze(["waiting", "working", "failed", "background", "idle"]);
-
-/** The activity from what is known of a Chat. `background` is how much background work still goes on. */
 export function activityOf({ running = false, waiting = false, failed = false, background = 0 } = {}) {
   if (running && waiting) return "waiting";
   if (running) return "working";
