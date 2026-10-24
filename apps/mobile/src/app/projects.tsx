@@ -58,7 +58,7 @@ export default function ProjectsScreen() {
               <ErrorNotice message={error} />
             </View>
           ) : null}
-          <ProjectNavigation key={session.client.url} onNavigate={(href, secondary) => (secondary ? router.push(href) : router.replace(href))} />
+          <ProjectNavigation onNavigate={(href, secondary) => (secondary ? router.push(href) : router.replace(href))} />
         </>
       )}
     </View>

@@ -140,6 +140,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         assert.ok(target, `Missing primitive: ${relative}`);
         return load(target, modules, "", cache);
       }
+      // Pages of the Settings sheet sit one folder deeper (app/(settings)); a test fakes their imports under the names the
+      // pages had at app/, so these resolve to the same fake.
+      if (file.startsWith("app/(settings)/") && id.startsWith("../../")) id = id.slice(3);
       // A pure helper (the draft clear after a send): tests get the real one.
       // Motion helpers at Normal speed with the system's reduced motion off; a test's own fake wins.
       if (/^\.\.?\/motion$/.test(id) && !(id in modules))
@@ -152,7 +155,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         (id === "@milagre/shared/prompt-parts" ||
           id === "@milagre/shared/appearance" ||
           id === "@milagre/shared/prompt-mentions" ||
-          id === "@milagre/shared/themes") &&
+          id === "@milagre/shared/themes" ||
+          id === "@milagre/shared/file-kinds") &&
         !(id in modules)
       )
         return require(id);
@@ -178,6 +182,21 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       )
         return require(id);
       if (relative === "display-clock" && !(id in modules)) return load("display-clock.ts", modules, "", cache);
+      // Long-press message actions are an iOS-only wrapper: tests see the message as it is without it, with its text selectable.
+      if (base === "message-actions" && !(id in modules))
+        return { MessageActions: messageActionsStub, messageActionProps: () => ({}), selectableMessageText: true };
+      // Fonts load at runtime; none is ready in a test, and loading one never fails.
+      if (id === "expo-font" && !(id in modules)) return { isLoaded: () => false, loadAsync: async () => {} };
+      if (id.endsWith(".ttf") && !(id in modules)) return { uri: id };
+      // Dictation is not available in a test: no microphone, no on-device transcriber.
+      if (base === "voice-dictation" && !(id in modules)) return load("voice-dictation.ts", modules, "", cache);
+      if (base === "voice-dictation-hook" && !(id in modules))
+        return {
+          useVoiceDictation: () => ({ available: false, phase: "idle", error: null, level: { value: 0 }, start() {}, stop() {}, cancel() {}, dismiss() {} }),
+        };
+      if (base === "voice-mic-button" && !(id in modules)) return { VoiceMicButton: "VoiceMicButton" };
+      // The archived count in Settings comes from the computers the sidebar has read; none are read in a test.
+      if (base === "all-computers" && !(id in modules)) return { useArchivedCount: () => null, useArchivedChats: () => ({ chats: [], loading: false }) };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -197,7 +216,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
   });
   return exports;
 }
-const jsx = (type, props, key) => ({ type, props, key });
+// The long-press wrapper gives its children no `open`; elements built through `jsx` show them in its place, so a test reads the message.
+const messageActionsStub = ({ children }) => children(undefined);
+const jsx = (type, props, key) => (type === messageActionsStub ? props.children(undefined) : { type, props, key });
 
 // The compiler's per-component cache uses a hook slot, just like a manual memo.
 const compilerRuntime = (host) => ({ c: (size) => host.useRef(Array(size).fill(Symbol.for("react.memo_cache_sentinel"))).current });
@@ -1390,7 +1411,8 @@ for (const reactCompiler of [false, true])
       react.flush();
       return find(tree, (node) => node.type === "Field");
     };
-    const fileMark = (field) => find(field, (node) => node.type === "Text" && node.props.children === mention);
+    // The chip glyph font loads once the field mounts, so a known file draws as the chip: the hover gray behind its icon and name.
+    const fileMark = (field) => find(field, (node) => node.type === "Text" && node.props.style?.backgroundColor === "hover");
     try {
       const field = render();
       assert.equal(fileMark(field), undefined);
@@ -1400,7 +1422,7 @@ for (const reactCompiler of [false, true])
       answer.resolve(["notes.txt"]);
       await settle();
       const colored = render();
-      assert.equal(fileMark(colored)?.props.style.color, "accentInk");
+      assert.equal(fileMark(colored)?.props.style.color, "ink");
       assert.deepEqual({ ...colored.props.selection }, { start: 0, end: 3 });
       const children = colored.props.children;
       assert.deepEqual(render().props.children, children, "recoloring settles with stable marks");
@@ -2662,6 +2684,47 @@ const linksState = ({ links = [], projects = [], available = projects.length > 0
 });
 const chatLinks = () => load("chat-links.ts", { "@milagre/shared/chat-links": require("@milagre/shared/chat-links") });
 
+/**
+ * The sidebar's store as the tests see it: one computer built from the session (its Projects, its cached copies), or the
+ * `computers` a test lists, each `{ hostId, name, state, projects, copies }`.
+ */
+function allComputersFake(session, computers, storeCalls) {
+  const views = () =>
+    computers
+      ? computers.map((computer) => ({ loaded: true, errors: new Map(), lastSuccess: 1, ...computer, copies: new Map(Object.entries(computer.copies ?? {})) }))
+      : [
+          {
+            hostId: session.client.url,
+            name: "Mac",
+            state: "online",
+            loaded: true,
+            lastSuccess: 1,
+            projects: session.recent,
+            copies: new Map(session.recent.flatMap((item) => (session.cachedProject(item.path) ? [[item.path, session.cachedProject(item.path)]] : []))),
+            errors: new Map(),
+          },
+        ];
+  return {
+    useAllComputers: (options) => {
+      storeCalls.push(["use", options]);
+      return views();
+    },
+    useFoldedProjects: (ids) => new Map(ids.map((id) => [id, new Set()])),
+    allComputers: {
+      viewOf: (hostId) => views().find((view) => view.hostId === hostId),
+      clientFor: (hostId) => (hostId === session.client.url ? session.client : { url: hostId, call: async () => {} }),
+      hostFor: (hostId) => ({ id: hostId, name: views().find((view) => view.hostId === hostId)?.name ?? "Mac", address: hostId, token: "token", lastUsed: 0 }),
+      refreshProject: async (hostId, path) => {
+        storeCalls.push(["refreshProject", hostId, path]);
+        return session.previewProject(path);
+      },
+      refreshAll: async () => {
+        storeCalls.push(["refreshAll"]);
+      },
+    },
+  };
+}
+
 function navigationHost(
   opening,
   {
@@ -2673,10 +2736,14 @@ function navigationHost(
     links = linksState(),
     AppState = { currentState: "active", addEventListener: () => ({ remove() {} }) },
     routinesAvailable = true,
+    chatList = "grouped",
+    computers,
   } = {},
 ) {
   const react = hookHost({ effects });
   const linkRequests = [];
+  const choiceRequests = [];
+  const storeCalls = [];
   const routes = [];
   const secondaryRoutes = [];
   const opened = [];
@@ -2703,6 +2770,12 @@ function navigationHost(
     },
     cachedProject: () => undefined,
     previewProject: async () => state,
+    openNotificationTargetCalls: [],
+    openNotificationTarget: async (...args) => {
+      session.openNotificationTargetCalls.push(args);
+      return true;
+    },
+    connect: async () => true,
     ...extra,
   };
   const native = { Alert: { alert, prompt() {} } };
@@ -2750,7 +2823,7 @@ function navigationHost(
       },
     },
     "react-native": {
-      ...Object.fromEntries(["FlatList", "KeyboardAvoidingView", "Pressable", "RefreshControl", "Text", "View"].map((name) => [name, name])),
+      ...Object.fromEntries(["FlatList", "Pressable", "RefreshControl", "Text", "View"].map((name) => [name, name])),
       ...native,
       AppState,
       Platform: { OS: "ios" },
@@ -2812,6 +2885,18 @@ function navigationHost(
     "./usage-section": { UsageSection: "UsageSection" },
     "./project-icon": { ProjectIcon: "ProjectIcon", ProjectIcons: "ProjectIcons" },
     "./project-search": { ProjectSearch: "ProjectSearch" },
+    "./chat-display-setting": { useChatList: () => [chatList, () => {}] },
+    "./chat-list-controls": {
+      ChatListControls: "ChatListControls",
+      CONTROLS_HEIGHT: 48,
+      useControlsVisibility: () => ({ hidden: {}, onScroll() {}, reveal() {} }),
+      useControlsBottomInset: () => 96,
+    },
+    "./choice-store": { showChoiceSheet: (request) => choiceRequests.push(request) },
+    "./chat-list-order": load("chat-list-order.ts", { "@milagre/shared/chats": chats }),
+    "./computer-actions": { isDesktopComputer: () => false },
+    // The store's polling is the store's own test; here each computer's views come from the test's session or `computers`.
+    "./all-computers": allComputersFake(session, computers, storeCalls),
   });
   const render = () => {
     react.begin();
@@ -2832,74 +2917,104 @@ function navigationHost(
   // A row's tap target is the menu that also has onPress; its ⋯ is the menu without one.
   const open = (node) => find(node, (child) => child.type === "PullDown" && child.props.onPress);
   const more = (node) => find(node, (child) => child.type === "PullDown" && !child.props.onPress);
-  const filter = () => find(render(), (node) => node.type === "PullDown" && node.props.label === "Filter Chats");
-  return { state, session, routes, secondaryRoutes, opened, calls, external, render, rows, row, open, more, filter, linkRequests, unmount: react.unmount };
+  return {
+    state,
+    session,
+    routes,
+    secondaryRoutes,
+    opened,
+    calls,
+    external,
+    render,
+    rows,
+    row,
+    open,
+    more,
+    linkRequests,
+    choiceRequests,
+    storeCalls,
+    unmount: react.unmount,
+  };
 }
 
-test("the phone list refreshes new Chats before any Chat is opened and pauses in the background", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  let copy = { ...snapshot("/other"), previewOnly: true };
-  copy.project.state = { sessions: { 1: { id: 1, worktree_id: 1, title: "First Chat" } }, worktrees: { 1: { id: 1, path: "/other" } }, messages: [] };
-  let cached;
-  let listener;
-  let reads = 0;
-  const AppState = {
-    currentState: "active",
-    addEventListener: (_event, next) => {
-      listener = next;
-      return { remove() {} };
-    },
-  };
-  const nav = navigationHost(Promise.resolve(), {
-    effects: true,
-    AppState,
-    session: {
-      snapshot: null,
-      recent: [{ path: "/other" }],
-      cachedProject: () => cached,
-      previewProject: async () => {
-        reads++;
-        return (cached = copy);
-      },
-      client: {
-        url: "mac",
-        call: async () => {},
-        live: () => assert.fail("preview refresh must not open a live socket for every Project"),
-      },
-    },
+test("the sidebar reads its computers only while shown, all Projects in One list and the unfolded ones when grouped", () => {
+  const list = navigationHost(Promise.resolve(), { chatList: "list" });
+  list.render();
+  same(list.storeCalls.at(-1), ["use", { visible: true, expandAll: true }]);
+  const grouped = navigationHost(Promise.resolve());
+  grouped.render();
+  same(grouped.storeCalls.at(-1), ["use", { visible: true, expandAll: false }]);
+  const search = find(grouped.render(), (node) => node.type === "ChatListControls");
+  search.props.onQuery("fix");
+  grouped.render();
+  same(grouped.storeCalls.at(-1), ["use", { visible: true, expandAll: true }]);
+  // Pull to refresh reads every computer, not just the open one.
+  const refresh = find(grouped.render(), (node) => node.type === "FlatList").props.refreshControl;
+  refresh.props.onRefresh();
+  assert.ok(grouped.storeCalls.some(([name]) => name === "refreshAll"));
+});
+
+test("One list shows Chats from every computer in one list, each row naming its Project and its computer", async () => {
+  const chat = (id, title, summary = {}) => ({ id, worktree_id: 1, title, summary: { count: 1, ...summary } });
+  const copy = (path, sessions) => ({
+    previewOnly: true,
+    project: { path, name: path.slice(1), state: { sessions, worktrees: { 1: { id: 1, path, name: "main" } }, messages: [] } },
+    runs: { runs: {} },
   });
-  t.after(nav.unmount);
-  nav.render();
-  await settleAll();
-  assert.equal(nav.rows().props.data.filter((row) => row.kind === "chat").length, 1);
-  assert.equal(reads, 1);
-  copy = {
-    ...copy,
-    project: {
-      ...copy.project,
-      state: { ...copy.project.state, sessions: { ...copy.project.state.sessions, 2: { id: 2, worktree_id: 1, title: "New Chat" } } },
-    },
-  };
-  t.mock.timers.tick(4000);
-  await settleAll();
-  assert.deepEqual(
-    Array.from(
-      nav.rows().props.data.filter((row) => row.kind === "chat"),
-      (row) => row.title,
-    ),
-    ["New Chat", "First Chat"],
+  const nav = navigationHost(Promise.resolve(), {
+    chatList: "list",
+    computers: [
+      {
+        hostId: "mac",
+        name: "MacBook",
+        state: "online",
+        projects: [{ path: "/web" }],
+        copies: { "/web": copy("/web", { 1: chat(1, "Fix login", { firstAt: 100 }), 2: chat(2, "Docs", { firstAt: 300 }) }) },
+      },
+      {
+        hostId: "studio",
+        name: "Studio",
+        state: "offline",
+        projects: [{ path: "/web" }, { path: "/api" }],
+        // The same path and Chat id as the first computer: the rows are told apart by their computer.
+        copies: { "/web": copy("/web", { 1: chat(1, "Deploy", { firstAt: 200 }) }), "/api": copy("/api", { 7: chat(7, "Schema", { firstAt: 50 }) }) },
+      },
+    ],
+  });
+  const data = nav.rows().props.data.filter((item) => item.kind === "chat");
+  same(
+    data.map((item) => [item.hostId, item.path, item.chat.id, item.title]),
+    [
+      ["mac", "/web", 2, "Docs"],
+      ["studio", "/web", 1, "Deploy"],
+      ["mac", "/web", 1, "Fix login"],
+      ["studio", "/api", 7, "Schema"],
+    ],
   );
-  assert.equal(nav.opened.length, 0);
-  AppState.currentState = "background";
-  listener("background");
-  const beforeBackground = reads;
-  t.mock.timers.tick(30_000);
+  assert.equal(new Set(data.map((item) => item.key)).size, 4, "the same path and Chat id on two computers make two rows");
+  const text = (node) => allNodes(node, (child) => child.type === "Text").map((child) => child.props.children);
+  const first = nav.rows().props.renderItem({ item: data[0] });
+  assert.ok(text(first).includes("web"), "line 1 names the Project");
+  assert.ok(text(first).includes("Docs"), "line 2 is the title");
+  assert.ok(
+    find(first, (node) => node.type === "ComputerTag" || node.props?.name === "MacBook") ||
+      text(first).includes("MacBook") ||
+      JSON.stringify(first).includes("MacBook"),
+    "line 3 names the computer",
+  );
+  const offline = nav.rows().props.renderItem({ item: data[1] });
+  assert.equal(offline.props.style.opacity, 0.55, "an offline computer's rows are dimmed");
+  assert.ok(JSON.stringify(offline).includes("offline"), "and say so");
+  // A row on another computer opens through that computer's own client, never the session's.
+  nav.rows().props.renderItem({ item: data[1] });
+  const archive = find(nav.rows().props.renderItem({ item: data[1] }), (node) => node.type === "PullDown" && !node.props.onPress);
+  assert.ok(archive, "its ⋯ menu is there");
+  const tap = find(nav.rows().props.renderItem({ item: data[1] }), (node) => node.type === "PullDown" && node.props.onPress);
+  tap.props.onPress();
   await settleAll();
-  assert.equal(reads, beforeBackground, "backgrounded previews make no requests");
-  AppState.currentState = "active";
-  listener("active");
-  await settleAll();
-  assert.equal(reads, beforeBackground + 1, "returning to the list refreshes it immediately");
+  assert.equal(nav.session.openNotificationTargetCalls?.[0]?.[0].id, "studio");
+  assert.equal(JSON.stringify(nav.routes), JSON.stringify([{ pathname: "/chat", params: { projectPath: "/web", hostId: "studio", id: "1" } }]));
+  assert.deepEqual(nav.calls, [], "nothing went through the open computer's client");
 });
 
 test("mobile chat titles use summaries before transcripts load and switch to generated or renamed titles", () => {
@@ -2909,10 +3024,10 @@ test("mobile chat titles use summaries before transcripts load and switch to gen
   nav.state.project.state.messages = [];
   const title = () => find(nav.row("chat"), (node) => node.type === "Text" && node.props.numberOfLines === 2).props.children;
   assert.equal(title(), "Fix the login redirect");
-  const search = () => find(nav.render(), (node) => node.type === "Field" && node.props.label === "Search chats");
-  search().props.onChangeText("login redirect");
+  const search = () => find(nav.render(), (node) => node.type === "ChatListControls");
+  search().props.onQuery("login redirect");
   assert.equal(nav.rows().props.data.filter((item) => item.kind === "chat").length, 1, "the summary title is searchable without message bodies");
-  search().props.onChangeText("");
+  search().props.onQuery("");
   nav.state.project.state.sessions = { 3: { ...chat, generatedTitle: "Repair login navigation" } };
   nav.session.snapshot = { ...nav.state };
   assert.equal(title(), "Repair login navigation");
@@ -2936,7 +3051,7 @@ test("mobile chat titles fall back to messages from an older host, including mes
     { id: 8, session_id: 3, role: "assistant", body: "Check the wrangler configuration" },
   ];
   assert.equal(find(nav.row("chat"), (node) => node.type === "Text" && node.props.numberOfLines === 2).props.children, "Fix login");
-  find(nav.render(), (node) => node.type === "Field" && node.props.label === "Search chats").props.onChangeText("wrangler");
+  find(nav.render(), (node) => node.type === "ChatListControls").props.onQuery("wrangler");
   assert.equal(nav.row("message").props.accessibilityLabel, "Check the wrangler configuration, in Fix login");
 });
 
@@ -3184,9 +3299,10 @@ test("a new Chat from the sidebar opens at once too", () => {
   );
 });
 
-test("Add project opens the computer search, and a pick opens its Chat at once", () => {
+test("Add project from the + menu opens the computer search, and a pick opens its Chat at once", async () => {
   const nav = navigationHost(deferred().promise);
-  find(nav.render(), (node) => node.props?.accessibilityLabel === "Add project").props.onPress();
+  find(nav.render(), (node) => node.type === "PullDown" && node.props.label === "Chat actions").props.onSelect("add");
+  await settleAll();
   const search = find(nav.render(), (node) => node.type === "ProjectSearch");
   assert.ok(search, "the search replaces the project list");
   search.props.onOpen("/Users/me/Code/app");
@@ -3201,7 +3317,7 @@ test("Add project opens the computer search, and a pick opens its Chat at once",
 
 test("Settings push onto the native stack from project navigation, preserving the screen to go back to", () => {
   const nav = navigationHost(deferred().promise);
-  find(nav.render(), (node) => node.type === "IconButton" && node.props.label === "Settings").props.onPress();
+  find(nav.render(), (node) => node.type === "ChatListControls").props.onSettings();
   assert.deepEqual(nav.routes, ["/settings"]);
   assert.deepEqual(nav.secondaryRoutes, [true], "push Settings rather than replacing the originating screen");
   assert.equal(
@@ -3212,31 +3328,7 @@ test("Settings push onto the native stack from project navigation, preserving th
   assert.ok(find(nav.render(), (node) => node.type === "FlatList"));
 });
 
-test("the sidebar filter shows archived, running or waiting Chats across Projects", () => {
-  const nav = navigationHost(deferred().promise);
-  nav.state.project.state.sessions[4] = { id: 4, archived: true, title: "Old work" };
-  const ids = () =>
-    JSON.stringify(
-      nav
-        .rows()
-        .props.data.filter((item) => item.kind === "chat")
-        .map((item) => item.chat.id),
-    );
-  assert.equal(ids(), "[3]");
-  nav.filter().props.onSelect("archived");
-  assert.equal(ids(), "[4]");
-  assert.equal(
-    nav
-      .filter()
-      .props.sections.flatMap((section) => section.items)
-      .find((item) => item.id === "archived").checked,
-    true,
-  );
-  nav.filter().props.onSelect("running");
-  assert.equal(ids(), "[]", "chatMark is idle in this host, so nothing is running");
-});
-
-test("the sidebar's Archived filter shows an archived hidden Run Chat, so one a sweep archived can be restored", () => {
+test("the sidebar lists no archived Chats, a hidden Run Chat a sweep archived included", () => {
   const nav = navigationHost(deferred().promise);
   nav.state.project.state.sessions[4] = { id: 4, archived: true, title: "Old work" };
   nav.state.project.state.sessions[5] = {
@@ -3251,8 +3343,11 @@ test("the sidebar's Archived filter shows an archived hidden Run Chat, so one a 
       .props.data.filter((item) => item.kind === "chat")
       .map((item) => item.chat.id);
   same(ids(), [3]);
-  nav.filter().props.onSelect("archived");
-  same(ids(), [5, 4]);
+  assert.equal(
+    find(nav.render(), (node) => node.type === "PullDown" && node.props.label === "Filter Chats"),
+    undefined,
+    "there is no Filter menu any more",
+  );
 });
 
 /** Two Chats of web in their own Worktrees: Login (3) and Docs (4). */
@@ -3345,17 +3440,16 @@ test("the phone's dock Routines button shows the unread dot while a hidden Run C
     const nav = navigationHost(deferred().promise);
     nav.state.project.state.sessions[5] = { id: 5, worktree_id: 1, unread, routine: { routineId: "tr", runId: "u5", hidden: true } };
     const tree = nav.render();
-    const button = find(tree, (node) => node.type === "IconButton" && node.props.label.startsWith("Routines"));
-    const dot = find(tree, (node) => node.type === "View" && node.props.pointerEvents === "none" && node.props.style?.position === "absolute");
-    return { label: button.props.label, dot: !!dot };
+    const controls = find(tree, (node) => node.type === "ChatListControls");
+    return { routines: controls.props.routines };
   };
-  assert.deepEqual(dock(true), { label: "Routines, unread Runs", dot: true });
-  assert.deepEqual(dock(false), { label: "Routines", dot: false });
+  same(dock(true), { routines: { unread: true } });
+  same(dock(false), { routines: { unread: false } });
 });
 
 test("Choose projects opens as a sheet over the sidebar instead of closing it", () => {
   const nav = navigationHost(deferred().promise);
-  nav.filter().props.onSelect("choose-projects");
+  find(nav.render(), (node) => node.type === "PullDown" && node.props.label === "Chat actions").props.onSelect("choose");
   assert.deepEqual(nav.routes, ["/choose-projects"]);
   assert.deepEqual(nav.secondaryRoutes, ["sheet"]);
 });
@@ -3433,8 +3527,8 @@ test("a chat search with no matching title lists matching messages, and a tap op
   const nav = navigationHost(deferred().promise);
   nav.state.project.state.sessions[3] = { id: 3, title: "Relay work" };
   nav.state.project.state.messages = [{ id: 7, session_id: 3, body: "Deploy the relay with wrangler, then check /health" }];
-  const search = () => find(nav.render(), (node) => node.type === "Field" && node.props.label === "Search chats");
-  search().props.onChangeText("wranglr");
+  const search = () => find(nav.render(), (node) => node.type === "ChatListControls");
+  search().props.onQuery("wranglr");
   const data = nav.rows().props.data;
   assert.equal(
     JSON.stringify(data.filter((item) => item.kind === "section" || item.kind === "message").map((item) => item.name ?? item.snippet)),
@@ -3444,7 +3538,7 @@ test("a chat search with no matching title lists matching messages, and a tap op
   assert.equal(message.props.accessibilityLabel, "Deploy the relay with wrangler, then check /health, in Relay work");
   message.props.onPress();
   assert.equal(JSON.stringify(nav.routes), JSON.stringify([{ pathname: "/chat", params: { projectPath: "/last", hostId: "mac", id: "3" } }]));
-  search().props.onChangeText("relay");
+  search().props.onQuery("relay");
   assert.equal(
     nav.rows().props.data.some((item) => item.kind === "message"),
     false,
@@ -3462,6 +3556,7 @@ test("a drawer search over Projects held without messages asks the host, which f
   const nav = navigationHost(deferred().promise, {
     effects: true,
     session: {
+      snapshot: null,
       cachedProject: () => preview,
       client: {
         url: "mac",
@@ -3473,8 +3568,8 @@ test("a drawer search over Projects held without messages asks the host, which f
       },
     },
   });
-  const search = () => find(nav.render(), (node) => node.type === "Field" && node.props.label === "Search chats");
-  search().props.onChangeText("wranglr");
+  const search = () => find(nav.render(), (node) => node.type === "ChatListControls");
+  search().props.onQuery("wranglr");
   nav.render();
   // The host is asked after a short pause while typing.
   await new Promise((resolve) => setTimeout(resolve, 200));
@@ -5717,12 +5812,8 @@ test("refreshing saved hosts during startup cannot cancel the claimed auto-open"
       useSafeAreaFrame: () => ({ height: 844 }),
     },
     "../session": { useSession: () => session },
-    "../live-activity-native": { nativeActivity: null },
     "../push": { usePush: () => ({}) },
-    "../hosts-native": { savedHosts: {} },
-    "../confirm-store": { confirmSheet() {} },
-    "../client": {},
-    "../relay-native": {},
+    "../computer-actions": { forgetComputer() {}, renameComputer() {}, pingComputer: async () => "online", isDesktopComputer: () => false },
     "../routes-native": routesNative(),
     "../icons": { Icon: "Icon" },
     "../ui": {
@@ -7604,7 +7695,7 @@ test("mobile Project Accounts opens from Settings as a native stack screen", () 
   const { SettingsView } = loadSettings({ client: { url: "http://mac", call: async () => null } });
   find(SettingsView({ onOpen: (page) => opened.push(page) }), (n) => n.props.title === "Project Accounts").props.onPress();
   assert.deepEqual(opened, ["project-accounts"]);
-  const { default: Screen } = load("app/project-accounts.tsx", {
+  const { default: Screen } = load("app/(settings)/project-accounts.tsx", {
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "expo-router": { Stack: { Screen: "Screen" } },
     "../ui": { PageScroll: "PageScroll" },
@@ -8768,17 +8859,17 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
 
 // Settings with every import faked; `state` is read on each render, so a test can change the Mac or the Linear answer.
 function loadSettings(state) {
-  return load("app/settings.tsx", {
+  return load("app/(settings)/settings.tsx", {
     react: { useState: () => [state.linear ?? null, (value) => (state.set ??= []).push(value)], useCallback: (fn) => fn },
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { View: "View", Text: "Text", Pressable: "Pressable" },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", Platform: { OS: "ios" } },
     "expo-router": {
-      Stack: { Screen: "Screen" },
+      Stack: { Screen: "Screen", Toolbar: Object.assign(() => null, { Button: "Button", View: "View" }) },
       router: { push: (target) => (state.pushed ??= []).push(target), navigate: (target) => (state.pushed ??= []).push(target) },
       useFocusEffect: (fn) => (state.focus ??= []).push(fn),
     },
     "@hugeicons/core-free-icons": {},
-    "@milagre/shared/chat-display": { TOOL_CALL_DISPLAYS: [{ id: "compact", label: "Compact" }] },
+    "@milagre/shared/chat-display": { chatListLabel: (value) => (value === "list" ? "One list" : "Grouped by Project") },
     "../session": {
       useSession: () => ({
         recent: state.recent ?? [],
@@ -8791,11 +8882,17 @@ function loadSettings(state) {
     "../push": { usePush: () => ({ state: { enabled: true } }) },
     "../update-sheet": { useAppUpdates: () => ({ state: { status: "up-to-date" }, check: async () => {} }) },
     "../icons": { Icon: "Icon" },
-    "../routes-native": { lanRoutes: { kind: () => "lan" } },
-    "../chat-display-setting": { useToolCallDisplay: () => ["compact"] },
+    // Group and Row are drawn by settings-list; the test reads their props.
+    "../settings-list": { Group: function Group() {}, Row: "Row" },
+    "../use-computer-status": { useComputerStatus: () => state.reachability ?? {} },
+    "../use-routines": {
+      useRoutinesAvailable: () => state.routinesAvailable ?? false,
+      useRoutines: () => ({ routines: state.routines ?? [], loading: false }),
+    },
+    "../chat-display-setting": { useChatList: () => ["list"] },
     "../app-version": { appVersionLine: () => "0.1.0 · 31 · d3dac403 · 5f83390" },
-    "../theme": { useTheme: () => ({ colors: {}, settings: { mode: "system" } }) },
-    "../ui": { PageScroll: "PageScroll", useStyles: () => ({ card: {}, separator: {} }) },
+    "../theme": { useTheme: () => ({ colors: { green: "green", lineStrong: "gray" }, settings: { mode: "system" } }) },
+    "../ui": { HeaderButton: "HeaderButton", PageScroll: "PageScroll", useStyles: () => ({ card: {}, separator: {} }) },
   });
 }
 
@@ -8818,15 +8915,16 @@ function settingsGroups(tree) {
 test("mobile Settings splits this iPhone from the connected Mac, lists Connections only when the Mac can change Linear, and ends with the version", async () => {
   const state = {};
   const { SettingsView } = loadSettings(state);
-  // No Mac: the phone's own settings and About only, and the card offers pairing.
+  // No Mac: the phone's own settings and About only; Routines waits for a computer and Computers says none is paired.
   const alone = SettingsView({ onOpen() {} });
   assert.deepEqual(
     settingsGroups(alone).map((group) => group.title),
     ["This iPhone", "About"],
   );
-  assert.ok(find(alone, (n) => n.type === "Text" && n.props.children === "Pair a computer"));
-  find(alone, (n) => n.type === "Pressable" && n.props.accessibilityLabel === "Pair a computer").props.onPress();
-  assert.deepEqual(state.pushed, ["/add-computer"]);
+  const tile = (tree, title) => find(tree, (n) => typeof n.type === "function" && n.type.name === "Tile" && n.props.title === title);
+  assert.equal(tile(alone, "Computers").props.value, "None paired");
+  assert.equal(tile(alone, "Routines").props.disabled, true);
+  assert.equal(tile(alone, "Routines").props.value, "No computer connected");
   // A Mac that answers for Linear lists Connections; an older Mac that answers null keeps it hidden.
   state.client = { url: "http://studio", call: async () => ({ enabled: false }) };
   state.focus = [];
@@ -8855,7 +8953,8 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
         [
           ["Notifications", "On"],
           ["Appearance", "System"],
-          ["Chat", "Compact"],
+          ["Chat", "One list"],
+          ["Archived Chats", ""],
           ["Experimental", ""],
         ],
       ],
@@ -8886,6 +8985,7 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
     "notifications",
     "appearance",
     "chat-display",
+    "archived",
     "experimental",
     "general",
     "accounts",
@@ -8896,8 +8996,26 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
     "local-mcp",
     "privacy",
   ]);
-  // The card names the Mac and its route; the version line closes the page.
-  assert.ok(find(tree, (n) => n.type === "Pressable" && n.props.accessibilityLabel === "Studio. Connected, Local network"));
+  // The tiles: the green dot and counts follow the computers' answers; Routines counts what is on once the Mac has them.
+  state.reachability = { a: "online", b: "online", c: "offline" };
+  assert.equal(tile(SettingsView({ onOpen() {} }), "Computers").props.value, "2 online · 1 offline");
+  assert.equal(tile(SettingsView({ onOpen() {} }), "Computers").props.dot, "green");
+  state.reachability = { a: "offline" };
+  assert.equal(tile(SettingsView({ onOpen() {} }), "Computers").props.value, "Offline");
+  assert.equal(tile(SettingsView({ onOpen() {} }), "Computers").props.dot, "gray");
+  state.reachability = { a: "checking" };
+  assert.equal(tile(SettingsView({ onOpen() {} }), "Computers").props.value, "Checking…");
+  assert.equal(tile(SettingsView({ onOpen() {} }), "Routines").props.value, "Update your Mac");
+  state.routinesAvailable = true;
+  state.routines = [{ enabled: true }, { enabled: false }, { enabled: true }];
+  const available = tile(SettingsView({ onOpen() {} }), "Routines");
+  assert.equal(available.props.value, "2 on");
+  assert.equal(available.props.disabled, false);
+  const routed = [];
+  tile(SettingsView({ onOpen: (page) => routed.push(page) }), "Routines").props.onPress();
+  tile(SettingsView({ onOpen: (page) => routed.push(page) }), "Computers").props.onPress();
+  assert.deepEqual(routed, ["routines", "computers"]);
+  // The version line closes the page.
   assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "0.1.0 · 31 · d3dac403 · 5f83390"));
   const page = (file, title, section, name) => {
     const { default: Screen } = load(file, {
@@ -8911,10 +9029,10 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
     assert.equal(find(rendered, (n) => n.type === "Screen").props.options.title, title);
     assert.ok(find(rendered, (n) => n.type === name));
   };
-  page("app/general.tsx", "General", "general-section", "GeneralSection");
-  page("app/connections.tsx", "Connections", "linear-section", "LinearSection");
-  page("app/local-mcp.tsx", "Milagre MCP", "local-mcp-section", "LocalMcpSection");
-  page("app/experimental.tsx", "Experimental", "experimental-section", "ExperimentalSection");
+  page("app/(settings)/general.tsx", "General", "general-section", "GeneralSection");
+  page("app/(settings)/connections.tsx", "Connections", "linear-section", "LinearSection");
+  page("app/(settings)/local-mcp.tsx", "Milagre MCP", "local-mcp-section", "LocalMcpSection");
+  page("app/(settings)/experimental.tsx", "Experimental", "experimental-section", "ExperimentalSection");
 });
 
 test("mobile Linear page shows the Mac's Linear switch and status, re-read on focus", async () => {
@@ -10018,7 +10136,7 @@ test("Privacy settings reset consent and expose policies without a paired comput
   const host = hookHost({ effects: true });
   let resets = 0;
   const urls = [];
-  const { PrivacyView } = load("app/privacy.tsx", {
+  const { PrivacyView } = load("app/(settings)/privacy.tsx", {
     react: host,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": {
@@ -11528,28 +11646,30 @@ test("undo changes on the phone: task list, conflict-only choice, stale preview 
   assert.deepEqual(previews, [["recovery", "Redo"]]);
 });
 
-test("the phone's project dock has four buttons, Routines before Settings, and Routines pushes /routines", () => {
+test("the phone's floating controls put Routines before the search and Settings, and push /routines and /settings", () => {
   const nav = navigationHost(deferred().promise);
-  const buttons = allNodes(
-    nav.render(),
-    (node) => node.type === "IconButton" && node.props.size === 44 && ["Canvas", "Link projects", "Routines", "Settings"].includes(node.props.label),
+  const controls = find(nav.render(), (node) => node.type === "ChatListControls");
+  same(controls.props.routines, { unread: false });
+  assert.equal(controls.props.trailing, undefined, "the search field's end is left for a microphone");
+  controls.props.onRoutines();
+  controls.props.onSettings();
+  assert.deepEqual(nav.routes, ["/routines", "/settings"]);
+  assert.deepEqual(nav.secondaryRoutes, [true, true], "both push onto the stack");
+  const menu = find(nav.render(), (node) => node.type === "PullDown" && node.props.label === "Chat actions");
+  same(
+    menu.props.sections.flatMap((section) => section.items.map((item) => item.title)),
+    ["New Chat", "Add project", "Link projects", "Canvas", "Choose projects"],
   );
-  assert.deepEqual(
-    buttons.map((button) => button.props.label),
-    ["Canvas", "Link projects", "Routines", "Settings"],
-  );
-  buttons[2].props.onPress();
-  assert.deepEqual(nav.routes, ["/routines"]);
-  assert.deepEqual(nav.secondaryRoutes, [true], "Routines push onto the stack like Settings");
+  menu.props.onSelect("canvas");
+  menu.props.onSelect("link");
+  assert.deepEqual(nav.routes.slice(2), ["/canvas", "/link-projects"]);
 });
 
-test("the phone's project dock leaves Routines out when the Mac can't offer them (an older Mac, a confined phone)", () => {
+test("the phone's floating controls leave Routines out when the Mac can't offer them (an older Mac, a confined phone)", () => {
   const nav = navigationHost(deferred().promise, { routinesAvailable: false });
-  assert.equal(
-    find(nav.render(), (node) => node.type === "IconButton" && node.props.label === "Routines"),
-    undefined,
-  );
-  assert.ok(find(nav.render(), (node) => node.type === "IconButton" && node.props.label === "Settings"));
+  const controls = find(nav.render(), (node) => node.type === "ChatListControls");
+  assert.equal(controls.props.routines, undefined);
+  assert.ok(controls.props.onSettings);
 });
 
 const routineFixtures = () => [

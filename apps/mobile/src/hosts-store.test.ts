@@ -220,3 +220,23 @@ test("a damaged LAN route is dropped, the computer is kept", async () => {
   assert.equal(host.address, "https://mac.example.com");
   assert.equal(host.routes, undefined);
 });
+
+test("a hidden computer stays hidden across re-pairing and shows again when unhidden", async () => {
+  const store = createHostsStore(storage(), () => 1);
+  await store.save({ name: "Studio", address: "https://studio.example.com", token });
+  await store.save({ name: "Mac", address: "https://mac.example.com", token });
+  await store.setHidden("https://studio.example.com", true);
+  assert.deepEqual(
+    (await store.list()).map((host) => [host.name, host.hidden]),
+    [
+      ["Mac", undefined],
+      ["Studio", true],
+    ],
+  );
+  await store.save({ name: "Studio again", address: "https://studio.example.com", token: "b".repeat(64) });
+  assert.equal((await store.list()).find((host) => host.address === "https://studio.example.com")?.hidden, true);
+  await store.setHidden("https://studio.example.com", false);
+  assert.equal((await store.list()).find((host) => host.address === "https://studio.example.com")?.hidden, undefined);
+  await store.setHidden("https://missing.example.com", true);
+  assert.equal((await store.list()).length, 2);
+});

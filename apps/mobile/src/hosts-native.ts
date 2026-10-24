@@ -1,5 +1,5 @@
 import * as SecureStore from "expo-secure-store";
-import { parseToolCallDisplay, type ToolCallDisplay } from "@milagre/shared/chat-display";
+import { parseChatList, parseToolCallDisplay, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
 import { createChatDefaultsStore } from "./chat-defaults-store";
 import { createHostsStore } from "./hosts-store";
 import { createNavigationStore } from "./navigation-store";
@@ -111,6 +111,22 @@ export async function readToolCallDisplay(): Promise<ToolCallDisplay> {
 export async function saveToolCallDisplay(display: ToolCallDisplay) {
   try {
     await SecureStore.setItemAsync(toolCallDisplayKey, display);
+  } catch {
+    /* best effort */
+  }
+}
+const chatListKey = "milagre.chat-list.v1";
+/** Settings › Chat › Chat list: how the sidebar lists Chats on this phone; One list unless chosen otherwise. */
+export async function readChatList(): Promise<ChatList> {
+  try {
+    return parseChatList(await SecureStore.getItemAsync(chatListKey));
+  } catch {
+    return "list";
+  }
+}
+export async function saveChatList(mode: ChatList) {
+  try {
+    await SecureStore.setItemAsync(chatListKey, mode);
   } catch {
     /* best effort */
   }
