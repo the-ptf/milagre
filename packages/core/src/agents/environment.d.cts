@@ -6,4 +6,5 @@ export function loadLoginEnvironment(options?: {
   shell?: string;
   readShellEnv?: (options: { shell: string; env: NodeJS.ProcessEnv }) => Promise<NodeJS.ProcessEnv | null>;
   dirs?: (home: string) => string[];
+  npmBin?: (options: { env: NodeJS.ProcessEnv; home: string }) => Promise<string | null>;
 }): Promise<{ source: "none" | "shell" | "fallback" }>;
