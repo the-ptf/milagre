@@ -162,6 +162,7 @@ test("Linux without SHELL falls back to /bin/sh", async () => {
       return null;
     },
     dirs: () => [],
+    npmBin: async () => null,
   });
   assert.equal(shell, "/bin/sh");
 });

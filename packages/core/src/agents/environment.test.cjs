@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { PassThrough } = require("node:stream");
-const { installDirs, loadLoginEnvironment, mergePath, readLoginShellEnv, refreshInstallPath, resolveExecutable } = require("./environment.cjs");
+const { installDirs, loadLoginEnvironment, mergePath, npmGlobalBin, readLoginShellEnv, refreshInstallPath, resolveExecutable } = require("./environment.cjs");
 
 // A stand-in for spawn: `script(child, mark)` plays the shell, given the mark the command line asks it to print.
 function fakeShell(script) {
@@ -173,6 +173,7 @@ test("fills in what the app lacks from the login shell, and puts the shell's PAT
     home: "/Users/x",
     readShellEnv,
     dirs: () => ["/Users/x/.local/bin", "/opt/homebrew/bin"],
+    npmBin: async () => null,
   });
   assert.deepEqual(result, { source: "shell" });
   assert.deepEqual(asked, ["/bin/zsh"]);
@@ -194,6 +195,7 @@ test("falls back to the install folders when the shell gives nothing, and fills 
     home: "/Users/x",
     readShellEnv: async () => null,
     dirs: () => ["/Users/x/.local/bin", "/opt/homebrew/bin"],
+    npmBin: async () => null,
   });
   assert.deepEqual(result, { source: "fallback" });
   assert.equal(target.PATH, "/usr/bin:/bin:/usr/sbin:/sbin:/Users/x/.local/bin:/opt/homebrew/bin");
@@ -252,14 +254,61 @@ test("a shell that ends in time is not killed", async () => {
 test("an app started from a terminal keeps its own PATH first, and the shell's comes after", async () => {
   const target = { PATH: "/Users/x/proj/.venv/bin:/Users/x/.nvm/versions/node/v22.0.0/bin:/usr/bin:/bin", HOME: "/Users/x", SHELL: "/bin/zsh" };
   const readShellEnv = async () => ({ PATH: "/opt/homebrew/bin:/Users/x/.nvm/versions/node/v24.13.0/bin:/usr/bin:/bin" });
-  await loadLoginEnvironment({ target, platform: "darwin", home: "/Users/x", readShellEnv, dirs: () => ["/Users/x/.local/bin"] });
+  await loadLoginEnvironment({ target, platform: "darwin", home: "/Users/x", readShellEnv, dirs: () => ["/Users/x/.local/bin"], npmBin: async () => null });
   assert.equal(
     target.PATH,
     "/Users/x/proj/.venv/bin:/Users/x/.nvm/versions/node/v22.0.0/bin:/usr/bin:/bin:/opt/homebrew/bin:/Users/x/.nvm/versions/node/v24.13.0/bin:/Users/x/.local/bin",
   );
   const finder = { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: "/Users/x", SHELL: "/bin/zsh" };
-  await loadLoginEnvironment({ target: finder, platform: "darwin", home: "/Users/x", readShellEnv, dirs: () => ["/Users/x/.local/bin"] });
+  await loadLoginEnvironment({
+    target: finder,
+    platform: "darwin",
+    home: "/Users/x",
+    readShellEnv,
+    dirs: () => ["/Users/x/.local/bin"],
+    npmBin: async () => null,
+  });
   assert.equal(finder.PATH, "/opt/homebrew/bin:/Users/x/.nvm/versions/node/v24.13.0/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/x/.local/bin");
+});
+
+test("npm's global bin folder goes last on PATH, asked for with the merged PATH", async () => {
+  const target = { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", SHELL: "/bin/zsh" };
+  const asked = [];
+  await loadLoginEnvironment({
+    target,
+    platform: "darwin",
+    home: "/Users/x",
+    readShellEnv: async () => ({ PATH: "/opt/homebrew/bin:/usr/bin" }),
+    dirs: () => ["/Users/x/.local/bin"],
+    npmBin: async ({ env, home }) => {
+      asked.push({ path: env.PATH, home });
+      return "/opt/homebrew/Cellar/node/26.5.0_1/bin";
+    },
+  });
+  assert.deepEqual(asked, [{ path: "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/x/.local/bin", home: "/Users/x" }]);
+  assert.equal(target.PATH, "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/x/.local/bin:/opt/homebrew/Cellar/node/26.5.0_1/bin");
+});
+
+test("npm's global bin folder is the prefix's bin, or null when npm doesn't answer", async () => {
+  const calls = [];
+  const answer =
+    (stdout, error = null) =>
+    (file, args, options, callback) => {
+      calls.push({ file, args, cwd: options.cwd, path: options.env.PATH });
+      callback(error, stdout);
+    };
+  const env = { PATH: "/opt/homebrew/bin:/usr/bin" };
+  assert.equal(
+    await npmGlobalBin({ env, home: "/Users/x", execFileImpl: answer("/opt/homebrew/Cellar/node/26.5.0_1\n") }),
+    "/opt/homebrew/Cellar/node/26.5.0_1/bin",
+  );
+  assert.deepEqual(calls[0], { file: "npm", args: ["prefix", "-g"], cwd: "/Users/x", path: "/opt/homebrew/bin:/usr/bin" });
+  assert.equal(await npmGlobalBin({ env, home: "/Users/x", execFileImpl: answer("", new Error("spawn npm ENOENT")) }), null);
+  assert.equal(await npmGlobalBin({ env, home: "/Users/x", execFileImpl: answer("npm warn something\n") }), null);
+  const throws = () => {
+    throw new Error("EACCES");
+  };
+  assert.equal(await npmGlobalBin({ env, home: "/Users/x", execFileImpl: throws }), null);
 });
 
 test("refreshing the install folders adds ones that appeared, after the folders PATH already has", () => {

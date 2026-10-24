@@ -12,6 +12,7 @@ const path = require("node:path");
 // can't be read.
 
 const SHELL_TIMEOUT_MS = 10_000;
+const NPM_TIMEOUT_MS = 5_000;
 // Shells that take `-i -l -c` and run the command line below as written. Others aren't started; the
 // install folders still apply.
 const SHELLS = new Set(["zsh", "bash", "fish", "sh", "dash", "ksh"]);
@@ -150,6 +151,23 @@ function installDirs(
   ].filter((dir) => dir && exists(dir));
 }
 
+// npm's global bin folder (`<npm prefix -g>/bin`), where `npm install -g @openai/codex` puts Codex. Usually it
+// is on PATH already, but npm can be set up to install where no shell looks: an npmrc `prefix`, or Homebrew's
+// node falling back to its versioned Cellar folder. Asked from the home folder so a Project's .npmrc has no
+// say. Null when npm isn't found or doesn't answer.
+function npmGlobalBin({ env = process.env, home = os.homedir(), execFileImpl = execFile } = {}) {
+  return new Promise((resolve) => {
+    try {
+      execFileImpl("npm", ["prefix", "-g"], { encoding: "utf8", timeout: NPM_TIMEOUT_MS, env, cwd: home }, (error, stdout) => {
+        const prefix = error ? "" : String(stdout).trim().split(/\r?\n/).at(-1);
+        resolve(prefix && path.isAbsolute(prefix) ? path.join(prefix, "bin") : null);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 // Joins PATH lists in order. Each folder keeps its first position; empty entries (the current folder) are dropped.
 function mergePathFor(platform, ...lists) {
   const delimiter = platform === "win32" ? ";" : ":";
@@ -182,7 +200,7 @@ function refreshInstallPath({ target = process.env, platform = process.platform,
 // their value (HOME, TMPDIR, SSH_AUTH_SOCK from launchd), except PATH. Opened from Finder or the Dock,
 // PATH becomes the shell's folders, then the app's, then the install folders. Started from a terminal
 // (npm run dev), the app's own PATH comes first, so an `nvm use`, direnv or virtualenv there still wins,
-// then the shell's, then the install folders.
+// then the shell's, then the install folders. npm's global bin folder goes last, asked for with that PATH.
 async function loadLoginEnvironment({
   target = process.env,
   platform = process.platform,
@@ -191,6 +209,7 @@ async function loadLoginEnvironment({
   shell = target.SHELL || shellInfo() || (platform === "darwin" ? "/bin/zsh" : "/bin/sh"),
   readShellEnv = readLoginShellEnv,
   dirs = installDirs,
+  npmBin = npmGlobalBin,
 } = {}) {
   if (platform === "win32") {
     refreshInstallPath({ target, platform, home, dirs });
@@ -202,6 +221,7 @@ async function loadLoginEnvironment({
   }
   target.PATH =
     target.PATH === LAUNCHD_PATH || !target.PATH ? mergePath(imported?.PATH, target.PATH, dirs(home)) : mergePath(target.PATH, imported?.PATH, dirs(home));
+  target.PATH = mergePath(target.PATH, await npmBin({ env: { ...target }, home }));
   return { source: imported ? "shell" : "fallback" };
 }
 
@@ -232,4 +252,14 @@ function resolveExecutable(name, { platform = process.platform, env = process.en
   });
 }
 
-module.exports = { SHELL_TIMEOUT_MS, installDirs, loadLoginEnvironment, mergePath, parseShellEnv, readLoginShellEnv, refreshInstallPath, resolveExecutable };
+module.exports = {
+  SHELL_TIMEOUT_MS,
+  installDirs,
+  loadLoginEnvironment,
+  mergePath,
+  npmGlobalBin,
+  parseShellEnv,
+  readLoginShellEnv,
+  refreshInstallPath,
+  resolveExecutable,
+};
