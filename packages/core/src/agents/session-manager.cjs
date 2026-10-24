@@ -38,10 +38,13 @@ class SessionManager {
     permissionPolicy = () => undefined,
     onSessionClosed = () => {},
     onTurnStarted = () => {},
+    // What a new session is told about this machine's network (events.cjs hostNetworkInstructions). Read as each session
+    // starts and never compared: an address that changes later waits for the next session, it doesn't restart one.
+    hostInstructions = () => "",
     idleMs = IDLE_MS,
     batchMs = BATCH_MS,
   }) {
-    Object.assign(this, { createSession, send, linkedFor, permissionPolicy, onSessionClosed, onTurnStarted, idleMs, batchMs });
+    Object.assign(this, { createSession, send, linkedFor, permissionPolicy, onSessionClosed, onTurnStarted, hostInstructions, idleMs, batchMs });
     this.sessions = new Map();
     this.buffers = new Map();
     this.queues = new Map();
@@ -128,7 +131,7 @@ class SessionManager {
       cwd,
       workspaceRoots: request.workspaceRoots,
       access: entry.access,
-      workspaceInstructions: request.workspaceInstructions,
+      workspaceInstructions: [request.workspaceInstructions, this.hostInstructions()].filter(Boolean).join("\n\n") || undefined,
       // A shared Link Chat's agent can't link or delegate, so its system prompt leaves those out (chat-scopes.cjs).
       ...(request.sharedLink ? { sharedLink: true } : {}),
       resumeId,

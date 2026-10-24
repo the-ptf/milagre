@@ -307,6 +307,7 @@
     },
     "./genui": "./src/genui.ts",
     "./file-link": "./src/file-link.ts",
+    "./loopback-url": "./src/loopback-url.ts",
     "./simulator-receiver": {
       "types": "./src/simulator-receiver.d.mts",
       "default": "./src/simulator-receiver.mjs"

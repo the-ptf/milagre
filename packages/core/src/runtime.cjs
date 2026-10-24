@@ -36,7 +36,7 @@ const { runCliUpdate } = require("./agents/cli-update.cjs");
 const { createAntigravity } = require("./agents/antigravity-install.cjs");
 const { recoverAntigravitySubagents } = require("./agents/antigravity-subagents.cjs");
 const { loadLoginEnvironment, refreshInstallPath } = require("./agents/environment.cjs");
-const { failedWith, loginMessage } = require("./agents/events.cjs");
+const { failedWith, hostNetworkInstructions, loginMessage } = require("./agents/events.cjs");
 const { SessionManager } = require("./agents/session-manager.cjs");
 const { PortWatcher } = require("./agents/ports.cjs");
 const { ChatHost } = require("./agents/chat-host.cjs");
@@ -995,6 +995,14 @@ function createRuntime(options) {
     permissionPolicy: (chatId) => bots?.policyFor(chatId),
     onSessionClosed: (chatId) => keepAwake.chatClosed(chatId),
     onTurnStarted: () => ports.wake(),
+    // The host's name and the addresses a phone or a paired Mac reach it on (`hostNetwork`, from the daemon).
+    hostInstructions: () => {
+      try {
+        return hostNetworkInstructions(options.hostNetwork?.() ?? {});
+      } catch {
+        return "";
+      }
+    },
     send: (chatId, event) => void chats.receive(chatId, event),
   });
 

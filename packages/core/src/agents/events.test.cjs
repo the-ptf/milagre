@@ -3,6 +3,7 @@ const test = require("node:test");
 const {
   MILAGRE_INSTRUCTIONS,
   advisorInstructions,
+  hostNetworkInstructions,
   milagreInstructions,
   cliBrokenMessage,
   cliTooOldMessage,
@@ -821,4 +822,17 @@ test("Milagre instructions tell every agent to plan with the task tools", () => 
   assert.match(text, /tasks_set/);
   assert.match(text, /task_update/);
   assert.match(text, /phase_set/);
+});
+
+test("an agent on a reachable computer is told to bind servers to all interfaces and link them by its address", () => {
+  const text = hostNetworkInstructions({ name: "deer", addresses: ["192.168.2.179", "100.69.206.111"] });
+  assert.match(text, /runs on the computer "deer", at 192\.168\.2\.179, 100\.69\.206\.111/);
+  assert.match(text, /localhost is that device, not this one/);
+  assert.match(text, /0\.0\.0\.0/);
+  assert.match(text, /http:\/\/192\.168\.2\.179:5173, instead of a localhost one/);
+  assert.doesNotMatch(text, /\u2014|\u2013/);
+  // Nobody else reaches a computer with no LAN or tailnet address: nothing to say.
+  assert.equal(hostNetworkInstructions({ name: "deer", addresses: [] }), "");
+  assert.equal(hostNetworkInstructions(), "");
+  assert.doesNotMatch(MILAGRE_INSTRUCTIONS, /Network: this Chat runs on/);
 });

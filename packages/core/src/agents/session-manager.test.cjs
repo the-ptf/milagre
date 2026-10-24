@@ -706,3 +706,28 @@ test("batched provider messages keep the latest reply's notification context", a
   for (const { event } of sent) if (event.type === "text-delta") preview = notificationPreview(preview, event.text, event.startsMessage);
   assert.equal(completionNotice("Fix login", { failed: false, body: preview }).body, "Login fixed. Tests passed.");
 });
+
+test("a new session is told about this machine's network after its own instructions, and an address change restarts nothing", async () => {
+  let note = "Network: at 10.0.0.4.";
+  const created = [];
+  const manager = new SessionManager({
+    send: () => {},
+    hostInstructions: () => note,
+    createSession: (provider, options) => {
+      const session = new FakeSession(provider, options);
+      created.push(session);
+      return session;
+    },
+    batchMs: 20,
+  });
+  await manager.startTurn(request("a", { workspaceInstructions: "Owned: api" }));
+  assert.equal(created[0].options.workspaceInstructions, "Owned: api\n\nNetwork: at 10.0.0.4.");
+  await manager.startTurn(request("b"));
+  assert.equal(created[1].options.workspaceInstructions, "Network: at 10.0.0.4.");
+  note = "Network: at 10.0.0.9.";
+  await manager.startTurn(request("a", { workspaceInstructions: "Owned: api" }));
+  assert.equal(created.length, 2, "the session that started with the old address keeps running");
+  note = "";
+  await manager.startTurn(request("c"));
+  assert.equal(created[2].options.workspaceInstructions, undefined);
+});

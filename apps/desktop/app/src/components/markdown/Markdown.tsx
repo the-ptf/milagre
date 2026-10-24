@@ -19,6 +19,10 @@ import { GenerativeUI, MarkdownStreamingContext } from "../genui/GenerativeUI";
 import { splitStreamingBlocks } from "./streaming-blocks";
 import { mediaKind, mediaUrl } from "../../lib/media";
 import { isRemoteKey, useScope } from "../../lib/computer-bridge";
+import { useComputers } from "../../lib/computers";
+import { LoopbackPortsContext } from "../../lib/ports";
+import { computerOfKey } from "@milagre/shared/chat-scopes";
+import { reachableUrl } from "@milagre/shared/loopback-url";
 import { remoteImageDataUrl } from "../../lib/remote-media";
 import { MediaLightbox } from "../motion/LazyMediaLightbox";
 
@@ -52,6 +56,17 @@ function InlineCode({ children }: { children?: ReactNode }) {
       {children}
     </button>
   );
+}
+
+// A localhost link that a Chat on another computer wrote opens at that computer's LAN or tailnet IP, the address this
+// Mac reaches it on; one over the relay, or to a server the Chat's ports show on loopback only, stays as written. A
+// bare URL shows where it now goes.
+function useReachableHref(href: string | undefined) {
+  const scope = useScope();
+  const { computers } = useComputers();
+  const loopbackOnly = useContext(LoopbackPortsContext);
+  if (!href || !scope || !isRemoteKey(scope)) return href;
+  return reachableUrl(href, computers.find((computer) => computer.id === computerOfKey(scope))?.address, loopbackOnly);
 }
 
 const LINK_CLASS = "text-accent-ink underline decoration-accent-ink/40 underline-offset-2 hover:decoration-accent-ink";
@@ -88,11 +103,12 @@ function Link({ href, children }: { href?: string; children?: ReactNode }) {
   const [open, setOpen] = useState(false);
   const file = href ? localFileLink(href, root ?? undefined) : null;
   const scope = useScope();
+  const reachable = useReachableHref(file ? undefined : href);
 
   if (!file)
     return (
-      <a href={href} title={href} target="_blank" rel="noreferrer" className={LINK_CLASS}>
-        {children}
+      <a href={reachable} title={reachable} target="_blank" rel="noreferrer" className={LINK_CLASS}>
+        {reachable !== href && Children.toArray(children).join("") === href ? reachable : children}
       </a>
     );
 

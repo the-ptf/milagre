@@ -30,6 +30,14 @@ const TUNNEL_LINK = "This link reaches its Mac through a Cloudflare tunnel, whic
 const isFinal = (error) => error instanceof PeerError && error.final;
 const keychainProblem = (error) => (error?.code === "keys" && !(error instanceof PeerError) ? error.message : null);
 
+// The bare IP of a ws://ip:port route, without brackets or port.
+const addressOf = (url) => {
+  try {
+    return new URL(url).hostname.replace(/^\[|\]$/g, "") || null;
+  } catch {
+    return null;
+  }
+};
 const hostOf = (url) => {
   try {
     return new URL(url).host;
@@ -45,9 +53,11 @@ const defaultNetworkSignature = () =>
       .toSorted(),
   );
 
-function adopt(entry, client, route) {
+// `endpoint`: the ws:// address a LAN route dialed, whose host the computer's dev servers answer on too.
+function adopt(entry, client, route, endpoint = null) {
   entry.client = client;
   entry.route = route;
+  entry.address = endpoint ? addressOf(endpoint) : null;
   client.once("close", () => {
     if (entry.client === client) entry.client = null;
   });
@@ -134,6 +144,8 @@ function createComputers({
       relayHost: hostOf(computer.relay),
       state,
       route: state === "online" ? (entry?.route ?? null) : null,
+      // Where this Mac reaches the computer's own servers: the LAN or tailnet IP its route dialed. None over the relay.
+      address: state === "online" && entry?.route === "lan" ? (entry.address ?? null) : null,
       lastSeen: computer.lastSeen,
       message: enabled ? (entry?.message ?? null) : null,
       lan: computer.lanRoutes.length > 0,
@@ -205,6 +217,8 @@ function createComputers({
       /** @type {any} */
       client: null,
       route: null,
+      /** @type {string | null} */
+      address: null,
       state: "connecting",
       message: null,
       lastError: null,
@@ -285,7 +299,7 @@ function createComputers({
     const route = entry.supervisor.current();
     if (route.kind === "lan" && !route.transport.used && !route.transport.client.closed) {
       route.transport.used = true;
-      return adopt(entry, route.transport.client, "lan");
+      return adopt(entry, route.transport.client, "lan", route.endpoint);
     }
     const computer = store.get(entry.id);
     if (!computer) throw new Error("This computer was removed.");
