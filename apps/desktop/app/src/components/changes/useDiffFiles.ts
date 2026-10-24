@@ -54,7 +54,7 @@ export function useDiffFiles({ cwd, base, mode, active, bridge }: { cwd: string;
   const reload = useRef<(file: DiffFileEntry) => void>(() => {});
   const request = useRef({ cwd, base, mode, bridge });
   request.current = { cwd, base, mode, bridge };
-  const bump = () => setVersion((version) => version + 1);
+  const bump = useCallback(() => setVersion((version) => version + 1), []);
 
   const dropPatches = useCallback(() => {
     epoch.current++;
@@ -148,7 +148,7 @@ export function useDiffFiles({ cwd, base, mode, active, bridge }: { cwd: string;
       });
       pump();
     },
-    [pump],
+    [pump, bump],
   );
 
   reload.current = (file) => load(file, false, true);

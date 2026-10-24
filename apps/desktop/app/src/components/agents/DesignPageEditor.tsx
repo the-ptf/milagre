@@ -37,6 +37,17 @@ function commitFocusedField() {
   if (isTextField(element)) flushSync(() => (element as HTMLElement).blur());
 }
 
+/** A notification versions the mutable editor sessions, even when the saved artifacts have not changed. */
+function readDesigns(artifacts: Artifact[], sessions: Map<string, RefObject<DesignEditorSession | null>>, revision: number) {
+  return {
+    revision,
+    designs: artifacts.map((item) => {
+      const session = sessions.get(item.id)?.current;
+      return { id: item.id, title: session?.title ?? item.title, document: session?.document ?? item.document };
+    }),
+  };
+}
+
 /** One Designs page: all artboards stay mounted while its shared tools inspect the active design. */
 export function DesignPageEditor({
   chatId,
@@ -133,14 +144,7 @@ export function DesignPageEditor({
     else state.onClose();
   }, [sessionList]);
 
-  const designs = useMemo(
-    () =>
-      artifacts.map((item) => {
-        const session = sessions.current.get(item.id)?.current;
-        return { id: item.id, title: session?.title ?? item.title, document: session?.document ?? item.document };
-      }),
-    [artifacts, revision],
-  );
+  const { designs } = useMemo(() => readDesigns(artifacts, sessions.current, revision), [artifacts, sessions, revision]);
   const blocked = pageSaving || sharing || exporting !== null || confirmClose;
   const workspace = useMemo<DesignEditorWorkspace>(
     () => ({

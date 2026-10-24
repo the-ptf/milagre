@@ -26,6 +26,7 @@ export default function ComputersScreen() {
   const { colors } = useTheme();
   const styles = useStyles();
   const session = useSession();
+  const { loadHosts } = session;
   const push = usePush();
   const insets = useSafeAreaInsets();
   const [status, setStatus] = useState<Record<string, Reachability>>({});
@@ -51,7 +52,7 @@ export default function ComputersScreen() {
   }, []);
   const load = useCallback(async () => {
     try {
-      const hosts = await session.loadHosts();
+      const hosts = await loadHosts();
       setError("");
       void check(hosts);
       return hosts;
@@ -59,7 +60,7 @@ export default function ComputersScreen() {
       setError((e as Error).message);
       return [];
     }
-  }, [session.loadHosts, check]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadHosts, check]);
   async function open(host: HostLink, resume = false) {
     setBusy(host.address);
     setError("");

@@ -84,8 +84,9 @@ export function DiagramSheet() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const diagram = opened;
+  const code = diagram?.code;
   const room = Math.max(240, width - insets.left - insets.right - 32);
-  const drawn = useMemo(() => (diagram ? draw(diagram.code, room, colors) : null), [diagram, room, colors]);
+  const drawn = useMemo(() => (code === undefined ? null : draw(code, room, colors)), [code, room, colors]);
   const grow = drawn && drawn.width > 0 ? Math.min(2, room / drawn.width) : 1;
   return (
     <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.surface }}>
