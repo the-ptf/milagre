@@ -291,7 +291,7 @@ export function GitActionsDialog({
       if (mounted.current) setReadError(ipcErrorMessage(error));
       return null;
     }
-  }, [cwd, base]);
+  }, [cwd, base, bridge.git]);
 
   // Read the folder, then write the text. The ref keeps StrictMode's second mount from asking twice.
   useEffect(() => {

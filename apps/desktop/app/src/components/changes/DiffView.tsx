@@ -77,7 +77,7 @@ export function DiffView({ changes, prefs, comments }: { changes: Changes; prefs
     }
     grouped.current = next;
     return next;
-  }, [comments.comments]);
+  }, [comments.comments, grouped]);
   // Comments on files that left the diff have no file to sit in; they gather at the top so they can still be deleted.
   const paths = new Set(files.map((file) => file.path));
   const orphans = list.state === "ready" && list.isRepo ? comments.comments.filter((comment) => !paths.has(comment.path)) : [];
