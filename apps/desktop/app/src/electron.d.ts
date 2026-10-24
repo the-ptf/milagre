@@ -187,6 +187,8 @@ export type ComputerView = {
   relayHost: string;
   state: ComputerState;
   route: "lan" | "relay" | null;
+  /** The LAN or tailnet IP its LAN route dialed, where its dev servers answer too; null over the relay or offline. */
+  address?: string | null;
   lastSeen: number | null;
   addedAt: number | null;
   /** Why it isn't connected, in words, while that can be said. */

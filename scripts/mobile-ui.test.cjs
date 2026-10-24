@@ -158,6 +158,10 @@ function load(file, modules, extra = "", cache = new Map()) {
         const own = modules[id] ?? {};
         return { ...(base === "theme" ? themeHooks : uiHooks), ...own };
       }
+      // Where the phone reaches the Chat's computer: none unless a test says so, so localhost links stay as written.
+      if (base === "reachable-host" && !(id in modules)) return { ReachableHostContext: "ReachableHostContext" };
+      if (base === "routes-native") return { useReachableHost: () => null, ...modules[id] };
+      if (id === "@milagre/shared/loopback-url" && !(id in modules)) return require(id);
       // A Chat's activity (chat-activity.mjs) is a pure derivation many screens read; tests get the real one.
       if (id === "@milagre/shared/chat-activity" && !(id in modules)) return require("@milagre/shared/chat-activity");
       if (
@@ -1337,8 +1341,8 @@ test("mobile skill input preserves edits and clears its description when the car
   assert.equal(draft, "see  next", "Backspace removes the whole image reference");
 });
 
-function markdownHost({ media, basePath } = {}) {
-  const react = { ...hookHost({ effects: true }), memo: (fn) => fn };
+function markdownHost({ media, basePath, reachableHost = null } = {}) {
+  const react = { ...hookHost({ effects: true }), memo: (fn) => fn, useContext: (context) => (context === "ReachableHostContext" ? reachableHost : undefined) };
   const viewer = require("../apps/mobile/src/viewer-store.ts");
   const routes = [],
     links = [];
@@ -1418,6 +1422,25 @@ test("plain URLs in mobile replies render as links and open the exact address", 
       assert.deepEqual(screen.links, [url]);
     }
   }
+});
+
+test("a localhost link opens at the computer's IP when the phone reaches it on the LAN, and stays as written otherwise", async () => {
+  for (const [text, label, url] of [
+    ["Open http://localhost:5173 to see it.", "http://100.69.206.111:5173", "http://100.69.206.111:5173"],
+    ["[The app](http://127.0.0.1:3000/app?x=1)", "The app", "http://100.69.206.111:3000/app?x=1"],
+  ]) {
+    const screen = markdownHost({ reachableHost: "100.69.206.111" });
+    const tree = screen.render(text);
+    const link = find(tree, (node) => node.props?.accessibilityRole === "link");
+    assert.ok(link, `Missing link in ${text}`);
+    assert.ok(JSON.stringify(link.props.children).includes(label), `the link reads ${label}`);
+    await link.props.onPress();
+    assert.deepEqual(screen.links, [url]);
+  }
+  const relay = markdownHost();
+  const link = find(relay.render("Open http://localhost:5173 to see it."), (node) => node.props?.accessibilityRole === "link");
+  await link.props.onPress();
+  assert.deepEqual(relay.links, ["http://localhost:5173"]);
 });
 
 test("links to files on the computer open the file preview", () => {
@@ -5651,7 +5674,7 @@ test("an accepted preview cannot assign its Chat id to a different requested Pro
   assert.equal(screen.session.pendingChats["mac|/p#new:1"].promoted, undefined);
 });
 
-function simulatorHost(client, file = "simulator.tsx") {
+function simulatorHost(client, file = "simulator.tsx", { modules = {}, native: nativeExtra = {} } = {}) {
   const react = hookHost({ effects: true }),
     files = new Map(),
     listeners = new Set();
@@ -5672,6 +5695,7 @@ function simulatorHost(client, file = "simulator.tsx") {
         };
       },
     },
+    ...nativeExtra,
   };
   class File {
     constructor(_cache, name) {
@@ -5728,6 +5752,7 @@ function simulatorHost(client, file = "simulator.tsx") {
         colors: {},
         styles: {},
       },
+      ...modules,
     },
     file === "simulator.tsx"
       ? "\nexports.TestSimulatorWebView = SimulatorWebView;"
@@ -7646,6 +7671,37 @@ test("mobile Ports sheet stops only this Chat's process and refuses another host
   other.render("PortsSheet", { hostId: "other", chatId: "/p#7" });
   await settle();
   assert.deepEqual(calls, []);
+});
+
+test("mobile Ports sheet opens and copies a server at the computer's LAN address, and says when it listens on localhost only", async (t) => {
+  const opened = [],
+    copied = [];
+  const ports = [
+    { port: 5173, pid: 22, command: "node", address: "*" },
+    { port: 3000, pid: 23, command: "node", address: "127.0.0.1" },
+  ];
+  const client = { url: "mac", call: async () => ({ chatId: "/p#7", ports }) };
+  const h = simulatorHost(client, "ports.tsx", {
+    native: { Linking: { openURL: async (url) => opened.push(url) } },
+    modules: {
+      "expo-clipboard": { setStringAsync: async (value) => copied.push(value) },
+      "./routes-native": { useReachableHost: (id) => (id === "mac" ? "100.69.206.111" : null) },
+    },
+  });
+  t.after(() => h.cleanup());
+  const render = () => h.render("PortsSheet", { hostId: "mac", chatId: "/p#7" });
+  render();
+  await settle();
+  find(render(), (n) => n.props.accessibilityLabel === "Open http://100.69.206.111:5173").props.onPress();
+  assert.deepEqual(opened, ["http://100.69.206.111:5173"]);
+  assert.equal(
+    find(render(), (n) => n.props.accessibilityLabel === "Open http://100.69.206.111:3000"),
+    undefined,
+    "a server on the computer's loopback isn't reachable from the phone",
+  );
+  assert.match(JSON.stringify(render()), /localhost only/);
+  await find(render(), (n) => n.props.accessibilityLabel === "Copy address for port 5173").props.onPress();
+  assert.deepEqual(copied, ["http://100.69.206.111:5173"]);
 });
 
 test("mobile Ports sheet drops a server Stop ended before the host's list comes back", async (t) => {

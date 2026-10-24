@@ -113,3 +113,7 @@ export function withComputer(key: string, subtitle: string): string {
 
 /** The name a computer is shown by, "Computer" when it is gone from the list. */
 export const computerNameOf = (computerId: string): string => computersSnapshot().computers.find((computer) => computer.id === computerId)?.name ?? "Computer";
+
+/** Where this Mac reaches a computer's own servers (the IP its LAN route dialed); null for this Mac, over the relay or offline. */
+export const computerAddressOf = (computerId: string | null | undefined): string | null =>
+  !computerId || computerId === LOCAL_COMPUTER ? null : (computersSnapshot().computers.find((computer) => computer.id === computerId)?.address ?? null);

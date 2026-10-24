@@ -1,12 +1,14 @@
 import { useCallback, useRef, useState } from "react";
-import { AppState, Pressable, Text, View } from "react-native";
+import { AppState, Linking, Pressable, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import { Cancel01Icon, Copy01Icon, EthernetPortIcon, StopCircleIcon } from "@hugeicons/core-free-icons";
 import type { AgentPort } from "@milagre/shared/model";
 import type { Client } from "./client";
+import { listensBeyondLoopback, reachableUrl } from "@milagre/shared/loopback-url";
 import { useSession } from "./session";
+import { useReachableHost } from "./routes-native";
 import { Icon } from "./icons";
 import { CircleButton, ErrorNotice, PageScroll, PillButton, useStyles } from "./ui";
 import { useTheme } from "./theme";
@@ -87,6 +89,10 @@ export function PortsSheet({ hostId, chatId }: { hostId?: string; chatId?: strin
   const [stopping, setStopping] = useState<number[]>([]);
   const [actionError, setActionError] = useState("");
   const [copied, setCopied] = useState<number | null>(null);
+  // The computer's IP on the phone's LAN route: a server that listens beyond loopback opens there from the phone.
+  const reachableHost = useReachableHost(source?.url);
+  const linkOf = (port: AgentPort) =>
+    reachableHost && listensBeyondLoopback(port.address) ? reachableUrl(`http://localhost:${port.port}`, reachableHost) : null;
   const pending = useRef(new Set<number>());
   const stop = async (pids: number[]) => {
     if (!source || !chatId) return;
@@ -115,7 +121,7 @@ export function PortsSheet({ hostId, chatId }: { hostId?: string; chatId?: strin
   };
   const copy = async (port: AgentPort) => {
     try {
-      await Clipboard.setStringAsync(`http://${port.address === "::1" ? "[::1]" : "localhost"}:${port.port}`);
+      await Clipboard.setStringAsync(linkOf(port) ?? `http://${port.address === "::1" ? "[::1]" : "localhost"}:${port.port}`);
       setCopied(port.port);
     } catch {
       setActionError("Could not copy the address.");
@@ -149,10 +155,23 @@ export function PortsSheet({ hostId, chatId }: { hostId?: string; chatId?: strin
               )}
               {ports.map((port) => (
                 <View key={port.port} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 17, color: colors.ink, fontVariant: ["tabular-nums"] }}>:{port.port}</Text>
-                    <Text style={styles.muted}>{port.command}</Text>
-                  </View>
+                  <Pressable
+                    style={{ flex: 1 }}
+                    disabled={!linkOf(port)}
+                    accessibilityRole={linkOf(port) ? "link" : undefined}
+                    accessibilityLabel={linkOf(port) ? `Open ${linkOf(port)}` : undefined}
+                    onPress={() => {
+                      const link = linkOf(port);
+                      if (link) void Linking.openURL(link).catch(() => setActionError("Could not open the address."));
+                    }}
+                  >
+                    <Text style={{ fontSize: 17, color: linkOf(port) ? colors.accent : colors.ink, fontVariant: ["tabular-nums"] }}>:{port.port}</Text>
+                    <Text style={styles.muted}>
+                      {port.command}
+                      {/* Bound to the computer's loopback: only the computer itself opens it. */}
+                      {reachableHost && !listensBeyondLoopback(port.address) ? " · localhost only" : ""}
+                    </Text>
+                  </Pressable>
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={copied === port.port ? `Copied address for port ${port.port}` : `Copy address for port ${port.port}`}

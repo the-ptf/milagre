@@ -466,6 +466,8 @@ test("a call made while the runtime moves to the LAN waits for it and goes throu
   mac.release();
   assert.deepEqual(await called, { echo: ["x"] });
   assert.equal(computers.list()[0].route, "lan");
+  // Its dev servers answer on the IP the LAN route dialed: the desktop links them there.
+  assert.equal(computers.list()[0].address, new URL(LAN).hostname);
 });
 
 test("a switch whose recovery fails reads Reconnecting… and the call waiting on it fails", async (t) => {
